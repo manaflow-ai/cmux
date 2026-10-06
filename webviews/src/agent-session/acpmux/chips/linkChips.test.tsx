@@ -180,3 +180,37 @@ test("a javascript: link still draws as its text", async () => {
   expect(container.textContent).toBe("click");
   await unmount();
 });
+
+test("a real Claude reply: a backticked path with a space, a plain path, a bare URL and a relative link are all chips", async () => {
+  const reply = [
+    "The file is `/Users/cmux/Library/Application Support/cmux/agent-home/f1ff/demo.ts` here.",
+    "Also /Users/cmux/hqacp-preflight/work/demo.ts as a plain path.",
+    "Docs: https://example.com/docs",
+    "Relative: [notes](./notes.md)",
+    "Home: ~/notes/todo.md, and `~/src/app/`.",
+  ].join("\n");
+  const { container, calls, unmount } = await render(reply);
+  const paths = [...container.querySelectorAll<HTMLButtonElement>(".cv-chip.is-path")].map((chip) => chip.dataset.path);
+  expect(paths).toEqual([
+    "/Users/cmux/Library/Application Support/cmux/agent-home/f1ff/demo.ts",
+    "/Users/cmux/hqacp-preflight/work/demo.ts",
+    "./notes.md",
+    "~/notes/todo.md",
+    "~/src/app/",
+  ]);
+  const web = container.querySelector<HTMLAnchorElement>("a.cv-chip.is-web")!;
+  expect(web.getAttribute("href")).toBe("https://example.com/docs");
+  expect(web.textContent).toBe("https://example.com/docs");
+  // The sentence around them stays: nothing is lost or doubled.
+  expect(container.textContent).toContain("Also demo.ts as a plain path.");
+  expect(container.textContent).toContain("Home: todo.md, and app.");
+  await act(async () => container.querySelectorAll<HTMLButtonElement>(".cv-chip.is-path")[2]!.click());
+  expect(calls).toEqual([{ method: "link.openPath", params: { path: "./notes.md" } }]);
+  await unmount();
+});
+
+test("prose that only looks like a path or a URL stays text", async () => {
+  const { container, unmount } = await render("Use and/or 1/2 and http:// or a.b/c, see https://.");
+  expect(container.querySelector(".cv-chip")).toBeNull();
+  await unmount();
+});
