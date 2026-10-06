@@ -39,7 +39,7 @@ ids = iter(range(1, 1 << 30))
 def rpc(method, params=None, notify=False):
     message = {"jsonrpc": "2.0", "method": method, **({"params": params} if params is not None else {})}
     if not notify: message["id"] = next(ids)
-    driver.stdin.write(json.dumps(message) + "\\n"); driver.stdin.flush()
+    driver.stdin.write(json.dumps(message) + "\n"); driver.stdin.flush()
     while not notify:
         line = driver.stdout.readline()
         if not line: sys.exit("cua-driver mcp closed")
