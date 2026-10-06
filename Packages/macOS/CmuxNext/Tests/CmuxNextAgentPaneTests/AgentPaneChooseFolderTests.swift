@@ -16,7 +16,7 @@ import Testing
     @Test func withoutAGestureTheSheetIsRefused() async {
         let model = AgentPaneModel(host: MockAgentPaneHost())
         var asked = 0
-        model.onChooseFolder = { asked += 1; return "/tmp" }
+        model.onChooseFolder = { asked += 1; return .chosen("/tmp") }
         let reply = await model.respond(to: .chooseFolder)
         #expect(reply["ok"] as? Bool == false)
         #expect((reply["error"] as? [String: Any])?["code"] as? String == AgentPaneTransportError.gestureRequired.rawValue)
@@ -38,7 +38,7 @@ import Testing
         #expect(await rig.cwd(before) == home.base + "/ws-home")
 
         var asked = 0
-        model.onChooseFolder = { asked += 1; return project }
+        model.onChooseFolder = { asked += 1; return .chosen(project) }
         rig.transport.gestures.record()
         let reply = await model.respond(to: .chooseFolder)
         #expect(reply["ok"] as? Bool == true)
@@ -59,10 +59,34 @@ import Testing
 
     @Test func aCancelledSheetChangesNothing() async {
         let model = AgentPaneModel(host: MockAgentPaneHost())
-        model.onChooseFolder = { nil }
+        model.onChooseFolder = { .cancelled }
         model.transport.gestures.record()
         let reply = await model.respond(to: .chooseFolder)
         #expect(reply["ok"] as? Bool == true)
         #expect(model.chosenFolder == nil)
+    }
+
+    /// An older background service (kept running across an app update) cannot save the folder:
+    /// the page gets the localized restart message as a refusal, and new chats still start in
+    /// agent-home.
+    @Test func anOldDaemonShowsTheRestartMessageAndTheChatStillStartsInAgentHome() async throws {
+        let rig = AgentPaneProductRulesTests.Rig()
+        try await rig.start()
+        defer { rig.server.stop() }
+        let model = AgentPaneModel(host: MockAgentPaneHost(), transport: rig.transport)
+        let home = AgentHome(base: rig.folder("support") + "/cmux/agent-home")
+        model.workspaceRoots = { [] }
+        model.workspaceAgentHome = { AgentHomeFill(home: home, workspace: "ws-old") }
+        model.onChooseFolder = { .unavailable(AgentPaneFolderChoice.restartServiceMessage) }
+        rig.transport.gestures.record()
+        let reply = await model.respond(to: .chooseFolder)
+        #expect(reply["ok"] as? Bool == false)
+        let error = reply["error"] as? [String: Any]
+        #expect(error?["code"] as? String == AgentPaneFolderChoice.unavailableCode)
+        #expect(error?["userMessage"] as? String == AgentPaneFolderChoice.restartServiceMessage)
+        #expect(!AgentPaneFolderChoice.restartServiceMessage.isEmpty)
+        #expect(model.chosenFolder == nil)
+        let chat = await rig.send("session/new", ["mcpServers": [Any]()])
+        #expect(await rig.cwd(chat) == home.base + "/ws-old")
     }
 }

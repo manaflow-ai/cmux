@@ -110,7 +110,7 @@ import Testing
         let home = AgentHome(base: rig.folder("support") + "/cmux/agent-home")
         model.workspaceRoots = { [] }
         model.workspaceAgentHome = { AgentHomeFill(home: home, workspace: "ws-fresh") }
-        model.onChooseFolder = { nil }
+        model.onChooseFolder = { .cancelled }
         let handshake = await model.respond(to: .ready)["value"] as? [String: Any]
         #expect(handshake?["cwd"] == nil)
         #expect(handshake?["chooseFolder"] as? Bool == true)
