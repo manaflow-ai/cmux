@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextTabs
+import CmuxNextWakeups
 import Observation
 
 /// One layout leaf: the pane's tab strip on top (or at the bottom,
@@ -41,6 +42,8 @@ final class PaneContentView: NSView, PaneContentChrome {
     /// The outgoing view kept while the shown one has not painted (`PaneContentView+PaintHold`).
     var paintHold: PanePaintHold?
     var paintHoldCounter: UInt64 = 0
+    /// The hold's deadline (``PanePaintHold/limit``).
+    let paintHoldDeadline = DemandTimer(owner: "pane.paint-hold")
 
     /// - Parameter reveal: Holds the strip until the first tabs arrive and
     ///   the content until the first terminal frame (launch load-in).

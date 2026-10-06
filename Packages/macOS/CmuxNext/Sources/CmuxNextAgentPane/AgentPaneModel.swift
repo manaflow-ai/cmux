@@ -14,8 +14,8 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onCheckpointAvailability: ((Bool) -> Void)?
     /// The page drew its first frame after the handshake (`pane.painted`), the
     /// first that shows what it is. Until then its pane keeps what it showed.
-    public private(set) var hasPainted = false
-    @ObservationIgnored private var paintWaiters: [() -> Void] = []
+    public internal(set) var hasPainted = false
+    @ObservationIgnored var paintWaiters: [() -> Void] = []
 
     /// Called when the page switches to or creates a session, so the App can
     /// keep it with the tab.
@@ -376,19 +376,6 @@ public final class AgentPaneModel {
 
     private static func unsupported(_ method: String) -> [String: Any] {
         AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: \(method)")
-    }
-
-    /// Runs `body` once the page has drawn its first frame: now if it has.
-    public func whenPainted(_ body: @escaping () -> Void) {
-        if hasPainted { body() } else { paintWaiters.append(body) }
-    }
-
-    func markPainted() {
-        guard !hasPainted else { return }
-        hasPainted = true
-        let waiters = paintWaiters
-        paintWaiters = []
-        for waiter in waiters { waiter() }
     }
 
     private func setCheckpointAvailable(_ available: Bool) {

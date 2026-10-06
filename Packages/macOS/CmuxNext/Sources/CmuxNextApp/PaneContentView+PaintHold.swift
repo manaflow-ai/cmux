@@ -52,9 +52,8 @@ extension PaneContentView {
         }
         incoming.alphaValue = 0
         gated.whenFirstPainted { [weak self] in self?.endPaintHold(token) }
-        // task-owner: the hold's deadline; a later hold or show ends this one by token
-        Task { @MainActor [weak self] in
-            try? await Task.sleep(for: PanePaintHold.limit)
+        // A later hold replaces this deadline; the token keeps it to its own hold.
+        paintHoldDeadline.schedule(after: PanePaintHold.limit) { @MainActor [weak self] in
             self?.endPaintHold(token)
         }
     }
@@ -64,6 +63,7 @@ extension PaneContentView {
     func endPaintHold(_ token: UInt64? = nil) {
         guard let hold = paintHold, token == nil || hold.token == token else { return }
         paintHold = nil
+        paintHoldDeadline.cancel()
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         if let outgoing = hold.outgoing, outgoing.superview === contentHost, outgoing !== content {
