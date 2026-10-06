@@ -10,8 +10,8 @@ public import Foundation
 /// hands back to JavaScript or prints (driver results, events, fetch
 /// responses, output, errors, files written and read back) is masked as
 /// `<secret:name>`, including the value's percent-encoded (also twice),
-/// JSON- and JavaScript-escaped, HTML-escaped (named and numeric
-/// references), character by character in any mix, and Base64-wrapped
+/// JSON- and JavaScript-escaped, HTML-escaped (numeric references and
+/// the legacy named ones, with or without the semicolon), character by character in any mix, and Base64-wrapped
 /// forms (a Basic `Authorization` header,
 /// Base64 at any offset in a longer run; see
 /// ``BrowserReplSecretScanner/minimumBytesAtEveryOffset`` for short
