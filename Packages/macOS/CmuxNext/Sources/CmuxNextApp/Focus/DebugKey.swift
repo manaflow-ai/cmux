@@ -145,7 +145,8 @@ enum DebugKey {
     static func keyPress(_ name: String, modifiers: [String]) -> (characters: String, keyCode: UInt16, flags: NSEvent.ModifierFlags) {
         let lower = name.lowercased()
         let capital = name.count == 1 && name != lower && name.uppercased() == name
-        let key = capital ? (name, ansiKeyCodes[lower] ?? 0) : named[lower] ?? (name, ansiKeyCodes[lower] ?? 0)
+        let key: (characters: String, keyCode: UInt16) =
+            capital ? (name, ansiKeyCodes[lower] ?? 0) : named[lower] ?? (name, ansiKeyCodes[lower] ?? 0)
         var flags: NSEvent.ModifierFlags = capital ? .shift : []
         for modifier in modifiers {
             switch modifier {
