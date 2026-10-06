@@ -245,7 +245,7 @@ fn incomplete_commands_name_the_help_that_lists_their_actions() {
 fn scope_help_shows_required_flags_and_selector_forms() {
     let dir = temp_dir("help");
     let workspace = text(&cmux(&dir, &["workspace", "--help"]).stdout);
-    assert!(workspace.contains("rename --name"), "{workspace}");
+    assert!(workspace.contains("rename <name>|--name <name>"), "{workspace}");
     assert!(workspace.contains("move --index"), "{workspace}");
     assert!(workspace.contains("name:"), "{workspace}");
     let tab = text(&cmux(&dir, &["tab", "--help"]).stdout);

@@ -69,3 +69,22 @@ pub(super) fn usage<T>(what: &str) -> Result<T, super::UsageError> {
         "unknown or incomplete {what}; run `cmux {scope} --help` for its actions"
     )))
 }
+
+/// `<selector> rename NAME` is `<selector> rename --name NAME` in every scope.
+/// `rename` is a reserved selector word, so the word after it is a name.
+pub(super) fn positional_rename(
+    words: &mut Vec<String>,
+    flags: &mut super::Flags,
+) -> Result<(), super::UsageError> {
+    let count = words.len();
+    if count < 3 || words[count - 2] != "rename" {
+        return Ok(());
+    }
+    let name = words.pop().expect("length checked above");
+    if flags.values.insert("name".into(), Some(name)).is_some() {
+        return Err(super::UsageError::new(
+            "give the new name once: rename <name> or rename --name <name>",
+        ));
+    }
+    Ok(())
+}

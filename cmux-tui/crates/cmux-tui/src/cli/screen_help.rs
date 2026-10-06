@@ -5,7 +5,7 @@ USAGE
   cmux screen list
   cmux screen create [--correlation-key <value>]
   cmux screen <selector> show|focus|close
-  cmux screen <selector> rename --name <value>
+  cmux screen <selector> rename <name>|--name <name>
   cmux screen <selector> pin|unpin
   cmux screen <selector> update [--pinned <bool>] [--color <value>|--clear-color]
     [--icon <value>|--clear-icon]

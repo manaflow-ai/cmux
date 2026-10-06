@@ -7,7 +7,7 @@ USAGE
   cmux workspace create [--name <value>] [--empty] [--ephemeral] [--correlation-key <value>]
     [--expected-revision <revision>]
   cmux workspace <selector> show|focus|close
-  cmux workspace <selector> rename --name <value>
+  cmux workspace <selector> rename <name>|--name <name>
   cmux workspace <selector> move --index <n>
   cmux workspace <selector> update [--title <value>|--clear-title] [--color <value>|--clear-color]
     [--icon <value>|--clear-icon]
@@ -55,7 +55,7 @@ USAGE
   cmux pane list
   cmux pane create [--correlation-key <value>]
   cmux pane <selector> show|focus|close
-  cmux pane <selector> rename --name <value>
+  cmux pane <selector> rename <name>|--name <name>
   cmux pane <selector> split [--right|--down] [--ratio <value>]
     [--viewport-width <fraction>] [--correlation-key <value>]
   cmux pane <selector> focus direction <left|right|up|down>
@@ -77,7 +77,7 @@ pub(super) const TAB_HELP: &str = "\
 USAGE
   cmux tab list
   cmux tab <selector> show|focus|close
-  cmux tab <selector> rename --name <value>
+  cmux tab <selector> rename <name>|--name <name>
   cmux tab <selector> move --workspace <selector> --screen <selector>
     --pane <selector> --index <n>
   cmux tab <selector> pin|unpin
@@ -138,5 +138,21 @@ when it has no tab; keep off lets it end after the reap grace period.
 
 SELECTORS
   <selector> is an id (ws_…, pane_…, tab_…, term_…), current, or an exact
+  name. Prefix name: to a name that looks like an id or a command word.
+";
+
+/// `cmux <scope> rename --help` for the scopes whose resources have names.
+pub(super) fn rename_help(topic: &str) -> String {
+    let scope = topic.split(' ').next().unwrap_or(topic);
+    format!(
+        "USAGE\n  cmux {scope} [<selector>] rename <name>\n  cmux {scope} [<selector>] rename --name <name>\n\n\
+         Renames the {scope}. Without a selector, renames the current one. Put a\n\
+         name that starts with a dash after --name.\n{SELECTORS}"
+    )
+}
+
+const SELECTORS: &str = "
+SELECTORS
+  <selector> is an id (ws_…, screen_…, pane_…, tab_…), current, or an exact
   name. Prefix name: to a name that looks like an id or a command word.
 ";

@@ -377,6 +377,9 @@ fn parse_command(
             {
                 Some(format!("server {action}"))
             }
+            [scope @ ("workspace" | "screen" | "pane" | "tab"), .., "rename"] => {
+                Some(format!("{scope} rename"))
+            }
             [scope, ..] if surface.accepts(scope) => Some((*scope).to_string()),
             _ => None,
         };
@@ -647,6 +650,9 @@ fn scope_help_for(
         "pane" => Cow::Borrowed(PANE_HELP),
         "tab" => Cow::Borrowed(TAB_HELP),
         "terminal" => Cow::Borrowed(TERMINAL_HELP),
+        "workspace rename" | "screen rename" | "pane rename" | "tab rename" => {
+            Cow::Owned(topology_help::rename_help(scope))
+        }
         "browser" => Cow::Borrowed(BROWSER_HELP),
         "notification" => Cow::Borrowed(NOTIFICATION_HELP),
         "agent" => Cow::Borrowed(AGENT_HELP),

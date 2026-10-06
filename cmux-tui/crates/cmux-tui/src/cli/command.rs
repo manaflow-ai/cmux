@@ -193,6 +193,7 @@ struct Tokens {
 pub(super) fn parse(args: &[String], surface: super::Surface) -> Result<CommandPlan, UsageError> {
     let mut tokens = tokenize(args)?;
     super::shorthand::normalize_words(&mut tokens.words);
+    flags::positional_rename(&mut tokens.words, &mut tokens.flags)?;
     let scope = tokens
         .words
         .first()
