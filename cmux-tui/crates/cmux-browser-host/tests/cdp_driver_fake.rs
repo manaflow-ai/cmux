@@ -796,7 +796,7 @@ fn unknown_methods_and_browser_level_raw_cdp_are_refused() {
     let h = Harness::new();
     let target = h.open(None);
     assert_eq!(
-        h.driver.call("clipboard.read", &json!({"targetId": target})).unwrap_err().code,
+        h.driver.call("no.such.method", &json!({"targetId": target})).unwrap_err().code,
         ErrorCode::Unsupported
     );
     let raw = h
