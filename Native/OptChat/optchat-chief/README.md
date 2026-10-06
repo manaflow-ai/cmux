@@ -449,6 +449,19 @@ after `session/new` (a session that cannot be tagged is killed), so quit
 counts and endAgents can exclude the Chief's own sessions. Children keep
 `mux.parent` only.
 
+**One subrouter account per Chief role.** Each turn is a fresh `claude -p`
+with a new `X-Claude-Code-Session-Id`, so the subrouter placed turns on any
+account and a turn often read nothing of the cache the previous turn wrote
+(first-request hit 40% over 8 turns on cmux-lawrence-2, 2026-10-06; 0% in 4
+of them). The turn, compactor and subagent presets set
+`SUBROUTER_SESSION_KEY=optchat-<home id>-turn|compact|sub`, which `sr claude
+proxy` (subrouter v0.1.137, PR 511) sends as `X-Subrouter-Session`; the
+server keeps each key on one sticky account (failover still moves it). After
+the change, 6 consecutive turns: the first wrote 17,950, each later one read
+9,965 (55%) and wrote about 8,000, the part after Claude Code's system
+breakpoint (the view below the 50k mark, the new message, Claude Code's own
+context). Trade-off: one busy Chief concentrates on one account until failover.
+
 ## Compactor routes
 
 The team subrouter serves Claude Code clients: a raw Messages API call for a
