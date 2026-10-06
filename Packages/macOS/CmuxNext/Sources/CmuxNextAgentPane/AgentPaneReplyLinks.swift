@@ -39,7 +39,7 @@ extension AgentPaneModel {
     /// The folders a reply's paths may name for an open: the pane's roots and the folders the
     /// user added (the same as `file.open`).
     func replyPaths() -> AgentPaneReplyPaths {
-        AgentPaneReplyPaths(roots: roots() + transport.addedRoots, home: replyLinks.home, base: primaryRoot())
+        AgentPaneReplyPaths(roots: fileOpenRoots(), home: replyLinks.home, base: sessionRoots().first ?? primaryRoot())
     }
 
     /// The reply for one reply link request.

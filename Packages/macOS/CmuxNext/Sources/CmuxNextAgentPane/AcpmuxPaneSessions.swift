@@ -26,6 +26,8 @@ public nonisolated final class AcpmuxPaneSessions: Sendable {
         /// Raw ids of the handoff requests still waiting for their record, and whether a click
         /// let the pane take that handoff.
         var awaitingHandoff: [String: Bool] = [:]
+        /// sessionId -> the folder the daemon reported for it (bounded; ``observeFolder(_:replyTo:)``).
+        var folders: [String: String] = [:]
     }
 
     private let state = Mutex(State())
@@ -37,10 +39,25 @@ public nonisolated final class AcpmuxPaneSessions: Sendable {
     public func contains(_ session: String) -> Bool { state.withLock { $0.sessions.contains(session) } }
 
     /// The folder (cwd) the daemon reported for `session`, from ``observeFolder(_:replyTo:)``.
-    public func folder(of session: String) -> String? { nil }
+    public func folder(of session: String) -> String? { state.withLock { $0.folders[session] } }
 
-    /// A daemon reply to `method`: the session folder it reports.
-    func observeFolder(_ object: [String: Any], replyTo method: String?) {}
+    /// The replies whose result names a session and its folder: `_acpmux/attach`
+    /// (`result.session.{sessionId, cwd}`) and `session/new` (`result.sessionId`,
+    /// `result._meta.acpmux.cwd`). Read only from those fixed places, never from content.
+    static let folderReplies: Set<String> = ["_acpmux/attach", "session/new"]
+
+    /// A daemon reply to `method`: the session folder it reports (an absolute path).
+    func observeFolder(_ object: [String: Any], replyTo method: String?) {
+        guard let method, Self.folderReplies.contains(method), let result = object["result"] as? [String: Any] else { return }
+        let session: [String: Any]? = method == "_acpmux/attach"
+            ? result["session"] as? [String: Any]
+            : ((result["_meta"] as? [String: Any])?["acpmux"] as? [String: Any]).map { $0.merging(["sessionId": result["sessionId"] ?? NSNull()]) { _, new in new } }
+        guard let id = session?["sessionId"] as? String, let cwd = session?["cwd"] as? String, cwd.hasPrefix("/") else { return }
+        state.withLock { state in
+            if state.folders.count >= 1024, state.folders[id] == nil { state.folders.removeAll() }
+            state.folders[id] = cwd
+        }
+    }
 
     /// The requests whose reply is a handoff record (`handoffId`, `source.sessionId`).
     public static let handoffRecords: Set<String> = [
