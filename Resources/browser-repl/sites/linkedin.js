@@ -159,16 +159,16 @@
         feed(options = {}) {
           return cards(`${ORIGIN}/feed/`, "feed", options.limit || 10);
         },
-        // Draft a post: post(text) or post({ text, audience }), audience
-        // "anyone" (default) or "connections", as the signed-in member.
-        // post(draftId, { confirm: true }) publishes it.
+        // Draft a post as the signed-in member: post({ text, audience }),
+        // audience "anyone" or "connections", always named (a public post
+        // is an explicit choice). post(draftId, { confirm: true }) publishes it.
         post(input, options) {
           return t.write("linkedin", "post", input, options, async (p) => {
             const spec = typeof p === "string" ? { text: p } : p || {};
             const text = spec.text;
             if (typeof text !== "string" || !text.trim()) throw new S.SiteError("invalid", "linkedin.post: expected the post text");
-            const audience = AUDIENCES[spec.audience === undefined ? "anyone" : spec.audience];
-            if (!audience) throw new S.SiteError("invalid", `linkedin.post: audience: expected "anyone" or "connections", got ${JSON.stringify(spec.audience)}`);
+            const audience = typeof spec.audience === "string" && Object.prototype.hasOwnProperty.call(AUDIENCES, spec.audience) ? AUDIENCES[spec.audience] : null;
+            if (!audience) throw new S.SiteError("invalid", spec.audience === undefined ? 'linkedin.post: name the audience: post({ text, audience: "anyone" }) for a public post, or audience: "connections" for connections only' : `linkedin.post: audience: expected "anyone" or "connections", got ${JSON.stringify(spec.audience)}`);
             // The draft pins the signed-in member (its immutable member id
             // and public identifier); another session can sign in as
             // someone else before the confirmation.

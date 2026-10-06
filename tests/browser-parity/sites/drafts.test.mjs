@@ -162,7 +162,7 @@ test("gmail.send reply: a new message in the thread after the preview fails the 
 test("linkedin.post: the draft names who it posts as and its audience; a composer that posts as a page, to another audience, or does not say, posts nothing", async () => {
   try {
     await run(`
-      const laD = await sites.linkedin.post("Audience bound.");
+      const laD = await sites.linkedin.post({ text: "Audience bound.", audience: "anyone" });
       const lcD = await sites.linkedin.post({ text: "Connections only.", audience: "connections" });`);
     const d = await s.value("laD.preview");
     assert.equal(d.postAs, "Ada Lovelace");
@@ -172,11 +172,11 @@ test("linkedin.post: the draft names who it posts as and its audience; a compose
     // The composer now posts as a company page the member admins.
     env.state.linkedinComposer = { postAs: "Acme Corp" };
     assert.match(await s.error("sites.linkedin.post(laD.id, { confirm: true })"), /target_mismatch|postAs is "Acme Corp"/);
-    await run('var laD2 = await sites.linkedin.post("Audience bound.")');
+    await run('var laD2 = await sites.linkedin.post({ text: "Audience bound.", audience: "anyone" })');
     // LinkedIn remembers another audience than the draft's.
     env.state.linkedinComposer = { audience: "Connections only" };
     assert.match(await s.error("sites.linkedin.post(laD2.id, { confirm: true })"), /target_mismatch|audience is "Connections only"/);
-    await run('var laD3 = await sites.linkedin.post("Audience bound.")');
+    await run('var laD3 = await sites.linkedin.post({ text: "Audience bound.", audience: "anyone" })');
     // A composer whose header cannot be read fails closed.
     env.state.linkedinComposer = { settings: false };
     assert.match(await s.error("sites.linkedin.post(laD3.id, { confirm: true })"), /target_unverified|could not read postAs, audience back/);
@@ -201,7 +201,7 @@ test("linkedin.post: the draft names who it posts as and its audience; a compose
 test("linkedin.post and x.post: the draft pins the signed-in account; another account at confirmation fails and posts nothing", async () => {
   try {
     await run(`
-      const lD = await sites.linkedin.post("Pinned post.");
+      const lD = await sites.linkedin.post({ text: "Pinned post.", audience: "anyone" });
       const xD2 = await sites.x.post("Pinned post.");`);
     env.state.linkedinViewer = "mallory";
     // X's session cookie now authenticates another account.
