@@ -16,7 +16,7 @@ extension AgentPaneModel {
     /// splits and the "..." menu's tab verbs.
     public static let headerActions: Set<String> = [
         "splitRight", "splitBrowserRight", "renameTab", "palette.toggleTabPin",
-        "moveSurfaceToPaneRight", "palette.moveTabToNewWorkspace", "closeTab",
+        "moveSurfaceToPaneRight", "palette.moveTabToNewWorkspace", "tab.moveToNewWindow", "closeTab",
     ]
 
     /// `pane.action` runs a listed action on a chat (never the New Tab page); `pane.tabState`
