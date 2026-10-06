@@ -1,8 +1,9 @@
-// The pane's tooltips. A native `title` tooltip in a web view waits about a second, draws where
-// the pointer happens to be, and can run past the pane's edge. Every `title` in the pane shows
-// here instead: after a short hover, at once when the pointer moves on from a tooltip just shown
-// (along the rail or a toolbar), and kept inside the window. The text stays in the DOM as
-// `data-tooltip`, so the native tooltip never also appears.
+// Tooltips for plain `title` attributes, for pages (the agent pane) whose controls carry them. A
+// native `title` tooltip in a web view waits about a second, draws where the pointer happens to
+// be, and can run past the view's edge. Each `title` shows here instead: after a short hover, at
+// once when the pointer moves on from a tooltip just shown (along a rail or a toolbar), and kept
+// inside the window. The text moves to `data-tooltip`, so the native tooltip never also appears;
+// a control with no other name keeps it as its `aria-label`. Controls built on ./Tooltip keep theirs.
 
 /// Hover time before the first tooltip.
 export const TOOLTIP_DELAY = 350;
@@ -33,7 +34,7 @@ export function installTooltips(doc: Document): () => void {
   const win = doc.defaultView;
   if (!win) return () => {};
   const tip = doc.createElement("div");
-  tip.className = "acpmux-tooltip";
+  tip.className = "ui-title-tooltip";
   tip.setAttribute("role", "tooltip");
   tip.hidden = true;
   doc.body.append(tip);
@@ -46,6 +47,9 @@ export function installTooltips(doc: Document): () => void {
     const title = element.getAttribute("title");
     if (title !== null) {
       element.removeAttribute("title");
+      // The title may have been the control's only name (an icon button).
+      if (title && !element.hasAttribute("aria-label") && !element.textContent?.trim())
+        element.setAttribute("aria-label", title);
       if (title) element.setAttribute("data-tooltip", title);
       else element.removeAttribute("data-tooltip");
     }

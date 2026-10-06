@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { installTooltips, TOOLTIP_DELAY, tooltipPosition } from "./tooltips";
+import { installTooltips, TOOLTIP_DELAY, tooltipPosition } from "../src/ui/titleTooltips";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -33,7 +33,7 @@ describe("tooltips", () => {
     );
     const doc = dom.window.document;
     const uninstall = installTooltips(doc);
-    const tip = () => doc.querySelector<HTMLElement>(".acpmux-tooltip")!;
+    const tip = () => doc.querySelector<HTMLElement>(".ui-title-tooltip")!;
     const hover = (id: string) =>
       doc.getElementById(id)!.dispatchEvent(new dom.window.MouseEvent("pointerover", { bubbles: true }));
     const leave = (id: string) =>
@@ -63,6 +63,19 @@ describe("tooltips", () => {
     uninstall();
   });
 
+  test("an icon button keeps its title as its name; a named one is left alone", () => {
+    const dom = new JSDOM(
+      '<!doctype html><body><button id=icon title="More"></button><button id=text title="Sessions">Chats</button></body>',
+    );
+    const doc = dom.window.document;
+    const uninstall = installTooltips(doc);
+    for (const id of ["icon", "text"])
+      doc.getElementById(id)!.dispatchEvent(new dom.window.MouseEvent("pointerover", { bubbles: true }));
+    expect(doc.getElementById("icon")!.getAttribute("aria-label")).toBe("More");
+    expect(doc.getElementById("text")!.hasAttribute("aria-label")).toBe(false);
+    uninstall();
+  });
+
   test("a click puts it away and the next one waits again", async () => {
     const { doc, uninstall, tip, hover } = setup();
     hover("a");
@@ -72,6 +85,6 @@ describe("tooltips", () => {
     hover("b");
     expect(tip().hidden).toBe(true);
     uninstall();
-    expect(doc.querySelector(".acpmux-tooltip")).toBeNull();
+    expect(doc.querySelector(".ui-title-tooltip")).toBeNull();
   });
 });
