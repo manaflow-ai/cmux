@@ -99,6 +99,23 @@ class ChecksJobStructure(unittest.TestCase):
         result = self.run_aggregate("success|Lint\nsuccess|Crash safety\n")
         self.assertEqual(result.returncode, 0, result.stdout)
 
+    def test_package_conventions_lint_is_its_own_step(self):
+        # test-ios.yml runs this lint only for pull requests, merge groups and
+        # dispatches; direct pushes to feat-cmux-next skipped it, and a
+        # namespace-type red (CloudLinkSocketPolicy) reached the base unseen.
+        _, checks, _ = self.split()
+        lint = [step for step in checks if "lint-ios-package-conventions.sh" in step["run"]]
+        self.assertEqual(len(lint), 1, [step["name"] for step in checks])
+        self.assertEqual(lint[0]["run"].strip(), "./scripts/lint-ios-package-conventions.sh")
+        document = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        # PyYAML reads the `on:` key as True.
+        push_paths = document[True]["push"]["paths"]
+        for path in ("Packages/macOS/**", "Packages/Shared/**", "Packages/iOS/**",
+                     "scripts/lint-ios-package-conventions*", "scripts/lint_swift_namespaces.py",
+                     "scripts/lint-namespace-types-*.txt", "scripts/swift_source_mask.py"):
+            with self.subTest(path=path):
+                self.assertIn(path, push_paths)
+
     def test_rust_ratchet_is_its_own_step(self):
         _, checks, _ = self.split()
         godfile_runs = [step["run"] for step in checks if "check-no-godfiles.sh" in step["run"]]

@@ -47,6 +47,10 @@ on:
       - tests/test_cmux_next_checks_workflow.py
       - tests/test_cmux_next_stale_pcm_cleanup.sh
       - tests/test_check_app_personalities.sh
+      - scripts/lint-ios-package-conventions*
+      - scripts/lint_swift_namespaces.py
+      - scripts/lint-namespace-types-*.txt
+      - scripts/swift_source_mask.py
   push:
     branches: [main, feat-cmux-next]
     paths:
@@ -92,6 +96,10 @@ on:
       - tests/test_cmux_next_checks_workflow.py
       - tests/test_cmux_next_stale_pcm_cleanup.sh
       - tests/test_check_app_personalities.sh
+      - scripts/lint-ios-package-conventions*
+      - scripts/lint_swift_namespaces.py
+      - scripts/lint-namespace-types-*.txt
+      - scripts/swift_source_mask.py
   workflow_dispatch:
 
 permissions:
@@ -405,6 +413,14 @@ jobs:
         continue-on-error: true
         run: bash scripts/cmux-next/tests/bundled-terminfo.test.sh
 
+      # The repo-wide package conventions (namespace types, free functions,
+      # singletons, ...). test-ios.yml runs it only for pull requests, merge
+      # groups and dispatches; this step covers direct feat-cmux-next pushes.
+      - name: Package conventions lint
+        id: package-conventions
+        continue-on-error: true
+        run: ./scripts/lint-ios-package-conventions.sh
+
       - name: Checks job structure
         id: checks-structure
         continue-on-error: true
@@ -426,6 +442,7 @@ jobs:
             ${{ steps.script-tests.outcome }}|Script tests (pin-cmux-tui, embed-cef, ensure-cef store)
             ${{ steps.ghostty-resources-bundle.outcome }}|Ghostty resources bundle
             ${{ steps.bundled-terminfo.outcome }}|Bundled terminfo
+            ${{ steps.package-conventions.outcome }}|Package conventions lint
             ${{ steps.checks-structure.outcome }}|Checks job structure
         run: |
           failed=()
