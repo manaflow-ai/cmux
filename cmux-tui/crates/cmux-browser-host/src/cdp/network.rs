@@ -141,6 +141,28 @@ mod tests {
         );
     }
 
+    /// HOP-ADDRESS (ff, 2026-10-05): a manual redirect's address comes from
+    /// the next `requestWillBeSent`'s `redirectResponse` (Chromium sends one
+    /// even though the fetch does not follow), so the host's rebinding check
+    /// of the hop does not wait out its 1 s for a response event that never
+    /// comes (Testbox spike, Chromium 143).
+    #[test]
+    fn a_redirect_response_records_its_address() {
+        let mut tab = TabState::new("S1".into(), String::new(), String::new(), None);
+        let sent = json!({"requestId": "r1", "type": "Fetch",
+            "request": {"url": "http://127.0.0.1:8000/final", "method": "GET"},
+            "redirectResponse": {"url": "http://127.0.0.1:8000/redirect", "status": 302,
+                "remoteIPAddress": "127.0.0.1"}});
+        event(&mut tab, "T1", "Network.requestWillBeSent", &sent);
+        assert!(
+            tab.responses
+                .iter()
+                .any(|(url, ip)| url == "http://127.0.0.1:8000/redirect" && ip == "127.0.0.1"),
+            "{:?}",
+            tab.responses
+        );
+    }
+
     #[test]
     fn open_requests_are_bounded() {
         let mut tab = TabState::new("S1".into(), String::new(), String::new(), None);
