@@ -5,6 +5,7 @@ import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextSettings
 import CmuxNextTabs
+import Observation
 
 /// The pane views of agent chat tabs (the React acpmux pane, CmuxNextAgentPane).
 ///
@@ -97,7 +98,14 @@ final class AgentTabStore {
     var firstPageNewTab: ((String?) -> (page: AgentPaneNewTab, handler: NewTabPageHandler)?)?
 
     /// Tabs opened as the chooser page, and the actions for their selected kind.
-    var newTabPages: [String: (page: AgentPaneNewTab, handler: NewTabPageHandler)] = [:]
+    var newTabPages: [String: (page: AgentPaneNewTab, handler: NewTabPageHandler)] = [:] {
+        didSet {
+            let ids = Set(newTabPages.keys)
+            if pageTabs.ids != ids { pageTabs.ids = ids }
+        }
+    }
+    /// The ids in ``newTabPages``, observed: the strip titles those tabs "New Tab".
+    let pageTabs = NewTabPageIDs()
     /// What each new chat inherits from the tab it was opened from, until
     /// its view reads it.
     var seeds: [String: AgentPaneSeedSource] = [:]
@@ -395,4 +403,9 @@ extension AgentTabStore {
         let trimmed = result.trimmingCharacters(in: .whitespaces)
         return trimmed.isEmpty ? nil : trimmed
     }
+}
+
+/// The tabs showing the new tab page, for observers (the tab strip).
+@Observable final class NewTabPageIDs {
+    var ids: Set<String> = []
 }

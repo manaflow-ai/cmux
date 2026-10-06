@@ -162,6 +162,14 @@ public final class AgentPaneModel {
         newTab = page
     }
 
+    /// A new workspace's first tab (its view made before the store's reply
+    /// named it a new tab page): a chat that has no session yet becomes the
+    /// page. A chat with a session keeps it.
+    public func becomeNewTab(_ page: AgentPaneNewTab) {
+        guard sessionId == nil else { return }
+        newTab = page
+    }
+
     /// The reply for one page request.
     public func respond(to request: AgentPaneRequest) async -> [String: Any] {
         switch request {

@@ -21,6 +21,12 @@ extension AgentTabStore {
         let key = response.tabResourceID?.rawValue ?? "surface:\(response.surface.rawValue)"
         seeds[key] = AgentPaneSeedSource(AgentPaneSeed(cwd: cwd))
         newTabPages[key] = firstPageNewTab?(cwd)
+        // The tree can list the tab before this reply, and a pane showing it
+        // then made a plain chat: it becomes the page now, unless it already has a session.
+        if let view = views[key], let page = newTabPages[key]?.page {
+            view.becomeNewTab(page)
+            if view.model.newTab == nil { newTabPages[key] = nil }
+        }
         track(key, in: daemon.store)
         return response.surface
     }

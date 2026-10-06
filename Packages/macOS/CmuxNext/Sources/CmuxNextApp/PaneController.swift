@@ -106,7 +106,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
         let machine = daemon.isLocal ? nil : services.machines.machineBadge(daemon.machineID)
         let workspaceID = store.workspace(containing: pane.handle)?.id
         var items = pane.tabs.filter { !pendingClosed.contains($0.id) }.map { tab -> StripTabItem in
-            let untitled = tab.agentSession != nil ? AgentPaneModel.tabTitle
+            // A new tab page is "New Tab" until it becomes a chat (then the chat's title).
+            let untitled = tab.agentSession != nil
+                ? services.agentTabs.pageTabs.ids.contains(tab.id) ? Strings.untitledBrowser : AgentPaneModel.tabTitle
                 : tab.kind == .conversation ? services.home.tabTitle(for: tab) : tab.kind == .browser ? Strings.untitledBrowser : fallback
             var item = TabItemMapping.shared.item(tab, fallbackTitle: untitled)
             item.groupID = tab.tabGroup.map { TabGroupID($0.rawValue) }
