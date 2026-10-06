@@ -9379,128 +9379,128 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "اسأل وكيلاً، أو ابحث، أو اكتب عنوان URL"
+            "state": "needs_review",
+            "value": "ابحث أو اكتب URL"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Pitajte agenta, pretražite ili unesite URL"
+            "state": "needs_review",
+            "value": "Pretraži ili upiši URL"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Spørg en agent, søg, eller indtast en URL"
+            "state": "needs_review",
+            "value": "Søg eller skriv en URL"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Frage einen Agenten, suche oder gib eine URL ein"
+            "state": "needs_review",
+            "value": "Suchen oder URL eingeben"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ask an agent, search, or type a URL"
+            "value": "Search or type a URL"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Pregunta a un agente, busca o escribe una URL"
+            "state": "needs_review",
+            "value": "Busca o escribe una URL"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Demandez à un agent, recherchez ou saisissez une URL"
+            "state": "needs_review",
+            "value": "Rechercher ou saisir une URL"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Chiedi a un agente, cerca o digita un URL"
+            "state": "needs_review",
+            "value": "Cerca o digita un URL"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "エージェントに質問、検索、またはURLを入力"
+            "value": "検索またはURLを入力"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "សួរភ្នាក់ងារ ស្វែងរក ឬវាយបញ្ចូល URL"
+            "state": "needs_review",
+            "value": "ស្វែងរក ឬវាយ URL"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "에이전트에게 질문하거나 검색하거나 URL을 입력하세요"
+            "state": "needs_review",
+            "value": "검색하거나 URL 입력"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Spør en agent, søk eller skriv inn en URL"
+            "state": "needs_review",
+            "value": "Søk eller skriv en URL"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Zapytaj agenta, wyszukaj lub wpisz adres URL"
+            "state": "needs_review",
+            "value": "Szukaj lub wpisz URL"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Pergunte a um agente, pesquise ou digite uma URL"
+            "state": "needs_review",
+            "value": "Pesquise ou digite uma URL"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Спросите агента, выполните поиск или введите URL"
+            "state": "needs_review",
+            "value": "Введите запрос или URL"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ถามเอเจนต์ ค้นหา หรือพิมพ์ URL"
+            "state": "needs_review",
+            "value": "ค้นหาหรือพิมพ์ URL"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Bir ajana soru sorun, arama yapın veya URL yazın"
+            "state": "needs_review",
+            "value": "Ara veya URL yaz"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Запитайте агента, виконайте пошук або введіть URL"
+            "state": "needs_review",
+            "value": "Пошук або введіть URL"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Hỏi tác nhân, tìm kiếm hoặc nhập URL"
+            "state": "needs_review",
+            "value": "Tìm kiếm hoặc nhập URL"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "向智能体提问、搜索或输入网址"
+            "state": "needs_review",
+            "value": "搜索或输入 URL"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "向智慧代理提問、搜尋或輸入網址"
+            "state": "needs_review",
+            "value": "搜尋或輸入 URL"
           }
         }
       }
