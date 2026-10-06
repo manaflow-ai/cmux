@@ -10,13 +10,15 @@ use cmux_tui_core::resource::{
 use serde_json::{Map, Number, Value, json};
 
 use super::{GlobalArgs, UsageError};
-use flags::BOOLEAN_FLAGS;
+use flags::{BOOLEAN_FLAGS, usage};
 
+mod browser;
 #[cfg(test)]
 pub(in crate::cli) mod cases;
 mod flags;
 mod git;
 mod screen;
+mod server_ensure;
 mod state;
 
 use screen::{parse_screen, parse_screen_strings};
@@ -191,6 +193,7 @@ struct Tokens {
 pub(super) fn parse(args: &[String], surface: super::Surface) -> Result<CommandPlan, UsageError> {
     let mut tokens = tokenize(args)?;
     super::shorthand::normalize_words(&mut tokens.words);
+    flags::positional_rename(&mut tokens.words, &mut tokens.flags)?;
     let scope = tokens
         .words
         .first()
@@ -233,9 +236,7 @@ fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
     let action = match strs(words).as_slice() {
         ["status"] => super::lifecycle::ServerAction::Status,
         ["stats"] => super::lifecycle::ServerAction::Stats,
-        ["ensure"] => super::lifecycle::ServerAction::Ensure {
-            terminal_reap_grace: parse_terminal_reap_grace(flags)?,
-        },
+        ["ensure"] => server_ensure::parse(flags)?,
         ["stop"] => super::lifecycle::ServerAction::Stop {
             force: flags.boolean("force"),
             end_terminals: flags.boolean("end-terminals"),
@@ -265,18 +266,6 @@ fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
     Ok(CommandPlan::Server(super::lifecycle::ServerPlan { action, session: None }))
 }
 
-/// `server ensure --terminal-reap-grace-seconds <n>`: the same bounds as the
-/// owner's own startup option, checked before anything is spawned.
-fn parse_terminal_reap_grace(flags: &mut Flags) -> Result<Option<std::time::Duration>, UsageError> {
-    let Some(value) = flags.take("terminal-reap-grace-seconds") else { return Ok(None) };
-    let seconds = value
-        .parse::<u64>()
-        .map_err(|_| UsageError::new("--terminal-reap-grace-seconds must be an integer"))?;
-    cmux_tui_core::validate_terminal_reap_grace(std::time::Duration::from_secs(seconds))
-        .map(Some)
-        .map_err(|error| UsageError::new(error.to_string()))
-}
-
 fn tokenize(args: &[String]) -> Result<Tokens, UsageError> {
     let mut words = Vec::new();
     let mut flags = Flags::default();
@@ -303,10 +292,8 @@ fn tokenize(args: &[String]) -> Result<Tokens, UsageError> {
             } else if let Some(value) = inline {
                 Some(value)
             } else {
-                let value = args
-                    .get(index + 1)
-                    .cloned()
-                    .ok_or_else(|| UsageError::new(format!("--{name} needs a value")))?;
+                let value =
+                    args.get(index + 1).cloned().ok_or_else(|| flags::missing_value(name))?;
                 index += 1;
                 Some(value)
             };
@@ -656,7 +643,7 @@ fn parse_workspace(
         ["placement", "list"] => {
             request(ResourceOperation::WorkspacePlacementList, selectors, flags, Map::new())
         }
-        ["list"] => request(ResourceOperation::WorkspaceList, selectors, flags, Map::new()),
+        ["list"] => state::workspace_list(selectors, flags),
         ["create"] => {
             let mut params = Map::new();
             if let Some(name) = flags.take("name") {
@@ -870,6 +857,7 @@ fn parse_tab_strings(
     match words {
         ["group", rest @ ..] => state::parse_tab_group(rest, flags),
         ["list"] => request(ResourceOperation::TabList, selectors, flags, Map::new()),
+        ["create"] => Err(UsageError::new("tab create needs terminal or browser")),
         [selector, "show"] => {
             selectors.insert("tab", "tab", selector)?;
             request(ResourceOperation::TabGet, selectors, flags, Map::new())
@@ -1182,145 +1170,7 @@ fn parse_terminal(
     }
 }
 
-fn parse_browser(
-    words: &[String],
-    selectors: &mut Selectors,
-    flags: &mut Flags,
-) -> Result<CommandPlan, UsageError> {
-    match strs(words).as_slice() {
-        ["list"] => request(ResourceOperation::BrowserList, selectors, flags, Map::new()),
-        [selector, "show"] => {
-            selectors.insert("browser", "browser", selector)?;
-            request(ResourceOperation::BrowserGet, selectors, flags, Map::new())
-        }
-        [selector, "navigate"] => {
-            selectors.insert("browser", "browser", selector)?;
-            let url = flags.required("url")?;
-            if url.is_empty() {
-                return Err(UsageError::new("--url cannot be empty"));
-            }
-            request(
-                ResourceOperation::BrowserNavigate,
-                selectors,
-                flags,
-                map_with("url", Value::String(url)),
-            )
-        }
-        [selector, "back"] => {
-            browser_no_args(ResourceOperation::BrowserBack, selector, selectors, flags)
-        }
-        [selector, "forward"] => {
-            browser_no_args(ResourceOperation::BrowserForward, selector, selectors, flags)
-        }
-        [selector, "reload"] => {
-            browser_no_args(ResourceOperation::BrowserReload, selector, selectors, flags)
-        }
-        [selector, "activate"] => {
-            browser_no_args(ResourceOperation::BrowserActivate, selector, selectors, flags)
-        }
-        [selector, "key"] => {
-            selectors.insert("browser", "browser", selector)?;
-            let mut params = Map::new();
-            let key = flags.required("key")?;
-            if key.is_empty() {
-                return Err(UsageError::new("--key cannot be empty"));
-            }
-            params.insert("key".into(), Value::String(key));
-            if let Some(kind) = flags.take("kind") {
-                validate_one_of("--kind", &kind, &["down", "up", "press"])?;
-                params.insert("kind".into(), Value::String(kind));
-            }
-            insert_optional_enum_list(
-                &mut params,
-                flags,
-                "modifiers",
-                &["shift", "control", "alt", "meta"],
-            )?;
-            request(ResourceOperation::BrowserInputKey, selectors, flags, params)
-        }
-        [selector, "text"] => {
-            selectors.insert("browser", "browser", selector)?;
-            let text = flags.required("text")?;
-            request(
-                ResourceOperation::BrowserInputText,
-                selectors,
-                flags,
-                map_with("text", Value::String(text)),
-            )
-        }
-        [selector, "mouse"] => {
-            selectors.insert("browser", "browser", selector)?;
-            let mut params = Map::new();
-            let kind = flags.required("kind")?;
-            validate_one_of("--kind", &kind, &["down", "up", "move"])?;
-            params.insert("kind".into(), Value::String(kind.clone()));
-            insert_float(&mut params, "x_px", "--x-px", flags.required("x-px")?)?;
-            insert_float(&mut params, "y_px", "--y-px", flags.required("y-px")?)?;
-            let pointer_frame_seq = flags.required("pointer-frame-seq")?;
-            validate_decimal("--pointer-frame-seq", &pointer_frame_seq)?;
-            params.insert("pointer_frame_seq".into(), Value::String(pointer_frame_seq));
-            match (kind.as_str(), flags.take("button"), flags.take("click-count")) {
-                ("down" | "up", Some(button), click_count) => {
-                    validate_one_of(
-                        "--button",
-                        &button,
-                        &["left", "middle", "right", "back", "forward"],
-                    )?;
-                    params.insert("button".into(), Value::String(button));
-                    if let Some(click_count) = click_count {
-                        insert_u32(&mut params, "click_count", "--click-count", click_count)?;
-                    }
-                }
-                ("down" | "up", None, _) => {
-                    return Err(UsageError::new("--button is required for down and up"));
-                }
-                ("move", None, None) => {}
-                ("move", Some(_), _) => {
-                    return Err(UsageError::new("--button is forbidden for move"));
-                }
-                ("move", None, Some(_)) => {
-                    return Err(UsageError::new("--click-count is forbidden for move"));
-                }
-                _ => unreachable!("kind validated above"),
-            }
-            request(ResourceOperation::BrowserInputMouse, selectors, flags, params)
-        }
-        [selector, "wheel"] => {
-            selectors.insert("browser", "browser", selector)?;
-            let mut params = Map::new();
-            insert_float(&mut params, "delta_x", "--delta-x", flags.required("delta-x")?)?;
-            insert_float(&mut params, "delta_y", "--delta-y", flags.required("delta-y")?)?;
-            insert_float(&mut params, "x_px", "--x-px", flags.required("x-px")?)?;
-            insert_float(&mut params, "y_px", "--y-px", flags.required("y-px")?)?;
-            let pointer_frame_seq = flags.required("pointer-frame-seq")?;
-            validate_decimal("--pointer-frame-seq", &pointer_frame_seq)?;
-            params.insert("pointer_frame_seq".into(), Value::String(pointer_frame_seq));
-            request(ResourceOperation::BrowserInputWheel, selectors, flags, params)
-        }
-        [selector, "attach"] => {
-            selectors.insert("browser", "browser", selector)?;
-            let mut params = Map::new();
-            add_stream_id(&mut params, flags)?;
-            add_pixel_size(&mut params, flags)?;
-            request(ResourceOperation::BrowserAttach, selectors, flags, params)
-        }
-        [selector, "close"] => {
-            selectors.insert("browser", "browser", selector)?;
-            request(ResourceOperation::BrowserClose, selectors, flags, Map::new())
-        }
-        _ => usage("browser action"),
-    }
-}
-
-fn browser_no_args(
-    operation: ResourceOperation,
-    selector: &str,
-    selectors: &mut Selectors,
-    flags: &mut Flags,
-) -> Result<CommandPlan, UsageError> {
-    selectors.insert("browser", "browser", selector)?;
-    request(operation, selectors, flags, Map::new())
-}
+use browser::parse_browser;
 
 fn parse_notification(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
     let selectors = Selectors::default();
@@ -2910,10 +2760,6 @@ fn strs(values: &[String]) -> Vec<&str> {
     values.iter().map(String::as_str).collect()
 }
 
-fn usage<T>(what: &str) -> Result<T, UsageError> {
-    Err(UsageError::new(format!("unknown or incomplete {what}; use --help")))
-}
-
 pub(super) fn run_plugin(global: GlobalArgs, plan: PluginPlan) -> i32 {
     match crate::plugin_manager::execute(
         &plan.positionals,
@@ -3247,6 +3093,17 @@ mod tests {
         assert!(
             parse(&strings(&["tab", "group", "create"]), super::super::Surface::CmuxTui).is_err()
         );
+    }
+
+    #[test]
+    fn browser_open_alias_maps_to_tab_create_browser() {
+        let plan = protocol(&["browser", "open", "https://example.com"]);
+        assert_eq!(operation(&plan), "tab.create_browser");
+        assert_eq!(plan.params["url"], "https://example.com");
+
+        let flagged = protocol(&["browser", "open", "--url", "https://example.com/docs"]);
+        assert_eq!(operation(&flagged), "tab.create_browser");
+        assert_eq!(flagged.params["url"], "https://example.com/docs");
     }
 
     #[test]

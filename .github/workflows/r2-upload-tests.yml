@@ -12,6 +12,9 @@ on:
       - scripts/ci/upload-r2-object.py
       - tests/test_ci_r2_upload_python.sh
       - tests/test_r2_upload_requests.py
+      - .github/workflows/cmux-tui-artifacts-retry.yml
+      - scripts/ci/cmux_tui_artifacts_retry.py
+      - tests/test_cmux_tui_artifacts_retry.py
   workflow_dispatch:
 
 permissions:
@@ -29,3 +32,4 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - run: bash tests/test_ci_r2_upload_python.sh
       - run: python3 tests/test_github_release_publication.py
+      - run: python3 tests/test_cmux_tui_artifacts_retry.py

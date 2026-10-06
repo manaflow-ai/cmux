@@ -218,7 +218,7 @@ pub(crate) fn drain_pending_changes(
     Ok(())
 }
 
-fn is_ephemeral(connection: &Connection, workspace_id: &str) -> anyhow::Result<bool> {
+pub(super) fn is_ephemeral(connection: &Connection, workspace_id: &str) -> anyhow::Result<bool> {
     Ok(connection
         .query_row(
             "SELECT ephemeral FROM workspace_state WHERE workspace_id = ?1",
@@ -302,6 +302,12 @@ fn tab_record(connection: &Connection, tab_id: &str) -> anyhow::Result<Option<Va
                 record["engine"] = json!(engine);
             }
             None => record["url"] = json!(url),
+        }
+        // A conversation tab reopens as one, from this record.
+        if let Some(conversation) =
+            super::conversation_tabs_store::tab_conversation_wire(connection, tab_id)?
+        {
+            record["conversation"] = conversation;
         }
     }
     Ok(Some(record))
@@ -588,14 +594,20 @@ fn capture_workspace(
     }
     let row = transaction
         .query_row(
-            "SELECT w.name, w.position FROM resource_workspaces AS rw
+            "SELECT w.name, w.position, w.workspace_key FROM resource_workspaces AS rw
              JOIN workspaces AS w ON w.workspace_key = rw.workspace_key
              WHERE rw.public_id = ?1",
             [workspace_id],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<i64>>(1)?)),
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, Option<i64>>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            },
         )
         .optional()?;
-    let Some((name, position)) = row else { return Ok(()) };
+    let Some((name, position, workspace_key)) = row else { return Ok(()) };
     let screens = {
         let mut statement = transaction.prepare(
             "SELECT public_id FROM resource_screens
@@ -610,9 +622,12 @@ fn capture_workspace(
         .map(|screen| screen_record(transaction, screen))
         .collect::<anyhow::Result<Vec<_>>>()?;
     capture.note_window(transaction, workspace_id)?;
+    // `workspace_key`: reopen moves the closed workspace's personal row
+    // (group, place, theme) to the new workspace.
     capture.members.push(json!({
         "kind": "workspace",
         "name": name,
+        "workspace_key": workspace_key,
         "workspace_id": null,
         "pane_id": null,
         "index": position.unwrap_or(0),

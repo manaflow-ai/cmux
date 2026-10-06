@@ -1,7 +1,8 @@
 public import Foundation
 
 /// The save picker's name field: pure rules for the typed text.
-public nonisolated enum PickerSaveName {
+public nonisolated struct PickerSaveName {
+    public nonisolated init() {}
     /// The typed text at its last `/`: the part before names a folder to
     /// go to (relative to the folder shown, or `~/...`, or `/...`), the
     /// rest is the name. No `/`: no folder.

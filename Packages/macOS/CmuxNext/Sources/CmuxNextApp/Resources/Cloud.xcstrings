@@ -6681,6 +6681,399 @@
           }
         }
       }
+    },
+    "cloud.link.disconnected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disconnected from the Cloud machine. Click Connect to connect again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud マシンから切断されました。もう一度接続するには［接続］をクリックしてください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تم قطع الاتصال بجهاز Cloud. انقر على اتصال للاتصال مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Veza s Cloud mašinom je prekinuta. Kliknite Poveži da se ponovo povežete."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forbindelsen til Cloud-maskinen er afbrudt. Klik på Forbind for at forbinde igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Verbindung zur Cloud-Maschine wurde getrennt. Klicke auf „Verbinden“, um erneut zu verbinden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desconectado de la máquina de Cloud. Haz clic en Conectar para volver a conectarte."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Déconnecté de la machine Cloud. Cliquez sur Se connecter pour vous reconnecter."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Disconnesso dalla macchina Cloud. Fai clic su Connetti per riconnetterti."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានផ្ដាច់ពីម៉ាស៊ីន Cloud។ ចុច ភ្ជាប់ ដើម្បីភ្ជាប់ម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud 기기와의 연결이 끊어졌습니다. 다시 연결하려면 연결을 클릭하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Koblet fra Cloud-maskinen. Klikk Koble til for å koble til igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rozłączono z maszyną Cloud. Kliknij Połącz, aby połączyć się ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desconectado da máquina Cloud. Clique em Conectar para conectar novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Соединение с машиной Cloud разорвано. Нажмите «Подключить», чтобы подключиться снова."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตัดการเชื่อมต่อจากเครื่อง Cloud แล้ว คลิก เชื่อมต่อ เพื่อเชื่อมต่ออีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud makinesiyle bağlantı kesildi. Yeniden bağlanmak için Bağlan'a tıklayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "З'єднання з машиною Cloud розірвано. Натисніть «Підключити», щоб підключитися знову."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã ngắt kết nối khỏi máy Cloud. Nhấp vào Kết nối để kết nối lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已与 Cloud 机器断开连接。点按“连接”以重新连接。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已與 Cloud 機器中斷連線。按一下「連線」以重新連線。"
+          }
+        }
+      }
+    },
+    "cloud.link.revoked": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Access to this Cloud machine was revoked. Click Connect to connect again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Cloud マシンへのアクセスが取り消されました。もう一度接続するには［接続］をクリックしてください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تم إلغاء الوصول إلى جهاز Cloud هذا. انقر على اتصال للاتصال مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pristup ovoj Cloud mašini je opozvan. Kliknite Poveži da se ponovo povežete."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adgangen til denne Cloud-maskine er tilbagekaldt. Klik på Forbind for at forbinde igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Zugriff auf diese Cloud-Maschine wurde widerrufen. Klicke auf „Verbinden“, um erneut zu verbinden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Se revocó el acceso a esta máquina de Cloud. Haz clic en Conectar para volver a conectarte."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’accès à cette machine Cloud a été révoqué. Cliquez sur Se connecter pour vous reconnecter."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L'accesso a questa macchina Cloud è stato revocato. Fai clic su Connetti per riconnetterti."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សិទ្ធិចូលប្រើម៉ាស៊ីន Cloud នេះត្រូវបានដកហូត។ ចុច ភ្ជាប់ ដើម្បីភ្ជាប់ម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 Cloud 기기에 대한 접근 권한이 취소되었습니다. 다시 연결하려면 연결을 클릭하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tilgangen til denne Cloud-maskinen ble trukket tilbake. Klikk Koble til for å koble til igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dostęp do tej maszyny Cloud został cofnięty. Kliknij Połącz, aby połączyć się ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O acesso a esta máquina Cloud foi revogado. Clique em Conectar para conectar novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Доступ к этой машине Cloud отозван. Нажмите «Подключить», чтобы подключиться снова."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สิทธิ์เข้าถึงเครื่อง Cloud นี้ถูกเพิกถอนแล้ว คลิก เชื่อมต่อ เพื่อเชื่อมต่ออีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu Cloud makinesine erişim iptal edildi. Yeniden bağlanmak için Bağlan'a tıklayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Доступ до цієї машини Cloud відкликано. Натисніть «Підключити», щоб підключитися знову."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quyền truy cập vào máy Cloud này đã bị thu hồi. Nhấp vào Kết nối để kết nối lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "对此 Cloud 机器的访问权限已被撤销。点按“连接”以重新连接。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此 Cloud 機器的存取權已被撤銷。按一下「連線」以重新連線。"
+          }
+        }
+      }
+    },
+    "cloud.link.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not connect to the Cloud machine (%@). Click Connect to try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud マシンに接続できませんでした（%@）。もう一度試すには［接続］をクリックしてください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّر الاتصال بجهاز Cloud (%@). انقر على اتصال للمحاولة مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Povezivanje s Cloud mašinom nije uspjelo (%@). Kliknite Poveži da pokušate ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kunne ikke forbinde til Cloud-maskinen (%@). Klik på Forbind for at prøve igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Verbindung zur Cloud-Maschine nicht möglich (%@). Klicke auf „Verbinden“, um es erneut zu versuchen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se pudo conectar a la máquina de Cloud (%@). Haz clic en Conectar para intentarlo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossible de se connecter à la machine Cloud (%@). Cliquez sur Se connecter pour réessayer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossibile connettersi alla macchina Cloud (%@). Fai clic su Connetti per riprovare."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនអាចភ្ជាប់ទៅម៉ាស៊ីន Cloud បានទេ (%@)។ ចុច ភ្ជាប់ ដើម្បីព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud 기기에 연결할 수 없습니다(%@). 다시 시도하려면 연결을 클릭하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kunne ikke koble til Cloud-maskinen (%@). Klikk Koble til for å prøve igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie można połączyć się z maszyną Cloud (%@). Kliknij Połącz, aby spróbować ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foi possível conectar à máquina Cloud (%@). Clique em Conectar para tentar novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не удалось подключиться к машине Cloud (%@). Нажмите «Подключить», чтобы повторить попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เชื่อมต่อกับเครื่อง Cloud ไม่ได้ (%@) คลิก เชื่อมต่อ เพื่อลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud makinesine bağlanılamadı (%@). Yeniden denemek için Bağlan'a tıklayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не вдалося підключитися до машини Cloud (%@). Натисніть «Підключити», щоб спробувати знову."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không thể kết nối với máy Cloud (%@). Nhấp vào Kết nối để thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无法连接到 Cloud 机器（%@）。点按“连接”以重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無法連線到 Cloud 機器（%@）。按一下「連線」以重試。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

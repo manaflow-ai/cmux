@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import Testing
 @testable import CmuxNextSidebar
 
@@ -16,12 +17,12 @@ import Testing
     }
 
     @Test func anUpdateBadgeShowsOnlyWithTheAccessory() {
-        #expect(settingsRow(accessory: .update).isAccessoryShown)
+        #expect(settingsRow(accessory: .update(title: "Restart to Update")).isAccessoryShown)
         #expect(!settingsRow(accessory: nil).isAccessoryShown)
     }
 
     @Test func theBadgeRunsTheAccessoryAndTheRestRunsTheItem() throws {
-        let row = settingsRow(accessory: .update)
+        let row = settingsRow(accessory: .update(title: "Restart to Update"))
         var pressed = 0, accessory = 0
         row.onPress = { pressed += 1 }
         row.onAccessory = { accessory += 1 }
@@ -34,12 +35,26 @@ import Testing
     }
 
     @Test func voiceOverReachesTheUpdateAction() {
-        let row = settingsRow(accessory: .update)
+        let row = settingsRow(accessory: .update(title: "Restart to Update"))
         var accessory = 0
         row.onAccessory = { accessory += 1 }
         let action = row.accessibilityCustomActions()?.first
-        #expect(action != nil)
+        #expect(action?.name == "Restart to Update")
         _ = action?.handler?()
         #expect(accessory == 1)
+    }
+    /// The update control takes the theme's call-to-action color
+    /// (`Palette.highlight`), not the neutral accent: small, but noticeable.
+    @Test func theUpdateControlUsesTheThemeHighlight() throws {
+        let row = settingsRow(accessory: .update(title: "Restart to Update"))
+        let tint = try #require(row.accessoryTint?.usingColorSpace(.sRGB))
+        let expected = try #require(row.performWithTheme { Palette.highlight }.usingColorSpace(.sRGB))
+        let neutral = try #require(row.performWithTheme { Palette.accent }.usingColorSpace(.sRGB))
+        func same(_ a: NSColor, _ b: NSColor) -> Bool {
+            abs(a.redComponent - b.redComponent) < 0.01 && abs(a.greenComponent - b.greenComponent) < 0.01
+                && abs(a.blueComponent - b.blueComponent) < 0.01
+        }
+        #expect(same(tint, expected))
+        #expect(!same(tint, neutral))
     }
 }

@@ -21,4 +21,16 @@ import Testing
         #expect(alert.title == HomeText.actionFailedTitle)
         #expect(alert.message == HomeText.explanation(for: .ownerUnreachable))
     }
+
+    /// An op that ran out of resends unanswered (HomeStoreBinding.onUnanswered,
+    /// which ConversationViewController sets next to onRefusal) says it may
+    /// not have gone through. It names no refusal: the owner never answered.
+    @Test func anUnansweredOpSaysItMayNotHaveGoneThrough() {
+        let intent = HomeIntent(op: .addReaction(message: MessageID("msg_7"), conversation: conversation,
+                                                 reaction: .tapback(.love), partIndex: 0))
+        let alert = HomeRefusalAlert(unanswered: intent)
+        #expect(alert.title == HomeText.unansweredTitle)
+        #expect(alert.title == "A change may not have gone through. Check your connection.")
+        #expect(alert.message.isEmpty)
+    }
 }

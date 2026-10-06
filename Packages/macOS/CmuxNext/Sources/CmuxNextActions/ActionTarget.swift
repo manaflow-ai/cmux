@@ -82,6 +82,12 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
     case sidebarBackground
     case terminalSelection
     case browserPage
+    /// A link in a page (both engines; `BrowserHitMenu` in the App).
+    case browserLink
+    /// An image in a page.
+    case browserImage
+    /// Selected text in a page (not in an editable field).
+    case browserSelection
     /// A Cloud machine's sidebar section header.
     case cloudMachine
     /// An SSH machine's sidebar section header.
@@ -114,7 +120,7 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
         case .screenGroup: .screenGroup
         // A terminal or page right-click targets its tab (the App passes the
         // tab; a tab names its pane).
-        case .terminalSelection, .browserPage: .tab
+        case .terminalSelection, .browserPage, .browserLink, .browserImage, .browserSelection: .tab
         case .pane, .newTab: .pane
         case .workspaceRow: .workspace
         case .workspaceGroup: .workspaceGroup

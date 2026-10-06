@@ -14,8 +14,55 @@ public struct SidebarDebugRow: Sendable {
     public var suppressed: Bool
 }
 
+/// One sidebar layout item (a top or bottom region row), for
+/// `debug.sidebar_rows`: what it points at, whether it is active, and where
+/// its view is (nil while it draws nothing).
+public struct SidebarDebugItem: Sendable {
+    public var id: String
+    public var refKind: String
+    public var ref: String
+    public var region: String
+    public var isActive: Bool
+    /// The item in window points from the top-left (as `debug.mouse` takes them).
+    public var windowFrame: CGRect?
+}
+
+/// One drop resolution of an internal drag, for `debug.sidebar_rows`.
+public struct SidebarDropProbe: Sendable, Equatable {
+    /// `top` or `bottom`: the card's leading edge for the drag direction.
+    public var edge: String
+    /// The edge in list coordinates as drawn, and in the base layout.
+    public var displayY: CGFloat
+    public var baseY: CGFloat?
+    /// The base-layout row under the edge and the edge's share of its height.
+    public var row: String?
+    public var fraction: CGFloat?
+    /// The resolved target, or nil when the drop is refused.
+    public var target: String?
+}
+
 extension SidebarView {
+    /// Every layout item of the shown sections and its view (debug).
+    public func debugLayoutItems() -> [SidebarDebugItem] {
+        let height = window?.contentView?.bounds.height ?? 0
+        return model.layout.sections.flatMap { section in
+            section.items.map { item -> SidebarDebugItem in
+                var frame: CGRect?
+                for region in [aboveRegion, belowRegion] {
+                    guard let view = region.itemView(item.id), view.window != nil, !view.isHiddenOrHasHiddenAncestor else { continue }
+                    let inWindow = view.convert(view.bounds, to: nil)
+                    frame = CGRect(x: inWindow.minX, y: height - inWindow.maxY, width: inWindow.width, height: inWindow.height)
+                }
+                return SidebarDebugItem(id: item.id.rawValue, refKind: item.ref.kind, ref: item.ref.value, region: section.region.rawValue,
+                                        isActive: model.itemInfo[item.id]?.isActive == true, windowFrame: frame)
+            }
+        }
+    }
+
     /// The list's rows and their views, the selection and the drag (debug).
+    /// The drag's last drop probe (debug): nil while nothing is dragged.
+    public func debugDropProbe() -> SidebarDropProbe? { list.drag?.probe }
+
     public func debugRows() -> (rows: [SidebarDebugRow], selection: [String], dragging: [String]) {
         let rows = list.displayed.rows.map { row -> SidebarDebugRow in
             let view = list.rowViews[row.key]

@@ -28,17 +28,11 @@ final class AppOnboardingServices: OnboardingServices {
         self.owner = owner
     }
 
-    var savedProfile: OnboardingProfile? { owner.profile }
-
     var canRunFirstTask: Bool { services.agentTabs.canHostChat }
     var firstTaskFolder: FirstTaskFolder { .live() }
 
     func makeFirstTaskView(cwd: URL, prompt: String) -> NSView? {
         owner.firstTaskView(cwd: cwd, prompt: prompt)
-    }
-
-    func saveProfile(_ profile: OnboardingProfile) {
-        owner.saveProfile(profile)
     }
 
     var ghosttyTheme: ThemeInput { ThemeStore.shared.input }
@@ -80,7 +74,7 @@ final class AppOnboardingServices: OnboardingServices {
     }
 
     func scanAgentProjects() async -> [AgentProject] {
-        await Task.detached { AgentProjectScan.live().run() }.value
+        await Task.detached { RecentProjectScan.live().run() }.value
     }
 
     func chooseFolder() async -> URL? {

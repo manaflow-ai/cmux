@@ -2,6 +2,8 @@ import React, { useEffect, useId, useRef } from "react";
 import { ChevronIcon, PICKER_LABELS } from "./ComposerPickers";
 import type { PickerLayout } from "./modelPickerLayout";
 import { registerPicker } from "./pickerOpeners";
+import { useT } from "./i18n";
+import { useUiAnchor } from "../../ui/anchor";
 
 /// The model chip and the popover above it. Focus stays on the chip while the popover is open,
 /// so typing, arrows, digits and Return reach `onKeyDown`; a press elsewhere, the window losing
@@ -26,11 +28,14 @@ export function ModelPickerShell({
   onKeyDown(event: React.KeyboardEvent): void;
   onPointerMove?(event: React.PointerEvent): void;
   trigger: React.RefObject<HTMLButtonElement | null>;
-  menu?: React.RefObject<HTMLDivElement | null>;
+  menu: React.RefObject<HTMLDivElement | null>;
   children: React.ReactNode;
 }) {
+  const t = useT();
+  const modelLabel = t(PICKER_LABELS.model);
   const root = useRef<HTMLSpanElement>(null);
   const menuId = useId();
+  const menuStyle = useUiAnchor(trigger, menu, open, { side: "above", align: "start" });
   useEffect(() => {
     if (!open) return;
     const away = (event: PointerEvent) => {
@@ -56,18 +61,19 @@ export function ModelPickerShell({
   // prompt first: that closes the slash menu and restores the draft.
   useEffect(
     () =>
-      registerPicker(PICKER_LABELS.model, () => {
+      registerPicker(modelLabel, () => {
         const focused = document.activeElement;
         // Focus already on the chip stays there: blurring it would close the open menu.
         if (focused instanceof HTMLElement && !root.current?.contains(focused)) focused.blur();
         showRef.current();
       }),
-    [],
+    [modelLabel],
   );
   return (
     <span
       ref={root}
       className="acpmux-picker acpmux-model"
+      style={{ position: "relative" }}
       onBlur={(event) => {
         if (open && !root.current?.contains(event.relatedTarget as Node | null)) onOpenChange(false);
       }}
@@ -78,8 +84,8 @@ export function ModelPickerShell({
         // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
         role="combobox"
         className="acpmux-picker-button"
-        data-menu={PICKER_LABELS.model}
-        aria-label={PICKER_LABELS.model}
+        data-menu={modelLabel}
+        aria-label={modelLabel}
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
@@ -102,7 +108,8 @@ export function ModelPickerShell({
           className={`acpmux-menu acpmux-menu-end acpmux-mp acpmux-mp-${layout ?? "cascade"}`}
           // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
           role="menu"
-          aria-label={PICKER_LABELS.model}
+          aria-label={modelLabel}
+          style={menuStyle}
           onPointerMove={onPointerMove}
         >
           {children}

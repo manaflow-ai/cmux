@@ -1,7 +1,9 @@
 // Wire types of the `cmux.keybindings` ops (plans/cmux-next/keybindings.md 8). The Swift
 // provider in the app serves them; the mock provider (mockProvider.ts) serves the same contract.
 
-export type BindingSource = "default" | "app" | "user";
+/** `ghostty`: a keybind the user's Ghostty config changed (terminal only); `ghostty-fallback`: a
+ *  Ghostty default keybind. cmux never writes the Ghostty config, so both are read-only here. */
+export type BindingSource = "default" | "app" | "user" | "ghostty" | "ghostty-fallback";
 
 /** One entry of the effective binding table. */
 export interface Binding {
@@ -25,6 +27,8 @@ export interface Binding {
    * page can offer Reset; it is not active.
    */
   removed?: boolean;
+  /** Set on a removed default when the user's Ghostty config claims its key (read-only; no Reset). */
+  removedBy?: "ghostty";
 }
 
 export interface BindingListResult {

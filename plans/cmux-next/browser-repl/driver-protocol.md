@@ -18,7 +18,14 @@ In the app, calls are synchronous-looking JSON messages between the REPL's
 JavaScriptCore context and Swift; results are JSON. Errors are
 `{ code, message }`, with codes `not_found`, `stale`, `timeout`,
 `unsupported`, `invalid`, `closed`, `blocked`, `hibernated` and `crashed`
-(see [Hibernated and crashed tabs](#hibernated-and-crashed-tabs)).
+(see [Hibernated and crashed tabs](#hibernated-and-crashed-tabs)), and the
+host's `cancelled` (FETCH-CANCEL-CODE, 2026-10-05): a fetch the host stopped,
+because the cell that started it timed out (message, classic's text: "fetch:
+cancelled because the cell that started it timed out") or its session ended
+("fetch: the session ended"). Compatibility: readers treat a code they do not
+know as an error with that code and its message (the runtime compares code
+strings; the Rust `ErrorCode` decodes an unknown code as `Unknown`), so an
+older reader of `cancelled` still reports the error and its message.
 
 Coordinates are CSS pixels relative to the top-left of the tab's viewport
 (main frame), matching Playwright `page.mouse` and screenshots at scale 1.
@@ -30,12 +37,12 @@ Coordinates are CSS pixels relative to the top-left of the tab's viewport
 | `tabs.list` | `{ all? }` | `[{ targetId, title, url, active, windowId, state, dataStore, openerTargetId? }]` in window order (`state`: `live`, `hibernated`, `waking` or `crashed`; listing never wakes a tab); with `all`, then the browser tabs of every other workspace and window (`windowId` names the workspace). Any listed tab is a valid `targetId` for the other methods. Tabs with equal `dataStore` (an opaque id, never reused for another store) share cookies and storage; a hibernated tab not yet loaded since a relaunch has none |
 | `tabs.dataStore` | `{ targetId? }` | `{ dataStore }`: the store `cookies.get` uses with the same params |
 | `tabs.open` | `{ url?, background?, dataStore? }` | `{ targetId }`; resolves after commit of `url`. With `dataStore`, the tab opens in that store (and the profile of a tab that uses it); one no reachable tab uses fails with `invalid` |
-| `tabs.close` | `{ targetId, runBeforeUnload? }` | |
+| `tabs.close` | `{ targetId, runBeforeUnload?, timeoutMs?, reason? }` | `reason` is `"session_end"` only when the browser host closes a tab at the session's end (with `timeoutMs`); the app then closes it with raw `close-tabs {reason: "session_end"}` (`close-reason-v1`), so the close is not in Reopen Closed. An agent's own `tabs.close` carries no reason (the host removes one an agent sends); the app provider closes no tab for it (tabs belong to the person's layout) |
 | `tabs.activate` | `{ targetId }` | |
 | `tab.navigate` | `{ targetId, url, waitUntil: "commit"\|"domcontentloaded"\|"load"\|"networkidle", timeoutMs }` | `{ url, status? }` |
 | `tab.history` | `{ targetId, delta: -1\|1, waitUntil, timeoutMs }` | `{ url }`, or `null` when no entry (the blank page a tab opened on is not an entry) |
 | `tab.reload` | `{ targetId, waitUntil, timeoutMs }` | `{ status? }` |
-| `tab.info` | `{ targetId }` | `{ url, title, state, loadState, viewport: { width, height }, deviceScaleFactor, webProcessId? }` |
+| `tab.info` | `{ targetId }` | `{ url, title, state, loadState, viewport: { width, height }, deviceScaleFactor, webProcessId?, closedRoots?, unroutedEvents? }`; `unroutedEvents` (shared headless, user origin only) lists the host's log entries of the tab's events no session took (D2); `closedRoots: { walks, walkMs, roots, domEvents }` (CDP engines) is the cost of finding closed shadow roots in the tab, for the perf bench. Measured on the Testbox (2026-10-06): one walk about 250 ms on cards-50k and table-10k, 58 ms on list-5k, 19 ms on wikipedia and github, 9 ms per out-of-process frame. After a walk the DOM domain stays on until 12,000 DOM events or the first event more than 30 s after the walk (DOM_EVENT_BUDGET, DOM_IDLE_AFTER_READ; a churning page sends about 6,400 events/s); review a change of either constant against these numbers |
 | `tab.setViewport` | `{ targetId, width, height }` or `{ targetId, reset: true }` | |
 | `tab.bringToFront` | `{ targetId }` | |
 | `tab.keep` | `{ targetId }` | |
@@ -44,7 +51,8 @@ Coordinates are CSS pixels relative to the top-left of the tab's viewport
 | `session.configure` | `{ userAgent?, extraHTTPHeaders?, permissions?, proxy? }`, each key replacing its value (`null` clears) | `{ proxy }`: whether tabs opened from now on use the proxy. Applies to the tabs the session created while it is attached (a user's tab it drives keeps its own user agent, headers and content), whichever session drives them; it is undone when the creating session leaves the tab. Content rules are not accepted here: the driver builds them from the session's domain policy (see "Guards") |
 | `history.search` | `{ queries?, from?, to?, limit }` (times in ms since the epoch) | `[{ url, title, dateVisited }]` newest first, from the history of the profiles the workspace's tabs use |
 
-Tabs the session opened (`tabs.open`, popups of those tabs) close when the session ends;
+Tabs the session opened (`tabs.open`, popups of those tabs) close when the session ends
+(`tabs.close` with `reason: "session_end"`, left out of Reopen Closed);
 `tab.keep` releases one so it stays open.
 
 A tab the session created (`tabs.open`, and popups of such a tab) gets the
@@ -77,6 +85,18 @@ chooser, the session whose call the page is handling. Only that session gets
 and `dialog.respond` and `filechooser.respond` from any other session fail
 with `not_found`, leaving the dialog or chooser open. When that session
 leaves the tab, its open dialogs are dismissed and its choosers cancelled.
+
+cmux-next shared headless browser (D2, ff 2026-10-06): headless has no user
+UI, so an event no session takes is answered by the host (a dialog is
+dismissed, `beforeunload` keeps the page; a chooser is cancelled; a download
+is cancelled) and logged. The entry `{ url, reason, blocked: "unrouted",
+event, targetId, action, at }` (no page text) goes to the policy log
+(`policy log`, `session.blockedNavigations()`) of the session that opened the
+tab, also after it kept the tab (a popup counts as its opener's tab), while
+that session is attached; and to the host's own log of the newest 64
+entries, which only the person (user origin) reads, as `tab.info
+unroutedEvents` (that tab's entries) on a tab they may use. Engine or app
+events named `host.policyLog` are dropped: only the host writes that log.
 
 When the last session leaves a tab, the driver releases what the sessions
 left pressed: each held key gets its key-up (last pressed first) and each
@@ -138,6 +158,7 @@ ended is restored like a hibernated one. Errors, where `<tab>` is `tab <id> ("<t
 | `frames.list` | `{ targetId }` | `[{ frameId, parentFrameId, url, name, crossOrigin }]`, parents before children, document order |
 | `frame.evaluate` | `{ targetId, frameId, world: "agent"\|"page", source, args, awaitPromise, timeoutMs }` | JSON-serializable return value |
 | `frame.ownerBox` | `{ targetId, frameId }` | owner `<iframe>` content box in parent-frame coordinates |
+| `frame.focused` | `{ targetId }` | `{ frameId, url }` of the frame that holds keyboard focus, or `null`; host only (the gate refuses it from sessions). The host asks it when its focus probe for secret typing cannot look into a cross-origin frame; a driver without it answers an error and the secret is refused |
 
 `world: "agent"` runs in an isolated content world where the driver has
 already installed the page agent (`cmux-tui/crates/cmux-browser-host/js/page-agent.js`) and
@@ -431,7 +452,8 @@ agent's `fill` carry (not `input.insertText { secret }`); `policy set` only
 narrows (the host intersects with the user's layer); `policy site` answers
 from a compact suffix list until the host has a Public Suffix List (D6);
 `policy log` returns the host's own log of navigations it blocked before
-their request; `secrets load` keys come back in sorted order. The host keeps
+their request, plus the session's tabs' unrouted events (`blocked:
+"unrouted"`, see "Sessions and tabs"); `secrets load` keys come back in sorted order. The host keeps
 the runtime's entry points and removes them and `__cmuxNative` before the
 first cell. `fs` has no `lstat` yet, and `fetch` answers `unsupported`.
 

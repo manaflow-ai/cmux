@@ -3639,7 +3639,6 @@ fn create_live_terminal_host_record(root: &std::path::Path) -> fs::File {
     fs::set_permissions(root, fs::Permissions::from_mode(0o700)).unwrap();
     let terminal_id = "0000000000004000800000000000002a";
     let incarnation = "0000000000004000800000000000002b";
-    let owner_token = "01".repeat(32);
     let host_start_nonce = "02".repeat(32);
     let uid = fs::metadata(root).unwrap().uid();
     let record = cmux_tui_core::terminal_host_runtime::TerminalHostRecord {
@@ -3647,7 +3646,7 @@ fn create_live_terminal_host_record(root: &std::path::Path) -> fs::File {
         terminal_id: terminal_id.to_string(),
         incarnation: incarnation.to_string(),
         endpoint: format!("/tmp/cmux-th-{uid}/{terminal_id}.sock"),
-        owner_token,
+        owner_token: "01".repeat(32),
         host_pid: std::process::id(),
         host_start_nonce: host_start_nonce.clone(),
         workspace_key: String::new(),
@@ -3656,6 +3655,7 @@ fn create_live_terminal_host_record(root: &std::path::Path) -> fs::File {
         supports_terminate_ack: false,
         supports_input_ack: false,
         supports_terminal_metadata: false,
+        supports_clipboard_read: false,
     };
     let record_path = record.record_path(root);
     let live_path = record_path.with_extension(format!("{incarnation}-{host_start_nonce}.live"));

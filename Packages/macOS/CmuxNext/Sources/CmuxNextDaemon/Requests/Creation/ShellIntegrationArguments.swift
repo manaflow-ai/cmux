@@ -47,6 +47,14 @@ extension NewPaneRequest: ShellIntegrationArgumentCarrying {
     }
 }
 
+extension NewScreenWithSpecRequest: ShellIntegrationArgumentCarrying {
+    func addingShellIntegrationArguments() -> Self {
+        var request = self
+        request.options = options.addingShellIntegrationArguments()
+        return request
+    }
+}
+
 extension NewRowRequest: ShellIntegrationArgumentCarrying {
     func addingShellIntegrationArguments() -> Self {
         var request = self

@@ -1,7 +1,8 @@
 /// Palette scope prefixes (`palette.scopes.<scope>.prefix`), in the
 /// General section's Command Palette group.
-extension SettingsSchema {
-    static var palette: [SettingDescriptor] {
+/// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
+nonisolated enum PaletteSettingsSchema {
+    static var descriptors: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.palette", "Command Palette")
         let help = SettingsText.keyed("settings.palette.prefix.help",
                                       "Typed into an empty query, this character enters the scope. A prefix you assign moves from any other scope.")

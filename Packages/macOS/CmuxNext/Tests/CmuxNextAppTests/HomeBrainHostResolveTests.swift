@@ -18,9 +18,10 @@ import Testing
         return dir
     }
 
-    static func resolve(_ environment: [String: String], bin: URL?) -> HomeBrainHost? {
+    static func resolve(_ environment: [String: String], bin: URL?, bundledChiefAllowed: Bool = true) -> HomeBrainHost? {
         HomeBrainHost.resolve(daemonSocket: "/tmp/d.sock", controlSocket: "/tmp/c.sock", tag: "hmchief", environment: environment,
-                              userHome: URL(fileURLWithPath: "/Users/someone"), bundledBinDirectory: bin)
+                              userHome: URL(fileURLWithPath: "/Users/someone"), bundledBinDirectory: bin,
+                              bundledChiefAllowed: bundledChiefAllowed)
     }
 
     @Test func aBuildThatBundlesTheChiefStartsItWithoutAnyEnvironment() throws {
@@ -46,5 +47,19 @@ import Testing
         // A variable naming something that cannot run falls back to the bundle, not to nothing.
         let bin = try Self.binDirectory(withChief: true)
         #expect(Self.resolve(["CMUX_NEXT_MUX_HOST": "/nonexistent/mux"], bin: bin)?.executable.lastPathComponent == "optchat-chief")
+    }
+
+    /// The bundled Chief runs on DEV and NIGHTLY only: a Release or RC
+    /// bundle that carries one by mistake starts nothing, while an explicit
+    /// CMUX_NEXT_MUX_HOST still runs.
+    @Test func aReleaseOrRCBuildNeverStartsTheBundledChief() throws {
+        let bin = try Self.binDirectory(withChief: true)
+        #expect(Self.resolve([:], bin: bin, bundledChiefAllowed: false) == nil)
+        #expect(Self.resolve(["CMUX_NEXT_MUX_HOST": "/bin/sh"], bin: bin, bundledChiefAllowed: false)?.executable.path == "/bin/sh")
+        #expect(HomeBrainHost.bundledChiefAllowed(bundleID: "com.cmuxterm.app.nightly", isDebugBuild: false))
+        #expect(HomeBrainHost.bundledChiefAllowed(bundleID: "com.cmuxterm.app.nightly.nxchief1", isDebugBuild: false))
+        #expect(HomeBrainHost.bundledChiefAllowed(bundleID: "com.cmuxterm.app.debug.nxchief1", isDebugBuild: true))
+        #expect(!HomeBrainHost.bundledChiefAllowed(bundleID: "com.cmuxterm.app", isDebugBuild: false))
+        #expect(!HomeBrainHost.bundledChiefAllowed(bundleID: "com.cmuxterm.app.rc", isDebugBuild: false))
     }
 }

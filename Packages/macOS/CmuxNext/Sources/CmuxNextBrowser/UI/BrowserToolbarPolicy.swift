@@ -5,7 +5,8 @@ import Foundation
 /// or a running Chromium page; a Chromium tab whose engine is not loaded
 /// (hibernated, restored before Chromium started, or Chromium unavailable)
 /// shows it disabled with the reason.
-public nonisolated enum BrowserToolbarPolicy {
+public nonisolated struct BrowserToolbarPolicy {
+    public nonisolated init() {}
     public static func state(_ button: BrowserToolbarButton, _ facts: BrowserToolbarFacts,
                              shortcut: String? = nil) -> BrowserToolbarButtonState {
         func hinted(_ text: String) -> String { shortcut.map { "\(text) (\($0))" } ?? text }

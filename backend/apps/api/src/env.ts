@@ -40,6 +40,8 @@ export interface Env {
   readonly DOMAIN_DO: DurableObjectNamespace<DomainDO>
   /** Workers rate limit for unauthenticated sign-in discovery (30 per minute per client IP). */
   readonly SSO_DISCOVER_LIMIT?: RateLimit
+  /** GET /v1/cloud/keyset per client IP (namespaces 1161-1163). */
+  readonly CLOUD_KEYSET_LIMIT?: RateLimit
   /** Pending cmux server pairings, one object per code (plans/cmux-next/server.md 6.2). */
   readonly PAIRING_DO: DurableObjectNamespace<PairingDO>
   readonly HOST_DO: DurableObjectNamespace<HostDO>
@@ -65,6 +67,8 @@ export interface Env {
    * Never logged. Without it, or without CLOUD_FREESTYLE_SNAPSHOT, create and delete answer cloud.provider.unavailable.
    */
   readonly CLOUD_FREESTYLE_API_KEY?: string
+  /** The https API origin written into each VM's bind file (the image's bind agent calls it). */
+  readonly CLOUD_API_ORIGIN?: string
   /** Secret: the operator key for /v1/admin/cloud/abandoned/clear (also needs a person's session token). */
   readonly CLOUD_ADMIN_KEY?: string
   /** Comma-separated user ids who may use the Cloud admin routes (with CLOUD_ADMIN_KEY and their own verified session). */
@@ -76,6 +80,11 @@ export interface Env {
   readonly CLOUD_NAME_PREFIX?: string
   /** Var: comma-separated team ids that get the stub plan and provider calls outside production (P1-1); unset = nobody. */
   readonly CLOUD_ALLOWED_TEAMS?: string
+  /**
+   * Secret: link-token signing keys (LINK-TOKEN-FORMAT) as JSON {active: kid, keys: {kid: private Ed25519 JWK}}, at most 2 kids.
+   * Per environment; never logged, never in a response, error, event or storage. Without it bind and link_token refuse.
+   */
+  readonly CLOUD_LINK_SIGNING_KEYS?: string
   /** Per-team limit on cloud.machine.create and delete (namespace 1151-1153). */
   readonly CLOUD_MUTATION_LIMIT?: RateLimit
   /** Test only: `fake` selects the in-object fake Cloud provider when ENVIRONMENT=test. */
@@ -176,6 +185,8 @@ export interface Env {
   /** Staging, development and previews only: comma-separated recipients invites may reach; missing = none. */
   readonly HOME_INVITE_ALLOWLIST_EMAILS?: string
   readonly HOME_INVITE_ALLOWLIST_PHONES?: string
+  /** Team inviters (user ids or verified emails) whose invites reach any address outside production. */
+  readonly HOME_INVITE_ALLOWED_INVITERS?: string
   /** Send switch, fail-closed: only "on" sends invites; unset or any other value sends nothing. */
   readonly HOME_INVITES_SEND?: string
   /** Invite email sender, for example "cmux <invites@cmux.dev>" (the domain verified in Resend); unset = no email sends. */

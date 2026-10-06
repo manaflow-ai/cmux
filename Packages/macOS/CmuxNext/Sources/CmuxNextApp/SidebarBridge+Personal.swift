@@ -10,6 +10,8 @@ import CmuxNextSidebar
 // snapshot overwrites it with daemon truth, and a rejection re-syncs.
 extension SidebarBridge {
     var usesPersonalOrganization: Bool { services.machines.local.store.personal.isLoaded }
+    /// The home session places groups among the loose workspaces (`personal-mixed-order-v1`).
+    var usesMixedOrder: Bool { services.machines.local.store.supportsPersonalMixedOrder }
 
     /// Handles an organization intent in personal mode. Returns false for
     /// intents that are not about organization.
@@ -29,14 +31,20 @@ extension SidebarBridge {
                                                         group: .set(id))
                 }
             }
-        case .createGroup(let group, let name, let color, let ids):
+        case .createGroup(let group, let name, let color, let ids, _):
             model.apply(intent)
             let id = WorkspaceGroupID(rawValue: group.rawValue), room = state.profileID, members = placements(ids), v2 = statePersonal
+            // Mixed order: the new group's place where the model formed it,
+            // set before members join so it never shows at the end first.
+            let place = usesMixedOrder && v2 ? PersonalSidebarPlanner(machines: services.machines).groupPlacement(of: group, in: model.sections)
+                : PersonalSidebar.GroupPlacement()
+            let move = place.move, top = place.topIndex
             personal("create-personal-group") { connection in
                 // The v2 operation names the group itself.
                 let created = v2 ? WorkspaceGroupID(rawValue: try await connection.state.createWorkspaceGroup(
-                    name: name, room: room.rawValue, color: color.rawValue).id)
-                    : try await connection.createPersonalGroup(name: name, id: id, room: room, color: color.rawValue).id
+                    name: SidebarGroup.named(name), room: room.rawValue, color: color.rawValue, index: move).id)
+                    : try await connection.createPersonalGroup(name: SidebarGroup.named(name), id: id, room: room, color: color.rawValue).id
+                if top != .unchanged { try await connection.state.updateWorkspaceGroup(created.rawValue, topIndex: top) }
                 for workspace in members {
                     try await connection.state.placePersonalWorkspace(session: workspace.session, key: workspace.key, resource: workspace.resource,
                                                                 group: .set(created))
@@ -71,12 +79,21 @@ extension SidebarBridge {
                 if v2 { return try await $0.state.deleteWorkspaceGroup(group.rawValue) }
                 try await $0.deletePersonalGroup(WorkspaceGroupID(rawValue: group.rawValue))
             }
-        case .reorderGroup(let group, let index):
+        case .reorderGroup(let group, _):
             model.apply(intent)
-            let v2 = statePersonal
-            personal("move-personal-group") {
-                if v2 { return try await $0.state.moveWorkspaceGroup(group.rawValue, to: index) }
-                try await $0.movePersonalGroup(WorkspaceGroupID(rawValue: group.rawValue), to: index)
+            // The intent's index counts section nodes; the daemon wants a
+            // group-order index (and, mixed, the group's place among the rows).
+            let place = PersonalSidebarPlanner(machines: services.machines).groupPlacement(of: group, in: model.sections)
+            let v2 = statePersonal, move = place.move, top = place.topIndex
+            personal("move-personal-group") { connection in
+                if let move {
+                    if v2 {
+                        try await connection.state.moveWorkspaceGroup(group.rawValue, to: move)
+                    } else {
+                        try await connection.movePersonalGroup(WorkspaceGroupID(rawValue: group.rawValue), to: move)
+                    }
+                }
+                if v2, top != .unchanged { try await connection.state.updateWorkspaceGroup(group.rawValue, topIndex: top) }
             }
         default:
             return false
@@ -89,12 +106,17 @@ extension SidebarBridge {
     /// each in the home session; the workspace's own daemon is not written.
     func placePersonal(_ ids: [SidebarWorkspaceID], at position: DropPosition, in sections: [SidebarRowSection]) {
         let group = position.group.map { WorkspaceGroupID(rawValue: $0.rawValue) }
-        guard let index = personalIndex(for: position, moving: ids, in: sections) else { return resync() }
-        for (offset, workspace) in placements(ids).enumerated() {
-            personal("set-personal-workspace") {
-                try await $0.state.placePersonalWorkspace(session: workspace.session, key: workspace.key, resource: workspace.resource,
-                                                    group: group.map { .set($0) } ?? .clear, index: index + offset)
+        guard let plan = PersonalSidebarPlanner(machines: services.machines).dropPlan(ids, at: position, in: sections) else { return resync() }
+        let regroup = statePersonal ? plan.regroup : []
+        personal("set-personal-workspace") { connection in
+            for step in plan.steps {
+                try await connection.state.placePersonalWorkspace(session: step.workspace.session, key: step.workspace.key,
+                                                                  resource: step.workspace.resource,
+                                                                  group: step.moves ? (group.map { .set($0) } ?? .clear) : .unchanged,
+                                                                  index: step.index)
             }
+            guard let first = plan.first else { return }
+            for id in regroup { try await connection.state.updateWorkspaceGroup(id.rawValue, topIndex: .set(first)) }
         }
     }
 
@@ -102,39 +124,8 @@ extension SidebarBridge {
     /// (`workspace_group.*`, `workspace.place`).
     var statePersonal: Bool { services.machines.local.store.servesStateResources }
 
-    /// One sidebar workspace as the home session places it: its session and
-    /// key, and its public id when the home daemon owns it and takes
-    /// `workspace.place` (other sessions' workspaces keep the raw command).
-    struct PersonalPlacement: Sendable {
-        var session: String
-        var key: WorkspaceKey
-        var resource: ResourceID?
-    }
-
-    func placements(_ ids: [SidebarWorkspaceID]) -> [PersonalPlacement] {
-        let home = services.machines.local.store
-        return qualified(ids).map { workspace in
-            let key = WorkspaceKey(rawValue: workspace.key)
-            return PersonalPlacement(session: workspace.session, key: key, resource: home.personalStateID(session: workspace.session, key: key))
-        }
-    }
-
-    /// The sidebar ids as workspaces qualified by their session, in order.
-    func qualified(_ ids: [SidebarWorkspaceID]) -> [RoomMembership.Workspace] {
-        ids.compactMap { WindowProfiles.qualified($0.rawValue, machines: services.machines) }
-    }
-
-    /// The personal insertion index for a drop at `position` in this
-    /// window's `sections`: before the workspace at that slot in the full
-    /// personal order, else after this window's last one.
-    private func personalIndex(for position: DropPosition, moving ids: [SidebarWorkspaceID], in sections: [SidebarRowSection]) -> Int? {
-        let scoped = sections.filter { $0.id == position.section }
-        guard let local = WorkspaceOrdering.shared.rootIndex(for: position, moving: ids, in: scoped) else { return nil }
-        let moved = Set(qualified(ids).map { "\($0.session)/\($0.key)" })
-        let key = { (id: String) in WindowProfiles.qualified(id, machines: self.services.machines).map { "\($0.session)/\($0.key)" } }
-        let localOrder = scoped.flatMap(\.workspaces).compactMap { key($0.id.rawValue) }.filter { !moved.contains($0) }
-        let global = PersonalSidebar.globalOrder(services.machines.local.store.personal).filter { !moved.contains($0) }
-        return SidebarMembership.globalIndex(localIndex: local, local: localOrder, global: global)
+    func placements(_ ids: [SidebarWorkspaceID]) -> [PersonalSidebarPlanner.Placement] {
+        PersonalSidebarPlanner(machines: services.machines).placements(ids)
     }
 
     /// Sends one personal-state command to the home daemon; a failure

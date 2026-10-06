@@ -138,3 +138,7 @@ mod tests;
 #[cfg(test)]
 #[path = "shell_args_tests.rs"]
 mod shell_args_tests;
+
+#[cfg(test)]
+#[path = "daemon_env_tests.rs"]
+mod daemon_env_tests;

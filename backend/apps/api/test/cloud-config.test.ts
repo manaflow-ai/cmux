@@ -33,3 +33,17 @@ describe("Cloud image config (CLOUD-DEV-SNAPSHOT)", () => {
     expect(cloudConfig({ ENVIRONMENT: "test", CLOUD_NAME_PREFIX: "cmuxnp-test-cld-", CLOUD_DRIVER: "fake" } as never)).toMatchObject({ prefix: "cmuxnp-test-cld-", image: "cmuxnp-test-vmimg-fake" })
   })
 })
+
+describe("Cloud environment tag (iss and bind file env)", () => {
+  it("maps ENVIRONMENT to dev, stg, prod (test stays test); anything else has no tag", async () => {
+    const { cloudEnvTag } = await import("../src/cloud-driver.ts")
+    expect([cloudEnvTag("development"), cloudEnvTag("staging"), cloudEnvTag("production"), cloudEnvTag("test"), cloudEnvTag("local")]).toEqual(["dev", "stg", "prod", "test", null])
+  })
+  it("accepts only a bare https origin for the bind file api_origin", async () => {
+    const { cloudApiOrigin } = await import("../src/cloud-driver.ts")
+    expect(cloudApiOrigin({ CLOUD_API_ORIGIN: "https://cloud-api.cmux.dev" })).toBe("https://cloud-api.cmux.dev")
+    expect(cloudApiOrigin({ CLOUD_API_ORIGIN: "https://cloud-api.cmux.dev/" })).toBe("https://cloud-api.cmux.dev")
+    for (const bad of [undefined, "", "http://cloud-api.cmux.dev", "https://cloud-api.cmux.dev/v1", "https://u:p@cloud-api.cmux.dev", "https://x.dev?a=1", "not a url"])
+      expect(cloudApiOrigin({ CLOUD_API_ORIGIN: bad })).toBeNull()
+  })
+})

@@ -24,7 +24,17 @@ export const Origin = Schema.Literals(["user", "cli", "mcp", "script", "remote"]
 export const InstallKind = Schema.Literals(["mac", "ios", "cli", "daemon", "web", "vm"]).annotate({ identifier: "InstallKind" })
 export const Platform = Schema.Literals(["macos", "ios", "linux", "windows", "web"]).annotate({ identifier: "Platform" })
 
-export const OpClass = Schema.Literals(["read", "mutate-own", "mutate-shared", "execute", "send-external", "money", "destructive"]).annotate({
+/**
+ * Grant classes. All but `cloud-link` are op risks. `cloud-link` (CLOUD-LINK-FOLLOWUPS 5) is a narrow
+ * grant class that no op declares as its risk: it covers only cloud.machine.link_token, so the
+ * iPhone app can dial its machines without general execute.
+ */
+/** The risk classes an op declares (what OpDef.risk and a feed approve item carry). */
+export const OP_RISKS = ["read", "mutate-own", "mutate-shared", "execute", "send-external", "money", "destructive"] as const
+export const OpRisk = Schema.Literals(OP_RISKS).annotate({ identifier: "OpRisk" })
+
+/** `vm-self` (VM install at bind, 2026-10-05): the VM daemon's own-machine ops (cloud.vm.*) only; no op declares it as its risk. */
+export const OpClass = Schema.Literals([...OP_RISKS, "cloud-link", "vm-self"]).annotate({
   identifier: "OpClass"
 })
 
@@ -35,6 +45,10 @@ export const PublicJwk = Schema.Struct({
   x: Schema.String.check(Schema.isMinLength(43), Schema.isMaxLength(43)),
   y: Schema.String.check(Schema.isMinLength(43), Schema.isMaxLength(43))
 }).annotate({ identifier: "PublicJwk", description: "ES256 (P-256) public key of an install." })
+
+/** What a paired server says it is (`optchat-chief-brain`: it runs a user's Chief); lowercase words joined by hyphens. */
+export const ServerCapability = Schema.String.check(Schema.isPattern(/^[a-z0-9][a-z0-9-]{0,39}$/)).annotate({ identifier: "ServerCapability" })
+export const ServerCapabilities = Schema.Array(ServerCapability).check(Schema.isMaxLength(8))
 
 export const Install = Schema.Struct({
   id: InstallId,
@@ -51,7 +65,11 @@ export const Install = Schema.Struct({
   /** The team whose TeamDO may revoke this install (a paired cmux server; plans/cmux-next/server.md 6.5). */
   bound_team: Schema.optionalKey(TeamId),
   /** The team whose SSO session registered this install (enterprise P17-4: sso.enforce keeps installs to SSO-registered ones). */
-  sso_team: Schema.optionalKey(TeamId)
+  sso_team: Schema.optionalKey(TeamId),
+  /** A VM install (kind vm, made at bind): the one Cloud machine it speaks for. */
+  bound_machine: Schema.optionalKey(Schema.String.check(Schema.isPattern(/^vm_[a-z0-9]{20}$/))),
+  /** A paired server's capabilities from its pairing request (server.md 6.2). */
+  capabilities: Schema.optionalKey(ServerCapabilities)
 }).annotate({ identifier: "Install" })
 
 export const Grant = Schema.Struct({

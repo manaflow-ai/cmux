@@ -26,12 +26,29 @@ extension GhosttyRuntime {
     /// nil when libghostty failed to load a config.
     public var shellIntegrationSettings: GhosttyShellIntegrationSettings? {
         guard let config else { return nil }
+        return Self.shellIntegrationSettings(config)
+    }
+
+    /// Shell-integration settings of the file at `path` loaded alone, with
+    /// its `config-file` includes, as libghostty loads a config file: the
+    /// oracle for the daemon's own reader (schemas/ghostty-shell-features).
+    /// Nil when libghostty cannot make a config.
+    public static func shellIntegrationSettings(configFile path: String) -> GhosttyShellIntegrationSettings? {
+        guard let config = ghostty_config_new() else { return nil }
+        defer { ghostty_config_free(config) }
+        ghostty_config_load_file(config, path)
+        ghostty_config_load_recursive_files(config)
+        ghostty_config_finalize(config)
+        return shellIntegrationSettings(config)
+    }
+
+    private static func shellIntegrationSettings(_ config: ghostty_config_t) -> GhosttyShellIntegrationSettings {
         var mode: UnsafePointer<CChar>?
-        let modeName = Self.configGet(config, &mode, key: "shell-integration") ? mode.map { String(cString: $0) } : nil
+        let modeName = configGet(config, &mode, key: "shell-integration") ? mode.map { String(cString: $0) } : nil
         var features: UInt32 = 0
-        _ = Self.configGet(config, &features, key: "shell-integration-features")
+        _ = configGet(config, &features, key: "shell-integration-features")
         var blink = false
-        let hasBlink = Self.configGet(config, &blink, key: "cursor-style-blink")
+        let hasBlink = configGet(config, &blink, key: "cursor-style-blink")
         return GhosttyShellIntegrationSettings(mode: modeName ?? "detect", features: features, cursorBlink: hasBlink ? blink : nil)
     }
 

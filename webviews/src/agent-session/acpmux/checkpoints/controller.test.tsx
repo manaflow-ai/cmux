@@ -1,7 +1,9 @@
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { MemoryPersistence, checkpoint, list, target } from "./testFixture";
-import { checkpointStrings as strings } from "./strings";
+import { checkpointStrings } from "./strings";
+
+const strings = checkpointStrings();
 import type { CheckpointTarget } from "./protocol";
 import type { CheckpointClientOptions, Request } from "./client";
 const dom = new JSDOM("<!doctype html><div id=root></div>");

@@ -2,7 +2,12 @@
 //! and broadcasts [`MuxEvent`]s to subscribed frontends.
 
 mod agent_hook_errors;
+mod browser_tab_create;
+pub(crate) use browser_tab_create::{
+    FRONTEND_BROWSER_ACTIVATE_CAPABILITY, frontend_fields as frontend_browser_fields,
+};
 pub(crate) mod app_terminals;
+mod cloud_conversations;
 mod conversations;
 mod dock_columns;
 mod exit_settle;
@@ -10,6 +15,7 @@ mod host_close;
 #[cfg(all(test, unix))]
 mod host_death_tests;
 mod idle_close;
+mod journal_plugin_host;
 mod kitty_reservation;
 use kitty_reservation::{kitty_image_limits_exceed, kitty_image_limits_within};
 pub(crate) mod layout_invariants;
@@ -20,6 +26,9 @@ mod presentation;
 mod public_projections;
 mod registry_viewport;
 mod resource_content;
+mod resource_tab_deltas;
+#[cfg(test)]
+mod resource_tab_deltas_tests;
 mod resource_topology;
 mod rows;
 mod screen_changed;
@@ -54,7 +63,7 @@ pub use presentation::{
     WorkspaceGroupChange,
 };
 pub(crate) use resource_content::ResourceEffectProjection;
-pub(crate) use resource_topology::{BatchCloseOutcome, BatchCloseTarget};
+pub(crate) use resource_topology::{BatchCloseOutcome, BatchCloseTarget, CloseReason};
 pub use rows::{RowHeightsOutcome, RowsError};
 pub(crate) use screen_groups::workspace_screen_groups;
 pub use screen_groups::{
@@ -1000,6 +1009,8 @@ pub enum MuxEvent {
     },
     BookmarksChanged(personal::BookmarksChange),
     Conversation(Arc<crate::conversation_store::ConversationEvent>),
+    /// An event of the cloud conversations proxy (`cloud-conversations-v1`).
+    CloudConversation(Arc<crate::cloud_conversations::CloudEvent>),
     /// A durable terminal-registry mutation committed. Consumers use this as
     /// a barrier, then fetch `terminal-events` or a fresh snapshot.
     TerminalRegistryChanged {
@@ -2519,6 +2530,9 @@ pub struct Mux {
     next_in_process_resize_owner: AtomicU64,
     surface_options: Mutex<SurfaceOptions>,
     provider_workspace: Mutex<ProviderWorkspaceState>,
+    /// `provider_workspace.managed`, readable under the registry and state
+    /// locks (the provider lock orders before them; the flag is one-way).
+    provider_managed: AtomicBool,
     workspace_lifecycles: Mutex<HashMap<WorkspaceId, Weak<Mutex<()>>>>,
     pending_workspace_surfaces: Mutex<HashMap<SurfaceId, WorkspaceId>>,
     client_sizing_lifecycle: Mutex<()>,
@@ -2535,6 +2549,9 @@ pub struct Mux {
     /// attached clients stay where they are.
     last_reported_focus: Mutex<Option<(PaneId, Option<usize>)>>,
     conversations: crate::conversation_store::ConversationHost,
+    /// The cloud conversations proxy (`cloud-conversations-v1`), installed by
+    /// a binary that has a cloud transport; absent otherwise.
+    cloud_conversations: OnceLock<crate::cloud_conversations::CloudConversations>,
     #[cfg(test)]
     client_resize_before_apply: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
@@ -2699,6 +2716,8 @@ pub struct Mux {
     /// for it blocks instead of polling the flag.
     daemon_shutdown_waker: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
     pub(crate) control_clients: crate::server::ClientRegistry,
+    /// VM activity facts for `subscribe-activity` (server/activity.rs).
+    pub(crate) activity: crate::server::activity::ActivityStream,
     idle_close: Mutex<idle_close::IdleCloseTracker>,
     /// Wakes the idle-close reaper when a policy changes.
     idle_close_waker: Mutex<Option<std::sync::mpsc::Sender<idle_close::ReaperMessage>>>,
@@ -3001,6 +3020,7 @@ impl Mux {
             next_active_at: AtomicU64::new(1),
             next_in_process_resize_owner: AtomicU64::new(1),
             surface_options: Mutex::new(surface_options),
+            provider_managed: AtomicBool::new(provider_workspace.managed),
             provider_workspace: Mutex::new(provider_workspace),
             workspace_lifecycles: Mutex::new(HashMap::new()),
             pending_workspace_surfaces: Mutex::new(HashMap::new()),
@@ -3009,6 +3029,7 @@ impl Mux {
             client_focus_memory: Mutex::new(Vec::new()),
             last_reported_focus: Mutex::new(None),
             conversations: Default::default(),
+            cloud_conversations: OnceLock::new(),
             #[cfg(test)]
             client_resize_before_apply: Mutex::new(None),
             #[cfg(test)]
@@ -3144,6 +3165,7 @@ impl Mux {
             exit_settles: Arc::default(),
             daemon_shutdown_waker: Mutex::new(None),
             control_clients: crate::server::ClientRegistry::new(),
+            activity: Default::default(),
             idle_close: Mutex::new(idle_close::IdleCloseTracker::default()),
             idle_close_waker: Mutex::new(None),
             terminal_host_closes: Arc::new(host_close::TerminalHostCloses::default()),
@@ -4489,6 +4511,7 @@ impl Mux {
     /// one-way so a stale frontend cannot reopen ordinary mutation paths.
     pub fn mark_workspaces_provider_managed_internal(&self) {
         self.provider_workspace.lock().unwrap().managed = true;
+        self.provider_managed.store(true, Ordering::Release);
     }
 
     pub fn workspaces_are_provider_managed(&self) -> bool {
@@ -4792,10 +4815,11 @@ impl Mux {
         // see a tab's new session path only once that commit succeeds.
         let (prepared, session_paths) = crate::event_bus::defer_session_paths(|| {
             let mut plan = prepare(&mut state, &registry)?;
+            let tabs = resource_tab_deltas::TabMembership::capture(&state, &plan.patch);
             let before = plan.stage_checked(&mut state, operation)?;
-            anyhow::Ok((plan, before))
+            anyhow::Ok((plan, before, tabs))
         });
-        let (mut plan, before) = prepared?;
+        let (mut plan, before, tabs) = prepared?;
         let committed = persist_public_topology_result(operation, &mut plan.result, &plan.deltas)
             .and_then(|()| {
                 #[cfg(test)]
@@ -4832,6 +4856,7 @@ impl Mux {
             self.subscribers.publish_deferred_session_paths(session_paths);
         }
         plan.apply(&mut state, &commit, workspace_revision);
+        let tab_deltas = tabs.and_then(|tabs| tabs.deltas(self, &state, &commit));
         drop(state);
         drop(registry);
         if !commit.replayed {
@@ -4840,6 +4865,7 @@ impl Mux {
             // directory report was waiting for.
             self.publish_pending_terminal_directories();
         }
+        self.emit_resource_tab_deltas(tab_deltas);
         Ok(commit)
     }
 
@@ -6467,6 +6493,9 @@ impl Mux {
             }
             commit
         };
+        if !commit.replayed && ingress.producer_id == crate::AGENT_HOOK_PRODUCER_ID {
+            self.activity.note_agent_action();
+        }
         self.finish_journal_ingress(ingress, origin, idempotency_key, commit)
     }
 
@@ -7505,6 +7534,7 @@ impl Mux {
     }
 
     pub fn emit(&self, event: MuxEvent) {
+        self.activity.observe(&event);
         self.subscribers.emit(event);
     }
 
@@ -9282,7 +9312,9 @@ impl Mux {
     /// [`Self::claim_terminal_geometry`] it never adds a participant, so a
     /// one-shot `send` from an unattached connection cannot take the grid.
     pub(crate) fn note_terminal_input(&self, surface: SurfaceId, client: u64) {
-        let _ = self.note_terminal_activity(surface, client, None);
+        if self.note_terminal_activity(surface, client, None).is_some() {
+            self.activity.note_user_input();
+        }
     }
 
     /// Activity of the caller's own view (`view:None`) or of one of its relay
@@ -12326,50 +12358,6 @@ impl Mux {
         }
     }
 
-    /// Configure the optional userland agent plugin. The process starts only
-    /// after the local resource socket has been bound.
-    pub fn configure_journal_plugin(&self, options: Option<crate::JournalPluginOptions>) {
-        self.journal_plugin.configure(options);
-    }
-
-    /// Start the configured journal plugin against the bound local socket.
-    pub fn start_journal_plugin(&self, socket: std::path::PathBuf) {
-        let generation = match self.workspace_registry.lock() {
-            Ok(registry) => registry.reserve_journal_plugin_generation(),
-            Err(_) => Err(anyhow::anyhow!("workspace registry mutex is poisoned")),
-        };
-        match generation {
-            Ok(generation) => self.journal_plugin.start_with_generation_seed(
-                socket,
-                self.session.clone(),
-                generation,
-            ),
-            Err(error) => eprintln!(
-                "cmux-tui: journal plugin not started because its generation could not be reserved: {error}"
-            ),
-        }
-    }
-
-    /// Journal a supervisor-observed plugin exit. The roster reducer removes
-    /// only entries owned by this producer, so a crash cannot leave stale
-    /// rows until the next terminal scan and the cleanup remains replayable.
-    fn record_journal_plugin_exit(&self, plugin_id: &str, generation: u64) {
-        let ingress =
-            match crate::agent_hooks::journal_plugin_exit_journal_ingress(plugin_id, generation) {
-                Ok(ingress) => ingress,
-                Err(error) => {
-                    eprintln!("cmux-tui: invalid journal plugin exit id {plugin_id:?}: {error}");
-                    return;
-                }
-            };
-        let key =
-            format!("journal-plugin-exit-{plugin_id}-{}", crate::workspace_registry::new_uuid_v4());
-        if let Err(error) = self.append_journal_ingress(&ingress, "journal-plugin-supervisor", &key)
-        {
-            eprintln!("cmux-tui: journal plugin exit cleanup could not be journaled: {error}");
-        }
-    }
-
     pub fn ensure_sidebar_plugin(
         self: &Arc<Self>,
         cols: u16,
@@ -14326,16 +14314,16 @@ impl Mux {
         cwd: Option<String>,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
-        self.new_screen_named(workspace, None, cwd, size)
+        self.new_screen_named(workspace, None, TerminalSpawnOptions::new(cwd, Vec::new()), size)
     }
 
-    /// New screen with a name (set in the creating commit) and a directory
-    /// for its first terminal.
+    /// New screen with a name (set in the creating commit) and the spawn
+    /// options (directory, env, terminal id, program) of its first terminal.
     pub(crate) fn new_screen_named(
         self: &Arc<Self>,
         workspace: Option<WorkspaceId>,
         name: Option<String>,
-        cwd: Option<String>,
+        spawn: TerminalSpawnOptions,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
@@ -14354,7 +14342,7 @@ impl Mux {
         };
         let mut fields = Map::new();
         Self::insert_optional_string(&mut fields, "name", name);
-        Self::insert_optional_string(&mut fields, "cwd", cwd);
+        Self::insert_spawn_options(&mut fields, spawn);
         Self::insert_cell_size(&mut fields, size);
         let commit = self.commit_ordinary_topology_operation(
             ResourceOperation::ScreenCreate,
@@ -14521,9 +14509,13 @@ impl Mux {
     }
 
     #[allow(clippy::too_many_arguments)]
+    /// `workspace` None: the request's workspace (`workspace_key`) is gone.
+    /// A retry of a create whose process ended and closed that workspace
+    /// (LAST-TAB-CLOSES-WORKSPACE) still replays from its receipt.
     pub(crate) fn create_raw_terminal_in_workspace_with_mutation(
         self: &Arc<Self>,
-        workspace: WorkspaceId,
+        workspace: Option<WorkspaceId>,
+        workspace_key: &str,
         argv: Option<Vec<String>>,
         cwd: Option<String>,
         name: Option<String>,
@@ -14536,6 +14528,25 @@ impl Mux {
     ) -> anyhow::Result<TerminalPlacementResult> {
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
         let _creation_execution = self.resource_creation_execution.lock().unwrap();
+        let Some(workspace) = workspace else {
+            let fingerprint = terminal_create_fingerprint(
+                workspace_key,
+                requested_terminal_id,
+                argv.as_deref(),
+                cwd.as_deref(),
+                name.as_deref(),
+                size,
+                None,
+            )?;
+            let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
+            let replay = registry.replay_terminal(mutation, &fingerprint)?;
+            drop(registry);
+            let terminal_id = replay
+                .as_ref()
+                .and_then(|replay| replay.result["terminal_id"].as_str())
+                .ok_or_else(|| anyhow::anyhow!("unknown workspace key {workspace_key}"))?;
+            return self.replayed_terminal_placement(terminal_id);
+        };
         self.create_terminal_in_workspace_with_mutation_env(
             workspace,
             argv,
@@ -14988,268 +14999,6 @@ impl Mux {
         self.ordinary_created_surface(&commit)
     }
 
-    pub(crate) fn new_browser_tab_reserved(
-        self: &Arc<Self>,
-        url: String,
-        pane: Option<PaneId>,
-        size: Option<(u16, u16)>,
-        resource_identity: TabResourceIdentity,
-        workspace_key: Option<String>,
-    ) -> anyhow::Result<Arc<Surface>> {
-        self.new_browser_tab_with_resource_identity(
-            url,
-            pane,
-            size,
-            Some(resource_identity),
-            workspace_key,
-        )
-    }
-
-    fn new_browser_tab_with_resource_identity(
-        self: &Arc<Self>,
-        url: String,
-        pane: Option<PaneId>,
-        size: Option<(u16, u16)>,
-        resource_identity: Option<TabResourceIdentity>,
-        workspace_key: Option<String>,
-    ) -> anyhow::Result<Arc<Surface>> {
-        let (target, empty_workspace) = {
-            let state = self.state.lock().unwrap();
-            let target = match pane {
-                Some(id) => {
-                    if !state.panes.contains_key(&id) {
-                        anyhow::bail!("unknown pane {id}");
-                    }
-                    Some(id)
-                }
-                None => state.active_pane(),
-            };
-            let empty_workspace = target
-                .is_none()
-                .then(|| state.workspaces.get(state.active_workspace))
-                .flatten()
-                .filter(|workspace| workspace.screens.is_empty())
-                .map(|workspace| workspace.id);
-            (target, empty_workspace)
-        };
-        let Some(target) = target else {
-            if let Some(workspace) = empty_workspace {
-                return self.create_browser_surface_in_workspace(
-                    workspace,
-                    url,
-                    size,
-                    resource_identity,
-                );
-            }
-            let workspace_key = match workspace_key {
-                Some(workspace_key) => workspace_key,
-                None => Self::new_workspace_key()?,
-            };
-            let surface = self.spawn_browser_surface_with_resource_identity(
-                url,
-                size,
-                None,
-                resource_identity,
-            )?;
-            let (pane_id, pane) = self.make_pane(surface.id)?;
-            let screen_id = self.next_id();
-            let ws_id = self.next_id();
-            let notifications = self.tree_decorations();
-            if let Some(workspace_id) = empty_workspace {
-                let delta = {
-                    let mut state = self.state.lock().unwrap();
-                    let Some(workspace_index) =
-                        state.workspaces.iter().position(|workspace| workspace.id == workspace_id)
-                    else {
-                        state.surfaces.remove(&surface.id);
-                        surface.kill();
-                        anyhow::bail!("workspace disappeared while creating browser tab");
-                    };
-                    state.insert_pane(pane);
-                    stamp_pane_focus(self, &mut state, pane_id);
-                    state.workspaces[workspace_index].screens.push(Screen {
-                        id: screen_id,
-                        public_id: ScreenPublicId::random()?,
-                        name: None,
-                        root: Node::Leaf(pane_id),
-                        active_pane: pane_id,
-                        zoomed_pane: None,
-                        zellij_auto_layout: Some(vec![pane_id]),
-                        viewport_splits: Default::default(),
-                        viewport_base_width: None,
-                        layout_columns: Vec::new(),
-                        layout_revision: 0,
-                        layout_undo: Default::default(),
-                    });
-                    state.workspaces[workspace_index].active_screen = 0;
-                    let entity = crate::server::tree_entity_json(
-                        &state,
-                        &notifications,
-                        TreeDeltaKind::ScreenAdded,
-                        screen_id,
-                    )
-                    .expect("first workspace screen is present in tree snapshot");
-                    TreeDelta {
-                        kind: TreeDeltaKind::ScreenAdded,
-                        workspace: workspace_id,
-                        screen: Some(screen_id),
-                        pane: None,
-                        surface: None,
-                        index: Some(0),
-                        entity,
-                        workspace_revision: None,
-                        transaction: None,
-                    }
-                };
-                self.emit(MuxEvent::TreeDelta(delta));
-                self.reap_if_dead(&surface);
-                return Ok(surface);
-            }
-            let mutation = WorkspaceMutation::local("cmux-tui");
-            let workspace_public_id = WorkspacePublicId::random()?;
-            let mut registry = self.workspace_registry.lock().unwrap();
-            let delta = {
-                let mut state = self.state.lock().unwrap();
-                let name = Self::default_workspace_name(&state);
-                let index = state.workspaces.len();
-                let mut desired = self.registry_projection(&state);
-                desired.push(RegistryWorkspace {
-                    id: ws_id,
-                    public_id: workspace_public_id.clone(),
-                    key: workspace_key.clone(),
-                    name: name.clone(),
-                    group_key: self.session.clone(),
-                });
-                let commit = match registry.commit(
-                    &mutation,
-                    &serde_json::json!({
-                        "op": "new-browser-workspace",
-                        "workspace": ws_id,
-                        "key": workspace_key.clone(),
-                        "name": name,
-                    }),
-                    None,
-                    None,
-                    "workspace-added",
-                    &workspace_key,
-                    &desired,
-                    &serde_json::json!({
-                        "workspace": ws_id,
-                        "workspace_id": workspace_public_id.as_str(),
-                        "key": workspace_key.clone(),
-                        "index": index,
-                    }),
-                ) {
-                    Ok(commit) => commit,
-                    Err(error) => {
-                        drop(state);
-                        drop(registry);
-                        self.discard_spawned(vec![surface]);
-                        return Err(error);
-                    }
-                };
-                state.insert_pane(pane);
-                stamp_pane_focus(self, &mut state, pane_id);
-                state.push_workspace(Workspace {
-                    id: ws_id,
-                    public_id: workspace_public_id,
-                    key: workspace_key,
-                    name,
-                    screens: vec![Screen {
-                        id: screen_id,
-                        public_id: ScreenPublicId::random()?,
-                        name: None,
-                        root: Node::Leaf(pane_id),
-                        active_pane: pane_id,
-                        zoomed_pane: None,
-                        zellij_auto_layout: Some(vec![pane_id]),
-                        viewport_splits: Default::default(),
-                        viewport_base_width: None,
-                        layout_columns: Vec::new(),
-                        layout_revision: 0,
-                        layout_undo: Default::default(),
-                    }],
-                    active_screen: 0,
-                });
-                state.active_workspace = state.workspaces.len() - 1;
-                state.workspace_revision = commit.revision;
-                let workspace_revision = commit.revision;
-                let entity = crate::server::tree_entity_json(
-                    &state,
-                    &notifications,
-                    TreeDeltaKind::WorkspaceAdded,
-                    ws_id,
-                )
-                .expect("new workspace is present in tree snapshot");
-                TreeDelta {
-                    kind: TreeDeltaKind::WorkspaceAdded,
-                    workspace: ws_id,
-                    screen: None,
-                    pane: None,
-                    surface: None,
-                    index: Some(index),
-                    entity,
-                    workspace_revision: Some(workspace_revision),
-                    transaction: None,
-                }
-            };
-            let selection_resync = delta.index.is_some_and(|index| index > 0);
-            self.emit_committed_workspace_delta(&registry, delta, selection_resync);
-            drop(registry);
-            self.reap_if_dead(&surface);
-            return Ok(surface);
-        };
-
-        let surface =
-            self.spawn_browser_surface_with_resource_identity(url, size, None, resource_identity)?;
-        let active_at = self.next_active_at();
-        let notifications = self.tree_decorations();
-        let attached = {
-            let mut state = self.state.lock().unwrap();
-            match state.panes.get_mut(&target) {
-                Some(pane) => {
-                    pane.tabs.push(surface.id);
-                    pane.active_tab = pane.tabs.len() - 1;
-                    pane.active_at = active_at;
-                    let index = pane.tabs.len() - 1;
-                    fence_layout_undo_for_tab_membership(&mut state, &[target]);
-                    let (wi, si) = state.screen_of(target).expect("live pane belongs to a screen");
-                    let workspace = state.workspaces[wi].id;
-                    let screen = state.workspaces[wi].screens[si].id;
-                    let entity = crate::server::tree_entity_json(
-                        &state,
-                        &notifications,
-                        TreeDeltaKind::TabAdded,
-                        surface.id,
-                    )
-                    .expect("new browser tab is present in tree snapshot");
-                    Some(TreeDelta {
-                        kind: TreeDeltaKind::TabAdded,
-                        workspace,
-                        screen: Some(screen),
-                        pane: Some(target),
-                        surface: Some(surface.id),
-                        index: Some(index),
-                        entity,
-                        workspace_revision: None,
-                        transaction: None,
-                    })
-                }
-                None => {
-                    state.surfaces.remove(&surface.id);
-                    None
-                }
-            }
-        };
-        let Some(delta) = attached else {
-            surface.kill();
-            anyhow::bail!("pane disappeared while creating browser tab");
-        };
-        self.emit_tree_delta(delta, true);
-        self.reap_if_dead(&surface);
-        Ok(surface)
-    }
-
     fn create_browser_surface_in_workspace(
         self: &Arc<Self>,
         workspace: WorkspaceId,
@@ -15642,8 +15391,8 @@ impl Mux {
     }
 
     /// Close one tab. When it was the pane's last tab, the pane collapses
-    /// out of its split tree. Empty workspace containers remain durable;
-    /// only an explicit close-workspace mutation removes a workspace.
+    /// out of its split tree; when it was the workspace's last tab, the
+    /// workspace closes in the same commit (LAST-TAB-CLOSES-WORKSPACE).
     pub fn close_surface(self: &Arc<Self>, target: SurfaceId) -> anyhow::Result<bool> {
         let Some(selectors) = self.ordinary_tab_selectors(target) else { return Ok(false) };
         let commit = self
@@ -16417,12 +16166,11 @@ impl Mux {
         {
             return false;
         }
+        // A kept tab (keep-layout) has no surface after a restart; its tree
+        // entry still carries the renamed tab.
         let notifications = self.tree_decorations();
         let delta = {
             let state = self.state.lock().unwrap();
-            if !state.surfaces.contains_key(&target) {
-                return false;
-            }
             (|| {
                 let pane = state.pane_of(target)?;
                 let (wi, si) = state.screen_of(pane)?;
@@ -19964,8 +19712,8 @@ fn fence_layout_undo_for_tab_membership(state: &mut State, panes: &[PaneId]) {
 }
 
 /// Remove one surface from the state: detach it from its
-/// pane, and collapse emptied panes/screens. Empty workspaces remain as
-/// canonical registry entries. Returns the removed surface and whether
+/// pane, and collapse emptied panes/screens. An emptied workspace stays
+/// here; the close plan closes it (`close_emptied_workspaces_locked`). Returns the removed surface and whether
 /// split ownership or positional indexes changed. Runs under the state lock.
 fn remove_surface(mux: &Mux, state: &mut State, target: SurfaceId) -> (Option<Arc<Surface>>, bool) {
     let previous_active = state.active_pane();
@@ -21689,7 +21437,12 @@ mod tests {
         assert!(!changes.is_empty());
         for (sequence, change) in changes.iter().enumerate() {
             assert_eq!(change["sequence"], sequence);
-            assert!(matches!(change["kind"].as_str(), Some("upsert" | "delete")));
+            // A creation also carries the new workspace's personal placement.
+            assert!(matches!(
+                (change["kind"].as_str(), change["resource"].as_str()),
+                (Some("upsert" | "delete"), _)
+                    | (Some("state_upsert"), Some("workspace_placement"))
+            ));
             assert!(change["resource"].is_string());
             assert!(change["id"].is_string());
             assert!(change.get("event").is_none());
@@ -28779,10 +28532,10 @@ mod tests {
         mux.close_pane(p1).unwrap();
         mux.close_pane(p3).unwrap();
         assert_eq!(mux.surface_count(), 0);
+        // The last pane's close closes the emptied workspace in its commit.
         mux.with_state(|s| {
-            assert_eq!(s.workspaces.len(), 1);
-            assert!(s.workspaces[0].screens.is_empty());
-            assert_eq!(s.workspace_revision, 1);
+            assert!(s.workspaces.is_empty());
+            assert_eq!(s.workspace_revision, 2);
         });
     }
 
@@ -30683,13 +30436,12 @@ mod tests {
             assert_eq!(s.workspaces.len(), 1);
         });
 
-        // Closing the last tab collapses the pane and screen, while the
-        // canonical workspace remains until an explicit close-workspace.
+        // Closing the last tab collapses the pane and screen and closes the
+        // workspace in the same commit (LAST-TAB-CLOSES-WORKSPACE).
         mux.close_surface(s1.id).unwrap();
         mux.with_state(|s| {
-            assert_eq!(s.workspaces.len(), 1);
-            assert!(s.workspaces[0].screens.is_empty());
-            assert_eq!(s.workspace_revision, 1);
+            assert!(s.workspaces.is_empty());
+            assert_eq!(s.workspace_revision, 2);
         });
     }
 
@@ -30736,29 +30488,6 @@ mod tests {
             assert_eq!(pane.active_tab, 2);
             assert_eq!(s.pane_revision, pane_revision);
         });
-    }
-
-    #[test]
-    fn ordinary_tab_moves_do_not_rebuild_the_split_index() {
-        let mux = test_mux();
-        let first = mux.new_workspace(None, None).unwrap();
-        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
-        let second = mux.split(first_pane, SplitDir::Right, None).unwrap();
-        let second_pane = mux.with_state(|state| state.pane_of(second.id).unwrap());
-        let extra = mux.new_tab(Some(first_pane), None, None).unwrap();
-        let sentinel = SplitId::MAX;
-        {
-            let mut state = mux.state.lock().unwrap();
-            state.split_screens.insert(sentinel, (usize::MAX, usize::MAX, ScreenId::MAX));
-        }
-
-        assert!(mux.move_tab(extra.id, first_pane, 0));
-        mux.with_state(|state| assert!(state.split_screens.contains_key(&sentinel)));
-        let events = mux.subscribe();
-        assert!(mux.move_tab(extra.id, second_pane, 0));
-        mux.with_state(|state| assert!(state.split_screens.contains_key(&sentinel)));
-        assert!(matches!(events.recv().unwrap(), MuxEvent::TreeChanged));
-        assert!(events.try_recv().is_err());
     }
 
     #[test]
@@ -31345,8 +31074,9 @@ mod tests {
     }
 
     #[test]
-    fn reaped_surface_close_preserves_durable_empty_workspace() {
+    fn reaped_surface_close_closes_its_emptied_workspace() {
         let mux = test_mux();
+        let keep = mux.new_workspace(None, Some((80, 24))).unwrap();
         let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
         let events = mux.subscribe();
         let previous_revision = mux.with_state(|state| state.workspace_revision);
@@ -31355,32 +31085,34 @@ mod tests {
         assert!(reaped.is_some(), "surface must exist before simulating the early-exit race");
         assert!(mux.close_surface(surface.id).unwrap());
 
+        // LAST-TAB-CLOSES-WORKSPACE: the workspace closes in the same commit.
         mux.with_state(|state| {
             assert_eq!(state.workspaces.len(), 1);
-            assert!(state.workspaces[0].screens.is_empty());
-            assert_eq!(state.workspace_revision, previous_revision);
+            assert_eq!(state.workspace_revision, previous_revision + 1);
         });
         let deadline = Instant::now() + Duration::from_secs(1);
         loop {
             let remaining = deadline.saturating_duration_since(Instant::now());
-            match events.recv_timeout(remaining).expect("screen-close event arrives") {
+            match events.recv_timeout(remaining).expect("workspace-close event arrives") {
                 MuxEvent::TreeDelta(TreeDelta {
-                    kind: TreeDeltaKind::ScreenClosed,
-                    workspace_revision: None,
+                    kind: TreeDeltaKind::WorkspaceClosed,
+                    workspace_revision: Some(_),
                     ..
                 }) => break,
-                MuxEvent::Empty => panic!("closing a reaped surface emptied its workspace"),
+                MuxEvent::Empty => panic!("closing a reaped surface emptied the session"),
                 _ => {}
             }
         }
         assert!(!events.try_iter().any(|event| matches!(event, MuxEvent::Empty)));
         surface.kill();
+        keep.kill();
     }
 
     #[test]
-    fn reaped_surface_tree_target_close_preserves_durable_empty_workspace() {
+    fn reaped_surface_tree_target_close_closes_its_emptied_workspace() {
         for close_screen in [false, true] {
             let mux = test_mux();
+            let keep = mux.new_workspace(None, Some((80, 24))).unwrap();
             let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
             let (pane, screen, previous_revision) = mux.with_state(|state| {
                 let pane = state.pane_of(surface.id).unwrap();
@@ -31399,24 +31131,24 @@ mod tests {
 
             mux.with_state(|state| {
                 assert_eq!(state.workspaces.len(), 1);
-                assert!(state.workspaces[0].screens.is_empty());
-                assert_eq!(state.workspace_revision, previous_revision);
+                assert_eq!(state.workspace_revision, previous_revision + 1);
             });
             let deadline = Instant::now() + Duration::from_secs(1);
             loop {
                 let remaining = deadline.saturating_duration_since(Instant::now());
-                match events.recv_timeout(remaining).expect("screen-close event arrives") {
+                match events.recv_timeout(remaining).expect("workspace-close event arrives") {
                     MuxEvent::TreeDelta(TreeDelta {
-                        kind: TreeDeltaKind::ScreenClosed,
-                        workspace_revision: None,
+                        kind: TreeDeltaKind::WorkspaceClosed,
+                        workspace_revision: Some(_),
                         ..
                     }) => break,
-                    MuxEvent::Empty => panic!("closing a reaped tree target emptied its workspace"),
+                    MuxEvent::Empty => panic!("closing a reaped tree target emptied the session"),
                     _ => {}
                 }
             }
             assert!(!events.try_iter().any(|event| matches!(event, MuxEvent::Empty)));
             surface.kill();
+            keep.kill();
         }
     }
 
@@ -32161,7 +31893,8 @@ mod tests {
         );
         mux.with_state(|state| {
             assert!(!state.surfaces.contains_key(&surface));
-            assert!(state.workspaces[0].screens.is_empty());
+            // The exit detached the last tab, so its workspace closed too.
+            assert!(state.workspaces.is_empty());
             assert_eq!(state.active_pane(), None);
         });
     }
@@ -33442,10 +33175,9 @@ mod tests {
             assert_eq!(placement.workspace, workspace);
             assert!(close_done_rx.recv().unwrap().unwrap());
             close.join().unwrap();
+            // The close took the created tab too, so the emptied workspace closed.
             mux.with_state(|state| {
-                assert_eq!(state.workspaces.len(), 1);
-                assert_eq!(state.workspaces[0].id, workspace);
-                assert!(state.workspaces[0].screens.is_empty());
+                assert!(state.workspaces.iter().all(|item| item.id != workspace));
             });
             mux.set_resource_terminal_reservation_hook_for_test(None);
             initial.kill();

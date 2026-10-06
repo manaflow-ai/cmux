@@ -6,6 +6,7 @@ import type { FileTreeRowDecorationRenderer } from "@pierre/trees";
 import type { TurnFile } from "../diff";
 import { treeUnsafeCSS } from "../diffTheme";
 import { Search } from "../changeIcons";
+import { useT } from "../i18n";
 
 export function ChangedFilesTree({
   files,
@@ -16,6 +17,7 @@ export function ChangedFilesTree({
   selected?: string;
   onSelect: (path: string) => void;
 }) {
+  const t = useT();
   const byDisplay = useMemo(() => new Map(files.map((file) => [file.displayPath, file])), [files]);
   // The tree keeps the renderer it was built with; it reads the current files through a ref.
   const filesRef = useRef(byDisplay);
@@ -78,15 +80,15 @@ export function ChangedFilesTree({
         <Search width={14} height={14} />
         <input
           type="search"
-          aria-label="Filter files"
-          placeholder="Filter files…"
+          aria-label={t("changes.filterFiles")}
+          placeholder={t("changes.filterPlaceholder")}
           // Uncontrolled and read on each native input event (typing, paste, the clear button),
           // so filtering does not depend on React's change-event emulation.
           defaultValue=""
           onInput={(event) => setFilter(event.currentTarget.value)}
         />
       </label>
-      {displayPaths.length === 0 && <div className="acpmux-diff-tree-empty">No matching files</div>}
+      {displayPaths.length === 0 && <div className="acpmux-diff-tree-empty">{t("changes.noMatchingFiles")}</div>}
       <FileTree model={model} className="acpmux-diff-tree-host" onClick={onRowPick} onKeyDown={onRowPick} />
     </>
   );

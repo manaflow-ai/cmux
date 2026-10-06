@@ -64,21 +64,24 @@ where
     else {
         return Err(InboundRefused::BadHello);
     };
-    hand_to_entry(stream, &record.peer(), session_socket).await
+    // A paired peer's stream carries no control-plane check.
+    hand_to_entry(stream, &record.peer(), None, session_socket).await
 }
 
-/// Splice `stream` into the session's remote entry with `peer` stamped as
+/// Splice `stream` into the session's remote entry with `peer` (and the
+/// `check` the link made for this stream, only after it passed) stamped as
 /// the first line, after the entry proved it is one (same user and cmux
 /// code, then the entry banner).
 pub(super) async fn hand_to_entry<S>(
     mut stream: S,
     peer: &cmux_link::stamp::LinkPeer,
+    check: Option<cmux_link::stamp::StampCheck>,
     session_socket: &Path,
 ) -> Result<(), InboundRefused>
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
-    let stamp = cmux_link::stamp::encode(peer).map_err(|_| InboundRefused::UnknownPeer)?;
+    let stamp = cmux_link::stamp::encode(peer, check).map_err(|_| InboundRefused::UnknownPeer)?;
     let mut entry = tokio::net::UnixStream::connect(daemon_entry(session_socket))
         .await
         .map_err(|_| InboundRefused::EntryUnavailable)?;

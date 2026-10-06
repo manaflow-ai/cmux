@@ -1,215 +1,270 @@
 import { afterAll, afterEach, beforeEach, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxSnapshot } from "./model";
 
-const dom = new JSDOM("<!doctype html><div id=root></div>", {
+// The row's own stylesheet, so a test reads the truncation the cascade gives the label.
+const locationCss = readFileSync(new URL("./composerLocation.css", import.meta.url), "utf8");
+const dom = new JSDOM(`<!doctype html><style>${locationCss}</style><div id=root></div>`, {
   pretendToBeVisual: true,
   virtualConsole: new VirtualConsole(),
 });
 const globals = globalThis as Record<string, unknown>;
 const saved = Object.fromEntries(
-  ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"].map((key) => [key, globals[key]]),
+  [
+    "window",
+    "document",
+    "navigator",
+    "HTMLElement",
+    "Node",
+    "requestAnimationFrame",
+    "cancelAnimationFrame",
+    "IS_REACT_ACT_ENVIRONMENT",
+  ].map((key) => [key, globals[key]]),
 );
 Object.assign(globals, {
   window: dom.window,
   document: dom.window.document,
   navigator: dom.window.navigator,
   HTMLElement: dom.window.HTMLElement,
-  // The composer's prompt is a Milkdown (ProseMirror) editor.
   Node: dom.window.Node,
-  getSelection: dom.window.getSelection.bind(dom.window),
-  MutationObserver: dom.window.MutationObserver,
+  requestAnimationFrame: (callback: FrameRequestCallback) => setTimeout(() => callback(0), 0) as unknown as number,
+  cancelAnimationFrame: (handle: number) => clearTimeout(handle),
   IS_REACT_ACT_ENVIRONMENT: true,
 });
-afterAll(() => Object.assign(globals, saved));
+// The pickers are shared Base UI components (src/ui), which reach for DOM classes by name.
+const domClasses = Object.getOwnPropertyNames(dom.window).filter(
+  (key) =>
+    /^(HTML|SVG|Element|Event|KeyboardEvent|PointerEvent|MouseEvent|FocusEvent|Shadow|Document|Mutation|Resize|getComputedStyle)/.test(
+      key,
+    ) && !(key in globals),
+);
+for (const key of domClasses) globals[key] = (dom.window as unknown as Record<string, unknown>)[key];
+afterAll(() => {
+  Object.assign(globals, saved);
+  for (const key of domClasses) delete globals[key];
+});
 
 const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { ComposerContext } = await import("./ComposerContext");
-const { Composer } = await import("./Composer");
-const { promptField } = await import("./promptFieldTesting");
 
+const sessions: AcpmuxSnapshot["sessions"] = [
+  { sessionId: "local", cwd: "/Users/me/code/cmux", host: "This Mac", hostKind: "local" },
+  { sessionId: "cloud", cwd: "/workspace/cmux", host: "devbox", hostKind: "cloud" },
+];
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 const doc = dom.window.document;
-// Newest first by updatedAt: cmux, then a cloud-only folder, then notes.
-const sessions: AcpmuxSnapshot["sessions"] = [
-  { sessionId: "a", cwd: "/Users/me/code/notes", updatedAt: 1 },
-  { sessionId: "b", cwd: "/Users/me/code/cmux/", updatedAt: 3 },
-  { sessionId: "c", cwd: "/workspace", host: "devbox", hostKind: "cloud", updatedAt: 2 },
-  { sessionId: "d", cwd: "/Users/me/code/cmux", updatedAt: 2 },
-];
-
 let root: ReturnType<typeof createRoot>;
-let picked: string[];
+let picked: Array<[string, string | undefined]>;
+let browsed = 0;
+
 beforeEach(() => {
   root = createRoot(doc.getElementById("root")!);
   picked = [];
+  browsed = 0;
 });
 afterEach(async () => act(async () => root.unmount()));
 
-const render = (summary: Partial<Summary> | undefined, list = sessions, choose = true) =>
+const render = (
+  summary: Partial<Summary> = {},
+  started = false,
+  projectChoices?: { cwd: string; label: string }[],
+  chats: AcpmuxSnapshot["sessions"] = sessions,
+) =>
   act(async () =>
     root.render(
       createElement(ComposerContext, {
-        summary: summary && { sessionId: "s", ...summary },
-        sessions: list,
-        onProject: choose ? (cwd: string) => picked.push(cwd) : undefined,
+        summary: {
+          sessionId: "s",
+          cwd: "/Users/me/code/cmux",
+          host: "This Mac",
+          hostKind: "local",
+          ...summary,
+        },
+        sessions: chats,
+        started,
+        projectChoices,
+        onBrowseProject: () => browsed++,
+        onProject: (cwd: string, peer?: string) => picked.push([cwd, peer]),
       }),
     ),
   );
-const pill = () => doc.querySelector<HTMLButtonElement>(".acpmux-project-button");
-const search = () => doc.querySelector<HTMLInputElement>(".acpmux-project-search input");
-const options = () =>
-  [...doc.querySelectorAll("[role=option]")].map(
-    (option) =>
-      `${option.textContent}${option.getAttribute("aria-checked") === "true" ? " *" : ""}${option.getAttribute("aria-selected") === "true" ? " >" : ""}`,
+
+test("renders plain right-aligned computer and folder pickers without context chips", async () => {
+  await render();
+  expect(doc.querySelectorAll(".acpmux-context-chip")).toHaveLength(0);
+  expect([...doc.querySelectorAll(".acpmux-location-button")].map((button) => button.textContent)).toEqual([
+    "This Mac",
+    "cmux",
+  ]);
+  // Two chevrons and the folder's icon: every part of the row is the same text menu button.
+  expect(doc.querySelectorAll(".acpmux-location-button .acpmux-icon")).toHaveLength(3);
+});
+
+test("offers Cloud computers and sends the selected computer with its folder", async () => {
+  await render();
+  const computer = doc.querySelector<HTMLButtonElement>('[aria-label="Computer"]')!;
+  await act(async () => computer.click());
+  expect(
+    // The computer menu is a shared radio menu (src/ui Menu): its items are menuitemradio rows.
+    [...doc.querySelectorAll('.acpmux-location-menu [role="menuitemradio"]')].map((row) =>
+      row.textContent?.replace("✓", ""),
+    ),
+  ).toEqual(["This Mac", "devboxCloud"]);
+  await act(async () => doc.querySelectorAll<HTMLElement>('.acpmux-location-menu [role="menuitemradio"]')[1]!.click());
+  const folder = doc.querySelector<HTMLButtonElement>('[aria-label="Folder"]')!;
+  expect(folder.textContent).toContain("cmux");
+  await act(async () => folder.click());
+  expect(picked).toEqual([["/workspace/cmux", "devbox"]]);
+});
+
+test("locks both location labels after the first turn", async () => {
+  await render({ turnCount: 1 }, true);
+  expect(doc.querySelectorAll(".acpmux-location-button")).toHaveLength(0);
+  expect(doc.querySelectorAll(".acpmux-location-readonly")).toHaveLength(2);
+  expect(doc.querySelector(".acpmux-composer-context")?.getAttribute("data-readonly")).toBe("true");
+});
+
+test("the folder picker takes a typed absolute path on Return", async () => {
+  await render();
+  await act(async () => doc.querySelector<HTMLButtonElement>('[aria-label="Folder"]')!.click());
+  const field = doc.querySelector<HTMLInputElement>(".acpmux-location-search")!;
+  expect(field).not.toBeNull();
+  await act(async () => {
+    const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!;
+    setter.call(field, "/tmp/scratch");
+    field.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+  });
+  await act(async () => {
+    field.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+  });
+  expect(picked.at(-1)?.[0]).toBe("/tmp/scratch");
+});
+
+test("folder rows show the project name over its path, and typing filters on both", async () => {
+  await render();
+  await act(async () => doc.querySelector<HTMLButtonElement>('[aria-label="Folder"]')!.click());
+  const rows = () =>
+    [...doc.querySelectorAll('.acpmux-location-menu [role="option"]')].map((row) => [
+      row.querySelector(".acpmux-menu-label")?.textContent,
+      row.querySelector(".acpmux-menu-description")?.textContent,
+    ]);
+  expect(rows()).toEqual([["cmux", "/Users/me/code/cmux"]]);
+  const field = doc.querySelector<HTMLInputElement>(".acpmux-location-search")!;
+  const type = (text: string) =>
+    act(async () => {
+      Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!.call(field, text);
+      field.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    });
+  await type("code");
+  expect(rows()).toEqual([["cmux", "/Users/me/code/cmux"]]);
+  await type("nothing-matches");
+  expect(rows()).toEqual([]);
+});
+
+const freshFolders = [
+  { cwd: "/Users/me/code/cmux", label: "cmux" },
+  { cwd: "/Users/me/Projects/relay", label: "relay" },
+];
+const folderButton = () => doc.querySelector<HTMLButtonElement>('[aria-label="Folder"]')!;
+const folderRows = () =>
+  [...doc.querySelectorAll('.acpmux-location-menu [role="menuitemradio"]')].map((row) => [
+    row.querySelector(".acpmux-menu-label")?.textContent,
+    row.querySelector(".acpmux-menu-description")?.textContent,
+    row.getAttribute("aria-checked"),
+  ]);
+const menuItems = () =>
+  [...doc.querySelectorAll('.acpmux-location-menu [role="menuitem"]')].map((item) => item.textContent);
+
+test("the fresh-chat folder menu lists the recent folders, the current one checked, then Choose folder…", async () => {
+  await render({}, false, freshFolders);
+  const button = folderButton();
+  expect(button.textContent).toBe("cmux");
+  expect(button.closest("[title]")?.getAttribute("title")).toBe("/Users/me/code/cmux");
+  await act(async () => button.click());
+  expect(folderRows()).toEqual([
+    ["cmux", "/Users/me/code/cmux", "true"],
+    ["relay", "/Users/me/Projects/relay", "false"],
+  ]);
+  expect(menuItems()).toEqual(["Choose folder…"]);
+  // The folder list comes first and Choose folder… last, under a separator.
+  const menu = doc.querySelector(".acpmux-location-menu")!;
+  const order = [...menu.querySelectorAll('[role="menuitemradio"], [role="separator"], [role="menuitem"]')].map(
+    (node) => node.getAttribute("role"),
   );
-const key = (name: string) =>
-  act(async () => {
-    doc.activeElement!.dispatchEvent(
-      new dom.window.KeyboardEvent("keydown", { key: name, bubbles: true, cancelable: true }),
+  expect(order).toEqual(["menuitemradio", "menuitemradio", "separator", "menuitem"]);
+  await act(async () => doc.querySelectorAll<HTMLElement>('.acpmux-location-menu [role="menuitemradio"]')[1]!.click());
+  expect(picked).toEqual([["/Users/me/Projects/relay", undefined]]);
+});
+
+test("Choose folder… asks the host for its folder panel from the click", async () => {
+  await render({}, false, freshFolders);
+  await act(async () => folderButton().click());
+  await act(async () => doc.querySelector<HTMLElement>('.acpmux-location-menu [role="menuitem"]')!.click());
+  expect(browsed).toBe(1);
+  expect(picked).toEqual([]);
+  expect(doc.querySelector(".acpmux-location-menu")).toBeNull();
+});
+
+test("picking the current folder only closes the menu", async () => {
+  await render({}, false, freshFolders);
+  await act(async () => folderButton().click());
+  await act(async () => doc.querySelector<HTMLElement>('.acpmux-location-menu [role="menuitemradio"]')!.click());
+  expect(picked).toEqual([]);
+});
+
+test("with no folder the button reads Choose folder in the same face, and its menu offers only Choose folder…", async () => {
+  await render({ cwd: undefined }, false, [], []);
+  const button = folderButton();
+  expect(button.textContent).toBe("Choose folder");
+  expect(button.className).toBe(doc.querySelector('[aria-label="Computer"]')!.className);
+  expect(button.querySelector(".acpmux-location-label")).not.toBeNull();
+  expect(button.closest("[title]")).toBeNull();
+  await act(async () => button.click());
+  expect(folderRows()).toEqual([]);
+  expect(doc.querySelectorAll('.acpmux-location-menu [role="separator"]')).toHaveLength(0);
+  expect(menuItems()).toEqual(["Choose folder…"]);
+});
+
+test("a long folder name is cut with an ellipsis on one line, and the tooltip keeps the full path", async () => {
+  const cwd = "/Users/me/code/a-really-long-project-folder-name-that-overflows-the-row";
+  await render({ cwd }, false, [{ cwd, label: "a-really-long-project-folder-name-that-overflows-the-row" }]);
+  const label = folderButton().querySelector<HTMLElement>(".acpmux-location-label")!;
+  expect(label.textContent).toBe("a-really-long-project-folder-name-that-overflows-the-row");
+  const style = dom.window.getComputedStyle(label);
+  expect([style.overflow, style.textOverflow, style.whiteSpace]).toEqual(["hidden", "ellipsis", "nowrap"]);
+  expect(folderButton().closest("[title]")?.getAttribute("title")).toBe(cwd);
+});
+
+test("the keyboard opens the folder menu, moves through it and picks with Enter", async () => {
+  await render({}, false, freshFolders);
+  const button = folderButton();
+  await act(async () => button.focus());
+  expect(doc.activeElement).toBe(button);
+  await act(async () => {
+    button.dispatchEvent(
+      new dom.window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }),
     );
   });
-// As the field's own typing would: the value, then React's onChange (see composerPickers.test.tsx typeInto).
-const type = (value: string) =>
-  act(async () => {
-    const node = search()!;
-    node.value = value;
-    const props = (node as unknown as Record<string, { onChange(event: { target: HTMLInputElement }): void }>)[
-      Object.keys(node).find((name) => name.startsWith("__reactProps$"))!
-    ]!;
-    props.onChange({ target: node });
-  });
-
-test("the project pill lists this machine's projects newest first, with the current one checked and highlighted", async () => {
-  await render({ cwd: "/Users/me/code/cmux" });
-  expect(pill()!.textContent).toBe("cmux");
-  expect(pill()!.getAttribute("aria-expanded")).toBe("false");
-  await act(async () => pill()!.click());
-  expect(pill()!.getAttribute("aria-expanded")).toBe("true");
-  expect(doc.activeElement).toBe(search());
-  // The cloud machine's /workspace is not a folder a local chat can open in.
-  expect(options()).toEqual(["cmux * >", "notes"]);
-  expect(search()!.getAttribute("aria-activedescendant")).toBe(doc.querySelector("[role=option]")!.id);
-});
-
-test("typing filters by name or path, Enter starts a chat in the highlighted project, and the current one starts nothing", async () => {
-  await render({ cwd: "/Users/me/code/cmux" });
-  await act(async () => pill()!.click());
-  await type("note");
-  expect(options()).toEqual(["notes >"]);
-  await type("code");
-  expect(options()).toEqual(["cmux * >", "notes"]);
-  await type("zzz");
-  expect(options()).toEqual([]);
-  expect(doc.querySelector(".acpmux-project-empty")!.textContent).toBe("No matching projects");
-  await type("");
+  expect(doc.querySelector(".acpmux-location-menu")).not.toBeNull();
+  const key = (name: string) =>
+    act(async () => {
+      (doc.activeElement ?? button).dispatchEvent(
+        new dom.window.KeyboardEvent("keydown", { key: name, bubbles: true, cancelable: true }),
+      );
+    });
   await key("ArrowDown");
-  await key("Enter");
-  expect(picked).toEqual(["/Users/me/code/notes"]);
-  expect(doc.querySelector("[role=listbox]")).toBeNull();
-  // The new chat's prompt takes the focus (Composer), so the pill does not hold it.
-  expect(doc.activeElement).not.toBe(pill());
-  // The project the chat is already in is not a new chat, and returns to the pill.
-  await act(async () => pill()!.click());
-  await key("Enter");
-  expect(picked).toEqual(["/Users/me/code/notes"]);
-  expect(doc.activeElement).toBe(pill());
-});
-
-test("the highlight stays on its project when a busy chat moves another folder to the top", async () => {
-  await render({ cwd: "/Users/me/code/cmux" });
-  await act(async () => pill()!.click());
   await key("ArrowDown");
-  expect(options()).toEqual(["cmux *", "notes >"]);
-  await render({ cwd: "/Users/me/code/cmux" }, [
-    ...sessions,
-    { sessionId: "e", cwd: "/Users/me/code/zed", updatedAt: 9 },
-  ]);
-  expect(options()).toEqual(["zed", "cmux *", "notes >"]);
+  await key("ArrowDown");
+  expect((doc.activeElement as HTMLElement | null)?.textContent).toBe("Choose folder…");
   await key("Enter");
-  expect(picked).toEqual(["/Users/me/code/notes"]);
+  expect(browsed).toBe(1);
 });
 
-test("from a cloud chat, the local project at the same path is another place to start a chat", async () => {
-  await render({ cwd: "/Users/me/code/cmux", host: "devbox", hostKind: "cloud" });
-  expect(pill()!.textContent).toBe("cmux");
-  await act(async () => pill()!.click());
-  expect(options()).toEqual(["cmux >", "notes"]);
-  await key("Enter");
-  expect(picked).toEqual(["/Users/me/code/cmux"]);
-});
-
-test("a click picks, and Escape or a click outside closes the menu", async () => {
-  await render({ cwd: "/Users/me/code/cmux" });
-  // The pill's mousedown keeps focus in the field, so a second click closes rather than reopens.
-  await act(async () => pill()!.click());
-  const down = new dom.window.MouseEvent("mousedown", { bubbles: true, cancelable: true });
-  await act(async () => {
-    pill()!.dispatchEvent(down);
-  });
-  expect(down.defaultPrevented).toBe(true);
-  await act(async () => pill()!.click());
-  expect(doc.querySelector("[role=listbox]")).toBeNull();
-  await act(async () => pill()!.click());
-  await key("Escape");
-  expect(doc.querySelector("[role=listbox]")).toBeNull();
-  expect(doc.activeElement).toBe(pill());
-  await act(async () => pill()!.click());
-  await act(async () => {
-    doc.body.dispatchEvent(new dom.window.MouseEvent("pointerdown", { bubbles: true }));
-  });
-  expect(doc.querySelector("[role=listbox]")).toBeNull();
-  await act(async () => pill()!.click());
-  await act(async () => {
-    doc
-      .querySelectorAll("[role=option]")[1]!
-      .dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, cancelable: true }));
-  });
-  expect(picked).toEqual(["/Users/me/code/notes"]);
-});
-
-test("a chat with no folder yet offers Choose project; without chats or a chooser the pill is plain", async () => {
-  await render(undefined);
-  expect(pill()!.textContent).toBe("Choose project");
-  await render({ cwd: "/Users/me/code/cmux" }, []);
-  expect(pill()).toBeNull();
-  expect(doc.querySelector(".acpmux-context-chip")!.textContent).toBe("cmux");
-  await render({ cwd: "/Users/me/code/cmux" }, sessions, false);
-  expect(pill()).toBeNull();
-  await render(undefined, []);
-  expect(doc.querySelector(".acpmux-composer-context")).toBeNull();
-});
-
-test("in the composer, a pick that starts a chat puts the focus in the prompt", async () => {
-  await act(async () =>
-    root.render(
-      createElement(Composer, {
-        snapshot: {
-          type: "snapshot",
-          protocolVersion: 1,
-          rows: [],
-          sessionId: "s",
-          summary: { sessionId: "s", cwd: "/Users/me/code/cmux" },
-          sessions,
-          connection: "connected",
-          isWorking: false,
-          queue: [],
-          catalog: [],
-          canLoadOlder: false,
-        },
-        chips: () => null,
-        onSend: () => {},
-        onStop: () => {},
-        onProject: (cwd: string) => picked.push(cwd),
-      }),
-    ),
-  );
-  // Milkdown makes its editor a task after the composer mounts.
-  await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
-  await act(async () => pill()!.click());
-  await type("notes");
-  await key("Enter");
-  expect(picked).toEqual(["/Users/me/code/notes"]);
-  expect(doc.activeElement).toBe(promptField(doc).element);
+test("keeps the root project selectable", async () => {
+  await render({ cwd: undefined }, false, [{ cwd: "/", label: "Root" }]);
+  await act(async () => folderButton().click());
+  await act(async () => doc.querySelector<HTMLElement>('.acpmux-location-menu [role="menuitemradio"]')!.click());
+  expect(picked).toEqual([["/", undefined]]);
 });

@@ -6,7 +6,7 @@ import Observation
 
 /// The live agent cursor visibility: resolves a target tab against the
 /// current models (`AgentCursorSnapshotBuilder` + the pure resolver), hands
-/// each workspace content's cursor stack its `AgentCursorTargetResolving`,
+/// each window's cursor host its `AgentCursorTargetResolving`,
 /// and tells `onChange` when a tracked target's visibility changes between
 /// input events (a column scrolls, a window minimizes, a workspace or tab
 /// switches).
@@ -22,12 +22,15 @@ final class AgentCursorVisibilitySource {
     private var tracked: [String: AgentCursorVisibility] = [:]
     private var observers: [any NSObjectProtocol] = []
     private var stateObservation: Task<Void, Never>?
-    /// Layout roots whose overlay sync this source subscribed to.
+    /// Overlay sync observations of the layout roots this source watches.
     private var hookedRoots: [ObjectIdentifier: LayoutRootHook] = [:]
     /// A tracked target's visibility changed; its overlay model re-renders.
     var onChange: ((String, AgentCursorVisibility) -> Void)?
 
-    private struct LayoutRootHook { weak var root: LayoutRootView? }
+    private struct LayoutRootHook {
+        weak var root: LayoutRootView?
+        let observation: LayoutOverlaySyncObservation
+    }
 
     init(services: AppServices) {
         self.services = services
@@ -51,16 +54,10 @@ final class AgentCursorVisibilitySource {
         stopObserving()
     }
 
-    /// The resolver of one workspace content's cursor stack: it draws only
-    /// while that content is the one its window shows (a parked content's
-    /// plane is off screen).
-    func resolver(for content: WorkspaceContentController) -> any AgentCursorTargetResolving {
-        AgentCursorContentResolver(content: content, source: self)
-    }
-
-    /// The window that shows `content` now, if any.
-    func windowID(showing content: WorkspaceContentController) -> String? {
-        services?.windows.controllers.first { $0.content === content }?.state.id
+    /// The resolver of one window's cursor host (the window-level overlay
+    /// layer): placements in the window's content-view coordinates, flipped.
+    func resolver(forWindow windowID: String) -> any AgentCursorTargetResolving {
+        AgentCursorWindowResolver(windowID: windowID, source: self)
     }
 
     // MARK: Invalidation
@@ -116,7 +113,7 @@ final class AgentCursorVisibilitySource {
         observers.removeAll()
         stateObservation?.cancel()
         stateObservation = nil
-        for hook in hookedRoots.values { hook.root?.onOverlaySync = nil }
+        for hook in hookedRoots.values { hook.observation.cancel() }
         hookedRoots.removeAll()
     }
 
@@ -127,25 +124,24 @@ final class AgentCursorVisibilitySource {
         hookedRoots = hookedRoots.filter { $0.value.root != nil }
         for controller in services?.windows.controllers ?? [] {
             guard let root = controller.content?.layoutView, hookedRoots[ObjectIdentifier(root)] == nil else { continue }
-            root.onOverlaySync = { [weak self] in self?.reresolve() }
-            hookedRoots[ObjectIdentifier(root)] = LayoutRootHook(root: root)
+            let observation = root.observeOverlaySync { [weak self] in self?.reresolve() }
+            hookedRoots[ObjectIdentifier(root)] = LayoutRootHook(root: root, observation: observation)
         }
     }
 }
 
-/// One workspace content's `AgentCursorTargetResolving`: resolves through
-/// the shared source and keeps only what this content's plane draws.
-final class AgentCursorContentResolver: AgentCursorTargetResolving {
-    private weak var content: WorkspaceContentController?
+/// One window's `AgentCursorTargetResolving` for the window-level cursor
+/// host: the resolver's rects as they are (window content view, flipped).
+final class AgentCursorWindowResolver: AgentCursorTargetResolving {
+    let windowID: String
     private weak var source: AgentCursorVisibilitySource?
 
-    init(content: WorkspaceContentController, source: AgentCursorVisibilitySource) {
-        self.content = content
+    init(windowID: String, source: AgentCursorVisibilitySource) {
+        self.windowID = windowID
         self.source = source
     }
 
     func placement(forTarget targetID: String) -> AgentCursorPlacement {
-        guard let source, let content, let window = source.windowID(showing: content) else { return .elsewhere }
-        return source.resolve(targetID).placement(forWindow: window, overlay: content.layoutView.bounds)
+        source?.resolve(targetID).placement(forWindow: windowID) ?? .elsewhere
     }
 }

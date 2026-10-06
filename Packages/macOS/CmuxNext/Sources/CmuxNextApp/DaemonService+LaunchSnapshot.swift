@@ -33,8 +33,21 @@ extension DaemonService {
                                      terminalEnvironmentProvider: @escaping @Sendable () async -> [String: String],
                                      resolvesShellIntegration: Bool = false) -> DaemonPrestart? {
         guard let launcher = try? DaemonLauncher.forApp(tag: launch.tag, terminalEnvironment: terminalEnvironment) else { return nil }
-        return DaemonPrestart(launcher: launcher, configuration: DaemonConnection.Configuration(
-            terminalEnvironment: terminalEnvironmentProvider, resolvesShellIntegration: resolvesShellIntegration))
+        return DaemonPrestart(launcher: launcher, configuration: localConfiguration(
+            terminalEnvironment: terminalEnvironmentProvider, resolvesShellIntegration: resolvesShellIntegration,
+            installKey: launcher.configuration.installKey))
+    }
+
+    /// The local daemon's connection configuration, for the first connect
+    /// begun in `main` (`prestart`) and for the connections after it.
+    nonisolated static func localConfiguration(terminalEnvironment: (@Sendable () async -> [String: String])?,
+                                               resolvesShellIntegration: Bool, installKey: FrontendInstallKey?,
+                                               retryWake: RetryWake? = nil) -> DaemonConnection.Configuration {
+        // sessionEvents: the state resources (closed history, workspace status,
+        // tab records) come only through session.events (nxdog50).
+        DaemonConnection.Configuration(retryWake: retryWake, terminalEnvironment: terminalEnvironment,
+                                       resolvesShellIntegration: resolvesShellIntegration, sessionEvents: true,
+                                       clientHello: ClientHelloIdentity(installKey: installKey))
     }
 
     /// Records the local daemon's socket for the next launch

@@ -71,6 +71,8 @@ public struct CloudPaths: Sendable {
             if !trimmed.isEmpty { return trimmed }
         }
         let id = "mac-\(UUID().uuidString.lowercased())"
+        // Read before any Cloud sign-in (agent tabs' install id): the directory may not exist yet.
+        try prepare()
         try writeSecret(id + "\n", to: deviceIDFile)
         return id
     }

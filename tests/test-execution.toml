@@ -969,11 +969,19 @@ path = "tests/test_cmux_next_checks_workflow.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_next_route.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_gh_merge_green.py"
 lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_next_guard.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_source_archive.py"
 lane = "linux-guard"
 
 [[test]]
@@ -986,4 +994,20 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_vendored_cmux_agent_cursor.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_remote_daemon_notices.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_install_zig_ci_reviewed_version.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_tui_artifacts_retry.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_package_input_key.py"
 lane = "linux-guard"

@@ -1,0 +1,72 @@
+import AppKit
+import CmuxNextActions
+import CmuxNextBrowser
+
+extension BrowserHitHandlers {
+    // MARK: Copy
+
+    static func bindCopy(_ registry: ActionRegistry, _ context: AppActionContext,
+                         _ pasteboard: @escaping @MainActor () -> any BrowserPasteboard) {
+        registry.bind("browser.link.copy", run: { pasteboard().writePageURL(try Self.url($0)) })
+        registry.bind("browser.image.copyAddress", run: { pasteboard().writePageURL(try Self.url($0)) })
+        registry.bind("browser.link.copyText", run: { pasteboard().writeText(try Self.text($0)) })
+        registry.bind("browser.selection.copy", run: { pasteboard().writeText(try Self.text($0)) })
+        registry.bind("browser.image.copy", run: { invocation in
+            let url = try Self.url(invocation)
+            let board = pasteboard()
+            let registry = context.services.registry
+            registry.track(Task {
+                guard let data = try? await BrowserImageData.load(url), let image = NSImage(data: data) else {
+                    registry.refuse(BrowserHitStrings.imageCopyFailed)
+                    return ActionWorkFailure(BrowserHitStrings.imageCopyFailed)
+                }
+                board.writeImage(image, source: url)
+                return nil
+            })
+        })
+    }
+
+    // MARK: Save
+
+    /// Save Link As… and Save Image As…: a save panel, then the page's own
+    /// download into the chosen file, on both engines (WebKit's
+    /// `WKDownload`, Chromium's shim downloads), from the menu, the palette
+    /// or `action.run` alike.
+    static func bindSave(_ registry: ActionRegistry, _ context: AppActionContext) {
+        for id: ActionID in ["browser.link.saveAs", "browser.image.saveAs"] {
+            registry.bind(id, run: { invocation in
+                let url = try Self.url(invocation)
+                guard let page = Self.page(invocation, context), let saving = page as? any BrowserURLSaving else {
+                    throw ActionFailure(message: BrowserHitStrings.noPage)
+                }
+                let panel = NSSavePanel()
+                panel.nameFieldStringValue = DownloadDestination.sanitizedFilename(url.lastPathComponent)
+                panel.directoryURL = DownloadDestination.defaultDirectory
+                let completion: (NSApplication.ModalResponse) -> Void = { [weak saving] response in
+                    guard response == .OK, let destination = panel.url else { return }
+                    saving?.save(url, to: destination)
+                }
+                if let window = page.contentView.window {
+                    panel.beginSheetModal(for: window, completionHandler: completion)
+                } else {
+                    panel.begin(completionHandler: completion)
+                }
+            })
+        }
+    }
+}
+
+/// The bytes behind an image address for Copy Image. A `data:` address
+/// decodes in place; `http(s)` loads without the page's cookies (neither
+/// engine gives the host its cached image yet), at most 64 MB.
+enum BrowserImageData {
+    static let limit = 64 << 20
+
+    static func load(_ url: URL, session: URLSession = .shared) async throws -> Data {
+        guard ["http", "https", "data"].contains(url.scheme?.lowercased() ?? "") else { throw URLError(.unsupportedURL) }
+        let (data, response) = try await session.data(from: url)
+        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) { throw URLError(.badServerResponse) }
+        guard data.count <= limit else { throw URLError(.dataLengthExceedsMaximum) }
+        return data
+    }
+}

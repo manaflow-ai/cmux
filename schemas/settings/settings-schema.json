@@ -7,6 +7,9 @@
       ],
       "agent_refusal" : "privacy",
       "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : false,
       "default_label" : null,
       "group" : {
@@ -74,6 +77,9 @@
           "value" : "surface"
         }
       ],
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : "workspace",
       "default_label" : null,
       "group" : {
@@ -134,6 +140,9 @@
           "value" : "standard"
         }
       ],
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : "minimal",
       "default_label" : null,
       "group" : {
@@ -189,6 +198,9 @@
           },
           "value" : "always"
         }
+      ],
+      "consumers" : [
+        "cmux-next"
       ],
       "default" : "hover",
       "default_label" : null,
@@ -284,6 +296,9 @@
           "value" : "auto"
         }
       ],
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : "page",
       "default_label" : null,
       "group" : {
@@ -345,6 +360,9 @@
           "value" : "always"
         }
       ],
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : "hover",
       "default_label" : null,
       "group" : {
@@ -405,6 +423,9 @@
           "value" : "bottom"
         }
       ],
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : "top",
       "default_label" : null,
       "group" : {
@@ -446,11 +467,79 @@
     },
     {
       "accepts" : [
+        "aboveToolbar",
+        "belowToolbar"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.tabsAboveToolbar",
+            "text" : "Tab Bar Above"
+          },
+          "value" : "aboveToolbar"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.tabsBelowToolbar",
+            "text" : "Tab Bar Below"
+          },
+          "value" : "belowToolbar"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "aboveToolbar",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.barOrder.help",
+        "text" : "In a browser pane with the tab bar at the top: the tab bar above the address bar, or below it."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.barOrder",
+      "keywords" : [
+        "tab bar",
+        "tabs",
+        "toolbar",
+        "omnibar",
+        "address bar",
+        "order",
+        "browser",
+        "layout"
+      ],
+      "kind" : "choice",
+      "path" : [
+        "tabs",
+        "barOrder"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.tabs.barOrder",
+        "text" : "Tab Bar and Browser Toolbar"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : false,
       "default_label" : null,
       "group" : {
@@ -484,6 +573,105 @@
       "title" : {
         "key" : "settings.newTerminal.opensWorkspace",
         "text" : "New Terminal Opens a Workspace"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "destructive",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.app.warnBeforeClosingTab.help",
+        "text" : "Ask before closing a tab or workspace whose terminal is running a program. Idle tabs always close at once."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "app.warnBeforeClosingTab",
+      "keywords" : [
+        "close",
+        "confirm",
+        "warn",
+        "tab",
+        "workspace",
+        "running",
+        "process",
+        "cmd-w"
+      ],
+      "kind" : "toggle",
+      "path" : [
+        "app",
+        "warnBeforeClosingTab"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.app.warnBeforeClosingTab",
+        "text" : "Warn Before Closing a Running Program"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "destructive",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.app.warnBeforeClosingAgentSession.help",
+        "text" : "Ask before closing a terminal tab whose agent is still working."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "app.warnBeforeClosingAgentSession",
+      "keywords" : [
+        "close",
+        "confirm",
+        "warn",
+        "agent",
+        "claude",
+        "codex",
+        "session",
+        "working",
+        "cmd-w"
+      ],
+      "kind" : "toggle",
+      "path" : [
+        "app",
+        "warnBeforeClosingAgentSession"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.app.warnBeforeClosingAgentSession",
+        "text" : "Warn Before Closing a Working Agent"
       },
       "validation" : "portable"
     },
@@ -525,6 +713,10 @@
           },
           "value" : "end-everything"
         }
+      ],
+      "consumers" : [
+        "cmux-browser",
+        "cmux-next"
       ],
       "default" : "ask",
       "default_label" : null,
@@ -572,6 +764,10 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-browser",
+        "cmux-next"
+      ],
       "default" : 0.5,
       "default_label" : null,
       "group" : {
@@ -642,6 +838,9 @@
           "value" : "on-overflow"
         }
       ],
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : "never",
       "default_label" : null,
       "group" : {
@@ -702,6 +901,9 @@
           "value" : "off"
         }
       ],
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : "auto",
       "default_label" : null,
       "group" : {
@@ -759,6 +961,9 @@
           "value" : "mostRecent"
         }
       ],
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : "previousNeighbor",
       "default_label" : null,
       "group" : {
@@ -799,8 +1004,57 @@
         true,
         false
       ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.shortcuts.hintsGroup",
+        "text" : "Shortcut Hints"
+      },
+      "help" : {
+        "key" : "settings.shortcuts.showModifierHoldHints.help",
+        "text" : "Hold Command or Control for 0.30 seconds to show shortcut hints."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "shortcuts.showModifierHoldHints",
+      "keywords" : [
+        "command",
+        "control",
+        "hold",
+        "hints",
+        "keyboard"
+      ],
+      "kind" : "toggle",
+      "path" : [
+        "shortcuts",
+        "showModifierHoldHints"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "keyboard",
+      "title" : {
+        "key" : "settings.shortcuts.showModifierHoldHints",
+        "text" : "Show Shortcuts When Holding a Modifier"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
       "agent_refusal" : "network",
       "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : true,
       "default_label" : null,
       "group" : {
@@ -841,6 +1095,9 @@
       ],
       "agent_refusal" : "network",
       "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : 3600,
       "default_label" : null,
       "group" : {
@@ -888,6 +1145,9 @@
       ],
       "agent_refusal" : "network",
       "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : true,
       "default_label" : null,
       "group" : {
@@ -954,6 +1214,9 @@
           "value" : "download"
         }
       ],
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : "defer-low-data",
       "default_label" : null,
       "group" : {
@@ -962,7 +1225,7 @@
       },
       "help" : {
         "key" : "settings.updates.meteredNetwork.help",
-        "text" : "While downloads wait, a found update shows as a card and one click downloads it."
+        "text" : "While downloads wait, a found update shows on Settings and one click downloads it."
       },
       "kept_on_reset_all" : false,
       "key" : "updates.meteredNetwork",
@@ -997,6 +1260,9 @@
       ],
       "agent_refusal" : "destructive",
       "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : true,
       "default_label" : null,
       "group" : {
@@ -1033,20 +1299,12 @@
     },
     {
       "accepts" : [
-        "card",
         "badge",
         "silent"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.updatesCard",
-            "text" : "Show a Card"
-          },
-          "value" : "card"
-        },
         {
           "title" : {
             "key" : "settings.choice.updatesBadge",
@@ -1062,7 +1320,10 @@
           "value" : "silent"
         }
       ],
-      "default" : "card",
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "badge",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.updates",
@@ -1074,7 +1335,6 @@
       "keywords" : [
         "update",
         "notify",
-        "card",
         "badge",
         "silent"
       ],
@@ -1103,6 +1363,9 @@
       ],
       "agent_refusal" : "destructive",
       "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : 1,
       "default_label" : null,
       "group" : {
@@ -1147,52 +1410,91 @@
     },
     {
       "accepts" : [
-        {
-          "end" : "07:30",
-          "start" : "22:00"
-        }
+        true,
+        false
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
-      "default" : null,
-      "default_label" : {
-        "key" : "settings.choice.off",
-        "text" : "Off"
-      },
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
       "group" : {
-        "key" : "settings.group.updates",
-        "text" : "Updates"
+        "key" : "settings.group.announcements",
+        "text" : "Announcements"
       },
       "help" : {
-        "key" : "settings.updates.quietHours.help",
-        "text" : "No update card between these times."
+        "key" : "settings.announcements.enabled.help",
+        "text" : "Short cards from the cmux team above Settings, shown when the pointer is over the sidebar."
       },
       "kept_on_reset_all" : false,
-      "key" : "updates.quietHours",
+      "key" : "announcements.enabled",
       "keywords" : [
-        "update",
-        "quiet",
-        "do not disturb"
+        "announcements",
+        "news",
+        "cards",
+        "whats new"
       ],
-      "kind" : "time_range",
+      "kind" : "toggle",
       "path" : [
-        "updates",
-        "quietHours"
+        "announcements",
+        "enabled"
       ],
       "refuses" : [
-        {
-          "end" : "07:00",
-          "start" : "25:00"
-        },
-        {
-          "start" : "22:00"
-        },
-        "22:00-07:00"
+        "true",
+        1,
+        null
       ],
       "section" : "general",
       "title" : {
-        "key" : "settings.updates.quietHours",
-        "text" : "Quiet Hours"
+        "key" : "settings.announcements.enabled",
+        "text" : "Show Announcements"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "network",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.announcements",
+        "text" : "Announcements"
+      },
+      "help" : {
+        "key" : "settings.announcements.fetch.help",
+        "text" : "Off: cmux never asks the network for announcements. The request carries no identifiers."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "announcements.fetch",
+      "keywords" : [
+        "announcements",
+        "privacy",
+        "offline",
+        "network"
+      ],
+      "kind" : "toggle",
+      "path" : [
+        "announcements",
+        "fetch"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.announcements.fetch",
+        "text" : "Download Announcements"
       },
       "validation" : "portable"
     },
@@ -1218,6 +1520,9 @@
           },
           "value" : "halve"
         }
+      ],
+      "consumers" : [
+        "cmux-next"
       ],
       "default" : "even",
       "default_label" : null,
@@ -1283,6 +1588,9 @@
           },
           "value" : "fixed"
         }
+      ],
+      "consumers" : [
+        "cmux-next"
       ],
       "default" : "matchCurrent",
       "default_label" : null,
@@ -1361,6 +1669,9 @@
           "value" : "bottom"
         }
       ],
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : "nearest",
       "default_label" : null,
       "group" : {
@@ -1414,6 +1725,9 @@
           },
           "value" : "overlay"
         }
+      ],
+      "consumers" : [
+        "cmux-next"
       ],
       "default" : "docked",
       "default_label" : null,
@@ -1469,6 +1783,9 @@
           "value" : "rowMajor"
         }
       ],
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : "columnMajor",
       "default_label" : null,
       "group" : {
@@ -1508,6 +1825,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : true,
       "default_label" : null,
       "group" : {
@@ -1551,6 +1871,10 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-browser",
+        "cmux-next"
+      ],
       "default" : 200,
       "default_label" : null,
       "group" : {
@@ -1597,6 +1921,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : 64,
       "default_label" : null,
       "group" : {
@@ -1794,6 +2121,9 @@
           "value" : "none"
         }
       ],
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : "@",
       "default_label" : null,
       "group" : {
@@ -1989,6 +2319,9 @@
           },
           "value" : "none"
         }
+      ],
+      "consumers" : [
+        "cmux-next"
       ],
       "default" : "#",
       "default_label" : null,
@@ -2186,6 +2519,9 @@
           "value" : "none"
         }
       ],
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : ">",
       "default_label" : null,
       "group" : {
@@ -2381,6 +2717,9 @@
           },
           "value" : "none"
         }
+      ],
+      "consumers" : [
+        "cmux-next"
       ],
       "default" : ",",
       "default_label" : null,
@@ -2578,6 +2917,9 @@
           "value" : "none"
         }
       ],
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : "?",
       "default_label" : null,
       "group" : {
@@ -2627,6 +2969,9 @@
       ],
       "agent_refusal" : "userOnly",
       "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : [
 
       ],
@@ -2701,6 +3046,9 @@
           "value" : "inbox"
         }
       ],
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : "inbox",
       "default_label" : null,
       "group" : {
@@ -2745,6 +3093,10 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-browser",
+        "cmux-next"
+      ],
       "default" : null,
       "default_label" : {
         "key" : "settings.default.ghosttyConfig",
@@ -2842,6 +3194,9 @@
           "value" : "met-sunflowers-436524"
         }
       ],
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : "none",
       "default_label" : null,
       "group" : {
@@ -2935,6 +3290,9 @@
           "value" : "met-sunflowers-436524"
         }
       ],
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : "none",
       "default_label" : null,
       "group" : {
@@ -2981,6 +3339,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : false,
       "default_label" : null,
       "group" : {
@@ -3027,6 +3388,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : null,
       "default_label" : {
         "key" : "settings.default.ghosttyConfig",
@@ -3112,6 +3476,10 @@
           "value" : "none"
         }
       ],
+      "consumers" : [
+        "cmux-browser",
+        "cmux-next"
+      ],
       "default" : null,
       "default_label" : {
         "key" : "settings.default.ghosttyConfig",
@@ -3159,6 +3527,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : 0,
       "default_label" : null,
       "group" : {
@@ -3209,6 +3580,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : 0.5,
       "default_label" : null,
       "group" : {
@@ -3258,6 +3632,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : 1,
       "default_label" : null,
       "group" : {
@@ -3323,6 +3700,9 @@
           "value" : "comfortable"
         }
       ],
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : "compact",
       "default_label" : null,
       "group" : {
@@ -3361,6 +3741,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : null,
       "default_label" : {
         "key" : "settings.default.density",
@@ -3413,6 +3796,172 @@
     },
     {
       "accepts" : [
+        160,
+        420,
+        290
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-browser",
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.density",
+        "text" : "Density default"
+      },
+      "group" : {
+        "key" : "settings.group.densityMotion",
+        "text" : "Density and Motion"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "appearance.metrics.sidebarWidth",
+      "keywords" : [
+        "sidebar",
+        "width",
+        "size",
+        "sidebarWidth"
+      ],
+      "kind" : "number",
+      "path" : [
+        "appearance",
+        "metrics",
+        "sidebarWidth"
+      ],
+      "range" : {
+        "max" : 420,
+        "min" : 160,
+        "placeholder" : 208,
+        "step" : 1,
+        "unit" : "points"
+      },
+      "refuses" : [
+        -100,
+        680,
+        "1"
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.appearance.sidebarWidth",
+        "text" : "Sidebar Width"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        24,
+        12
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-browser",
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.density",
+        "text" : "Density default"
+      },
+      "group" : {
+        "key" : "settings.group.densityMotion",
+        "text" : "Density and Motion"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "appearance.metrics.columnGap",
+      "keywords" : [
+        "column",
+        "gap",
+        "spacing",
+        "columnGap"
+      ],
+      "kind" : "number",
+      "path" : [
+        "appearance",
+        "metrics",
+        "columnGap"
+      ],
+      "range" : {
+        "max" : 24,
+        "min" : 0,
+        "placeholder" : 6,
+        "step" : 1,
+        "unit" : "points"
+      },
+      "refuses" : [
+        -24,
+        48,
+        "1"
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.appearance.columnGap",
+        "text" : "Column Gap"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        24,
+        56,
+        40
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-browser",
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.density",
+        "text" : "Density default"
+      },
+      "group" : {
+        "key" : "settings.group.densityMotion",
+        "text" : "Density and Motion"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "appearance.metrics.titlebarHeight",
+      "keywords" : [
+        "titlebar",
+        "title bar",
+        "header",
+        "height",
+        "titlebarHeight"
+      ],
+      "kind" : "number",
+      "path" : [
+        "appearance",
+        "metrics",
+        "titlebarHeight"
+      ],
+      "range" : {
+        "max" : 56,
+        "min" : 24,
+        "placeholder" : 32,
+        "step" : 1,
+        "unit" : "points"
+      },
+      "refuses" : [
+        -8,
+        88,
+        "1"
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.appearance.titlebarHeight",
+        "text" : "Titlebar Height"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "default",
         "none"
       ],
@@ -3433,6 +3982,9 @@
           },
           "value" : "none"
         }
+      ],
+      "consumers" : [
+        "cmux-next"
       ],
       "default" : "default",
       "default_label" : null,
@@ -3509,6 +4061,9 @@
           "value" : "none"
         }
       ],
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : "both",
       "default_label" : null,
       "group" : {
@@ -3575,6 +4130,9 @@
           },
           "value" : "quiet"
         }
+      ],
+      "consumers" : [
+        "cmux-next"
       ],
       "default" : "fade",
       "default_label" : null,
@@ -3645,6 +4203,10 @@
           "value" : "off"
         }
       ],
+      "consumers" : [
+        "cmux-browser",
+        "cmux-next"
+      ],
       "default" : "fast",
       "default_label" : null,
       "group" : {
@@ -3714,6 +4276,9 @@
           "value" : "cards"
         }
       ],
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : "borders",
       "default_label" : null,
       "group" : {
@@ -3761,6 +4326,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : null,
       "default_label" : {
         "key" : "settings.default.density",
@@ -3808,6 +4376,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : null,
       "default_label" : {
         "key" : "settings.default.density",
@@ -3870,6 +4441,9 @@
           "value" : "none"
         }
       ],
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : "subtle",
       "default_label" : null,
       "group" : {
@@ -3907,6 +4481,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : null,
       "default_label" : {
         "key" : "settings.default.theme",
@@ -3949,6 +4526,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : null,
       "default_label" : {
         "key" : "settings.default.onePixel",
@@ -3995,6 +4575,10 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-browser",
+        "cmux-next"
+      ],
       "default" : true,
       "default_label" : null,
       "group" : {
@@ -4054,6 +4638,9 @@
           },
           "value" : "none"
         }
+      ],
+      "consumers" : [
+        "cmux-next"
       ],
       "default" : "ring",
       "default_label" : null,
@@ -4115,6 +4702,9 @@
           "value" : "strong"
         }
       ],
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : "subtle",
       "default_label" : null,
       "group" : {
@@ -4152,6 +4742,10 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-browser",
+        "cmux-next"
+      ],
       "default" : null,
       "default_label" : {
         "key" : "settings.default.theme",
@@ -4194,6 +4788,10 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-browser",
+        "cmux-next"
+      ],
       "default" : 1,
       "default_label" : null,
       "group" : {
@@ -4237,6 +4835,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : false,
       "default_label" : null,
       "group" : {
@@ -4274,6 +4875,10 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-browser",
+        "cmux-next"
+      ],
       "default" : null,
       "default_label" : {
         "key" : "settings.default.sameAsWindow",
@@ -4323,6 +4928,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : null,
       "default_label" : {
         "key" : "settings.default.windowOpacity",
@@ -4377,6 +4985,10 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-browser",
+        "cmux-next"
+      ],
       "default" : null,
       "default_label" : {
         "key" : "settings.default.sameAsWindow",
@@ -4426,6 +5038,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : null,
       "default_label" : {
         "key" : "settings.default.windowOpacity",
@@ -4480,6 +5095,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : null,
       "default_label" : {
         "key" : "settings.default.sameAsWindow",
@@ -4529,6 +5147,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : null,
       "default_label" : {
         "key" : "settings.default.windowOpacity",
@@ -4583,6 +5204,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : null,
       "default_label" : {
         "key" : "settings.default.sameAsWindow",
@@ -4632,6 +5256,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : null,
       "default_label" : {
         "key" : "settings.default.windowOpacity",
@@ -4686,6 +5313,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : null,
       "default_label" : {
         "key" : "settings.default.sameAsWindow",
@@ -4735,6 +5365,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : null,
       "default_label" : {
         "key" : "settings.default.windowOpacity",
@@ -4789,6 +5422,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : null,
       "default_label" : {
         "key" : "settings.default.sameAsWindow",
@@ -4838,6 +5474,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : null,
       "default_label" : {
         "key" : "settings.default.windowOpacity",
@@ -4892,6 +5531,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : null,
       "default_label" : {
         "key" : "settings.default.sameAsWindow",
@@ -4941,6 +5583,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : null,
       "default_label" : {
         "key" : "settings.default.windowOpacity",
@@ -4995,6 +5640,10 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-browser",
+        "cmux-next"
+      ],
       "default" : null,
       "default_label" : {
         "key" : "settings.default.sameAsWindow",
@@ -5044,6 +5693,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : null,
       "default_label" : {
         "key" : "settings.default.windowOpacity",
@@ -5098,6 +5750,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : null,
       "default_label" : {
         "key" : "settings.default.sameAsWindow",
@@ -5147,6 +5802,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : null,
       "default_label" : {
         "key" : "settings.default.windowOpacity",
@@ -5201,6 +5859,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : null,
       "default_label" : {
         "key" : "settings.default.sameAsWindow",
@@ -5250,6 +5911,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : null,
       "default_label" : {
         "key" : "settings.default.windowOpacity",
@@ -5304,6 +5968,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : null,
       "default_label" : {
         "key" : "settings.default.sameAsWindow",
@@ -5353,6 +6020,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : null,
       "default_label" : {
         "key" : "settings.default.windowOpacity",
@@ -5407,6 +6077,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : null,
       "default_label" : {
         "key" : "settings.default.sameAsWindow",
@@ -5456,6 +6129,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : null,
       "default_label" : {
         "key" : "settings.default.windowOpacity",
@@ -5499,6 +6175,224 @@
       "title" : {
         "key" : "settings.appearance.surfaces.diff.opacity",
         "text" : "Diff Viewer Opacity"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "#1a2B3c",
+        "#1A2B3C80",
+        "1a2b3c"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.sameAsWindow",
+        "text" : "Same as window"
+      },
+      "group" : {
+        "key" : "settings.group.surfaces",
+        "text" : "Surfaces"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "appearance.surfaces.markdown.color",
+      "keywords" : [
+        "background",
+        "surface",
+        "color",
+        "transparency",
+        "opacity",
+        "markdown"
+      ],
+      "kind" : "color",
+      "path" : [
+        "appearance",
+        "surfaces",
+        "markdown",
+        "color"
+      ],
+      "refuses" : [
+        "red",
+        "#12345",
+        "#1234567",
+        "#12345g",
+        0
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.appearance.surfaces.markdown.color",
+        "text" : "Markdown Editor Color"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        1,
+        0.5
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.windowOpacity",
+        "text" : "Window opacity"
+      },
+      "group" : {
+        "key" : "settings.group.surfaces",
+        "text" : "Surfaces"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "appearance.surfaces.markdown.opacity",
+      "keywords" : [
+        "background",
+        "surface",
+        "color",
+        "transparency",
+        "opacity",
+        "markdown"
+      ],
+      "kind" : "number",
+      "path" : [
+        "appearance",
+        "surfaces",
+        "markdown",
+        "opacity"
+      ],
+      "range" : {
+        "max" : 1,
+        "min" : 0,
+        "placeholder" : 0,
+        "step" : 0.05,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -1,
+        2,
+        "1"
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.appearance.surfaces.markdown.opacity",
+        "text" : "Markdown Editor Opacity"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "#1a2B3c",
+        "#1A2B3C80",
+        "1a2b3c"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.sameAsWindow",
+        "text" : "Same as window"
+      },
+      "group" : {
+        "key" : "settings.group.surfaces",
+        "text" : "Surfaces"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "appearance.surfaces.editor.color",
+      "keywords" : [
+        "background",
+        "surface",
+        "color",
+        "transparency",
+        "opacity",
+        "editor"
+      ],
+      "kind" : "color",
+      "path" : [
+        "appearance",
+        "surfaces",
+        "editor",
+        "color"
+      ],
+      "refuses" : [
+        "red",
+        "#12345",
+        "#1234567",
+        "#12345g",
+        0
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.appearance.surfaces.editor.color",
+        "text" : "Code Editor Color"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        1,
+        0.5
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.windowOpacity",
+        "text" : "Window opacity"
+      },
+      "group" : {
+        "key" : "settings.group.surfaces",
+        "text" : "Surfaces"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "appearance.surfaces.editor.opacity",
+      "keywords" : [
+        "background",
+        "surface",
+        "color",
+        "transparency",
+        "opacity",
+        "editor"
+      ],
+      "kind" : "number",
+      "path" : [
+        "appearance",
+        "surfaces",
+        "editor",
+        "opacity"
+      ],
+      "range" : {
+        "max" : 1,
+        "min" : 0,
+        "placeholder" : 0,
+        "step" : 0.05,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -1,
+        2,
+        "1"
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.appearance.surfaces.editor.opacity",
+        "text" : "Code Editor Opacity"
       },
       "validation" : "portable"
     },
@@ -5549,6 +6443,9 @@
           "value" : "none"
         }
       ],
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : "arc",
       "default_label" : null,
       "group" : {
@@ -5593,6 +6490,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : 1,
       "default_label" : null,
       "group" : {
@@ -5638,6 +6538,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : 1.5,
       "default_label" : null,
       "group" : {
@@ -5683,6 +6586,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : null,
       "default_label" : {
         "key" : "settings.default.theme",
@@ -5725,6 +6631,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : true,
       "default_label" : null,
       "group" : {
@@ -5765,6 +6674,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : true,
       "default_label" : null,
       "group" : {
@@ -5805,6 +6717,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : 3,
       "default_label" : null,
       "group" : {
@@ -5843,10 +6758,343 @@
     },
     {
       "accepts" : [
+        "split",
+        "unified"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.diffSplit",
+            "text" : "Side by Side"
+          },
+          "value" : "split"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.diffUnified",
+            "text" : "Unified"
+          },
+          "value" : "unified"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "unified",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.diffViewer",
+        "text" : "Diff Viewer"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "diff.layout",
+      "keywords" : [
+        "diff",
+        "split",
+        "unified",
+        "side by side"
+      ],
+      "kind" : "choice",
+      "path" : [
+        "diff",
+        "layout"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.diff.layout",
+        "text" : "Layout"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "bars",
+        "classic",
+        "none"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.diffBars",
+            "text" : "Bars"
+          },
+          "value" : "bars"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.diffClassic",
+            "text" : "+ and −"
+          },
+          "value" : "classic"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.diffNone",
+            "text" : "None"
+          },
+          "value" : "none"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "bars",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.diffViewer",
+        "text" : "Diff Viewer"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "diff.diffIndicators",
+      "keywords" : [
+        "diff",
+        "indicators",
+        "markers",
+        "gutter"
+      ],
+      "kind" : "choice",
+      "path" : [
+        "diff",
+        "diffIndicators"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.diff.diffIndicators",
+        "text" : "Change Markers"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.diffViewer",
+        "text" : "Diff Viewer"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "diff.wordWrap",
+      "keywords" : [
+        "diff",
+        "wrap",
+        "lines"
+      ],
+      "kind" : "toggle",
+      "path" : [
+        "diff",
+        "wordWrap"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.diff.wordWrap",
+        "text" : "Wrap Lines"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.diffViewer",
+        "text" : "Diff Viewer"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "diff.wordDiffs",
+      "keywords" : [
+        "diff",
+        "word",
+        "inline"
+      ],
+      "kind" : "toggle",
+      "path" : [
+        "diff",
+        "wordDiffs"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.diff.wordDiffs",
+        "text" : "Highlight Word Changes"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.diffViewer",
+        "text" : "Diff Viewer"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "diff.lineNumbers",
+      "keywords" : [
+        "diff",
+        "line numbers",
+        "gutter"
+      ],
+      "kind" : "toggle",
+      "path" : [
+        "diff",
+        "lineNumbers"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.diff.lineNumbers",
+        "text" : "Line Numbers"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.diffViewer",
+        "text" : "Diff Viewer"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "diff.showBackgrounds",
+      "keywords" : [
+        "diff",
+        "background",
+        "color"
+      ],
+      "kind" : "toggle",
+      "path" : [
+        "diff",
+        "showBackgrounds"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.diff.showBackgrounds",
+        "text" : "Change Backgrounds"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.diffViewer",
+        "text" : "Diff Viewer"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "diff.expandUnchanged",
+      "keywords" : [
+        "diff",
+        "unchanged",
+        "context",
+        "expand"
+      ],
+      "kind" : "toggle",
+      "path" : [
+        "diff",
+        "expandUnchanged"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.diff.expandUnchanged",
+        "text" : "Expand Unchanged Lines"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
 
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : null,
       "default_label" : {
         "key" : "settings.default.ghosttyConfig",
@@ -5895,6 +7143,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : null,
       "default_label" : {
         "key" : "settings.default.ghosttyConfig",
@@ -5946,6 +7197,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : false,
       "default_label" : null,
       "group" : {
@@ -5991,6 +7245,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : null,
       "default_label" : {
         "key" : "settings.default.onePixel",
@@ -6082,6 +7339,9 @@
           "value" : "linesIcons"
         }
       ],
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : "quiet",
       "default_label" : null,
       "group" : {
@@ -6126,6 +7386,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : 0.3333333333333333,
       "default_label" : null,
       "group" : {
@@ -6177,6 +7440,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : 0.25,
       "default_label" : null,
       "group" : {
@@ -6227,6 +7493,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : true,
       "default_label" : null,
       "group" : {
@@ -6269,6 +7538,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : false,
       "default_label" : null,
       "group" : {
@@ -6342,6 +7614,9 @@
           "value" : "both"
         }
       ],
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : "bottom",
       "default_label" : null,
       "group" : {
@@ -6401,6 +7676,9 @@
           },
           "value" : "right"
         }
+      ],
+      "consumers" : [
+        "cmux-next"
       ],
       "default" : "left",
       "default_label" : null,
@@ -6462,6 +7740,9 @@
           },
           "value" : "bottom"
         }
+      ],
+      "consumers" : [
+        "cmux-next"
       ],
       "default" : "bottom",
       "default_label" : null,
@@ -6526,6 +7807,9 @@
           "value" : "webkit"
         }
       ],
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : "chromium",
       "default_label" : null,
       "group" : {
@@ -6570,6 +7854,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : "",
       "default_label" : null,
       "group" : {
@@ -6612,6 +7899,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : false,
       "default_label" : null,
       "group" : {
@@ -6680,6 +7970,9 @@
           "value" : "off"
         }
       ],
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : "moderate",
       "default_label" : null,
       "group" : {
@@ -6735,6 +8028,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : [
 
       ],
@@ -6777,6 +8073,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : false,
       "default_label" : null,
       "group" : {
@@ -6813,6 +8112,9 @@
       ],
       "agent_refusal" : "network",
       "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : true,
       "default_label" : null,
       "group" : {
@@ -6846,47 +8148,801 @@
     },
     {
       "accepts" : [
+        "google",
+        "duckduckgo",
+        "bing",
+        "brave",
+        "kagi",
+        "custom"
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Google"
+          },
+          "value" : "google"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "DuckDuckGo"
+          },
+          "value" : "duckduckgo"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Bing"
+          },
+          "value" : "bing"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Brave"
+          },
+          "value" : "brave"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Kagi"
+          },
+          "value" : "kagi"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.searchEngine.custom",
+            "text" : "Custom"
+          },
+          "value" : "custom"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "google",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.addressBar",
+        "text" : "Address Bar"
+      },
+      "help" : {
+        "key" : "settings.browser.searchEngine.help",
+        "text" : "The address bar searches here and asks it for suggestions."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.searchEngine",
+      "keywords" : [
+        "search",
+        "engine",
+        "omnibox",
+        "address bar"
+      ],
+      "kind" : "choice",
+      "path" : [
+        "browser",
+        "searchEngine"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "browser",
+      "title" : {
+        "key" : "settings.browser.searchEngine",
+        "text" : "Search Engine"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "",
+        "https://search.example/?q=%s",
+        "https://search.example/find?q={searchTerms}"
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.addressBar",
+        "text" : "Address Bar"
+      },
+      "help" : {
+        "key" : "settings.browser.customSearch.help",
+        "text" : "Used when Search Engine is Custom. Put {searchTerms} where the typed text goes."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.customSearchEngine.search",
+      "keywords" : [
+        "search",
+        "engine",
+        "custom",
+        "template"
+      ],
+      "kind" : "url",
+      "path" : [
+        "browser",
+        "customSearchEngine",
+        "search"
+      ],
+      "refuses" : [
+        "https://search.example/",
+        "search.example",
+        "not a url %s",
+        1
+      ],
+      "section" : "browser",
+      "title" : {
+        "key" : "settings.browser.customSearch",
+        "text" : "Custom Search Address"
+      },
+      "validation" : "domain:search_template"
+    },
+    {
+      "accepts" : [
+        "",
+        "https://search.example/?q=%s",
+        "https://search.example/find?q={searchTerms}"
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.addressBar",
+        "text" : "Address Bar"
+      },
+      "help" : {
+        "key" : "settings.browser.customSuggest.help",
+        "text" : "Optional. Answers in the OpenSearch suggestions format, with {searchTerms} for the typed text."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.customSearchEngine.suggest",
+      "keywords" : [
+        "search",
+        "suggest",
+        "custom",
+        "opensearch"
+      ],
+      "kind" : "url",
+      "path" : [
+        "browser",
+        "customSearchEngine",
+        "suggest"
+      ],
+      "refuses" : [
+        "https://search.example/",
+        "search.example",
+        "not a url %s",
+        1
+      ],
+      "section" : "browser",
+      "title" : {
+        "key" : "settings.browser.customSuggest",
+        "text" : "Custom Suggestions Address"
+      },
+      "validation" : "domain:search_template"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
       "agent_refusal" : "privacy",
       "agent_settable" : false,
-      "default" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
       "default_label" : null,
       "group" : {
-        "key" : "settings.group.attachments",
-        "text" : "Attachments"
+        "key" : "settings.group.addressBar",
+        "text" : "Address Bar"
       },
       "help" : {
-        "key" : "settings.home.keepLocation.help",
-        "text" : "When off, location data is removed from photos and videos before they are attached."
+        "key" : "settings.browser.omnibar.remoteSuggestions.help",
+        "text" : "Sends what you type to the search engine for suggestions. Never addresses, files or local hosts."
       },
       "kept_on_reset_all" : false,
-      "key" : "home.attachments.keepLocation",
+      "key" : "browser.omnibar.remoteSuggestions",
       "keywords" : [
-        "gps",
-        "location",
-        "privacy",
-        "metadata",
-        "exif",
-        "attachments",
-        "photos"
+        "suggest",
+        "search",
+        "omnibox",
+        "privacy"
       ],
       "kind" : "toggle",
       "path" : [
-        "home",
-        "attachments",
-        "keepLocation"
+        "browser",
+        "omnibar",
+        "remoteSuggestions"
       ],
       "refuses" : [
         "true",
         1,
         null
       ],
-      "section" : "home",
+      "section" : "browser",
       "title" : {
-        "key" : "settings.home.keepLocation",
-        "text" : "Keep Location in Photos and Videos"
+        "key" : "settings.browser.omnibar.remoteSuggestions",
+        "text" : "Search Suggestions"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.addressBar",
+        "text" : "Address Bar"
+      },
+      "help" : {
+        "key" : "settings.browser.omnibar.inlineAutocomplete.help",
+        "text" : "Completes a site you typed before or visit often."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.omnibar.inlineAutocomplete",
+      "keywords" : [
+        "autocomplete",
+        "omnibox",
+        "address bar"
+      ],
+      "kind" : "toggle",
+      "path" : [
+        "browser",
+        "omnibar",
+        "inlineAutocomplete"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "title" : {
+        "key" : "settings.browser.omnibar.inlineAutocomplete",
+        "text" : "Complete Addresses Inline"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        3,
+        15,
+        9
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 8,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.addressBar",
+        "text" : "Address Bar"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "browser.omnibar.maxRows",
+      "keywords" : [
+        "suggestions",
+        "rows",
+        "omnibox"
+      ],
+      "kind" : "number",
+      "path" : [
+        "browser",
+        "omnibar",
+        "maxRows"
+      ],
+      "range" : {
+        "max" : 15,
+        "min" : 3,
+        "placeholder" : 3,
+        "step" : 1,
+        "unit" : "count"
+      },
+      "refuses" : [
+        -9,
+        27,
+        "1"
+      ],
+      "section" : "browser",
+      "title" : {
+        "key" : "settings.browser.omnibar.maxRows",
+        "text" : "Suggestions Shown"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.addressBar",
+        "text" : "Address Bar"
+      },
+      "help" : {
+        "key" : "settings.browser.omnibar.calculator.help",
+        "text" : "Shows the answer to arithmetic you type. Return copies it."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.omnibar.calculator",
+      "keywords" : [
+        "calculator",
+        "math",
+        "answer",
+        "omnibox"
+      ],
+      "kind" : "toggle",
+      "path" : [
+        "browser",
+        "omnibar",
+        "calculator"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "title" : {
+        "key" : "settings.browser.omnibar.calculator",
+        "text" : "Calculator Answers"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "backgroundTab",
+        "foregroundTab",
+        "newWindow",
+        "currentTab",
+        "download"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.link.backgroundTab",
+            "text" : "New Background Tab"
+          },
+          "value" : "backgroundTab"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.link.foregroundTab",
+            "text" : "New Tab"
+          },
+          "value" : "foregroundTab"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.link.newWindow",
+            "text" : "New Window"
+          },
+          "value" : "newWindow"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.link.currentTab",
+            "text" : "Current Tab"
+          },
+          "value" : "currentTab"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.link.download",
+            "text" : "Download"
+          },
+          "value" : "download"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "backgroundTab",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.links",
+        "text" : "Links"
+      },
+      "help" : {
+        "key" : "settings.browser.links.downloadHelp",
+        "text" : "In Chromium tabs, Download keeps Chrome's default."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.links.cmdClick",
+      "keywords" : [
+        "link",
+        "cmd",
+        "command"
+      ],
+      "kind" : "choice",
+      "path" : [
+        "browser",
+        "links",
+        "cmdClick"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "browser",
+      "title" : {
+        "key" : "settings.browser.links.cmdClick",
+        "text" : "Command-Click"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "backgroundTab",
+        "foregroundTab",
+        "newWindow",
+        "currentTab",
+        "download"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.link.backgroundTab",
+            "text" : "New Background Tab"
+          },
+          "value" : "backgroundTab"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.link.foregroundTab",
+            "text" : "New Tab"
+          },
+          "value" : "foregroundTab"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.link.newWindow",
+            "text" : "New Window"
+          },
+          "value" : "newWindow"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.link.currentTab",
+            "text" : "Current Tab"
+          },
+          "value" : "currentTab"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.link.download",
+            "text" : "Download"
+          },
+          "value" : "download"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "foregroundTab",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.links",
+        "text" : "Links"
+      },
+      "help" : {
+        "key" : "settings.browser.links.cmdShiftClick.help",
+        "text" : "Shift-middle-click does the same."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.links.cmdShiftClick",
+      "keywords" : [
+        "link",
+        "cmd",
+        "shift"
+      ],
+      "kind" : "choice",
+      "path" : [
+        "browser",
+        "links",
+        "cmdShiftClick"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "browser",
+      "title" : {
+        "key" : "settings.browser.links.cmdShiftClick",
+        "text" : "Shift-Command-Click"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "backgroundTab",
+        "foregroundTab",
+        "newWindow",
+        "currentTab",
+        "download"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.link.backgroundTab",
+            "text" : "New Background Tab"
+          },
+          "value" : "backgroundTab"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.link.foregroundTab",
+            "text" : "New Tab"
+          },
+          "value" : "foregroundTab"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.link.newWindow",
+            "text" : "New Window"
+          },
+          "value" : "newWindow"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.link.currentTab",
+            "text" : "Current Tab"
+          },
+          "value" : "currentTab"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.link.download",
+            "text" : "Download"
+          },
+          "value" : "download"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "newWindow",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.links",
+        "text" : "Links"
+      },
+      "help" : {
+        "key" : "settings.browser.links.downloadHelp",
+        "text" : "In Chromium tabs, Download keeps Chrome's default."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.links.shiftClick",
+      "keywords" : [
+        "link",
+        "shift"
+      ],
+      "kind" : "choice",
+      "path" : [
+        "browser",
+        "links",
+        "shiftClick"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "browser",
+      "title" : {
+        "key" : "settings.browser.links.shiftClick",
+        "text" : "Shift-Click"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "backgroundTab",
+        "foregroundTab",
+        "newWindow",
+        "currentTab",
+        "download"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.link.backgroundTab",
+            "text" : "New Background Tab"
+          },
+          "value" : "backgroundTab"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.link.foregroundTab",
+            "text" : "New Tab"
+          },
+          "value" : "foregroundTab"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.link.newWindow",
+            "text" : "New Window"
+          },
+          "value" : "newWindow"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.link.currentTab",
+            "text" : "Current Tab"
+          },
+          "value" : "currentTab"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.link.download",
+            "text" : "Download"
+          },
+          "value" : "download"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "download",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.links",
+        "text" : "Links"
+      },
+      "help" : {
+        "key" : "settings.browser.links.optionClick.help",
+        "text" : "Chromium tabs always download."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.links.optionClick",
+      "keywords" : [
+        "link",
+        "option",
+        "alt"
+      ],
+      "kind" : "choice",
+      "path" : [
+        "browser",
+        "links",
+        "optionClick"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "browser",
+      "title" : {
+        "key" : "settings.browser.links.optionClick",
+        "text" : "Option-Click"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "backgroundTab",
+        "foregroundTab",
+        "newWindow",
+        "currentTab",
+        "download"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.link.backgroundTab",
+            "text" : "New Background Tab"
+          },
+          "value" : "backgroundTab"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.link.foregroundTab",
+            "text" : "New Tab"
+          },
+          "value" : "foregroundTab"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.link.newWindow",
+            "text" : "New Window"
+          },
+          "value" : "newWindow"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.link.currentTab",
+            "text" : "Current Tab"
+          },
+          "value" : "currentTab"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.link.download",
+            "text" : "Download"
+          },
+          "value" : "download"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "backgroundTab",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.links",
+        "text" : "Links"
+      },
+      "help" : {
+        "key" : "settings.browser.links.middleClick.help",
+        "text" : "Chromium tabs use the Command-Click setting."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.links.middleClick",
+      "keywords" : [
+        "link",
+        "middle",
+        "wheel"
+      ],
+      "kind" : "choice",
+      "path" : [
+        "browser",
+        "links",
+        "middleClick"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "browser",
+      "title" : {
+        "key" : "settings.browser.links.middleClick",
+        "text" : "Middle-Click"
       },
       "validation" : "portable"
     },
@@ -6945,6 +9001,9 @@
           "value" : "never"
         }
       ],
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : "keystroke",
       "default_label" : null,
       "group" : {
@@ -6983,6 +9042,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : 30,
       "default_label" : null,
       "group" : {
@@ -7077,6 +9139,9 @@
           "value" : "never"
         }
       ],
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : null,
       "default_label" : {
         "key" : "settings.default.sameAsAbove",
@@ -7165,6 +9230,9 @@
           },
           "value" : "never"
         }
+      ],
+      "consumers" : [
+        "cmux-next"
       ],
       "default" : null,
       "default_label" : {
@@ -7255,6 +9323,9 @@
           "value" : "never"
         }
       ],
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : null,
       "default_label" : {
         "key" : "settings.default.sameAsAbove",
@@ -7328,6 +9399,9 @@
           "value" : "never"
         }
       ],
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : "unlessFocused",
       "default_label" : null,
       "group" : {
@@ -7363,6 +9437,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : "default",
       "default_label" : null,
       "group" : {
@@ -7401,6 +9478,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : null,
       "default_label" : {
         "key" : "settings.choice.off",
@@ -7449,6 +9529,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : 0,
       "default_label" : null,
       "group" : {
@@ -7496,6 +9579,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : 10,
       "default_label" : null,
       "group" : {
@@ -7542,6 +9628,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : false,
       "default_label" : null,
       "group" : {
@@ -7578,6 +9667,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : true,
       "default_label" : null,
       "group" : {
@@ -7614,6 +9706,9 @@
       ],
       "agent_refusal" : "privacy",
       "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : true,
       "default_label" : null,
       "group" : {
@@ -7679,6 +9774,9 @@
           },
           "value" : "full"
         }
+      ],
+      "consumers" : [
+        "cmux-next"
       ],
       "default" : "off",
       "default_label" : null,
@@ -7755,6 +9853,9 @@
           "value" : "none"
         }
       ],
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : "blink",
       "default_label" : null,
       "group" : {
@@ -7794,6 +9895,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : null,
       "default_label" : {
         "key" : "settings.default.theme",
@@ -7837,6 +9941,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : 2,
       "default_label" : null,
       "group" : {
@@ -7882,6 +9989,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : 2,
       "default_label" : null,
       "group" : {
@@ -7927,6 +10037,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : 3,
       "default_label" : null,
       "group" : {
@@ -7971,6 +10084,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : true,
       "default_label" : null,
       "group" : {
@@ -8008,6 +10124,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : true,
       "default_label" : null,
       "group" : {
@@ -8045,6 +10164,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : true,
       "default_label" : null,
       "group" : {
@@ -8082,6 +10204,9 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : false,
       "default_label" : null,
       "group" : {
@@ -8125,6 +10250,9 @@
       ],
       "agent_refusal" : "network",
       "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : false,
       "default_label" : null,
       "group" : {
@@ -8171,6 +10299,9 @@
       ],
       "agent_refusal" : "network",
       "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : 120,
       "default_label" : null,
       "group" : {
@@ -8214,9 +10345,768 @@
         "text" : "Refresh Interval"
       },
       "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-browser"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.toolbar",
+        "text" : "Toolbar"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "browser.toolbar.back",
+      "keywords" : [
+        "toolbar",
+        "button",
+        "back"
+      ],
+      "kind" : "toggle",
+      "path" : [
+        "browser",
+        "toolbar",
+        "back"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "title" : {
+        "key" : "settings.browser.toolbar.back",
+        "text" : "Back Button"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-browser"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.toolbar",
+        "text" : "Toolbar"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "browser.toolbar.forward",
+      "keywords" : [
+        "toolbar",
+        "button",
+        "forward"
+      ],
+      "kind" : "toggle",
+      "path" : [
+        "browser",
+        "toolbar",
+        "forward"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "title" : {
+        "key" : "settings.browser.toolbar.forward",
+        "text" : "Forward Button"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-browser"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.toolbar",
+        "text" : "Toolbar"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "browser.toolbar.reload",
+      "keywords" : [
+        "toolbar",
+        "button",
+        "reload"
+      ],
+      "kind" : "toggle",
+      "path" : [
+        "browser",
+        "toolbar",
+        "reload"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "title" : {
+        "key" : "settings.browser.toolbar.reload",
+        "text" : "Reload Button"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-browser"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.toolbar",
+        "text" : "Toolbar"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "browser.toolbar.home",
+      "keywords" : [
+        "toolbar",
+        "button",
+        "home"
+      ],
+      "kind" : "toggle",
+      "path" : [
+        "browser",
+        "toolbar",
+        "home"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "title" : {
+        "key" : "settings.browser.toolbar.home",
+        "text" : "Home Button"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-browser"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.toolbar",
+        "text" : "Toolbar"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "browser.toolbar.extensions",
+      "keywords" : [
+        "toolbar",
+        "button",
+        "extensions"
+      ],
+      "kind" : "toggle",
+      "path" : [
+        "browser",
+        "toolbar",
+        "extensions"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "title" : {
+        "key" : "settings.browser.toolbar.extensions",
+        "text" : "Extensions Button"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-browser"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.toolbar",
+        "text" : "Toolbar"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "browser.toolbar.downloads",
+      "keywords" : [
+        "toolbar",
+        "button",
+        "downloads"
+      ],
+      "kind" : "toggle",
+      "path" : [
+        "browser",
+        "toolbar",
+        "downloads"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "title" : {
+        "key" : "settings.browser.toolbar.downloads",
+        "text" : "Downloads Button"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-browser"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.toolbar",
+        "text" : "Toolbar"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "browser.toolbar.media",
+      "keywords" : [
+        "toolbar",
+        "button",
+        "media"
+      ],
+      "kind" : "toggle",
+      "path" : [
+        "browser",
+        "toolbar",
+        "media"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "title" : {
+        "key" : "settings.browser.toolbar.media",
+        "text" : "Media Controls Button"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-browser"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.toolbar",
+        "text" : "Toolbar"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "browser.toolbar.profile",
+      "keywords" : [
+        "toolbar",
+        "button",
+        "profile"
+      ],
+      "kind" : "toggle",
+      "path" : [
+        "browser",
+        "toolbar",
+        "profile"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "title" : {
+        "key" : "settings.browser.toolbar.profile",
+        "text" : "Profile Button"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-browser"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.toolbar",
+        "text" : "Toolbar"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "browser.toolbar.menu",
+      "keywords" : [
+        "toolbar",
+        "button",
+        "menu"
+      ],
+      "kind" : "toggle",
+      "path" : [
+        "browser",
+        "toolbar",
+        "menu"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "title" : {
+        "key" : "settings.browser.toolbar.menu",
+        "text" : "Menu Button"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "#1a2B3c",
+        "#1A2B3C80",
+        "1a2b3c"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-browser"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.theme",
+        "text" : "Theme"
+      },
+      "group" : {
+        "key" : "settings.group.addressBar",
+        "text" : "Address Bar"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "browser.omnibox.color",
+      "keywords" : [
+        "omnibox",
+        "address bar",
+        "url bar",
+        "color"
+      ],
+      "kind" : "color",
+      "path" : [
+        "browser",
+        "omnibox",
+        "color"
+      ],
+      "refuses" : [
+        "red",
+        "#12345",
+        "#1234567",
+        "#12345g",
+        0
+      ],
+      "section" : "browser",
+      "title" : {
+        "key" : "settings.browser.omnibox.color",
+        "text" : "Address Bar Color"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "#1a2B3c",
+        "#1A2B3C80",
+        "1a2b3c"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-browser"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.theme",
+        "text" : "Theme"
+      },
+      "group" : {
+        "key" : "settings.group.addressBar",
+        "text" : "Address Bar"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "browser.omnibox.popupColor",
+      "keywords" : [
+        "omnibox",
+        "suggestions",
+        "popup",
+        "color"
+      ],
+      "kind" : "color",
+      "path" : [
+        "browser",
+        "omnibox",
+        "popupColor"
+      ],
+      "refuses" : [
+        "red",
+        "#12345",
+        "#1234567",
+        "#12345g",
+        0
+      ],
+      "section" : "browser",
+      "title" : {
+        "key" : "settings.browser.omnibox.popupColor",
+        "text" : "Suggestions Color"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "#1a2B3c",
+        "#1A2B3C80",
+        "1a2b3c"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-browser"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.theme",
+        "text" : "Theme"
+      },
+      "group" : {
+        "key" : "settings.group.addressBar",
+        "text" : "Address Bar"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "browser.omnibox.popupHoverColor",
+      "keywords" : [
+        "omnibox",
+        "suggestions",
+        "hover",
+        "highlight",
+        "color"
+      ],
+      "kind" : "color",
+      "path" : [
+        "browser",
+        "omnibox",
+        "popupHoverColor"
+      ],
+      "refuses" : [
+        "red",
+        "#12345",
+        "#1234567",
+        "#12345g",
+        0
+      ],
+      "section" : "browser",
+      "title" : {
+        "key" : "settings.browser.omnibox.popupHoverColor",
+        "text" : "Highlighted Suggestion Color"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        40,
+        20
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-browser"
+      ],
+      "default" : 0,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.columns",
+        "text" : "Columns"
+      },
+      "help" : {
+        "key" : "settings.layout.stripMargin.help",
+        "text" : "Space between the window edge and the columns."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "layout.stripMargin",
+      "keywords" : [
+        "margin",
+        "inset",
+        "columns",
+        "strip"
+      ],
+      "kind" : "number",
+      "path" : [
+        "layout",
+        "stripMargin"
+      ],
+      "range" : {
+        "max" : 40,
+        "min" : 0,
+        "placeholder" : 0,
+        "step" : 1,
+        "unit" : "points"
+      },
+      "refuses" : [
+        -40,
+        80,
+        "1"
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.layout.stripMargin",
+        "text" : "Strip Margin"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        [
+
+        ],
+        [
+          0.1,
+          2
+        ]
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-browser"
+      ],
+      "default" : [
+        1,
+        0.6667,
+        0.5,
+        0.3333
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.columns",
+        "text" : "Columns"
+      },
+      "help" : {
+        "key" : "settings.layout.columnWidthPresets.help",
+        "text" : "Widths a column cycles through, as fractions of the visible strip width."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "layout.columnWidthPresets",
+      "keywords" : [
+        "column",
+        "width",
+        "presets",
+        "cycle",
+        "niri"
+      ],
+      "kind" : "number_list",
+      "path" : [
+        "layout",
+        "columnWidthPresets"
+      ],
+      "range" : {
+        "max" : 2,
+        "min" : 0.1,
+        "placeholder" : 0.1,
+        "step" : 0.0001,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        0.1,
+        [
+          -1.7999999999999998
+        ],
+        [
+          3.9
+        ],
+        [
+          "1"
+        ]
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.layout.columnWidthPresets",
+        "text" : "Column Width Presets"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        160,
+        80
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-browser"
+      ],
+      "default" : 72,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.window",
+        "text" : "Window"
+      },
+      "help" : {
+        "key" : "settings.window.trafficLightClearance.help",
+        "text" : "Space kept free for the window's close, minimize and zoom buttons."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "window.trafficLightClearance",
+      "keywords" : [
+        "traffic lights",
+        "window buttons",
+        "rail",
+        "clearance"
+      ],
+      "kind" : "number",
+      "path" : [
+        "window",
+        "trafficLightClearance"
+      ],
+      "range" : {
+        "max" : 160,
+        "min" : 0,
+        "placeholder" : 0,
+        "step" : 1,
+        "unit" : "points"
+      },
+      "refuses" : [
+        -160,
+        320,
+        "1"
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.window.trafficLightClearance",
+        "text" : "Traffic Light Clearance"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        {
+
+        },
+        {
+          "*" : "★",
+          "Work" : ""
+        }
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-browser"
+      ],
+      "default" : {
+
+      },
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.workspaceIcons.help",
+        "text" : "An icon for each workspace title. \"*\" sets the icon of every other workspace; an empty icon hides it."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.workspaceIcons",
+      "keywords" : [
+        "workspace",
+        "icon",
+        "glyph",
+        "emoji",
+        "rail"
+      ],
+      "kind" : "string_map",
+      "path" : [
+        "sidebar",
+        "workspaceIcons"
+      ],
+      "refuses" : [
+        "★",
+        [
+
+        ],
+        {
+          "Work" : 1
+        }
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.sidebar.workspaceIcons",
+        "text" : "Workspace Icons"
+      },
+      "validation" : "portable"
     }
   ],
-  "schema_hash" : "8b5ac60cf8ab8772016dccb8ca358e335d76f5d46ce09a2991d18f6b687176f6",
+  "schema_hash" : "84ff7f5c55ffbf0fb887a2eb30a199a22dda02fb8133f1ca1624efb51715b5b4",
   "sections" : [
     {
       "id" : "general",
@@ -8248,14 +11138,6 @@
       "title" : {
         "key" : "settings.section.browser",
         "text" : "Browser"
-      }
-    },
-    {
-      "id" : "home",
-      "symbol" : "house",
-      "title" : {
-        "key" : "settings.section.home",
-        "text" : "Home"
       }
     },
     {

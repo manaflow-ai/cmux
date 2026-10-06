@@ -3,11 +3,14 @@ import {
   displayStrokes,
   filterBindings,
   identity,
+  isReadOnly,
   keyMatches,
   moveSelection,
   normalizeWhen,
   reconcileSelection,
   resettableCommands,
+  SourceLabel,
+  sourceLabel,
   sortBindings,
 } from "./model";
 import type { Binding } from "./types";
@@ -106,5 +109,21 @@ describe("keybindings model", () => {
     expect(normalizeWhen("  ")).toBeNull();
     expect(normalizeWhen(" a && b ")).toBe("a && b");
     expect(displayStrokes(" ⌘K  ⌘S ")).toEqual(["⌘K", "⌘S"]);
+  });
+  test("Ghostty rows have their own source labels and are read-only (GHOSTTY-CONFIG)", () => {
+    expect(SourceLabel.ghostty).toBe("keybindings.page.source.ghostty");
+    expect(SourceLabel["ghostty-fallback"]).toBe("keybindings.page.source.ghosttyDefault");
+    expect(isReadOnly(binding({ command: "splitDown", key: "cmd+d", source: "ghostty" }))).toBe(true);
+    expect(isReadOnly(binding({ command: "nextSurface", key: "cmd+shift+]", source: "ghostty-fallback" }))).toBe(true);
+    expect(isReadOnly(binding({ command: "tab.new", key: "cmd+t", removed: true }))).toBe(true);
+    expect(isReadOnly(binding({ command: "tab.new", key: "cmd+t" }))).toBe(false);
+  });
+  test("a default the Ghostty config claims says so and has no Reset (PANE-FOCUS-RESIZE-KEYS-AND-GHOSTTY-KEYBINDS)", () => {
+    const claimed = binding({ command: "resizePaneLeft", key: "ctrl+shift+h", removed: true, removedBy: "ghostty" });
+    expect(sourceLabel(claimed)).toBe("keybindings.page.source.removedByGhostty");
+    expect(sourceLabel(binding({ command: "tab.new", key: "cmd+t", removed: true }))).toBe("keybindings.page.source.removed");
+    expect(sourceLabel(binding({ command: "tab.new", key: "cmd+t" }))).toBe("keybindings.page.source.default");
+    expect(isReadOnly(claimed)).toBe(true);
+    expect(resettableCommands([claimed]).size).toBe(0);
   });
 });

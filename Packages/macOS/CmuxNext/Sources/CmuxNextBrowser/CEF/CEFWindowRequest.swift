@@ -33,6 +33,9 @@ nonisolated struct CEFWindowRequest: Equatable, Sendable {
     /// Window features or requested bounds (screen DIPs), when given.
     var bounds: CGRect?
     var url: String
+    /// A user gesture (a click, a key) caused the request, not a script. A
+    /// request without one never follows a modified-click setting.
+    var userGesture: Bool
     /// The requesting store: the source tab's store when cmux knows the
     /// tab (its context key, `CEFProfileStorage.contextKey`), else the
     /// Chromium profile directory the fork reported.
@@ -64,15 +67,11 @@ nonisolated enum CEFDisposition: Int32, Equatable, Sendable {
         self = CEFDisposition(rawValue: Int32(clamping: raw)) ?? .unknown
     }
 
-    /// How a page-requested tab opens in cmux. `nil`: no tab (Chromium
-    /// saves or ignores it, or keeps it in the current tab).
-    var tabDisposition: BrowserNewTabDisposition? {
+    /// True for the dispositions a modified link click produces.
+    var isLinkClick: Bool {
         switch self {
-        case .newBackgroundTab: .backgroundTab
-        case .newPopup: .popup
-        case .newForegroundTab, .newWindow, .singletonTab, .switchToTab, .newSplitView, .unknown: .foregroundTab
-        case .offTheRecord: .foregroundTab
-        case .currentTab, .saveToDisk, .ignoreAction, .newPictureInPicture: nil
+        case .newBackgroundTab, .newForegroundTab, .newWindow, .saveToDisk: true
+        default: false
         }
     }
 }

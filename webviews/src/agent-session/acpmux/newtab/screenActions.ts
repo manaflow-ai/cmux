@@ -22,7 +22,11 @@ export function newTabScreenActions(deps: {
       const params: Record<string, unknown> = { harness, ...(cwd ? { cwd } : {}) };
       ignore(callNative("chat.new", params).then(() => (text ? callNative("chat.send", { text }) : undefined)));
     },
-    onOpen: (url) => ignore(callNative("tab.open", { kind: "browser", text: url })),
+    onOpen: (url) => {
+      if (url.startsWith("file://"))
+        return ignore(callNative("file.open", { path: decodeURIComponent(new URL(url).pathname), where: "tab" }));
+      ignore(callNative("tab.open", { kind: "browser", text: url }));
+    },
     onSearch: (text) => ignore(callNative("tab.open", { kind: "browser", text, search: true })),
     // Typed, never run: the user presses Return in the terminal (a paste never runs by itself).
     onTerminal: (command) =>

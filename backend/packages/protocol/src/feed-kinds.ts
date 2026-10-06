@@ -1,6 +1,6 @@
 import { Exit, Schema } from "effect"
 import { checkSubsetSchema, checkSubsetValue, type SubsetResult } from "./feed-schema-subset.ts"
-import { OpClass } from "./schemas.ts"
+import { OpRisk } from "./schemas.ts"
 
 /**
  * The feed kind registry (plans/cmux-next/feed.md 3.4): each built-in kind has
@@ -99,7 +99,7 @@ export const feedKinds: Readonly<Record<string, KindDef>> = {
         tool: Schema.optionalKey(Text(200)),
         input: Schema.optionalKey(Schema.Unknown),
         diff: Schema.optionalKey(NonEmpty(64)),
-        risk: Schema.optionalKey(OpClass)
+        risk: Schema.optionalKey(OpRisk)
       }),
       scopes: Schema.optionalKey(List(ApproveScope, 1, 3))
     }),

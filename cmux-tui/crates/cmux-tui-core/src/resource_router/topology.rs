@@ -12,7 +12,9 @@ use crate::resource_api::public_session_snapshot;
 use crate::{Mux, ResolvedResourcePath, ResourceSelectors, ResourceTarget, WorkspaceMutation};
 
 mod workspace_mutations;
+mod workspace_order;
 use workspace_mutations::{move_workspace, rename_workspace};
+use workspace_order::list_workspaces;
 
 pub(super) fn handles(operation: ResourceOperation) -> bool {
     matches!(
@@ -66,13 +68,7 @@ pub(super) fn dispatch(
 ) -> Result<Value, ResourceError> {
     debug_assert!(handles(request.envelope.operation));
     match request.envelope.operation {
-        ResourceOperation::WorkspaceList => list_resources(
-            mux,
-            &request.selectors,
-            ResourceTarget::Session,
-            "workspaces",
-            "workspace.list",
-        ),
+        ResourceOperation::WorkspaceList => list_workspaces(mux, &request),
         ResourceOperation::WorkspaceGet => {
             get_resource(mux, &request.selectors, ResourceTarget::Workspace, "workspaces")
         }
@@ -412,8 +408,8 @@ mod tests {
     use super::*;
     use crate::SurfaceOptions;
     use crate::resource::{
-        EnvelopeType, MachinePublicId, PanePublicId, RequestId, ScreenPublicId, SessionPublicId,
-        TabPublicId, TerminalPublicId, WorkspacePublicId,
+        MachinePublicId, PanePublicId, RequestId, ScreenPublicId, SessionPublicId, TabPublicId,
+        TerminalPublicId, WorkspacePublicId,
     };
 
     fn mux() -> Arc<Mux> {
@@ -427,14 +423,12 @@ mod tests {
         key: Option<&str>,
     ) -> ParsedResourceRequest {
         ParsedResourceRequest {
-            envelope: RequestEnvelope {
-                protocol: crate::resource::PROTOCOL.to_string(),
-                envelope_type: EnvelopeType::Request,
-                id: RequestId::parse("topology-test").unwrap(),
+            envelope: RequestEnvelope::request(
+                RequestId::parse("topology-test").unwrap(),
                 operation,
-                params: json!({}),
-                idempotency_key: key.map(str::to_string),
-            },
+                json!({}),
+                key.map(str::to_string),
+            ),
             selectors,
             fields: fields.as_object().unwrap().clone(),
         }
@@ -931,21 +925,20 @@ mod tests {
                 1,
                 "{operation:?} public events"
             );
-            let expected_workspace =
-                before_workspace + u64::from(operation == ResourceOperation::WorkspaceClose);
+            // Each close takes the workspace's only tab, so the workspace
+            // closes in the same commit (LAST-TAB-CLOSES-WORKSPACE).
+            let expected_workspace = before_workspace + 1;
             assert_eq!(
                 mux.with_state(|state| state.workspace_revision),
                 expected_workspace,
                 "{operation:?} workspace revision"
             );
-            if operation == ResourceOperation::WorkspaceClose {
-                let event = mux
-                    .workspace_registry_event(expected_workspace)
-                    .unwrap()
-                    .expect("workspace close event");
-                assert_eq!(event.kind, "workspace-closed");
-                assert_eq!(event.mutation_id, key);
-            }
+            let event = mux
+                .workspace_registry_event(expected_workspace)
+                .unwrap()
+                .expect("workspace close event");
+            assert_eq!(event.kind, "workspace-closed", "{operation:?}");
+            assert_eq!(event.mutation_id, key, "{operation:?}");
             let (terminal_snapshot, terminal_events) =
                 mux.terminal_registry_events_page(before_terminal).unwrap();
             assert_eq!(terminal_snapshot.revision, before_terminal, "{operation:?}");

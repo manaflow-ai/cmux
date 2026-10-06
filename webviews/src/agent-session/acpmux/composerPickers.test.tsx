@@ -289,7 +289,10 @@ describe("acpmux composer pickers", () => {
     });
     await key(doc.querySelector(".acpmux-effort-range")!, "Escape");
     await render(
-      long({ model: "astra", configOptions: [{ ...effort, currentValue: "low", options: [low, ...effort.options] }] }),
+      long({
+        model: "astra",
+        configOptions: [{ ...effort, currentValue: "low", options: [low, ...effort.options] }],
+      }),
     );
     expect(calls).toEqual(["model astra", "effort reasoning_effort low"]);
     // A combo for the current model drops one still waiting for another model.
@@ -347,6 +350,124 @@ describe("acpmux composer pickers", () => {
   test("a model the catalog doesn't list still shows by the id the agent reported", async () => {
     await render(snapshot({ model: "claude-opus-5-5" }));
     expect(button("Model")!.textContent).toBe("claude-opus-5-5");
+  });
+
+  describe("an agent's own default model and reasoning", () => {
+    const claude = (summary: Partial<NonNullable<AcpmuxSnapshot["summary"]>>): AcpmuxSnapshot => ({
+      ...snapshot(),
+      catalog: [
+        {
+          id: "claude",
+          name: "Claude Code",
+          models: [
+            { id: "default", name: "Default (Claude Code's choice)" },
+            { id: "claude-opus-5-5", name: "Opus 5.5" },
+            { id: "claude-sonnet-5-5", name: "Sonnet 5.5" },
+          ],
+        },
+      ],
+      summary: { sessionId: "s", harness: "claude", model: "default", ...summary },
+    });
+    const defaultEffort = {
+      id: "effort",
+      category: "thought_level",
+      currentValue: "default",
+      options: [
+        { value: "default", name: "Default (model's choice)" },
+        { value: "low", name: "Low" },
+        { value: "high", name: "High" },
+      ],
+    };
+    const resolvedTo = (model: string) => ({
+      id: "model",
+      category: "model",
+      currentValue: model,
+      options: [
+        { value: "default", name: "Default (Claude Code's choice)" },
+        { value: "claude-opus-5-5", name: "Opus 5.5" },
+      ],
+    });
+    const store = new Map<string, string>();
+    const savedStorage = globals.localStorage;
+    beforeEach(() => {
+      store.clear();
+      globals.localStorage = {
+        getItem: (name: string) => store.get(name) ?? null,
+        setItem: (name: string, value: string) => void store.set(name, value),
+      };
+    });
+    afterEach(() => {
+      globals.localStorage = savedStorage;
+    });
+
+    test('the chips name the model the default runs and never the agent\'s "choice" phrasing', async () => {
+      await render(claude({ configOptions: [resolvedTo("claude-opus-5-5"), defaultEffort] }));
+      expect(button("Model")!.textContent).toBe("Opus 5.5");
+      expect(button("Effort")!.textContent).toBe("Reasoning");
+      await act(async () => button("Model")!.click());
+      const menu = doc.querySelector(".acpmux-mp[role=menu]")!;
+      expect(menu.textContent).not.toMatch(/choice/i);
+      // One row for the default, named for its model with a "Default" hint, in place of a
+      // "Claude Code" provider; the reasoning row says "Default" once.
+      expect(rowLabels()).not.toContain("Claude Code");
+      const fallback = [...menu.querySelectorAll(".acpmux-mp-row")].find(
+        (row) => row.getAttribute("aria-checked") === "true",
+      )!;
+      expect(fallback.querySelector(".acpmux-menu-label")!.textContent).toBe("Opus 5.5");
+      expect(fallback.textContent).toContain("Default");
+      await key(button("Model")!, "Escape");
+      await act(async () => button("Effort")!.click());
+      expect(doc.querySelector(".acpmux-effort-title")!.textContent).toBe("Default");
+      expect(doc.querySelector(".acpmux-effort-model")!.textContent).toBe("Opus 5.5");
+      expect(doc.body.textContent).not.toMatch(/choice/i);
+    });
+
+    test('before the agent starts, the default names the model it last resolved to, else "Default"', async () => {
+      await render(claude({ configOptions: [defaultEffort] }));
+      expect(button("Model")!.textContent).toBe("Default");
+      await render(claude({ configOptions: [resolvedTo("claude-opus-5-5"), defaultEffort] }));
+      await render(claude({ sessionId: "next", configOptions: [defaultEffort] }));
+      expect(button("Model")!.textContent).toBe("Opus 5.5");
+    });
+
+    test("a pick of the default not yet confirmed, or a harness still starting, names and saves no model", async () => {
+      // Picked from Opus: the agent's option still names Opus until the pick lands.
+      await render(
+        claude({ confirmedModel: "claude-opus-5-5", configOptions: [resolvedTo("claude-opus-5-5"), defaultEffort] }),
+      );
+      expect(button("Model")!.textContent).toBe("Default");
+      await render(claude({ configOptions: [resolvedTo("default"), defaultEffort] }));
+      expect(button("Model")!.textContent).toBe("Default");
+      // Starting, the composer draws the last Claude session's options, here on Sonnet.
+      await render({
+        ...claude({ configOptions: [resolvedTo("claude-sonnet-5-5"), defaultEffort] }),
+        switching: { harness: "claude", name: "Claude Code", phase: "starting" },
+      });
+      expect(button("Model")!.textContent).toBe("Default");
+      expect(store.get("cmux.acpmux.resolvedDefaults")).toBeUndefined();
+    });
+
+    test("a recent of the default model stays offered, and typing finds the default row", async () => {
+      store.set(
+        "cmux.acpmux.recentModels",
+        JSON.stringify([{ harness: "claude", model: "default", effort: "high", effortName: "High" }]),
+      );
+      await render(claude({ model: "claude-sonnet-5-5", configOptions: [defaultEffort] }));
+      await act(async () => button("Model")!.click());
+      const recent = [...doc.querySelectorAll(".acpmux-mp-row")].find((row) => row.textContent?.includes("High"));
+      expect(recent?.querySelector(".acpmux-menu-label")!.textContent).toBe("Default");
+      for (const char of "defa") await key(button("Model")!, char);
+      expect(rowLabels()).toContain("Default");
+    });
+
+    test("a model picked by name keeps its name; a recent at the default effort shows no effort", async () => {
+      await render(claude({ model: "claude-sonnet-5-5", configOptions: [defaultEffort] }));
+      expect(button("Model")!.textContent).toBe("Sonnet 5.5");
+      await settle();
+      await act(async () => button("Model")!.click());
+      const recent = doc.querySelector(".acpmux-mp-row[aria-checked=true]")!;
+      expect(recent.textContent).not.toMatch(/default|choice/i);
+    });
   });
 
   test("automation opens a menu by its label, through the click path, with no pointer event", async () => {
@@ -467,7 +588,10 @@ describe("acpmux composer pickers", () => {
   });
 
   test("Plan is a toggle apart from the permission chip, and leaving it restores the permission mode", async () => {
-    const withPlan = { ...modes, availableModes: [...modes.availableModes, { id: "plan", name: "Plan" }] };
+    const withPlan = {
+      ...modes,
+      availableModes: [...modes.availableModes, { id: "plan", name: "Plan" }],
+    };
     await render(snapshot({ modes: withPlan }));
     const plan = () => doc.querySelector<HTMLButtonElement>(".acpmux-plan")!;
     expect(plan().textContent).toBe("Build");
@@ -534,7 +658,12 @@ describe("acpmux composer send button", () => {
   const key = async (name: string, init: KeyboardEventInit = {}) =>
     act(async () => {
       textarea().dispatchEvent(
-        new dom.window.KeyboardEvent("keydown", { key: name, bubbles: true, cancelable: true, ...init }),
+        new dom.window.KeyboardEvent("keydown", {
+          key: name,
+          bubbles: true,
+          cancelable: true,
+          ...init,
+        }),
       );
     });
 
@@ -602,13 +731,16 @@ describe("acpmux composer send button", () => {
 });
 
 describe("acpmux composer context", () => {
-  test("the tray names the project, the machine and the branch, and the worktree switch shows whether the session has one", async () => {
+  test("the context row uses plain location labels and locks after a turn", async () => {
     const root = createRoot(doc.getElementById("root")!);
-    const render = async (summary: Partial<NonNullable<AcpmuxSnapshot["summary"]>>) => {
+    const render = async (
+      summary: Partial<NonNullable<AcpmuxSnapshot["summary"]>>,
+      rows: AcpmuxSnapshot["rows"] = [],
+    ) => {
       await act(async () =>
         root.render(
           createElement(Composer, {
-            snapshot: snapshot(summary),
+            snapshot: { ...snapshot(summary), rows },
             chips: () => null,
             onSend: () => {},
             onStop: () => {},
@@ -617,37 +749,18 @@ describe("acpmux composer context", () => {
       );
       await ready();
     };
-    const chips = () =>
-      [...doc.querySelectorAll(".acpmux-context-chip")].map(
-        (chip) => `${chip.textContent}|${chip.getAttribute("title") ?? ""}`,
-      );
     try {
-      await render({});
-      expect(doc.querySelector(".acpmux-composer-context")).toBeNull();
-      await render({
-        cwd: "/Users/me/code/cmux",
-        host: "hearty-beige-elk",
-        hostKind: "cloud",
-        branch: "feat-retry-backoff",
-        worktree: "/Users/me/code/cmux-retry",
-      });
-      expect(chips()).toEqual([
-        "cmux|Project: /Users/me/code/cmux",
-        "hearty-beige-elk|",
-        "feat-retry-backoff|Branch: feat-retry-backoff",
+      await render({ cwd: "/Users/me/code/cmux", host: "hearty-beige-elk", hostKind: "cloud" });
+      expect(doc.querySelectorAll(".acpmux-context-chip")).toHaveLength(0);
+      expect([...doc.querySelectorAll(".acpmux-location-readonly")].map((node) => node.textContent)).toEqual([
+        "hearty-beige-elk",
+        "cmux",
       ]);
-      const worktree = () => doc.querySelector(".acpmux-context-worktree")!;
-      expect(worktree().classList.contains("acpmux-on")).toBe(true);
-      expect(worktree().getAttribute("title")).toBe("Worktree: /Users/me/code/cmux-retry");
-      expect(worktree().querySelector(".acpmux-switch")!.getAttribute("aria-label")).toBe("On");
-      expect(
-        doc.querySelector(".acpmux-composer-context")!.nextElementSibling!.classList.contains("acpmux-composer-box"),
-      ).toBe(true);
-      // The home folder is no project; a plain branch is titled as one.
-      await render({ cwd: "/Users/me", host: "This Mac", hostKind: "local", branch: "main" });
-      expect(chips()).toEqual(["This Mac|", "main|Branch: main"]);
-      expect(worktree().classList.contains("acpmux-on")).toBe(false);
-      expect(worktree().querySelector(".acpmux-switch")!.getAttribute("aria-label")).toBe("Off");
+      await render({ cwd: "/Users/me/code/cmux", host: "hearty-beige-elk", hostKind: "cloud" }, [
+        { id: "u", version: 1, at: 0, kind: "user", text: "hello" },
+      ]);
+      expect(doc.querySelector(".acpmux-composer-context")?.getAttribute("data-readonly")).toBe("true");
+      expect(doc.querySelectorAll(".acpmux-location-button")).toHaveLength(0);
     } finally {
       await act(async () => root.unmount());
     }
@@ -681,7 +794,7 @@ describe("acpmux composer queue", () => {
         "first",
         "second\nline",
       ]);
-      expect(list.nextElementSibling!.classList.contains("acpmux-composer-box")).toBe(true);
+      expect(list.nextElementSibling!.classList.contains("acpmux-composer-context")).toBe(true);
       // The slash menu anchors to the field, so the queue never pushes it up.
       await act(async () => typeInto(promptField(doc), "/"));
       expect(doc.querySelector(".acpmux-composer-box > .acpmux-slash-menu")).not.toBeNull();

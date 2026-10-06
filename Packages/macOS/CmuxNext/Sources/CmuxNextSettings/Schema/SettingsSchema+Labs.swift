@@ -1,8 +1,9 @@
 import CmuxNextDesign
 
-extension SettingsSchema {
+/// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
+nonisolated enum LabsSettingsSchema {
     /// Settings > Advanced > Labs: surfaces still being shaped, off by default.
-    static var labs: [SettingDescriptor] {
+    static var descriptors: [SettingDescriptor] {
         let labs = SettingsText.keyed("settings.group.labs", "Labs")
         return [
             SettingDescriptor(

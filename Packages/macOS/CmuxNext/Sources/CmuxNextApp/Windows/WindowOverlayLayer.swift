@@ -291,6 +291,9 @@ final class WindowOverlayLayer {
         return placement == .overlayWindow && WindowOverlayHost.existingHost(for: window)?.isAbovePages == true
     }
 
+    /// The window's agent cursor layer (`WindowOverlayHost.agentCursorLayer`): y-down, content-view coordinates.
+    var agentCursorLayer: CALayer { host.agentCursorLayer }
+
     var overlayPanel: NSWindow? { WindowOverlayHost.existingHost(for: window).flatMap { $0.isPanelAttached ? $0.panel : nil } }
     var adoptedPlanes: [OverlayPlane] { planes }
 }

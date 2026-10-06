@@ -12,6 +12,8 @@
 # With --manifest, the r2_bucket, r2_key and debug_r2_key fields of every
 # artifact (top level and the x86_64 object, added when missing) are written
 # into that manifest by cef_manifest_r2.py (run it on your pin commit).
+# Only the artifacts this run published change; entries of another tag
+# (a manifest that still pins the previous release) stay as they are.
 #
 # --dir takes assets already on disk (for example the fork's
 # binary_distrib output); without it the assets are fetched with
@@ -25,7 +27,7 @@
 #   CMUX_CEF_R2_BUCKET (default cmux-cef), CMUX_CEF_R2_ENDPOINT (optional)
 set -euo pipefail
 
-usage() { sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-2}"; }
+usage() { sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-2}"; }
 
 tag=""; repo="manaflow-ai/cef"; dir=""; manifest=""
 while (( $# )); do

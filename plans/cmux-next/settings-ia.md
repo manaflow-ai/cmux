@@ -80,7 +80,7 @@ Rules:
 | Page | Top (always shown) | More… (inline) |
 |---|---|---|
 | General | New Tab Opens, When Quitting, Titlebar, Action Rail | History, Columns (all 9) |
-| Appearance | App theme (new), Density, Interface size (new), Motion | Panes, Focus ring, room/workspace/terminal themes; "Customize…" opens the appearance studio (cc-pane-chrome owns it) |
+| Appearance | App theme (new), Density, Interface size (new), Motion | Panes, Focus ring, room/workspace/terminal themes; Customize Appearance… opens this section (R82 commit 6 removed the floating studio) |
 | Terminal | Font family and size (new), Default shell (new) | Open Ghostty config |
 | Browser | Default engine, New tab page, Bookmarks bar, Import from Browser | Profiles (expanders), Memory, Remote localhost |
 | Agents (new) | Default agent, Computer Use | Agent accounts summary |
@@ -138,7 +138,7 @@ either.
 - #16873 keeps Settings opaque over a see-through theme. It doesn't conflict.
 - #15210 (main app) adds a Font card with live preview and a gallery to Settings > Terminal. It is the model for the missing terminal font control here.
 - #16693 (main app) searches shortcuts by name or by pressing the shortcut. cmux-next search covers shortcuts already, and the jump in step 1 uses the same index.
-- Appearance studio (cc-pane-chrome, `feat-cmux-next-appearance-studio`): the panel reuses the Settings theme cards. Under this plan, Appearance keeps the quick controls and opens the studio from "Customize…".
+- Appearance studio: removed with the Swift Settings UI (R82 commit 6). Customize Appearance… (palette, View menu, sidebar item, `cmux settings customize-appearance`) opens Settings > Appearance; the page sliders preview live in every window.
 
 ## Current captures
 

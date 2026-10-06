@@ -6,8 +6,11 @@ public import Foundation
 public actor PaletteSearcher {
     private var index = PaletteSearchIndex(entries: [])
     private var indexVersion = -1
+    private let bridge: PaletteRankerBridge?
 
-    public init() {}
+    public init() {
+        bridge = try? PaletteRankerBridge()
+    }
 
     /// Installs a new snapshot unless this version is already current.
     public func install(_ snapshot: PaletteSearchIndex, version: Int) {
@@ -33,16 +36,23 @@ public actor PaletteSearcher {
         keepsSectionOrder: Bool = false,
         ranksPrefixFirst: Bool = false
     ) -> (generation: Int, sections: [PaletteRankedSection]) {
-        let sections = PaletteRanker.rank(
-            index: &index,
-            query: query,
-            sectionOrders: sectionOrders,
-            frecency: frecency,
-            now: now,
-            showsRecent: showsRecent,
-            keepsSectionOrder: keepsSectionOrder,
-            ranksPrefixFirst: ranksPrefixFirst
-        )
+        let sections: [PaletteRankedSection]
+        do {
+            guard let bridge else { return (generation, []) }
+            sections = try bridge.rank(
+                index: index,
+                version: indexVersion,
+                query: query,
+                sectionOrders: sectionOrders,
+                frecency: frecency,
+                now: now,
+                showsRecent: showsRecent,
+                keepsSectionOrder: keepsSectionOrder,
+                ranksPrefixFirst: ranksPrefixFirst
+            )
+        } catch {
+            return (generation, [])
+        }
         return (generation, sections)
     }
 }

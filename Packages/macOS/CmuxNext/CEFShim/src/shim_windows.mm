@@ -2,8 +2,9 @@
 // API 8), popup dispositions for the host's adoption, and the Chromium commands
 // that would open a Chromium window.
 
-#include <deque>
+#include <chrono>
 
+#include "download_state.h"
 #include "shim_internal.h"
 
 namespace cmux_shim {
@@ -35,57 +36,66 @@ int WindowRequestTrampoline(void*, const void* raw) {
   }
   return h.window_request(h.ctx, request->kind, request->disposition, request->source_browser_id,
                           request->has_bounds, request->x, request->y, request->width, request->height,
-                          request->url ? request->url : "", request->profile_path ? request->profile_path : "");
+                          request->user_gesture ? 1 : 0, request->url ? request->url : "", request->profile_path ? request->profile_path : "");
 }
 
-struct PendingPopup {
-  int disposition;
-  std::string features;
-};
+PendingPopups& pending_popups() {
+  static PendingPopups popups;
+  return popups;
+}
 
-std::map<int, std::deque<PendingPopup>>& pending_popups() {
-  static std::map<int, std::deque<PendingPopup>> map;
-  return map;
+int64_t NowMs() {
+  return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
 }
 
 }  // namespace
 
-void RememberPopup(int opener, int disposition, const CefPopupFeatures& features) {
+void RememberPopup(int opener, int popup_id, const std::string& url, int disposition, bool user_gesture,
+                   const CefPopupFeatures& features) {
   std::string bounds;
   if (features.widthSet || features.heightSet) {
     bounds = std::to_string(features.xSet ? features.x : 0) + "," + std::to_string(features.ySet ? features.y : 0) +
              "," + std::to_string(features.widthSet ? features.width : 0) + "," +
              std::to_string(features.heightSet ? features.height : 0);
   }
-  auto& queue = pending_popups()[opener];
-  queue.push_back(PendingPopup{disposition, bounds});
-  // A popup Chromium refused after OnBeforePopup (blocked, aborted) never
-  // reaches OnAfterCreated; keep the queue short.
-  while (queue.size() > 8) {
-    queue.pop_front();
-  }
+  PendingPopup popup;
+  popup.popup_id = popup_id;
+  popup.url = url;
+  popup.disposition = disposition;
+  popup.user_gesture = user_gesture;
+  popup.features = bounds;
+  popup.at_ms = NowMs();
+  pending_popups().Remember(opener, std::move(popup));
 }
 
-int64_t TakePopup(CefRefPtr<CefBrowser> browser, std::string* features) {
+void AbortPopup(int opener, int popup_id) {
+  pending_popups().Abort(opener, popup_id);
+}
+
+int64_t TakePopup(CefRefPtr<CefBrowser> browser, std::string* features, std::string* url) {
   const int opener = browser->GetHost()->GetOpenerIdentifier();
   if (opener <= 0) {
     return 0;
   }
+  // The new tab's pending navigation is the popup's target, when Chromium
+  // already shows it. A tab with no visible URL here takes no popup
+  // (PendingPopups::Take): no disposition, no user gesture.
+  std::string visible;
+  if (CefRefPtr<CefNavigationEntry> entry = browser->GetHost()->GetVisibleNavigationEntry()) {
+    visible = entry->GetURL().ToString();
+  }
   int disposition = 0;
-  auto it = pending_popups().find(opener);
-  if (it != pending_popups().end() && !it->second.empty()) {
-    disposition = it->second.front().disposition;
-    *features = it->second.front().features;
-    it->second.pop_front();
-    if (it->second.empty()) {
-      pending_popups().erase(it);
-    }
+  PendingPopup popup;
+  if (pending_popups().Take(opener, visible, NowMs(), &popup)) {
+    disposition = (popup.disposition & 0xffff) | (popup.user_gesture ? 1 << 16 : 0);
+    *features = popup.features;
+    *url = popup.url;
   }
   return (static_cast<int64_t>(opener) << 32) | static_cast<uint32_t>(disposition);
 }
 
 void ForgetPopups(int opener) {
-  pending_popups().erase(opener);
+  pending_popups().Forget(opener);
 }
 
 bool IsWindowCommand(int command_id) {

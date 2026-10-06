@@ -12052,7 +12052,1055 @@
         }
       }
     }
-  }
+  },
+    "agentPane.error.transport": {
+    "extractionState": "manual",
+    "localizations": {
+      "ar": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "رفض التطبيق الاتصال بالوكيل."
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Aplikacija je odbila vezu s agentom."
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Appen afviste forbindelsen til agenten."
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Die App hat die Verbindung zum Agenten abgelehnt."
+        }
+      },
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "The app refused the agent connection."
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "La app rechazó la conexión con el agente."
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "L’app a refusé la connexion à l’agent."
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "L’app ha rifiutato la connessione all’agente."
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "アプリがエージェントへの接続を拒否しました。"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "កម្មវិធីបានបដិសេធការតភ្ជាប់ភ្នាក់ងារ។"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "앱이 에이전트 연결을 거부했습니다."
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Appen avviste tilkoblingen til agenten."
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Aplikacja odrzuciła połączenie z agentem."
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "O app recusou a conexão com o agente."
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Приложение отклонило подключение к агенту."
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "แอปปฏิเสธการเชื่อมต่อกับเอเจนต์"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Uygulama aracı bağlantısını reddetti."
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Застосунок відхилив підключення до агента."
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Ứng dụng đã từ chối kết nối với tác tử."
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "应用拒绝了与代理的连接。"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "App 拒絕了與代理的連線。"
+        }
+      }
+    }
+  },
+    "agentPane.confirmMode.title": {
+    "extractionState": "manual",
+    "localizations": {
+      "ar": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "هل تسمح للوكيل بالتصرف دون أن يسأل؟"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Dozvoliti agentu da radi bez pitanja?"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Lad agenten handle uden at spørge?"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Den Agenten ohne Nachfrage handeln lassen?"
+        }
+      },
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Let the agent act without asking?"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "¿Dejar que el agente actúe sin preguntar?"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Laisser l’agent agir sans demander ?"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Lasciare che l’agente agisca senza chiedere?"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "エージェントに確認なしで実行させますか？"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "អនុញ្ញាតឱ្យភ្នាក់ងារធ្វើសកម្មភាពដោយមិនសួរ?"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "에이전트가 묻지 않고 작업하게 할까요?"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "La agenten handle uten å spørre?"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Pozwolić agentowi działać bez pytania?"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Deixar o agente agir sem perguntar?"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Разрешить агенту действовать без вопросов?"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "ให้เอเจนต์ทำงานโดยไม่ถามก่อนหรือไม่"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Aracı sormadan işlem yapsın mı?"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Дозволити агенту діяти без запитань?"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Cho tác tử hành động mà không hỏi?"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "要让代理不经询问就执行操作吗？"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "要讓代理不經詢問就執行操作嗎？"
+        }
+      }
+    }
+  },
+    "agentPane.confirmMode.message": {
+    "extractionState": "manual",
+    "localizations": {
+      "ar": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "ستنتقل هذه المحادثة إلى %@، وهو وضع لا يسأل فيه الوكيل قبل أن يتصرف."
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Ovaj razgovor bi prešao na %@, način u kojem agent ne pita prije nego što djeluje."
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Denne chat skifter til %@, en tilstand hvor agenten ikke spørger, før den handler."
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Dieser Chat würde zu %@ wechseln, einem Modus, in dem der Agent nicht fragt, bevor er handelt."
+        }
+      },
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "This chat would switch to %@, a mode in which the agent does not ask before it acts."
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Este chat pasaría a %@, un modo en el que el agente no pregunta antes de actuar."
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Ce chat passerait en %@, un mode dans lequel l’agent ne demande pas avant d’agir."
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Questa chat passerebbe a %@, una modalità in cui l’agente non chiede prima di agire."
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "このチャットは %@ に切り替わります。このモードでは、エージェントは実行前に確認しません。"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "ការជជែកនេះនឹងប្ដូរទៅ %@ ដែលជារបៀបដែលភ្នាក់ងារមិនសួរមុនធ្វើសកម្មភាព។"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "이 채팅은 에이전트가 작업 전에 묻지 않는 모드인 %@(으)로 전환됩니다."
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Denne chatten bytter til %@, en modus der agenten ikke spør før den handler."
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Ten czat przełączy się na %@, tryb, w którym agent nie pyta przed działaniem."
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Este chat mudaria para %@, um modo em que o agente não pergunta antes de agir."
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Этот чат перейдёт в режим %@, в котором агент не спрашивает перед действием."
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "แชทนี้จะเปลี่ยนเป็น %@ ซึ่งเป็นโหมดที่เอเจนต์ไม่ถามก่อนทำงาน"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Bu sohbet, aracının işlem yapmadan önce sormadığı %@ moduna geçer."
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Цей чат перейде в режим %@, у якому агент не питає перед дією."
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Cuộc trò chuyện này sẽ chuyển sang %@, chế độ mà tác tử không hỏi trước khi hành động."
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "此聊天将切换到 %@，在该模式下代理执行操作前不会询问。"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "此聊天將切換到 %@，在該模式下代理執行操作前不會詢問。"
+        }
+      }
+    }
+  },
+    "agentPane.confirmMode.switch": {
+    "extractionState": "manual",
+    "localizations": {
+      "ar": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "تبديل الوضع"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Promijeni način"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Skift tilstand"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Modus wechseln"
+        }
+      },
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Switch Mode"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Cambiar modo"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Changer de mode"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Cambia modalità"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "モードを切り替え"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "ប្ដូររបៀប"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "모드 전환"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Bytt modus"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Zmień tryb"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Mudar modo"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Сменить режим"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "เปลี่ยนโหมด"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Modu Değiştir"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Змінити режим"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Chuyển chế độ"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "切换模式"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "切換模式"
+        }
+      }
+    }
+  },
+    "agentPane.addRoot.title": {
+    "extractionState": "manual",
+    "localizations": {
+      "ar": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "هل تريد إضافة هذا المجلد إلى مساحة العمل؟"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Dodati ovaj folder u radni prostor?"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Vil du føje denne mappe til arbejdsområdet?"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Diesen Ordner zum Arbeitsbereich hinzufügen?"
+        }
+      },
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Add this folder to the workspace?"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "¿Añadir esta carpeta al espacio de trabajo?"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Ajouter ce dossier à l’espace de travail ?"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Aggiungere questa cartella allo spazio di lavoro?"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "このフォルダをワークスペースに追加しますか？"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "បន្ថែមថតនេះទៅកន្លែងធ្វើការ?"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "이 폴더를 워크스페이스에 추가할까요?"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Vil du legge til denne mappen i arbeidsområdet?"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Dodać ten folder do obszaru roboczego?"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Adicionar esta pasta ao espaço de trabalho?"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Добавить эту папку в рабочее пространство?"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "เพิ่มโฟลเดอร์นี้ลงในพื้นที่ทำงานหรือไม่"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Bu klasör çalışma alanına eklensin mi?"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Додати цю папку до робочого простору?"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Thêm thư mục này vào không gian làm việc?"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "要将此文件夹添加到工作区吗？"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "要將此檔案夾加入工作區嗎？"
+        }
+      }
+    }
+  },
+    "agentPane.addRoot.message": {
+    "extractionState": "manual",
+    "localizations": {
+      "ar": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "طلب الوكيل العمل في %@، وهو خارج مجلدات مساحة العمل هذه."
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Agent je tražio da radi u %@, koji je izvan foldera ovog radnog prostora."
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Agenten bad om at arbejde i %@, som ligger uden for dette arbejdsområdes mapper."
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Der Agent möchte in %@ arbeiten, das außerhalb der Ordner dieses Arbeitsbereichs liegt."
+        }
+      },
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "The agent asked to work in %@, which is outside this workspace's folders."
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "El agente pidió trabajar en %@, que está fuera de las carpetas de este espacio de trabajo."
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "L’agent a demandé à travailler dans %@, qui se trouve hors des dossiers de cet espace de travail."
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "L’agente ha chiesto di lavorare in %@, che è fuori dalle cartelle di questo spazio di lavoro."
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "エージェントが %@ での作業を求めています。このフォルダはワークスペースのフォルダの外にあります。"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "ភ្នាក់ងារបានស្នើធ្វើការក្នុង %@ ដែលនៅក្រៅថតនៃកន្លែងធ្វើការនេះ។"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "에이전트가 이 워크스페이스의 폴더 밖에 있는 %@에서 작업하려고 합니다."
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Agenten ba om å jobbe i %@, som ligger utenfor mappene i dette arbeidsområdet."
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Agent poprosił o pracę w %@, który jest poza folderami tego obszaru roboczego."
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "O agente pediu para trabalhar em %@, que está fora das pastas deste espaço de trabalho."
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Агент запросил работу в %@, а эта папка находится вне папок рабочего пространства."
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "เอเจนต์ขอทำงานใน %@ ซึ่งอยู่นอกโฟลเดอร์ของพื้นที่ทำงานนี้"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Aracı, bu çalışma alanının klasörleri dışında kalan %@ içinde çalışmak istedi."
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Агент попросив працювати в %@, що поза папками цього робочого простору."
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Tác tử yêu cầu làm việc trong %@, nằm ngoài các thư mục của không gian làm việc này."
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "代理请求在 %@ 中工作，它位于此工作区的文件夹之外。"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "代理要求在 %@ 中工作，它位於此工作區的檔案夾之外。"
+        }
+      }
+    }
+  },
+    "agentPane.addRoot.add": {
+    "extractionState": "manual",
+    "localizations": {
+      "ar": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "إضافة المجلد"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Dodaj folder"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Tilføj mappe"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Ordner hinzufügen"
+        }
+      },
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Add Folder"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Añadir carpeta"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Ajouter le dossier"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Aggiungi cartella"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "フォルダを追加"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "បន្ថែមថត"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "폴더 추가"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Legg til mappe"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Dodaj folder"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Adicionar pasta"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Добавить папку"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "เพิ่มโฟลเดอร์"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Klasör Ekle"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Додати папку"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Thêm thư mục"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "添加文件夹"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "加入檔案夾"
+        }
+      }
+    }
+  },
+    "agentPane.confirmOption.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "هل تريد تغيير %1$@ إلى %2$@؟ يمكن للأجهزة المقترنة عندها تنفيذ إجراءات دون أن تسأل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Promijeniti %1$@ u %2$@? Upareni uređaji bi tada mogli izvršavati radnje bez pitanja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skift %1$@ til %2$@? Parrede enheder kan så udføre handlinger uden at spørge."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ zu %2$@ ändern? Gekoppelte Geräte könnten dann Aktionen ohne Nachfrage ausführen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Change %1$@ to %2$@? Paired devices could then run actions without asking."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "¿Cambiar %1$@ a %2$@? Los dispositivos vinculados podrían ejecutar acciones sin preguntar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Changer %1$@ en %2$@ ? Les appareils associés pourraient alors exécuter des actions sans demander."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cambiare %1$@ in %2$@? I dispositivi associati potrebbero eseguire azioni senza chiedere."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ を %2$@ に変更しますか？ ペアリングされたデバイスが、確認なしで操作を実行できるようになります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្ដូរ %1$@ ទៅ %2$@? ឧបករណ៍ដែលបានផ្គូផ្គងអាចដំណើរការសកម្មភាពដោយមិនសួរ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@을(를) %2$@(으)로 변경할까요? 그러면 페어링된 기기가 묻지 않고 작업을 실행할 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Endre %1$@ til %2$@? Sammenkoblede enheter kan da utføre handlinger uten å spørre."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zmienić %1$@ na %2$@? Sparowane urządzenia mogłyby wtedy wykonywać działania bez pytania."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mudar %1$@ para %2$@? Dispositivos pareados poderiam então executar ações sem perguntar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Изменить %1$@ на %2$@? Тогда связанные устройства смогут выполнять действия без запроса."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เปลี่ยน %1$@ เป็น %2$@ หรือไม่ อุปกรณ์ที่จับคู่ไว้จะสามารถดำเนินการโดยไม่ถามได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ değeri %2$@ olarak değiştirilsin mi? Eşlenen cihazlar bu durumda sormadan işlem yapabilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Змінити %1$@ на %2$@? Тоді спарені пристрої зможуть виконувати дії без запиту."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đổi %1$@ thành %2$@? Khi đó thiết bị đã ghép nối có thể thực hiện thao tác mà không hỏi."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "要将 %1$@ 更改为 %2$@ 吗？配对的设备之后可能不经询问就执行操作。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "要將 %1$@ 變更為 %2$@ 嗎？配對的裝置之後可能不經詢問就執行操作。"
+          }
+        }
+      }
+    }
   },
   "version": "1.0"
 }

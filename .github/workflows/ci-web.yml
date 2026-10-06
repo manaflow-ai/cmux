@@ -245,6 +245,9 @@ jobs:
       - name: Verify generated cmux-next agent pane
         run: ./scripts/cmux-next/build-agent-pane-web.sh --check
 
+      - name: Verify generated cmux-next palette ranker
+        run: ./scripts/cmux-next/build-palette-ranker.sh --check
+
       - name: Verify generated cmux-next Agent Activity
         run: ./scripts/cmux-next/build-agent-activity-web.sh --check
 

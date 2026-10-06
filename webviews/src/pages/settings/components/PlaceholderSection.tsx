@@ -3,21 +3,14 @@ import { useSettingsState, useStore } from "../context";
 import { t } from "../strings";
 import { ActionRow } from "./ActionRow";
 
-/** Sections with no schema rows yet: a link to the native card. Advanced always adds the file actions. */
-export function PlaceholderSection({ section, openInWindow }: { section: string; openInWindow: boolean }) {
+/** Advanced's file actions: open cmux.json, and Reset All Settings after a confirm. */
+export function PlaceholderSection({ section }: { section: string }) {
   const store = useStore();
   const { connected } = useSettingsState();
   const [confirming, setConfirming] = useState(false);
   return (
     <section className="group">
       <div className="rows">
-        {openInWindow && (
-          <ActionRow title={t("settingsPage.openInWindow")} help={t("settingsPage.openInWindowHelp")}>
-            <button type="button" className="button" onClick={() => store.openNative("section", section)}>
-              {t("settingsPage.openInWindow")}
-            </button>
-          </ActionRow>
-        )}
         {section === "advanced" && (
           <>
             <ActionRow title={t("settingsPage.openConfig")} help={t("settingsPage.openConfigHelp")}>

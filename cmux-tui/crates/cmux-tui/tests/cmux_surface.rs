@@ -122,7 +122,7 @@ fn cmux_state_scopes_go_to_the_session_daemon() {
         let output = names.run("cmux", &full);
         let stderr = text(&output.stderr);
         assert_eq!(output.status.code(), Some(3), "{args:?}: {stderr}");
-        assert!(stderr.contains("cannot connect to session socket"), "{args:?}: {stderr}");
+        assert!(stderr.contains("no cmux session is running"), "{args:?}: {stderr}");
     }
 }
 

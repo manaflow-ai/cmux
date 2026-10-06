@@ -19,6 +19,10 @@ enum OpenInHandlers {
     }
 
     static func focusedFile(_ context: AppActionContext, _ invocation: ActionInvocation) throws -> URL {
+        // A markdown or code editor page tab (diff-host S6, S7) shows a file.
+        if let key = context.scope(invocation).tab?.id.rawValue, let file = FilePageHandlers.file(ofTab: key, context.services) {
+            return file
+        }
         guard case .browser(let entry) = context.scope(invocation).pane?.currentContent,
               let url = entry.tab.state.url, url.isFileURL else { throw ActionFailure(message: MiscHandlerStrings.noFile) }
         return url

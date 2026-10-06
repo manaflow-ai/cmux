@@ -6,7 +6,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "palette.newAgentChat",
                 title: String(localized: "action.palette.newAgentChat", defaultValue: "New Agent Chat", bundle: .module),
-                keywords: ["agent", "chat", "ai", "acpmux"], defaultShortcut: Shortcut("i", modifiers: [.command, .shift]),
+                keywords: ["agent", "chat", "ai", "acpmux"], defaultShortcut: Shortcut("i", modifiers: [.command]),
                 category: .agents, symbol: "bubble.left.and.text.bubble.right",
                 surfaces: [.palette, .keyboard, .menu, .contextMenu], targets: [.pane], cliName: "agent new-chat", mainMenu: .file
             ),
@@ -147,6 +147,25 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.palette.computerUse.screenRecording", defaultValue: "Grant Screen Recording Access", bundle: .module),
                 keywords: ["agent", "permissions", "tcc"], category: .agents, symbol: "record.circle",
                 surfaces: [.palette], cliName: "agent grant-screen-recording-access"
+            ),
+            // The Home Chief's subagents (optchat-chief spawn): a workspace
+            // whose tab is an existing acpmux session's chat. Automation only.
+            ActionDescriptor(
+                id: "agent.openSessionWorkspace",
+                title: String(localized: "action.agent.openSessionWorkspace", defaultValue: "Open Agent Session in New Workspace", bundle: .module),
+                keywords: ["agent", "session", "acpmux", "subagent", "workspace"], category: .agents,
+                symbol: "bubble.left.and.text.bubble.right", surfaces: [],
+                arguments: [
+                    ActionArgument(name: "session", title: String(localized: "argument.agent.session", defaultValue: "Session", bundle: .module),
+                                   kind: .string),
+                    ActionArgument(name: "name", title: String(localized: "argument.agent.workspaceName", defaultValue: "Workspace Name", bundle: .module),
+                                   kind: .string, isRequired: false),
+                    ActionArgument(name: "key", title: String(localized: "argument.agent.workspaceKey", defaultValue: "Workspace Key", bundle: .module),
+                                   kind: .string, isRequired: false),
+                    ActionArgument(name: "cwd", title: String(localized: "argument.agent.cwd", defaultValue: "Folder", bundle: .module),
+                                   kind: .string, isRequired: false),
+                ],
+                surfacePlan: ActionSurfacePlan(palette: .exempt(.noObject), cli: .exempt(.noObject), contextMenuExemption: .noObject)
             ),
             ActionDescriptor(
                 id: "agentActivity.open",

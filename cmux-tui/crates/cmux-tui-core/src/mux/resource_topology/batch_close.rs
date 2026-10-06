@@ -39,6 +39,25 @@ pub(crate) struct BatchCloseRequest<'a> {
     pub expected_workspace_revision: Option<u64>,
     /// Hold the provider workspace authority (workspace lifecycle closes).
     pub authorize_workspace: bool,
+    /// Record the close in the closed history (false: a session-end close).
+    pub record_closed: bool,
+}
+
+/// Why a client closes tabs (`close-reason-v1`, SDK type `CloseReason`).
+/// An unknown value fails the request's deserialization (`bad request`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum CloseReason {
+    /// A browser session ended and closes the tabs it opened for itself.
+    SessionEnd,
+}
+
+impl CloseReason {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::SessionEnd => "session_end",
+        }
+    }
 }
 
 /// A terminal the batch close ended.
@@ -142,12 +161,14 @@ impl Mux {
 
         let mut tab_groups = None;
         let mut plan = match &request.target {
-            BatchCloseTarget::Tabs(surfaces) => self.tabs_close_plan_locked(surfaces, &state)?,
+            BatchCloseTarget::Tabs(surfaces) => {
+                self.tabs_close_plan_locked(surfaces, &state, &registry, &notifications)?
+            }
             BatchCloseTarget::TabGroup(group) => {
                 let mut groups = self.presentation_snapshot().tab_groups.clone();
                 let members = tab_groups::take_tab_group(&state, &mut groups, group)?;
                 tab_groups = Some(groups);
-                self.tabs_close_plan_locked(&members, &state)?
+                self.tabs_close_plan_locked(&members, &state, &registry, &notifications)?
             }
             BatchCloseTarget::Pane(pane) => self.resource_close_plan_locked(
                 ResourceOperation::PaneClose,
@@ -184,7 +205,9 @@ impl Mux {
                 "terminal_incarnation": terminal.terminal_incarnation,
             })).collect::<Vec<_>>(),
         });
+        // A cascaded close (an emptied workspace) keeps the request's result shape.
         if let Some(close) = plan.workspace_close.as_ref()
+            && matches!(request.target, BatchCloseTarget::Workspace(_))
             && let Some(fields) = close.legacy_result.as_object()
         {
             for (key, value) in fields {
@@ -205,6 +228,7 @@ impl Mux {
             &plan.terminal_batch,
             plan.workspace_close.as_ref(),
             tab_groups.as_ref(),
+            request.record_closed,
         )?;
         if committed.resource.replayed {
             state.resource_revision = state.resource_revision.max(committed.resource.revision);
@@ -224,19 +248,7 @@ impl Mux {
         if tab_groups.is_some() {
             self.reload_presentation(&registry)?;
         }
-        if matches!(
-            &effects.tree_publication,
-            ResourceCloseTreePublication::PendingDelta(delta)
-                if delta.workspace_revision.is_some()
-        ) {
-            let ResourceCloseTreePublication::PendingDelta(delta) = std::mem::replace(
-                &mut effects.tree_publication,
-                ResourceCloseTreePublication::Published,
-            ) else {
-                unreachable!("revisioned workspace close publication was checked above");
-            };
-            self.emit_committed_workspace_delta(&registry, delta, effects.selection_resync);
-        }
+        self.publish_revisioned_workspace_delta(&registry, &mut effects);
         drop(registry);
         drop(workspace_lifecycle);
         drop(_creation_fence);
@@ -257,11 +269,14 @@ impl Mux {
     }
 
     /// Remove `surfaces` from a clone of the live state. Every surface must
-    /// be a placed tab; duplicates are ignored.
+    /// be a placed tab; duplicates are ignored. A workspace left without a
+    /// tab closes in the same plan (LAST-TAB-CLOSES-WORKSPACE).
     fn tabs_close_plan_locked(
         &self,
         surfaces: &[SurfaceId],
         state: &State,
+        registry: &WorkspaceRegistry,
+        notifications: &TreeDecorations,
     ) -> anyhow::Result<ResourceClosePlan> {
         let mut unique = HashSet::with_capacity(surfaces.len());
         let surfaces =
@@ -294,15 +309,28 @@ impl Mux {
         if split_index_changed {
             Self::rebuild_split_screen_index(&mut projected);
         }
-        let selection_resync = selection_before != active_tree_selection(&projected);
+        let mut selection_resync = selection_before != active_tree_selection(&projected);
+        let emptied = self.close_emptied_workspaces_locked(
+            registry,
+            state,
+            &mut projected,
+            Some(notifications),
+        )?;
+        let (workspace_close, delta, changed_screens) = match emptied {
+            Some(emptied) => {
+                selection_resync = emptied.was_active && !projected.workspaces.is_empty();
+                (Some(emptied.close), emptied.delta, emptied.changed_screens)
+            }
+            None => (None, None, changed_screens),
+        };
         Ok(ResourceClosePlan {
             state: projected,
             removed,
             terminal_runtime: None,
             closed_terminal_public_id: None,
             terminal_batch: Vec::new(),
-            workspace_close: None,
-            delta: None,
+            workspace_close,
+            delta,
             changed_screens,
             selection_resync,
         })
@@ -364,17 +392,34 @@ impl Mux {
 
 impl Mux {
     /// `close-tabs`: close these tab placements in one commit.
+    #[cfg(test)]
     pub(crate) fn close_tabs(
         &self,
         surfaces: Vec<SurfaceId>,
         end_terminals: bool,
         mutation: &WorkspaceMutation,
     ) -> anyhow::Result<BatchCloseOutcome> {
-        let fingerprint = json!({
+        self.close_tabs_for(surfaces, end_terminals, None, mutation)
+    }
+
+    /// `close-tabs` with an optional `reason` (`close-reason-v1`): a
+    /// `session_end` close commits the same way but is not recorded in the
+    /// closed history. The reason is part of the request a key names.
+    pub(crate) fn close_tabs_for(
+        &self,
+        surfaces: Vec<SurfaceId>,
+        end_terminals: bool,
+        reason: Option<CloseReason>,
+        mutation: &WorkspaceMutation,
+    ) -> anyhow::Result<BatchCloseOutcome> {
+        let mut fingerprint = json!({
             "op": "close-tabs",
             "surfaces": surfaces,
             "end_terminals": end_terminals,
         });
+        if let Some(reason) = reason {
+            fingerprint["reason"] = json!(reason.as_str());
+        }
         self.commit_batch_close(BatchCloseRequest {
             target: BatchCloseTarget::Tabs(surfaces),
             end_terminals,
@@ -384,6 +429,7 @@ impl Mux {
             expected_generation: None,
             expected_workspace_revision: None,
             authorize_workspace: false,
+            record_closed: reason.is_none(),
         })
     }
 
@@ -416,6 +462,7 @@ impl Mux {
             expected_generation: None,
             expected_workspace_revision: None,
             authorize_workspace: false,
+            record_closed: true,
         })
     }
 
@@ -469,6 +516,7 @@ impl Mux {
             expected_generation,
             expected_workspace_revision: expected_revision,
             authorize_workspace: true,
+            record_closed: true,
         })?;
         let revision = match outcome.workspace_revision {
             Some(revision) => revision,
@@ -673,7 +721,9 @@ mod tests {
         for surface in &surfaces {
             assert_eq!(mux.with_state(|state| state.pane_of(*surface)), None);
         }
-        assert_eq!(mux.with_state(|state| state.workspaces.len()), 4, "workspaces remain");
+        // Every workspace lost its last tab: all four close in the same commit
+        // (LAST-TAB-CLOSES-WORKSPACE); the kept terminal outlives them.
+        assert_eq!(mux.with_state(|state| state.workspaces.len()), 0, "emptied workspaces close");
         assert_store_matches_full_projection(&mux);
     }
 
@@ -761,6 +811,8 @@ mod tests {
         for n in 1..=8 {
             let key = workspace(&mux, n);
             surfaces.push(seed(&mux, n, &key));
+            // A second tab keeps the workspace open (LAST-TAB-CLOSES-WORKSPACE).
+            seed(&mux, 100 + n, &key);
         }
         mux.close_tabs(vec![surfaces[0]], true, &WorkspaceMutation::local("seed")).unwrap();
         let before = resource_revision(&mux);

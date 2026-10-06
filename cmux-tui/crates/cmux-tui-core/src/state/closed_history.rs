@@ -19,6 +19,8 @@ use crate::state::closed_history_query::{
     closed_record, keep_members, newest_for_window, remove_closed,
 };
 use crate::state::commit::{StateEffects, state_not_found};
+use crate::state::conversation_tabs::ConversationTabTarget;
+use crate::state::conversation_tabs_store::ConversationTabRecord;
 use crate::state::prelude::*;
 use crate::state::store::{StateChanges, StateCommit, state_delete, state_upsert};
 
@@ -56,6 +58,8 @@ struct Reopened {
     workspaces: Vec<String>,
     screens: Vec<String>,
     tabs: Vec<String>,
+    /// (closed workspace key, reopened workspace key) per reopened workspace.
+    placements: Vec<(String, String)>,
 }
 
 impl Reopened {
@@ -116,6 +120,10 @@ fn commit_reopen(
     };
     let workspace =
         reopened.workspaces.first().cloned().context("reopened item has no workspace")?;
+    let mut changes = vec![change];
+    for (closed_key, reopened_key) in &reopened.placements {
+        changes.extend(restore_placement(transaction, closed_key, reopened_key)?);
+    }
     Ok(StateChanges::new(
         serde_json::json!({
             "closed_id": closed_id,
@@ -126,8 +134,46 @@ fn commit_reopen(
             "tab_ids": reopened.tabs,
             "remaining": remaining,
         }),
-        vec![change],
+        changes,
     ))
+}
+
+/// Give the reopened workspace the closed one's personal row: its group,
+/// its place in the personal sidebar order and its theme
+/// (LAST-TAB-CLOSES-WORKSPACE rule 3). Nothing when that row is gone.
+fn restore_placement(
+    transaction: &rusqlite::Transaction<'_>,
+    closed_key: &str,
+    reopened_key: &str,
+) -> anyhow::Result<Vec<Value>> {
+    use crate::state::personal_state_store::{placement_id, placement_snapshot};
+    use rusqlite::{OptionalExtension, params};
+    let local = crate::state::values::local_registry_id(transaction)?;
+    let kept = transaction
+        .query_row(
+            "SELECT 1 FROM personal_workspaces WHERE session_id = ?1 AND workspace_key = ?2",
+            params![local, closed_key],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some();
+    if !kept {
+        return Ok(Vec::new());
+    }
+    transaction.execute(
+        "DELETE FROM personal_workspaces WHERE session_id = ?1 AND workspace_key = ?2",
+        params![local, reopened_key],
+    )?;
+    transaction.execute(
+        "UPDATE personal_workspaces SET workspace_key = ?3 WHERE session_id = ?1 AND workspace_key = ?2",
+        params![local, closed_key, reopened_key],
+    )?;
+    crate::workspace_registry::personal_store::bump_personal_revision(transaction)?;
+    let placement = placement_snapshot(transaction, &local, reopened_key)?;
+    Ok(vec![
+        state_delete("workspace_placement", &placement_id(&local, closed_key)),
+        state_upsert("workspace_placement", &placement_id(&local, reopened_key), placement),
+    ])
 }
 
 impl Mux {
@@ -214,6 +260,12 @@ impl Mux {
         reattach: bool,
     ) -> anyhow::Result<SurfaceId> {
         let surface = match tab["kind"].as_str() {
+            Some("browser") if tab.get("conversation").is_some_and(|value| !value.is_null()) => {
+                let record = ConversationTabRecord::from_wire(&tab["conversation"])
+                    .context("the closed conversation tab has no valid record")?;
+                let target = ConversationTabTarget::Pane(Some(pane));
+                self.new_conversation_tab(target, record, None, None)?.surface.id
+            }
             Some("browser") => {
                 let url = tab["url"].as_str().unwrap_or("about:blank").to_string();
                 match tab["engine"].as_str() {
@@ -422,10 +474,15 @@ impl Mux {
         let screens = record["screens"].as_array().cloned().unwrap_or_default();
         let name = record["name"].as_str().map(str::to_string);
         let first = self.new_workspace(name, None)?;
-        let workspace = self
-            .with_state(|state| state.pane_of(first.id).and_then(|pane| state.screen_of(pane)))
-            .map(|(workspace, _)| self.with_state(|state| state.workspaces[workspace].id))
+        let (workspace, key) = self
+            .with_state(|state| {
+                let (index, _) = state.screen_of(state.pane_of(first.id)?)?;
+                Some((state.workspaces[index].id, state.workspaces[index].key.clone()))
+            })
             .context("reopened workspace is missing")?;
+        if let Some(closed_key) = record["workspace_key"].as_str() {
+            reopened.placements.push((closed_key.to_string(), key));
+        }
         for (index, screen) in screens.iter().enumerate() {
             let surface = if index == 0 {
                 first.clone()

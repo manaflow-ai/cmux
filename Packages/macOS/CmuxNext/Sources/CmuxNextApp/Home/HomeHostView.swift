@@ -1,5 +1,6 @@
 import AppKit
 import CmuxHomeCore
+import CmuxNextActions
 import CmuxNextDesign
 import CmuxNextHome
 
@@ -12,6 +13,7 @@ final class HomeHostView: NSView {
     private let transcript: HomeNativeTranscriptView
     private let message = NSTextField(labelWithString: "")
     private var availability: Task<Void, Never>?
+    private var firstPage: Task<Void, Never>?
 
     init(services: AppServices, conversation: String) {
         let service = services.home
@@ -20,8 +22,28 @@ final class HomeHostView: NSView {
         super.init(frame: .zero)
         // Settings > Home: whether attached photos and videos keep their location.
         transcript.keepLocation = { [weak services] in services?.settings?.snapshot.homeKeepLocation ?? false }
-        // Paste, drop and the picker attach files through the store; the view
-        // owns its conversation's binding (refusals, Cancel Upload).
+        // The first-run rows run the same registry actions as the sidebar's
+        // New Terminal Tab and New Agent Chat, and show their shortcuts.
+        let registry = services.registry
+        transcript.onFirstRunAction = { action in
+            let id: ActionID = switch action {
+            case .openTerminal: Self.openTerminalAction
+            case .startAgent: Self.startAgentAction
+            }
+            _ = registry.perform(id, invocation: ActionInvocation(origin: .user))
+        }
+        transcript.setFirstRunShortcuts(terminal: registry.shortcutDisplay(for: Self.openTerminalAction),
+                                        agent: registry.shortcutDisplay(for: Self.startAgentAction),
+                                        tabs: registry.shortcutDisplay(for: Self.selectTabByNumberAction))
+        // The first-run panel waits for the first page, so a conversation
+        // with history never flashes it (at once when the page is cached).
+        transcript.holdsFirstRun = true
+        let binding = transcript.binding
+        // task-owner: lives as long as this view; ends when the first page is in
+        firstPage = Task { [weak self] in
+            await binding.opened()
+            self?.transcript.holdsFirstRun = false
+        }
         wantsLayer = true
         message.alignment = .center
         message.stringValue = HomeStrings.unavailable
@@ -38,11 +60,17 @@ final class HomeHostView: NSView {
         }
     }
 
+    static let openTerminalAction: ActionID = "newSurface"
+    static let startAgentAction: ActionID = "palette.newAgentChat"
+    /// Ctrl-1 to 9 (a numbered family, shown as `⌃1…9`).
+    static let selectTabByNumberAction: ActionID = "selectSurfaceByNumber"
+
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
 
     isolated deinit {
         availability?.cancel()
+        firstPage?.cancel()
         transcript.stop()
     }
 

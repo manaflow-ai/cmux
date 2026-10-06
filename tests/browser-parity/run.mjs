@@ -200,16 +200,40 @@ function parseEmits(outputs, cells) {
   return emits;
 }
 
+// The values a backend must emit. The Rust host backends (host-*) follow
+// cmux-next's automation lease (plans/cmux-next/automation-lease.md); where
+// that intentionally differs from classic, the golden's `lease` section
+// overrides a value (`{"$absent": true}`: the key is not emitted) and names
+// the lease rule in `lease.reasons` (README, "Intentional cmux-next
+// differences").
+export function expectedValues(backend, golden) {
+  if (backend === "oracle") return { ...golden.oracle };
+  const expected = { ...golden.oracle, ...golden.cmux };
+  if (backend.startsWith("host-") && golden.lease) {
+    for (const [key, value] of Object.entries(golden.lease.values || {})) {
+      if (value && typeof value === "object" && value.$absent === true) delete expected[key];
+      else expected[key] = value;
+    }
+  }
+  return expected;
+}
+
 // known-failures.json: a scenario whose differing keys are exactly the
 // keys recorded for this platform and backend fails for a known
 // environment reason; returns that reason, else null.
 export function knownFailure(backend, name, problems, platform = process.platform) {
-  // Only value differences can be known: a missing or unexpected key (an
-  // error included) is always a failure.
-  if (!problems.length || problems.some((p) => !p.startsWith('"'))) return null;
+  if (!problems.length) return null;
   const file = path.join(root, "known-failures.json");
-  const entry = JSON.parse(fs.readFileSync(file, "utf8"))[platform]?.[backend]?.[name];
+  const known = JSON.parse(fs.readFileSync(file, "utf8"));
+  // "*" lists engine differences that hold on every platform.
+  const entry = known[platform]?.[backend]?.[name] ?? known["*"]?.[backend]?.[name];
   if (!entry) return null;
+  // A scenario that tests a behavior this backend's engine does not have:
+  // any difference is known.
+  if (entry.notApplicable === true) return entry.reason;
+  // Otherwise only value differences can be known: a missing or unexpected
+  // key (an error included) is always a failure.
+  if (problems.some((p) => !p.startsWith('"'))) return null;
   const keys = problems.map((p) => (/"([^"]+)"/.exec(p) || [])[1]);
   const listed = new Set(entry.keys);
   const same = keys.every((k) => k && listed.has(k)) && new Set(keys).size === listed.size;
@@ -275,7 +299,7 @@ async function main() {
         console.log(`FAIL ${scenario.name}: no golden`);
         continue;
       }
-      const expected = args.backend === "oracle" ? { ...golden.oracle } : { ...golden.oracle, ...golden.cmux };
+      const expected = expectedValues(args.backend, golden);
       const actual = {};
       const problems = [];
       for (const e of emits) {
