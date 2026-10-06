@@ -1,6 +1,29 @@
 --- a/Sources/MessagesLabHome/Vendor/catalyst/Layout.swift
 +++ b/Sources/MessagesLabHome/Vendor/catalyst/Layout.swift
-@@ -578,7 +578,8 @@
+@@ -14,7 +14,10 @@
+     var width: CGFloat
+ 
+     static func make(_ text: String, runs: [TextRun], maxWidth: CGFloat, font: UIFont = Fixture.bodyFont) -> TextLayout {
+-        let attr = NSAttributedString(string: text, attributes: [.font: font])
++        // cmux: styled runs (an agent's Markdown, HomeMarkdown) break lines with the fonts they draw with, so a bold or code line fits its bubble; plain text keeps the measured rule.
++        let styled = font == Fixture.bodyFont && runs.contains { !($0.style ?? []).isEmpty }
++        let attr = styled ? TextLayout(text: text, runs: runs, lines: [], width: 0).attributed(color: .white, linkColor: .white, kern: 0)
++            : NSAttributedString(string: text, attributes: [.font: font])
+         let ts = CTTypesetterCreateWithAttributedString(attr)
+         let len = (text as NSString).length
+         var lines: [Line] = []
+@@ -56,6 +59,10 @@
+             if !traits.isEmpty, let d = Fixture.bodyFont.fontDescriptor.withSymbolicTraits(traits) {
+                 a.addAttribute(.font, value: UIFont(descriptor: d, size: Fixture.bodyFont.pointSize), range: range)
+             }
++            // cmux: inline code and code blocks (HomeMarkdown) in the monospaced system font, one point smaller like Messages' body.
++            if r.style?.contains("code") == true {
++                a.addAttribute(.font, value: UIFont.monospacedSystemFont(ofSize: Fixture.bodyFont.pointSize - 1, weight: .regular), range: range)
++            }
+             if r.link != nil {
+                 a.addAttributes([.foregroundColor: linkColor, .underlineStyle: NSUnderlineStyle.single.rawValue], range: range)
+             }
+@@ -578,7 +585,8 @@
                                          gap: 1, height: 14))
                  }
                  if case .failed = m.status {
@@ -10,7 +33,7 @@
                                          gap: 1, height: 14))
                  }
                  if !threadMode, let n = replyCount[m.id], n >= 2, m.replyTo == nil {
-@@ -635,7 +636,7 @@
+@@ -635,7 +643,7 @@
  enum Format {
      private static let timeFormatter: DateFormatter = {
          let f = DateFormatter()
@@ -19,7 +42,7 @@
          f.timeZone = Instant.zone
          f.dateFormat = "h:mm\u{202F}a"
          return f
-@@ -644,7 +645,7 @@
+@@ -644,7 +652,7 @@
      private static let calendar: Calendar = { var c = Calendar(identifier: .gregorian); c.timeZone = Instant.zone; return c }()
      private static func formatter(_ f: String) -> DateFormatter {
          let d = DateFormatter()
@@ -28,7 +51,7 @@
          d.timeZone = Instant.zone
          d.dateFormat = f
          return d
-@@ -663,45 +664,47 @@
+@@ -663,45 +671,47 @@
      static func duration(_ s: Double) -> String { String(format: "%d:%02d", Int(s) / 60, Int(s) % 60) }
  }
  

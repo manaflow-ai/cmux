@@ -18,8 +18,9 @@ enum HomeMapping {
 
     static func message(_ item: TranscriptItem, aliases: [IdempotencyKey: ID], me: ParticipantID,
                         summary: ConversationSummary?, media: Media = { _ in nil }) -> Message {
-        Message(id: id(item, aliases: aliases), senderId: item.author.rawValue, sentAt: Instant.format(item.createdAt),
-                parts: item.isRetracted ? [] : item.parts.map { part($0, media: media, progress: item.attachmentProgress) },
+        let markdown = isAgent(item.author, summary)
+        return Message(id: id(item, aliases: aliases), senderId: item.author.rawValue, sentAt: Instant.format(item.createdAt),
+                parts: item.isRetracted ? [] : item.parts.map { part($0, media: media, progress: item.attachmentProgress, markdown: markdown) },
                 replyTo: nil, status: status(item, me: me, summary: summary), edits: nil,
                 retractedAt: item.isRetracted ? Instant.format(item.editedAt ?? item.createdAt) : nil,
                 reactions: item.reactions.map(reaction))
@@ -45,8 +46,18 @@ enum HomeMapping {
         }
     }
 
-    static func part(_ p: MessagePart, media: Media = { _ in nil }, progress: [String: Double] = [:]) -> Part {
+    /// Agents write Markdown (the Chief's replies); people's text is shown as typed.
+    static func isAgent(_ author: ParticipantID, _ summary: ConversationSummary?) -> Bool {
+        summary?.participants.first { $0.id == author }?.kind == .agent
+    }
+
+    /// `markdown`: an agent's text part shows its Markdown styled (HomeMarkdown).
+    /// A part with mentions keeps its text as written (mention offsets index it).
+    static func part(_ p: MessagePart, media: Media = { _ in nil }, progress: [String: Double] = [:], markdown: Bool = false) -> Part {
         switch p {
+        case .text(let text, let mentions) where markdown && mentions.isEmpty:
+            let (shown, runs) = HomeMarkdown.render(text)
+            return .text(shown, runs: runs)
         case .text(let text, let mentions):
             return .text(text, runs: mentions.map {
                 TextRun(start: $0.start, length: $0.length, style: nil, link: nil, mention: $0.participant.rawValue, detected: nil)

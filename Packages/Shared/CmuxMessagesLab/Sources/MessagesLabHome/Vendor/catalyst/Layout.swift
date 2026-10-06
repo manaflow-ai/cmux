@@ -14,7 +14,10 @@ struct TextLayout: Hashable {
     var width: CGFloat
 
     static func make(_ text: String, runs: [TextRun], maxWidth: CGFloat, font: UIFont = Fixture.bodyFont) -> TextLayout {
-        let attr = NSAttributedString(string: text, attributes: [.font: font])
+        // cmux: styled runs (an agent's Markdown, HomeMarkdown) break lines with the fonts they draw with, so a bold or code line fits its bubble; plain text keeps the measured rule.
+        let styled = font == Fixture.bodyFont && runs.contains { !($0.style ?? []).isEmpty }
+        let attr = styled ? TextLayout(text: text, runs: runs, lines: [], width: 0).attributed(color: .white, linkColor: .white, kern: 0)
+            : NSAttributedString(string: text, attributes: [.font: font])
         let ts = CTTypesetterCreateWithAttributedString(attr)
         let len = (text as NSString).length
         var lines: [Line] = []
@@ -55,6 +58,10 @@ struct TextLayout: Hashable {
             if r.mention != nil { traits.insert(.traitBold) }
             if !traits.isEmpty, let d = Fixture.bodyFont.fontDescriptor.withSymbolicTraits(traits) {
                 a.addAttribute(.font, value: UIFont(descriptor: d, size: Fixture.bodyFont.pointSize), range: range)
+            }
+            // cmux: inline code and code blocks (HomeMarkdown) in the monospaced system font, one point smaller like Messages' body.
+            if r.style?.contains("code") == true {
+                a.addAttribute(.font, value: UIFont.monospacedSystemFont(ofSize: Fixture.bodyFont.pointSize - 1, weight: .regular), range: range)
             }
             if r.link != nil {
                 a.addAttributes([.foregroundColor: linkColor, .underlineStyle: NSUnderlineStyle.single.rawValue], range: range)
