@@ -148,6 +148,13 @@ one, and a re-run would join the group and cancel it. With one, a stuck run is
 cancelled and not re-run (so the newer run starts), and a refused one is left
 as it is; the newer run builds main's newer HEAD.
 
+A job stuck with no runner is not rescued while another job of its run is
+running on a persistent runner, whatever the workflow: the rescue cancels the
+whole run, which would move that job to Blacksmith too (#16463). The stuck
+job waits until that job ends, and if the watch ends first, it stays queued
+for the mini that frees up. A refused job, or one held in setup at the
+watch's end, is still acted on as described above, running siblings or not.
+
 A job's wait is measured from the later of its `created_at` and the first
 time the watcher saw it queued, so a job record created before its `needs`
 were met can never count as already past the budget.
@@ -545,8 +552,14 @@ def assess(jobs: Sequence[Mapping[str, Any]], *, now: dt.datetime, budget_second
     budgets = {id(job): job_budget(job, budget_seconds, deadline=deadline, floor_seconds=floor_seconds,
                                    first_seen=seen.get(job.get("id"))) for job in waiting}
     stuck = [job for job in waiting if queued_seconds(job, now, seen.get(job.get("id"))) >= budgets[id(job)]]
-    if stuck:
-        names = ", ".join(sorted(str(job.get("name") or job.get("id")) for job in stuck))
+    names = ", ".join(sorted(str(job.get("name") or job.get("id")) for job in stuck))
+    # Rescuing cancels the whole run, so a job already running on a persistent
+    # runner would die with the stuck one and move to Blacksmith too (#16463:
+    # a cmux-next swift test three minutes into its mini). The stuck job waits
+    # until the runner's job ends, even past the watch's end, when a mini that
+    # frees up takes it. A held or refused job is still judged below.
+    on_mini = [job for job in jobs if job_pool(job) and job.get("status") == "in_progress" and not in_setup(job)]
+    if stuck and not on_mini:
         return Look("rescue", f"{names} queued on {job_pool(stuck[0])} for at least "
                               f"{min(budgets[id(job)] for job in stuck)}s with no runner")
     settling = [job for job in jobs if job_pool(job) and in_setup(job)]
@@ -564,6 +577,9 @@ def assess(jobs: Sequence[Mapping[str, Any]], *, now: dt.datetime, budget_second
     if turned_away:
         names = ", ".join(sorted(str(job.get("name") or job.get("id")) for job in turned_away))
         return Look("refused", f"{names} refused by {job_pool(turned_away[0])} at job start or Xcode selection")
+    if stuck:
+        return Look("watch", f"{names} queued on {job_pool(stuck[0])} with no runner, but "
+                             f"{len(on_mini)} job(s) of the run are running on a persistent runner", waiting=True)
     if waiting or settling:
         return Look("watch", f"{len(waiting)} job(s) waiting for a persistent runner, {len(settling)} in its setup",
                     waiting=True)
@@ -659,14 +675,16 @@ class GitHub:
         return self.request("GET", f"/actions/runs/{run_id}")
 
     def owned_reruns(self, count: int) -> list[tuple[int, int]]:
-        """(run id, attempt) of unfinished CI re-runs whose owned jobs go back to the minis (owned_rerun()): a
-        re-run of failed jobs uploads no marker. GitHub lists a run as `queued` while a job of it waits for a
+        """(run id, attempt) of unfinished CI and cmux-next re-runs whose owned jobs go back to the minis
+        (owned_rerun()): a re-run of failed jobs uploads no marker. GitHub lists a run as `queued` while a job of it waits for a
         runner, so both statuses are read."""
         found: list[tuple[int, int]] = []
-        for status in ("queued", "in_progress"):
-            data = self.request("GET", f"/actions/workflows/ci.yml/runs?status={status}&per_page={count}")
-            found += [(int(run["id"]), int(run["run_attempt"])) for run in (data or {}).get("workflow_runs") or []
-                      if isinstance(run, Mapping) and run.get("id") and owned_rerun(run)]
+        for workflow in (CI_WORKFLOW_PATH, CMUX_NEXT_WORKFLOW_PATH):
+            name = workflow.rsplit("/", 1)[-1]
+            for status in ("queued", "in_progress"):
+                data = self.request("GET", f"/actions/workflows/{name}/runs?status={status}&per_page={count}")
+                found += [(int(run["id"]), int(run["run_attempt"])) for run in (data or {}).get("workflow_runs") or []
+                          if isinstance(run, Mapping) and run.get("id") and owned_rerun(run)]
         return found
 
     def jobs(self, run_id: int, attempt: int) -> list[Mapping[str, Any]]:

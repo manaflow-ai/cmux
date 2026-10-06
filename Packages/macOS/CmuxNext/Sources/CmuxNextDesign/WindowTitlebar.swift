@@ -87,11 +87,15 @@ public struct WindowTitlebar {
 public protocol TitlebarAccessoryHosting: AnyObject {
     /// The accessory's frame in window coordinates, nil when none shows.
     var titlebarAccessoryFrame: CGRect? { get }
+    /// The sidebar is fully hidden. The strip stays anchored while the corner reveal shows the
+    /// traffic lights, so a pointer hover cannot move its tabs.
+    var sidebarHidden: Bool { get }
     /// The traffic lights and the accessory are collapsed (sidebar hidden, pointer away from the
     /// top-left corner): strips under them keep no room.
     var windowControlsCollapsed: Bool { get }
 }
 
 extension TitlebarAccessoryHosting {
+    public var sidebarHidden: Bool { false }
     public var windowControlsCollapsed: Bool { false }
 }
