@@ -67,9 +67,24 @@ rules neither reference enforces together:
    for it. Composer text (Gmail, LinkedIn, X) is read whole in the agent's
    isolated world, whitespace collapsed, Gmail's own signature and quoted
    text left out, so a composer that keeps the drafted opening and holds
-   more fails. The remaining window is between the read-back and the
-   click (Gmail, Calendar, LinkedIn, X, the Google editors), which no site
-   API closes: none binds a click to an account. Slack's
+   more fails. Every read-back runs in the agent's isolated world
+   (`t.readBack`, or locators), never with `page.evaluate`, whose result
+   is whatever the page's own `JSON.stringify`, `toJSON` or getters make
+   of it, and the loader copies it once as plain data (strings, finite
+   numbers, booleans, null, arrays and plain objects of them, data
+   properties only) with built-ins captured when it loads: a bound field
+   that is anything else counts as unread (`*_unverified`). A write that
+   is a click (Gmail's Send, Calendar's Save, LinkedIn's and X's Post,
+   Docs' and Slides' Replace all) presses only the element the commit
+   pinned before its read-back: when the element can take the click and
+   the pointer is on it, every field is read back and compared again, and
+   the press is sent bound to that element (the driver's press check); a
+   pinned element that left the document fails with `target_mismatch`, a
+   change fails as at the first read-back, and nothing is pressed. The
+   remaining window is between that second read-back and the press, which
+   no site API closes: none binds a click to an account. Keyboard
+   and menu writes (Sheets' paste and Delete, Slides' notes, Drive's trash) are
+   checked once, before their first input. Slack's
    `chat.postMessage` checks the member again in the same page call
    (`account_changed`); Notion reads and writes with
    `x-notion-active-user-header` set to the drafted user, so Notion runs

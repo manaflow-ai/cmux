@@ -187,11 +187,12 @@
                       } catch (e) {}
                       return { ...(now ? { account: now } : {}), ...(answers !== undefined ? { replyTo: answers } : {}), ...((await box.count()) ? { text: await t.composerText(box) } : {}) };
                     },
-                    async () => {
-                      await button.first().click();
+                    async (press) => {
+                      await press();
                       await t.waitIn(page, () => !document.querySelector('[data-testid="tweetButton"]') || /Your post was sent|Your reply was sent/.test(document.body.innerText), undefined, { signIn: SIGN_IN, name: "x", timeout: 30000, what: "X to publish the post" });
                       return { status: "posted", replyTo };
                     },
+                    { submit: button.first() },
                   );
                 }),
             };

@@ -229,13 +229,14 @@
               content: s.content || {},
               sent: s.sent,
               canon: s.canon,
-              commit: (c) => editors.inEditor(name, ref, (p) => c.write(async () => ({ ...(await editors.observe(name, ref, p)), ...(await s.observe(p)) }), () => s.act(p))),
+              commit: (c) => editors.inEditor(name, ref, (p) => c.write(async () => ({ ...(await editors.observe(name, ref, p)), ...(await s.observe(p)) }), (press) => s.act(p, press))),
             };
           }),
         );
       },
-      // Find and replace (Meta+Shift+H) in Docs or Slides: replaces every match.
-      async findReplace(page, find, replacement) {
+      // Find and replace (Meta+Shift+H) in Docs or Slides: replaces every
+      // match. `press`: a commit's press (Replace all is the write).
+      async findReplace(page, find, replacement, press) {
         await page.keyboard.press("Meta+Shift+H");
         const dialog = page.locator('[role="dialog"]').filter({ hasText: "Replace all" }).first();
         // In Slides the shortcut does nothing while the filmstrip has focus: use Edit > Find and replace.
@@ -248,7 +249,9 @@
         const inputs = dialog.locator('input[type="text"], input:not([type])');
         await inputs.nth(0).fill(find);
         await inputs.nth(1).fill(replacement);
-        await dialog.getByRole("button", { name: "Replace all" }).click();
+        const replaceAll = dialog.getByRole("button", { name: "Replace all" });
+        if (press) await press(replaceAll);
+        else await replaceAll.click();
         await t.sleep(500);
         await page.keyboard.press("Escape").catch(() => {});
       },

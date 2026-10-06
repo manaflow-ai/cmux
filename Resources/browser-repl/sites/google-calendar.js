@@ -313,8 +313,8 @@
                   // form holds, read right before Save.
                   return c.write(
                     async () => ({ ...(await g.observeAccount(t, "googleCalendar.create", page, uid)), ...(await observeForm(page, c.intent, who.email)) }),
-                    async () => {
-                      await save.first().click();
+                    async (press) => {
+                      await press();
                       if (guests.length) {
                         const send = page.getByRole("button", { name: /^Send$/ });
                         await send.first().waitFor({ timeout: 8000 }).then(() => send.first().click(), () => {});
@@ -322,6 +322,7 @@
                       await t.waitIn(page, () => !/\/eventedit/.test(location.pathname) || /Event saved|Saved/.test(document.body.innerText), undefined, { signIn: SIGN_IN, name: "googleCalendar", timeout: 20000, what: "Calendar to save the event" });
                       return { status: "saved", title: String(e.title), start: start.toISOString(), end: end.toISOString() };
                     },
+                    { submit: save.first() },
                   );
                 }),
             };

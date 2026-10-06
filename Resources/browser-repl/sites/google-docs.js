@@ -65,8 +65,8 @@
               content: { find, replace: replacement, ...drafted },
               sent: ["find", "replace"],
               observe: read,
-              act: async (page) => {
-                await ed.findReplace(page, find, replacement);
+              act: async (page, press) => {
+                await ed.findReplace(page, find, replacement, press);
                 const verified = drafted.matches === 0 || (await ed.verify(async () => { const after = await plain(r); return replacement.includes(find) ? count(after, replacement) >= drafted.matches : count(after, find) === 0; }));
                 return { status: "replaced", count: drafted.matches, verified };
               },
@@ -98,8 +98,8 @@
               content: { anchor, text, ...drafted },
               sent: ["anchor", "text"],
               observe: read,
-              act: async (page) => {
-                await ed.findReplace(page, anchor, anchor + text);
+              act: async (page, press) => {
+                await ed.findReplace(page, anchor, anchor + text, press);
                 const verified = await ed.verify(async () => (await plain(r)).includes(anchor + text));
                 return { status: "inserted", verified };
               },

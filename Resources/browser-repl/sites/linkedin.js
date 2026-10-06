@@ -159,11 +159,12 @@
                       const now = r && r.status >= 200 && r.status < 300 && r.json ? viewer(r.json) : null;
                       return { ...(now && now.publicIdentifier ? { account: now.publicIdentifier } : {}), ...(now && now.id ? { memberId: now.id } : {}), text: await t.composerText(box) };
                     },
-                    async () => {
-                      await page.locator('div[role="dialog"] button.share-actions__primary-action, div[role="dialog"] button:has-text("Post")').first().click();
+                    async (press) => {
+                      await press();
                       await t.waitIn(page, () => !document.querySelector('div[role="dialog"] div[role="textbox"]'), undefined, { signIn: SIGN_IN, name: "linkedin", timeout: 30000, what: "LinkedIn to publish the post" });
                       return { status: "posted" };
                     },
+                    { submit: page.locator('div[role="dialog"] button.share-actions__primary-action, div[role="dialog"] button:has-text("Post")').first() },
                   );
                 }),
             };

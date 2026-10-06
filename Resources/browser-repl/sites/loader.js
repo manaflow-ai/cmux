@@ -409,11 +409,49 @@
   // that same intent, after checking the text still matches.
   //
   // The commit protocol: commit(c) prepares the write (opens the page,
-  // fills the composer) and then calls c.write(observe, act) once.
-  // observe() reads every bound field back from the site; the loader
-  // compares it with the intent (checkIntent) and calls act(), the write
-  // itself, only when all of it matches. A commit that returns without
-  // calling c.write fails (commit_unverified).
+  // fills the composer) and then calls c.write(observe, act, options)
+  // once. observe() reads every bound field back from the site; the loader
+  // compares it with the intent (checkIntent) and calls act(press), the
+  // write itself, only when all of it matches. A commit that returns
+  // without calling c.write fails (commit_unverified).
+  //
+  // A write that is a click (Send, Post, Save, Replace all) presses
+  // through press(), so the click lands on what the read-back verified:
+  // { submit: locator } pins that element before observe(), and
+  // press() presses exactly it (press(locator) pins one then, for a
+  // control the act opens). press() waits until the element can take the
+  // click and the pointer is on it, runs observe() and checkIntent again,
+  // and sends the press bound to that element (the driver's press check):
+  // a pinned element that left the document fails target_mismatch, a
+  // change found by the second read-back fails as the first would, and
+  // either way nothing is pressed. A commit with { submit } whose act
+  // returns without press() fails (commit_unverified).
+  const PRESS_TIMEOUT_MS = 15000;
+  async function pinElement(where, locator) {
+    if (!locator || typeof locator.elementHandle !== "function") throw new SiteError("invalid", `${where}: the control to press is not a locator (a site tool bug)`);
+    return locator.elementHandle({ timeout: PRESS_TIMEOUT_MS });
+  }
+  async function pressPinned(where, el, recheck) {
+    const frame = el._pinnedFrame;
+    const handle = el._handle;
+    const changed = () => new SiteError("target_mismatch", `${where}: the control the read-back verified was replaced or removed before the click; nothing was sent. Make a new draft and show it to the user again`);
+    // The pinned element only: no lookup finds another element in its place.
+    const bound = Object.create(el);
+    bound._resolveOne = async () => {
+      if (!(await frame._agent("rect", handle).catch(() => null))) throw changed();
+      return { frame, handle };
+    };
+    bound._resolveAll = async () => {
+      const r = await bound._resolveOne();
+      return { frame: r.frame, handles: [r.handle] };
+    };
+    await bound._pointer({ timeout: PRESS_TIMEOUT_MS }, `${where} (press)`, ["visible", "enabled", "stable"], async (target) => {
+      if (target.frame !== frame || target.handle !== handle) throw changed();
+      await recheck();
+      await el._page._clickAt(target, {}, `${where} (press)`);
+    });
+  }
+
   function createDrafts(host, writesOf) {
     const drafts = new Map();
     let n = 0;
@@ -469,12 +507,23 @@
         let wrote = false;
         const c = Object.freeze({
           intent: entry.preview,
-          async write(observe, act) {
+          async write(observe, act, options = {}) {
             if (wrote) throw new SiteError("commit_reused", `${where}: a draft writes once (a site tool bug)`);
             wrote = true;
-            const observed = await observe();
-            entry.checked = checkIntent(where, entry, observed);
-            return act();
+            const submit = options && options.submit ? await pinElement(where, options.submit) : null;
+            const check = async () => checkIntent(where, entry, await observe());
+            entry.checked = await check();
+            let pressed = false;
+            const press = async (locator) => {
+              if (pressed) throw new SiteError("commit_reused", `${where}: a write presses once (a site tool bug)`);
+              pressed = true;
+              const el = locator ? await pinElement(where, locator) : submit;
+              if (!el) throw new SiteError("invalid", `${where}: press() needs the control to press (a site tool bug)`);
+              await pressPinned(where, el, check);
+            };
+            const result = await act(press);
+            if (submit && !pressed) throw new SiteError("commit_unverified", `${where}: the tool wrote without pressing the control its read-back verified (a site tool bug); treat the result as unverified`);
+            return result;
           },
         });
         try {

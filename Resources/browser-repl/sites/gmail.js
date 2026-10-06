@@ -261,7 +261,7 @@
             const box = await openReply(page, msg.replyAll);
             await box.click();
             await page.keyboard.insertText(msg.body);
-            return c.write(() => observeCompose(page, box, msg), () => clickSend(page, msg));
+            return c.write(() => observeCompose(page, box, msg), (press) => clickSend(page, msg, press), { submit: sendButton(page) });
           });
         }
         const q = new URLSearchParams({ view: "cm", fs: "1", tf: "1" });
@@ -272,12 +272,15 @@
           t.assertSignedIn("gmail.send", page, SIGN_IN);
           const box = page.locator('div[role="textbox"][aria-label="Message Body"], div[role="textbox"][g_editable="true"]').first();
           await box.waitFor({ timeout: 30000 });
-          return c.write(() => observeCompose(page, box, msg), () => clickSend(page, msg));
+          return c.write(() => observeCompose(page, box, msg), (press) => clickSend(page, msg, press), { submit: sendButton(page) });
         });
       }
 
-      async function clickSend(page, msg) {
-        await page.locator('div[role="button"][data-tooltip^="Send"], div[role="button"][aria-label^="Send"]').last().click();
+      const sendButton = (page) => page.locator('div[role="button"][data-tooltip^="Send"], div[role="button"][aria-label^="Send"]').last();
+      // Send, pressed through the commit (press: the Send button pinned
+      // before the read-back).
+      async function clickSend(page, msg, press) {
+        await press();
         await t.waitIn(page, () => /Message sent/.test(document.body.innerText), undefined, { signIn: SIGN_IN, name: "gmail", timeout: 30000, what: "Gmail to confirm the message was sent" });
         // Gmail holds a sent message for its undo window in this page; keep
         // the tab until the Undo action is gone.

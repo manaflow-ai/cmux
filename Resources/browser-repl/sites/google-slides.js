@@ -121,8 +121,8 @@
               content: { find, replace: replacement, ...drafted },
               sent: ["find", "replace"],
               observe: read,
-              act: async (page) => {
-                await ed.findReplace(page, find, replacement);
+              act: async (page, press) => {
+                await ed.findReplace(page, find, replacement, press);
                 const verified = drafted.matches === 0 || replacement.includes(find) || (await ed.verify(async () => occurrences(await ed.deck("googleSlides.replace", r)) === 0));
                 return { status: "replaced", count: drafted.matches, verified };
               },
