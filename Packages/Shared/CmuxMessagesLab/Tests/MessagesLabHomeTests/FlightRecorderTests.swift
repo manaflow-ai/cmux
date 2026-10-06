@@ -33,6 +33,19 @@ import Testing
         #expect(HomeFlightRecorder.saveLastSeconds() == nil)
     }
 
+    /// A conversation shorter than the pane leaves the space above its first
+    /// row empty: that is no transcript gap (the first send in a new Chief
+    /// conversation dumped "gap 80-881 pt" with 30 window captures).
+    @Test func aShortConversationHasNoTranscriptGap() {
+        reset()
+        let (window, _, c) = pane()
+        defer { window.close() }
+        c.host.layoutSubtreeIfNeeded()
+        c.demo.layoutSubtreeIfNeeded()
+        #expect(!c.demo.collection.visibleCells.isEmpty)
+        #expect(HomeFlightRecorder.coverageGaps(c.demo).isEmpty, "\(HomeFlightRecorder.coverageGaps(c.demo))")
+    }
+
     @Test func saveLastSecondsWritesTheRingUnderTheAppsLogFolder() throws {
         reset()
         let folder = "cmux-flight-test-\(UUID().uuidString.prefix(8))"
