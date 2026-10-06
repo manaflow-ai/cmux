@@ -160,6 +160,30 @@ fn a_cancelled_shell_fetch_closes_its_shell_at_once() {
     });
 }
 
+/// A tab-less fetch without a total limit (`timeoutMs` 0, the gate's
+/// default) still ends when its shell makes no progress for the idle limit:
+/// a shell navigation that Chromium never answers fails the fetch with
+/// `timeout` instead of holding the call forever.
+#[test]
+fn a_shell_that_never_loads_fails_after_the_idle_limit() {
+    let h: &'static Harness = Box::leak(Box::new(Harness::with_browser(Browser {
+        stall_shell_navigation: true,
+        ..Browser::default()
+    })));
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(h.driver.call(
+            "net.fetch",
+            &json!({"url": "https://a.test/data", "fetchId": "f1", "timeoutMs": 0, "idleTimeoutMs": 300}),
+        ));
+    });
+    let result = rx
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .expect("the fetch is still waiting for its shell after 5 s (idle limit 300 ms)");
+    let error = result.expect_err("a shell that never loads fails the fetch");
+    assert_eq!(error.code, ErrorCode::Timeout, "{error}");
+}
+
 /// Classic main: a cancelled in-tab fetch is aborted in the host world.
 #[test]
 fn a_cancelled_tab_fetch_is_aborted_at_once() {
