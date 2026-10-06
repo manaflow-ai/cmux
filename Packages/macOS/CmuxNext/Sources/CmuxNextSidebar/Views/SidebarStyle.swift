@@ -31,7 +31,7 @@ enum SidebarStyle {
     static var dragThreshold: CGFloat { Metrics.space2 }
     static var overscan: CGFloat { Metrics.sidebarRowHeightWithSubtitle * 10 }
 
-    static var titleFont: NSFont { Typography.body }
+    static var titleFont: NSFont { Typography.bodyEmphasized }
     /// Length of the fade that ends a clipped row title (no ellipsis).
     static var titleFadeWidth: CGFloat { Metrics.space6 }
     static var titleUnreadFont: NSFont { Typography.bodyEmphasized }
