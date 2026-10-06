@@ -51,6 +51,23 @@ import Testing
         #expect(value["newTab"] == nil)
     }
 
+    /// A new workspace's first tab can be shown before the store's reply names
+    /// it a new tab page: the chat it was made as becomes the page.
+    @Test func aChatWithoutASessionBecomesTheNewTabPage() async throws {
+        let model = AgentPaneModel(host: MockAgentPaneHost())
+        model.becomeNewTab(page)
+        #expect(model.newTab == page)
+        let reply = await model.respond(to: .ready)
+        let value = try #require(reply["value"] as? [String: Any])
+        #expect(value["newTab"] != nil)
+    }
+
+    @Test func aChatWithASessionStaysAChat() async {
+        let model = AgentPaneModel(host: MockAgentPaneHost(), sessionId: "s-1")
+        model.becomeNewTab(page)
+        #expect(model.newTab == nil)
+    }
+
     /// Once the page became a chat, a reload shows the chat, not the page.
     @Test func theChatsFirstSessionRetiresThePage() async throws {
         let model = AgentPaneModel(host: MockAgentPaneHost(), newTab: page)
