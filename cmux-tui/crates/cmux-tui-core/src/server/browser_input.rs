@@ -4,6 +4,15 @@
 use super::*;
 
 pub(super) fn handle(mux: &Mux, client: u64, cmd: Command) -> anyhow::Result<Value> {
+    let result = dispatch(mux, client, cmd);
+    if result.is_ok() {
+        // A person's browser input is user activity for the Cloud VM idle pause.
+        activity::note_person_input(mux, client);
+    }
+    result
+}
+
+fn dispatch(mux: &Mux, client: u64, cmd: Command) -> anyhow::Result<Value> {
     match cmd {
         Command::BrowserMouse { surface, kind, x_px, y_px, button, click_count, frame_seq } => {
             handle_browser_mouse_command(

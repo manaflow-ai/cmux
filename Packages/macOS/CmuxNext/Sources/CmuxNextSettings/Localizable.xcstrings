@@ -47685,137 +47685,6 @@
         }
       }
     },
-    "settings.choice.updatesCard": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show a Card"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Show a Card"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Show a Card"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Show a Card"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Show a Card"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Show a Card"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Show a Card"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Show a Card"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "カードを表示"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Show a Card"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Show a Card"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Show a Card"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Show a Card"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Show a Card"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Show a Card"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Show a Card"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Show a Card"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Show a Card"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Show a Card"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Show a Card"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Show a Card"
-          }
-        }
-      }
-    },
     "settings.choice.updatesBadge": {
       "extractionState": "manual",
       "localizations": {
@@ -48074,268 +47943,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Install Silently on Quit"
-          }
-        }
-      }
-    },
-    "settings.updates.quietHours": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Quiet Hours"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Quiet Hours"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Quiet Hours"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Quiet Hours"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Quiet Hours"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Quiet Hours"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Quiet Hours"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Quiet Hours"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "静音時間"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Quiet Hours"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Quiet Hours"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Quiet Hours"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Quiet Hours"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Quiet Hours"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Quiet Hours"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Quiet Hours"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Quiet Hours"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Quiet Hours"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Quiet Hours"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Quiet Hours"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Quiet Hours"
-          }
-        }
-      }
-    },
-    "settings.updates.quietHours.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No update card between these times."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "No update card between these times."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "No update card between these times."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "No update card between these times."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "No update card between these times."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "No update card between these times."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "No update card between these times."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "No update card between these times."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "この時間帯はアップデートのカードを表示しません。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "No update card between these times."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "No update card between these times."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "No update card between these times."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "No update card between these times."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "No update card between these times."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "No update card between these times."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "No update card between these times."
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "No update card between these times."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "No update card between these times."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "No update card between these times."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "No update card between these times."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "No update card between these times."
           }
         }
       }
@@ -48739,127 +48346,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "While downloads wait, a found update shows as a card and one click downloads it."
+            "value": "While downloads wait, a found update shows on Settings and one click downloads it."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "While downloads wait, a found update shows as a card and one click downloads it."
+            "value": "While downloads wait, a found update shows on Settings and one click downloads it."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "While downloads wait, a found update shows as a card and one click downloads it."
+            "value": "While downloads wait, a found update shows on Settings and one click downloads it."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "While downloads wait, a found update shows as a card and one click downloads it."
+            "value": "While downloads wait, a found update shows on Settings and one click downloads it."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "While downloads wait, a found update shows as a card and one click downloads it."
+            "value": "While downloads wait, a found update shows on Settings and one click downloads it."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "While downloads wait, a found update shows as a card and one click downloads it."
+            "value": "While downloads wait, a found update shows on Settings and one click downloads it."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "While downloads wait, a found update shows as a card and one click downloads it."
+            "value": "While downloads wait, a found update shows on Settings and one click downloads it."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "While downloads wait, a found update shows as a card and one click downloads it."
+            "value": "While downloads wait, a found update shows on Settings and one click downloads it."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ダウンロードを待つ間、見つかったアップデートはカードで表示され、1回のクリックでダウンロードします。"
+            "value": "ダウンロードを待つ間、見つかったアップデートは設定に表示され、1回のクリックでダウンロードします。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "While downloads wait, a found update shows as a card and one click downloads it."
+            "value": "While downloads wait, a found update shows on Settings and one click downloads it."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "While downloads wait, a found update shows as a card and one click downloads it."
+            "value": "While downloads wait, a found update shows on Settings and one click downloads it."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "While downloads wait, a found update shows as a card and one click downloads it."
+            "value": "While downloads wait, a found update shows on Settings and one click downloads it."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "While downloads wait, a found update shows as a card and one click downloads it."
+            "value": "While downloads wait, a found update shows on Settings and one click downloads it."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "While downloads wait, a found update shows as a card and one click downloads it."
+            "value": "While downloads wait, a found update shows on Settings and one click downloads it."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "While downloads wait, a found update shows as a card and one click downloads it."
+            "value": "While downloads wait, a found update shows on Settings and one click downloads it."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "While downloads wait, a found update shows as a card and one click downloads it."
+            "value": "While downloads wait, a found update shows on Settings and one click downloads it."
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "While downloads wait, a found update shows as a card and one click downloads it."
+            "value": "While downloads wait, a found update shows on Settings and one click downloads it."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "While downloads wait, a found update shows as a card and one click downloads it."
+            "value": "While downloads wait, a found update shows on Settings and one click downloads it."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "While downloads wait, a found update shows as a card and one click downloads it."
+            "value": "While downloads wait, a found update shows on Settings and one click downloads it."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "While downloads wait, a found update shows as a card and one click downloads it."
+            "value": "While downloads wait, a found update shows on Settings and one click downloads it."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "While downloads wait, a found update shows as a card and one click downloads it."
+            "value": "While downloads wait, a found update shows on Settings and one click downloads it."
           }
         }
       }
@@ -57903,18 +57510,6 @@
         }
       }
     },
-    "settings.appearance.uiScale": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Interface Scale"
-          }
-        }
-      }
-    },
-
     "settings.appearance.uiScale": {
       "extractionState": "manual",
       "localizations": {

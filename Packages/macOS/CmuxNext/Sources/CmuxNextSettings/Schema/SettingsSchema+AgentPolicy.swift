@@ -132,7 +132,6 @@ extension SettingsSchema {
         "notifications.attention.showOnSidebar",
         "labs.previewFeatures",
         "updates.notify",
-        "updates.quietHours",
         "announcements.enabled",
     ]
 

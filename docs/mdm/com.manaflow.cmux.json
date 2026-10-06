@@ -1510,7 +1510,7 @@
     },
     "updates.meteredNetwork" : {
       "default" : "defer-low-data",
-      "description" : "While downloads wait, a found update shows as a card and one click downloads it.",
+      "description" : "While downloads wait, a found update shows on Settings and one click downloads it.",
       "enum" : [
         "defer-low-data",
         "defer-expensive",
@@ -1520,30 +1520,14 @@
       "type" : "string"
     },
     "updates.notify" : {
-      "default" : "card",
+      "default" : "badge",
       "description" : "updates.notify",
       "enum" : [
-        "card",
         "badge",
         "silent"
       ],
       "title" : "When an Update Is Ready",
       "type" : "string"
-    },
-    "updates.quietHours" : {
-      "description" : "No update card between these times.",
-      "properties" : {
-        "end" : {
-          "title" : "end",
-          "type" : "string"
-        },
-        "start" : {
-          "title" : "start",
-          "type" : "string"
-        }
-      },
-      "title" : "Quiet Hours",
-      "type" : "object"
     },
     "window.titlebar" : {
       "default" : "minimal",

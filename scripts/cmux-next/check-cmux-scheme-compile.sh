@@ -17,6 +17,11 @@
 #   dropped and the build retried once, as the fleet's dev builds do.
 set -euo pipefail
 
+# xcodebuild compiles the app: fleet or GitHub runner only.
+# shellcheck source-path=SCRIPTDIR source=lib/fleet-only.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/fleet-only.sh"
+cmux_next_require_fleet check-cmux-scheme-compile.sh "xcodebuild" "cmux app scheme compile (Debug)"
+
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 derived_data="${1:-/tmp/cmux-scheme-compile}"
 
