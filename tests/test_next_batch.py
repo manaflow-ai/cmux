@@ -115,6 +115,40 @@ class Debounce(unittest.TestCase):
         self.assertEqual(nb.first_trigger_since_dispatch([], NOW), NOW)
 
 
+class ServeDebounce(unittest.TestCase):
+    """The big-red serve loop: quiet after the eligible set changes, capped."""
+
+    def at(self, seconds: int) -> dt.datetime:
+        return NOW + dt.timedelta(seconds=seconds)
+
+    def test_runs_after_quiet_and_not_again_for_the_same_set(self):
+        debouncer = nb.Debouncer()
+        heads = ((1, "a"), (2, "b"))
+        self.assertFalse(debouncer.observe(heads, self.at(0)))
+        self.assertFalse(debouncer.observe(heads, self.at(60)))
+        self.assertTrue(debouncer.observe(heads, self.at(120)))
+        debouncer.ran(heads)
+        self.assertFalse(debouncer.observe(heads, self.at(600)))
+
+    def test_constant_pushes_still_run_at_the_hard_max(self):
+        debouncer = nb.Debouncer()
+        fired = [seconds for seconds in range(0, 900, 60)
+                 if debouncer.observe(((1, f"sha{seconds}"),), self.at(seconds))]
+        self.assertEqual(fired[0], 600)
+
+    def test_nothing_eligible_never_runs(self):
+        debouncer = nb.Debouncer()
+        self.assertFalse(debouncer.observe((), self.at(0)))
+        self.assertFalse(debouncer.observe((), self.at(3600)))
+
+    def test_a_new_push_after_a_batch_starts_a_new_wait(self):
+        debouncer = nb.Debouncer()
+        debouncer.observe(((1, "a"),), self.at(0))
+        debouncer.ran(((1, "a"),))
+        self.assertFalse(debouncer.observe(((1, "b"),), self.at(1000)))
+        self.assertTrue(debouncer.observe(((1, "b"),), self.at(1120)))
+
+
 class JsonMerge(unittest.TestCase):
     def test_different_keys_merge(self):
         base = {"commands": {"a": 1}}
@@ -255,6 +289,136 @@ class Bisect(unittest.TestCase):
                 self.assertLessEqual(len(controller.probes), 3)  # log2(8)
 
 
+class RemoteRegeneration(unittest.TestCase):
+    """Generators run the stack's code, so they run in a dispatched job and
+    send back a patch; the controller never runs them on its own host."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+                    "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
+        self.git("init", "-q", "-b", "base")
+        (self.root / "pane.js").write_text("v0\n")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "stack")
+        self.head = self.git("rev-parse", "HEAD")
+        (self.root / "pane.js").write_text("v1\n")
+        self.git("commit", "-q", "-am", "next-batch: regenerate web bundles")
+        self.patch = subprocess.run(["git", "format-patch", "-1", "--binary", "--stdout"], cwd=self.root,
+                                    env=self.env, check=True, capture_output=True).stdout
+        self.git("reset", "-q", "--hard", self.head)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def git(self, *args: str) -> str:
+        return subprocess.run(["git", *args], cwd=self.root, env=self.env, check=True,
+                              capture_output=True, text=True).stdout.strip()
+
+    def controller(self, results: dict[str, dict]) -> tuple[nb.Controller, list]:
+        controller = nb.Controller.__new__(nb.Controller)
+        controller.worktree = self.root
+        calls = []
+
+        def mini(mode, branch, sha, extra):
+            calls.append((mode, sha, extra.get("kinds")))
+            return {}, results[mode]
+
+        controller.mini = mini
+        controller.git = lambda *args, cwd=None: subprocess.run(
+            ["git", *args], cwd=cwd or self.root, env=self.env, check=True, capture_output=True, text=True,
+        ).stdout.strip() if args[0] != "push" else calls.append(("push", args[-1], None))
+        return controller, calls
+
+    def test_web_and_sdk_on_linux_then_swift_on_a_mini_each_applied_as_a_patch(self):
+        controller, calls = self.controller({"regen-linux": {"ok": True, "patch": self.patch},
+                                             "regen": {"ok": True}})
+        stack = nb.Stack(base="b", head=self.head, regen={"web", "sdk", "swift"})
+        with mock.patch.dict(os.environ, self.env):
+            self.assertTrue(controller.regenerate_remote(stack, "next-batch/x-1"))
+        self.assertEqual([call[0] for call in calls], ["regen-linux", "push", "regen"])
+        self.assertEqual(calls[0][2], "sdk web")
+        self.assertNotEqual(stack.head, self.head)
+        self.assertEqual((self.root / "pane.js").read_text(), "v1\n")
+        self.assertEqual(calls[2][1], stack.head)  # swift runs on the regenerated head
+
+    def test_a_failed_generator_is_the_stack_error(self):
+        controller, _ = self.controller({"regen": {"ok": False, "error": "swift test failed"}})
+        stack = nb.Stack(base="b", head=self.head, regen={"swift"})
+        self.assertFalse(controller.regenerate_remote(stack, "next-batch/x-1"))
+        self.assertIn("swift test failed", stack.error)
+
+    def test_validate_never_runs_a_generator_locally(self):
+        controller = nb.Controller.__new__(nb.Controller)
+        controller.validations, controller.base_sha, controller.worktree = [], "", self.root
+        controller.fetch = lambda prs: self.head
+        seen = {}
+
+        def build_stack(worktree, base_sha, prs, regen=True):
+            seen["regen"] = regen
+            return nb.Stack(base=base_sha)
+
+        with mock.patch.object(nb, "build_stack", build_stack):
+            controller.validate([pr(1)], "batch")
+        self.assertIs(seen["regen"], False)
+
+
+class LocalController(unittest.TestCase):
+    """`serve` on a workstation: the operator's gh login, cmux-ci for the build."""
+
+    def controller(self) -> nb.Controller:
+        with mock.patch.dict(os.environ, {"GH_TOKEN": "t", "CMUX_NEXT_BATCH_STICKY": "o/hq#5"}):
+            return nb.Controller(Namespace(repo="o/r", worktree="/tmp/x", ref="feat-cmux-next", local=True,
+                                           dry_run=False, no_land=False, prs="", keep_branches=False))
+
+    def test_links_the_sticky_issue_and_names_the_batch_by_time(self):
+        controller = self.controller()
+        self.assertEqual(controller.run_url, "https://github.com/o/hq/issues/5")
+        self.assertTrue(controller.batch_id.startswith("local-"))
+
+    def test_fleet_build_goes_through_cmux_ci_on_this_host(self):
+        controller = self.controller()
+        commands = []
+
+        def fake_run(command, **_):
+            commands.append(command)
+            if command[1] == "build":
+                Path(command[command.index("--receipt") + 1]).write_text('{"id": "job-9"}')
+            if command[1] == "publish-hq":
+                return subprocess.CompletedProcess(command, 0, '{"url": "https://hq.test/b/9"}\n', "")
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        with mock.patch.object(nb.subprocess, "run", fake_run):
+            result = controller.fleet_build("next-batch/x-1", "c" * 40, "nb-x-1")
+        build = commands[0]
+        self.assertEqual(build[:3], ["cmux-ci", "build", "cmux"])
+        self.assertIn("--production", build)
+        self.assertEqual(build[build.index("--ref") + 1], "c" * 40)
+        self.assertEqual([command[1] for command in commands], ["build", "wait", "publish-hq"])
+        self.assertTrue(result["ok"])
+        self.assertIn("https://hq.test/b/9", result["link"])
+
+    def test_failed_fleet_job_is_not_ok(self):
+        controller = self.controller()
+
+        def fake_run(command, **_):
+            if command[1] == "build":
+                Path(command[command.index("--receipt") + 1]).write_text('{"id": "job-9"}')
+            return subprocess.CompletedProcess(command, 1 if command[1] == "wait" else 0, "", "")
+
+        with mock.patch.object(nb.subprocess, "run", fake_run):
+            result = controller.fleet_build("next-batch/x-1", "c" * 40, "nb-x-1")
+        self.assertFalse(result["ok"])
+        self.assertIn("job-9", result["error"])
+
+    def test_user_token_merges_start_ci_so_nothing_is_redispatched(self):
+        controller = self.controller()
+        controller.gh = mock.Mock()
+        controller.after_landing()
+        controller.gh.dispatch.assert_not_called()
+
+
 class StickyBody(unittest.TestCase):
     def test_newest_on_top_and_history_bounded(self):
         body = ""
@@ -325,7 +489,7 @@ class WorkflowShape(unittest.TestCase):
         self.assertFalse(checkout["with"]["persist-credentials"])
 
     def test_mini_jobs_only_touch_next_batch_branches(self):
-        for job in ("regen", "build"):
+        for job in ("regen", "regen-linux", "build"):
             with self.subTest(job=job):
                 self.assertIn("startsWith(inputs.branch, 'next-batch/')", self.jobs[job]["if"])
 
@@ -335,6 +499,18 @@ class WorkflowShape(unittest.TestCase):
             self.assertIn(name, inputs)
         self.assertIn("next-batch-regen", WORKFLOW.read_text())
         self.assertIn("next-batch-build", WORKFLOW.read_text())
+        self.assertIn("kinds", inputs)
+
+    def test_regeneration_jobs_return_a_patch_and_never_push(self):
+        for job in ("regen", "regen-linux"):
+            with self.subTest(job=job):
+                spec = self.jobs[job]
+                self.assertEqual(spec.get("permissions"), {"contents": "read"})
+                script = "\n".join(step.get("run", "") for step in spec["steps"])
+                self.assertNotIn("git push", script)
+                self.assertNotIn("git -c", script.replace("git -c user.", ""))
+                self.assertIn("format-patch", script)
+                self.assertFalse(any("secrets." in json.dumps(step) for step in spec["steps"]))
 
 
 if __name__ == "__main__":
