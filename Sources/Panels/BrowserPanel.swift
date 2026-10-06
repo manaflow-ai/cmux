@@ -2623,6 +2623,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private(set) var remoteProxyEndpoint: BrowserProxyEndpoint?
     @Published private(set) var remoteWorkspaceStatus: BrowserRemoteWorkspaceStatus?
     private(set) var usesRemoteWorkspaceProxy: Bool
+    private var allowsLocalNavigationWithoutRemoteProxy: Bool
     private struct PendingRemoteNavigation {
         let request: URLRequest
         let recordTypedNavigation: Bool
@@ -3668,6 +3669,7 @@ final class BrowserPanel: Panel, ObservableObject {
         proxyEndpoint: BrowserProxyEndpoint? = nil,
         bypassRemoteProxy: Bool = false,
         isRemoteWorkspace: Bool = false,
+        allowsLocalNavigationWithoutRemoteProxy: Bool = false,
         remoteWebsiteDataStoreIdentifier: UUID? = nil,
         websiteDataStore explicitWebsiteDataStore: WKWebsiteDataStore? = nil
     ) {
@@ -3684,6 +3686,7 @@ final class BrowserPanel: Panel, ObservableObject {
         self.bypassesRemoteWorkspaceProxy = bypassRemoteProxy
         self.remoteProxyEndpoint = bypassRemoteProxy ? nil : proxyEndpoint
         self.usesRemoteWorkspaceProxy = isRemoteWorkspace && !bypassRemoteProxy
+        self.allowsLocalNavigationWithoutRemoteProxy = allowsLocalNavigationWithoutRemoteProxy
         self.browserThemeMode = BrowserThemeSettings.mode()
         self.shouldPreloadInitialNavigationInBackground = preloadInitialNavigationInBackground
         self.chromeState = BrowserChromeState(visibility: chromeVisibility)
@@ -4434,10 +4437,12 @@ final class BrowserPanel: Panel, ObservableObject {
         isRemoteWorkspace: Bool,
         remoteWebsiteDataStoreIdentifier: UUID? = nil,
         proxyEndpoint: BrowserProxyEndpoint?,
-        remoteStatus: BrowserRemoteWorkspaceStatus?
+        remoteStatus: BrowserRemoteWorkspaceStatus?,
+        allowsLocalNavigationWithoutRemoteProxy: Bool = false
     ) {
         workspaceId = newWorkspaceId
         usesRemoteWorkspaceProxy = isRemoteWorkspace && !bypassesRemoteWorkspaceProxy
+        self.allowsLocalNavigationWithoutRemoteProxy = allowsLocalNavigationWithoutRemoteProxy
         let targetStore = cloudBrowserMachineID != nil ? websiteDataStore : preservesExplicitEphemeralWebsiteDataStore
             ? websiteDataStore
             : isRemoteWorkspace
@@ -5677,7 +5682,8 @@ final class BrowserPanel: Panel, ObservableObject {
                 clearTrustedLocalFileDocumentIfNeeded(for: url)
             }
         }
-        if cloudBrowserMachineID == nil, usesRemoteWorkspaceProxy, remoteProxyEndpoint == nil {
+        if cloudBrowserMachineID == nil, usesRemoteWorkspaceProxy, remoteProxyEndpoint == nil,
+           !allowsLocalNavigationWithoutRemoteProxy {
             pendingRemoteNavigation?.onNavigationStarted?(nil)
             pendingRemoteNavigation = PendingRemoteNavigation(
                 request: request,
