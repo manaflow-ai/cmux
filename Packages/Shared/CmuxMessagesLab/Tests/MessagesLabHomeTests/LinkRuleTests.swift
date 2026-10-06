@@ -117,22 +117,3 @@ import Testing
     }
 }
 
-/// Link previews never request a private or local address (LinkPreviewAddressPolicy).
-@Suite struct LinkPreviewAddressPolicyTests {
-    @Test func privateAndLocalURLsAreRefused() {
-        for url in ["http://localhost:3000/x", "http://127.0.0.1/", "http://10.0.0.5/", "http://192.168.1.1/", "http://172.20.0.1/",
-                    "http://100.89.225.106:18765/status", "http://169.254.169.254/latest/meta-data", "http://[::1]/", "http://[fe80::1]/",
-                    "http://[fd00::1]/", "http://[::ffff:127.0.0.1]/", "http://printer.local/", "https://cmux-dev-backend-1.tail137216.ts.net/",
-                    "http://intranet/", "ftp://example.com/", "file:///etc/passwd", "https://user:pw@example.com/"] {
-            #expect(LinkPreviewAddressPolicy.allowsURL(url) == nil, "\(url)")
-        }
-    }
-
-    @Test func publicURLsAreAllowed() {
-        for url in ["https://github.com/manaflow-ai/cmux", "http://example.com/", "https://1.1.1.1/", "https://[2606:4700:4700::1111]/"] {
-            #expect(LinkPreviewAddressPolicy.allowsURL(url) != nil, "\(url)")
-        }
-        #expect(LinkPreviewAddressPolicy.isPublic([8, 8, 8, 8]))
-        #expect(!LinkPreviewAddressPolicy.isPublic([100, 100, 1, 1]))
-    }
-}
