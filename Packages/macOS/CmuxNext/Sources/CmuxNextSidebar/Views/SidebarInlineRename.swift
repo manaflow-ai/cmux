@@ -34,7 +34,9 @@ final class SidebarInlineRename: NSObject, NSTextFieldDelegate {
         if let row = list.displayed.row(for: key) { list.scrollToVisible(list.frame(for: row)) }
         list.realizeVisibleRows()
         guard let view = list.rowViews[key] else { return }
-        let titleFrame = list.convert(view.titleFrame, from: view)
+        // The row's settled frame, not the view's: a row that just appeared (a group made by a drop) is still animating in.
+        let rowFrame = list.displayed.row(for: key).map(list.frame(for:)) ?? view.frame
+        let titleFrame = view.titleFrame.offsetBy(dx: rowFrame.minX, dy: rowFrame.minY)
         // Follows theme changes while open (ThemedTextField).
         let field = ThemedTextField(string: original)
         // theme-scoped: ThemedTextField resolves its fill inside performWithTheme.
