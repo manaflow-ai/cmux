@@ -27,4 +27,18 @@ import Testing
         #expect(FilePageKind.markdown.icon == .fileText)
         #expect(FilePageKind.editor.icon == .code)
     }
+
+    /// cmux pages shown in a browser tab (History, Bookmarks, Agent activity,
+    /// a remote view) wear their page's icon, not the globe, and no throbber.
+    @Test func cmuxAddressesWearTheirPageIcon() {
+        let page = { (url: String) in BrowserTabIconState.resolve(isLoading: true, isDormant: false, favicon: nil, url: URL(string: url)) }
+        #expect(page("cmux://history") == .page(.history))
+        #expect(page("cmux://bookmarks/") == .page(.bookmarkManager))
+        #expect(page("cmux://agent-activity") == .page(.agentActivity))
+        #expect(page("cmux://remote-view?host=a") == .page(.machineRemote))
+        #expect(page("https://example.com") == .throbber)
+        var item = TabItem(id: TabID("h"), title: "History")
+        BrowserTabIconState.page(.history).apply(to: &item)
+        #expect(item.icon == .icon(.history))
+    }
 }
