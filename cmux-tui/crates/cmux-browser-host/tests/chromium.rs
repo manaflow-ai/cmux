@@ -39,6 +39,7 @@ fn serve() -> u16 {
                     return;
                 }
                 let path = line.split_whitespace().nth(1).unwrap_or("/").to_owned();
+                let mut headers = Vec::new();
                 loop {
                     let mut header = String::new();
                     if reader.read_line(&mut header).map(|n| n == 0).unwrap_or(true)
@@ -46,7 +47,18 @@ fn serve() -> u16 {
                     {
                         break;
                     }
+                    headers.push(header.trim_end().to_owned());
                 }
+                // The request's User-Agent and X-Brepl headers, for session.configure.
+                let header = |name: &str| {
+                    headers
+                        .iter()
+                        .find_map(|h| {
+                            let (k, v) = h.split_once(':')?;
+                            k.eq_ignore_ascii_case(name).then(|| v.trim().to_owned())
+                        })
+                        .unwrap_or_default()
+                };
                 // One hop to the other loopback origin (host fetch redirects).
                 if path == "/redirect" {
                     let mut stream = stream;
@@ -56,7 +68,18 @@ fn serve() -> u16 {
                     );
                     return;
                 }
-                let body = match path.as_str() {
+                let body = match path.split('?').next().unwrap_or("") {
+                    "/echo" => format!(
+                        "<!doctype html><title>Echo</title><pre id=h>{}|{}</pre>",
+                        header("user-agent"),
+                        header("x-brepl")
+                    ),
+                    _ => String::new(),
+                };
+                let body = if !body.is_empty() {
+                    body
+                } else {
+                    match path.as_str() {
                     "/" => format!(
                         "<!doctype html><title>Host test</title>\
                          <button id=b style=\"width:120px;height:40px\" onclick=\"window.clicked = event.isTrusted\">Go</button>\
@@ -92,6 +115,7 @@ fn serve() -> u16 {
                          <input id=plain value=visible-value>"
                         .to_owned(),
                     _ => "<!doctype html><title>404</title>".to_owned(),
+                }
                 };
                 let mut stream = stream;
                 let _ = write!(
@@ -1148,4 +1172,192 @@ fn held_input_is_released_when_the_last_session_leaves() {
     let c = open("c");
     let log = read(&c, &target);
     assert_eq!(log, "keyup A true;keyup Shift true;mouseup 0 true;", "{log}");
+}
+
+fn headless_session(
+    source: &Arc<cmux_browser_host::headless_source::HeadlessSource>,
+    browsers: &cmux_browser_host::headless_source::HeadlessBrowsers,
+    name: &str,
+) -> cmux_browser_host::headless_source::HeadlessSession {
+    let lease = cmux_browser_host::lease::LeaseCaller {
+        session: name.into(),
+        actor: "t".into(),
+        on_behalf_of: None,
+        origin: "cli".into(),
+        label: String::new(),
+        implicit_session: false,
+        engine: "headless".into(),
+    };
+    cmux_browser_host::headless_source::HeadlessSession::new(
+        source.clone(),
+        browsers,
+        Arc::from(AGENT),
+        Arc::new(|_| {}),
+        lease,
+    )
+    .unwrap()
+}
+
+fn echo_text(
+    session: &cmux_browser_host::headless_source::HeadlessSession,
+    target: &str,
+) -> String {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let text = session
+            .call(
+                "frame.evaluate",
+                &json!({"targetId": target, "world": "agent",
+                    "source": "() => [document.getElementById('h') && document.getElementById('h').textContent, navigator.userAgent]"}),
+            )
+            .unwrap();
+        if text[0].is_string() {
+            return format!("{}|{}", text[0].as_str().unwrap(), text[1].as_str().unwrap_or(""));
+        }
+        assert!(Instant::now() < deadline, "the echo page never loaded: {text}");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// session.configure on the shared headless browser (driver-protocol.md
+/// `session.configure`): the user agent and extra headers apply to the tabs
+/// the session created (from the first request, popups too) while it is
+/// attached; a person's tab it drives keeps its own; keeping a tab undoes them.
+#[test]
+#[ignore = "requires CMUX_BROWSER_HOST_TEST_CHROME; run explicitly with --ignored"]
+fn session_configure_applies_to_the_sessions_own_tabs() {
+    use cmux_browser_host::headless_source::{HeadlessBrowsers, HeadlessSource};
+    let binary = std::env::var_os("CMUX_BROWSER_HOST_TEST_CHROME")
+        .filter(|value| !value.is_empty())
+        .expect("CMUX_BROWSER_HOST_TEST_CHROME must name a Chromium binary");
+    let port = serve();
+    let origin = format!("http://127.0.0.1:{port}");
+    let source =
+        HeadlessSource::launch(&HeadlessOptions::new(binary.into()), Arc::from(AGENT), "agent")
+            .expect("launch the shared browser");
+    let browsers: HeadlessBrowsers = Arc::default();
+    let open_tab = |session: &cmux_browser_host::headless_source::HeadlessSession, url: String| {
+        session.call("tabs.open", &json!({"url": url})).unwrap()["targetId"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    };
+    let keeper = headless_session(&source, &browsers, "keeper");
+    let user_tab = open_tab(&keeper, format!("{origin}/echo?user"));
+    keeper.call("tab.keep", &json!({"targetId": user_tab})).unwrap();
+    keeper.end_session();
+    drop(keeper);
+    let default_ua = echo_text(&headless_session(&source, &browsers, "probe"), &user_tab);
+    assert!(default_ua.contains("HeadlessChrome"), "{default_ua}");
+
+    let s = headless_session(&source, &browsers, "s");
+    let answer = s
+        .call(
+            "session.configure",
+            &json!({"userAgent": "brepl-ua", "extraHTTPHeaders": {"X-Brepl": "one"}}),
+        )
+        .unwrap();
+    assert_eq!(answer["proxy"], false, "{answer}");
+    let own = open_tab(&s, format!("{origin}/echo?own"));
+    assert_eq!(echo_text(&s, &own), "brepl-ua|one|brepl-ua", "from the first request");
+    // A popup of the session's tab gets them before its first request.
+    s.call(
+        "frame.evaluate",
+        &json!({"targetId": own, "world": "page",
+            "source": format!("() => {{ window.open('{origin}/echo?popup'); return 1; }}")}),
+    )
+    .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let popup = loop {
+        let tabs = s.call("tabs.list", &json!({})).unwrap();
+        if let Some(tab) = tabs
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["url"].as_str().unwrap_or("").ends_with("?popup"))
+        {
+            break tab["targetId"].as_str().unwrap().to_owned();
+        }
+        assert!(Instant::now() < deadline, "no popup: {tabs}");
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    assert_eq!(echo_text(&s, &popup), "brepl-ua|one|brepl-ua", "the popup inherits them");
+    // The person's tab keeps its own, also when this session reloads it.
+    s.call("tab.reload", &json!({"targetId": user_tab, "waitUntil": "load"})).unwrap();
+    assert_eq!(echo_text(&s, &user_tab), default_ua);
+    // Kept: the tab is the person's now, and its next document has the defaults.
+    s.call("tab.keep", &json!({"targetId": own})).unwrap();
+    s.call("tab.reload", &json!({"targetId": own, "waitUntil": "load"})).unwrap();
+    let ua = default_ua.split('|').next().unwrap();
+    assert_eq!(echo_text(&s, &own), format!("{ua}||{ua}"), "undone on keep");
+    // null clears.
+    s.call("session.configure", &json!({"userAgent": null, "extraHTTPHeaders": null})).unwrap();
+    let after = open_tab(&s, format!("{origin}/echo?after"));
+    assert_eq!(echo_text(&s, &after), format!("{ua}||{ua}"));
+}
+
+/// session.configure {proxy}: tabs the session opens afterwards, and their
+/// popups, use a private store (cookies apart from the profile's);
+/// `{proxy: null}` returns to the profile's store for new tabs.
+#[test]
+#[ignore = "requires CMUX_BROWSER_HOST_TEST_CHROME; run explicitly with --ignored"]
+fn a_proxy_session_opens_tabs_in_a_private_store() {
+    use cmux_browser_host::headless_source::{HeadlessBrowsers, HeadlessSource};
+    let binary = std::env::var_os("CMUX_BROWSER_HOST_TEST_CHROME")
+        .filter(|value| !value.is_empty())
+        .expect("CMUX_BROWSER_HOST_TEST_CHROME must name a Chromium binary");
+    let port = serve();
+    let origin = format!("http://127.0.0.1:{port}");
+    let source =
+        HeadlessSource::launch(&HeadlessOptions::new(binary.into()), Arc::from(AGENT), "agent")
+            .expect("launch the shared browser");
+    let browsers: HeadlessBrowsers = Arc::default();
+    let s = headless_session(&source, &browsers, "s");
+    let cookie = |target: &str| -> String {
+        s.call(
+            "frame.evaluate",
+            &json!({"targetId": target, "world": "page", "source": "() => document.cookie"}),
+        )
+        .unwrap()
+        .as_str()
+        .unwrap_or("")
+        .to_owned()
+    };
+    let open_tab = |url: String| {
+        s.call("tabs.open", &json!({"url": url})).unwrap()["targetId"].as_str().unwrap().to_owned()
+    };
+    let plain = open_tab(format!("{origin}/second?plain"));
+    let answer = s
+        .call(
+            "session.configure",
+            &json!({"proxy": {"server": format!("http://127.0.0.1:{port}")}}),
+        )
+        .unwrap();
+    assert_eq!(answer["proxy"], true, "{answer}");
+    let private = open_tab(format!("{origin}/second?private"));
+    s.call(
+        "frame.evaluate",
+        &json!({"targetId": private, "world": "page",
+            "source": format!("() => {{ document.cookie = 'brepl_store=private; path=/'; window.open('{origin}/second?popup'); return 1; }}")}),
+    )
+    .unwrap();
+    assert_eq!(cookie(&plain), "", "the profile's store never saw the private cookie");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let popup = loop {
+        let tabs = s.call("tabs.list", &json!({})).unwrap();
+        if let Some(tab) = tabs
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["url"].as_str().unwrap_or("").ends_with("?popup"))
+        {
+            break tab["targetId"].as_str().unwrap().to_owned();
+        }
+        assert!(Instant::now() < deadline, "no popup: {tabs}");
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    assert_eq!(cookie(&popup), "brepl_store=private", "the popup shares the private store");
+    s.call("session.configure", &json!({"proxy": null})).unwrap();
+    let back = open_tab(format!("{origin}/second?back"));
+    assert_eq!(cookie(&back), "");
 }

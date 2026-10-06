@@ -1,6 +1,6 @@
 --- a/Sources/MessagesLabHome/Vendor/catalyst/RowDrawing.swift
 +++ b/Sources/MessagesLabHome/Vendor/catalyst/RowDrawing.swift
-@@ -222,10 +222,11 @@
+@@ -240,10 +240,11 @@
                  UIColor(white: 1, alpha: 0.85).setFill()
                  tri.fill()
              }
@@ -14,7 +14,7 @@
              fg.setFill()
              UIBezierPath(ovalIn: CGRect(x: body.minX + 8, y: body.midY - 11, width: 22, height: 22)).fill()
              let tri = UIBezierPath()
-@@ -247,7 +248,7 @@
+@@ -265,7 +266,7 @@
                            baseline: body.midY + 4, in: ctx)
          default:
              fillBubble(ctx, shape, outgoing: p.outgoing, windowY: windowY)

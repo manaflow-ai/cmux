@@ -130,6 +130,23 @@ enum PartRenderer {
             BubbleView.drawBubble(ctx, body: body, lines: [], outgoing: p.outgoing, tail: p.tail, windowY: windowY)
             _ = lines
             if let tl = p.text { drawText(ctx, tl, in: body, outgoing: p.outgoing) }
+        case let .link(url, title, site, image, _) where Sizing.linkPending(title: title, site: site, image: image):
+            // Messages' loading card: a grey rounded square, an activity spinner
+            // and the domain under it (link-url-and-text take, t+0.6-1.9 s).
+            Fixture.incoming.setFill()
+            UIBezierPath(roundedRect: body, cornerRadius: 15).fill()
+            let c = CGPoint(x: body.midX, y: body.midY - 6)
+            for k in 0..<8 {
+                let a = CGFloat(k) * .pi / 4
+                let p = UIBezierPath()
+                p.move(to: CGPoint(x: c.x + 4.5 * cos(a), y: c.y + 4.5 * sin(a)))
+                p.addLine(to: CGPoint(x: c.x + 9 * cos(a), y: c.y + 9 * sin(a)))
+                p.lineWidth = 2; p.lineCapStyle = .round
+                UIColor(white: 1, alpha: 0.25 + 0.6 * CGFloat(k) / 7).setStroke(); p.stroke()
+            }
+            let host = URL(string: url).map(TextParts.host) ?? url
+            let f = UIFont.systemFont(ofSize: 10)
+            TextDraw.line(host, font: f, color: Fixture.secondaryText, x: body.midX - TextDraw.width(host, font: f) / 2, baseline: c.y + 24, in: ctx)
         case let .link(_, title, site, image, theme):
             drawLink(ctx, body: body, title: title ?? "", site: site ?? "", image: image, dark: theme == "dark" || image == nil,
                      tail: p.tail, outgoing: p.outgoing)
@@ -158,7 +175,8 @@ enum PartRenderer {
 
     static func drawText(_ ctx: CGContext, _ tl: TextLayout, in body: CGRect, outgoing: Bool) {
         let color = outgoing ? Fixture.outgoingText : Fixture.incomingText
-        let link = outgoing ? UIColor.white : UIColor(red: 0.27, green: 0.55, blue: 1, alpha: 1)
+        // An outgoing link is the bubble's text colour (white; a themed host's own colour).
+        let link = outgoing ? Fixture.outgoingText : UIColor(red: 0.27, green: 0.55, blue: 1, alpha: 1)
         let attr = tl.attributed(color: color, linkColor: link)
         for (i, line) in tl.lines.enumerated() where line.range.length > 0 {
             let l = CTLineCreateWithAttributedString(attr.attributedSubstring(from: line.range))
@@ -567,21 +585,62 @@ final class RowBitmaps {
         return q
     }()
     static let capacity = 500
+    /// Row bitmaps in bytes (media-heavy histories: a 300 x 360 pt photo row is 1.7 MB at 2x).
+    static let byteBudget = 160 << 20
+    private(set) var bytes = 0
 
     func image(for spec: RowSpec) -> CGImage? { cache[spec] }
-    func has(_ spec: RowSpec) -> Bool { cache[spec] != nil || waiters[spec] != nil }
+    func has(_ spec: RowSpec) -> Bool { TiledBubble.applies(spec) || cache[spec] != nil || waiters[spec] != nil }
 
     /// Main thread: get the bitmap now or when it is rendered.
     func request(_ spec: RowSpec, _ done: ((CGImage) -> Void)? = nil) {
+        // Long text rows are tiles (TiledBubble.swift): no bitmap, and no spec (with its text) held here.
+        if TiledBubble.applies(spec) { done?(TiledBubble.emptyImage); return }
         if let img = cache[spec] { done?(img); return }
         if waiters[spec] != nil { if let done { waiters[spec]!.append(done) }; return }
         waiters[spec] = done.map { [$0] } ?? []
         let gen = Fixture.paletteGeneration
-        queue.addOperation {
+        // Newest first: older pending renders drop a priority step (a fling's rows that left
+        // the screen render after the rows now on it).
+        for op in queue.operations where !op.isExecuting {
+            switch op.queuePriority { case .veryHigh: op.queuePriority = .high; case .high: op.queuePriority = .normal
+            case .normal: op.queuePriority = .low; default: op.queuePriority = .veryLow }
+        }
+        enqueue(spec, gen, prefetch: done == nil)
+    }
+
+    private func enqueue(_ spec: RowSpec, _ gen: Int, prefetch: Bool) {
+        let asked = CACurrentMediaTime()
+        let op = BlockOperation {
+            // Rows that left the screen before their turn are not drawn (no decode, no
+            // idle backlog after a fling): a cell still waits for it, or it is a fresh prefetch.
+            guard self.isWanted(spec) || (prefetch && CACurrentMediaTime() - asked < 0.5) else {
+                DispatchQueue.main.async {
+                    RowBitmaps.skipped += 1
+                    // A cell may have asked again meanwhile: render for it, else forget the waiters.
+                    if self.isWanted(spec), self.waiters[spec] != nil { self.enqueue(spec, gen, prefetch: false) }
+                    else { self.waiters[spec] = nil }
+                }
+                return
+            }
             let img = RowBitmaps.render(spec)
             self.deliver(spec, img, gen)
         }
+        op.queuePriority = .veryHigh
+        queue.addOperation(op)
     }
+
+    /// Rows that visible cells wait for (any thread reads; main writes).
+    private let demandLock = NSLock()
+    private var demand: [RowSpec: Int] = [:]
+    static var skipped = 0
+    func want(_ s: RowSpec) { demandLock.lock(); demand[s, default: 0] += 1; demandLock.unlock() }
+    func unwant(_ s: RowSpec) {
+        demandLock.lock()
+        if let n = demand[s] { demand[s] = n > 1 ? n - 1 : nil }
+        demandLock.unlock()
+    }
+    func isWanted(_ s: RowSpec) -> Bool { demandLock.lock(); defer { demandLock.unlock() }; return demand[s] != nil }
 
     /// Finished bitmaps reach the main thread in batches: one main-queue
     /// block applies everything rendered since the last one.
@@ -613,23 +672,34 @@ final class RowBitmaps {
     }
 
     private func store(_ spec: RowSpec, _ img: CGImage) {
-        if cache[spec] == nil { order.append(spec) }
+        if TiledBubble.applies(spec) { return }
+        if let old = cache[spec] { bytes -= old.bytesPerRow * old.height } else { order.append(spec) }
         cache[spec] = img
+        bytes += img.bytesPerRow * img.height
         // Trim in chunks (removing from the front of the order array on every
-        // insert copied it each time).
-        if order.count > RowBitmaps.capacity + 100 {
-            let drop = order.prefix(order.count - RowBitmaps.capacity)
+        // insert copied it each time). Bounded by rows and by bytes (media rows are large).
+        if order.count > RowBitmaps.capacity + 100 || bytes > RowBitmaps.byteBudget {
+            var n = max(0, order.count - RowBitmaps.capacity), freed = 0
+            if bytes > RowBitmaps.byteBudget {
+                while n < order.count, bytes - freed > RowBitmaps.byteBudget * 4 / 5 {
+                    freed += cache[order[n]].map { $0.bytesPerRow * $0.height } ?? 0
+                    n += 1
+                }
+            }
+            let drop = order.prefix(n)
+            let imgs = drop.compactMap { cache.removeValue(forKey: $0) }
+            bytes -= imgs.reduce(0) { $0 + $1.bytesPerRow * $1.height }
             // Freed off the main thread (vm_deallocate blocked main for up to 291 ms).
-            Reclaimer.release(drop.compactMap { cache.removeValue(forKey: $0) })
+            Reclaimer.release(imgs)
             order.removeFirst(drop.count)
         }
     }
-
     var count: Int { cache.count }
 
     /// Palette change: every cached bitmap is stale (freed off main).
     func removeAll() {
         Reclaimer.release(Array(cache.values))
+        bytes = 0
         cache.removeAll()
         order.removeAll()
     }
@@ -645,6 +715,7 @@ final class RowBitmaps {
     }
 
     static func render(_ spec: RowSpec) -> CGImage {
+        if TiledBubble.applies(spec) { return TiledBubble.emptyImage }
         let span = RowDraw.drawSpan(spec)
         let size = CGSize(width: span.upperBound - span.lowerBound, height: spec.height + 2 * RowDraw.margin)
         return WideBitmap.make(size: size, scale: Fixture.renderScale, opaque: false) { ctx in
