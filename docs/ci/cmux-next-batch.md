@@ -1,6 +1,6 @@
 # cmux-next batch queue
 
-Open a PR into `feat-cmux-next` and let the queue land it. You don't stack, rebase or rerun anything by hand. `.github/workflows/cmux-next-batch.yml` runs `scripts/ci/next_batch.py`.
+Open a PR into `feat-cmux-next` and let the queue land it. You don't stack, rebase or rerun anything by hand. `scripts/ci/next_batch.py` is the controller. It runs either as `.github/workflows/cmux-next-batch.yml` with a GitHub App, or as `next_batch.py serve` on a workstation under the operator's gh login (see [Serving locally](#serving-locally)).
 
 ## What makes a PR eligible
 
@@ -17,10 +17,12 @@ To keep a PR out, add `hold`. A PR the queue dropped at its current head stays o
 
 1. **Trigger.** A PR event or a feat-cmux-next push starts `debounce`. Each new event cancels the waiting run. The batch is dispatched after 2 minutes of quiet, and never later than 10 minutes after the first event. A running batch is never cancelled. A newer dispatch waits for it.
 2. **Stack.** Starting from the feat-cmux-next head, the batch merges up to 12 eligible PRs in PR-number order.
-   - A conflict in a generated file keeps the stack's copy, and the generator rebuilds it once at the end:
-     - Web bundles: `scripts/cmux-next/regenerate-web-bundles.sh`.
-     - SDK bindings: `cmux-tui/bindings/codegen/generate.py --write`.
-     - Swift exports such as action contracts, the settings schema and MDM: `scripts/cmux-next/regenerate-swift-exports.sh`, on a mini.
+   - A conflict in a generated file keeps the stack's copy, and the generator rebuilds it once after the stack is pushed:
+     - Web bundles: `scripts/cmux-next/regenerate-web-bundles.sh`, on Linux (`regen-linux`).
+     - SDK bindings: `cmux-tui/bindings/codegen/generate.py --write`, on Linux (`regen-linux`).
+     - Swift exports such as action contracts, the settings schema and MDM: `scripts/cmux-next/regenerate-swift-exports.sh`, on a mini (`regen`).
+
+     Generators run the stack's code, so they never run on the controller's host. Each job has a read-only token and returns its commit as a patch, which the controller applies and pushes.
    - `cmux-tui/spec/*.json` merges key by key.
    - String catalogs and the Xcode project merge as in `scripts/merge-main.sh`.
    - Any other conflict drops that PR from the batch and comments on it.
@@ -30,7 +32,20 @@ To keep a PR out, add `hold`. A PR the queue dropped at its current head stays o
    - Red: the batch tests prefixes of the stack by halving. The last PR of the smallest red prefix is the culprit. It gets a comment with the failing jobs, and the batch reruns without it, for at most 3 culprits per batch.
 5. **Report.** The job summary, and the sticky comment on `CMUX_NEXT_BATCH_STICKY` when set (an HQ issue), list each PR's outcome, every validation with its wall time, the heavy-tier run and the build link.
 
-Pushes and merges use the `CMUX_NEXT_BATCH_APP_ID` App's token, which needs contents, workflows and pull-requests write. GitHub refuses the job token any branch based on feat-cmux-next. After landing, the batch dispatches `cmux-next.yml` and `cmux-tui-artifacts.yml` on feat-cmux-next, plus the next batch.
+In the workflow, pushes and merges use the `CMUX_NEXT_BATCH_APP_ID` App's token, which needs contents, workflows and pull-requests write. GitHub refuses the job token any branch based on feat-cmux-next. After landing, the batch dispatches `cmux-next.yml` and `cmux-tui-artifacts.yml` on feat-cmux-next, plus the next batch.
+
+## Serving locally
+
+Until the App exists, the queue runs on a workstation that is on the build tailnet, with a gh login that has `repo` and `workflow` scopes:
+
+```bash
+CMUX_NEXT_BATCH_STICKY=manaflow-ai/cmuxterm-hq#1392 \
+  python3 scripts/ci/next_batch.py serve --worktree ~/.cache/next-batch-stack
+```
+
+It polls the open PRs every minute and uses the debounce job's timing: 2 minutes of quiet, at most 10 minutes. It runs one batch at a time and never interrupts one. Its fleet build uses the host's `cmux-ci`. Regeneration and the heavy tier still run on Actions, and only the controller runs locally. Its pushes and merges start CI like anyone's, so nothing is re-dispatched after landing. Comments link the sticky issue. Keep `CMUX_NEXT_BATCH_ENABLED` unset while a local controller serves, so the two never race.
+
+`run --local` runs one batch the same way.
 
 ## Run it by hand
 

@@ -4,6 +4,8 @@
 .github/workflows/cmux-next-batch.yml runs this. See docs/ci/cmux-next-batch.md.
 
   debounce  pull request and push events: wait for quiet, then dispatch a batch
+  serve     the same queue as a long-running loop under the operator's gh
+            login (until the batch App exists): poll, debounce, run batches
   run       the batch: select eligible PRs, stack them on feat-cmux-next,
             validate the stack once (every cmux-next tier plus a fleet
             production build), land each PR with gh-merge-green, or bisect a
@@ -12,8 +14,10 @@
   select    print which open PRs are eligible and why the others are not
 
 Generated files never get a hand resolution. A conflict in one keeps the
-stack's copy and the matching generator rebuilds it from the merged sources.
-A conflict anywhere else drops that PR from the batch.
+stack's copy and the matching generator rebuilds it from the merged sources,
+in a dispatched job that sends back a patch (the generators run the stack's
+code, never on the controller's host). A conflict anywhere else drops that
+PR from the batch.
 """
 from __future__ import annotations
 
@@ -50,6 +54,7 @@ STALE_DAYS = 5
 MAX_PRS = 12
 MAX_CULPRITS = 3
 POLL_SECONDS = 90
+SERVE_POLL_SECONDS = 60
 
 # Authors whose PRs the queue lands without asking (the agent lanes post as
 # Leo). Anyone else opts a PR in with the OPT_IN label. Override the list with
@@ -377,6 +382,38 @@ def cmd_debounce(args: argparse.Namespace) -> int:
     return 0
 
 
+class Debouncer:
+    """The serve loop's trigger, with the debounce job's timing.
+
+    `observe` gets the eligible set as (number, head sha) pairs once per poll.
+    A batch runs after `quiet` seconds without a change, never later than
+    `hard_max` after the first change since the last batch, and not again
+    for a set it already ran.
+    """
+
+    def __init__(self, quiet: int = QUIET_SECONDS, hard_max: int = HARD_MAX_SECONDS) -> None:
+        self.quiet, self.hard_max = quiet, hard_max
+        self.seen: tuple | None = None
+        self.done: tuple | None = None
+        self.first: dt.datetime | None = None
+        self.last: dt.datetime | None = None
+
+    def observe(self, heads: tuple, at: dt.datetime) -> bool:
+        if heads != self.seen:
+            self.seen, self.last = heads, at
+            if not heads or heads == self.done:
+                self.first = None
+            elif self.first is None:
+                self.first = at
+        if self.first is None or self.last is None:
+            return False
+        return (at - self.last).total_seconds() >= self.quiet or \
+            (at - self.first).total_seconds() >= self.hard_max
+
+    def ran(self, heads: tuple) -> None:
+        self.done, self.first = heads, None
+
+
 # --- stacking -----------------------------------------------------------------
 
 
@@ -619,11 +656,20 @@ class Controller:
         self.args = args
         self.gh = GitHub(args.repo)
         self.server = os.environ.get("GITHUB_SERVER_URL", "https://github.com")
-        self.run_url = os.environ.get("NEXT_BATCH_RUN_URL") or \
-            f"{self.server}/{args.repo}/actions/runs/{os.environ.get('GITHUB_RUN_ID', '0')}"
+        self.local = bool(getattr(args, "local", False))
+        if self.local:
+            # No Actions run to link: comments point at the sticky report.
+            sticky = os.environ.get("CMUX_NEXT_BATCH_STICKY", "")
+            repo, _, number = sticky.partition("#")
+            self.run_url = f"{self.server}/{repo}/issues/{number}" if number else \
+                f"{self.server}/{args.repo}/blob/{BASE}/docs/ci/cmux-next-batch.md"
+            self.batch_id = "local-" + now().strftime("%Y%m%d-%H%M%S")
+        else:
+            self.run_url = os.environ.get("NEXT_BATCH_RUN_URL") or \
+                f"{self.server}/{args.repo}/actions/runs/{os.environ.get('GITHUB_RUN_ID', '0')}"
+            self.batch_id = f"{os.environ.get('GITHUB_RUN_ID', 'local')}-{os.environ.get('GITHUB_RUN_ATTEMPT', '1')}"
         # Pushes and merges use the App token when the workflow minted one.
         self.writer = GitHub(args.repo, token_env="PUSH_TOKEN") if os.environ.get("PUSH_TOKEN") else self.gh
-        self.batch_id = f"{os.environ.get('GITHUB_RUN_ID', 'local')}-{os.environ.get('GITHUB_RUN_ATTEMPT', '1')}"
         self.worktree = Path(args.worktree)
         self.validations: list[Validation] = []
         self.timings: dict[str, int] = {}
@@ -656,9 +702,10 @@ class Controller:
         compared with the default branch (main), which differs from
         feat-cmux-next in many workflows, and the push is refused. Created at
         the base through the API and then fast-forwarded, the push carries
-        only the stacked PRs' changes.
+        only the stacked PRs' changes. A local controller's login has the
+        workflow scope and pushes directly, so no base push starts CI.
         """
-        if self.base_sha:
+        if self.base_sha and not self.local:
             exists = self.writer.gh("api", f"repos/{self.args.repo}/git/ref/heads/{ref}", check=False).returncode == 0
             if exists:
                 self.writer.api(f"repos/{self.args.repo}/git/refs/heads/{ref}", method="PATCH",
@@ -724,7 +771,72 @@ class Controller:
             path = Path(tmp) / "result.json"
             if got.returncode == 0 and path.is_file():
                 result = {**json.loads(path.read_text()), "run": run["html_url"]}
+            patch = Path(tmp) / "regen.patch"
+            if result.get("ok") and patch.is_file() and patch.stat().st_size:
+                result["patch"] = patch.read_bytes()
         return run, result
+
+    def regenerate_remote(self, stack: Stack, branch: str) -> bool:
+        """Rebuild conflicted generated files on runners, from the pushed stack.
+
+        Web bundles and SDK bindings on Linux, then the Swift exports on a
+        mini. Each job commits its output and sends it back as a patch, which
+        lands on the stack here and is pushed before the next job.
+        """
+        steps = []
+        if linux := sorted(stack.regen & {"web", "sdk"}):
+            steps.append(("regen-linux", " ".join(linux)))
+        if "swift" in stack.regen:
+            steps.append(("regen", "swift"))
+        for mode, kinds in steps:
+            _, result = self.mini(mode, branch, stack.head, {"kinds": kinds})
+            if not result.get("ok"):
+                stack.error = f"regenerating {kinds} failed: {result.get('error')}"
+                return False
+            if patch := result.get("patch"):
+                completed = subprocess.run(["git", "am", "--quiet", "--keep-cr"], cwd=self.worktree,
+                                           input=patch, capture_output=True)
+                if completed.returncode != 0:
+                    subprocess.run(["git", "am", "--abort"], cwd=self.worktree, capture_output=True)
+                    stack.error = f"the {kinds} patch did not apply: {completed.stderr.decode(errors='replace')[-400:]}"
+                    return False
+                stack.head = self.git("rev-parse", "HEAD", cwd=self.worktree)
+                self.git("push", "--quiet", "origin", f"{stack.head}:refs/heads/{branch}")
+                stack.regenerated.append(kinds)
+        return True
+
+    def fleet_build(self, branch: str, sha: str, tag: str) -> dict:
+        """A fleet --production build of `sha`: from a mini, or with this
+        host's cmux-ci when it serves locally (it is on the tailnet)."""
+        if not self.local:
+            return self.mini("build", branch, sha, {"tag": tag})[1]
+        started = time.monotonic()
+
+        def cmux_ci(*args: str) -> subprocess.CompletedProcess:
+            return subprocess.run(["cmux-ci", *args], capture_output=True, text=True)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            receipt = Path(tmp) / "submit.json"
+            submitted = cmux_ci("build", "cmux", "--ref", sha, "--tag", tag,
+                                "--workspace", f"{self.server}/{self.args.repo}/tree/{branch}",
+                                "--production", "--backend-mode", "local", "--agent", "cmux-next-batch",
+                                "--receipt", str(receipt))
+            try:
+                job = str(json.loads(receipt.read_text())["id"])
+            except (OSError, ValueError, KeyError):
+                return {"ok": False, "error": "fleet submission failed: " + (submitted.stderr or submitted.stdout)[-300:]}
+        log(f"fleet job {job}")
+        if cmux_ci("wait", job, "--interval", "30", "--timeout", "7800").returncode != 0:
+            return {"ok": False, "job_id": job, "error": f"fleet job {job} did not succeed (cmux-ci log {job})"}
+        link = f"cmux-ci artifact {job}"
+        published = cmux_ci("publish-hq", job)
+        if published.returncode == 0 and published.stdout.strip():
+            try:
+                link = json.loads(published.stdout.strip().splitlines()[-1]).get("url") or link
+            except ValueError:
+                pass
+        return {"ok": True, "job_id": job, "tag": tag, "link": f"{link} (job {job}, tag {tag})",
+                "seconds": int(time.monotonic() - started)}
 
     def validate(self, prs: list[PullRequest], name: str) -> Validation:
         """Stack `prs` on the batch's base and run every tier plus the fleet build.
@@ -736,7 +848,7 @@ class Controller:
         fetched = self.fetch(prs)
         self.base_sha = self.base_sha or fetched
         base_sha = self.base_sha
-        stack = build_stack(self.worktree, base_sha, prs)
+        stack = build_stack(self.worktree, base_sha, prs, regen=False)
         validation = Validation(name=name, stack=stack)
         self.validations.append(validation)
         if not stack.included or stack.error:
@@ -746,29 +858,23 @@ class Controller:
         validation.branch = branch
         self.push(stack.head, branch)
         log(f"{name}: pushed {branch} at {stack.head[:12]} ({len(stack.included)} PRs)")
+        if stack.regen and not self.regenerate_remote(stack, branch):
+            validation.seconds = int(time.monotonic() - started)
+            return validation
         sha = stack.head
-        if "swift" in stack.regen:
-            _, regen = self.mini("regen", branch, sha, {})
-            if not regen.get("ok"):
-                stack.error = "Swift regeneration failed: " + str(regen.get("error"))
-                validation.seconds = int(time.monotonic() - started)
-                return validation
-            sha = regen["sha"]
-            stack.head = sha
-            self.git("fetch", "--quiet", "--no-tags", "origin", f"+refs/heads/{branch}:refs/next-batch/stack")
-            stack.regenerated.append("Swift exports")
         changed = self.git("diff", "--name-only", base_sha, sha).splitlines()
         pin = ""
         if any(path.startswith(TUI_PATHS) for path in changed):
             pin = f"cmux-tui-pin-{sha[:12]}"
             self.push(sha, pin)
-            self.gh.dispatch(TUI_WORKFLOW, pin)
+            if not self.local:  # the job token's push starts no workflow
+                self.gh.dispatch(TUI_WORKFLOW, pin)
         dispatched = now()
         self.gh.dispatch(HEAVY_WORKFLOW, branch)
         heavy = self.find_run(HEAVY_WORKFLOW, branch, lambda item: item["head_sha"] == sha, dispatched)
         validation.heavy_url = heavy["html_url"]
         log(f"{name}: heavy tier {heavy['html_url']}")
-        _, validation.build = self.mini("build", branch, sha, {"tag": f"nb-{self.batch_id}-{len(self.validations)}"})
+        validation.build = self.fleet_build(branch, sha, f"nb-{self.batch_id}-{len(self.validations)}")
         log(f"{name}: fleet build {'ok' if validation.build.get('ok') else 'failed'}")
         run = self.wait_run(heavy["id"], timeout=180 * 60)
         failed = self.failed_jobs(heavy["id"]) if run["status"] == "completed" else ["(timed out waiting)"]
@@ -901,8 +1007,12 @@ class Controller:
         """Merges by the job token start no push workflows; start the base ones.
 
         That includes this workflow's own push trigger, so queue the next
-        batch here for whatever is still eligible.
+        batch here for whatever is still eligible. A local controller merges
+        with the operator's login, whose merges start them, and its serve
+        loop picks up the next batch.
         """
+        if self.local:
+            return
         for ref in dict.fromkeys((BASE, self.args.ref)):
             try:
                 self.gh.dispatch(WORKFLOW, ref, {"mode": "batch", "reason": f"after batch {self.batch_id}"})
@@ -953,12 +1063,12 @@ class Controller:
 
     def post_sticky(self, text: str) -> None:
         target = os.environ.get("CMUX_NEXT_BATCH_STICKY", "")
-        token = os.environ.get("STICKY_TOKEN", "")
+        token = os.environ.get("STICKY_TOKEN") or (os.environ.get("GH_TOKEN", "") if self.local else "")
         if not target or not token or self.args.dry_run:
             log("no sticky issue configured or no token for it; the report is in the job summary")
             return
         repo, number = target.split("#")
-        sticky = GitHub(repo, token_env="STICKY_TOKEN")
+        sticky = GitHub(repo, token_env="STICKY_TOKEN") if os.environ.get("STICKY_TOKEN") else self.gh
         try:
             comments = sticky.api(f"repos/{repo}/issues/{number}/comments?per_page=100")
             mine = [c for c in comments if STICKY_MARKER in (c.get("body") or "")]
@@ -1069,7 +1179,38 @@ def cmd_stack(args: argparse.Namespace) -> int:
 
 
 def cmd_run(args: argparse.Namespace) -> int:
+    if args.local:
+        use_local_login()
     return Controller(args).run()
+
+
+def use_local_login() -> None:
+    """The operator's gh login pushes and merges, so its pushes and merges
+    start CI like anyone's. Generators never see it: they run on runners."""
+    if not os.environ.get("GH_TOKEN"):
+        os.environ["GH_TOKEN"] = subprocess.run(["gh", "auth", "token"], capture_output=True,
+                                                text=True, check=True).stdout.strip()
+
+
+def cmd_serve(args: argparse.Namespace) -> int:
+    """Poll the open PRs, debounce like the debounce job, run one batch at a
+    time. A batch is never interrupted; events meanwhile wait for it."""
+    args.local = True
+    use_local_login()
+    gh = GitHub(args.repo)
+    debouncer = Debouncer()
+    log(f"serving {args.repo} {BASE}; mini jobs on {args.ref}")
+    while True:
+        try:
+            eligible, _ = select(open_prs(gh), now())
+            heads = tuple((pr.number, pr.sha) for pr in eligible)
+            if debouncer.observe(heads, now()):
+                debouncer.ran(heads)
+                log("batch for " + " ".join(f"#{number}" for number, _ in heads))
+                Controller(args).run()
+        except Exception as error:  # keep serving; the next poll retries
+            log(f"serve: {type(error).__name__}: {error}")
+        time.sleep(SERVE_POLL_SECONDS)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1079,7 +1220,7 @@ def main(argv: list[str] | None = None) -> int:
     debounce = sub.add_parser("debounce")
     debounce.add_argument("--reason", default="")
     sub.add_parser("select")
-    for name in ("run", "stack"):
+    for name in ("run", "stack", "serve"):
         command = sub.add_parser(name)
         command.add_argument("--worktree", default=os.path.join(os.environ.get("RUNNER_TEMP", "/tmp"), "next-batch-stack"))
         command.add_argument("--prs", default="", help="only these PR numbers (still checked for eligibility in run)")
@@ -1089,13 +1230,16 @@ def main(argv: list[str] | None = None) -> int:
         command.add_argument("--no-land", action="store_true", help="validate and report, but do not land")
         command.add_argument("--keep-branches", action="store_true")
         command.add_argument("--no-regen", action="store_true")
+        command.add_argument("--local", action="store_true",
+                             help="run here with the gh login; build with this host's cmux-ci")
     args = parser.parse_args(argv)
-    if args.command in {"run", "stack"}:
+    if args.command in {"run", "stack", "serve"}:
         worktree = Path(args.worktree)
         if not (worktree / ".git").exists():
             subprocess.run(["git", "worktree", "add", "--quiet", "--detach", str(worktree), "HEAD"],
                            cwd=TOOLS_ROOT, check=True)
-    return {"debounce": cmd_debounce, "select": cmd_select, "run": cmd_run, "stack": cmd_stack}[args.command](args)
+    return {"debounce": cmd_debounce, "select": cmd_select, "run": cmd_run, "stack": cmd_stack,
+            "serve": cmd_serve}[args.command](args)
 
 
 if __name__ == "__main__":
