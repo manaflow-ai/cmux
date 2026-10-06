@@ -222,7 +222,7 @@ impl Native {
         chat: &OptChat,
         start: &TurnStart,
         log: &dyn Fn(&str),
-        mailbox: &dyn Fn() -> Vec<String>,
+        mailbox: &dyn Fn() -> Vec<Value>,
         interrupted: &dyn Fn() -> bool,
         gated: &dyn Fn() -> bool,
     ) -> TurnOutcome {
