@@ -145,6 +145,19 @@ describe("edited-files card", () => {
   });
 });
 
+describe("edited-files card Undo", () => {
+  test("never asks the agent to undo: the agent could run git checkout and lose later edits", async () => {
+    const asked: { keys: string[]; prompt: string }[] = [];
+    const { container, unmount } = await render(createElement(EditedFilesCard, { row: edited, onOpenDiff: () => {} }), {
+      review: review(new Map(), asked),
+    });
+    expect([...container.querySelectorAll("button")].map((button) => button.textContent)).toEqual(["View changes"]);
+    expect(container.querySelector(".acpmux-edited-undo")).toBeNull();
+    expect(asked).toEqual([]);
+    await unmount();
+  });
+});
+
 describe("turn footer", () => {
   const summary: AcpmuxRow = { id: "s", version: 1, at: 0, kind: "turnSummary", text: "Done.", folded: true };
 
