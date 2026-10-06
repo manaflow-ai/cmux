@@ -416,7 +416,7 @@ class ReusedWorkspaceSubmodules(unittest.TestCase):
                     following = job_steps[index + 1] if index + 1 < len(job_steps) else {}
                     self.assertIn(RESET_STALE_SUBMODULES, following.get("run", ""),
                                   "the step after checkout must drop stale submodule checkouts")
-        self.assertEqual(sorted(checked), ["cmux-scheme-compile", "release-compile", "swift-test"])
+        self.assertEqual(sorted(checked), ["cmux-scheme-compile", "release-compile", "same-tree-cmux-tui", "swift-test"])
 
 
 
