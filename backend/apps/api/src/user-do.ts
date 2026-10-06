@@ -8,7 +8,7 @@ import { verifyAttestation, type AttestedKey } from "./app-attest.ts"
 import { admit } from "./domains/common.ts"
 import { chiefActive, grantFor, installActive, jwkThumbprint, makeUserDomain, type UserState } from "./domains/user.ts"
 import { appIdHashFor, confirmView } from "./domains/user-confirm.ts"
-import { CHIEF_AGENT_CLASS, chiefList } from "./domains/user-chief.ts"
+import { CHIEF_AGENT_CLASS, chiefGrantClasses, chiefList } from "./domains/user-chief.ts"
 import type { Env } from "./env.ts"
 import { HomePushQueue } from "./home-push.ts"
 import { apnsHomePushSender, decideHomePush, drainHomePush, feedHomePushQuiet } from "./home-push-drain.ts"
@@ -453,7 +453,8 @@ export class UserDO extends OwnerDO<UserState> {
     if (!inst || inst.revoked_at !== null || inst.grant !== grant || !g || g.revoked_at !== null || (g.expires_at !== null && g.expires_at <= Date.now())) return { ok: false }
     if (agent !== undefined && !chiefActive(state, agent)) return { ok: false }
     // The email from the user's last Stack session, so other owners can check email-domain rules for installs.
-    return { ok: true, op_classes: g.op_classes, kind: inst.kind, email: state.user?.email ?? null, email_verified: state.user?.email_verified === true }
+    // A paired server answers as the chief placed on it with the chief's rights (G8); nothing else widens.
+    return { ok: true, op_classes: chiefGrantClasses(state, install, agent, g.op_classes), kind: inst.kind, email: state.user?.email ?? null, email_verified: state.user?.email_verified === true }
   }
 
   async challenge(entity: string, install: string): Promise<{ ok: true; nonce: string; expires_at: number } | { ok: false; message: string }> {
