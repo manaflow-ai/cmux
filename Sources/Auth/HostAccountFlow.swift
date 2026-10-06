@@ -216,10 +216,9 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 
-        if let tokens = try? await coordinator.currentTokens() {
-            request.setValue("Bearer \(tokens.accessToken)", forHTTPHeaderField: "Authorization")
-            request.setValue(tokens.refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
-        }
+        guard let tokens = try? await coordinator.currentTokens() else { return }
+        request.setValue("Bearer \(tokens.accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue(tokens.refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
 
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
@@ -230,6 +229,11 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
                 return
             }
             let decoded = try JSONDecoder().decode(BillingPlanResponse.self, from: data)
+            guard decoded.authenticated else {
+                isProActive = false
+                canManageBilling = false
+                return
+            }
             isProActive = decoded.isPro
             isProStatusKnown = true
             canManageBilling = decoded.billingManagement == .stripe
@@ -273,6 +277,7 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
 }
 
 private struct BillingPlanResponse: Decodable {
+    let authenticated: Bool
     let isPro: Bool
     let billingManagement: BillingManagement?
 }
