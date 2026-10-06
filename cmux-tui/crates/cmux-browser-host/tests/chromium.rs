@@ -150,7 +150,11 @@ impl HostGuard {
         let guard = HostGuard(child);
         let deadline = Instant::now() + Duration::from_secs(10);
         while std::os::unix::net::UnixStream::connect(socket).is_err() {
-            assert!(Instant::now() < deadline, "the test host never listened on {}", socket.display());
+            assert!(
+                Instant::now() < deadline,
+                "the test host never listened on {}",
+                socket.display()
+            );
             std::thread::sleep(Duration::from_millis(20));
         }
         guard
