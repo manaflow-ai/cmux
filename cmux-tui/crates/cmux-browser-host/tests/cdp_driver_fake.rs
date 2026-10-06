@@ -134,6 +134,7 @@ impl FakeWire {
             | "Target.detachFromTarget"
             | "Page.enable"
             | "Page.setLifecycleEventsEnabled"
+            | "Page.setInterceptFileChooserDialog"
             | "Emulation.setFocusEmulationEnabled"
             | "Runtime.runIfWaitingForDebugger"
             | "Input.dispatchMouseEvent"
@@ -663,7 +664,13 @@ fn mouse_clicks_track_pressed_buttons_and_modifiers() {
     h.call("input.mouse", json!({"targetId": target, "type": "move", "x": 15, "y": 25}));
     h.call("input.mouse", json!({"targetId": target, "type": "up", "x": 15, "y": 25, "button": "left", "clickCount": 2}));
     h.call("input.mouse", json!({"targetId": target, "type": "wheel", "deltaY": 120}));
-    let events: Vec<Value> = h.sent_since(mark).into_iter().map(|(_, p)| p).collect();
+    // Input events only (a release also makes one renderer round trip).
+    let events: Vec<Value> = h
+        .sent_since(mark)
+        .into_iter()
+        .filter(|(m, _)| m.starts_with("Input."))
+        .map(|(_, p)| p)
+        .collect();
     assert_eq!(events[0]["type"], "mouseMoved");
     assert_eq!(events[0]["button"], "none");
     assert_eq!(events[1]["type"], "mousePressed");
@@ -697,7 +704,13 @@ fn keys_carry_virtual_codes_and_text_only_when_they_insert_text() {
     );
     h.call("input.key", json!({"targetId": target, "type": "up", "key": "a", "code": "KeyA"}));
     h.call("input.insertText", json!({"targetId": target, "text": "héllo"}));
-    let sent: Vec<Value> = h.sent_since(mark).into_iter().map(|(_, p)| p).collect();
+    // Input events only (Enter also makes one renderer round trip).
+    let sent: Vec<Value> = h
+        .sent_since(mark)
+        .into_iter()
+        .filter(|(m, _)| m.starts_with("Input."))
+        .map(|(_, p)| p)
+        .collect();
     assert_eq!(sent[0]["type"], "keyDown");
     assert_eq!(sent[0]["text"], "\r");
     assert_eq!(sent[0]["windowsVirtualKeyCode"], 13);

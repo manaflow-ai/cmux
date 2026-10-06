@@ -109,6 +109,7 @@ fn serve() -> u16 {
                         .to_owned(),
                     "/script.js" => "window.__loaded = true;".to_owned(),
                     "/scripted" => "<!doctype html><html><head><title>Scripted</title><script src=\"/script.js\"></script></head><body><p>second</p><script>window.__inline = 1;</script></body></html>".to_owned(),
+                    "/files" => files_page(),
                     "/fields" => "<!doctype html><title>Fields</title>\
                          <label for=pw>Password</label><input id=pw type=password value=hunter2-default>\
                          <input id=otp autocomplete=one-time-code><input id=cc autocomplete=\"cc-number\">\
@@ -1096,3 +1097,8 @@ fn an_unrouted_dialog_goes_to_the_creators_policy_log() {
 // test target with this file (the workflows run `--test chromium`).
 #[path = "chromium/sessions.rs"]
 mod sessions;
+
+// Uploads and file choosers on the shared headless browser (items 10/11).
+#[path = "chromium/files.rs"]
+mod files;
+use files::files_page;
