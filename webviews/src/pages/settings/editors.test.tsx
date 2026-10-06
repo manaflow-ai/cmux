@@ -46,7 +46,8 @@ function editorProblem(row: SchemaRow, control: Element): string | null {
       return has('input[type="time"]', 2) ? null : "no time fields";
     case "number_list":
     case "string_map":
-      return "a cmux-browser kind on the cmux-next page";
+    case "string_list":
+      return "a kind the cmux-next page never renders";
   }
 }
 
