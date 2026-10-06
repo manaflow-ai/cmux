@@ -360,3 +360,105 @@ fn a_non_participant_cannot_upload_or_read() {
     );
     assert_eq!(message, "not_participant");
 }
+
+/// A JPEG the sender uploaded as an ordinary attachment record (its own
+/// original, no derived image) so a `link_preview` part can name it.
+const LINK_IMAGE: &[u8] = b"\xff\xd8\xff\xe0 the page's og:image, resized";
+
+fn upload_link_image(mux: &Arc<Mux>, client: u64, conversation: &str) {
+    let begun = run(
+        mux,
+        client,
+        json!({"cmd":"conversation-attachment-upload","op":"begin","conversation":conversation,
+               "sha256":hex(LINK_IMAGE),"byte_count":LINK_IMAGE.len(),
+               "mime_type":"image/jpeg","name":"link-preview.jpg"}),
+    )
+    .unwrap();
+    let id = begun["upload"].as_str().unwrap();
+    run(
+        mux,
+        client,
+        json!({"cmd":"conversation-attachment-upload","op":"chunk","upload":id,
+               "piece":"original","offset":0,"data":b64(LINK_IMAGE)}),
+    )
+    .unwrap();
+    run(mux, client, json!({"cmd":"conversation-attachment-upload","op":"commit","upload":id}))
+        .unwrap();
+}
+
+fn link_preview_part(image: Option<Value>) -> Value {
+    let mut part = json!({"type":"link_preview","url":"https://example.com/post",
+        "title":"A post","site":"example.com"});
+    if let Some(image) = image {
+        part["image"] = image;
+    }
+    part
+}
+
+fn link_image(mime_type: &str, byte_count: usize) -> Value {
+    json!({"hash":hex(LINK_IMAGE),"mime_type":mime_type,"byte_count":byte_count})
+}
+
+#[test]
+fn link_preview_without_an_image_needs_no_upload() {
+    let (mux, user, chief, conversation) = setup();
+    let parts = json!([{"type":"text","text":"look"}, link_preview_part(None)]);
+    let sent = run(&mux, user, send_parts(&conversation, "c1", parts.clone())).unwrap();
+    assert_eq!(sent["change"]["message"]["parts"], parts);
+    let snapshot = run(
+        &mux,
+        chief,
+        json!({"cmd":"conversation-snapshot","conversation":conversation,"tail":1}),
+    )
+    .unwrap();
+    assert_eq!(snapshot["messages"][0]["parts"], parts);
+}
+
+#[test]
+fn link_preview_image_must_match_an_attachment_record_the_author_may_use() {
+    let (mux, user, chief, conversation) = setup();
+    let matching = link_preview_part(Some(link_image("image/jpeg", LINK_IMAGE.len())));
+    // No record of the hash yet.
+    let (message, code) =
+        rejection(&mux, user, send_parts(&conversation, "c1", json!([matching.clone()])));
+    assert_eq!(
+        (message.as_str(), code.as_deref()),
+        ("unknown_attachment", Some("conversation_rejected"))
+    );
+    upload_link_image(&mux, user, &conversation);
+    // Another participant's unsent upload is not theirs to use.
+    let (message, _) =
+        rejection(&mux, chief, send_parts(&conversation, "c2", json!([matching.clone()])));
+    assert_eq!(message, "unknown_attachment");
+    // The record's type and size must match.
+    let wrong_type = link_preview_part(Some(link_image("image/webp", LINK_IMAGE.len())));
+    let (message, _) = rejection(&mux, user, send_parts(&conversation, "c3", json!([wrong_type])));
+    assert_eq!(message, "attachment_mismatch");
+    let wrong_size = link_preview_part(Some(link_image("image/jpeg", LINK_IMAGE.len() + 1)));
+    let (message, _) = rejection(&mux, user, send_parts(&conversation, "c4", json!([wrong_size])));
+    assert_eq!(message, "attachment_mismatch");
+    // The matching record commits, and every participant can then read the image.
+    let sent = run(&mux, user, send_parts(&conversation, "c5", json!([matching.clone()]))).unwrap();
+    assert_eq!(sent["change"]["message"]["parts"], json!([matching]));
+    let (bytes, _) = read_all(&mux, chief, &conversation, &hex(LINK_IMAGE), "original").unwrap();
+    assert_eq!(bytes, LINK_IMAGE);
+}
+
+#[test]
+fn link_preview_part_shape_is_checked_before_any_record() {
+    let (mux, user, _, conversation) = setup();
+    for part in [
+        json!({"type":"link_preview","url":"javascript:alert(1)"}),
+        json!({"type":"link_preview","url":"https://example.com","title":""}),
+        link_preview_part(Some(link_image("image/png", LINK_IMAGE.len()))),
+        link_preview_part(Some(link_image("image/jpeg", 512_001))),
+    ] {
+        let (message, code) =
+            rejection(&mux, user, send_parts(&conversation, "c1", json!([part.clone()])));
+        assert_eq!(
+            (message.as_str(), code.as_deref()),
+            ("invalid_parts", Some("conversation_rejected")),
+            "{part}"
+        );
+    }
+}

@@ -199,3 +199,49 @@ fn an_upload_in_flight_counts_against_the_cap() {
         .unwrap_err();
     assert_eq!(error.to_string(), "storage_full", "20 in flight + 20 > 30");
 }
+
+#[test]
+fn a_link_preview_image_counts_as_referenced_and_survives_the_sweep() {
+    let directory = TempDir::new("link-preview");
+    let (mut store, conversation) = store_with_conversation(&directory.0);
+    let image = b"\xff\xd8\xff\xe0 link preview";
+    let begun = store
+        .attachment_begin(
+            1,
+            "user_local",
+            &conversation,
+            &serde_json::from_value(serde_json::json!({
+                "sha256": hash(image), "byte_count": image.len(), "mime_type": "image/jpeg",
+                "name": "link-preview.jpg"
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+    let id = begun.upload.unwrap();
+    store.attachment_chunk(1, &id, Piece::Original, 0, image).unwrap();
+    store.attachment_commit(1, &id).unwrap();
+    upload(&mut store, &conversation, BYTES);
+    let part: Part = serde_json::from_value(serde_json::json!({
+        "type":"link_preview","url":"https://example.com","title":"Example",
+        "image":{"hash":hash(image),"mime_type":"image/jpeg","byte_count":image.len()}
+    }))
+    .unwrap();
+    store
+        .apply_op(
+            &conversation,
+            "c1",
+            "user_local",
+            &Op::MessageSend { client_msg_id: "c1".into(), parts: vec![part], reply_to: None },
+        )
+        .unwrap();
+    store.connection.execute("UPDATE attachment_record SET created_at_ms = 0", []).unwrap();
+    store.sweep_unreferenced().unwrap();
+    let root = directory.0.join(ATTACHMENTS_DIRECTORY);
+    assert!(!root.join(hash(BYTES)).exists(), "the unsent upload is swept");
+    assert!(root.join(hash(image)).exists(), "the link preview's image stays");
+    // The agent, which never uploaded it, may read it once a message references it.
+    let read = store
+        .attachment_read("agent_mux", &conversation, &hash(image), Piece::Original, 0, 1024)
+        .unwrap();
+    assert_eq!(read.data, image);
+}
