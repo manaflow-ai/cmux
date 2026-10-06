@@ -37,7 +37,9 @@ export function pickerData(props: ModelPickerProps) {
   const entry = props.catalog.find((harness) => harness.id === props.harness);
   const taxonomy = buildTaxonomy(entry?.models ?? [], entry?.name ?? props.harness ?? "");
   const current: Current = { model: props.model, effort: props.effort };
-  const recents = runnableRecents(props.recents, taxonomy, props.harness, Number.MAX_SAFE_INTEGER);
+  // The catalog's default model, which the taxonomy leaves out of its providers.
+  const defaultChoice = entry?.models.find((candidate) => isDefaultChoice(candidate));
+  const recents = runnableRecents(props.recents, taxonomy, props.harness, Number.MAX_SAFE_INTEGER, defaultChoice?.id);
   const numbered = recents.slice(0, RECENT_ROWS);
   const model = taxonomy.byId.get(props.model ?? "");
   const provider = taxonomy.providers.find((candidate) => candidate.name === model?.provider);
@@ -48,8 +50,6 @@ export function pickerData(props: ModelPickerProps) {
     combo.effort && !isDefaultChoice({ id: combo.effort, name: combo.effortName })
       ? (combo.effortName ?? effortName(combo.effort))
       : undefined;
-  // The catalog's default model, which the taxonomy leaves out of its providers.
-  const defaultChoice = entry?.models.find((candidate) => isDefaultChoice(candidate));
   // Other harnesses are offered only as a new chat, and only when the pane can start one.
   const harnesses = props.catalog.filter((harness) => harness.id === props.harness || props.onHarness);
   const land = (landing: Landing | undefined) => {
@@ -335,7 +335,9 @@ export function menuNodes(
     recentRows(): MenuNode[] {
       const rows = data.numbered.map((combo, index): MenuNode => ({
         key: `recent:${index}`,
-        label: data.taxonomy.byId.get(combo.model)?.name ?? combo.model,
+        label:
+          data.taxonomy.byId.get(combo.model)?.name ??
+          (combo.model === data.defaultChoice?.id ? (props.resolvedDefault ?? t("picker.default")) : combo.model),
         detail: data.comboEffort(combo),
         hint: String(index + 1),
         section: t("picker.recent"),
@@ -347,11 +349,14 @@ export function menuNodes(
     /// A query's matches across this harness's models, best nearest the chip.
     matches(query: string, within?: TaxModel[]): MenuNode[] {
       const found = data.filter(query, within);
-      if (found.length === 0) return [{ key: "none", label: t("picker.noMatches") }];
-      return ordered(
-        found.map((model) => modelRow(model, undefined, `${model.provider} · ${model.family}`)),
-        order,
-      );
+      // The default row matches "default" and the name of the model it resolves to.
+      const fallback = within ? undefined : defaultRow();
+      const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+      const named = `${t("picker.default")} default ${props.resolvedDefault ?? ""}`.toLowerCase();
+      const rows = found.map((model) => modelRow(model, undefined, `${model.provider} · ${model.family}`));
+      if (fallback && words.every((word) => named.includes(word))) rows.unshift(fallback);
+      if (rows.length === 0) return [{ key: "none", label: t("picker.noMatches") }];
+      return ordered(rows, order);
     },
   };
 }

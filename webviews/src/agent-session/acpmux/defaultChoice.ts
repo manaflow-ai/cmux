@@ -28,9 +28,13 @@ export function modelIdName(id: string): string {
 
 /// The model the session actually runs when it asked for the default: the agent reports it as
 /// its model option's current value once it starts (Claude Code's `init`), while the session's
-/// own model stays the "default" it asked for.
-export function resolvedModel(summary: Pick<Summary, "model" | "configOptions"> | undefined): string | undefined {
+/// own model stays the "default" it asked for. Only once the default is what the agent runs: while
+/// a pick of it is unconfirmed (`confirmedModel` another model), the option still names that one.
+export function resolvedModel(
+  summary: Pick<Summary, "model" | "confirmedModel" | "configOptions"> | undefined,
+): string | undefined {
   if (!summary?.model || summary.model.toLowerCase() !== DEFAULT_ID) return undefined;
+  if (summary.confirmedModel && summary.confirmedModel.toLowerCase() !== DEFAULT_ID) return undefined;
   const option = summary.configOptions?.find((candidate) => candidate.category === "model" || candidate.id === "model");
   const current = option?.currentValue;
   return typeof current === "string" && current && current.toLowerCase() !== DEFAULT_ID ? current : undefined;

@@ -205,7 +205,8 @@ export function ComposerPickers({
   // A default model draws as the model it resolves to: the running session's, else the one this
   // harness's default last resolved to, else "Default".
   const defaulted = shown !== undefined && isDefaultChoice(model ?? { id: shown });
-  const resolvedNow = resolvedModel(summary);
+  // A harness still starting draws its last session's options, which name no model this chat runs.
+  const resolvedNow = switching ? undefined : resolvedModel(summary);
   useEffect(() => {
     if (harness && resolvedNow) rememberResolvedDefault(harness, resolvedNow);
   }, [harness, resolvedNow]);

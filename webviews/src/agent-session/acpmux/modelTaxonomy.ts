@@ -213,11 +213,15 @@ export function filterModels(taxonomy: Taxonomy, query: string): TaxModel[] {
 }
 
 /// The viewer's recents that this harness's catalog can run, newest first, at most `limit`.
+/// `defaultId` is the catalog's default model, which the taxonomy leaves out but a recent may name.
 export function runnableRecents(
   recents: Combo[],
   taxonomy: Taxonomy,
   harness: string | undefined,
   limit: number,
+  defaultId?: string,
 ): Combo[] {
-  return recents.filter((combo) => combo.harness === harness && taxonomy.byId.has(combo.model)).slice(0, limit);
+  return recents
+    .filter((combo) => combo.harness === harness && (taxonomy.byId.has(combo.model) || combo.model === defaultId))
+    .slice(0, limit);
 }
