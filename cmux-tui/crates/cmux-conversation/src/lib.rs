@@ -10,6 +10,7 @@
 mod attachments;
 mod budget;
 mod id;
+mod link_preview;
 mod reducer;
 mod search;
 mod types;
@@ -25,6 +26,10 @@ pub use budget::{
     parse_rfc3339_millis,
 };
 pub use id::{encode_id, format_rfc3339_millis};
+pub use link_preview::{
+    MAX_LINK_SITE_CHARS, MAX_LINK_TITLE_CHARS, MAX_LINK_URL_BYTES, valid_link_preview_part,
+    valid_link_url,
+};
 pub use reducer::{
     Commit, CreateRequest, OpRequest, Reject, apply, check_typing, create, summary,
     valid_participant_id, valid_token,

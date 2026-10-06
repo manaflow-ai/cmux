@@ -117,6 +117,20 @@ pub enum Part {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         preview: Option<DerivedImage>,
     },
+    /// A link with the preview its sender fetched (link_preview.rs).
+    /// Receivers render only from this part and never fetch the URL.
+    /// `image` names an ordinary attachment record (JPEG or WebP, at most
+    /// `MAX_PREVIEW_IMAGE_BYTES`) the sender uploaded to this conversation;
+    /// the owner checks it like an `attachment` part's hash.
+    LinkPreview {
+        url: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        site: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        image: Option<DerivedImage>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
