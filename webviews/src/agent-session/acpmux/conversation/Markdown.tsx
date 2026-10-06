@@ -240,6 +240,10 @@ export type InlineOptions = {
   linkIcon?: (href: string) => ReactNode | null;
   /** The reply's footnotes: each id's number and the element id of its note. */
   notes?: FootnoteNumbers;
+  /** Long data URLs of this text, by the index their short stand-in names (`capDataUrls`). */
+  dataRefs?: string[];
+  /** Data URLs past the reply's total budget (MAX_REPLY_DATA_URLS): drawn as their name. */
+  overBudget?: Set<string>;
 };
 
 export type FootnoteNumbers = { numbers: Map<string, number>; anchor: (id: string) => string };
@@ -265,20 +269,45 @@ const INLINE_IMAGE = /^data:image\/(?:png|jpe?g|gif|webp|svg\+xml);/i;
 export const MAX_DATA_URL_LENGTH = 2_000_000;
 /// What an over-long data URL is replaced with before the inline parser sees it (`capDataUrls`).
 const OVERSIZED_DATA_URL = "data:image/x-cmux-oversized;";
+/// A long data URL's short stand-in for the inline parser, `<prefix><index in dataRefs>`: the
+/// inline pattern does not match a target of megabytes, so such an image drew as its source.
+const DATA_REF = "data:image/x-cmux-ref;";
+const DATA_REF_FROM = 4096;
+/// The data URL text one reply may draw in all (8 MB); images after it draw as their name.
+export const MAX_REPLY_DATA_URLS = 8_000_000;
+
+/// The data URL image targets of `source` past the reply's budget, in reading order. Each image
+/// over MAX_DATA_URL_LENGTH draws as its name anyway and does not count.
+export function dataUrlsOverBudget(source: string): Set<string> {
+  const over = new Set<string>();
+  if (source.length <= MAX_REPLY_DATA_URLS) return over;
+  let total = 0;
+  for (let at = source.indexOf("](data:image/"); at >= 0; at = source.indexOf("](data:image/", at + 2)) {
+    URL_END.lastIndex = at + 2;
+    const end = URL_END.exec(source)?.index ?? source.length;
+    const url = source.slice(at + 2, end);
+    if (url.length > MAX_DATA_URL_LENGTH) continue;
+    total += url.length;
+    if (total > MAX_REPLY_DATA_URLS) over.add(url);
+  }
+  return over;
+}
 const URL_END = /[\s()]/g;
 
 /// `text` with every link or image target that is a data URL over MAX_DATA_URL_LENGTH replaced by
 /// OVERSIZED_DATA_URL, in one linear scan. The inline pattern does not match such a long target
 /// (it would draw the whole URL as text), and the pane never decodes it.
-function capDataUrls(text: string): string {
-  if (text.length <= MAX_DATA_URL_LENGTH) return text;
+function capDataUrls(text: string, refs: string[]): string {
+  if (text.length <= DATA_REF_FROM) return text;
   let out = "";
   let from = 0;
   for (let at = text.indexOf("](data:"); at >= 0; at = text.indexOf("](data:", from)) {
     const start = at + 2;
     URL_END.lastIndex = start;
     const end = URL_END.exec(text)?.index ?? text.length;
-    out += text.slice(from, start) + (end - start > MAX_DATA_URL_LENGTH ? OVERSIZED_DATA_URL : text.slice(start, end));
+    const url = text.slice(start, end);
+    const short = url.length > MAX_DATA_URL_LENGTH ? OVERSIZED_DATA_URL : url.length > DATA_REF_FROM ? `${DATA_REF}${refs.push(url) - 1}` : url;
+    out += text.slice(from, start) + short;
     from = end;
   }
   return out + text.slice(from);
@@ -311,8 +340,10 @@ const INLINE_RE =
   /(`[^`]+`)|(\*\*[^*]+\*\*)|(~~[^~]+~~)|((?<![\w*])\*[^*\s][^*]*\*(?![\w*])|(?<![\w_])_[^_\s][^_]*_(?![\w_]))|(!\[[^\]]*\]\((?:[^()\s]|\([^()\s]*\))+\)|\[[^\]]+\]\((?:[^()\s]|\([^()\s]*\))+\))|(\n)|(\$\$[^$\n]+?\$\$)|(?<![\\$])(\$(?=[^\s$])(?:\\.|[^$\\\n`])*?[^\s\\`]\$(?!\d))|(\\[\\`*_{}[\]()#+\-.!$|~<>])|(\[\^[\w-]+\](?!:))/g;
 
 /** Render inline Markdown (code, bold, italic, strikethrough, links, line breaks). */
-export function renderInline(source: string, opts: InlineOptions = {}): ReactNode[] {
-  const text = capDataUrls(source);
+export function renderInline(source: string, outer: InlineOptions = {}): ReactNode[] {
+  const refs: string[] = [];
+  const text = capDataUrls(source, refs);
+  const opts = refs.length ? { ...outer, dataRefs: refs } : outer;
   const out: ReactNode[] = [];
   let last = 0;
   let k = 0;
@@ -388,7 +419,9 @@ export function renderInline(source: string, opts: InlineOptions = {}): ReactNod
 /// `![alt](src)`: a data URL image draws inline; a web image the pane cannot load draws as a link
 /// to it, named by its alt text or file name.
 function InlineImage({ source, opts }: { source: string; opts: InlineOptions }) {
-  const [, alt = "", src = ""] = source.match(/^!\[([^\]]*)\]\((.+)\)$/) ?? [];
+  const [, alt = "", written = ""] = source.match(/^!\[([^\]]*)\]\((.+)\)$/) ?? [];
+  const src = written.startsWith(DATA_REF) ? (opts.dataRefs?.[Number(written.slice(DATA_REF.length))] ?? "") : written;
+  if (opts.overBudget?.has(src)) return <OversizedImage alt={alt} opts={opts} />;
   if (src === OVERSIZED_DATA_URL || (INLINE_IMAGE.test(src) && src.length > MAX_DATA_URL_LENGTH))
     return <OversizedImage alt={alt} opts={opts} />;
   if (INLINE_IMAGE.test(src)) return <img className="cv-img" src={src} alt={alt} />;
@@ -616,12 +649,15 @@ export function Markdown({
   // Notes are numbered by first reference; the key keeps `opts` (and every memoized block) the
   // same object until a new reference arrives.
   const noteIds = footnoteOrder(children).join(" ");
+  // The reply's data URL budget; only a reply longer than the budget can pass it.
+  const budgetSource = children.length > MAX_REPLY_DATA_URLS ? children : "";
+  const overBudget = useMemo(() => dataUrlsOverBudget(budgetSource), [budgetSource]);
   const notePrefix = useId();
   const opts = useMemo<InlineOptions>(() => {
     const ids = noteIds ? noteIds.split(" ") : [];
     const numbers = new Map(ids.map((id, index) => [id, index + 1]));
-    return { linkIcon, notes: { numbers, anchor: (id) => `${notePrefix}fn-${id}` } };
-  }, [linkIcon, noteIds, notePrefix]);
+    return { linkIcon, notes: { numbers, anchor: (id) => `${notePrefix}fn-${id}` }, overBudget };
+  }, [linkIcon, noteIds, notePrefix, overBudget]);
   // Fences this reply drew open: they hand over to the highlighted card once, when they close.
   const streamedFences = useRef(new Set<string>());
   const freshChars = fresh?.reduce((sum, step) => sum + step.count, 0) ?? 0;
