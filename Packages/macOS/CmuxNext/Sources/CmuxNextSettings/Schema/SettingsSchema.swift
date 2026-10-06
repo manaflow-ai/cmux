@@ -56,7 +56,8 @@ public nonisolated enum SettingsSchema {
         case .accounts: ["accounts.refresh", "openTeamPicker"]
         case .rooms: ["space.new", "space.switch", "space.rename", "space.setTheme", "space.clearTheme"]
         case .machines: ["remote.connect", "newCloudMachine", "palette.auth.signIn"]
-        case .advanced: ["palette.openCmuxSettingsFile", "reloadConfiguration"]
+        // The page draws Open <settings file> itself, named from the loaded path.
+        case .advanced: ["reloadConfiguration"]
         }
     }
 
