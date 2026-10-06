@@ -336,7 +336,9 @@ export function Composer({
     event.preventDefault();
     // acpmux refuses this chat on this connection (remoteEditing.ts): keep the draft.
     if (!remote.canSend) return false;
-    const prompt = unwrapped().trim();
+    // The field holds markdown with its typed text escaped; the agent gets the text as typed.
+    const draftText = unwrapped();
+    const prompt = (field.current?.agentText(draftText) ?? draftText).trim();
     if (!prompt && attachments.length === 0) {
       plusDraft.current = undefined;
       return false;
