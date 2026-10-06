@@ -330,6 +330,10 @@ export function ContextRing({
   const t = useT();
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
+  // Whether the details were open when a press on the ring began. That press is also the
+  // popover's outside press, which can close it before the click lands; the click then
+  // toggles from the state the press saw, so the press that closed it does not reopen it.
+  const openAtPress = useRef<boolean | null>(null);
   const known = used !== undefined && size !== undefined && size > 0;
   const fraction = known ? Math.min(1, Math.max(0, used / size)) : 0;
   const percent = Math.round(fraction * 100);
@@ -349,7 +353,11 @@ export function ContextRing({
         aria-label={label}
         aria-haspopup="dialog"
         aria-expanded={open}
-        onClick={() => setOpen(!open)}
+        onPointerDown={() => (openAtPress.current = open)}
+        onClick={() => {
+          setOpen(!(openAtPress.current ?? open));
+          openAtPress.current = null;
+        }}
       >
         <svg width={16} height={16} viewBox="0 0 16 16" aria-hidden="true" focusable="false">
           <circle cx="8" cy="8" r={radius} fill="none" stroke="currentColor" strokeOpacity={0.28} strokeWidth={2} />
