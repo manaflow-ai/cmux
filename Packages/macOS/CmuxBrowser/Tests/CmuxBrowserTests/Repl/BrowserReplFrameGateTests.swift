@@ -625,3 +625,37 @@ struct BrowserReplFrameGateWorkspaceTests {
         #expect(!sent, "input reached a tab moved to another workspace")
     }
 }
+
+/// A call whose cell timed out or whose session was reset is cancelled
+/// while it may still wait in WebKit between native steps. Every native
+/// input step asks the gate's tab check first, so a cancelled call sends
+/// nothing more: the check refuses it, and so does the input guard.
+@MainActor
+@Suite("Frame gate: a cancelled call", .serialized)
+struct BrowserReplFrameGateCancellationTests {
+    @Test func aCancelledCallSendsNoMoreInput() async throws {
+        let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 300, height: 200), configuration: WKWebViewConfiguration())
+        webView.loadHTMLString("<p>page</p>", baseURL: URL(string: "https://example.com/"))
+        let frames = try await FramePage.settle(webView) { $0.first?.url.hasPrefix("https://example.com") == true }
+        let gate = BrowserReplFrameGate(world: BrowserReplFrameGateTests.world)
+        let home = UUID()
+        gate.scope = { webView in
+            .init(sessionID: "s", fileRoots: nil, tab: BrowserReplTabFacts(id: UUID(), mainFrameURL: webView.url, workspaceID: home), workspaceID: home)
+        }
+        #expect(await BrowserReplFrameGateTests.error { try gate.checkTab(in: webView) } == nil)
+
+        var sent = false
+        let call = Task { @MainActor in
+            withUnsafeCurrentTask { $0?.cancel() }
+            let step = await BrowserReplFrameGateTests.error { try gate.checkTab(in: webView) }
+            let input = await BrowserReplFrameGateTests.error {
+                try await gate.guardingInput(in: webView, frames: { frames }, checkFocusAfter: false) { sent = true }
+            }
+            return (step, input)
+        }
+        let (step, input) = await call.value
+        #expect(step?.code == "cancelled", "\(String(describing: step))")
+        #expect(input?.code == "cancelled", "\(String(describing: input))")
+        #expect(!sent, "a cancelled call sent input")
+    }
+}
