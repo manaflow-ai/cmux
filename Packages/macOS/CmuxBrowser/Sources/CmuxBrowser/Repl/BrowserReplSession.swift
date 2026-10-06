@@ -1216,10 +1216,10 @@ public final class BrowserReplSession: @unchecked Sendable {
         // its body are held until the runtime has the result, so results
         // the busy JS thread has not taken yet stay bounded too.
         let task = Task { [weak self] in
-            let (raw, heldBytes) = await fetcher.fetchHoldingBody(requestJSON: fetch.requestJSON) { [weak self] in
+            let (raw, rawBytes) = await fetcher.fetchHoldingBody(requestJSON: fetch.requestJSON) { [weak self] in
                 self?.fetchReceivedHeaders(taskID)
             }
-            let result = boundary.egress(.fetch(raw))
+            let (result, heldBytes) = Self.admitMaskedFetch(boundary.egress(.fetch(raw)), heldBytes: rawBytes, budget: fetcher.bodyBudget, boundary: boundary)
             guard let self else {
                 fetcher.bodyBudget.release(heldBytes)
                 return
@@ -1235,6 +1235,23 @@ public final class BrowserReplSession: @unchecked Sendable {
             }
         }
         inFlight[taskID] = InFlightWork(task: task, evalID: fetch.evalID, isFetch: true, heldBytes: fetch.heldBytes)
+    }
+
+    /// A fetch's result past the egress gate, held at its own size in the
+    /// fetch body budget in place of the `heldBytes` its unmasked result
+    /// held: masking a value into its `<secret:name>` mark can grow it. One
+    /// that no longer fits becomes an error and holds nothing.
+    /// - Returns: The result to deliver and the bytes it holds.
+    private static func admitMaskedFetch(
+        _ result: BrowserReplEgress,
+        heldBytes: Int,
+        budget: BrowserReplFetchBudget,
+        boundary: BrowserReplBoundary
+    ) -> (BrowserReplEgress, Int) {
+        guard heldBytes > 0, result.size != heldBytes else { return (result, heldBytes) }
+        guard let refusal = budget.resize(from: heldBytes, to: result.size) else { return (result, result.size) }
+        budget.release(heldBytes)
+        return (boundary.egress(.fetch(.failure(refusal.driverError("fetch (with secrets masked)")))), 0)
     }
 
     /// The fetch's response headers arrived: it leaves its slot.
