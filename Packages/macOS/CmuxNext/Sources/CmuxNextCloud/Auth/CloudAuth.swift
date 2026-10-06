@@ -68,9 +68,11 @@ public final class CloudAuth {
     /// Captures the auth launch keys; call in main before LaunchIdentity.stripInheritedEnvironment().
     public nonisolated static func captureLaunchEnvironment() { _ = launchEnvironment }
 
-    public init(configuration: CloudConfiguration,
-                environment: [String: String] = CloudAuth.authEnvironment(process: ProcessInfo.processInfo.environment, launch: CloudAuth.launchEnvironment),
+    /// `environment` nil reads this process's environment plus the captured auth launch keys.
+    public init(configuration: CloudConfiguration, environment explicitEnvironment: [String: String]? = nil,
                 defaults: UserDefaults = .standard) {
+        let environment = explicitEnvironment
+            ?? Self.authEnvironment(process: ProcessInfo.processInfo.environment, launch: Self.launchEnvironment)
         self.configuration = configuration
         let tokenStore = FallbackTokenStore(
             primary: KeychainStackTokenStore(service: configuration.keychainService),
