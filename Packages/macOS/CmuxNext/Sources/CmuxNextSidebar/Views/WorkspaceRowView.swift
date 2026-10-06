@@ -266,19 +266,23 @@ final class WorkspaceRowView: SidebarRowView {
             tabCount.frame = NSRect(x: trailing - Self.countWidth, y: (b.height - h) / 2, width: Self.countWidth, height: h)
             trailing -= Self.countWidth + Metrics.space2
         }
+        // The x and an unread badge share one slot, as wide as the wider of
+        // the two, so hover swaps them in place and the name keeps its width.
         let showClose = isHovered && !isShowingPlaceholder
         closeButton.isHidden = !showClose
-        if showClose {
-            closeButton.frame = NSRect(x: trailing - control, y: (b.height - control) / 2, width: control, height: control)
-            trailing -= control + Metrics.space2
-            badge.isHidden = true
-        } else if badge.state.isUnread {
-            badge.isHidden = false
+        badge.isHidden = showClose || !badge.state.isUnread
+        var slot: CGFloat = showClose ? control : 0
+        if badge.state.isUnread {
             let w = badge.preferredWidth
             let h = badge.state == .dot ? SidebarStyle.dotSize : SidebarStyle.badgeHeight
-            badge.frame = NSRect(x: trailing - w - (badge.state == .dot ? Metrics.space2 : 0), y: (b.height - h) / 2, width: w, height: h)
-            trailing = badge.frame.minX - Metrics.space2
+            let pad = badge.state == .dot ? Metrics.space2 : 0
+            badge.frame = NSRect(x: trailing - w - pad, y: (b.height - h) / 2, width: w, height: h)
+            slot = max(control, w + pad)
         }
+        if showClose {
+            closeButton.frame = NSRect(x: trailing - control, y: (b.height - control) / 2, width: control, height: control)
+        }
+        if slot > 0 { trailing -= slot + Metrics.space2 }
         let ind = SidebarStyle.indicatorSize
         let markReplacesStatus = !agentMark.isHidden && agentMarkVariant == .replacesStatus
         activity.isHidden = markReplacesStatus
