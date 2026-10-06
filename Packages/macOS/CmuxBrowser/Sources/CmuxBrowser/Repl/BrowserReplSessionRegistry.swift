@@ -206,7 +206,7 @@ public final class BrowserReplSessionRegistry: @unchecked Sendable {
 
     /// Closes and forgets the session for `key` while its owner token is
     /// `owner`. - Returns: Whether it existed.
-    private func remove(_ key: BrowserReplSessionKey, ifOwnedBy owner: String?) -> Bool {
+    private func remove(_ key: BrowserReplSessionKey, ifOwnedBy owner: String?, ending: BrowserReplSessionEnd = .closed) -> Bool {
         lock.lock()
         guard owners[key] == owner else {
             lock.unlock()
@@ -218,7 +218,7 @@ public final class BrowserReplSessionRegistry: @unchecked Sendable {
         if let timerID { keysByTimerID.removeValue(forKey: timerID) }
         lock.unlock()
         if let timerID { scheduler.cancel(id: timerID) }
-        session?.close()
+        session?.close(ending: ending)
         return session != nil
     }
 
@@ -269,6 +269,6 @@ public final class BrowserReplSessionRegistry: @unchecked Sendable {
             scheduler.schedule(id: timerID, after: idleTimeout - idle, repeating: false)
             return
         }
-        _ = remove(key, ifOwnedBy: owner)
+        _ = remove(key, ifOwnedBy: owner, ending: .idle)
     }
 }

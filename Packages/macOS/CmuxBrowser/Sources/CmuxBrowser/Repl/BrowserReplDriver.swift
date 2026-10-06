@@ -35,7 +35,7 @@ public enum BrowserReplSessionEnd: Sendable, Equatable {
     /// (shown in a visible window, the selected tab of its pane and
     /// workspace), which becomes the user's; a hidden one closes.
     public func closesOpenedTab(visibleToUser: Bool) -> Bool {
-        true
+        self == .closed || !visibleToUser
     }
 }
 

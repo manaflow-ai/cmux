@@ -330,6 +330,12 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     }
 
     func detach() {
+        detach(ending: .closed)
+    }
+
+    /// Ends the session's hold on its tabs; the tabs it opened close, except
+    /// one the user can see when it idled out (``BrowserReplSessionEnd/closesOpenedTab(visibleToUser:)``).
+    func detach(ending: BrowserReplSessionEnd) {
         let pendingPolicy = lock.withLock {
             sink = nil
             isDetached = true
@@ -354,7 +360,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 Task { @MainActor in _ = try? await ruleLists.update(rules: nil) }
             }
             self.clearSessionLabels()
-            self.closeOpenedTabs()
+            self.closeOpenedTabs(ending: ending)
             // The agent's proxy ends with the session: a tab it kept, now
             // the user's, and any tab opened from one on the same private
             // store go back to the browser's own proxy settings, which every
@@ -2888,20 +2894,34 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     }
 
     @MainActor
-    private func closeOpenedTabs() {
+    private func closeOpenedTabs(ending: BrowserReplSessionEnd) {
         let opened = openedTargetIDs
         openedTargetIDs.removeAll()
         // Each tab is closed in the workspace that holds it now, of any
         // window: one the user moved out of the session's workspace (or a
         // tab of a workspace that closed meanwhile) closes too, unless
-        // `page.keep()` took it out of this set. The panel's own close
-        // forgets what is kept for it (`BrowserPanel.close()`), only once
-        // it really closes.
+        // `page.keep()` took it out of this set, or the session idled out
+        // while the user can see the tab (it stays, as the user's). The
+        // panel's own close forgets what is kept for it
+        // (`BrowserPanel.close()`), only once it really closes.
         let entries = Self.browserPanelEntries()
         for id in opened {
-            guard let workspace = entries.first(where: { $0.panel.id == id })?.workspace else { continue }
-            _ = workspace.closePanel(id, force: true)
+            guard let entry = entries.first(where: { $0.panel.id == id }) else { continue }
+            guard ending.closesOpenedTab(visibleToUser: Self.isVisibleToUser(entry.panel, in: entry.workspace)) else { continue }
+            _ = entry.workspace.closePanel(id, force: true)
         }
+    }
+
+    /// Whether the user can see `panel` now: its workspace is the selected
+    /// one of its window, and its web view is in that window's view tree,
+    /// not hidden (the selected tab of its pane), in a visible window that
+    /// is not minimized.
+    @MainActor
+    private static func isVisibleToUser(_ panel: BrowserPanel, in workspace: Workspace) -> Bool {
+        let webView = panel.webView
+        guard workspace.owningTabManager?.selectedTabId == workspace.id,
+              let window = webView.window, window.isVisible, !window.isMiniaturized else { return false }
+        return webView.superview != nil && !webView.isHiddenOrHasHiddenAncestor
     }
 
     @MainActor
