@@ -232,3 +232,99 @@ fn a_compactor_node_on_an_acp_adapter_is_refused() {
     assert!(e.to_string().contains("claude-stdio"), "{e}");
     assert!(agents.inner.lock().unwrap().specs.is_empty());
 }
+
+/// acpmux's routed claude-sr (a failing `sr claude proxy` replaced by a copy
+/// of a claude-stdio `claude` pointed at the subrouter server).
+fn routed(kind: Option<&str>, argv: &[&str], url: Option<&str>) -> Value {
+    let mut p = json!({"argv": argv, "family": "claude",
+        "description": "Claude through the subrouter server"});
+    if let Some(kind) = kind {
+        p["kind"] = json!(kind);
+    }
+    if let Some(url) = url {
+        p["env"] = json!({"ANTHROPIC_BASE_URL": url, "ANTHROPIC_AUTH_TOKEN": "subrouter"});
+    }
+    json!({"harnesses": {
+        "claude": {"kind": "claude-stdio", "argv": ["/u/.local/bin/claude"]},
+        "claude-sr": p,
+    }})
+}
+
+#[test]
+fn a_routed_claude_sr_to_the_team_subrouter_is_accepted() {
+    for url in [
+        "http://cmux-lawrences-mac-mini:31415",
+        "http://100.89.225.106:31415",
+        "http://cmux-lawrences-mac-mini.tail137216.ts.net:31415",
+        "http://100.89.225.106:31415/",
+    ] {
+        let a = admit(
+            &routed(Some("claude-stdio"), &["/u/.local/bin/claude"], Some(url)),
+            "claude-sr",
+        )
+        .unwrap_or_else(|e| panic!("{url}: {e}"));
+        assert_eq!(
+            (a.profile.as_str(), a.kind.as_str(), a.argv0.as_str()),
+            ("claude-sr", "claude-stdio", "/u/.local/bin/claude")
+        );
+    }
+}
+
+#[test]
+fn a_routed_claude_sr_anywhere_else_is_refused() {
+    let team = "http://cmux-lawrences-mac-mini:31415";
+    for (why, answer) in [
+        (
+            "another server",
+            routed(
+                Some("claude-stdio"),
+                &["/u/.local/bin/claude"],
+                Some("https://subrouter-staging.cmux.dev"),
+            ),
+        ),
+        (
+            "no base URL",
+            routed(Some("claude-stdio"), &["/u/.local/bin/claude"], None),
+        ),
+        (
+            "an ACP adapter",
+            routed(
+                None,
+                &["/u/.local/share/cmux-acp/current/bin/claude-acp"],
+                Some(team),
+            ),
+        ),
+        (
+            "claude-acp as claude-stdio",
+            routed(Some("claude-stdio"), &["/u/bin/claude-acp"], Some(team)),
+        ),
+        (
+            "extra arguments",
+            routed(
+                Some("claude-stdio"),
+                &["/u/.local/bin/claude", "--x"],
+                Some(team),
+            ),
+        ),
+        (
+            "another port",
+            routed(
+                Some("claude-stdio"),
+                &["/u/.local/bin/claude"],
+                Some("http://100.89.225.106:31416"),
+            ),
+        ),
+    ] {
+        assert!(admit(&answer, "claude-sr").is_err(), "{why} was admitted");
+    }
+}
+
+#[test]
+fn a_real_sr_proxy_wins_over_a_routed_copy() {
+    let answer = json!({"harnesses": {
+        "claude-sr": {"kind": "claude-stdio", "argv": ["/u/.local/bin/claude"],
+            "env": {"ANTHROPIC_BASE_URL": "http://100.89.225.106:31415"}},
+        "pool": {"kind": "claude-stdio", "argv": ["/u/bin/sr", "claude", "proxy"]},
+    }});
+    assert_eq!(admit(&answer, "claude-sr").unwrap().profile, "pool");
+}
