@@ -780,6 +780,9 @@ try {{
   const shotDecoy = (await page.locator(ref).screenshot()).toString("base64");
   console.log("masked:" + (shotSecret === shotDecoy && shotSecret !== shotText));
 }} catch (e) {{ console.log("masked:error " + e.message); }}
+const info = await page._session.call("tab.info", {{ targetId: page._targetId }});
+const cr = info.closedRoots;
+console.log("stats:" + !!(cr && cr.walks >= 1 && cr.roots >= 1 && cr.walkMs >= 0 && typeof cr.domEvents === "number"));
 "##
     );
     let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"))
@@ -800,7 +803,9 @@ try {{
     let mut stop = std::process::Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"));
     let _ = stop.args(["close", "--socket"]).arg(&socket).output();
     let _ = std::fs::remove_dir_all(&dir);
-    for line in ["main:true", "frame:true", "redacted:true", "click:clicked", "masked:true"] {
+    for line in
+        ["main:true", "frame:true", "redacted:true", "click:clicked", "masked:true", "stats:true"]
+    {
         assert!(out.lines().any(|l| l.trim() == line), "{line} missing in: {out}");
     }
 }
