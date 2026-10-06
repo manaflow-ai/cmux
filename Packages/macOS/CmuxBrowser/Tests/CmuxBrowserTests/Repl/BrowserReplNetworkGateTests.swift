@@ -78,6 +78,30 @@ struct BrowserReplNetworkGateTests {
         #expect(delivered["open"] == ["navigate"])
     }
 
+    /// A user's tab shows a file inside the session's directories, and its
+    /// frame-tree read still names that document while it loads a file
+    /// outside them: the load's URL is judged by the file roots too, so
+    /// the outside file's URL never reaches the session.
+    @Test func aDocumentLoadOfALocalFileOutsideTheSessionsDirectoriesDoesNotReachIt() async throws {
+        let inside = BrowserReplFrameDocument(origin: "file://", place: "file://", local: "file:///tmp/session-work/index.html")
+        reads.documents = ["doc-inside": inside]
+        let reads = reads
+        let log = log
+        let gate = BrowserReplNetworkGate<String>(
+            tab: { BrowserReplTabFacts(mainFrameURL: URL(string: "file:///tmp/session-work/index.html")) },
+            authority: { BrowserReplDocumentAuthority(sessionID: $0, fileRoots: $0 == "local" ? ["/tmp/session-work"] : nil) },
+            readDocuments: { await reads.read() },
+            deliver: { event, sessions in
+                for session in sessions { log.value[session, default: []].append(event) }
+            }
+        )
+        gate.send("outside", from: BrowserReplNetworkSender(documentID: "doc-inside", loadsDocument: "file:///etc/passwd"), to: ["local", "open"])
+        gate.send("inside", from: BrowserReplNetworkSender(documentID: "doc-inside", loadsDocument: "file:///tmp/session-work/b.html"), to: ["local", "open"])
+        await gate.idle()
+        #expect(delivered["local"] == ["inside"])
+        #expect(delivered["open"] == ["outside", "inside"])
+    }
+
     @Test func anEventWhoseDocumentCannotBeToldIsDroppedForAnActivePolicyOnly() async throws {
         let gate = try gate()
         gate.send("unknown", from: BrowserReplNetworkSender(documentID: "doc-gone"), to: ["strict", "open"])
