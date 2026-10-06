@@ -36,6 +36,8 @@ export type MockOptions = {
   connected?: boolean;
   /** Ops that fail with this code, to test read failures. */
   failing?: Partial<Record<string, string>>;
+  /** The loaded settings file's path (the host lists' `settings_file`). */
+  settingsFile?: string;
 };
 
 export const mockDomains: Domains = {
@@ -76,6 +78,7 @@ export class MockSettingsProvider {
     this.domains = options.domains === undefined ? mockDomains : options.domains;
     this.failing = options.failing ?? {};
     this.connected = options.connected ?? true;
+    if (options.settingsFile !== undefined) this.host = { ...this.host, settings_file: options.settingsFile };
   }
 
   /** Registers every op and stream on `session` (the provider side). */
@@ -99,10 +102,12 @@ export class MockSettingsProvider {
       },
       "cmux.settings.theme.accepts": (params) => ({ accepts: String((params as { text: string }).text).includes(":") }),
       "cmux.settings.file.reveal": () => ({}),
+      // The registry buttons SettingsSchema.actions(in:) lists for these sections.
       "cmux.settings.section.actions": (params) =>
-        String((params as { section: string }).section) === "general"
-          ? [{ id: "palette.welcomeChecklist", title: "Welcome Checklist", enabled: true }]
-          : [],
+        ({
+          general: [{ id: "palette.welcomeChecklist", title: "Welcome Checklist", enabled: true }],
+          advanced: [{ id: "reloadConfiguration", title: "Reload Configuration", enabled: true }],
+        })[String((params as { section: string }).section)] ?? [],
       "cmux.settings.folders.add": (params) => {
         const key = String((params as { key: string }).key);
         const current = Array.isArray(this.values.get(key)) ? (this.values.get(key) as string[]) : [];
@@ -192,11 +197,9 @@ export class MockSettingsProvider {
 
   /** The Accounts part as the app serves it (texts already localized). */
   accounts: AccountsState = {
-    intro: "cmux checks this Mac for sign-ins and keys.",
     refresh: "Refresh",
     refreshing: false,
     signIn: null,
-    problem: null,
     removeTitle: "Remove from CodeRouter",
     groups: [
       {
@@ -214,7 +217,6 @@ export class MockSettingsProvider {
               { id: "reauth", title: "Re-authenticate", disabled: false, help: null, destructive: false },
               { id: "connect", title: "Connect to CodeRouter", disabled: false, help: null, destructive: false },
             ],
-            unsupported: null,
             linked: [{ id: "acct-1", label: "s…@e…", state: "healthy", healthy: true, busy: false }],
             note: null,
             outcome: null,
@@ -235,7 +237,6 @@ export class MockSettingsProvider {
             statusKind: "quiet",
             busy: false,
             buttons: [{ id: "addKey", title: "Add Key…", disabled: false, help: null, destructive: false }],
-            unsupported: null,
             linked: [],
             note: null,
             outcome: null,

@@ -9,7 +9,20 @@ import Testing
     /// Exit status of `/bin/sh -c 'true <&FD'` spawned with plain posix_spawn (no
     /// POSIX_SPAWN_CLOEXEC_DEFAULT): 0 only when the child inherited `fd`.
     static func childInherits(_ fd: Int32) -> Bool {
-        let arguments = ["/bin/sh", "-c", "true <&\(fd)"].map { $0.withCString { strdup($0) } } + [nil]
+        // Test on a reserved descriptor number so unrelated inherited descriptors cannot
+        // make the shell redirection succeed after the real descriptor closes on exec.
+        let flags = fcntl(fd, F_GETFD, 0)
+        let probe = fcntl(fd, F_DUPFD, 128)
+        guard flags >= 0, probe >= 0 else {
+            if probe >= 0 { close(probe) }
+            return false
+        }
+        guard fcntl(probe, F_SETFD, flags) == 0 else {
+            close(probe)
+            return false
+        }
+        defer { close(probe) }
+        let arguments = ["/bin/sh", "-c", "true <&\(probe)"].map { $0.withCString { strdup($0) } } + [nil]
         defer { arguments.forEach { free($0) } }
         var pid: pid_t = 0
         guard posix_spawn(&pid, "/bin/sh", nil, nil, arguments, nil) == 0 else { return false }

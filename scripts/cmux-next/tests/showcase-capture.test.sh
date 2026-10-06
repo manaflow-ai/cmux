@@ -32,7 +32,9 @@ cat > "$TMP/bin/ssh" <<'SH'
 set -euo pipefail
 # The fake host admits the tagged app and accepts socket operations.
 cmd="${*: -1}"
+printf '%s\n' "$cmd" >> "${FAKE_SSH_LOG:-/dev/null}"
 if [[ "$cmd" == *"find "* ]]; then echo /tmp/cmux.app; fi
+if [[ "$cmd" == *"debug.showcase.seed"* ]]; then echo 'seeded  true'; fi
 if [[ "$cmd" == *"printf '%s'"* ]]; then echo /tmp/cmux-showcase-wallpaper/test.jpg; fi
 SH
 cat > "$TMP/bin/scp" <<'SH'
@@ -53,11 +55,20 @@ SH
 chmod +x "$TMP/bin/ssh" "$TMP/bin/scp" "$TMP/bin/cua"
 printf 'admitted' > "$TMP/admitted"
 printf '{"admitted":true,"owner":"test"}\n' > "$TMP/admission.json"
-PATH="$TMP/bin:$PATH" CMUX_CUA_SSH="$TMP/bin/cua" CMUX_SHOWCASE_WAIT_SECONDS=0 \
+FAKE_SSH_LOG=$TMP/ssh.log PATH="$TMP/bin:$PATH" CMUX_CUA_SSH="$TMP/bin/cua" CMUX_SHOWCASE_WAIT_SECONDS=0 \
   "$SCRIPT" --host mini --tag showcase-test --checkout "$TMP/checkout" --skip-build --app /tmp/cmux.app \
   --out-root "$OUT" --date 2099-01-01 --backdrop-manifest "$TMP/backdrops/manifest.json" \
   --backdrop-root "$TMP/backdrops" --backdrop-id test-wallpaper --lease-receipt "$TMP/lease.json" \
   --admission-command "cat $TMP/admission.json" >/dev/null
+# Debug methods go to the app's control socket (`--app-socket PATH app call`): `cmux rpc`
+# reaches a remote route and refuses the app socket.
+tr -d '\\' < "$TMP/ssh.log" > "$TMP/ssh.plain"
+grep -q -- "--app-socket /tmp/cmux-debug-showcase-test.sock app call debug.showcase.seed" "$TMP/ssh.plain"
+! grep -q -- " rpc debug\." "$TMP/ssh.plain"
+# The app opens on Home, where no pane is ready: a workspace is selected before the seed.
+select_line=$(grep -n "action run workspace.selectFirst" "$TMP/ssh.plain" | head -1 | cut -d: -f1)
+seed_line=$(grep -n "debug.showcase.seed" "$TMP/ssh.plain" | head -1 | cut -d: -f1)
+test -n "$select_line" && test "$select_line" -lt "$seed_line"
 manifest=$OUT/captures/manifest.json
 test -s "$manifest"; grep -q 'cmux-next-showcase' "$manifest"
 grep -q 'test-wallpaper' "$manifest"; grep -q "$hash" "$manifest"

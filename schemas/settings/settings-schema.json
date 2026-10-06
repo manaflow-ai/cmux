@@ -3164,8 +3164,8 @@
       ],
       "default" : null,
       "default_label" : {
-        "key" : "settings.default.ghosttyConfig",
-        "text" : "Ghostty config"
+        "key" : "settings.source.ghostty",
+        "text" : "Ghostty"
       },
       "group" : {
         "key" : "settings.group.appTheme",
@@ -3458,8 +3458,8 @@
       ],
       "default" : null,
       "default_label" : {
-        "key" : "settings.default.ghosttyConfig",
-        "text" : "Ghostty config"
+        "key" : "settings.source.ghostty",
+        "text" : "Ghostty"
       },
       "group" : {
         "key" : "settings.group.windowBackground",
@@ -3547,8 +3547,8 @@
       ],
       "default" : null,
       "default_label" : {
-        "key" : "settings.default.ghosttyConfig",
-        "text" : "Ghostty config"
+        "key" : "settings.source.ghostty",
+        "text" : "Ghostty"
       },
       "group" : {
         "key" : "settings.group.windowBackground",
@@ -7215,8 +7215,8 @@
       ],
       "default" : null,
       "default_label" : {
-        "key" : "settings.default.ghosttyConfig",
-        "text" : "Ghostty config"
+        "key" : "settings.source.ghostty",
+        "text" : "Ghostty"
       },
       "group" : {
         "key" : "settings.group.terminalFont",
@@ -7266,8 +7266,8 @@
       ],
       "default" : null,
       "default_label" : {
-        "key" : "settings.default.ghosttyConfig",
-        "text" : "Ghostty config"
+        "key" : "settings.source.ghostty",
+        "text" : "Ghostty"
       },
       "group" : {
         "key" : "settings.group.terminalFont",
@@ -7690,6 +7690,49 @@
       "title" : {
         "key" : "settings.sidebar.showWorkspaceTabs",
         "text" : "Show Workspace Tabs"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.showCounts",
+      "keywords" : [
+        "sidebar",
+        "workspace",
+        "tabs",
+        "count",
+        "number"
+      ],
+      "kind" : "toggle",
+      "path" : [
+        "sidebar",
+        "showCounts"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.sidebar.showCounts",
+        "text" : "Show Tab Counts"
       },
       "validation" : "portable"
     },
@@ -11504,7 +11547,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "5daad6012082600875b271819a2d01d669571b1203deae2263b14de6237bf47b",
+  "schema_hash" : "d6c77ce931df0cccb15b697f526839f02e6a1127ae35fa3fbb79b822513dc6a0",
   "sections" : [
     {
       "id" : "general",

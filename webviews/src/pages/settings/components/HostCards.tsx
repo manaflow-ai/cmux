@@ -4,6 +4,7 @@
 // the host lists; writes run host ops or catalog actions, the palette's paths.
 import { useState } from "react";
 import { useSettingsState, useStore } from "../context";
+import { settingsFileName } from "../format";
 import { t } from "../strings";
 import { ActionRow } from "./ActionRow";
 
@@ -146,15 +147,12 @@ export function AdvancedInfo() {
               <button type="button" className="button" onClick={() => store.revealSettingsFile()}>
                 {t("settingsWindow.showInFinder")}
               </button>
-              <button type="button" className="button" onClick={() => void store.runAction("reloadConfiguration")}>
-                {t("action.reloadConfiguration")}
-              </button>
             </ActionRow>
           </div>
         </section>
       )}
       <section className="group" data-card="problems">
-        <h3 className="group-title">{t("settingsWindow.problems")}</h3>
+        <h3 className="group-title">{t("settingsWindow.problems", settingsFileName(host))}</h3>
         <div className="rows">
           {problems.length === 0 ? (
             <div className="row">
@@ -163,7 +161,7 @@ export function AdvancedInfo() {
           ) : (
             problems.map((problem, index) => (
               <div className="row selectable" key={`${problem.path}-${index}`} data-problem="">
-                <div className="row-title">{problem.path || host?.settings_file?.split("/").at(-1)}</div>
+                <div className="row-title">{problem.path || settingsFileName(host)}</div>
                 <div className="row-help">{problem.message}</div>
               </div>
             ))

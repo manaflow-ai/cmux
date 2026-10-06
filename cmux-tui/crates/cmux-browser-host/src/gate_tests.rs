@@ -24,6 +24,68 @@ struct FakeDriver {
     fetch_routes: Mutex<std::collections::HashMap<String, Value>>,
     /// frame.focused: the focused frame the engine reports (Null: none).
     focused_frame: Mutex<Value>,
+    /// A page model for captures: the values its fields show and whether
+    /// the capture mask hid each one. Empty: the mask steps answer as
+    /// `mask_held` says.
+    page_fields: Mutex<Vec<(String, bool)>>,
+    /// The needles each capture token's mask step got.
+    mask_needles: Mutex<std::collections::HashMap<u64, Vec<String>>>,
+    /// Runs inside the next `tab.screenshot` (what another session does
+    /// while the capture is taken).
+    during_capture: Mutex<Option<DuringCapture>>,
+}
+
+/// What another session does while a capture is taken (`during_capture`).
+type DuringCapture = Box<dyn FnOnce(&FakeDriver) + Send>;
+
+impl FakeDriver {
+    fn needles(args: &Value) -> Vec<String> {
+        args.as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect()
+    }
+
+    /// The capture mask steps on the page model, as the host world's
+    /// scripts do: the mask hides the fields that hold one of its needles;
+    /// the check fails on a field that holds a needle it was given (else
+    /// the mask's) and is not hidden.
+    fn capture_step(&self, source: &str, args: &Value) -> Value {
+        let token = args.as_array().and_then(|a| a.iter().find_map(Value::as_u64));
+        let mut fields = self.page_fields.lock().unwrap();
+        if source.contains("cmux-capture-mask") {
+            let needles = Self::needles(&args[0]);
+            let mut hidden = 0;
+            for (value, is_hidden) in fields.iter_mut() {
+                if needles.iter().any(|n| value.contains(n.as_str())) {
+                    *is_hidden = true;
+                    hidden += 1;
+                }
+            }
+            self.mask_needles.lock().unwrap().insert(token.unwrap_or(0), needles);
+            return json!(hidden);
+        }
+        if source.contains("cmux-capture-held") {
+            let given = args.as_array().and_then(|a| a.iter().find(|v| v.is_array()));
+            let needles = match given {
+                Some(given) => Self::needles(given),
+                None => self
+                    .mask_needles
+                    .lock()
+                    .unwrap()
+                    .get(&token.unwrap_or(0))
+                    .cloned()
+                    .unwrap_or_default(),
+            };
+            for (value, is_hidden) in fields.iter() {
+                if !is_hidden && needles.iter().any(|n| value.contains(n.as_str())) {
+                    return json!("a new element holds a secret");
+                }
+            }
+            return json!(self.mask_held.load(std::sync::atomic::Ordering::SeqCst));
+        }
+        for (_, is_hidden) in fields.iter_mut() {
+            *is_hidden = false;
+        }
+        json!(0)
+    }
 }
 
 impl FakeDriver {
@@ -66,7 +128,10 @@ impl Driver for FakeDriver {
         match method {
             "frame.evaluate" => {
                 let source = params["source"].as_str().unwrap_or("");
-                if source.contains("cmux-capture-held") {
+                if source.contains("cmux-capture-") && !self.page_fields.lock().unwrap().is_empty()
+                {
+                    Ok(self.capture_step(source, &params["args"]))
+                } else if source.contains("cmux-capture-held") {
                     Ok(json!(self.mask_held.load(std::sync::atomic::Ordering::SeqCst)))
                 } else if source.contains("cmux-capture-mask") {
                     Ok(json!(1))
@@ -75,6 +140,13 @@ impl Driver for FakeDriver {
                 }
             }
             "frame.focused" => Ok(self.focused_frame.lock().unwrap().clone()),
+            "tab.screenshot" => {
+                let during = self.during_capture.lock().unwrap().take();
+                if let Some(during) = during {
+                    during(self);
+                }
+                Ok(Value::Null)
+            }
             "tab.info" => Ok(json!({"title": self.page_text, "url": "https://peer.test/page"})),
             "cookies.get" => Ok(json!([
                 {"name": "p", "value": "1", "domain": ".peer.test", "path": "/"},
@@ -173,6 +245,9 @@ fn make_gate(focused_url: Value, raw_cdp: bool) -> (Gate, Arc<FakeDriver>) {
         fetch_cancelled: Mutex::new(std::collections::HashSet::new()),
         fetch_routes: Mutex::new(std::collections::HashMap::new()),
         focused_frame: Mutex::new(Value::Null),
+        page_fields: Mutex::new(Vec::new()),
+        mask_needles: Mutex::new(std::collections::HashMap::new()),
+        during_capture: Mutex::new(None),
     });
     (Gate::new(driver.clone(), Grants { raw_cdp, ..Grants::default() }), driver)
 }
@@ -641,6 +716,32 @@ fn captures_mask_secret_fields_and_are_refused_when_the_mask_is_dropped() {
     assert!(refused.message.contains("refused"), "{}", refused.message);
     let pdf = gate.driver_call("tab.pdf", json!({"targetId": "T"})).unwrap_err();
     assert_eq!(pdf.code, ErrorCode::Invalid, "{pdf}");
+}
+
+/// Another session types a secret into the tab while this session's
+/// capture is between its mask and its shot: the other session records the
+/// secret for the tab (before its input is sent), the mask did not know it,
+/// and the field shows it in the shot. The check after the shot looks for
+/// every secret the tab has now, so the capture is refused instead of
+/// returned.
+#[test]
+fn a_secret_typed_by_another_session_during_a_capture_refuses_it() {
+    let (gate, driver) = make_gate(Value::Null, false);
+    agent_secret(&gate, "example.com");
+    let tab_secrets = Arc::new(TabSecrets::default());
+    let gate = gate.with_tab_secrets(tab_secrets.clone());
+    driver.page_fields.lock().unwrap().push(("s3cret-value".into(), false));
+    // Nothing typed meanwhile: the capture is returned.
+    gate.driver_call("tab.screenshot", json!({"targetId": "T"})).unwrap();
+    *driver.during_capture.lock().unwrap() = Some(Box::new(move |page: &FakeDriver| {
+        tab_secrets.record("T", "other", "typed-by-other-7f3a");
+        page.page_fields.lock().unwrap().push(("typed-by-other-7f3a".into(), false));
+    }));
+    let refused = gate.driver_call("tab.screenshot", json!({"targetId": "T"})).unwrap_err();
+    assert_eq!(refused.code, ErrorCode::Invalid, "{refused}");
+    assert!(refused.message.contains("a new element holds a secret"), "{}", refused.message);
+    // The next capture knows the secret and hides its field.
+    gate.driver_call("tab.screenshot", json!({"targetId": "T"})).unwrap();
 }
 
 #[test]

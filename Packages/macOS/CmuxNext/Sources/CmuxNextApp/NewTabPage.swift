@@ -183,6 +183,8 @@ enum NewTabPage {
     /// Through the palette's switchers, the one path that reveals a tab's or
     /// workspace's window and selects it.
     static func jump(_ target: AgentPaneJumpTarget, id: String, services: AppServices) {
+        // Back returns to this page (Leo 2026-10-06).
+        services.locationTrail.noteJump()
         switch target {
         case .tab: PaletteSourcesBridge.TabSource(services: services).selectTab(id: id)
         case .workspace: PaletteSourcesBridge.WorkspaceSource(services: services).selectWorkspace(id: id)

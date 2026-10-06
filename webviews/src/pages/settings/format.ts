@@ -1,6 +1,13 @@
 // Display text for values: choice titles, numbers with units, percent for fractions.
 import { locale, t, text, unitSuffix } from "./strings";
+import type { HostLists } from "./ops";
 import type { NumberRange, SchemaRow } from "./schema";
+
+/** The settings file's name from the path the app loaded (cmux-next.json, or the file
+ * CMUX_NEXT_CONFIG_FILE names); "Settings File" until the host lists arrive. */
+export function settingsFileName(host: HostLists | null): string {
+  return host?.settings_file?.split("/").at(-1) || t("settingsWindow.settingsFile");
+}
 
 export function isFraction(range: NumberRange | undefined): boolean {
   return range?.unit === "fraction";

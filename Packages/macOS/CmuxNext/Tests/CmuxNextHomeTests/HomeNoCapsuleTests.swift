@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextIcons
 import Testing
 @testable import CmuxNextHome
 
@@ -9,7 +10,7 @@ import Testing
 @MainActor
 @Suite struct HomeNoCapsuleTests {
     @Test func aFirstRunRowIsASmallRadiusRect() {
-        let chip = HomeFirstRunRow(title: "Open a terminal", symbol: "apple.terminal")
+        let chip = HomeFirstRunRow(title: "Open a terminal", icon: .terminalNew)
         chip.frame = NSRect(origin: .zero, size: chip.intrinsicContentSize)
         chip.layoutSubtreeIfNeeded()
         #expect(!chip.subviews.contains { $0 is NSGlassEffectView })
