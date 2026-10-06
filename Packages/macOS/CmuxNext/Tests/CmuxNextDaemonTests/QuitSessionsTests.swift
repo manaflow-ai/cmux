@@ -50,7 +50,7 @@ struct QuitSessionsTests {
             await h.stop()
             throw error
         }
-        let ended = await h.connection.endSessionsAndStop(deletingWorkspaces: deletingWorkspaces)
+        let ended = await h.connection.endSessionsAndStop(deletingWorkspaces: deletingWorkspaces, keepingLayout: !deletingWorkspaces)
         #expect(ended.failures.isEmpty, "\(ended.failures)")
         let leakedHosts = await TerminalHosts.awaitExit(hosts)
         let leakedDaemon = await TerminalHosts.awaitExit([h.identity.pid])
