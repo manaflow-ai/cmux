@@ -48,7 +48,18 @@
                                          gap: 1, height: 14))
                  }
                  if !threadMode, let n = replyCount[m.id], n >= 2, m.replyTo == nil {
-@@ -716,7 +730,7 @@
+@@ -664,6 +678,10 @@
+                 }
+             }
+             prev = m
++        }
++        // cmux: the host's notice, centered like the date row, under the newest message.
++        if !threadMode, span.upperBound == messages.count, s.atNewest, let notice = s.ui.notice {
++            rows.append(RowSpec(key: "notice", kind: .separator(bold: "", rest: notice), gap: 0, height: 35.5))
+         }
+         if !threadMode, span.upperBound == messages.count, s.atNewest, s.ui.typing.contains(where: { $0 != me }) {
+             rows.append(RowSpec(key: "typing", kind: .typing, gap: 0, height: 35))
+@@ -716,7 +734,7 @@
  enum Format {
      private static let timeFormatter: DateFormatter = {
          let f = DateFormatter()
@@ -57,7 +68,7 @@
          f.timeZone = Instant.zone
          f.dateFormat = "h:mm\u{202F}a"
          return f
-@@ -725,7 +739,7 @@
+@@ -725,7 +743,7 @@
      private static let calendar: Calendar = { var c = Calendar(identifier: .gregorian); c.timeZone = Instant.zone; return c }()
      private static func formatter(_ f: String) -> DateFormatter {
          let d = DateFormatter()
@@ -66,7 +77,7 @@
          d.timeZone = Instant.zone
          d.dateFormat = f
          return d
-@@ -744,56 +758,58 @@
+@@ -744,56 +762,58 @@
      static func duration(_ s: Double) -> String { String(format: "%d:%02d", Int(s) / 60, Int(s) % 60) }
  }
  

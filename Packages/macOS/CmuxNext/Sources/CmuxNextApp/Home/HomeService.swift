@@ -126,6 +126,12 @@ final class HomeService {
                 reloadList(connection)
                 // Home opened before the owner answered: start the host now.
                 if homeWasOpened { homeDidOpen() }
+                // The Chief tab may wait on this owner (a local Chief with history
+                // takes it back from a placed chief): check it again now.
+                if let local = services.machines.local.connection,
+                   services.machines.local.supports(DaemonCapabilities.shared.workspaceKind) {
+                    ensureHomeWorkspace(local)
+                }
                 for session in sessions.values {
                     session.load(from: connection) { [weak self, weak session] in
                         guard let self, let session else { return }

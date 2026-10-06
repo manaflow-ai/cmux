@@ -78,6 +78,8 @@ extension TabDragSession {
         /// The workspace the tabs landed in, for a reveal that shows it.
         var landedWorkspaceID: String?
         weak var workspaceSidebar: SidebarTabDropTarget?
+        /// The layout previewing a merge of the dragged workspace.
+        weak var workspaceLayout: LayoutTabDropTarget?
 
         init(source: Source, lifecycle: TabDragLifecycle, ghost: TabDragGhostPanel, motion: TabDragGhostMotion, point: CGPoint) {
             self.source = source
