@@ -89,3 +89,18 @@ test("downloads: finished records past the cap are dropped oldest first, and a d
     assert.equal(r.settled[2], "pending");
   });
 });
+
+test("blocked navigations: the log keeps the newest entries, counts the dropped ones and coalesces repeats", async () => {
+  await withFakeDriver(async ({ emit, read }) => {
+    await read(`session.allowedDomains(["example.com"]); out(0);`);
+    for (let i = 0; i < 3000; i++) emit("navigation.blocked", { targetId: "t1", url: `https://blocked.test/${i}`, reason: "not allowed" });
+    for (let i = 0; i < 500; i++) emit("navigation.blocked", { targetId: "t1", url: "https://same.test/", reason: "not allowed" });
+    const r = await read(`out(session.blockedNavigations());`);
+    assert.ok(r.length <= 1001, `blockedNavigations() keeps ${r.length} entries`);
+    assert.deepEqual({ blocked: r[0].blocked, count: r[0].count }, { blocked: "dropped", count: 3000 + 1 - (r.length - 1) });
+    const last = r[r.length - 1];
+    assert.equal(last.url, "https://same.test/");
+    assert.equal(last.count, 500);
+    assert.equal(r[r.length - 2].url, "https://blocked.test/2999");
+  });
+});
