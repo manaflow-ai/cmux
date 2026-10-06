@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest"
 import {
   acceptLocked,
   allowlistFromEnv,
+  allowedInvitersFromEnv,
+  isAllowedInviter,
   DAY,
   decideSend,
   HOUR,
@@ -102,6 +104,26 @@ describe("environment send policy", () => {
   it("lets production send to anyone not suppressed", () => {
     expect(decideSend({ environment: "production", allowlist }, stranger, null)).toEqual({ send: true, allowlist_index: 0 })
     expect(decideSend({ environment: "production", allowlist }, stranger, "opted_out")).toMatchObject({ send: false, state: "suppressed" })
+  })
+
+  it("staging sends to any recipient for an inviter on the team inviter list, and keeps suppression and the switch", () => {
+    for (const environment of ["staging", "development", "preview", "local"] as const) {
+      expect(decideSend({ environment, allowlist, trustedInviter: true }, stranger, null)).toEqual({ send: true, allowlist_index: 0 })
+      expect(decideSend({ environment, allowlist, trustedInviter: false }, stranger, null)).toMatchObject({ send: false, state: "refused_env" })
+      expect(decideSend({ environment, allowlist, trustedInviter: true }, stranger, "reported")).toMatchObject({ send: false, state: "suppressed" })
+      expect(decideSend({ environment, allowlist, trustedInviter: true, sendSwitch: "off" }, stranger, null)).toMatchObject({ send: false, state: "disabled" })
+    }
+  })
+
+  it("reads the inviter list: user ids and verified emails, nothing else", () => {
+    const list = allowedInvitersFromEnv("user_abc, Lawrence@Manaflow.ai\naziz@manaflow.ai")
+    expect(isAllowedInviter(list, { user: "user_abc" })).toBe(true)
+    expect(isAllowedInviter(list, { user: "user_other", email: "lawrence@manaflow.ai" })).toBe(true)
+    expect(isAllowedInviter(list, { user: "user_other", email: "AZIZ@manaflow.ai" })).toBe(true)
+    expect(isAllowedInviter(list, { user: "user_other" })).toBe(false)
+    expect(isAllowedInviter(list, { user: "user_other", email: "mallory@example.com" })).toBe(false)
+    expect(isAllowedInviter(allowedInvitersFromEnv(undefined), { user: "user_abc", email: "lawrence@manaflow.ai" })).toBe(false)
+    expect(() => allowedInvitersFromEnv("not an entry")).toThrow(/entry 1/)
   })
 
   it("has a kill switch", () => {

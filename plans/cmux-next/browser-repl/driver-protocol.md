@@ -146,6 +146,7 @@ ended is restored like a hibernated one. Errors, where `<tab>` is `tab <id> ("<t
 | `frames.list` | `{ targetId }` | `[{ frameId, parentFrameId, url, name, crossOrigin }]`, parents before children, document order |
 | `frame.evaluate` | `{ targetId, frameId, world: "agent"\|"page", source, args, awaitPromise, timeoutMs }` | JSON-serializable return value |
 | `frame.ownerBox` | `{ targetId, frameId }` | owner `<iframe>` content box in parent-frame coordinates |
+| `frame.focused` | `{ targetId }` | `{ frameId, url }` of the frame that holds keyboard focus, or `null`; host only (the gate refuses it from sessions). The host asks it when its focus probe for secret typing cannot look into a cross-origin frame; a driver without it answers an error and the secret is refused |
 
 `world: "agent"` runs in an isolated content world where the driver has
 already installed the page agent (`cmux-tui/crates/cmux-browser-host/js/page-agent.js`) and

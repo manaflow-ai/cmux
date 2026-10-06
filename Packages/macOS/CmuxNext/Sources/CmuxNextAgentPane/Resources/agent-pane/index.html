@@ -8,6 +8,100 @@
 <script src="locales/en.js"></script>
 <script src="locales/loader.js"></script>
 <style>
+/* DESKTOP-FEEL (R139): the first layer of every first-party page. A page is app chrome, not a
+   document: nothing selects, drags or zooms unless the page marks it as content. Every page entry
+   imports this file (and desktop.ts) before anything else; desktopLayer.test.ts fails otherwise.
+   Third-party pages in browser tabs never load it.
+
+   Content that a person copies opts in with `.selectable` (or the `selectable` prop of shared
+   components): chat messages, code blocks, diff and markdown text, logs, error details. Fields
+   always select. */
+
+:root {
+  color-scheme: light dark;
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: default;
+  -webkit-text-size-adjust: none;
+  text-size-adjust: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-font-smoothing: antialiased;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  accent-color: AccentColor;
+  overscroll-behavior: none;
+}
+
+html,
+body {
+  overscroll-behavior: none;
+}
+
+/* Buttons and links are controls: the arrow, as in native apps. A real web link inside content
+   (`.selectable a[href]`) keeps the hand. */
+button,
+a,
+[role="button"],
+[role="link"],
+[role="tab"],
+[role="menuitem"],
+[role="option"],
+label,
+summary,
+select {
+  cursor: default;
+}
+
+.selectable a[href] {
+  cursor: pointer;
+}
+
+img,
+svg,
+a {
+  -webkit-user-drag: none;
+}
+
+/* Opt-in content selection. */
+.selectable,
+.selectable * {
+  -webkit-user-select: text;
+  user-select: text;
+  cursor: auto;
+}
+
+/* Fields always select and show the text cursor. */
+input,
+textarea,
+[contenteditable]:not([contenteditable="false"]) {
+  -webkit-user-select: text;
+  user-select: text;
+  cursor: text;
+}
+
+input[type="checkbox"],
+input[type="radio"],
+input[type="range"],
+input[type="color"],
+input[type="button"],
+input[type="submit"] {
+  cursor: default;
+}
+
+/* Focus rings only for keyboard focus. */
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
 
 @source "../shared/**/*.ts";
 
@@ -2009,7 +2103,7 @@ img.ProseMirror-separator {
    the bridge's accent text, which AgentPaneTheme.swift sets to the page color made
    opaque (the accent is the text color). A host that sends a different accent text must
    change this base too; without the bridge the base is the system Canvas. */
-.acpmux-shell{--acpmux-base:var(--agent-accent-text,Canvas);--acpmux-composer-bg:color-mix(in srgb,var(--agent-text) 13%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-composer-edge:color-mix(in srgb,var(--agent-text) 18%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-composer-placeholder:color-mix(in srgb,var(--agent-text) 34%,var(--acpmux-base));--acpmux-composer-dim:color-mix(in srgb,var(--agent-text) 56%,var(--acpmux-base));--acpmux-menu-bg:color-mix(in srgb,var(--agent-text) 9%,var(--acpmux-base));--acpmux-menu-hover:color-mix(in srgb,var(--agent-text) 14%,var(--acpmux-base));--acpmux-composer-hover:color-mix(in srgb,var(--agent-text) 14%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-composer-tray:color-mix(in srgb,var(--agent-text) 9%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-warning:var(--agent-warning,var(--agent-danger))}
+.acpmux-shell,.ui-positioner{--acpmux-base:var(--agent-accent-text,Canvas);--acpmux-composer-bg:color-mix(in srgb,var(--agent-text) 13%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-composer-edge:color-mix(in srgb,var(--agent-text) 18%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-composer-placeholder:color-mix(in srgb,var(--agent-text) 34%,var(--acpmux-base));--acpmux-composer-dim:color-mix(in srgb,var(--agent-text) 56%,var(--acpmux-base));--acpmux-menu-bg:color-mix(in srgb,var(--agent-text) 9%,var(--acpmux-base));--acpmux-menu-hover:color-mix(in srgb,var(--agent-text) 14%,var(--acpmux-base));--acpmux-composer-hover:color-mix(in srgb,var(--agent-text) 14%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-composer-tray:color-mix(in srgb,var(--agent-text) 9%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-warning:var(--agent-warning,var(--agent-danger))}
 /* appearance.borders none (data-borders on the root, applyAgentTheme): the composer, menu and tray edges draw clear in place; their fills keep them apart. */
 :root[data-borders=none] .acpmux-shell{--acpmux-composer-edge:transparent}
 .acpmux-composer{position:relative;padding:0 max(16px,calc((100% - 760px)/2)) 16px;font-family:system-ui;-webkit-font-smoothing:antialiased}
@@ -2062,7 +2156,7 @@ img.ProseMirror-separator {
 .acpmux-send{flex:none;display:grid;place-items:center;width:32px;height:32px;padding:0;border:0;border-radius:50%;background:var(--agent-highlight,var(--agent-text));color:var(--agent-highlight-text,var(--acpmux-base))}
 .acpmux-send:not(.acpmux-send-ready):not(.acpmux-cancel):not(:hover){background:color-mix(in srgb,var(--agent-highlight,var(--agent-text)) 72%,var(--acpmux-base))}
 /* The picker menus open above the field, aligned with its edges. */
-.acpmux-menu{font-size:14px;position:absolute;bottom:calc(100% + 6px);z-index:3;min-width:min(220px,100%);max-width:min(420px,100%);max-height:min(360px,50vh);overflow:auto;padding:6px;box-sizing:border-box;border-radius:12px;background:var(--acpmux-menu-bg);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge),0 10px 30px var(--agent-shadow,rgb(0 0 0/.35));color:var(--agent-text);line-height:18px}
+.acpmux-menu{font:13px/18px -apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;font-size:14px;position:absolute;bottom:calc(100% + 6px);z-index:3;min-width:min(220px,100%);max-width:min(420px,100%);max-height:min(360px,50vh);overflow:auto;padding:6px;box-sizing:border-box;border-radius:12px;background:var(--acpmux-menu-bg);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge),0 10px 30px var(--agent-shadow,rgb(0 0 0/.35));color:var(--agent-text);line-height:18px}
 /* The picker menus open above the field, aligned with its edges. */
 .acpmux-menu-start{left:0}
 .acpmux-menu-end{right:0}
@@ -2070,6 +2164,7 @@ img.ProseMirror-separator {
 .acpmux-menu-header{display:flex;align-items:center;min-height:24px;padding:0 8px;color:var(--acpmux-composer-dim);font-size:12px}
 .acpmux-menu-item{display:flex;align-items:center;gap:8px;min-height:28px;padding:5px 8px;box-sizing:border-box;border-radius:8px;cursor:default}
 .acpmux-project-browse{width:100%;border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer}
+.acpmux-menu .ui-menu-check{flex:none;display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;color:var(--acpmux-composer-dim);font:12px/1 -apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif}
 .acpmux-menu-active{background:var(--acpmux-menu-hover)}
 .acpmux-menu-item.acpmux-unrestricted{color:var(--acpmux-warning)}
 .acpmux-menu-text{flex:1;min-width:0;display:flex;flex-direction:column}
@@ -2153,46 +2248,7 @@ img.ProseMirror-separator {
 .acpmux-empty-new{background:var(--agent-accent);color:var(--agent-accent-text,#fff)}
 .acpmux-empty-import{background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text)}
 .acpmux-empty-actions button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
-/* Context (ComposerContext.tsx): plain, right-aligned location pickers above the field. */
-.acpmux-composer-context {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 6px;
-  min-width: 0;
-  height: 28px;
-  margin: 0 18px -2px;
-  color: var(--agent-muted);
-  font-size: 12px;
-}
-.acpmux-location-picker {
-  position: relative;
-  display: inline-flex;
-  min-width: 0;
-}
-.acpmux-location-button,
-.acpmux-location-readonly {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  max-width: 220px;
-  height: 24px;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--agent-muted);
-  font: inherit;
-  white-space: nowrap;
-}
-.acpmux-location-button { cursor: pointer; }
-.acpmux-location-button:hover,
-.acpmux-location-button:focus-visible { color: var(--agent-text); }
-.acpmux-location-button > span:first-child,
-.acpmux-location-readonly { overflow: hidden; text-overflow: ellipsis; }
-.acpmux-location-button:focus-visible { outline: 1.5px solid var(--agent-muted); outline-offset: 2px; border-radius: 3px; }
-.acpmux-context-divider { color: var(--agent-muted); opacity: .65; }
-.acpmux-location-menu { right: 0; min-width: 180px; max-width: 320px; }
-.acpmux-location-menu .acpmux-menu-item { width: 100%; text-align: left; }
+/* Context (ComposerContext.tsx): composerLocation.css. */
 /* The folder trust ask (TrustAsk.tsx): one quiet line among the chat's permission asks, its actions text buttons that step on hover and press. */
 .acpmux-trust-ask{display:flex;align-items:center;gap:4px;min-height:34px;margin-bottom:8px;padding:4px 4px 4px 12px;box-sizing:border-box;border-radius:12px;background:var(--acpmux-composer-tray);color:var(--acpmux-composer-dim);font-size:13px}.acpmux-trust-ask-text{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.acpmux-trust-ask-action{flex:none;height:26px;padding:0 10px;border:0;border-radius:13px;background:none;color:var(--agent-text);font:inherit;cursor:pointer}.acpmux-trust-ask-action:hover{background:var(--acpmux-composer-hover)}.acpmux-trust-ask-action:active{background:color-mix(in srgb,var(--agent-text) 20%,var(--agent-page-bg,var(--acpmux-base)))}.acpmux-trust-ask-action:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}@media (prefers-reduced-motion:no-preference){.acpmux-trust-ask-action{transition:background-color var(--agent-motion-hover,80ms) var(--agent-ease-out,ease-out)}}
 /* Search files: a quick-open palette, centered over the transcript's upper part (main column). */
@@ -2208,11 +2264,13 @@ img.ProseMirror-separator {
 .acpmux-file-note{display:block;padding:6px 10px 8px;color:var(--acpmux-composer-dim);font-size:13px}
 /* The project pill chooses: a button drawn as the other pills, with the project menu above the tray. */
 .acpmux-project{position:relative;display:flex;min-width:0}
-.acpmux-project-button{border:0;color:inherit;font:inherit;cursor:pointer}
-.acpmux-project-button:hover,.acpmux-project-button[aria-expanded="true"]{background:color-mix(in srgb,var(--agent-text) 14%,transparent)}
+.acpmux-project-button{display:inline-flex;align-items:center;gap:5px;height:24px;max-width:220px;padding:0;border:0;border-radius:3px;background:none;color:var(--agent-muted);font:inherit;cursor:pointer;white-space:nowrap}
+.acpmux-project-button:hover,.acpmux-project-button[aria-expanded="true"]{color:var(--agent-text);background:none}
 .acpmux-project-button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}@media (prefers-reduced-motion:no-preference){.acpmux-project-button{transition:background-color var(--agent-motion-hover) var(--agent-ease-out)}}.acpmux-project-button:active{background:color-mix(in srgb,var(--agent-text) 20%,transparent)}
 .acpmux-project-menu{width:300px;max-width:calc(100vw - 32px);font-size:13px}
 .acpmux-project-menu .acpmux-icon{flex:none;color:var(--agent-muted)}
+.acpmux-project-menu .acpmux-menu-description{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.acpmux-project-menu .acpmux-menu-description::before{content:attr(data-path)}
 .acpmux-project-search{display:flex;align-items:center;gap:8px;height:30px;margin:0 0 4px;padding:0 8px;border-bottom:.5px solid var(--acpmux-composer-edge);color:var(--acpmux-composer-dim)}
 .acpmux-project-search input{flex:1;min-width:0;height:100%;padding:0;border:0;background:none;color:var(--agent-text);font:inherit;outline:none}
 .acpmux-project-search input::placeholder{color:var(--acpmux-composer-dim)}
@@ -2351,6 +2409,8 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 .acpmux-host-error-card button:disabled{opacity:.6}
 .acpmux-composer{flex-wrap:wrap}.acpmux-attachments{flex-basis:100%;margin:0;border:0;min-width:0;display:flex;align-items:center;gap:6px;overflow-x:auto;scrollbar-width:none;padding:0 0 2px}.acpmux-attachment{position:relative;flex:none;box-sizing:border-box;border-radius:10px;background:var(--agent-control);box-shadow:inset 0 0 0 .5px var(--agent-border-strong)}.acpmux-attachment-image{width:56px;height:56px}.acpmux-attachment-image img{width:100%;height:100%;object-fit:cover;border-radius:9.5px;display:block}.acpmux-attachment-file{display:flex;align-items:center;height:32px;max-width:min(220px,70vw);padding:0 28px 0 10px;color:var(--agent-text)}.acpmux-attachment-file span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.acpmux-composer .acpmux-attachment-remove{position:absolute;top:4px;right:4px;width:18px;height:18px;padding:0;border-radius:9px;display:grid;place-items:center;font-size:13px;line-height:1;background:rgb(0 0 0/.55);color:#fff;cursor:pointer}.acpmux-attachment-file .acpmux-attachment-remove{top:7px}.acpmux-attachment-note{color:var(--agent-muted);font-size:12px;white-space:nowrap}.acpmux-composer-dropping .acpmux-composer-box{border-color:var(--agent-accent)}
 .acpmux-switch-notice{display:block;padding:0 max(18px,calc((100% - 760px)/2)) 6px;color:var(--agent-muted);font-size:12px;line-height:16px}
+/* ui/titleTooltips.ts: the pane's one tooltip, placed inside the window. */
+.ui-title-tooltip{position:fixed;z-index:1000;max-width:min(320px,calc(100vw - 12px));padding:4px 8px;box-sizing:border-box;border-radius:6px;background:color-mix(in srgb,var(--agent-text) 14%,var(--agent-page-bg,Canvas));box-shadow:inset 0 0 0 .5px color-mix(in srgb,var(--agent-text) 18%,transparent),0 4px 14px var(--agent-shadow,rgb(0 0 0/.3));color:var(--agent-text);font:12px/16px system-ui,-apple-system,sans-serif;white-space:pre-line;overflow-wrap:anywhere;pointer-events:none}
 /* Transcript Markdown, ported from the agent-pane reference prototype
    (src/conversation/conversation.css).
 
@@ -3780,6 +3840,87 @@ button.acpmux-edited-file:focus-visible{outline:1.5px solid var(--agent-muted);o
     animation: acpmux-menu-in var(--agent-motion-in) var(--agent-ease-out);
   }
 }
+/* The location row above the composer (ComposerContext.tsx): "This Mac ⌄ · <folder> ⌄", one quiet
+   row of text menu buttons that all look alike. A control is a plain text button (no native bezel,
+   no fill, no weight change); hover and an open menu lay a soft rounded wash from the theme under
+   it, and keyboard focus draws a ring in the theme's text color. The padding is always there, so
+   neither hover nor a new name moves the text vertically or changes the row's height. */
+.acpmux-composer-context {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  min-width: 0;
+  height: 28px;
+  margin: 0 12px -2px;
+  color: var(--agent-muted);
+  font-size: 12px;
+  line-height: 16px;
+}
+.acpmux-location-picker {
+  position: relative;
+  display: inline-flex;
+  min-width: 0;
+}
+.acpmux-location-button,
+.acpmux-location-readonly {
+  appearance: none;
+  -webkit-appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: 220px;
+  height: 22px;
+  margin: 0;
+  padding: 0 6px;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--agent-muted);
+  font: inherit;
+  font-weight: inherit;
+  letter-spacing: inherit;
+  white-space: nowrap;
+  outline: none;
+}
+.acpmux-location-button { cursor: default; }
+.acpmux-location-button:hover,
+.acpmux-location-button[aria-expanded="true"],
+.acpmux-location-button[data-popup-open] {
+  background: var(--acpmux-composer-hover);
+  color: var(--agent-text);
+}
+.acpmux-location-button:active { background: color-mix(in srgb, var(--agent-text) 18%, var(--agent-page-bg, var(--acpmux-base))); }
+.acpmux-location-button:focus-visible {
+  outline: 1.5px solid color-mix(in srgb, var(--agent-text) 55%, transparent);
+  outline-offset: 0;
+  color: var(--agent-text);
+}
+.acpmux-location-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-location-button .acpmux-icon,
+.acpmux-location-readonly .acpmux-icon { flex: none; color: currentColor; opacity: .8; }
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-location-button { transition: background-color var(--agent-motion-hover, 80ms) var(--agent-ease-out, ease-out); }
+}
+.acpmux-context-divider { flex: none; color: var(--agent-muted); opacity: .65; }
+/* The menus: the composer menu's surface, rows highlighted with the theme's wash, never a system blue.
+   Base UI's positioner places them (portaled to the body, which is why styles.css gives
+   .ui-positioner the pane's tokens), so the composer menu's own absolute placement is undone. */
+.acpmux-location-menu { position: relative; inset: auto; min-width: 200px; max-width: 320px; max-height: none; overflow: visible; font-size: 13px; }
+/* The recent folders scroll; Choose folder… stays in view under them. */
+.acpmux-location-folders { max-height: min(260px, 45vh); overflow: auto; }
+.acpmux-location-menu .acpmux-menu-item { width: 100%; text-align: left; }
+.acpmux-location-menu .ui-menu-item[data-highlighted] { background: var(--acpmux-menu-hover); }
+.acpmux-location-menu .acpmux-menu-description { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acpmux-location-menu .ui-separator { flex: none; height: 1px; margin: 4px 6px; background: color-mix(in srgb, var(--agent-text) 12%, transparent); }
 /* Cmd-K Search chats (reference prototype search.png): a 520px sheet centered over the pane,
    theme tokens only, no accent color. */
 .acpmux-search-layer {

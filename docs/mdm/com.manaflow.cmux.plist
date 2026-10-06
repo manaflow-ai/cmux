@@ -82,7 +82,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>agent</string>
+			<string>page</string>
 			<key>pfm_description</key>
 			<string>What Cmd-T and the + button open. Auto picks the kind you last opened in that folder.</string>
 			<key>pfm_name</key>
@@ -161,6 +161,30 @@
 			<string>newTerminal.opensWorkspace</string>
 			<key>pfm_title</key>
 			<string>New Terminal Opens a Workspace</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Ask before closing a tab or workspace whose terminal is running a program. Idle tabs always close at once.</string>
+			<key>pfm_name</key>
+			<string>app.warnBeforeClosingTab</string>
+			<key>pfm_title</key>
+			<string>Warn Before Closing a Running Program</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Ask before closing a terminal tab whose agent is still working.</string>
+			<key>pfm_name</key>
+			<string>app.warnBeforeClosingAgentSession</string>
+			<key>pfm_title</key>
+			<string>Warn Before Closing a Working Agent</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>

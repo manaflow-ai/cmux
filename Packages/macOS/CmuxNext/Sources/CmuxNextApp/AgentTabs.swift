@@ -5,6 +5,7 @@ import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextSettings
 import CmuxNextTabs
+import Observation
 
 /// The pane views of agent chat tabs (the React acpmux pane, CmuxNextAgentPane).
 ///
@@ -93,9 +94,18 @@ final class AgentTabStore {
     var sessions: [String: String] = [:]
     /// Shared conversion and project actions for a direct blank chat, without a chooser page.
     var blankChatHandler: ((String) -> NewTabPageHandler?)?
+    /// The New Tab page a new workspace's first tab shows, starting in the given folder.
+    var firstPageNewTab: ((String?) -> (page: AgentPaneNewTab, handler: NewTabPageHandler)?)?
 
     /// Tabs opened as the chooser page, and the actions for their selected kind.
-    var newTabPages: [String: (page: AgentPaneNewTab, handler: NewTabPageHandler)] = [:]
+    var newTabPages: [String: (page: AgentPaneNewTab, handler: NewTabPageHandler)] = [:] {
+        didSet {
+            let ids = Set(newTabPages.keys)
+            if pageTabs.ids != ids { pageTabs.ids = ids }
+        }
+    }
+    /// The ids in ``newTabPages``, observed: the strip titles those tabs "New Tab".
+    let pageTabs = NewTabPageIDs()
     /// What each new chat inherits from the tab it was opened from, until
     /// its view reads it.
     var seeds: [String: AgentPaneSeedSource] = [:]
@@ -273,7 +283,10 @@ final class AgentTabStore {
         model.onEditShortcut = { [weak self] kind in self?.newTabPage(provisional)?.handler.editShortcut(kind) }
         model.onSetDefaultKind = { [weak self] kind in self?.newTabPage(provisional)?.handler.setDefaultKind(kind) }
         model.onRunAction = { [weak self] id in
-            _ = self?.actionRegistry?.perform(ActionID(rawValue: id), invocation: ActionInvocation(origin: .user))
+            guard let self else { return }
+            // On this tab's pane: the New Tab page opens beside the tab that asked.
+            let target = ActionTargetRef(kind: .tab, id: resolve(provisional))
+            _ = actionRegistry?.perform(ActionID(rawValue: id), invocation: ActionInvocation(target: target, origin: .user))
         }
         model.onBrowseProject = { [weak self] in
             guard let self, let handler = newTabPages[resolve(provisional)]?.handler ?? blankChatHandler?(resolve(provisional)) else { return nil }
@@ -390,4 +403,9 @@ extension AgentTabStore {
         let trimmed = result.trimmingCharacters(in: .whitespaces)
         return trimmed.isEmpty ? nil : trimmed
     }
+}
+
+/// The tabs showing the new tab page, for observers (the tab strip).
+@Observable final class NewTabPageIDs {
+    var ids: Set<String> = []
 }

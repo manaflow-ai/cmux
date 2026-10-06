@@ -1,6 +1,6 @@
 cmux/integrations bundles @cmux/integrations-core (libs/integrations-core in
-https://github.com/manaflow-ai/cmux, MIT License, see libs/integrations-core/LICENSE
-and NOTICE) into dist/main.js. That package contains code adapted from executor
+https://github.com/manaflow-ai/cmux; its cmux code is GPL-3.0-or-later, see
+libs/integrations-core/LICENSE, LICENSE-executor and NOTICE) into dist/main.js. That package contains code adapted from executor
 https://github.com/UsefulSoftwareCo/executor (commit 98d606bd2b47b9dcc2c03a129a14b5134d9852c8)
 
 Adapted files (each keeps a header naming its upstream paths and the changes):
