@@ -1,11 +1,13 @@
 import AppKit
+import CmuxAgentBrands
 import CmuxNextIcons
 import CmuxNextDesign
 import QuartzCore
 
-/// Workspace icon, shown only when the user chose one: an SF Symbol (tinted
-/// with the workspace color), one emoji (on a chip of the workspace color),
-/// or a color alone shown as a small dot.
+/// Workspace icon: the user's choice, an SF Symbol (tinted with the
+/// workspace color), one emoji (on a chip of the workspace color) or a color
+/// alone shown as a small dot; else the row's type glyph from the icon
+/// registry, or the brand mark of the agent it shows, at row size.
 final class SidebarIconView: NSView {
     private let imageView = NSImageView()
     private let swatch = CALayer()
@@ -44,7 +46,7 @@ final class SidebarIconView: NSView {
         if case .emoji(_, _?)? = icon { !swatch.isHidden } else { false }
     }
 
-    func configure(icon: WorkspaceIcon?, fallback: IconName? = nil) {
+    func configure(icon: WorkspaceIcon?, fallback: IconName? = nil, brand: String? = nil) {
         self.icon = icon
         isHidden = !Self.showsIcon(icon, fallback: fallback)
         emoji.isHidden = true
@@ -61,8 +63,10 @@ final class SidebarIconView: NSView {
         case .swatch?:
             imageView.isHidden = true
         case nil:
-            imageView.image = fallback.map { NSImage.icon($0, size: Metrics.smallIconSize, style: .line) }
-            imageView.isHidden = fallback == nil
+            let side = SidebarStyle.kindGlyphSize
+            imageView.image = brand.flatMap { AgentBrandCatalog.templateImage(brand: $0, size: side) }
+                ?? fallback.map { NSImage.icon($0, size: side, style: .line) }
+            imageView.isHidden = imageView.image == nil
         }
         needsDisplay = true
         needsLayout = true

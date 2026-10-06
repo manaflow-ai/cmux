@@ -24,6 +24,10 @@ public final class OnboardingWindowController: NSWindowController, NSWindowDeleg
         window.isMovableByWindowBackground = true
         window.isReleasedWhenClosed = false
         window.animationBehavior = .alertPanel
+        // Escape and Skip are the onboarding dismissal paths. The close
+        // traffic light is hidden so the sheet does not present a lone
+        // destructive-looking dot beside its custom surface.
+        window.standardWindowButton(.closeButton)?.isHidden = true
         // A fixed size: content never grows the window.
         window.contentMinSize = OnboardingMetrics.windowSize
         window.contentMaxSize = OnboardingMetrics.windowSize

@@ -1,10 +1,18 @@
 import React, { useEffect, useId, useRef, useState } from "react";
 import { sessionModels } from "./modelCatalog";
+import {
+  isDefaultChoice,
+  loadResolvedDefaults,
+  modelIdName,
+  rememberResolvedDefault,
+  resolvedModel,
+} from "./defaultChoice";
 import type { AcpmuxSnapshot } from "./model";
 import { EffortPicker } from "./EffortPicker";
 import { type StringKey, useT } from "./i18n";
 import { ModelPicker } from "./ModelPicker";
 import { registerPicker } from "./pickerOpeners";
+import { useUiAnchor } from "../../ui/anchor";
 
 /// Picker copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 export const PICKER_LABELS = {
@@ -107,7 +115,10 @@ export function ComposerPickers({
 }: Props) {
   const t = useT();
   const summary = snapshot.summary;
-  const models: Choice[] = sessionModels(snapshot.catalog, summary);
+  // An agent's own default reads "Default", never its "(Claude Code's choice)" phrasing.
+  const models: Choice[] = sessionModels(snapshot.catalog, summary).map((choice) =>
+    isDefaultChoice(choice) ? { ...choice, name: t("picker.default") } : choice,
+  );
   const allModes: Choice[] = (summary?.modes?.availableModes ?? []).map((mode) => ({
     id: mode.id,
     name: mode.name || mode.id,
@@ -125,10 +136,10 @@ export function ComposerPickers({
   const effort = summary?.configOptions?.find(
     (option) => option.category === "thought_level" || option.id === "effort" || option.id === "reasoning_effort",
   );
-  const efforts: Choice[] = (effort?.options ?? []).map((option) => ({
-    id: option.value,
-    name: option.name || option.value,
-  }));
+  const efforts: Choice[] = (effort?.options ?? []).map((option) => {
+    const choice = { id: option.value, name: option.name || option.value };
+    return isDefaultChoice(choice) ? { ...choice, name: t("picker.default") } : choice;
+  });
   const model = models.find((choice) => choice.id === summary?.model);
   const effortName = efforts.find((choice) => choice.id === effort?.currentValue)?.name;
   // Recents follow what the session actually runs, whichever control changed it,
@@ -192,6 +203,19 @@ export function ComposerPickers({
     )
       onEffort(effort.id, pickedEffort);
   };
+  // A default model draws as the model it resolves to: the running session's, else the one this
+  // harness's default last resolved to, else "Default".
+  const defaulted = shown !== undefined && isDefaultChoice(model ?? { id: shown });
+  // A harness still starting draws its last session's options, which name no model this chat runs.
+  const resolvedNow = switching ? undefined : resolvedModel(summary);
+  useEffect(() => {
+    if (harness && resolvedNow) rememberResolvedDefault(harness, resolvedNow);
+  }, [harness, resolvedNow]);
+  const resolvedId = defaulted ? (resolvedNow ?? (harness ? loadResolvedDefaults()[harness] : undefined)) : undefined;
+  const resolvedName =
+    resolvedId &&
+    (models.find((choice) => choice.id === resolvedId && !isDefaultChoice(choice))?.name ?? modelIdName(resolvedId));
+  const modelName = defaulted ? (resolvedName ?? t("picker.default")) : (model?.name ?? summary?.model);
   const usage = summary?.usage;
 
   return (
@@ -231,7 +255,8 @@ export function ComposerPickers({
           catalog={snapshot.catalog}
           harness={harness}
           model={shown}
-          label={model?.name ?? summary?.model ?? t(PICKER_LABELS.model)}
+          label={modelName ?? t(PICKER_LABELS.model)}
+          resolvedDefault={resolvedName}
           efforts={efforts}
           effort={currentEffort}
           recents={recents}
@@ -255,7 +280,7 @@ export function ComposerPickers({
           label={t(PICKER_LABELS.effort)}
           efforts={efforts}
           current={effort.currentValue}
-          model={model?.name ?? summary?.model}
+          model={modelName}
           chevron={<ChevronIcon />}
           onPick={(value) => {
             // An effort picked by hand wins over one a combo is still waiting to send.
@@ -348,7 +373,9 @@ export function Picker({
   const [active, setActive] = useState(0);
   const root = useRef<HTMLSpanElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
   const menuId = useId();
+  const menuStyle = useUiAnchor(trigger, menu, open, { side: "above", align: "start" });
   const rows = sections.flatMap((section, s) => section.choices.map((choice) => ({ section: s, choice })));
   // A live update can shrink the list under the highlight.
   const selected = Math.min(active, Math.max(rows.length - 1, 0));
@@ -432,6 +459,7 @@ export function Picker({
     <span
       ref={root}
       className={`acpmux-picker ${className}`}
+      style={{ position: "relative" }}
       onBlur={(event) => {
         if (open && !root.current?.contains(event.relatedTarget as Node | null)) setOpen(false);
       }}
@@ -456,7 +484,7 @@ export function Picker({
       </button>
       {/* A native select cannot hold descriptions, sections or the pane's styling. */}
       {open && (
-        <div className={`acpmux-menu acpmux-menu-${align}`}>
+        <div ref={menu} style={menuStyle} className={`acpmux-menu acpmux-menu-${align}`}>
           {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
           <div id={menuId} role="listbox" aria-label={heading ?? label}>
             {heading && (

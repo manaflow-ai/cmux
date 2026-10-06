@@ -7,6 +7,8 @@ import QuartzCore
 final class SidebarDecorationView: NSView {
     private let pill = CALayer()
     private let gap = CALayer()
+    /// The selection pill (tests).
+    var pillLayer: CALayer { pill }
 
     override init(frame: NSRect) {
         super.init(frame: frame)

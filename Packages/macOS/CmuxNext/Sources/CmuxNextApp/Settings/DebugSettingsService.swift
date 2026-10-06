@@ -106,7 +106,8 @@ final class DebugSettingsService: InternalPageProvider {
     func close() {
         controller?.window?.performClose(nil)
         for key in services.pages.keys(of: .debugSettings) {
-            services.paneController(showingTab: key)?.close([StripTabID(key)])
+            guard let pane = services.paneController(showingTab: key), let id = services.pages.stripID(showing: key, in: pane) else { continue }
+            pane.close([id])
         }
     }
 

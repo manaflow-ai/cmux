@@ -86,6 +86,9 @@ pub struct HeadlessChromium {
     connection: Arc<CdpConnection>,
     profile_dir: PathBuf,
     profile_ephemeral: bool,
+    /// Where the driver saves downloads (`CdpDriver::save_downloads_in`):
+    /// private (0700) and removed with the browser.
+    downloads_dir: PathBuf,
 }
 
 struct PipeWire(Mutex<File>);
@@ -103,11 +106,20 @@ impl HeadlessChromium {
     pub fn launch(options: &HeadlessOptions) -> io::Result<Self> {
         let (profile_dir, profile_ephemeral) = match &options.user_data_dir {
             Some(dir) => (dir.clone(), false),
-            None => (ephemeral_profile_dir()?, true),
+            None => (private_temp_dir("")?, true),
         };
         if !profile_ephemeral {
             std::fs::create_dir_all(&profile_dir)?;
         }
+        let downloads_dir = match private_temp_dir("downloads-") {
+            Ok(dir) => dir,
+            Err(error) => {
+                if profile_ephemeral {
+                    let _ = std::fs::remove_dir_all(&profile_dir);
+                }
+                return Err(error);
+            }
+        };
 
         // to_browser: host writes, Chromium reads (its fd 3).
         // from_browser: Chromium writes (its fd 4), host reads.
@@ -135,6 +147,7 @@ impl HeadlessChromium {
                 if profile_ephemeral {
                     let _ = std::fs::remove_dir_all(&profile_dir);
                 }
+                let _ = std::fs::remove_dir_all(&downloads_dir);
                 return Err(io::Error::new(
                     error.kind(),
                     format!("failed to launch Chromium at {}: {error}", options.binary.display()),
@@ -175,6 +188,7 @@ impl HeadlessChromium {
             if profile_ephemeral {
                 let _ = std::fs::remove_dir_all(&profile_dir);
             }
+            let _ = std::fs::remove_dir_all(&downloads_dir);
             return Err(error);
         }
 
@@ -183,7 +197,13 @@ impl HeadlessChromium {
             connection,
             profile_dir,
             profile_ephemeral,
+            downloads_dir,
         })
+    }
+
+    /// The browser's private downloads directory.
+    pub fn downloads_dir(&self) -> &std::path::Path {
+        &self.downloads_dir
     }
 
     pub fn connection(&self) -> &Arc<CdpConnection> {
@@ -212,6 +232,7 @@ impl Drop for HeadlessChromium {
         if self.profile_ephemeral {
             let _ = std::fs::remove_dir_all(&self.profile_dir);
         }
+        let _ = std::fs::remove_dir_all(&self.downloads_dir);
     }
 }
 
@@ -239,10 +260,10 @@ fn default_args(profile_dir: &std::path::Path) -> Vec<String> {
     ]
 }
 
-/// A new private profile directory (mode 0700; fails if the name exists).
-fn ephemeral_profile_dir() -> io::Result<PathBuf> {
+/// A new private temporary directory (mode 0700; fails if the name exists).
+fn private_temp_dir(kind: &str) -> io::Result<PathBuf> {
     let template =
-        std::env::temp_dir().join(format!("cmux-browser-host-{}-XXXXXX", std::process::id()));
+        std::env::temp_dir().join(format!("cmux-browser-host-{kind}{}-XXXXXX", std::process::id()));
     let mut bytes = template.into_os_string().into_vec();
     bytes.push(0);
     // SAFETY: `bytes` is a NUL-terminated, writable template ending in XXXXXX.

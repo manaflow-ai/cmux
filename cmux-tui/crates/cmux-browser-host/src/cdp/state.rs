@@ -61,6 +61,10 @@ pub struct TabState {
     pub responses: std::collections::VecDeque<(String, String)>,
     /// Out-of-process frames: frame id -> its own CDP session.
     pub frame_sessions: HashMap<String, String>,
+    /// Closed shadow roots per CDP session (`closed_roots`).
+    pub closed_roots: HashMap<String, super::closed_roots::SessionRoots>,
+    /// Closed-root walks and DOM events of this tab (`tab.info closedRoots`).
+    pub closed_root_stats: super::closed_roots::WalkStats,
     /// Loader of the main frame's current document.
     pub loader: Option<String>,
     /// Lifecycle events (`DOMContentLoaded`, `load`, `networkIdle`) seen for `loader`.
@@ -100,6 +104,8 @@ impl TabState {
             request_order: std::collections::VecDeque::new(),
             responses: std::collections::VecDeque::new(),
             frame_sessions: HashMap::new(),
+            closed_roots: HashMap::new(),
+            closed_root_stats: Default::default(),
             loader: None,
             lifecycle: HashSet::new(),
             nav_seq: 0,
@@ -141,6 +147,9 @@ pub enum FollowUp {
     /// it run if paused and detach (through `parent` for a child session),
     /// so no agent call can reach it.
     Release { session_id: String, waiting: bool, parent: Option<String> },
+    /// Closed-root change detection ended for a session (closed_roots.rs):
+    /// stop its DOM events; the next read turns them on again.
+    DisableDom { session_id: String },
 }
 
 #[derive(Debug, Default)]
@@ -167,6 +176,8 @@ pub struct State {
     /// Fetch shells by target id (also when the attach came after the
     /// create reply).
     pub shell_targets: HashSet<String>,
+    /// Downloads by guid (headless Chromium, `save_downloads_in`).
+    pub downloads: super::downloads::Downloads,
 }
 
 impl State {
@@ -220,6 +231,7 @@ impl State {
                         self.parent_sessions.remove(session_id);
                         if let Some(tab) = self.tabs.get_mut(&target_id) {
                             tab.frame_sessions.retain(|_, session| session.as_str() != session_id);
+                            tab.closed_roots.remove(session_id);
                             tab.contexts.retain(|_, (session, _)| session.as_str() != session_id);
                         }
                     }
@@ -242,6 +254,9 @@ impl State {
                         tab.url = url.to_owned();
                     }
                 }
+            }
+            "Browser.downloadWillBegin" | "Browser.downloadProgress" => {
+                self.download_event(&cdp.method, params, &mut applied);
             }
             "Target.targetCrashed" => {
                 if let Some(target_id) = params.get("targetId").and_then(Value::as_str) {
@@ -353,6 +368,19 @@ impl State {
         params: &Value,
         applied: &mut Applied,
     ) {
+        if method.starts_with("DOM.") {
+            if let Some(tab) = self.tabs.get_mut(target_id) {
+                tab.closed_root_stats.dom_events += 1;
+                if let Some(roots) = tab.closed_roots.get_mut(session_id)
+                    && roots.dom_changed(std::time::Instant::now())
+                {
+                    applied
+                        .follow_ups
+                        .push(FollowUp::DisableDom { session_id: session_id.to_owned() });
+                }
+            }
+            return;
+        }
         if method == "Inspector.targetCrashed" {
             self.crashed(target_id, applied);
             return;

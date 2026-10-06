@@ -110,4 +110,37 @@ describe("chief brain place", { timeout: 60_000 }, () => {
     const after = (await send((await placed.mint(chief.id)).json.access_token as string, "after-move")).json
     expect(after.ok).toBe(false)
   })
+
+  it("review G8: install tokens never set or clear a place; a revoked placed server and a token for another chief stay narrow", async () => {
+    const owner = await sessionToken("brain-place-review")
+    const user = (await op(owner, "user.ensure", {})).json.value.id as string
+    const server = await pairServer(owner)
+    const place = { host: server.host, install: server.install }
+    const chief = (await op(owner, "chief.create", { brain_place: place }, "chief-default")).json.value
+    const other = (await op(owner, "chief.create", { display_name: "Other" })).json.value
+    await mainReady(owner, user, chief.main_conversation)
+    await mainReady(owner, user, other.main_conversation)
+
+    // (1) The server's own token and its chief token: no create with a place, no clear, no move.
+    for (const tok of [(await server.mint()).json.access_token as string, (await server.mint(chief.id)).json.access_token as string]) {
+      expect((await op(tok, "chief.create", { display_name: "Sneaky", brain_place: place })).json.error?.code).toBe("auth.forbidden")
+      expect((await op(tok, "chief.update", { chief: chief.id, expected_rev: chief.rev, brain_place: null })).json.error?.code).toBe("auth.forbidden")
+      expect((await op(tok, "chief.update", { chief: other.id, expected_rev: other.rev, brain_place: place })).json.error?.code).toBe("auth.forbidden")
+    }
+
+    const send = (token: string, conversation: string, id: string) =>
+      op(token, "message.send", { conversation, client_msg_id: id, parts: [{ type: "text", text: id }] }, id)
+    // (4) The placed server's token for another chief (not placed there) stays narrow.
+    const otherTok = (await server.mint(other.id)).json.access_token as string
+    expect((await send(otherTok, other.main_conversation, "other-chief")).json.ok).toBe(false)
+
+    // (3) A token minted before the server is revoked loses the chief's rights on the next request.
+    const early = (await server.mint(chief.id)).json.access_token as string
+    expect((await send(early, chief.main_conversation, "before-revoke")).json.ok).toBe(true)
+    expect((await op(owner, "server.revoke", { host: server.host })).json.ok).toBe(true)
+    // Refused (the install is revoked): an auth or policy error, never ok.
+    const late = await send(early, chief.main_conversation, "after-revoke")
+    expect([401, 403]).toContain(late.status)
+    expect(late.json.ok).not.toBe(true)
+  })
 })

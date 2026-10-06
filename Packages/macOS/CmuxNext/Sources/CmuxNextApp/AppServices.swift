@@ -95,7 +95,7 @@ final class AppServices {
     private(set) lazy var viewers = ViewerService(services: self)
     /// The cmux server menu bar item (DEV and NIGHTLY prototype; plans/cmux-next/server.md 14).
     private(set) lazy var serverMenuBar = ServerMenuBarController(makeSource: { [unowned self] in
-        CloudPairingSource.app(feed: feed, auth: cloud.auth, chiefPlaced: { [unowned self] in home.refreshChiefTab() }) })
+        CloudPairingSource.app(feed: feed, auth: cloud.auth, chiefPlaced: { [unowned self] in home.refreshChiefTab() }) }) // crash-allow: AppServices owns serverMenuBar and lives for the whole app, like the outer capture.
     /// Home: local conversations with the mux (plans/cmux-next/home.md).
     private(set) lazy var home = HomeService(services: self)
     /// `cmux://bookmarks`: the manager pages.
