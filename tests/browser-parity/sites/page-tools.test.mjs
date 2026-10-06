@@ -119,7 +119,7 @@ test("browserAuth.request: the app fills marked fields and submits; no value rea
 // shown (no display:none, visibility, opacity 0 or inert), at least a few
 // pixels, on screen and not covered, and focusable; a field hidden while
 // the sheet is up gets nothing either.
-test("browserAuth.request: the app fills no hidden field, also when auth.request is called directly", async () => {
+test("browserAuth.request: no hidden field is filled, also when auth.request is called directly", async () => {
   const hides = {
     display: "el.style.display = 'none'",
     visibility: "el.style.visibility = 'hidden'",
