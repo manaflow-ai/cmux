@@ -29,6 +29,16 @@ Read the matching skill before changing an area, then only the references needed
 - App-linked code (`App/`, `CLI/` and their packages) must
   remain [Swift 6.0 compatible](skills/cmux-architecture/references/swift-6-0-compatibility.md).
 
+## Swift namespace convention
+
+Public and package types in package source must expose an instance surface or
+be scoped onto the owning type; caseless namespace enums and all-static public
+or package types are lint violations. Run
+`./scripts/lint-ios-package-conventions.sh --namespace-fix` before committing.
+When installed with `scripts/install-git-hooks.sh --namespace-fix`, the
+pre-push hook runs the fixer and stops so changed files can be reviewed,
+staged, and committed. CI keeps the non-mutating lint as the backstop.
+
 ## Area instructions
 
 Read these before working in their scope; nested files may not load automatically:

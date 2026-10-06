@@ -27,6 +27,26 @@ struct BrowserOmnibarPreferenceTests {
         #expect(OmniboxConfiguration(setting).searchEngine == .google)
     }
 
+    /// A custom engine without a usable search address never searches: the
+    /// address bar uses Google and says so (a fault, and the Settings row).
+    @Test func aCustomEngineWithoutAPlaceholderFallsBackToGoogleAndIsReported() {
+        var setting = BrowserOmnibarSetting()
+        setting.searchEngine = "custom"
+        for search in ["", "https://search.example/"] {
+            setting.customSearch = search
+            let resolved = OmniboxConfiguration.resolve(setting)
+            #expect(resolved.invalidCustomEngine, "\(search)")
+            #expect(resolved.configuration.searchEngine == .google)
+            #expect(resolved.configuration.searchEngine.searchURL(for: "cats")?.host() == "www.google.com")
+        }
+        setting.customSearch = "https://search.example/?q=%s"
+        let usable = OmniboxConfiguration.resolve(setting)
+        #expect(!usable.invalidCustomEngine)
+        #expect(usable.configuration.searchEngine.searchURL(for: "cats")?.absoluteString == "https://search.example/?q=cats")
+        setting.searchEngine = "brave"
+        #expect(!OmniboxConfiguration.resolve(setting).invalidCustomEngine)
+    }
+
     @Test func everyEngineFollowsTheConfiguration() throws {
         let services = ActionBindingCoverageTests.boundServices()
         let cache = try #require(services.cache)

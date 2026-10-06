@@ -197,7 +197,7 @@ THE SOFTWARE.
 
 ## FreeType
 
-GhosttyNextKit (Ghostty's terminal library in this app) statically links FreeType for font rendering. This app uses FreeType under the FreeType License (FTL); FreeType's LICENSE.TXT is in `Contents/Resources/ghostty-next-licenses/`. The FTL asks binary distributions to credit the FreeType Project:
+GhosttyNextKit (Ghostty's terminal library in this app) statically links FreeType for font rendering. This app uses FreeType under the FreeType License (FTL). `Contents/Resources/ghostty-next-licenses/` holds FreeType's LICENSE.TXT, the FTL text (docs/FTL.TXT) and the X11-style terms of the parts of FreeType that the app compiles in: the BDF driver (src/bdf/README), the PCF driver (src/pcf/README) and src/base/fthash.c. The FTL asks binary distributions to credit the FreeType Project:
 
 This software is based in part on the work of the FreeType Team (FreeType 2.13.2, https://freetype.org). Portions of this software are copyright © 2023 The FreeType Project (www.freetype.org).  All rights reserved.
 

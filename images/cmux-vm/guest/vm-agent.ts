@@ -35,6 +35,8 @@ export const INSTALL_KEY_FILE = "/var/lib/cmux/install/key.json";
 export const WG_KEY_FILE = "/var/lib/cmux/wg/key.json";
 /** Own runtime dir: the bake and the boot supervisor clear /run/cmux. */
 export const AGENT_SOCKET = "/run/cmux-vm-agent/agent.sock";
+/** Diagnostic: the last report's outcome (end-to-end evidence; never a secret). */
+export const AGENT_STATE_FILE = "/run/cmux-vm-agent/state.json";
 export const DAEMON_INFO_FILE = "/etc/cmux/daemon.json";
 /** The baked daemon's control socket path (the bake finds it with `ss` and records it). */
 export const DAEMON_SOCKET_FILE = "/etc/cmux/daemon-socket";
@@ -394,6 +396,8 @@ export function heartbeatMsFor(env: Env, raw: string | undefined): number {
 }
 
 export type Activity = { active_sessions: number; last_user_input_at?: number; last_agent_action_at?: number };
+/** One report's outcome: ok = the server accepted it; applied = it applied now (false = held for the 10 s window). */
+export type ReportResult = { reason: string; ok: boolean; applied: boolean | null; at: number; status: number | null };
 type ReporterOptions = {
   client: CloudClient;
   clock: Clock;
@@ -404,6 +408,7 @@ type ReporterOptions = {
   initialBackoffMs?: number;
   maxBackoffMs?: number;
   random?: () => number;
+  onResult?: (result: ReportResult) => void;
 };
 
 /**
@@ -415,6 +420,7 @@ export class StatusReporter {
   private activity: Activity = { active_sessions: 0 };
   private state: "running" | "degraded" | "stopping" = "running";
   private dirty = false;
+  private pendingReason = "start";
   private lastSentAt: number | null = null;
   private inFlight: Promise<void> | null = null;
   private cancelWindow: (() => void) | null = null;
@@ -441,7 +447,8 @@ export class StatusReporter {
   }
 
   /** Mark a report due (bind, start, change, heartbeat) and send it as soon as the window allows. */
-  trigger(_reason: string): void {
+  trigger(reason: string): void {
+    this.pendingReason = reason;
     this.dirty = true;
     this.schedule();
   }
@@ -467,10 +474,21 @@ export class StatusReporter {
     this.dirty = false;
     this.lastSentAt = this.o.clock.now();
     const params = { machine: this.o.machine, state: this.state, daemon: this.o.daemon, activity: { ...this.activity } };
+    const reason = this.pendingReason;
+    const at = this.lastSentAt;
+    const report = (ok: boolean, applied: boolean | null, status: number | null) => this.o.onResult?.({ reason, ok, applied, at, status });
     this.inFlight = this.o.client
       .op("cloud.vm.status.report", params)
-      .then((answer) => (answer.status === 200 && answer.body.ok === true ? this.accepted() : this.failed(retryAfter(answer.body))))
-      .catch(() => this.failed(0))
+      .then((answer) => {
+        const ok = answer.status === 200 && answer.body.ok === true;
+        report(ok, ok ? answer.body.value?.applied === true : null, answer.status);
+        if (ok) this.accepted();
+        else this.failed(retryAfter(answer.body));
+      })
+      .catch(() => {
+        report(false, null, null);
+        this.failed(0);
+      })
       .finally(() => {
         this.inFlight = null;
         this.schedule();
@@ -573,15 +591,26 @@ export async function readInstanceId(fetchFn: typeof fetch = fetch): Promise<str
 
 type Running = { reporter: StatusReporter; events: EventSender };
 
-function handleLine(line: string, running: Running | null): void {
+/** One JSON line from the agent socket: activity, an event, or a resume notice (OnClockChange timer). */
+export function handleAgentLine(line: string, running: Running | null): void {
   if (!running || line.trim() === "") return;
   try {
-    const msg = JSON.parse(line) as { activity?: Partial<Activity>; event?: QueuedEvent };
+    const msg = JSON.parse(line) as { activity?: Partial<Activity>; event?: QueuedEvent; resume?: unknown };
     if (msg.activity) running.reporter.update(msg.activity);
     if (msg.event) running.events.emit(msg.event.kind, msg.event.at, msg.event.data);
+    if (msg.resume === true) running.reporter.trigger("resume");
   } catch (error) {
     log(`socket line refused: ${String((error as Error).message)}`);
   }
+}
+
+/** `--notify-resume`: run by cmux-vm-agent-resume.service when the realtime clock jumps (a VM resume). */
+async function notifyResume(): Promise<void> {
+  await new Promise<void>((resolve) => {
+    const socket = connect(AGENT_SOCKET);
+    socket.on("error", () => resolve());
+    socket.on("connect", () => socket.end(`${JSON.stringify({ resume: true })}\n`, () => resolve()));
+  });
 }
 
 function serveSocket(current: () => Running | null): void {
@@ -595,7 +624,7 @@ function serveSocket(current: () => Running | null): void {
       if (buffer.length > 64 * 1024) socket.destroy();
       let nl = buffer.indexOf("\n");
       while (nl >= 0) {
-        handleLine(buffer.slice(0, nl), current());
+        handleAgentLine(buffer.slice(0, nl), current());
         buffer = buffer.slice(nl + 1);
         nl = buffer.indexOf("\n");
       }
@@ -610,6 +639,10 @@ function serveSocket(current: () => Running | null): void {
 
 async function main(): Promise<void> {
   const store = new FileStore();
+  if (process.argv.includes("--notify-resume")) {
+    await notifyResume();
+    return;
+  }
   if (process.argv.includes("--print-daemon-info")) {
     const socketPath = store.read(DAEMON_SOCKET_FILE)?.trim();
     if (!socketPath) throw new Error(`${DAEMON_SOCKET_FILE} is missing`);
@@ -626,7 +659,15 @@ async function main(): Promise<void> {
     const daemon = await resolveDaemonInfo(store, { activitySender: ACTIVITY_SENDER_EXISTS });
     const heartbeatMs = heartbeatMsFor(bound.env, process.env.CMUX_VM_AGENT_HEARTBEAT_MS);
     if (heartbeatMs !== DEFAULT_HEARTBEAT_MS) log(`heartbeat test override: ${heartbeatMs} ms (dev only)`);
-    running = { reporter: new StatusReporter({ client, clock, machine: bound.machine, daemon, heartbeatMs }), events: new EventSender({ client, clock, machine: bound.machine }) };
+    const onResult = (r: ReportResult) => {
+      log(`report ${r.reason} ${r.ok ? (r.applied ? "applied" : "held") : `failed${r.status ? ` HTTP ${r.status}` : ""}`}`);
+      try {
+        store.write(AGENT_STATE_FILE, `${JSON.stringify({ last_report: r, daemon, heartbeat_ms: heartbeatMs })}\n`, 0o644);
+      } catch {
+        // the state file is diagnostic only
+      }
+    };
+    running = { reporter: new StatusReporter({ client, clock, machine: bound.machine, daemon, heartbeatMs, onResult }), events: new EventSender({ client, clock, machine: bound.machine }) };
     running.reporter.trigger("start");
   };
 
