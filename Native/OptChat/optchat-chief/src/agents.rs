@@ -160,6 +160,36 @@ pub fn child_spec(flags: &Flags, name: &str, cwd: &str) -> SessionSpec {
     }
 }
 
+/// The policy a child gets: the host's floor (`ask` while the Chief works
+/// for a paired device, README "Remote-origin messages") wins over
+/// `--policy` and `MUX_POLICY`.
+pub fn apply_floor(requested: &str, floor: Option<&str>) -> String {
+    floor.unwrap_or(requested).to_owned()
+}
+
+/// The live host's floor for a spawn now. No answer fails closed: `ask`.
+fn spawn_floor() -> Option<String> {
+    let socket = crate::paths::Paths::new(&crate::paths::mux_home()).tools_socket;
+    crate::tools::ask_spawn_policy(&socket)
+        .unwrap_or_else(|_| Some(crate::approval::ASK.to_owned()))
+}
+
+fn asks(s: &SessionSummary) -> bool {
+    s.tags.get(crate::approval::POLICY_TAG).map(String::as_str) == Some(crate::approval::ASK)
+}
+
+/// Whether `agents allow|deny` may answer `child`: not a child that runs with
+/// policy `ask`, whose approvals a person gives in the Chief chat.
+pub fn cli_may_answer(child: &SessionSummary) -> Result<(), String> {
+    if asks(child) {
+        return Err(format!(
+            "{} needs approvals from a person: answer allow or deny in the Chief chat",
+            child.name
+        ));
+    }
+    Ok(())
+}
+
 /// The preset a child starts with: its harness and this process's pinned
 /// cmux env (the `chief` launcher bakes it in), so the child's `cmux` calls
 /// reach the same app daemon as the Chief's, whoever started acpmux
@@ -205,22 +235,34 @@ pub fn run(flags: &Flags) -> Result<String, String> {
             if task.trim().is_empty() {
                 return Err(format!("spawn needs a task\n{USAGE}"));
             }
+            let floor = spawn_floor();
             let (client, notes) = connect()?;
             let parent = parent();
-            let existing = spawn_target(&sessions(&client)?, name, &parent)?;
+            let list = sessions(&client)?;
+            let existing = spawn_target(&list, name, &parent)?;
+            if floor.is_some()
+                && let Some(id) = &existing
+                && !list.iter().any(|s| &s.session_id == id && asks(s))
+            {
+                return Err(format!(
+                    "an agent named {name} exists without approvals, and this spawn needs them; pick another --name"
+                ));
+            }
             let id = match existing {
                 Some(id) => id,
                 None => {
-                    let spec = child_spec(flags, name, cwd);
+                    let mut spec = child_spec(flags, name, cwd);
+                    spec.policy = apply_floor(&spec.policy, floor.as_deref());
                     let preset = child_preset(&client, &spec.harness);
                     new_session(&client, &spec, preset.as_deref())?
                 }
             };
+            let mut tags = json!({PARENT_TAG: parent});
+            if floor.is_some() {
+                tags[crate::approval::POLICY_TAG] = json!(crate::approval::ASK);
+            }
             client
-                .request(
-                    "_acpmux/tag",
-                    json!({"sessionId": id, "set": {PARENT_TAG: parent}}),
-                )
+                .request("_acpmux/tag", json!({"sessionId": id, "set": tags}))
                 .map_err(|e| format!("tag: {e}"))?;
             prompt_accepted(&client, &notes, &id, &task)?;
             client.close();
@@ -269,6 +311,7 @@ pub fn run(flags: &Flags) -> Result<String, String> {
             let name = args.first().ok_or(USAGE)?;
             let (client, _) = connect()?;
             let target = child(&client, name)?;
+            cli_may_answer(&target)?;
             let info = client
                 .request("_acpmux/info", json!({"sessionId": target.session_id}))
                 .map_err(|e| e.to_string())?;

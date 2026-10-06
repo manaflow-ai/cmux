@@ -131,7 +131,14 @@ impl Brain {
                             }
                             texts.recv().unwrap_or_default()
                         };
-                        native.run(&chat, &start, &*log, &mailbox, &|| interrupt.is_set())
+                        native.run_gated(
+                            &chat,
+                            &start,
+                            &*log,
+                            &mailbox,
+                            &|| interrupt.is_set(),
+                            &|| interrupt.gated(),
+                        )
                     }
                 };
                 let _ = tx.send(Input::TurnEnded {
@@ -209,6 +216,27 @@ impl Brain {
         self.stop_wanted = false;
         let items_sources: Vec<&'static str> =
             items.iter().map(|i| source_name(&i.source)).collect();
+        // The strictest origin of the turn: a paired device's message (or
+        // a remote turn this one supersedes) makes it ask for every local
+        // effect, unless the user turned on remote.autoApprove on the Mac.
+        self.turn_remote = std::mem::take(&mut self.remote_taint)
+            || items.iter().any(|i| {
+                matches!(
+                    i.source,
+                    Source::Message {
+                        remote: Some(_),
+                        ..
+                    }
+                )
+            });
+        self.turn_ask = self.turn_remote && !self.chief.remote_auto_approve;
+        self.clear_turn_approvals();
+        self.interrupt.set_gate(self.turn_ask);
+        let policy = if self.turn_ask {
+            "ask".to_owned()
+        } else {
+            self.settings.policy.clone()
+        };
         let images: Vec<super::images::TurnImage> = items
             .iter()
             .flat_map(|i| i.images.iter().cloned())
@@ -219,9 +247,16 @@ impl Brain {
             .collect();
         self.describe_images(&images);
         let texts: Vec<String> = items.into_iter().map(|i| i.text).collect();
+        // The engine of this turn, read now (engine.rs): a change applies
+        // from this turn on and is logged as a note after its messages.
+        let engine = self.turn_engine_choice();
+        let family = self.family_of(&engine.harness);
+        self.note_engine(&engine);
+        let default_family = self.family_of(&self.settings.harness);
         // The cached layout on a Claude harness whose acpmux takes a preset
         // system prompt; else the view and the messages as blocks.
-        let cached = matches!(self.settings.engine, Engine::Acpmux)
+        let cached = (matches!(self.settings.engine, Engine::Acpmux)
+            && family == crate::acpmux::Family::Claude)
             .then_some(self.settings.turn_preset.as_deref())
             .flatten()
             .filter(|preset| self.agents.system_prompt(preset));
@@ -235,10 +270,21 @@ impl Brain {
                 );
                 (layout.blocks, Some(layout.system), Some(preset.to_owned()))
             }
-            None => (turn_blocks(&view.text, &texts), None, None),
+            None => {
+                // The family's own preset when the turn left the default
+                // harness's family (the port falls back to the default's).
+                let preset = match family {
+                    crate::acpmux::Family::Codex => self.settings.codex_preset.clone(),
+                    crate::acpmux::Family::Claude if default_family != family => {
+                        self.settings.turn_preset.clone()
+                    }
+                    _ => None,
+                };
+                (turn_blocks(&view.text, &texts), None, preset)
+            }
         };
         let blocks = with_images(blocks, image_blocks);
-        if self.settings.turn_preset.is_some() {
+        if self.settings.turn_preset.is_some() && family == crate::acpmux::Family::Claude {
             // The system prompt carries the instructions in the cached
             // layout; the old layout reads them from CLAUDE.md.
             let text = system_prompt
@@ -261,10 +307,10 @@ impl Brain {
             session: SessionSpec {
                 name: format!("{}-{first}", self.settings.turn_prefix),
                 cwd: self.settings.session_dir.clone(),
-                harness: self.settings.harness.clone(),
-                policy: self.settings.policy.clone(),
-                model: self.settings.model.clone(),
-                effort: self.settings.effort.clone(),
+                harness: engine.harness.clone(),
+                policy,
+                model: engine.model.clone(),
+                effort: engine.effort.clone(),
                 preset,
                 tags: crate::acpmux::chief_tags(&self.settings.chief_id, "turn"),
             },
@@ -290,7 +336,7 @@ impl Brain {
             .iter()
             .map(|q| NewMessage {
                 key: match q.source {
-                    Source::Message { seq } => Some(format!("{conversation}#{seq}")),
+                    Source::Message { seq, .. } => Some(format!("{conversation}#{seq}")),
                     _ => None,
                 },
                 ..NewMessage::new(Kind::User, &q.text)
@@ -352,6 +398,19 @@ impl Brain {
             return Vec::new();
         }
         let items: Vec<Queued> = self.queue.drain(..).collect();
+        if items.iter().any(|i| {
+            matches!(
+                i.source,
+                Source::Message {
+                    remote: Some(_),
+                    ..
+                }
+            )
+        }) {
+            self.turn_remote = true;
+            self.turn_ask = !self.chief.remote_auto_approve;
+            self.interrupt.set_gate(self.turn_ask);
+        }
         let at = self.chat.status().messages;
         let batch: Vec<Item> = items.iter().map(item).collect();
         let logged = self.log_items(&items, move |next, _| {
@@ -394,6 +453,9 @@ impl Brain {
         if self.phase != Phase::Running {
             return;
         }
+        // A pending approval holds the tool call: a newer message denies it,
+        // so the turn can stop and the next one answers.
+        self.deny_pending("a newer message");
         if matches!(self.settings.engine, Engine::Acpmux) {
             self.stop_wanted = true;
         }
@@ -444,7 +506,9 @@ impl Brain {
                 "turn": key,
                 "first": first,
                 "engine": match self.settings.engine { Engine::Acpmux => "acpmux", Engine::Native(_) => "native" },
-                "harness": self.settings.harness,
+                "harness": self.turn_engine.as_ref().map_or(self.settings.harness.as_str(), |e| e.harness.as_str()),
+                "model": self.turn_engine.as_ref().and_then(|e| e.model.clone()),
+                "effort": self.turn_engine.as_ref().and_then(|e| e.effort.clone()),
                 "settle_ms": settle_ms,
                 "messages": texts.iter().map(|t| self.trace.text(t)).collect::<Vec<_>>(),
                 "sources": sources,
@@ -460,6 +524,63 @@ impl Brain {
             }),
         );
         self.prev_view = Some(view.to_owned());
+    }
+
+    /// This turn's engine: engine.json over the defaults. A harness acpmux
+    /// does not know keeps the default harness, and says so.
+    fn turn_engine_choice(&mut self) -> crate::engine::TurnEngine {
+        let s = &self.settings;
+        let choice = s
+            .engine_file
+            .as_deref()
+            .map(crate::engine::load)
+            .unwrap_or_default();
+        let mut engine =
+            crate::engine::resolve(&choice, &s.harness, s.model.as_deref(), s.effort.as_deref());
+        if !s.families.is_empty() && !s.families.contains_key(&engine.harness) {
+            (self.log)(&format!(
+                "engine.json names harness {}, which acpmux does not have; this turn runs on {}",
+                engine.harness, s.harness
+            ));
+            engine.harness = s.harness.clone();
+        }
+        self.turn_engine = Some(engine.clone());
+        engine
+    }
+
+    /// A harness's family (the default harness is Claude in a brain made
+    /// without acpmux's metadata when it has a turn preset).
+    fn family_of(&self, harness: &str) -> crate::acpmux::Family {
+        match self.settings.families.get(harness) {
+            Some(f) => *f,
+            None if self.settings.families.is_empty() && self.settings.turn_preset.is_some() => {
+                crate::acpmux::Family::Claude
+            }
+            None => crate::acpmux::Family::Other,
+        }
+    }
+
+    /// Logs an engine change as a note (after the turn's messages, so the
+    /// pending turn's positions stay right) and into the trace.
+    fn note_engine(&mut self, engine: &crate::engine::TurnEngine) {
+        let now = engine.describe();
+        let before = self.state.engine.clone();
+        if before.as_deref() == Some(now.as_str()) {
+            return;
+        }
+        if let Some(before) = &before {
+            let text = format!("engine changed to {now} (was {before})");
+            if let Err(e) = self.chat.append(Kind::Note, &text) {
+                (self.log)(&format!("logging the engine change failed: {e}"));
+            }
+            (self.log)(&text);
+        }
+        self.trace.emit(
+            "engine",
+            serde_json::json!({"harness": engine.harness, "model": engine.model, "effort": engine.effort, "was": before}),
+        );
+        self.state.engine = Some(now);
+        self.save();
     }
 
     /// The trace's `turn.end`.
@@ -489,6 +610,9 @@ impl Brain {
                 "turn": key,
                 "ms": ms,
                 "status": status,
+                "harness": self.turn_engine.as_ref().map(|e| e.harness.clone()),
+                "model": self.turn_engine.as_ref().and_then(|e| e.model.clone()),
+                "effort": self.turn_engine.as_ref().and_then(|e| e.effort.clone()),
                 "error": outcome.error.as_deref().map(|e| self.trace.text(e)),
                 "reply": outcome.reply.as_deref().map(|r| self.trace.text(r)),
                 "first_usage": s.first.as_ref().map(crate::trace::usage),
@@ -530,7 +654,13 @@ impl Brain {
         };
         if superseded {
             (self.log)(&format!("turn {key} stopped for a newer message"));
+            // The turn that answers both keeps this one's remote origin.
+            self.remote_taint |= self.turn_remote;
         }
+        self.turn_remote = false;
+        self.turn_ask = false;
+        self.clear_turn_approvals();
+        self.interrupt.set_gate(false);
         if let Some(orphan) = outcome.orphan {
             self.state.orphans.push(orphan);
         }
@@ -600,7 +730,7 @@ fn with_images(
 fn item(queued: &Queued) -> Item {
     let images = queued.images.iter().map(|i| i.source.clone()).collect();
     match &queued.source {
-        Source::Message { seq } => Item {
+        Source::Message { seq, .. } => Item {
             seq: Some(*seq),
             images,
             ..Item::default()
