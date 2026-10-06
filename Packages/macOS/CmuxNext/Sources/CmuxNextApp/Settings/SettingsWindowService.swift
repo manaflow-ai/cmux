@@ -65,6 +65,9 @@ final class SettingsWindowService: InternalPageProvider {
             return
         }
         waiting = nil
+        // A user run over a top page (Home, from the footer gear) leaves it: the tab
+        // opened behind the page, so nothing seemed to happen (Leo 2026-10-06).
+        if focus, let page = window.shownTopPage, page != .page(.settings) { TopPages.leave(services) }
         let route = Self.route(section: target, setting: setting)
         pendingRoute = route
         let view = services.pages.show(.settings, in: window, focus: focus)
