@@ -22,6 +22,9 @@ final class SidebarListDrag {
     var lastWindowPoint: NSPoint = .zero
     /// The last pointer y in the list and the drag's vertical direction.
     var lastY: CGFloat = 0, movingUp = false
+    /// The last drop probe (debug.sidebar_rows "drop"): the card edge that
+    /// decided, the row it hit in the base layout and where in that row.
+    var probe: SidebarDropProbe?
     init(payload: DragPayload, grabbedKey: SidebarRowKey, hiddenKeys: Set<SidebarRowKey>, grabOffsetY: CGFloat, gapHeight: CGFloat, lift: DragLiftView, target: DropTarget?) {
         self.payload = payload
         self.grabbedKey = grabbedKey
