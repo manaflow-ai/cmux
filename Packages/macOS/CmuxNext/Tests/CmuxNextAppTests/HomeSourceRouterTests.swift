@@ -42,6 +42,18 @@ nonisolated final class FakeLocalHomeSource: HomeSource {
     }
     func search(_ query: String, limit: Int) async throws -> [HomeSearchHit] { [] }
     func resolve(_ contact: ContactAddress) async throws -> ContactResolution { .invitable(contact) }
+
+    private let blobs = Mutex<[String]>([])
+    /// Hashes uploaded or fetched through this owner, in order.
+    var blobCalls: [String] { blobs.withLock { $0 } }
+    func upload(_ file: AttachmentUpload) async throws -> AttachmentRef {
+        blobs.withLock { $0.append("upload \(file.ref.hash)") }
+        return file.ref
+    }
+    func fetch(_ ref: AttachmentRef, at location: AttachmentLocation, variant: AttachmentVariant) async throws -> URL {
+        blobs.withLock { $0.append("fetch \(ref.hash)") }
+        return URL(fileURLWithPath: "/tmp/\(ref.hash)")
+    }
 }
 
 /// One Home inbox over the local and the cloud owners
@@ -73,6 +85,21 @@ nonisolated final class FakeLocalHomeSource: HomeSource {
         #expect(cloudRow.title == "Bob")
         #expect(cloudRow.kind == .direct)
         #expect(store.me?.id == F.localMe)
+    }
+
+    /// Attachment bytes (an image, a link preview's picture) go to the
+    /// conversation's owner: the router used to answer every upload and
+    /// fetch with HomeSource's "attachments unsupported" default.
+    @Test func attachmentUploadsAndFetchesReachTheLocalOwner() async throws {
+        let (router, local, _, _) = await router()
+        _ = try await router.inbox()
+        let ref = AttachmentRef(hash: String(repeating: "f", count: 64), name: "link-preview.jpg", mimeType: "image/jpeg", byteCount: 9)
+        let conversation = FakeLocalHomeSource.conversation
+        let stored = try await router.upload(AttachmentUpload(conversation: conversation, fileURL: URL(fileURLWithPath: "/tmp/x.jpg"), ref: ref))
+        #expect(stored == ref)
+        _ = try await router.fetch(ref, at: AttachmentLocation(conversation: conversation, message: MessageID("msg_1"), partIndex: 0),
+                                   variant: .original)
+        #expect(local.blobCalls == ["upload \(ref.hash)", "fetch \(ref.hash)"])
     }
 
     @Test func eachOpReachesTheOwnerOfItsConversation() async throws {
