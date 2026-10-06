@@ -9,9 +9,9 @@ use std::time::{Duration, Instant};
 
 use cmux::raw::{
     Client, ClientConfig, ConversationBindRequest, ConversationCreateRequest,
-    ConversationHistoryRequest, ConversationListRequest, ConversationOpRequest, ConversationSnapshotRequest,
-    ConversationTypingRequest, Error as SdkError, Event, Nullable, Optional, SubscribeRequest,
-    SubscribeRequestTreeEvents,
+    ConversationHistoryRequest, ConversationListRequest, ConversationOpRequest,
+    ConversationSnapshotRequest, ConversationTypingRequest, Error as SdkError, Event, Nullable,
+    Optional, SubscribeRequest, SubscribeRequestTreeEvents,
 };
 use cmux_chief::rules::{
     AGENT_MUX, CHIEF_CONVERSATION_TITLE, CHIEF_DISPLAY_NAME, DEFAULT_CONVERSATION_KEY,
@@ -139,7 +139,8 @@ fn rewire<S: serde::Serialize, T: serde::de::DeserializeOwned>(
     value: &S,
     what: &str,
 ) -> Result<T, OpError> {
-    let json = serde_json::to_value(value).map_err(|e| OpError::Transport(format!("{what}: {e}")))?;
+    let json =
+        serde_json::to_value(value).map_err(|e| OpError::Transport(format!("{what}: {e}")))?;
     decode(json, what)
 }
 
@@ -278,7 +279,9 @@ fn connect(config: &LinkConfig) -> Result<(Client, Summary, cmux::raw::Stream), 
     // The app creates the Chief conversation when Home opens; answer in the
     // one it shows. Create it (with the app's exact request, so the owner
     // replays one conversation) only when none exists yet.
-    let listed = client.conversation_list(ConversationListRequest {}).map_err(other)?;
+    let listed = client
+        .conversation_list(ConversationListRequest {})
+        .map_err(other)?;
     let listed: Vec<Summary> = rewire(&listed.conversations, "conversation-list")
         .map_err(|e| ConnectError::Other(e.to_string()))?;
     let summary = match select_chief(listed) {
@@ -393,6 +396,8 @@ pub fn spawn_link(
             }
         });
     if let Err(e) = spawned {
-        fatal(DaemonEvent::Fatal(format!("cannot start the daemon link thread: {e}")));
+        fatal(DaemonEvent::Fatal(format!(
+            "cannot start the daemon link thread: {e}"
+        )));
     }
 }

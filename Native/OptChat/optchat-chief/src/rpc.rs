@@ -96,7 +96,11 @@ impl RpcClient {
                 }
                 closed.store(true, Ordering::SeqCst);
                 // Taking the map refuses later registrations and fails the waiting ones.
-                if let Some(pending) = waiters.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take() {
+                if let Some(pending) = waiters
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .take()
+                {
                     for (_, tx) in pending {
                         let _ = tx.send(Err(RpcError::Closed));
                     }
@@ -132,7 +136,10 @@ impl RpcClient {
         let (tx, rx) = channel();
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         {
-            let mut waiters = self.waiters.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut waiters = self
+                .waiters
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             let Some(map) = waiters.as_mut() else {
                 let _ = tx.send(Err(RpcError::Closed));
                 return (id, rx);
@@ -149,7 +156,11 @@ impl RpcClient {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .write_all(line.as_bytes());
         if sent.is_err()
-            && let Some(map) = self.waiters.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_mut()
+            && let Some(map) = self
+                .waiters
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .as_mut()
             && let Some(tx) = map.remove(&id)
         {
             let _ = tx.send(Err(RpcError::Closed));
@@ -174,7 +185,12 @@ impl RpcClient {
             Ok(answer) => answer,
             Err(RecvTimeoutError::Disconnected) => Err(RpcError::Closed),
             Err(RecvTimeoutError::Timeout) => {
-                if let Some(map) = self.waiters.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_mut() {
+                if let Some(map) = self
+                    .waiters
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .as_mut()
+                {
                     map.remove(&id);
                 }
                 Err(RpcError::Timeout(deadline))

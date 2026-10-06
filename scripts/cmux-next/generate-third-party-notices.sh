@@ -174,7 +174,7 @@ section rust-cmux-diff-sidecar "Rust crates: diff viewer sidecar (bin/cmux-diff-
   --first-party 'Native/DiffSidecar'
 section rust-optchat-chief "Rust crates: Home Chief brain host (bin/optchat-chief, cmux-next nightly)" \
   --lock "$ROOT/Native/OptChat/optchat-chief/Cargo.lock" --lock-label "Native/OptChat/optchat-chief/Cargo.lock" \
-  --root optchat-chief --workspace "$ROOT/Native/OptChat/optchat-chief" --workspace "$ROOT/cmux-tui" --repo-root "$ROOT" \
+  --root optchat-chief --workspace "$ROOT/Native/OptChat/optchat-chief" --workspace "$ROOT/Native/OptChat/optchat-core" --workspace "$ROOT/Native/OptChat/optchat-host" --workspace "$ROOT/cmux-tui" --repo-root "$ROOT" \
   --first-party 'Native/OptChat/*' --first-party 'cmux-tui/crates/*' --first-party 'cmux-tui/bindings/*'
 section rust-iroh-ffi "Rust crates: Iroh.framework (manaflow-ai/iroh-ffi)" \
   --lock "$iroh_src/Cargo.lock" --lock-label "manaflow-ai/iroh-ffi Cargo.lock at ${iroh_rev:0:11}" \

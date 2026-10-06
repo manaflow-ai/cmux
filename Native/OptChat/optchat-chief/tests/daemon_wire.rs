@@ -212,7 +212,10 @@ fn the_link_creates_binds_subscribes_and_reconnects() {
         .iter()
         .filter(|r| r["cmd"] == "conversation-create")
         .count();
-    assert_eq!(creates, 1, "an existing Chief conversation is found, not created");
+    assert_eq!(
+        creates, 1,
+        "an existing Chief conversation is found, not created"
+    );
     let binds = requests
         .lock()
         .unwrap()

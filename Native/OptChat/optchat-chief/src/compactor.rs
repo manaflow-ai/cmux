@@ -164,18 +164,29 @@ impl Slots {
     }
 
     fn take(&self) -> usize {
-        let mut free = self.free.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut free = self
+            .free
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         loop {
             if let Some(k) = free.iter().position(|f| *f) {
                 free[k] = false;
                 return k;
             }
-            free = self.freed.wait(free).unwrap_or_else(std::sync::PoisonError::into_inner);
+            free = self
+                .freed
+                .wait(free)
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
         }
     }
 
     fn give(&self, k: usize) {
-        if let Some(slot) = self.free.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get_mut(k) {
+        if let Some(slot) = self
+            .free
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get_mut(k)
+        {
             *slot = true;
         }
         self.freed.notify_one();
@@ -342,21 +353,24 @@ impl AcpmuxCompactor {
         };
         match self.port.new_session(&spec) {
             Ok(id) => {
-                self.live.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(
-                    node,
-                    Live {
-                        id: id.clone(),
-                        seq: 0,
-                        slot,
-                        cwd,
-                        preset,
-                        prompted: system.is_some(),
-                        opened: Instant::now(),
-                        prompts: 0,
-                        usage: None,
-                        cost: None,
-                    },
-                );
+                self.live
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .insert(
+                        node,
+                        Live {
+                            id: id.clone(),
+                            seq: 0,
+                            slot,
+                            cwd,
+                            preset,
+                            prompted: system.is_some(),
+                            opened: Instant::now(),
+                            prompts: 0,
+                            usage: None,
+                            cost: None,
+                        },
+                    );
                 Ok(id)
             }
             Err(e) => {
@@ -450,7 +464,12 @@ impl AcpmuxCompactor {
             fold.apply(event);
         }
         fold.finish(None);
-        if let Some(l) = self.live.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get_mut(&node) {
+        if let Some(l) = self
+            .live
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get_mut(&node)
+        {
             l.seq = fold.seq();
         }
         if let Some(error) = fold.ended().and_then(|e| e.error.clone()) {
@@ -463,7 +482,10 @@ impl AcpmuxCompactor {
 
     /// Adds a prompt's reported token use and cost to its node.
     fn count(&self, node: NodeId, answer: &Value) {
-        let mut live = self.live.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut live = self
+            .live
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let Some(l) = live.get_mut(&node) else { return };
         l.prompts += 1;
         if let Some((u, _)) = answer_usage(answer) {
@@ -541,7 +563,12 @@ impl CompactModel for AcpmuxCompactor {
     }
 
     fn end(&self, request: &CompactRequest) {
-        let Some(live) = self.live.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(&request.node) else {
+        let Some(live) = self
+            .live
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(&request.node)
+        else {
             return;
         };
         // Purged: a node's session holds the chat's text, and nothing reads it again.

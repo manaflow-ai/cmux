@@ -328,9 +328,18 @@ impl Acpmux {
                 )),
             }
         }
-        *self.ready.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = ready;
-        *self.with_args.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = with_args;
-        *self.with_prompt.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = with_prompt;
+        *self
+            .ready
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = ready;
+        *self
+            .with_args
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = with_args;
+        *self
+            .with_prompt
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = with_prompt;
     }
 
     fn client(&self) -> Result<Arc<RpcClient>, String> {
@@ -360,8 +369,16 @@ impl Acpmux {
                         }
                         Err(e) => log(&format!("acpmux: {e}")),
                     }
-                    *this.client.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = None;
-                    for (_, tx) in this.turns.lock().unwrap_or_else(std::sync::PoisonError::into_inner).drain() {
+                    *this
+                        .client
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+                    for (_, tx) in this
+                        .turns
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .drain()
+                    {
                         let _ = tx.send(TurnSignal::Lost);
                     }
                     sink(AgentEvent::Down);
@@ -409,7 +426,10 @@ impl Acpmux {
         match result {
             Ok(list) => {
                 self.install_presets(&client, log);
-                *self.client.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(client);
+                *self
+                    .client
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(client);
                 log(&format!("acpmux connected at {}", self.socket.display()));
                 sink(AgentEvent::Up(list));
                 Ok(closed_rx)
@@ -439,7 +459,10 @@ fn route(turns: &Mutex<HashMap<String, Sender<TurnSignal>>>, sink: &Sink, n: Not
                 .and_then(Value::as_str)
                 .unwrap_or("");
             if !is_noise(kind)
-                && let Some(tx) = turns.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(session)
+                && let Some(tx) = turns
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .get(session)
             {
                 let _ = tx.send(TurnSignal::Changed);
             }
@@ -550,7 +573,11 @@ pub fn new_session(
 
 impl AgentPort for Acpmux {
     fn new_session(&self, spec: &SessionSpec) -> Result<String, String> {
-        let ready = self.ready.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
+        let ready = self
+            .ready
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
         let preset = match &spec.preset {
             Some(name) if ready.contains(name) => Some(name.as_str()),
             // Never a fallback to the user's own configuration.
@@ -603,7 +630,10 @@ impl AgentPort for Acpmux {
     }
 
     fn end_session(&self, session: &str) -> Result<(), String> {
-        self.turns.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(session);
+        self.turns
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(session);
         self.client()?
             .request("_acpmux/kill", json!({"sessionId": session, "purge": true}))
             .map(|_| ())
@@ -631,7 +661,10 @@ impl AgentPort for Acpmux {
     }
 
     fn preset_args(&self, preset: &str) -> bool {
-        self.with_args.lock().unwrap_or_else(std::sync::PoisonError::into_inner).contains(preset)
+        self.with_args
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .contains(preset)
     }
 
     fn system_prompt(&self, preset: &str) -> bool {

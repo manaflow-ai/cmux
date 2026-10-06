@@ -282,7 +282,10 @@ fn start(
         agents.spawn_link(
             Arc::new(move |event| {
                 if matches!(event, AgentEvent::Up(_) | AgentEvent::Down) {
-                    *first_link.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = true;
+                    *first_link
+                        .0
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner) = true;
                     first_link.1.notify_all();
                 }
                 let _ = tx.send(Input::from(event));
@@ -350,7 +353,9 @@ fn start(
     if route == CompactRoute::Acpmux {
         // Bounded: acpmux_daemon::ensure gives a starting daemon 30 s.
         let (lock, cv) = &*first_link;
-        let linked = lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let linked = lock
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let _ = cv
             .wait_timeout_while(linked, Duration::from_secs(40), |done| !*done)
             .unwrap_or_else(std::sync::PoisonError::into_inner);

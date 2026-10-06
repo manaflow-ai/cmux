@@ -170,7 +170,10 @@ pub fn write(paths: &Paths, setup: &SessionSetup) -> io::Result<()> {
     write_if_changed(&paths.session.join(keep), text.as_bytes())?;
     remove_if_present(&paths.session.join(drop))?;
     let pretty = |v: &Value| -> io::Result<String> {
-        Ok(format!("{}\n", serde_json::to_string_pretty(v).map_err(io::Error::other)?))
+        Ok(format!(
+            "{}\n",
+            serde_json::to_string_pretty(v).map_err(io::Error::other)?
+        ))
     };
     write_if_changed(
         &paths.session.join(".mcp.json"),

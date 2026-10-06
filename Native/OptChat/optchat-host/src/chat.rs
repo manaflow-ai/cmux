@@ -344,7 +344,12 @@ impl OptChat {
         st.closed = true;
         self.shared.changed.notify_all();
         self.shared.unlock(st);
-        drop(self.lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take());
+        drop(
+            self.lock
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .take(),
+        );
     }
 }
 
