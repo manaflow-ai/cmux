@@ -62,25 +62,14 @@ extension SidebarListView {
         // The lifted row follows the pointer vertically; x stays locked.
         SidebarReorderLift.follow(drag.lift, top: point.y - drag.grabOffsetY, visible: visibleRect)
         autoscroll.update(windowPoint: windowPoint)
-        // The card's leading edge decides (nxdog30): a row makes way once the card covers half of it.
         let card = drag.lift.frame
         if point.y != drag.lastY {
             drag.movingUp = point.y < drag.lastY
             drag.lastY = point.y
         }
-        let probe = drag.movingUp ? card.minY : card.maxY
-        let edge = drag.movingUp ? "top" : "bottom"
-        guard let baseY = DropResolver.baseY(forDisplayY: probe, gapY: displayed.gapY, gapHeight: displayed.gapShift) else {
-            drag.probe = SidebarDropProbe(edge: edge, displayY: probe, target: drag.target.map { String(describing: $0) })
-            return
-        }
         let base = SidebarLayout.make(sections: model.sections, metrics: metrics, options: options(includeGap: false))
-        let target = DropResolver.resolve(y: baseY, payload: drag.payload, base: base, sections: model.sections,
-                                          ungroupedFirst: model.ungroupedFirst)
-        let hit = base.row(at: baseY)
-        drag.probe = SidebarDropProbe(edge: edge, displayY: probe, baseY: baseY, row: hit.map { String(describing: $0.key) },
-                                      fraction: hit.map { ($0.height > 0 ? (baseY - $0.y) / $0.height : 0) },
-                                      target: target.map { String(describing: $0) })
+        guard let target = drag.resolve(card: card, displayed: displayed, base: base, sections: model.sections,
+                                        ungroupedFirst: model.ungroupedFirst) else { return }
         guard target != drag.target else { return }
         drag.target = target
         drag.lift.setRefused(target == nil)
