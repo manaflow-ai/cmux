@@ -67,6 +67,11 @@ jobs:
           fi
 
           git fetch --no-tags origin "+refs/pull/${{ github.event.pull_request.number }}/head:refs/remotes/pr/head"
+          fetched_head="$(git rev-parse refs/remotes/pr/head)"
+          [ "$fetched_head" = "$HEAD_SHA" ] || {
+            echo "::error::Fetched PR head $fetched_head does not match event head $HEAD_SHA"
+            exit 1
+          }
           # Never run hooks from a reused checkout: the PR tree is untrusted.
           git -c core.hooksPath=/dev/null checkout --detach "$HEAD_SHA"
 
