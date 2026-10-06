@@ -484,7 +484,9 @@ rest. Measurements: [performance.md](performance.md).
   resets every one. A run without `--session`, the interactive REPL and
   `mcp` from outside cmux bind to the focused workspace; the interactive
   REPL and `mcp` keep the workspace their first call bound, so a change of
-  focus does not switch sessions. Pass `--workspace` to use a workspace's
+  focus does not switch sessions; with a `--session` name from outside cmux
+  they keep using the session callers outside cmux share, never the
+  workspace's session of that name. Pass `--workspace` to use a workspace's
   own session from outside cmux. A `--workspace` that
   names no workspace of this cmux instance (unknown, blank, or a ref that
   does not resolve) is refused; it never falls back to another workspace.
