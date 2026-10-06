@@ -28,7 +28,10 @@ pub mod provider;
 pub mod provider_engine;
 #[cfg(unix)]
 pub mod provider_link;
+#[cfg(unix)]
+pub mod provider_source;
 pub mod secrets;
 #[cfg(unix)]
 pub mod server;
+pub mod tab_source;
 pub mod vm;

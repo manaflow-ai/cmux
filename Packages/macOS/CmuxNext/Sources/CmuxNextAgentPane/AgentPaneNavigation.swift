@@ -1,9 +1,10 @@
 import Foundation
 import WebKit
 
-/// Keeps the web view on its page (`AgentPaneSource`). A clicked http(s) link opens
-/// outside the pane; a frame inside the page may show a loopback web page (a turn's
-/// preview card, `URL.isAgentPanePreview`); every other navigation is cancelled.
+/// Keeps the web view on its page (`AgentPaneSource`): the main frame shows only the page
+/// document. A clicked http(s) link opens outside the pane after a real user gesture
+/// (``openOutside(_:gestures:open:)``); a frame inside the page may show a loopback web page (a
+/// turn's preview card, `URL.isAgentPanePreview`); every other navigation is cancelled.
 final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
     weak var view: AgentPaneView?
 
@@ -18,7 +19,7 @@ final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
         case .allow:
             return .allow
         case .openOutside(let url):
-            view.openURL(url)
+            _ = Self.openOutside(url, gestures: view.model.transport.gestures, open: view.openURL)
             return .cancel
         case .cancel:
             return .cancel
@@ -46,7 +47,7 @@ final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
 
     static func decision(for url: URL?, source: AgentPaneSource, userClicked: Bool, mainFrame: Bool = true) -> Decision {
         guard let url else { return .cancel }
-        if mainFrame, source.isTrusted(url) { return .allow }
+        if mainFrame, source.isPageDocument(url) { return .allow }
         // A preview frame stays on loopback pages; a click inside it does not leave the frame. It
         // never loads the pane's own page (a dev-server pane is on loopback too), which would make
         // it same-origin with the pane.
