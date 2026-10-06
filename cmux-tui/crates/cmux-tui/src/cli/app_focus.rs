@@ -112,8 +112,45 @@ pub(super) fn app_focused_workspace(stream: &mut UnixStream) -> Option<String> {
 /// `ws_` id and a `focused` field) to whether it is `shown`, when `shown`
 /// is one of them; otherwise the app does not own this session and `value`
 /// stays as it is. Returns whether it changed the records.
-pub(super) fn overlay_focused(_value: &mut Value, _shown: &str) -> bool {
-    false
+pub(super) fn overlay_focused(value: &mut Value, shown: &str) -> bool {
+    fn ids(value: &Value, out: &mut Vec<String>) {
+        match value {
+            Value::Object(map) => {
+                if let (Some(Value::String(id)), Some(Value::Bool(_))) =
+                    (map.get("id"), map.get("focused"))
+                    && id.starts_with("ws_")
+                {
+                    out.push(id.clone());
+                }
+                map.values().for_each(|v| ids(v, out));
+            }
+            Value::Array(items) => items.iter().for_each(|v| ids(v, out)),
+            _ => {}
+        }
+    }
+    fn set(value: &mut Value, shown: &str) {
+        match value {
+            Value::Object(map) => {
+                let is_workspace =
+                    map.get("id").and_then(Value::as_str).is_some_and(|id| id.starts_with("ws_"))
+                        && map.get("focused").is_some_and(Value::is_boolean);
+                if is_workspace {
+                    let focused = map.get("id").and_then(Value::as_str) == Some(shown);
+                    map.insert("focused".into(), Value::Bool(focused));
+                }
+                map.values_mut().for_each(|v| set(v, shown));
+            }
+            Value::Array(items) => items.iter_mut().for_each(|v| set(v, shown)),
+            _ => {}
+        }
+    }
+    let mut found = Vec::new();
+    ids(value, &mut found);
+    if !found.iter().any(|id| id == shown) {
+        return false;
+    }
+    set(value, shown);
+    true
 }
 
 /// The id a focus op's reply names (`value.id`, else `id`).
@@ -142,11 +179,23 @@ pub(super) fn after_daemon(
 }
 
 pub(super) fn after_daemon_with(
-    _stream: &mut UnixStream,
-    _follow: &Follow,
-    _result: &mut Value,
+    stream: &mut UnixStream,
+    follow: &Follow,
+    result: &mut Value,
 ) -> Result<(), Value> {
-    Ok(())
+    match follow {
+        Follow::Nothing => Ok(()),
+        Follow::Focus(focus) => {
+            let Some(id) = reply_id(result) else { return Ok(()) };
+            focus_in_app(stream, focus, &id)
+        }
+        Follow::Focused => {
+            if let Some(shown) = app_focused_workspace(stream) {
+                overlay_focused(result, &shown);
+            }
+            Ok(())
+        }
+    }
 }
 
 #[cfg(test)]
