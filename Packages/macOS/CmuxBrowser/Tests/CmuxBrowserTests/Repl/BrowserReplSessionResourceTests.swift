@@ -859,6 +859,38 @@ struct BrowserReplSessionResourceTests {
         #expect(outcomes.filter { $0.contains("512 MiB") }.count == 1, "\(outcomes.map { $0.prefix(200) })")
     }
 
+    /// A synchronous host call (`fs`, `secrets`, `policy`) parses and
+    /// decodes its arguments on the session's thread before any of its own
+    /// limits apply, so they are reserved in the session's memory first:
+    /// one that cannot fit is refused before it is parsed, and nothing
+    /// stays reserved once the call returns.
+    @Test("Synchronous host call arguments are reserved before they are parsed")
+    func hostCallArgumentsAreReservedBeforeParsing() async throws {
+        let session = BrowserReplSession(
+            id: "host-args-\(UUID().uuidString)",
+            cwd: nil,
+            bundle: BrowserReplRuntimeBundle(replScripts: [.init(name: "host-args.js", source: resourceRuntime)], agentScripts: []),
+            driver: HeldCookiesDriver(),
+            limits: BrowserReplResourceLimits.standard.with(.sessionMemoryBytes, 64 << 20),
+            executionTimeLimitSupported: BrowserReplWatchdog.isSupported
+        )
+        defer { session.close() }
+        let result = await browserReplWithDeadline(seconds: 120) {
+            await session.evaluate(code: """
+            const pad = "eHh4".repeat(20 << 20);
+            for (const [name, call] of [
+              ["fs", () => native.fs("writeFile", JSON.stringify({ path: "big.bin", base64: pad }))],
+              ["secrets", () => native.secrets("set", JSON.stringify({ name: "n", value: pad, domains: ["example.com"] }))],
+              ["policy", () => native.policy("set", JSON.stringify({ allowed: [pad] }))],
+            ]) console.log(name, JSON.stringify(JSON.parse(call()).error || "ok").slice(0, 300));
+            """, timeout: .seconds(100))
+        }
+        let lines = result?.lines.map(\.text) ?? []
+        #expect(result?.error == nil, "\(String(describing: result?.error))")
+        #expect(lines.count == 3 && lines.allSatisfy { $0.contains("REPL session limit") }, "\(lines)")
+        #expect(session.ledger.held(.sessionMemoryBytes) == session.ledger.held(.scriptHeapBytes))
+    }
+
     /// The running cell's source is parsed and compiled (several times its
     /// size) before the cell can measure its heap, so it is reserved in the
     /// session's memory first: a cell whose parse cannot fit is refused
