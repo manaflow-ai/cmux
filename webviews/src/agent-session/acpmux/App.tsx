@@ -100,6 +100,7 @@ import type { PermissionDecision } from "./permissions/protocol";
 import { checkpointStrings } from "./checkpoints/strings";
 import { QUICK_MESSAGES, readSurface, useEscapeToDismiss, type PaneSurface } from "./paneSurface";
 import { QuickSurface } from "./QuickSurface";
+import { FailedPrompt } from "./FailedPrompt";
 
 type MeasurableRenderer = React.ComponentType<RowProps> & { measure?: (row: AcpmuxRow, width: number) => number };
 type NativeRegistry = Record<string, MeasurableRenderer>;
@@ -216,6 +217,7 @@ const MessageRow = memo(
       return (
         <div className="cv-user">
           <div className="cv-user__bubble selectable">{row.text ?? ""}</div>
+          <FailedPrompt row={row} />
           {row.status && (
             <div className="cv-user__status">
               <span>{row.status}</span>
@@ -852,7 +854,8 @@ function DefaultComposerChips({ snapshot }: { snapshot: AcpmuxSnapshot }) {
       onMode={(modeId) => void callNative("chat.mode", { modeId })}
       onEffort={(configId, value) => void callNative("chat.effort", { configId, value })}
       onHarness={(harness) => void callNative("chat.new", { harness })}
-      showModePlan={false}
+      showPlan={false}
+      onCompact={() => void callNative("chat.send", { text: "/compact", attachments: [] })}
       // A prewarm hint for the direct client only: the native host has no daemon to warm.
       onHarnessHint={(harness) => void window.cmuxAcpmuxActions?.["chat.harness.hint"]?.({ harness })}
     />
@@ -1576,6 +1579,7 @@ function AcpmuxPane() {
           "chat.harness.hint": async ({ harness }) => harnessSwitch.hint(harness ? String(harness) : undefined),
           "chat.harness.retry": async () => harnessSwitch.retry(),
           "chat.harness.cancelPrompt": async ({ promptId }) => harnessSwitch.cancelQueued(String(promptId)),
+          "chat.retryPrompt": ({ rowId }) => client.retryPrompt(String(rowId)),
           "chat.history": () => client.loadOlder(),
           "acp.trust.get": ({ cwd }) => client.trustGet(String(cwd)),
           "acp.trust.set": ({ cwd, level }) => client.trustSet(String(cwd), String(level)),

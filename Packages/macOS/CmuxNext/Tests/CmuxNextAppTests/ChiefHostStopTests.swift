@@ -1,6 +1,7 @@
 import Darwin
 import Foundation
 import Testing
+import CmuxNextAgentPane
 @testable import CmuxNextApp
 
 /// Quit, end sessions ends the Chief host too (home-state-ownership.md
@@ -33,6 +34,22 @@ import Testing
         #expect(stopped == host.processIdentifier)
         host.waitUntilExit()
         #expect(host.terminationReason == .uncaughtSignal)
+    }
+
+    /// Every session of the Chief home's acpmux is the Chief's: the Chief
+    /// itself, its sub-agents and the compactor's slots. End Sessions ends
+    /// them all; a tag's acpmux keeps the Home Chief's. On onehist-import-v6
+    /// (cmux-lawrence-2, 2026-10-06) seven compactor slots kept running
+    /// with ppid 1 after End Sessions.
+    @Test func endingSessionsKeepsNoChiefAgentInTheChiefHome() {
+        let sessions: [String: Any] = ["sessions": [
+            ["sessionId": "s-chief", "name": "optchat-chief-94fbe51e"],
+            ["sessionId": "s-slot", "harness": "optchat-compact-94fbe51e-slot-2"],
+            ["sessionId": "s-sub", "tags": ["cmux.chief": "sub"]],
+            ["sessionId": "s-other", "name": "claude-1"],
+        ]]
+        #expect(AcpmuxQuit.keptSessions(sessions, keep: ChiefHostStop.endSessionsKeep).isEmpty)
+        #expect(Set(AcpmuxQuit.keptSessions(sessions, keep: .chief)) == ["s-chief", "s-slot", "s-sub"])
     }
 
     @Test func nothingIsStoppedWithoutAHostHoldingTheLock() async throws {

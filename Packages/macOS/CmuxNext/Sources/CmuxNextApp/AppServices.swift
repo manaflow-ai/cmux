@@ -26,8 +26,7 @@ final class AppServices {
     /// Agent panes' git reads on the local daemon (AgentPaneGitReads.swift).
     private(set) lazy var agentGit = AgentPaneGitLink(daemon: daemon)
     let machines: MachineRegistry
-    /// The machine of the action being run, while its handler runs
-    /// (`ActionRouting`); `activeDaemon` prefers it.
+    /// The machine of the action being run, while its handler runs (`ActionRouting`); `activeDaemon` prefers it.
     var routedDaemon: DaemonService?
     /// Brings a window forward for a jump (`revealTab`, a `cmux://` link).
     /// Tests replace it to record the intent without ordering windows in.
@@ -160,14 +159,15 @@ final class AppServices {
     private(set) lazy var browserProfiles = BrowserProfileService(services: self)
     /// Agent chat tabs and their shared acpmux host (New Agent Chat).
     private(set) lazy var agentTabs = AgentTabStore.wired(to: self)
+    /// The sidebar's Recents (nil without acpmux), watched once for every window.
+    private(set) lazy var agentRecents: AgentRecentsFeed? = QuitAgents.environment(self).map { AgentRecentsFeed(socketPath: $0.socketPath) }
     /// `agentTabs` once made: a tab close releases its view without starting acpmux.
     var madeAgentTabs: AgentTabStore?
     /// Quick Agent Chat's floating composer (`palette.quickAgentChat`).
     private(set) lazy var quickComposer = makeQuickComposer()
     /// Internal page tabs (Settings, Debug Settings, the App Store).
     let pages = InternalPageTabStore()
-    /// Where imported bookmarks go (the bookmarks feature sets it); nil keeps
-    /// them in the import store only.
+    /// Where imported bookmarks go (the bookmarks feature sets it); nil keeps them in the import store only.
     var importedBookmarkSink: (any ImportedBookmarkSink)?
     /// Browser tab favicons per profile, for tab strips.
     let favicons = TabFaviconStore()
