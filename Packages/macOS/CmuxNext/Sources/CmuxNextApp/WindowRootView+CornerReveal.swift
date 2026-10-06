@@ -5,13 +5,14 @@ import CmuxNextDesign
 // band and the incognito badge) collapse at rest, and the top-left strip keeps no room for them, so
 // its tabs start at the left edge. They come back while the pointer is over the top-left corner
 // (the region covers the traffic lights, so a move straight to Close reveals before the click), or
-// while the band has keyboard focus (VoiceOver). Full screen and a shown sidebar never collapse.
+// while a band button has keyboard focus. The title bar row's reveal owns the buttons' own fade
+// (`WindowRootView+TitlebarReveal`); the corner only watches their focus. Full screen and a shown sidebar never collapse.
 // The one hover mechanism (HoverReveal): no timer, no polling. Showing uses the `.appear` timing;
 // collapsing uses `.disappear` with a slow-start curve, so a quick pass across the corner reverses
 // from where it is instead of flickering.
 extension WindowRootView {
     func setUpCornerReveal() {
-        cornerReveal.add(toolbarBand.sidebarToggle)
+        cornerReveal.watchFocus(in: toolbarBand)
         cornerReveal.onChange = { [weak self] _ in self?.applyCornerReveal() }
         applyCornerReveal()
     }

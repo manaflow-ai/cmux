@@ -3,6 +3,7 @@
 // It handles no Cmd or Ctrl chord: the host owns those (Cmd-A selects only inside the focused field,
 // Cmd-F is the page's find command, the native menu shows only Copy on a selection).
 import "./desktop.css";
+import { installScrollers } from "../../scrollers";
 
 /** The marker desktopLayer.test.ts and debug checks read: the layer ran in this document. */
 export const DESKTOP_LAYER_ATTRIBUTE = "data-cmux-desktop";
@@ -33,6 +34,8 @@ export function installDesktopLayer(doc: Document = document): void {
   root.setAttribute(DESKTOP_LAYER_ATTRIBUTE, "");
   // Spellcheck only where a page asks for it (prose inputs set spellcheck="true").
   root.spellcheck = false;
+  // SCROLLBARS-FOLLOW-MACOS: library scrollers follow the host's data-scrollers (scrollers.ts).
+  installScrollers(doc);
   const view = doc.defaultView;
   if (!view) return;
   // A drop never navigates the page: a page that takes drops handles them (and calls

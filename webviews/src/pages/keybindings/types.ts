@@ -27,6 +27,8 @@ export interface Binding {
    * page can offer Reset; it is not active.
    */
   removed?: boolean;
+  /** Set on a removed default when the user's Ghostty config claims its key (read-only; no Reset). */
+  removedBy?: "ghostty";
 }
 
 export interface BindingListResult {

@@ -31,7 +31,7 @@ struct ImportGrouped: OnboardingScreenVariant {
         let body = VariantLayout.column([well, kinds, notes], spacing: 20, fill: [well, notes])
         var style = OnboardingScaffold.Style()
         style.bodyGap = 24
-        return OnboardingScaffold.make(title: ImportVariantStrings.titleShort, subtitle: OnboardingStrings.importSubtitle,
+        return OnboardingScaffold.make(title: ImportVariantStrings.titleShort, subtitle: nil,
                                        body: body, context: context, style: style)
     }
 }

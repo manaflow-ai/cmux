@@ -22,6 +22,7 @@ struct ServerPanelView: View {
                 }
                 StoreFooter(store: snapshot.store)
             }
+            if let chief = model.chief { ChiefPlacementRow(status: chief) }
         }
         .padding(ServerMetrics.padding - 6)
         .padding(.vertical, 6)

@@ -1,5 +1,69 @@
-//! Help for the session-state scopes `closed` and `git`, kept out of
-//! `cli.rs` for its line budget.
+//! Help for the scopes `browser`, `notification`, `room`, `closed` and `git`,
+//! kept out of `cli.rs` for its line budget.
+
+pub(super) const BROWSER_HELP: &str = "\
+USAGE
+  cmux browser open <url> [--workspace <selector>] [--screen <selector>]
+    [--pane <selector>] [--name <value>] [--width-px <n> --height-px <n>]
+  cmux browser list
+  cmux browser <selector> show|navigate|back|forward|reload|activate
+  cmux browser <selector> key|text [OPTIONS]
+  cmux browser <selector> mouse|wheel --pointer-frame-seq <decimal> [OPTIONS]
+  cmux browser <selector> attach|close [OPTIONS]
+  cmux browser page|<tab_…> <verb> [ARGS]   Drive a page the cmux app hosts
+    (`cmux browser page --help`)
+
+browser open adds a browser tab, like
+`cmux tab create browser --url <url> [--workspace <selector>]`: in the named
+workspace, screen or pane, else the current one. --url <url> is the same as
+the positional URL.
+";
+
+pub(super) const NOTIFICATION_HELP: &str = "\
+USAGE
+  cmux notification list [--limit <1..256>]
+  cmux notification create --title <value> --body <value> [--subtitle <value>]
+    [--level info|success|warning|error] [--terminal <term_id>]
+  cmux notification clear [--terminal <term_id>]
+  cmux notification ack --client <id> <notification_id>...
+
+clear without --terminal clears every notification of the session. `cmux
+notify` takes the flags of the macOS `cmux notify` (`cmux notify --help`).
+";
+
+pub(super) const NOTIFY_HELP: &str = "\
+USAGE
+  cmux notify [--title <text>] [--subtitle <text>] [--body <text>]
+    [--surface <term_id>|current] [--workspace <ws_id>|current]
+  cmux notify --clear [--surface <term_id>|current] [--workspace current]
+
+The flags of the macOS `cmux notify`. The notification belongs to the caller's
+terminal unless --surface names another terminal or --workspace asks for a
+session-level row. --title defaults to \"Notification\". --reply is refused:
+a reply would type into a terminal. --window and --id-format are accepted and
+ignored.
+";
+
+pub(super) const ROOM_HELP: &str = "\
+USAGE
+  cmux room list
+  cmux room create --name <value> [--color <value>] [--icon <value>] [--theme <value>] [--index <n>]
+  cmux room <room> update [--name <value>] [--color <value>|--clear-color]
+    [--icon <value>|--clear-icon] [--theme <value>|--clear-theme]
+    [--browser-profile <id>|--clear-browser-profile]
+    [--default-session <id>|--clear-default-session]
+  cmux room <room> delete [--move-to <room>]
+  cmux room <room> move --index <n>
+  cmux room <room> follow --sessions <session,...>
+  cmux room <room> pin --workspace <selector>
+  cmux room unpin --workspace <selector>
+
+Rooms are personal views of this Mac's home session. A room shows the
+workspaces pinned to it and the unpinned workspaces of the sessions it
+follows; --sessions is the complete follow set (\"\" follows none). A
+workspace is pinned to at most one room. A room is named by its id or exact
+name.
+";
 
 pub(super) const CLOSED_HELP: &str = "\
 USAGE

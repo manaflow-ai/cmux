@@ -65,7 +65,7 @@ mod remote_cli {
     ) -> i32 {
         crate::client_log::stderr_log!(
             "startup",
-            "cmux-tui: remote daemon commands require Unix sockets and are unsupported on {}",
+            "{BIN}: remote daemon commands require Unix sockets and are unsupported on {}",
             std::env::consts::OS
         );
         1
@@ -935,7 +935,7 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
             // adapter instead of starting an unrelated Chrome process.
             "--agent-browser-provider" => out.agent_browser_provider = true,
             "-h" | "--help" => {
-                print!("{}", usage());
+                print!("{}", if out.attach { localization::attach_help() } else { usage() });
                 client_log::exit(0);
             }
             "-V" | "--version" => {
@@ -1703,7 +1703,7 @@ fn run_main() {
         if let Err(error) = harden_provider_secret_process() {
             crate::client_log::stderr_log!(
                 "startup",
-                "cmux-tui: cannot protect machine-provider credentials: {error}"
+                "{BIN}: cannot protect machine-provider credentials: {error}"
             );
             client_log::exit(1);
         }
@@ -1713,14 +1713,14 @@ fn run_main() {
     if let Err(error) = harden_provider_secret_process() {
         crate::client_log::stderr_log!(
             "startup",
-            "cmux-tui: cannot protect machine-provider credentials: {error}"
+            "{BIN}: cannot protect machine-provider credentials: {error}"
         );
         client_log::exit(1);
     }
     if let Err(error) = install_signal_handlers() {
         crate::client_log::stderr_log!(
             "startup",
-            "cmux-tui: {}",
+            "{BIN}: {}",
             localization::catalog().runtime.signal_handlers_failed(&error.to_string())
         );
         client_log::exit(1);
@@ -1730,7 +1730,7 @@ fn run_main() {
         client_log::exit(exit_code);
     }
     if let Err(error) = normalize_remote_resource_args(&mut raw_args) {
-        crate::client_log::stderr_log!("startup", "cmux-tui: {error}");
+        crate::client_log::stderr_log!("startup", "{BIN}: {error}");
         client_log::exit(1);
     }
     if remote_cli::is_remote_invocation(&raw_args) {
@@ -1741,7 +1741,7 @@ fn run_main() {
         let args = parse_args(raw_args.into_iter().skip(1));
         discard_provider_secret_environment();
         if let Err(error) = run_relay(args) {
-            crate::client_log::stderr_log!("startup", "cmux-tui: {error}");
+            crate::client_log::stderr_log!("startup", "{BIN}: {error}");
             client_log::exit(1);
         }
         return;
@@ -1750,7 +1750,7 @@ fn run_main() {
     if raw_args.first().map(|arg| arg.as_str()) == Some("machine-agent") {
         discard_provider_secret_environment();
         if let Err(error) = machine_agent::run(&raw_args[1..]) {
-            crate::client_log::stderr_log!("startup", "cmux-tui: {error}");
+            crate::client_log::stderr_log!("startup", "{BIN}: {error}");
             if error.show_help() {
                 crate::client_log::stderr_log!(
                     "startup",
@@ -1822,7 +1822,7 @@ fn run_main() {
         if session::is_expected_remote_shutdown(&e) {
             return;
         }
-        crate::client_log::stderr_log!("startup", "cmux-tui: {e:#}");
+        crate::client_log::stderr_log!("startup", "{BIN}: {e:#}");
         client_log::exit(1);
     }
 }
@@ -2341,13 +2341,13 @@ fn run_server(
         };
         crate::client_log::stderr_log!(
             "startup",
-            "cmux-tui: remote daemon {}, link {}, admin {}",
+            "{BIN}: remote daemon {}, link {}, admin {}",
             runtime.info().daemon_fingerprint,
             runtime.info().link_socket.display(),
             runtime.info().admin_socket.display()
         );
         for route in &runtime.info().routes {
-            crate::client_log::stderr_log!("startup", "cmux-tui: remote route {route}");
+            crate::client_log::stderr_log!("startup", "{BIN}: remote route {route}");
         }
         Some(runtime)
     } else {
@@ -2384,7 +2384,7 @@ fn run_server(
     if let Some(server) = &websocket_server {
         crate::client_log::stderr_log!(
             "startup",
-            "cmux-tui: WebSocket control at ws://{}",
+            "{BIN}: WebSocket control at ws://{}",
             server.local_addr()
         );
         // A forwarded page must never reach the daemon's own control port.
@@ -2403,7 +2403,7 @@ fn run_server(
     }
     mux.set_loopback_forward_policy(loopback_forward_policy);
     mux.set_loopback_forward_audit_reporter(Arc::new(|line| {
-        crate::client_log::stderr_log!("loopback-forward", "cmux-tui: {line}");
+        crate::client_log::stderr_log!("loopback-forward", "{BIN}: {line}");
     }));
     let served_socket = pending_server.into_bound_path();
     mux.start_journal_plugin(served_socket.clone());
@@ -2427,7 +2427,7 @@ fn run_server(
                 Err(error) => {
                     crate::client_log::stderr_log!(
                         "startup",
-                        "cmux-tui: unplaced terminal reaper unavailable: {error}"
+                        "{BIN}: unplaced terminal reaper unavailable: {error}"
                     );
                     None
                 }
@@ -2445,7 +2445,7 @@ fn run_server(
         Err(error) => {
             crate::client_log::stderr_log!(
                 "startup",
-                "cmux-tui: idle terminal reaper unavailable: {error}"
+                "{BIN}: idle terminal reaper unavailable: {error}"
             );
             None
         }
@@ -2457,7 +2457,7 @@ fn run_server(
         Err(error) => {
             crate::client_log::stderr_log!(
                 "startup",
-                "cmux-tui: launch snapshot writer unavailable: {error}"
+                "{BIN}: launch snapshot writer unavailable: {error}"
             );
             None
         }
@@ -3142,7 +3142,7 @@ fn run_tui_once(
 }
 
 fn usage_exit(msg: &str) -> ! {
-    crate::client_log::stderr_log!("startup", "cmux: {msg}\n\n{}", usage());
+    crate::client_log::stderr_log!("startup", "{BIN}: {msg}\n\n{}", usage());
     client_log::exit(2);
 }
 

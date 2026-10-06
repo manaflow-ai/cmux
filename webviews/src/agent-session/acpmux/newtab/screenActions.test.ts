@@ -1,22 +1,25 @@
 import { expect, test } from "bun:test";
 import { newTabScreenActions } from "./screenActions";
 
-test("the selected project replaces the inherited folder for chat and terminal", async () => {
+test("the page's chat and shell command start in the folder the tab inherited", async () => {
   const calls: unknown[] = [];
   const actions = newTabScreenActions({
     callNative: async (method, params) => {
       calls.push([method, params]);
     },
     cwd: "/src/old",
-    leave() {},
+    leave: () => calls.push(["leave"]),
     selectSession() {},
     showAllChats() {},
+    runShell: (command, cwd) => calls.push(["runShell", command, cwd]),
   });
-  actions.onAsk("codex", "hello", "/src/new");
-  actions.onTerminal("git status", "/src/new");
+  actions.onAsk("codex", "hello");
+  actions.onShell("git status");
   await Promise.resolve();
-  expect(calls).toContainEqual(["chat.new", { harness: "codex", cwd: "/src/new" }]);
-  expect(calls).toContainEqual(["tab.open", { kind: "terminal", text: "git status", run: false, cwd: "/src/new" }]);
+  expect(calls).toContainEqual(["chat.new", { harness: "codex", cwd: "/src/old" }]);
+  // `!cmd` leaves for a chat that runs it; no terminal tab replaces the page.
+  expect(calls).toContainEqual(["runShell", "git status", "/src/old"]);
+  expect(calls.some((call) => (call as unknown[])[0] === "tab.open")).toBe(false);
 });
 
 test("a local file uses the file opener and a URL uses the browser", () => {
@@ -28,6 +31,7 @@ test("a local file uses the file opener and a URL uses the browser", () => {
     leave() {},
     selectSession() {},
     showAllChats() {},
+    runShell() {},
   });
   actions.onOpen("file:///src/my%20file.md");
   actions.onOpen("https://example.com");

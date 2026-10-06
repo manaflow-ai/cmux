@@ -7,7 +7,7 @@
   "description": "Every coding agent in your terminals, grouped by what it is doing. Click one to jump to its terminal.",
   "publisher": { "name": "cmux", "url": "https://cmux.dev" },
   "repository": "https://github.com/manaflow-ai/cmux",
-  "license": "MIT",
+  "license": "GPL-3.0-or-later",
   "icon": "assets/icon.svg",
   "categories": ["sidebar", "agents", "samples"],
   "engines": { "cmux": "^2.0" },

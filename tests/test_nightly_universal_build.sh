@@ -43,7 +43,9 @@ if ! awk '
   in_cache && /path: build-universal\/CompilationCache\.noindex/ { saw_path[job]=1 }
   in_cache && /key: xcode-compilation-release-/ { saw_key[job]=1 }
   in_cache && /steps\.compilation-cache-key\.outputs\.toolchain/ { saw_toolchain[job]=1 }
-  in_cache && /needs\.decide\.outputs\.head_sha/ { saw_head_sha[job]=1 }
+  # The warmer keys by the tip it builds; the app build by the resolved build_sha it builds.
+  job == "refresh" && in_cache && /needs\.decide\.outputs\.head_sha/ { saw_head_sha[job]=1 }
+  job == "build" && in_cache && /needs\.resolve-nightly-cmux-tui-client\.outputs\.build_sha/ { saw_head_sha[job]=1 }
   in_cache && /restore-keys:/ { saw_restore[job]=1 }
   END {
     exit !(saw_path["refresh"] && saw_key["refresh"] && saw_toolchain["refresh"] && saw_head_sha["refresh"] && saw_restore["refresh"] &&
@@ -89,6 +91,32 @@ if ! awk '
   echo "FAIL: the short nightly decide gate must use the dedicated runner override with the paid Linux fallback"
   exit 1
 fi
+
+if ! awk '
+  /^      - name: Download signing inputs \(parallel\)/ { in_download=1; next }
+  in_download && /^      - name:/ { in_download=0 }
+  in_download && /id: signing-inputs-parallel/ { saw_id=1 }
+  in_download && /download-run-artifact.py/ { downloads++ }
+  in_download && /--name cmux-nightly-unsigned-app --out nightly-inputs\/app/ { saw_app_download=1 }
+  in_download && /--connections 64/ { saw_app_connections=1 }
+  in_download && /app_ok=/ { saw_app_output=1 }
+  in_download && /daemon_ok=/ { saw_daemon_output=1 }
+  in_download && /helper_ok=/ { saw_helper_output=1 }
+  END { exit !(saw_id && downloads == 3 && saw_app_download && saw_app_connections && saw_app_output && saw_daemon_output && saw_helper_output) }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly signers must fetch all inputs concurrently and give the large app artifact 64 ranged connections"
+  exit 1
+fi
+
+for fallback in \
+  "if: steps.signing-inputs-parallel.outputs.app_ok != 'true'" \
+  "if: steps.signing-inputs-parallel.outputs.daemon_ok != 'true'" \
+  "if: steps.signing-inputs-parallel.outputs.helper_ok != 'true'"; do
+  if ! grep -Fq "$fallback" "$WORKFLOW_FILE"; then
+    echo "FAIL: nightly signing input fallback is missing: $fallback"
+    exit 1
+  fi
+done
 
 if grep -Fq 'github.rest.repos.getBranch' "$WORKFLOW_FILE"; then
   echo "FAIL: queued Nightly runs must not replace their triggering revision with a newer main HEAD"
@@ -279,6 +307,61 @@ if ! grep -Fq './scripts/sparkle_generate_appcast.sh "$NIGHTLY_DMG_IMMUTABLE" "$
   echo "FAIL: nightly workflow must generate one appcast per variant"
   exit 1
 fi
+if ! awk '
+  /^  build-sign-notarize-nightly:/ { job="sign"; next }
+  /^  generate-nightly-deltas:/ { job="delta"; next }
+  /^  [a-zA-Z0-9_-]+:/ { job="" }
+  job == "sign" && /SPARKLE_PREVIOUS_ARCHIVES_DIR|SPARKLE_MAXIMUM_DELTAS/ { initial_delta=1 }
+  job == "delta" && /--count 1/ { saw_previous=1 }
+  job == "delta" && /SPARKLE_MAXIMUM_DELTAS=1/ { saw_max=1 }
+  job == "delta" && /name: cmux-nightly-deltas-\$\{\{ matrix\.variant \}\}/ { saw_artifact=1 }
+  END { exit !(saw_previous && saw_max && saw_artifact && !initial_delta) }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: initial appcasts must be full-only and delta generation must run later per variant"
+  exit 1
+fi
+
+if ! awk '
+  /^  generate-nightly-deltas:/ { delta=NR; next }
+  /^  republish-nightly-deltas:/ { republish=NR; next }
+  /^  publish-nightly:/ { publish=NR; next }
+  /^  report-nightly-failure:/ { report=NR; next }
+  END { exit !(publish && delta && republish && publish < delta && delta < republish && report > republish) }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: Sparkle deltas must be downstream of first publication and before failure closeout"
+  exit 1
+fi
+
+if ! awk '
+  /^  generate-nightly-deltas:/ { job="delta"; next }
+  /^  republish-nightly-deltas:/ { job="republish"; next }
+  /^  [a-zA-Z0-9_-]+:/ { job="" }
+  job == "delta" && /needs: \[decide, build-nightly-app, publish-nightly\]/ { saw_publish_need=1 }
+  job == "delta" && /fail-fast: false/ { saw_matrix=1 }
+  job == "republish" && /needs: \[decide, build-nightly-app, publish-nightly, generate-nightly-deltas\]/ { saw_delta_need=1 }
+  job == "republish" && /gh api .*commits\/\$CHANNEL_RELEASE_TAG/ { saw_guard=1 }
+  job == "republish" && /publish-release-assets\.py/ { saw_republish=1 }
+  job == "republish" && /Upload revised appcasts to R2/ { saw_r2=1 }
+  END { exit !(saw_publish_need && saw_matrix && saw_delta_need && saw_guard && saw_republish && saw_r2) }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: post-publication delta generation must be matrixed, stale-guarded, and republished to GitHub and R2"
+  exit 1
+fi
+
+if ! awk '
+  /^  build-nightly-app:/ { job="app"; next }
+  /^  build-sign-notarize-nightly:/ { job="sign"; next }
+  /^  [a-zA-Z0-9_-]+:/ { job="" }
+  job == "app" && /Clear build outputs a persistent runner kept/ { in_clear=1; next }
+  in_clear && /^      - name:/ { in_clear=0 }
+  in_clear && /clear-dirs\.sh remote-daemon-assets/ { saw_clear=1 }
+  job == "app" && /Prepare persistent Release DerivedData/ { saw_prepare=1 }
+  job == "app" && /cmux-nightly-\$\{\{ needs\.decide\.outputs\.channel \}\}-\$\{toolchain_key\}/ { saw_key=1 }
+  END { exit !(saw_clear && saw_prepare && saw_key) }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: persistent minis must retain channel/toolchain-keyed Release DerivedData"
+  exit 1
+fi
 
 if ! awk '
   /NIGHTLY_APPCAST="appcast-\$\{NIGHTLY_VARIANT\}\.xml"/ { saw_thin_feed=1 }
@@ -345,14 +428,15 @@ if grep -Eq 'Cloud tunnel|SystemExtensions|tunnel-extension|cmux-cua|Computer Us
   exit 1
 fi
 
-# A release ships the pinned commit; the nightly ships the commit that
-# published its own cmux-tui tree (pin-cmux-tui.sh resolve-commit).
+# A release ships the pinned commit; the nightly ships the newest published
+# cmux-tui tree and builds the app at that commit (pin-cmux-tui.sh
+# resolve-newest-published; tests/test_nightly_cmux_tui_resolve.py).
 if ! grep -Fq "cmux_tui_commit=\"\$(awk -F= '\$1==\"commit\"{print \$2}' scripts/cmux-next/cmux-tui.pin)\"" "$RELEASE_WORKFLOW_FILE"; then
   echo "FAIL: release.yml must install the cmux-tui commit scripts/cmux-next/cmux-tui.pin names"
   exit 1
 fi
-if ! grep -Fq 'cmux_tui_commit="$(scripts/cmux-next/pin-cmux-tui.sh resolve-commit)"' "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly.yml must install the cmux-tui commit that published its own cmux-tui tree"
+if ! grep -Fq 'resolved="$(scripts/cmux-next/pin-cmux-tui.sh resolve-newest-published)"' "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly.yml must install the newest published cmux-tui tree (resolve-newest-published)"
   exit 1
 fi
 for workflow in "$WORKFLOW_FILE" "$RELEASE_WORKFLOW_FILE"; do
@@ -371,14 +455,15 @@ for workflow in "$WORKFLOW_FILE" "$RELEASE_WORKFLOW_FILE"; do
   fi
 done
 
-# The commit is resolved in its own job beside the Xcode compile, never in
+# The commit is resolved in its own job BEFORE the Xcode compile (the app builds
+# at the resolved commit: tests/test_nightly_cmux_tui_resolve.py), never in
 # build-nightly-app, and every sign variant installs that one commit before
 # thinning.
 if ! awk '
   /^  [a-zA-Z0-9_-]+:$/ { job=$1 }
   job == "build-nightly-app:" && /resolve-cmux-tui-client-commit\.sh/ { in_app=1 }
   job == "resolve-nightly-cmux-tui-client:" && /^    needs: decide$/ { resolver_needs=1 }
-  job == "resolve-nightly-cmux-tui-client:" && /scripts\/cmux-next\/pin-cmux-tui\.sh resolve-commit/ { resolver=1 }
+  job == "resolve-nightly-cmux-tui-client:" && /scripts\/cmux-next\/pin-cmux-tui\.sh resolve-newest-published/ { resolver=1 }
   job == "build-sign-notarize-nightly:" && /^    needs: .*resolve-nightly-cmux-tui-client/ { sign_needs=1 }
   job == "build-sign-notarize-nightly:" && /^      - name: Bundle the cmux-tui client$/ { install_line=NR }
   job == "build-sign-notarize-nightly:" && /^      - name: Thin bundle to the variant architecture$/ { thin_line=NR }
@@ -386,7 +471,7 @@ if ! awk '
   job == "report-nightly-failure:" && /^    needs: .*resolve-nightly-cmux-tui-client/ { reported=1 }
   END { exit !(!in_app && resolver_needs && resolver && sign_needs && sign_commit && install_line && thin_line && install_line < thin_line && reported) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly must resolve the cmux-tui commit beside the compile and install it in every sign variant before thinning"
+  echo "FAIL: nightly must resolve the cmux-tui commit before the compile and install it in every sign variant before thinning"
   exit 1
 fi
 
@@ -490,7 +575,7 @@ fi
 for expected in \
   'if: needs.decide.outputs.fast_build != '\''true'\''' \
   'if: needs.decide.outputs.fast_build == '\''true'\''' \
-  'name: cmux-nightly-fast-${{ needs.decide.outputs.short_sha }}'; do
+  'name: cmux-nightly-fast-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}'; do
   if ! grep -Fq "$expected" "$WORKFLOW_FILE"; then
     echo "FAIL: fast build workflow is missing: $expected"
     exit 1
@@ -615,7 +700,9 @@ done
 
 # Each job's complete job-level `if:` is matched verbatim, so the build_only
 # exclusion can only ever be a conjunctive clause: an `||` around it would run
-# helper, signing, or publish work during a measurement dispatch.
+# helper, signing, or publish work during a measurement dispatch. The resolver
+# runs for every app build (it picks the commit the app builds at), so it
+# matches build-nightly-app; its resolve step skips build_only.
 job_if() {
   awk -v job="$1" '
     $0 == "  " job ":" { in_job=1; next }
@@ -624,11 +711,13 @@ job_if() {
   ' "$WORKFLOW_FILE"
 }
 PUBLISH_SCHEDULE="(github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')"
-if [ "$(job_if build-nightly-app)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE" ] \
-  || [ "$(job_if build-nightly-ghostty-cli-helper)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true'" ] \
-  || [ "$(job_if build-sign-notarize-nightly)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true'" ] \
-  || [ "$(job_if resolve-nightly-cmux-tui-client)" != "$(job_if build-sign-notarize-nightly)" ] \
-  || [ "$(job_if publish-nightly)" != "    if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && $PUBLISH_SCHEDULE" ]; then
+# A resolved build commit that is already published builds nothing.
+NOT_PUBLISHED="needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true'"
+if [ "$(job_if build-nightly-app)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED" ] \
+  || [ "$(job_if build-nightly-ghostty-cli-helper)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true' && $NOT_PUBLISHED" ] \
+  || [ "$(job_if build-sign-notarize-nightly)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true' && $NOT_PUBLISHED" ] \
+  || [ "$(job_if resolve-nightly-cmux-tui-client) && $NOT_PUBLISHED" != "$(job_if build-nightly-app)" ] \
+  || [ "$(job_if publish-nightly)" != "    if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED" ]; then
   echo "FAIL: build_only must be a conjunctive exclusion on the helper, signing, and publication jobs, and must not gate the unsigned app build"
   exit 1
 fi
@@ -667,9 +756,8 @@ if ! grep -Fq "github.event.inputs.build_only == 'true' && format('nightly-measu
   exit 1
 fi
 
-# Only the six-hour cache warmup may replace an older scheduled run. The daily
-# 08:47 publication schedule and all push/manual lanes must stay serialized so
-# a newer publication cannot cancel an earlier candidate or race its aliases.
+# Every nightly lane must let an in-flight build finish. GitHub still keeps one
+# pending run per group, so a newer push replaces only an older queued run.
 if ! grep -Fq "github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && 'cache-seed-scheduled'" "$WORKFLOW_FILE"; then
   echo "FAIL: the six-hour cache warmup must have its own replaceable concurrency group"
   exit 1
@@ -682,12 +770,12 @@ if grep -Fq "&& 'cache-seed'" "$WORKFLOW_FILE"; then
   echo "FAIL: scheduled and manual cache seeds must not share the legacy cache-seed group"
   exit 1
 fi
-if ! grep -Fq "cancel-in-progress: \${{ github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' }}" "$WORKFLOW_FILE"; then
-  echo "FAIL: only the six-hour cache warmup may cancel an older scheduled run"
+if ! grep -Fq "cancel-in-progress: false" "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly runs must never cancel an in-flight build"
   exit 1
 fi
-if grep -Fq "cancel-in-progress: \${{ github.event_name == 'schedule' }}" "$WORKFLOW_FILE"; then
-  echo "FAIL: the publishing schedule must not cancel an older nightly run"
+if grep -Eq "cancel-in-progress: \$\{\{" "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly cancellation must be a literal false policy, not an event expression"
   exit 1
 fi
 

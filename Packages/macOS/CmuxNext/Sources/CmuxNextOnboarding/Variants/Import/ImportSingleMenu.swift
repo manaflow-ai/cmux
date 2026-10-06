@@ -19,7 +19,7 @@ struct ImportSingleMenu: OnboardingScreenVariant {
         style.titleTop = 88
         style.margin = 64
         style.bodyGap = 40
-        return OnboardingScaffold.make(title: OnboardingStrings.importTitle, subtitle: OnboardingStrings.importSubtitle,
+        return OnboardingScaffold.make(title: OnboardingStrings.importTitle, subtitle: nil,
                                        body: ImportSingleMenuBody(model: context.model.importer), context: context, style: style)
     }
 }

@@ -6,12 +6,14 @@ public extension PageDescriptor {
     /// The agent pane, and with it the new tab page (react-pages.md, agent pane move). It reaches
     /// only its own `cmux.agent.*` ops; the app actions it may run are checked by
     /// ``AgentPaneModel`` (`cmux.agent.action.run`), so it lists no shared native op.
-    /// It connects to acpmux on loopback and shows loopback previews in frames, and runs only its own
-    /// script files, no inline script (the page's own CSP says the same; the host runs the user's
-    /// registry.js through evaluateJavaScript, which the CSP does not govern).
+    /// It opens no connection of its own (the host's native transport, AgentPaneTransport, carries
+    /// acpmux; the Debug dev loop loads a Vite page in the legacy host, which sends no header), shows
+    /// loopback previews in frames, and runs only its own script files, no inline script. The page's
+    /// meta CSP says the same (build-agent-pane-web.sh; AgentPageCSPAlignmentTests); the host runs the
+    /// user's registry.js through evaluateJavaScript, which the CSP does not govern.
     static let agent = PageDescriptor(
         id: "cmux.agent", resource: "agent-pane", namespaces: [AgentPageOps.namespace],
-        csp: PageCSP(connect: ["ws://127.0.0.1:*", "ws://localhost:*"],
+        csp: PageCSP(connect: ["'none'"],
                      frame: ["http://localhost:*", "http://127.0.0.1:*", "https://localhost:*", "https://127.0.0.1:*"],
                      inlineScript: false))
 }
@@ -25,11 +27,12 @@ public nonisolated struct AgentPageOps {
     /// Op suffix to the old bridge method that ``AgentPaneRequest`` parses.
     static let methods: [String: String] = {
         var methods = Dictionary(uniqueKeysWithValues: [
-            "pane.checkpointAvailability", "pane.framePacing", "pane.renderRate",
+            "pane.checkpointAvailability", "pane.framePacing", "pane.painted", "pane.renderRate",
             "tab.open", "tab.typeAhead", "tab.jump", "tab.setDefaultKind",
             "newTab.remember", "shortcut.edit", "action.run", "file.open", "browser.open",
             "project.list", "project.browse", "workspace.chooseFolder", "onboarding.importAndSync", "app.action",
-            "quick.dismiss", "quick.openInWindow",
+            "quick.dismiss", "quick.openInWindow", "pane.action", "pane.tabState",
+            "shell.run", "shell.read", "shell.stop",
             "git.diff", "git.status", "file.search", "git.checkpoint.diff",
             "dictation.toggle", "dictation.start", "dictation.stop", "dictation.cancel", "dictation.openSettings",
             "transport.open", "transport.send", "transport.close", "transport.gesture", "transport.gesture.release",

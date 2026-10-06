@@ -7,7 +7,8 @@ import CmuxNextSidebar
 // multi-selection, or a group) that leaves its sidebar sideways is handed
 // here and flies as the same glass ghost as a tab (row image plus a live
 // thumbnail of the workspace's selected tab). Targets: any window's sidebar
-// (slot, group header, or row = append), any window's content (append),
+// (slot, group header, or row = append), a pane of a window's shown
+// workspace (`WorkspaceMerge`), any window's content (append),
 // outside every window (new window under the pointer; with every
 // workspace of the source window, that window moves instead).
 extension TabDragSession {
@@ -45,6 +46,8 @@ extension TabDragSession {
         var sidebarHit: WorkspaceDropTarget?
         var highlight: CGRect?
         var sidebar: SidebarTabDropTarget?
+        var layoutHit: TabDropKind?
+        var layout: LayoutTabDropTarget?
         if let controller {
             let adapter = adapters(for: controller, drag: drag).sidebar
             adapter.sourceMachine = MachineID(ids.first.flatMap { services.machines.daemon(forWorkspace: $0)?.machineID } ?? MachineRegistry.localID)
@@ -53,14 +56,21 @@ extension TabDragSession {
                 sidebar = adapter
                 sidebarHit = WorkspaceDragResolver.target(for: hit.drop)
                 highlight = hit.highlightFrame
+            } else if case let adapter = adapters(for: controller, drag: drag).layout,
+                      let proposal = WorkspaceMerge.hit(point, ids: ids, group: group, window: controller, layout: adapter, services: services) {
+                // Over the content: the panes preview a merge, as for a tab.
+                drag.touched[ObjectIdentifier(adapter)] = adapter
+                (layout, layoutHit, highlight) = (adapter, proposal.kind, proposal.highlightFrame)
             }
         }
         if let previous = drag.workspaceSidebar, previous !== sidebar { previous.dropExited() }
         drag.workspaceSidebar = sidebar
+        if let previous = drag.workspaceLayout, previous !== layout { previous.dropExited() }
+        drag.workspaceLayout = layout
         let sourceID = drag.source.window?.state.id
         let sourceMembers = sourceID.map(services.windows.registry.members(of:)) ?? []
         drag.workspaceOutcome = WorkspaceDragResolver.outcome(
-            windowID: controller?.state.id, sidebarHit: sidebarHit, sourceWindowID: sourceID,
+            windowID: controller?.state.id, sidebarHit: sidebarHit, layoutHit: layoutHit, sourceWindowID: sourceID,
             draggingAllOfSource: !sourceMembers.isEmpty && Set(ids).isSuperset(of: sourceMembers),
             isGroup: group != nil, screenPoint: point
         )
@@ -105,6 +115,7 @@ extension TabDragSession {
             case let .position(position): controller.sidebar.accept(workspaceIDs, at: position)
             case let .intoGroup(group): controller.sidebar.accept(workspaceIDs, intoGroup: group)
             case .window: controller.sidebar.accept(workspaceIDs, at: nil)
+            case let .merge(kind): ids.first.map { WorkspaceMerge.run($0, at: kind, into: controller, drag: drag, session: self) }
             }
             services.windows.bringToFront(controller)
         }

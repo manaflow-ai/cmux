@@ -401,3 +401,17 @@ fn oversized_journal_commit_does_not_advance_revision() {
     assert_eq!(journal.revision(), 4);
     assert!(journal.after(4).unwrap().is_empty());
 }
+
+#[test]
+fn no_current_selector_names_the_flags_and_the_list_instead_of_matching_current() {
+    let error = ResourceError::not_found("screen", "current");
+    assert!(!error.message.contains("matches \"current\""), "{}", error.message);
+    assert!(error.message.contains("no current screen"), "{}", error.message);
+    assert!(error.message.contains("outside a cmux terminal"), "{}", error.message);
+    assert!(error.message.contains("--workspace or --screen"), "{}", error.message);
+    assert!(error.message.contains("`cmux screen list`"), "{}", error.message);
+    assert_eq!(error.code, "selector.not_found");
+    assert_eq!(error.details["selector"], "current");
+    // Any other selector keeps the plain message.
+    assert_eq!(ResourceError::not_found("screen", "x").message, "no screen matches \"x\"");
+}

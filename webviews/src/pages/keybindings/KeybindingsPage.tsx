@@ -3,7 +3,7 @@
 // intents. Cmd/Ctrl chords never reach page handlers; recording goes through the app's dispatcher.
 import { useSyncExternalStore, type KeyboardEvent } from "react";
 import type { Strings } from "../shared/i18n";
-import { displayStrokes, identity, isReadOnly, moveSelection, SourceLabel } from "./model";
+import { displayStrokes, identity, isReadOnly, moveSelection, sourceLabel } from "./model";
 import type { KeybindingsStore } from "./store";
 import type { Binding } from "./types";
 
@@ -326,7 +326,7 @@ function BindingRow({ binding, strings, selected, editing, recordingDisplay, res
           </button>
         )}
       </td>
-      <td className="keys-col-source">{t(SourceLabel[binding.removed ? "removed" : binding.source])}</td>
+      <td className="keys-col-source">{t(sourceLabel(binding))}</td>
       <td className="keys-col-actions">
         <span className="keys-actions">
           {!isReadOnly(binding) && (

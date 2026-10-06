@@ -219,10 +219,10 @@ fn session_shutdown_signal_exits_keep_tabs_dead() {
     let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
     loop {
         let tree = request(&harness.socket, serde_json::json!({"id":3,"cmd":"list-workspaces"}));
-        let workspace = workspace_named(&tree, "killed").expect("the workspace was closed");
-        if first_tab(&workspace).is_none() {
-            break;
-        }
+        // The tab and its emptied workspace go in one commit
+        // (LAST-TAB-CLOSES-WORKSPACE).
+        let Some(workspace) = workspace_named(&tree, "killed") else { break };
+        assert!(first_tab(&workspace).is_some(), "an empty workspace stayed: {workspace}");
         assert!(Instant::now() < deadline, "a real end kept its tab: {workspace}");
         std::thread::sleep(Duration::from_millis(50));
     }

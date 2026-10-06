@@ -270,7 +270,9 @@ async function ensureServer(): Promise<AppServer> {
 }
 
 async function startServer(): Promise<AppServer> {
-  const proc = Bun.spawn(["codex", "app-server"], {
+  // cmux owns Computer Use. Keep Codex's native Computer Use feature disabled
+  // for every harness session so startup cannot probe or target macOS apps.
+  const proc = Bun.spawn(["codex", "app-server", "--disable", "computer_use"], {
     stdin: "pipe",
     stdout: "pipe",
     stderr: "pipe",

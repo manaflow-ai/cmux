@@ -112,7 +112,7 @@ final class ChromeIconButton: NSButton {
     private func showHoldMenu() {
         guard let menu = menuProvider?() else { return }
         showedHoldMenu = true
-        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: bounds.height + 2), in: self)
+            menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(in: self, gap: 2), in: self)
     }
 
     override func viewDidChangeEffectiveAppearance() {

@@ -3,6 +3,7 @@ import { address } from "@cmux/home-core"
 import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
 import { sendInvite } from "./home-send.ts"
+import type { InviteSender } from "./home-routes.ts"
 
 /** An attempt with no recorded outcome after this long is closed as indeterminate. */
 const STALE_ATTEMPT_MS = 10 * 60_000
@@ -37,11 +38,12 @@ export class AddressDO extends OwnerDO<address.AddressHead> {
    * (address.ensure, the only copy) and stashes the invite secret, which only this object sends.
    * The secret goes after the send attempt or after 24 h, whichever comes first.
    */
-  async stashSecret(address: string, invite: string, secret: string, expiresAt: number, channel?: "email" | "sms", value?: string): Promise<void> {
+  async stashSecret(address: string, invite: string, secret: string, expiresAt: number, channel?: "email" | "sms", value?: string, inviter?: InviteSender): Promise<void> {
     this.bind(address)
     if (channel && value) this.submitSystem("address.ensure", { id: address, channel, value }, `ensure:${address}`)
     this.tables()
     this.sqlStore.exec(`INSERT INTO address_secrets (invite, secret, expires_at) VALUES (?, ?, ?) ON CONFLICT (invite) DO NOTHING`, invite, secret, expiresAt)
+    if (inviter) this.sqlStore.exec(`INSERT INTO address_inviters (invite, user, email, expires_at) VALUES (?, ?, ?, ?) ON CONFLICT (invite) DO NOTHING`, invite, inviter.user, inviter.email, expiresAt)
     this.scheduleAlarm()
   }
 
@@ -51,7 +53,16 @@ export class AddressDO extends OwnerDO<address.AddressHead> {
     return this.sqlStore.exec<{ secret: string }>(`SELECT secret FROM address_secrets WHERE invite = ? AND expires_at > ?`, invite, Date.now())[0]?.secret
   }
 
+  /** The invite's inviter (team inviter rule), if recorded and not expired. */
+  protected inviterOf(invite: string): InviteSender | undefined {
+    this.tables()
+    const r = this.sqlStore.exec<{ user: string; email: string | null }>(`SELECT user, email FROM address_inviters WHERE invite = ? AND expires_at > ?`, invite, Date.now())[0]
+    return r ? { user: r.user, email: r.email } : undefined
+  }
+
   private tables() {
+    // The inviter of each stashed invite, re-checked against HOME_INVITE_ALLOWED_INVITERS at send time.
+    this.sqlStore.exec(`CREATE TABLE IF NOT EXISTS address_inviters (invite TEXT PRIMARY KEY, user TEXT NOT NULL, email TEXT, expires_at INTEGER NOT NULL)`)
     this.sqlStore.exec(`CREATE TABLE IF NOT EXISTS address_secrets (invite TEXT PRIMARY KEY, secret TEXT NOT NULL, expires_at INTEGER NOT NULL)`)
     // One send attempt per delivery, ever (a provider call is not repeated, even after a restart).
     this.sqlStore.exec(`CREATE TABLE IF NOT EXISTS address_attempts (invite TEXT PRIMARY KEY, at INTEGER NOT NULL)`)
@@ -85,7 +96,7 @@ export class AddressDO extends OwnerDO<address.AddressHead> {
   /** One step of an invite; a throw comes before any provider call, so it counts as failed (nothing sent). */
   private async step(head: address.AddressHead, d: address.DeliveryRecord, step: "email" | "text" | "card", firstText = false) {
     try {
-      return await sendInvite(this.env, { invite: d.invite, conversation: d.conversation, channel: head.channel!, value: head.value!, secret: this.stashedSecret(d.invite), suppression: head.suppression?.reason ?? null }, this.fetcher, step, firstText)
+      return await sendInvite(this.env, { invite: d.invite, conversation: d.conversation, channel: head.channel!, value: head.value!, secret: this.stashedSecret(d.invite), inviter: this.inviterOf(d.invite), suppression: head.suppression?.reason ?? null }, this.fetcher, step, firstText)
     } catch {
       console.log(JSON.stringify({ msg: "home invite send", at: new Date().toISOString(), invite: d.invite, channel: head.channel, step, state: "failed", reason: "adapter error" }))
       return { state: "failed" as const, provider_id: null }
@@ -94,6 +105,7 @@ export class AddressDO extends OwnerDO<address.AddressHead> {
 
   private record(invite: string, state: address.DeliveryState, providerId: string | null) {
     this.sqlStore.exec(`DELETE FROM address_secrets WHERE invite = ?`, invite)
+    this.sqlStore.exec(`DELETE FROM address_inviters WHERE invite = ?`, invite)
     this.sqlStore.exec(`DELETE FROM address_card_steps WHERE invite = ?`, invite)
     this.submitSystem("address.delivery.record", { invite, state, ...(providerId ? { provider_id: providerId } : {}) }, `record:${invite}:${state}`)
   }
@@ -146,6 +158,7 @@ export class AddressDO extends OwnerDO<address.AddressHead> {
       for (const d of head.deliveries.filter((x) => x.state === "sending" && stale.has(x.invite))) this.record(d.invite, "indeterminate", null)
     }
     this.sqlStore.exec(`DELETE FROM address_secrets WHERE expires_at <= ?`, now)
+    this.sqlStore.exec(`DELETE FROM address_inviters WHERE expires_at <= ?`, now)
   }
 
   /**

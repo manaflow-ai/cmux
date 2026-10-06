@@ -13,6 +13,7 @@ import { MockKeybindingsProvider, SAMPLE_TITLES, sampleLayers } from "./mockProv
 import { KeybindingsStore } from "./store";
 import "../shared/pageBase.css";
 import "./styles.css";
+import { focusSearchField } from "../shared/searchField";
 
 export function mountKeybindingsPage(root: HTMLElement, client: PageClient | null = defaultClient()): KeybindingsStore {
   const store = new KeybindingsStore(client);
@@ -23,7 +24,7 @@ export function mountKeybindingsPage(root: HTMLElement, client: PageClient | nul
         if (command === "reset") store.resetQuery();
         if (command !== "find" && command !== "focusSearch") return;
         if (typeof text === "string") store.setText(text);
-        document.querySelector<HTMLInputElement>(".keys-search")?.focus();
+        focusSearchField(document, ".keys-search");
       },
     });
   }

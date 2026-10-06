@@ -14,7 +14,8 @@ extension HomeService {
         let info = Bundle.main.infoDictionary ?? [:]
         let version = info["CFBundleShortVersionString"] as? String
         let lease = HomeCloudLease(tokens: auth, apiBaseURL: services.feed.apiBaseURL, clientVersion: version, logger: logger)
-        let linker = HomeCloudLink(lease: lease, source: cloudSource, localID: homeSource.me.id)
+        let linker = HomeCloudLink(lease: lease, source: cloudSource, localID: homeSource.me.id,
+                                   stackProjectID: auth.configuration.stackProjectID)
         cloudLinker = linker
         // task-owner: lives as long as the service; event-driven (Observation)
         cloudLink = Task {

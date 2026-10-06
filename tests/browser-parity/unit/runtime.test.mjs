@@ -591,3 +591,56 @@ test("snapshot header: page text reaches the caller without controls or escape s
   assert.ok(first.length <= 600, `title line is ${first.length} characters`);
   assert.match(text, /\nurl: https:\/\/example\.com\/\n- button "Go" \[ref=e1\]$/);
 });
+
+// Parity 32 flake (2026-10-06): download.path's reply can reach the
+// session before the download.finished event (they travel apart), so code
+// that reads session state after `await download.path()` saw path: null.
+// path() answers only once the finished event is in.
+test("download.path waits for the download.finished event, so state read after it is current", async () => {
+  const listeners = new Map();
+  const host = { setTimeout: () => 0, clearTimeout: () => {}, now: Date.now, print: () => {} };
+  const driver = {
+    call: async (method) => (method === "download.path" ? { path: "/downloads/report.txt" } : null),
+    on: (event, handler) => (listeners.set(event, handler), () => {}),
+    capabilities: () => [],
+  };
+  const session = new ns.core.Session({ driver, host });
+  const page = session.pageFor("t1");
+  let download = null;
+  page.on("download", (d) => (download = d));
+  listeners.get("download.started")({ targetId: "t1", downloadId: "g1", url: "https://example.com/r", suggestedFilename: "report.txt" });
+  assert.ok(download, "the download event reached the page");
+  const path = download.path();
+  assert.equal(await settledState(path), "pending", "answered before the finished event");
+  listeners.get("download.finished")({ targetId: "t1", downloadId: "g1", path: "/downloads/report.txt" });
+  assert.equal(await settledState(path), "answered");
+  assert.equal(await path, "/downloads/report.txt");
+  assert.equal(download._outcome.path, "/downloads/report.txt");
+});
+
+// The wait for download.finished in Download.path() is bounded (owner,
+// 2026-10-06): a finished event that never comes fails the call with
+// `timeout` and names the download, never a hang.
+test("download.path fails with timeout, naming the download, when download.finished never comes", async () => {
+  const listeners = new Map();
+  const timers = [];
+  const host = { setTimeout: (fn) => (timers.push(fn), timers.length), clearTimeout: () => {}, now: Date.now, print: () => {} };
+  const driver = {
+    call: async (method) => (method === "download.path" ? { path: "/downloads/report.txt" } : null),
+    on: (event, handler) => (listeners.set(event, handler), () => {}),
+    capabilities: () => [],
+  };
+  const session = new ns.core.Session({ driver, host });
+  const page = session.pageFor("t1");
+  let download = null;
+  page.on("download", (d) => (download = d));
+  listeners.get("download.started")({ targetId: "t1", downloadId: "g1", url: "https://example.com/r", suggestedFilename: "report.txt" });
+  const path = download.path();
+  path.catch(() => {});
+  assert.equal(await settledState(path), "pending");
+  timers.splice(0).forEach((fn) => fn());
+  const state = await settledState(path);
+  assert.match(state, /^failed: .*report\.txt/, state);
+  const error = await path.then(() => null, (e) => e);
+  assert.equal(error.code, "timeout");
+});

@@ -82,6 +82,21 @@ import Testing
         #expect(shape(s, local) == "a G1[g1,g3] N[g2,b] G2[h1,h2] c")
     }
 
+    /// A row dropped onto another forms the group at the target row (the
+    /// drop's anchor), not at the first member in tree order.
+    @Test func createGroupOntoARowFormsTheGroupAtTheTarget() {
+        let rows = { SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "Local", kind: .local)),
+                                    nodes: ["a", "y", "b", "x"].map { .workspace(w($0)) }) }
+        // y dragged down onto x: a, b, then the group where x was.
+        var down = [rows()]
+        SidebarEdits.apply(.createGroup(GroupID("N"), name: "", color: .grey, workspaces: [id("x"), id("y")], anchor: id("x")), to: &down)
+        #expect(shape(down, local) == "a b N[y,x]")
+        // x dragged up onto y: the group where y was.
+        var up = [rows()]
+        SidebarEdits.apply(.createGroup(GroupID("N"), name: "", color: .grey, workspaces: [id("y"), id("x")], anchor: id("y")), to: &up)
+        #expect(shape(up, local) == "a N[y,x] b")
+    }
+
     @Test func createGroupFromLooseItems() {
         var s = fixture()
         let new = GroupID("N")

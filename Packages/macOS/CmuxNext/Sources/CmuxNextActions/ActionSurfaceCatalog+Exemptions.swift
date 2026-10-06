@@ -12,7 +12,7 @@ nonisolated extension ActionSurfaceCatalog {
     /// (#16174): screen, screen group, pane, column, tab move, extension,
     /// terminal and headless appearance verbs were added here.
     static let cliNamed: Set<ActionID> = [
-        "help.showCrashLogs", "newWindow", "newIncognitoWindow", "closeWindow", "tab.focus", "quit", "quitKeepSessions", "quitEndSessions",
+        "help.showCrashLogs", "newWindow", "newIncognitoWindow", "closeWindow", "tab.focus", "pane.focus", "screen.focus", "quit", "quitKeepSessions", "quitEndSessions",
         "quitEndEverything", "keepMacAwake", "newBrowserWorkspace", "openFolder",
         "palette.openFolderInVSCodeInline", "reopenPreviousSession", "reopenClosedWorkspace", "moveWorkspaceUp",
         "moveWorkspaceDown", "palette.moveWorkspaceToTop", "moveWorkspaceToWindow", "moveWorkspaceToNewWindow",
@@ -126,7 +126,7 @@ nonisolated extension ActionSurfaceCatalog {
         ],
         // A row of the titlebar Back / Forward list: the click on the row is the gesture.
         .focusMove: [
-            "history.goTo",
+            "history.goTo", "agent.openSessionWorkspace",
         ],
     ]
 
@@ -160,7 +160,7 @@ nonisolated extension ActionSurfaceCatalog {
             "browser.extensions.webStore", "browser.extension.options", "browserProfile.manageExtensions",
             "toggleSidebar", "toggleRightSidebar", "switchRightSidebarToFiles", "switchRightSidebarToFind",
             "switchRightSidebarToSessions", "switchRightSidebarToFeed", "switchRightSidebarToDock",
-            "switchRightSidebarToMachines", "showNotifications", "feed.show", "palette.openTerminalChatView",
+            "switchRightSidebarToMachines", "showNotifications", "feed.show", "palette.openTerminalChatView", "agent.openSessionWorkspace",
             "palette.computerUse.setup", "palette.computerUse.accessibility", "palette.computerUse.screenRecording",
             "palette.cloud.tools", "cloudOpenMachine", "openTeamPicker", "palette.mobileConnect",
             "palette.openCmuxSettingsFile", "palette.openGhosttySettings", "ghostty.showDiagnostics", "palette.searchShortcuts",
@@ -225,7 +225,7 @@ nonisolated extension ActionSurfaceCatalog {
             "decreaseWorkspaceTerminalFontSize", "resetWorkspaceTerminalFontSize", "canvasZoomIn", "canvasZoomOut",
             "canvasZoomReset", "browserZoomIn", "browserZoomOut", "browserZoomReset", "markdownZoomIn",
             "markdownZoomOut", "markdownZoomReset", "fileEditorZoomIn", "fileEditorZoomOut", "fileEditorZoomReset", "appearance.interfaceSize.increase",
-            "appearance.interfaceSize.decrease", "appearance.interfaceSize.reset", "column.cycleWidth",
+            "appearance.interfaceSize.decrease", "appearance.interfaceSize.reset", "appearance.uiScale.increase", "appearance.uiScale.decrease", "appearance.uiScale.reset", "column.cycleWidth",
             "column.cycleWidthBack", "terminal.increaseFontSize", "terminal.decreaseFontSize",
             "terminal.resetFontSize", "terminal.scrollPageUp", "terminal.scrollPageDown", "terminal.scrollToTop",
             "terminal.scrollToBottom",

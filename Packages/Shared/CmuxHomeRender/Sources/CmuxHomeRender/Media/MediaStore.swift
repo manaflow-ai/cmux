@@ -26,7 +26,7 @@ public protocol HomeAttachmentLoader: Sendable {
 /// reaches the rows through `onImage`. Nothing here changes layout: the
 /// rows were sized from the pixel size before any request started.
 @MainActor
-final class MediaStore {
+final class MediaStore: HomeVideoSource {
     var loader: (any HomeAttachmentLoader)? {
         didSet {
             failed.removeAll()

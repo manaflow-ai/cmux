@@ -5,11 +5,12 @@
 // browser does not reach, reads as localhost.
 //
 // The text is not trusted: a shell call's output can carry a fetched page's words. So the card's
-// frame, which loads without a click, only ever loads the page's root (`previewFrameUrl`); the
-// full address waits for the reader's click (the link, Open in tab).
+// frame loads only after the reader clicks "Load preview", and then only the page's root
+// (`previewFrameUrl`); the full address waits for the reader's click (the link, Open in tab).
 import type { AcpmuxRow } from "../model";
 
-/// Height of the card's thumbnail (`.acpmux-turn-preview-frame` in styles.css); the page draws at four
+/// Height of the card's thumbnail (`.acpmux-turn-preview-frame` in styles.css, and the unloaded
+/// placeholder in conversation.css); the page draws at four
 /// times its size, scaled down.
 export const PREVIEW_FRAME_HEIGHT = 180;
 

@@ -1,5 +1,5 @@
 import type { Principal, Reject } from "@cmux/ownership"
-import { cloudInternalOps, cloudOpByName, InstallRegister, MachineId, connectionInternalOps, DisplayName, feedInternalOps, pushInternalOps, userConfirmInternalOps, InstallId, Platform, schedulerInternalOps, teamSshInternalOps, teamVmInternalOps, TeamId, UserId, WgPublicKey, type CloudOpDef } from "@cmux/protocol"
+import { cloudInternalOps, cloudOpByName, InstallRegister, MachineId, ServerCapabilities, connectionInternalOps, DisplayName, feedInternalOps, pushInternalOps, userConfirmInternalOps, InstallId, Platform, schedulerInternalOps, teamSshInternalOps, teamVmInternalOps, TeamId, UserId, WgPublicKey, type CloudOpDef } from "@cmux/protocol"
 import { Exit, Schema } from "effect"
 
 export const reject = (code: string, message: string, details?: unknown): { ok: false } & Reject => ({
@@ -11,7 +11,7 @@ export const reject = (code: string, message: string, details?: unknown): { ok: 
 
 /** Decodes params with the op's Effect Schema (pure; runs on owner and mirrors alike). */
 /** install.register_server params: install.register's plus the VM install's bound machine. */
-export const InstallRegisterServerParams = Schema.Struct({ ...InstallRegister.params.fields, bound_machine: Schema.optionalKey(MachineId) })
+export const InstallRegisterServerParams = Schema.Struct({ ...InstallRegister.params.fields, bound_machine: Schema.optionalKey(MachineId), capabilities: Schema.optionalKey(ServerCapabilities) })
 
 export const decodeParams = <T>(op: CloudOpDef, params: unknown): { ok: true; value: T } | ({ ok: false } & Reject) => {
   const exit = Schema.decodeUnknownExit(op.params as Schema.Codec<T, unknown>)(params ?? {})

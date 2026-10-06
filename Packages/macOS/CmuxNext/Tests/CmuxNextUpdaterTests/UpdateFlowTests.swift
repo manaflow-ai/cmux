@@ -1,11 +1,12 @@
 import Testing
 @testable import CmuxNextUpdater
 
-/// R114: no UI until the update is ready, one click installs, busy agents
-/// hold the click, a quit installs unless the user turned that off.
+/// R114 and SIDEBAR-FOOTER-MINIMAL: no UI until the update is staged, then
+/// the footer's "Update Ready" pill; one click installs and relaunches at
+/// once (the relaunch keeps every terminal and agent, so running agents do
+/// not hold it); a quit installs unless the user turned that off.
 @Suite struct UpdateFlowTests {
     private let prefs = UpdatePreferences.defaults
-    private let noon = 12 * 60
 
     private func ready(_ version: String = "1.0.0-nightly.9") -> UpdateFlow {
         var flow = UpdateFlow()
@@ -13,58 +14,40 @@ import Testing
         return flow
     }
 
-    @Test func backgroundWorkShowsNothing() {
+    private func at(_ phase: UpdateIndicatorPhase) -> UpdateFlow {
         var flow = UpdateFlow()
-        for phase: UpdateIndicatorPhase in [.checking, .downloading(progress: 0.4), .downloading(progress: nil),
-                                            .note(UpdaterStrings.checkFailed, isError: true), .hidden] {
-            #expect(flow.handle(.sparkle(phase), preferences: prefs).isEmpty)
-            #expect(flow.card(preferences: prefs, minuteOfDay: noon) == nil)
-            #expect(!flow.showsSettingsBadge(preferences: prefs))
+        _ = flow.handle(.sparkle(phase), preferences: prefs)
+        return flow
+    }
+
+    /// The update state to footer mapping: nothing while there is no
+    /// update, while checking, while downloading, or for a found update
+    /// that is not downloaded; the enabled pill once staged; the disabled
+    /// pill while it installs.
+    @Test func theFooterPillShowsOnlyAStagedUpdate() {
+        #expect(UpdateFlow().footerPill(preferences: prefs) == nil)
+        #expect(at(.hidden).footerPill(preferences: prefs) == nil)
+        #expect(at(.checking).footerPill(preferences: prefs) == nil)
+        #expect(at(.downloading(progress: 0.4)).footerPill(preferences: prefs) == nil)
+        #expect(at(.downloading(progress: nil)).footerPill(preferences: prefs) == nil)
+        #expect(at(.available(version: "5")).footerPill(preferences: prefs) == nil)
+        #expect(at(.note(UpdaterStrings.upToDate, isError: false)).footerPill(preferences: prefs) == nil)
+        #expect(ready().footerPill(preferences: prefs) == .ready)
+        #expect(at(.installing).footerPill(preferences: prefs) == .installing)
+    }
+
+    @Test func backgroundWorkShowsNoCard() {
+        var flow = UpdateFlow()
+        for phase: UpdateIndicatorPhase in [.checking, .downloading(progress: 0.4), .downloading(progress: nil), .available(version: "3"),
+                                            .note(UpdaterStrings.checkFailed, isError: true), .ready(version: "3"), .installing, .hidden] {
+            _ = flow.handle(.sparkle(phase), preferences: prefs)
+            #expect(flow.card == nil)
         }
     }
 
-    /// Lawrence 2026-10-05 ("more minimal"): no card, only the Settings
-    /// row control labelled Restart to Update.
-    @Test func aReadyUpdateIsTheSettingsControlAndNoCard() {
-        let flow = ready()
-        #expect(flow.card(preferences: prefs, minuteOfDay: noon) == nil)
-        #expect(flow.settingsBadgeTitle(preferences: prefs) == UpdaterStrings.restartToUpdate)
-    }
-
-    @Test func oneClickInstallsWhenNothingRuns() {
+    @Test func oneClickInstallsWhenStaged() {
         var flow = ready()
         #expect(flow.handle(.installRequested, preferences: prefs) == [.install])
-    }
-
-    @Test func busyAgentsHoldTheClickUntilTheyFinish() {
-        var flow = ready()
-        _ = flow.handle(.blockersChanged(UpdateBlockers(busyAgents: 2)), preferences: prefs)
-        #expect(flow.handle(.installRequested, preferences: prefs).isEmpty)
-        #expect(flow.card(preferences: prefs, minuteOfDay: noon) == .waiting(version: "1.0.0-nightly.9", busyAgents: 2))
-        #expect(flow.handle(.blockersChanged(UpdateBlockers(busyAgents: 1)), preferences: prefs).isEmpty)
-        #expect(flow.card(preferences: prefs, minuteOfDay: noon) == .waiting(version: "1.0.0-nightly.9", busyAgents: 1))
-        #expect(flow.handle(.blockersChanged(.none), preferences: prefs) == [.install])
-    }
-
-    @Test func installNowAsksThenInstallsOrKeepsWaiting() {
-        var flow = ready()
-        _ = flow.handle(.blockersChanged(UpdateBlockers(busyAgents: 1)), preferences: prefs)
-        _ = flow.handle(.installRequested, preferences: prefs)
-        #expect(flow.handle(.installNowRequested, preferences: prefs) == [.confirmInterrupt(UpdateBlockers(busyAgents: 1))])
-        #expect(flow.handle(.interruptDeclined, preferences: prefs).isEmpty)
-        #expect(flow.card(preferences: prefs, minuteOfDay: noon) == .waiting(version: "1.0.0-nightly.9", busyAgents: 1))
-        _ = flow.handle(.installNowRequested, preferences: prefs)
-        #expect(flow.handle(.interruptConfirmed, preferences: prefs) == [.install])
-    }
-
-    @Test func laterForgetsTheClickAndKeepsTheUpdateReady() {
-        var flow = ready()
-        _ = flow.handle(.blockersChanged(UpdateBlockers(busyAgents: 1)), preferences: prefs)
-        _ = flow.handle(.installRequested, preferences: prefs)
-        #expect(flow.handle(.later, preferences: prefs).isEmpty)
-        #expect(flow.card(preferences: prefs, minuteOfDay: noon) == nil)
-        #expect(flow.showsSettingsBadge(preferences: prefs))
-        #expect(flow.handle(.blockersChanged(.none), preferences: prefs).isEmpty)
     }
 
     @Test func aClickDuringDownloadInstallsOnceStaged() {
@@ -74,19 +57,18 @@ import Testing
         #expect(flow.handle(.sparkle(.ready(version: "2")), preferences: prefs) == [.install])
     }
 
-    @Test func aClickDuringDownloadWithBusyAgentsWaits() {
-        var flow = UpdateFlow()
-        _ = flow.handle(.blockersChanged(UpdateBlockers(busyAgents: 3)), preferences: prefs)
-        _ = flow.handle(.sparkle(.downloading(progress: nil)), preferences: prefs)
-        _ = flow.handle(.installRequested, preferences: prefs)
-        #expect(flow.handle(.sparkle(.ready(version: "2")), preferences: prefs).isEmpty)
-        #expect(flow.card(preferences: prefs, minuteOfDay: noon) == .waiting(version: "2", busyAgents: 3))
-    }
-
     @Test func aClickWithNothingStagedDoesNothing() {
         var flow = UpdateFlow()
         #expect(flow.handle(.installRequested, preferences: prefs).isEmpty)
         #expect(!flow.installRequested)
+    }
+
+    @Test func aHeldClickDoesNotCarryOverAFailedOrCancelledFlow() {
+        var flow = UpdateFlow()
+        _ = flow.handle(.sparkle(.downloading(progress: nil)), preferences: prefs)
+        _ = flow.handle(.installRequested, preferences: prefs)
+        _ = flow.handle(.sparkle(.hidden), preferences: prefs)
+        #expect(flow.handle(.sparkle(.ready(version: "2")), preferences: prefs).isEmpty)
     }
 
     @Test func quitInstallsAStagedUpdateUnlessTurnedOff() {
@@ -99,18 +81,11 @@ import Testing
         #expect(idle.handle(.quitRequested, preferences: noQuitInstall) == [.quit(.proceed)])
     }
 
-    @Test func busyAgentsDoNotBlockAQuit() {
-        // Agents run in the daemons, not the app: a quit stops none of them.
-        var flow = ready()
-        _ = flow.handle(.blockersChanged(UpdateBlockers(busyAgents: 2)), preferences: prefs)
-        #expect(flow.handle(.quitRequested, preferences: prefs) == [.quit(.proceed)])
-    }
-
-    @Test func installingShowsTheInstallingCardAndEndsTheRequest() {
+    @Test func installingEndsTheRequest() {
         var flow = ready()
         _ = flow.handle(.installRequested, preferences: prefs)
         _ = flow.handle(.sparkle(.installing), preferences: prefs)
-        #expect(flow.card(preferences: prefs, minuteOfDay: noon) == .installing)
+        #expect(flow.card == nil)
         #expect(!flow.installRequested)
     }
 
@@ -118,64 +93,39 @@ import Testing
         var flow = UpdateFlow()
         _ = flow.handle(.checkRequested, preferences: prefs)
         _ = flow.handle(.sparkle(.checking), preferences: prefs)
-        #expect(flow.card(preferences: prefs, minuteOfDay: noon) == .checking)
+        #expect(flow.card == .checking)
         _ = flow.handle(.sparkle(.note(UpdaterStrings.upToDate, isError: false)), preferences: prefs)
-        #expect(flow.card(preferences: prefs, minuteOfDay: noon) == .note(UpdaterStrings.upToDate, isError: false))
+        #expect(flow.card == .note(UpdaterStrings.upToDate, isError: false))
         _ = flow.handle(.noteExpired, preferences: prefs)
-        #expect(flow.card(preferences: prefs, minuteOfDay: noon) == nil)
+        #expect(flow.card == nil)
         // The next background check is invisible again.
         _ = flow.handle(.sparkle(.checking), preferences: prefs)
-        #expect(flow.card(preferences: prefs, minuteOfDay: noon) == nil)
+        #expect(flow.card == nil)
     }
 
-    @Test func aCheckTheUserAskedForShowsTheDownloadThenTheSettingsControl() {
+    @Test func aCheckTheUserAskedForShowsTheDownloadThenThePill() {
         var flow = UpdateFlow()
         _ = flow.handle(.checkRequested, preferences: prefs)
         _ = flow.handle(.sparkle(.downloading(progress: 0.25)), preferences: prefs)
-        #expect(flow.card(preferences: prefs, minuteOfDay: noon) == .downloading(progress: 0.25))
+        #expect(flow.card == .downloading(progress: 0.25))
         _ = flow.handle(.sparkle(.ready(version: "3")), preferences: prefs)
-        #expect(flow.card(preferences: prefs, minuteOfDay: noon) == nil)
-        #expect(flow.settingsBadgeTitle(preferences: prefs) == UpdaterStrings.restartToUpdate)
+        #expect(flow.card == nil)
+        #expect(flow.footerPill(preferences: prefs) == .ready)
         #expect(!flow.userAsked)
     }
 
-    @Test func silentHidesTheSettingsControl() {
+    @Test func silentHidesTheStagedPill() {
         let flow = ready()
-        #expect(flow.showsSettingsBadge(preferences: UpdatePreferences(notify: .badge)))
-        let silent = UpdatePreferences(notify: .silent)
-        #expect(flow.card(preferences: silent, minuteOfDay: noon) == nil)
-        #expect(!flow.showsSettingsBadge(preferences: silent))
-        #expect(flow.settingsBadgeTitle(preferences: silent) == nil)
+        #expect(flow.footerPill(preferences: UpdatePreferences(notify: .badge)) == .ready)
+        #expect(flow.footerPill(preferences: UpdatePreferences(notify: .silent)) == nil)
     }
 
-    @Test func quietHoursHideNothingTheUserAskedFor() {
-        var flow = ready()
-        _ = flow.handle(.blockersChanged(UpdateBlockers(busyAgents: 1)), preferences: prefs)
-        _ = flow.handle(.installRequested, preferences: prefs)
-        let night = UpdatePreferences(notify: .silent, quietHours: UpdateQuietHours(start: 0, end: 1439))
-        #expect(flow.card(preferences: night, minuteOfDay: 60) == .waiting(version: "1.0.0-nightly.9", busyAgents: 1))
-    }
-
-    @Test func quietHoursWrapPastMidnight() {
-        let q = UpdateQuietHours(start: 22 * 60, end: 7 * 60)
-        #expect(q.contains(minuteOfDay: 23 * 60))
-        #expect(q.contains(minuteOfDay: 3 * 60))
-        #expect(!q.contains(minuteOfDay: 7 * 60))
-        #expect(!q.contains(minuteOfDay: noon))
-        #expect(!UpdateQuietHours(start: 60, end: 60).contains(minuteOfDay: 60))
-        #expect(q.minutesToNextBoundary(from: 21 * 60) == 60)
-        #expect(q.minutesToNextBoundary(from: 22 * 60) == 9 * 60)
-        #expect(q.minutesToNextBoundary(from: 6 * 60 + 59) == 1)
-    }
-
-    /// Exhaustive check over short event sequences: the gate never asks to
-    /// install while agents are busy unless the user confirmed, and never
-    /// installs without a staged update or a user request.
+    /// Exhaustive check over short event sequences: the gate never installs
+    /// without a staged update and a user request.
     @Test func noInstallWithoutAStagedUpdateAndARequest() {
         let events: [UpdateFlowEvent] = [
             .sparkle(.downloading(progress: nil)), .sparkle(.ready(version: "9")), .sparkle(.hidden),
-            .installRequested, .installNowRequested, .interruptConfirmed, .interruptDeclined, .later,
-            .blockersChanged(.none), .blockersChanged(UpdateBlockers(busyAgents: 1)), .checkRequested,
+            .installRequested, .checkRequested, .noteExpired, .quitRequested,
         ]
         func walk(_ flow: UpdateFlow, depth: Int) {
             guard depth > 0 else { return }
@@ -186,11 +136,6 @@ import Testing
                     let staged = flow.phase == .ready(version: "9") || event == .sparkle(.ready(version: "9"))
                     #expect(staged)
                     #expect(flow.installRequested || event == .installRequested)
-                    if event == .interruptConfirmed {
-                        #expect(flow.confirmationOpen)
-                    } else {
-                        #expect(next.blockers.isEmpty)
-                    }
                 }
                 walk(next, depth: depth - 1)
             }
@@ -198,18 +143,17 @@ import Testing
         walk(UpdateFlow(), depth: 5)
     }
 
-    /// `updates.downloadAutomatically` off: the found update is the
-    /// Settings row control; one click downloads, shows the progress, and
-    /// installs once staged.
+    /// `updates.downloadAutomatically` off: the found update shows nothing
+    /// in the footer; the palette's Install Available Update downloads,
+    /// shows the progress, and installs once staged.
     @Test func anUpdateThatWaitsForTheClickDownloadsThenInstalls() {
         var flow = UpdateFlow()
         _ = flow.handle(.sparkle(.available(version: "5")), preferences: prefs)
-        #expect(flow.card(preferences: prefs, minuteOfDay: noon) == nil)
-        #expect(flow.settingsBadgeTitle(preferences: prefs) == UpdaterStrings.availableNoVersion)
+        #expect(flow.card == nil)
+        #expect(flow.footerPill(preferences: prefs) == nil)
         #expect(flow.handle(.installRequested, preferences: prefs) == [.download])
         _ = flow.handle(.sparkle(.downloading(progress: 0.5)), preferences: prefs)
-        #expect(flow.card(preferences: prefs, minuteOfDay: noon) == .downloading(progress: 0.5))
+        #expect(flow.card == .downloading(progress: 0.5))
         #expect(flow.handle(.sparkle(.ready(version: "5")), preferences: prefs) == [.install])
     }
-
 }

@@ -2,39 +2,6 @@ public import Foundation
 import CmuxNextActions
 public import CmuxNextDesign
 
-/// A problem found while reading cmux.json. Loading never fails on a bad
-/// entry: the entry is skipped and reported here.
-public struct SettingsDiagnostic: Sendable, Hashable, CustomStringConvertible {
-    public enum Kind: String, Sendable, Hashable {
-        /// The file is not valid JSONC. Nothing was applied from it.
-        case unreadableFile
-        case invalidValue
-        case unknownAction
-        case unknownMetric
-        /// A chord whose first key has neither Command nor Control.
-        case unsupportedChord
-        /// Two actions claim the same shortcut in the same context.
-        case shortcutConflict
-        /// The file sets a key an MDM profile or the team policy manages; the file's value is ignored.
-        case managedOverride
-        /// An MDM forced value and the team policy's enforced value differ; the MDM value applies (decision E2).
-        case managedConflict
-    }
-
-    public let kind: Kind
-    /// Dotted key path of the offending entry.
-    public let path: String
-    public let message: String
-
-    public init(kind: Kind, path: String, message: String) {
-        self.kind = kind
-        self.path = path
-        self.message = message
-    }
-
-    public var description: String { "\(kind.rawValue) \(path): \(message)" }
-}
-
 /// The parts of cmux.json that cmux-next applies, parsed off the main actor.
 /// Keys stay strings here; `SettingsApplier` maps them onto `DesignSettings`
 /// and the action registry on the main actor.
@@ -43,6 +10,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var root: JSONValue
     /// `appearance.density`, when present and valid.
     public var density: String?
+    /// `app.uiScale`, the app-wide chrome and first-party page scale.
+    public var uiScale: Double = UIScaleSetting().fallback
     /// `appearance.metrics.<name>` in points.
     public var metrics: [String: Double]
     /// Shortcut bindings by action ID: `shortcuts.bindings.<id>` merged with
@@ -65,6 +34,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var browserNewTabPage: URL?
     /// `browser.showBookmarksBar`; off when unset.
     public var browserShowBookmarksBar = false
+    /// `home.attachments.keepLocation`; off (strip location) when unset.
+    public var homeKeepLocation = false
     /// `labs.previewFeatures`; off when unset.
     public var previewFeatures = false
     /// `browser.hibernation`, `browser.hibernationExclusions`, `browser.hibernatePinnedTabs`.
@@ -165,6 +136,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var recordsTerminalCommands: Bool = TerminalCommandHistorySetting.fallback
     /// `navigation.historyScope`: what Back and Forward walk (`workspace`, `window`, `surface`).
     public var navigationHistoryScope: String = NavigationHistoryScopeSetting.fallback
+    /// `navigation.history.scope`: what a Back/Forward step is (`workspaces`, `everything`).
+    public var navigationHistorySteps: String = NavigationHistoryStepSetting.fallback
     /// The rest of `notifications.*`: dismissal, banners, sounds, quiet hours, mutes.
     public var notifications = NotificationPreferences()
     /// `updates.*`: automatic update behavior (R114).
@@ -210,12 +183,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (newTabPage, newTabPageDiagnostic) = BrowserNewTabPage.parse(root)
         snapshot.browserNewTabPage = newTabPage
         if let newTabPageDiagnostic { snapshot.diagnostics.append(newTabPageDiagnostic) }
-        let (showBar, showBarDiagnostic) = BookmarksBarSetting.parse(root)
-        snapshot.browserShowBookmarksBar = showBar
-        if let showBarDiagnostic { snapshot.diagnostics.append(showBarDiagnostic) }
-        let (preview, previewDiagnostic) = Self.parsePreviewFeatures(root)
-        snapshot.previewFeatures = preview
-        if let previewDiagnostic { snapshot.diagnostics.append(previewDiagnostic) }
+        snapshot.take(BookmarksBarSetting.parse(root), \.browserShowBookmarksBar)
+        snapshot.take(HomeKeepLocationSetting.parse(root), \.homeKeepLocation)
+        snapshot.take(Self.parsePreviewFeatures(root), \.previewFeatures)
         let (hibernation, hibernationDiagnostics) = BrowserHibernationSetting.parse(root)
         snapshot.browserHibernation = hibernation
         snapshot.diagnostics += hibernationDiagnostics
@@ -299,9 +269,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (recordsCommands, commandsDiagnostic) = TerminalCommandHistorySetting.parse(root)
         snapshot.recordsTerminalCommands = recordsCommands
         if let commandsDiagnostic { snapshot.diagnostics.append(commandsDiagnostic) }
-        let (historyScope, historyScopeDiagnostic) = NavigationHistoryScopeSetting.parse(root)
-        snapshot.navigationHistoryScope = historyScope
-        if let historyScopeDiagnostic { snapshot.diagnostics.append(historyScopeDiagnostic) }
+        snapshot.parseNavigationHistory(root)
         snapshot.notifications = NotificationConfigParser.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.feedGitHub = FeedGitHubSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.updates = UpdatesSettings.parse(root, diagnostics: &snapshot.diagnostics)
@@ -315,6 +283,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (fontSize, fontSizeDiagnostic) = TerminalFontSetting().parseSize(root)
         snapshot.terminalFontSize = fontSize
         if let fontSizeDiagnostic { snapshot.diagnostics.append(fontSizeDiagnostic) }
+
+        snapshot.uiScale = UIScaleSetting().parse(root, diagnostics: &snapshot.diagnostics)
 
         if let appearance = root["appearance"] {
             if case .object(let members) = appearance {

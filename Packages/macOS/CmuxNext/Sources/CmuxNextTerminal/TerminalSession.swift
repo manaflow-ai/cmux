@@ -219,6 +219,7 @@ public final class TerminalSession {
             surfaceHasContent = true
             TerminalTimings.contentApplied()
         case .output(let data):
+            TypingLatencyProbe.shared.mark(.outputMain)
             ExpectedActivity.shared.note(.terminalOutput)
             guard let lane = surfaceView.lane else { return }
             await lane.waitForCapacity()

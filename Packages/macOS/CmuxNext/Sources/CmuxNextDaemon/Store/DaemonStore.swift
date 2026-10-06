@@ -109,6 +109,8 @@ public final class DaemonStore: StateResourceQueries {
     @ObservationIgnored public var onMirrorViolation: ((String) -> Void)?
     /// A create intent's tab arrived with its transaction echo: (provisional tab id, created tab).
     @ObservationIgnored public var onTabCreated: ((String, TabModel) -> Void)?
+    /// Same, for a page tab's create intent (`page-tabs-v1`); agent tabs own `onTabCreated`.
+    @ObservationIgnored public var onPageTabCreated: ((String, TabModel) -> Void)?
     /// The layout as the last allowed writer left it (debug builds).
     @ObservationIgnored var mirrorFingerprint: Int?
     /// Events at or below this sequence are superseded by the last snapshot.

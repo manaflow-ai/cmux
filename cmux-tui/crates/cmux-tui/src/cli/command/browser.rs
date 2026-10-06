@@ -3,9 +3,9 @@ use serde_json::{Map, Value};
 use cmux_tui_core::resource::ResourceOperation;
 
 use super::{
-    add_optional_parent_selectors, add_pixel_size, insert_optional_enum_list, insert_optional_string,
-    add_stream_id, insert_float, insert_u32, map_with, request, strs, usage,
-    validate_decimal, validate_one_of, CommandPlan, Flags, Selectors, UsageError,
+    CommandPlan, Flags, Selectors, UsageError, add_optional_parent_selectors, add_pixel_size,
+    add_stream_id, insert_float, insert_optional_enum_list, insert_optional_string, insert_u32,
+    map_with, request, strs, usage, validate_decimal, validate_one_of,
 };
 
 pub(super) fn parse_browser(

@@ -24,7 +24,7 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     /// The coded fields: everything but ``connection``, which never reaches the page.
     private enum CodingKeys: String, CodingKey {
         case protocolVersion, transport, sessionId, newSession, newTab, cwd, draft, prompt, harness, adopt, surface,
-             linkScheme, sessionMustExist, revealTurn, chooseFolder
+             linkScheme, sessionMustExist, revealTurn, chooseFolder, machineName
     }
 
     public var protocolVersion: Int
@@ -73,6 +73,9 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     /// agent-home folder, and the page offers "Choose Folder…" (`workspace.chooseFolder`,
     /// AGENT-CWD-FOR-FOLDERLESS-WORKSPACE). Pages that predate it ignore it.
     public var chooseFolder: Bool?
+    /// This Mac's name (System Settings > General > Sharing), for the composer's location row.
+    /// Pages that predate it ignore it.
+    public var machineName: String?
 
     public init(transport: Transport, connection: AcpmuxConnection? = nil, sessionId: String? = nil, newSession: Bool? = nil) {
         protocolVersion = Self.currentVersion

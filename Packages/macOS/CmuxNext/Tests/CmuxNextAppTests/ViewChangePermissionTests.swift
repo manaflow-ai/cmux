@@ -201,6 +201,65 @@ import Testing
         #expect(pane.stripModel.selectedID == other)
     }
 
+    /// `cmux pane <id> focus` in an app-owned session (chwsr3 E2E: the
+    /// daemon focus moved and the window did not): pane.focus focuses the
+    /// pane in the window, from the CLI, by purpose.
+    @Test func paneFocusFocusesThePaneFromTheCLIByPurpose() async throws {
+        let harness = try await Self.harness()
+        defer { harness.stop() }
+        let original = try #require(harness.window.focus.state.pane)
+        try await Self.run(harness, "splitRight", origin: "user")
+        try await Self.waitUntil { harness.window.content?.panes.count == 2 && harness.window.focus.state.pane != original }
+        try await Self.run(harness, "pane.focus", origin: "cli", target: ActionTargetRef(kind: .pane, id: original))
+        try await Self.waitUntil { harness.window.focus.state.pane == original }
+        #expect(harness.window.focus.state.pane == original)
+    }
+
+    /// `cmux screen <id> focus`: screen.focus shows that screen.
+    @Test func screenFocusShowsTheScreenFromTheCLIByPurpose() async throws {
+        let harness = try await Self.harness()
+        defer { harness.stop() }
+        // A second screen in the daemon's workspace (the scripted daemon has
+        // no screen command): the window keeps showing the first.
+        harness.daemon.state.tree.withLock { tree in
+            tree.workspaces[0].screens.append(TopologyDaemon.Screen(id: 200, layout: .leaf(201),
+                                                                    panes: [TopologyDaemon.Pane(id: 201, tabs: [202])]))
+            tree.revision += 1
+        }
+        await harness.services.daemon.store.refresh()
+        try await Self.waitUntil { (harness.window.content?.layoutModel.screens.count ?? 0) == 2 }
+        let content = try #require(harness.window.content)
+        let shown = content.layoutModel.activeScreenID
+        let other = try #require(content.layoutModel.screens.map(\.id).first { $0 != shown })
+        try await Self.run(harness, "screen.focus", origin: "cli", target: ActionTargetRef(kind: .screen, id: other.rawValue))
+        try await Self.waitUntil { harness.window.content?.layoutModel.activeScreenID == other }
+        #expect(harness.window.content?.layoutModel.activeScreenID == other)
+    }
+
+    /// screen.focus on a screen of a workspace the window does not show:
+    /// the window shows that workspace AND selects the screen (chwsr4: from
+    /// Home the workspace came up on its first screen).
+    @Test func screenFocusOfAnotherWorkspaceSelectsTheScreenThere() async throws {
+        let harness = try await Self.harness()
+        defer { harness.stop() }
+        let otherKey = "2a4f6c1e-8b3d-4e5f-9a7b-1c2d3e4f5a02"
+        harness.daemon.state.tree.withLock { tree in
+            tree.workspaces.append(TopologyDaemon.Workspace(id: 300, key: otherKey, screens: [
+                TopologyDaemon.Screen(id: 301, layout: .leaf(302), panes: [TopologyDaemon.Pane(id: 302, tabs: [303])]),
+                TopologyDaemon.Screen(id: 304, layout: .leaf(305), panes: [TopologyDaemon.Pane(id: 305, tabs: [306])]),
+            ]))
+            tree.revision += 1
+        }
+        await harness.services.daemon.store.refresh()
+        try await Self.waitUntil { harness.services.daemon.store.workspaces.count == 2 }
+        let other = try #require(harness.services.daemon.store.workspaces.first { $0.id != harness.window.state.workspaceID })
+        let target = try #require(other.screens.last)
+        #expect(harness.window.state.workspaceID != other.id)
+        try await Self.run(harness, "screen.focus", origin: "cli", target: ActionTargetRef(kind: .screen, id: target.id))
+        try await Self.waitUntil { harness.window.content?.workspace === other }
+        #expect(harness.window.content?.layoutModel.activeScreenID?.rawValue == target.id)
+    }
+
     // MARK: The permission travels with the run
 
     /// A handler that selects a tab after awaiting a daemon reply: the

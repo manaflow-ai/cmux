@@ -44,6 +44,11 @@ await keptForUser.keep();
 // handler for on that page (a dialog, a download) still reach the session.
 // Without a handler they go to the user's own UI, which a check cannot
 // answer; unit/tab-ownership.test.mjs covers that on the dev driver.
+// On the shared headless browser (host-headless) the grants live only in a
+// private browser context for the tabs the session opens afterwards (chief,
+// 2026-10-06, option 2): it starts with a one-way copy of the profile's
+// cookies, nothing is written back, and it closes at the session's end
+// unless a tab in it was kept. So no grant can reach this user's tab.
 const userRow = (await tabs.list()).find((t) => t.url.endsWith("?user-owned"));
 const userTab = await tabs.use(userRow.id);
 await session.configure({ permissions: ["notifications"] });

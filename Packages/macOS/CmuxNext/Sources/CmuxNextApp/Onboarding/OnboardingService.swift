@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextBrowserImport
@@ -157,6 +158,21 @@ final class OnboardingService {
     func markDone(completed: Bool) {
         let state = state
         write("onboarding state") { try state.markDone(completed: completed) }
+    }
+
+    /// Onboarding ended: records it, and Done over Home lands on the New
+    /// Tab page through the sidebar's New (`newTab`).
+    func didEnd(completed: Bool) {
+        markDone(completed: completed)
+        guard Self.opensNewTab(completed: completed, shown: services.windows?.active?.shownTopPage) else { return }
+        services.registry.perform("newTab")
+    }
+
+    /// Done (not Skip) opens the New Tab page when the window behind
+    /// onboarding shows Home; reopened over a workspace or another page,
+    /// the window stays as it is.
+    nonisolated static func opensNewTab(completed: Bool, shown: TopPageRoute?) -> Bool {
+        completed && shown == .home
     }
 
     /// Imported history and bookmarks go into each browser profile's

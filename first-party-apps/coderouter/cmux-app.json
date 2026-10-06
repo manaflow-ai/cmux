@@ -10,7 +10,7 @@
   },
   "publisher": { "name": "cmux", "url": "https://cmux.dev" },
   "repository": "https://github.com/manaflow-ai/cmux",
-  "license": "MIT",
+  "license": "GPL-3.0-or-later",
   "icon": "assets/icon.svg",
   "categories": ["agents", "cloud", "monitoring"],
   "keywords": ["coderouter", "router", "models", "api key", "usage", "accounts"],

@@ -11,12 +11,17 @@ public nonisolated struct KeyBindingLayers: Hashable, Sendable {
     public var removals: [KeyBindingRemoval]
     /// `.ghosttyFallback` and `.ghostty` entries (`KeyBindingLoader.loadGhostty`).
     public var ghostty: [KeyBinding]
+    /// Keys the user's Ghostty config maps to a terminal action or unbinds:
+    /// no cmux default entry runs on them (cmux.json entries still do).
+    public var ghosttyClaims: [Shortcut]
 
-    public init(app: [KeyBinding] = [], user: [KeyBinding] = [], removals: [KeyBindingRemoval] = [], ghostty: [KeyBinding] = []) {
+    public init(app: [KeyBinding] = [], user: [KeyBinding] = [], removals: [KeyBindingRemoval] = [], ghostty: [KeyBinding] = [],
+                ghosttyClaims: [Shortcut] = []) {
         self.app = app
         self.user = user
         self.removals = removals
         self.ghostty = ghostty
+        self.ghosttyClaims = ghosttyClaims
     }
 }
 

@@ -34,6 +34,8 @@ nonisolated struct SidebarSnapshot: Codable, Hashable, Sendable {
         var title: String
         /// `harness`, `browser` or `terminal`; absent in older snapshots.
         var kind: String?
+        /// The agent brand whose mark is the row's type glyph; absent in older snapshots.
+        var kindBrand: String?
         /// `symbol:<name>`, `swatch:<color>` or `emoji:<text>`.
         var icon: String?
         var iconTint: String?
@@ -129,14 +131,14 @@ nonisolated struct SidebarSnapshot: Codable, Hashable, Sendable {
         case nil: break
         }
         return Workspace(id: ws.id.rawValue, machineID: ws.machineID.rawValue, title: ws.title,
-                         kind: ws.kind.rawValue, icon: icon, iconTint: tint)
+                         kind: ws.kind.rawValue, kindBrand: ws.kindBrand, icon: icon, iconTint: tint)
     }
 
     private static func sidebarWorkspace(_ ws: Workspace) -> SidebarWorkspace {
         SidebarWorkspace(id: WorkspaceID(ws.id), machineID: MachineID(ws.machineID), title: ws.title,
                          icon: ws.icon.flatMap { icon($0, tint: ws.iconTint) },
                          kind: SidebarWorkspaceKind(rawValue: ws.kind ?? "terminal") ?? .terminal,
-                         rowState: .stale)
+                         kindBrand: ws.kindBrand, rowState: .stale)
     }
 
     private static func icon(_ value: String, tint: String?) -> WorkspaceIcon? {

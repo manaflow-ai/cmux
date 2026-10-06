@@ -6,6 +6,7 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { More } from "../changeIcons";
 import { copyText } from "../conversation/clipboard";
 import { useT } from "../i18n";
+import { useUiAnchor } from "../../../ui/anchor";
 
 export function FileMenu({
   path,
@@ -25,6 +26,7 @@ export function FileMenu({
   const [open, setOpen] = useState(false);
   const button = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
+  const menuStyle = useUiAnchor(button, menu, open, { side: "below", align: "start" });
   const close = (refocus: boolean) => {
     setOpen(false);
     if (refocus) button.current?.focus();
@@ -85,6 +87,7 @@ export function FileMenu({
       {open && (
         <div
           ref={menu}
+          style={menuStyle}
           role="menu"
           tabIndex={-1}
           className="acpmux-file-menu-list"

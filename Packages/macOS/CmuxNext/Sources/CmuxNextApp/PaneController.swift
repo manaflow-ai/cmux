@@ -5,6 +5,7 @@ import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextIcons
 import CmuxNextTabs
 import Observation
 
@@ -36,7 +37,6 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// Same, named by tab resource id (a reopened tab's restored view).
     private(set) var pendingSelectTab: String?
     private var observation: Task<Void, Never>?
-    private var buttonsObservation: Task<Void, Never>?
 
     struct Snapshot: Equatable {
         var items: [StripTabItem]
@@ -66,7 +66,6 @@ final class PaneController: SurfacePresenter, PresentablePane {
 
     func teardown() {
         observation?.cancel()
-        buttonsObservation?.cancel()
         services.presentation.cancel(self)
         // No-op for a tab that moved to another pane: its new pane owns it.
         services.cache.removePresenter(self)
@@ -90,13 +89,6 @@ final class PaneController: SurfacePresenter, PresentablePane {
             }
         }
         apply(snapshot())
-        let buttons = services.tabBarButtons!
-        buttonsObservation = Task { [weak self] in
-            for await list in Observations({ buttons.buttons }) {
-                guard let self else { return }
-                if self.stripModel.trailingButtons != list { self.stripModel.trailingButtons = list }
-            }
-        }
     }
 
     func snapshot() -> Snapshot {
@@ -106,16 +98,23 @@ final class PaneController: SurfacePresenter, PresentablePane {
         let machine = daemon.isLocal ? nil : services.machines.machineBadge(daemon.machineID)
         let workspaceID = store.workspace(containing: pane.handle)?.id
         var items = pane.tabs.filter { !pendingClosed.contains($0.id) }.map { tab -> StripTabItem in
-            let untitled = tab.agentSession != nil ? AgentPaneModel.tabTitle
+            // A new tab page is "New Tab" until it becomes a chat (then the chat's title).
+            let untitled = tab.agentSession != nil
+                ? services.agentTabs.pageTabs.ids.contains(tab.id) ? Strings.untitledBrowser : AgentPaneModel.tabTitle
                 : tab.kind == .conversation ? services.home.tabTitle(for: tab) : tab.kind == .browser ? Strings.untitledBrowser : fallback
             var item = TabItemMapping.shared.item(tab, fallbackTitle: untitled)
+            if tab.page != nil, let page = services.pages.storeTabItem(tab) {
+                // A page tab names and badges itself like the page it shows.
+                item.title = page.title
+                item.icon = page.icon
+            }
             item.groupID = tab.tabGroup.map { TabGroupID($0.rawValue) }
             if !DesignSettings.shared.attention.showsOnTab { item.isUnread = false }
             item.isDormant = services.cache.dormantTabs.contains(tab.id)
             if tab.kind == .remoteTerminal {
                 // Its terminal runs on another machine: that machine's name.
                 item.machineBadge = services.remoteTerminals.badge(for: tab)
-                item.icon = .symbol("terminal")
+                item.icon = .icon(.terminal)
             } else if tab.kind != .browser {
                 item.machineBadge = machine
                 item.themeBadge = services.themes.badge(forTerminal: TerminalThemeKey(machine: daemon.machineID, tab: tab))
@@ -134,7 +133,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
                 } else {
                     item.profileBadge = services.browserProfiles.tabBadge(for: tab, workspaceID: workspaceID)
                 }
-                browserIcon(key: tab.id, recordFavicon: incognito ? nil : tab.faviconURL).apply(to: &item)
+                browserIcon(key: tab.id, recordFavicon: incognito ? nil : tab.faviconURL, recordURL: tab.url).apply(to: &item)
             }
             return item
         }
@@ -142,7 +141,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
             let page = services.cache.existingBrowser(local.id)?.tab.state
             let title = page?.title.flatMap { $0.isEmpty ? nil : $0 } ?? page?.url?.host() ?? Strings.untitledBrowser
             var item = StripTabItem(id: StripTabID(local.id), title: title, subtitle: page?.url?.absoluteString,
-                                    icon: .symbol("globe"))
+                                    icon: .icon(.browser))
             item.isDormant = services.cache.dormantTabs.contains(local.id)
             browserIcon(key: local.id, recordFavicon: nil).apply(to: &item)
             items.append(item)
@@ -159,14 +158,15 @@ final class PaneController: SurfacePresenter, PresentablePane {
                         generation: store.generation?.rawValue, surfaces: pane.tabs.map(\.surface.rawValue))
     }
 
-    /// The favicon, throbber or globe of browser tab `key`: its live page's
-    /// load state and favicon, else the favicon its record names.
-    private func browserIcon(key: String, recordFavicon: String?) -> BrowserTabIconState {
+    /// The page icon, favicon, throbber or globe of browser tab `key`: its live page's
+    /// address, load state and favicon, else the address and favicon its record names.
+    private func browserIcon(key: String, recordFavicon: String?, recordURL: String? = nil) -> BrowserTabIconState {
         _ = services.cache.pageInstalls.revision
         let page = services.cache.existingBrowser(key)?.tab.state
         let address = page.map { $0.faviconURL?.absoluteString } ?? recordFavicon
         let image = services.favicons.image(for: address, profile: services.browserProfiles.engineProfile(forTab: key))
-        return .resolve(isLoading: page?.isLoading ?? false, isDormant: services.cache.dormantTabs.contains(key), favicon: image)
+        let url = page?.url ?? recordURL.flatMap(URL.init(string:))
+        return .resolve(isLoading: page?.isLoading ?? false, isDormant: services.cache.dormantTabs.contains(key), favicon: image, url: url)
     }
 
     /// Pushes daemon truth into the strip. `force` resets optimistic strip
@@ -266,6 +266,12 @@ final class PaneController: SurfacePresenter, PresentablePane {
         services.surfaceInvariant.noteChange()
     }
 
+    /// The selected tab is a terminal that will draw a frame (not a dead one).
+    var showsLiveTerminal: Bool {
+        guard let key = stripModel.selectedID?.rawValue, let tab = pane.tabs.first(where: { $0.id == key }) else { return false }
+        return tab.kind == .pty && !tab.dead
+    }
+
     /// This pane is its workspace's focused pane.
     var isFocusedInWorkspace: Bool {
         workspace?.focus.state.pane == paneKey
@@ -291,6 +297,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
         case .remoteTerminal:
             return services.remoteTerminals.content(for: tab, home: daemon)
         case .conversation where tab.agentSession != nil: return AgentTabContent(pane: self).content(key)
+        case .conversation where tab.page != nil:
+            return services.pages.view(forStoreTab: tab, in: daemon.store, window: state.flatMap { services.windows.controller(for: $0.id) })
+                .map(TabContent.page)
         case .conversation: return services.home.tabView(for: tab).map(TabContent.conversation)
         default:
             return nil

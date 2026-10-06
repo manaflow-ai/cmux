@@ -4,6 +4,8 @@ import { isDefaultChoice } from "./defaultChoice";
 import { EffortTrack } from "./EffortTrack";
 import { useT } from "./i18n";
 import { registerPicker } from "./pickerOpeners";
+import { useUiAnchor } from "../../ui/anchor";
+import { useEscapeCloses } from "../../ui/escapeDismiss";
 
 /// The effort chip and its popover (reference prototype model-menu.png): the effort's name as a
 /// title, the model under it (a default level says "Reasoning" on the chip), and a stepped slider with one stop per level the agent offers.
@@ -27,7 +29,10 @@ export function EffortPicker({
   const t = useT();
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLSpanElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
   const id = useId();
+  const menuStyle = useUiAnchor(trigger, menu, open, { side: "above", align: "start" });
   const level = Math.max(
     0,
     efforts.findIndex((choice) => choice.id === current),
@@ -51,6 +56,11 @@ export function EffortPicker({
       }),
     [label],
   );
+  const close = () => {
+    setOpen(false);
+    trigger.current?.focus();
+  };
+  useEscapeCloses(open, close);
   useEffect(() => {
     if (!open) return;
     const away = (event: PointerEvent) => {
@@ -65,8 +75,9 @@ export function EffortPicker({
     };
   }, [open]);
   return (
-    <span ref={root} className="acpmux-picker acpmux-effort">
+    <span ref={root} className="acpmux-picker acpmux-effort" style={{ position: "relative" }}>
       <button
+        ref={trigger}
         type="button"
         className="acpmux-picker-button"
         data-menu={label}
@@ -81,7 +92,9 @@ export function EffortPicker({
       </button>
       {open && (
         <div
+          ref={menu}
           className="acpmux-menu acpmux-menu-end acpmux-effort-pop"
+          style={menuStyle}
           id={id}
           // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
           role="dialog"
@@ -89,16 +102,7 @@ export function EffortPicker({
         >
           <div className="acpmux-effort-title">{name}</div>
           {model && <div className="acpmux-effort-model">{model}</div>}
-          <EffortTrack
-            efforts={efforts}
-            current={current}
-            onPick={onPick}
-            autoFocus
-            onEscape={() => {
-              setOpen(false);
-              root.current?.querySelector("button")?.focus();
-            }}
-          />
+          <EffortTrack efforts={efforts} current={current} onPick={onPick} autoFocus onEscape={close} />
         </div>
       )}
     </span>
