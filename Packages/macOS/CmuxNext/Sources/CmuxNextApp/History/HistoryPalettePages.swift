@@ -1,3 +1,4 @@
+import CmuxAgentBrands
 import CmuxNextHistory
 import CmuxNextPalette
 import Foundation
@@ -42,6 +43,12 @@ enum HistoryPalettePages {
         return PalettePageSpec(id: id, title: title, placeholder: placeholder, symbol: symbol, providers: [provider])
     }
 
+    /// The brand mark an agent session's row draws (its provider's), or nil.
+    nonisolated static func agentBrand(_ entry: HistoryEntry) -> String? {
+        guard case .agent(let session) = entry.payload else { return nil }
+        return AgentBrandCatalog.brand(for: session.provider)?.rawValue
+    }
+
     static func item(for entry: HistoryEntry, services: AppServices) -> PaletteItem {
         let restorer = HistoryRestorer(services: services)
         var secondary: [PaletteCommand] = []
@@ -81,7 +88,7 @@ enum HistoryPalettePages {
         let subtitle = [entry.detail, entry.machineName].compactMap { $0 }.joined(separator: " · ")
         return PaletteItem(
             id: entry.id, title: entry.title, subtitle: subtitle.isEmpty ? nil : subtitle, accessory: accessory,
-            symbol: symbol(entry.kind), keywords: [entry.searchText], isEnabled: entry.isAvailable,
+            symbol: symbol(entry.kind), brand: agentBrand(entry), keywords: [entry.searchText], isEnabled: entry.isAvailable,
             primary: PaletteCommand(id: "open", title: primaryTitle, symbol: "return", effect: .perform { restorer.open(entry) }),
             secondary: secondary)
     }

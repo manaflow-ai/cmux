@@ -25,7 +25,12 @@ impl Wire {
         let id = self.next_id;
         self.next_id += 1;
         request["id"] = json!(id);
-        handle_message(&self.mux, 7, &request.to_string(), &self.writer);
+        handle_message(
+            &self.mux,
+            self.mux.local_test_client(7),
+            &request.to_string(),
+            &self.writer,
+        );
         let response: Value = serde_json::from_str(&self.outbound.try_pop().unwrap()).unwrap();
         assert_eq!(response["id"], id, "response must answer the request: {response}");
         response
@@ -144,7 +149,7 @@ fn only_tab_docks_into_a_new_column_and_leaves_a_fresh_terminal() {
     let dock = json!({"edge": "right", "mode": "docked"});
     // Without respawn the pin would leave nothing to scroll: refused.
     let refused = wire.send(json!({
-        "cmd": "move-tab-to-column", "surface": lone, "pane": pane, "width": 0.4, "sticky": dock,
+        "cmd": "move-tab-to-column", "surface": lone, "pane": pane, "width": 0.4, "dock": dock,
     }));
     assert_eq!(refused["ok"], false, "{refused}");
     assert_eq!(wire.tabs(pane), vec![lone]);
@@ -154,7 +159,7 @@ fn only_tab_docks_into_a_new_column_and_leaves_a_fresh_terminal() {
         "surface": lone,
         "pane": pane,
         "width": 0.4,
-        "sticky": dock,
+        "dock": dock,
         "respawn": {"kind": "terminal", "cwd": std::env::temp_dir().to_string_lossy()},
         "transaction": "dock-1",
     }));
@@ -166,9 +171,9 @@ fn only_tab_docks_into_a_new_column_and_leaves_a_fresh_terminal() {
     assert_ne!(fresh[0], lone);
     let columns = wire.mux.with_state(|state| {
         let screen = &state.workspaces[0].screens[0];
-        screen.layout_columns.iter().map(|column| column.sticky.map(|s| s.edge)).collect::<Vec<_>>()
+        screen.layout_columns.iter().map(|column| column.dock.map(|s| s.edge)).collect::<Vec<_>>()
     });
-    assert_eq!(columns, vec![None, Some(crate::model::StickyEdge::Right)]);
+    assert_eq!(columns, vec![None, Some(crate::model::DockEdge::Right)]);
 }
 
 #[test]

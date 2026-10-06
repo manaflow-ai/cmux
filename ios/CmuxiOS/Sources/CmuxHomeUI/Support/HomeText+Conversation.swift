@@ -13,6 +13,7 @@ extension HomeText {
     static var discard: String { String(localized: "home.message.discard", defaultValue: "Delete Message", bundle: .module) }
     static var transcriptA11y: String { String(localized: "home.transcript.a11y", defaultValue: "Messages", bundle: .module) }
     static var copy: String { String(localized: "home.message.copy", defaultValue: "Copy", bundle: .module) }
+    static var tapbackReact: String { String(localized: "home.tapback.react", defaultValue: "React", bundle: .module) }
 
     /// VoiceOver announcement for a new incoming message.
     static func announcement(author: String, text: String) -> String {

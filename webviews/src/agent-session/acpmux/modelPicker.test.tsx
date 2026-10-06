@@ -92,6 +92,7 @@ for (const layout of ["cascade", "drill"] as Layout[]) {
   describe(`model picker: ${layout}`, () => {
     let root: ReturnType<typeof createRoot>;
     let calls: string[];
+    let hints: (string | undefined)[] = [];
     const store = new Map<string, string>();
     const render = async (value: AcpmuxSnapshot) =>
       act(async () =>
@@ -109,6 +110,9 @@ for (const layout of ["cascade", "drill"] as Layout[]) {
             },
             onHarness: (id: string) => {
               calls.push(`harness ${id}`);
+            },
+            onHarnessHint: (id: string | undefined) => {
+              hints.push(id);
             },
           }),
         ),
@@ -233,9 +237,69 @@ for (const layout of ["cascade", "drill"] as Layout[]) {
       if (layout === "cascade") await press(row("Claude Code")!);
       const codex = row("Codex")!;
       expect(codex.textContent).toContain("New chat");
+      // Each harness row wears its agent's brand mark (design/agent-icons); Codex wears OpenAI's.
+      expect(codex.querySelector(".acpmux-menu-icon svg")?.getAttribute("data-agent")).toBe("openai");
+      expect(row("Claude Code")!.querySelector(".acpmux-menu-icon svg")?.getAttribute("data-agent")).toBe("claude");
       await press(codex);
       expect(calls).toEqual(["harness codex"]);
       expect(menu()).toBeNull();
+    });
+
+    // plans/cmux-next/acp-usability.md, blocker 8: a harness that cannot start was offered as a
+    // new chat and failed after 5.1 s.
+    test("a harness acpmux cannot start says why, and starts only on an explicit Try again", async () => {
+      const value = snapshot();
+      value.catalog = [
+        ...value.catalog,
+        { id: "gemini", name: "Gemini CLI", models: [{ id: "default" }], unavailable: "API key is missing" },
+      ];
+      await render(value);
+      await open();
+      if (layout === "cascade") await press(row("Claude Code")!);
+      const gemini = row("Gemini CLI")!;
+      expect(gemini.textContent).toContain("Unavailable");
+      expect(gemini.textContent).not.toContain("New chat");
+      await press(gemini);
+      expect(calls).toEqual([]);
+      expect(menu()).not.toBeNull();
+      expect(row("API key is missing")).toBeDefined();
+      await press(row("Try again")!);
+      expect(calls).toEqual(["harness gemini"]);
+    });
+
+    test("resting on another harness sends a prewarm hint; closing the menu drops it", async () => {
+      hints = [];
+      await render(snapshot());
+      await open();
+      if (layout === "cascade") await press(row("Claude Code")!);
+      await enter(row("Codex")!);
+      expect(hints).toContain("codex");
+      await key("Escape");
+      await key("Escape");
+      await key("Escape");
+      expect(menu()).toBeNull();
+      expect(hints.at(-1)).toBeUndefined();
+    });
+
+    test("opening the harness choices by keyboard hints the harness the highlight lands on", async () => {
+      hints = [];
+      await render(snapshot());
+      await open();
+      // Arrow to the harness row (the cascade's "Claude Code ›", the drill's harness section).
+      for (let step = 0; step < 12 && !hints.length; step += 1) {
+        const active = chip().getAttribute("aria-activedescendant");
+        const label = active ? doc.getElementById(active)?.querySelector(".acpmux-menu-label")?.textContent : undefined;
+        if (layout === "cascade" && label === "Claude Code") {
+          await key("ArrowRight");
+          break;
+        }
+        await key("ArrowUp");
+      }
+      // No further key: the highlight the submenu opens on is hinted by itself.
+      expect(hints.filter((hint) => hint !== undefined).length).toBeGreaterThan(0);
+      expect(hints.filter((hint) => hint !== undefined).every((hint) => ["claude", "codex"].includes(hint!))).toBe(
+        true,
+      );
     });
 
     test("typing filters this harness's models; Return picks the best match, Escape clears then closes", async () => {

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDaemon
@@ -69,7 +70,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         services.presentation.cancel(self)
         // No-op for a tab that moved to another pane: its new pane owns it.
         services.cache.removePresenter(self)
-        // Agent tabs of panes the live tree no longer lists close now
+        // Page tabs of panes the live tree no longer lists close now
         // rather than at the store's next observation; a workspace switch or
         // a layout move keeps the pane listed, so its tabs stay.
         services.closeGoneLocalTabs(in: daemon.store)
@@ -105,7 +106,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
         let machine = daemon.isLocal ? nil : services.machines.machineBadge(daemon.machineID)
         let workspaceID = store.workspace(containing: pane.handle)?.id
         var items = pane.tabs.filter { !pendingClosed.contains($0.id) }.map { tab -> StripTabItem in
-            var item = TabItemMapping.shared.item(tab, fallbackTitle: tab.kind == .browser ? Strings.untitledBrowser : fallback)
+            let untitled = tab.agentSession != nil ? AgentPaneModel.tabTitle
+                : tab.kind == .conversation ? services.home.tabTitle(for: tab) : tab.kind == .browser ? Strings.untitledBrowser : fallback
+            var item = TabItemMapping.shared.item(tab, fallbackTitle: untitled)
             item.groupID = tab.tabGroup.map { TabGroupID($0.rawValue) }
             if !DesignSettings.shared.attention.showsOnTab { item.isUnread = false }
             item.isDormant = services.cache.dormantTabs.contains(tab.id)
@@ -269,7 +272,6 @@ final class PaneController: SurfacePresenter, PresentablePane {
     }
 
     func content(for key: String) -> TabContent? {
-        if key.hasPrefix(LocalAgentTab.prefix) { return agentContent(key) }
         if key.hasPrefix(LocalPageTab.prefix) { return services.pages.view(for: key).map(TabContent.page) }
         if key.hasPrefix(LocalBrowserTab.prefix) {
             let local = state?.localBrowserTabs[paneKey]?.first { $0.id == key }
@@ -281,13 +283,14 @@ final class PaneController: SurfacePresenter, PresentablePane {
         guard let tab = pane.tabs.first(where: { $0.id == key }) else { return nil }
         switch tab.kind {
         case .pty:
-            let entry = services.cache.terminal(for: tab, daemon: daemon)
+            let entry = BenchSpans.measure("terminal.surface") { services.cache.terminal(for: tab, daemon: daemon) }
             services.themes.terminalDidMount(entry)
             return .terminal(entry)
         case .browser where tab.isFrontendOwned:
             return services.cache.browser(for: tab).map(TabContent.browser)
         case .remoteTerminal:
             return services.remoteTerminals.content(for: tab, home: daemon)
+        case .conversation where tab.agentSession != nil: return AgentTabContent(pane: self).content(key)
         case .conversation: return services.home.tabView(for: tab).map(TabContent.conversation)
         default:
             return nil
@@ -301,6 +304,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     func existingContent(for key: String) -> TabContent? {
         if let entry = services.cache.existingTerminal(key) { return .terminal(entry) }
         if let view = services.agentTabs.existingView(key) { return .agent(view) }
+        if let notice = services.agentTabs.notices[services.agentTabs.resolve(key)] { return .notice(notice) }
         if let view = services.pages.existingView(key) { return .page(view) }
         if let placeholder = services.remoteTerminals.existingPlaceholder(key) { return .placeholder(placeholder) }
         if let home = services.home.existingTabView(key) { return .conversation(home) }

@@ -1,13 +1,11 @@
 import CmuxiOSDesign
 import UIKit
 
-/// The list header shown while the Home owners are unreachable. It says
-/// what still works (reading) and what does not (sending, inviting, new
-/// Chiefs), because those controls are disabled.
+/// The card shown (in Home's banner header) while the Home owners are
+/// unreachable. It says what still works (reading) and what does not
+/// (sending, inviting, new Chiefs), because those controls are disabled.
 @MainActor
-final class OfflineBannerView: UICollectionReusableView {
-    static let elementKind = "home.offline-banner"
-
+final class OfflineBannerView: UIView {
     private let icon = UIImageView(image: UIImage(systemName: "wifi.slash"))
     private let titleLabel = UILabel()
     private let bodyLabel = UILabel()

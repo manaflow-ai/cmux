@@ -70,4 +70,5 @@ nonisolated extension PageInfoStrings {
     }
     static var noSiteInformation: String { String(localized: "pageInfo.error.noSiteInformation", defaultValue: "This page has no site information.", table: "PageInfo", bundle: .module) }
     static var notAWebPage: String { String(localized: "pageInfo.error.notAWebPage", defaultValue: "Site settings apply to web pages only.", table: "PageInfo", bundle: .module) }
+    static var certificateWarningsAlreadyOn: String { String(localized: "pageInfo.error.certificateWarningsAlreadyOn", defaultValue: "Security warnings are already on for this site.", table: "PageInfo", bundle: .module) }
 }

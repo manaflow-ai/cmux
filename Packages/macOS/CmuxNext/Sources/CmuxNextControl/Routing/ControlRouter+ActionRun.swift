@@ -21,7 +21,8 @@ extension ControlRouter {
     func runAction(_ call: ControlCall) async throws -> JSONValue {
         let catalog = call.snapshot.catalog
         let action = try Self.resolveAction(call.params, in: catalog)
-        let given = try Self.validatedRequest(for: action, params: call.params, knownKinds: catalog.targetKinds)
+        let given = try Self.validatedRequest(for: action, params: call.params, knownKinds: catalog.targetKinds,
+                                              connection: call.connection)
         let key = try Self.idempotencyKey(call.params)
         guard let key else { return try await execute(action, given, key: nil, call: call) }
         switch idempotency.claim(key, fingerprint: given) {
@@ -79,7 +80,7 @@ extension ControlRouter {
             ])
         }
         if action.isDestructive, request.arguments["confirm"] != .bool(true) {
-            throw Self.confirmationRequired(action.id)
+            throw ControlError.confirmationRequired(action.id)
         }
         let executor = self.executor
         let progress = call.progress
@@ -153,7 +154,7 @@ extension ControlRouter {
         } catch {
             return .failure(Self.stillRunning(method, action: action))
         }
-        if let failure { return .failure(Self.workError(failure, action: action, method: method)) }
+        if let failure { return .failure(ControlError.actionWork(failure, action: action, method: method)) }
         if let failure = scope.failures.first { return .failure(Self.scopeError(failure, action: action, method: method)) }
         // No daemon command: the work queue's frame already published the
         // app-local change (selection, focus, settings).
@@ -197,32 +198,13 @@ extension ControlRouter {
     }
 
     static func scopeError(_ failure: ControlCommandScope.Failure, action: String, method: String) -> ControlError {
-        workError(ActionWorkFailure(failure.message, mayHaveApplied: failure.mayHaveApplied, terminalMayAppear: failure.terminalMayAppear),
+        ControlError.actionWork(ActionWorkFailure(failure.message, mayHaveApplied: failure.mayHaveApplied, terminalMayAppear: failure.terminalMayAppear),
                   action: action, method: method)
     }
 
     /// Maps a non-`ran` outcome to its error.
     static func check(_ outcome: ControlActionOutcome, action: String) throws {
-        switch outcome {
-        case .ran:
-            return
-        case .unknownAction:
-            throw ControlError(code: "not_found", message: ControlStrings.format("control.error.unknownAction", "Unknown action '%@'", action))
-        case .notBound:
-            throw ControlError(code: "not_bound", message: ControlStrings.format("control.error.actionNotBound", "%@ has no handler in this build", action), data: ["action": .string(action)])
-        case .unavailable:
-            throw ControlError(code: "unavailable", message: ControlStrings.format("control.error.actionNotAvailableInContext", "%@ is not available in the current context", action), data: ["action": .string(action)])
-        case .disabled:
-            throw ControlError(code: "disabled", message: ControlStrings.format("control.error.actionDisabled", "%@ is disabled right now", action), data: ["action": .string(action)])
-        case .refused(let reason):
-            throw ControlError(code: "unavailable", message: ControlStrings.format("control.error.actionUnavailableReason", "%1$@ unavailable: %2$@", action, reason), data: ["action": .string(action), "reason": .string(reason)])
-        case .notFound(let reason):
-            throw ControlError(code: "not_found", message: reason, data: ["action": .string(action), "reason": .string(reason)])
-        case .featureDisabled(let feature):
-            throw ControlError.featureDisabled(action, feature: feature)
-        case .confirmationRequired:
-            throw confirmationRequired(action)
-        }
+        if let error = ControlError.actionOutcome(outcome, action: action) { throw error }
     }
 
     /// Runs the target resolver over the target and every target argument,

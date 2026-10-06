@@ -56,16 +56,16 @@ import Testing
         }
     }
 
-    static func waitUntil(_ condition: () -> Bool) async throws {
-        let clock = ContinuousClock()
-        let end = clock.now.advanced(by: .seconds(15))
-        while !condition(), clock.now < end { try await clock.sleep(for: .milliseconds(20)) } // test-only wait
+    /// Waits up to 15 s; a timeout records an Issue at the caller (``waitForCondition``).
+    static func waitUntil(_ what: String? = nil, sourceLocation: SourceLocation = #_sourceLocation,
+                          _ condition: () -> Bool) async throws {
+        try await waitForCondition(what, timeout: .seconds(15), sourceLocation: sourceLocation, condition)
     }
 
     /// One window showing the daemon's workspace: one pane, tab 11 selected
     /// and focused.
-    static func harness() async throws -> Harness {
-        let daemon = try TopologyDaemon()
+    static func harness(daemon: TopologyDaemon? = nil) async throws -> Harness {
+        let daemon = try daemon ?? TopologyDaemon()
         let services = ActionBindingCoverageTests.boundServices()
         services.windows.ordersWindowsIn = false
         services.daemon.start(makeConnection: { daemon.connection() })

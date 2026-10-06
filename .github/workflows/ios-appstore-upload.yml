@@ -195,11 +195,27 @@ jobs:
             --github-output "$GITHUB_OUTPUT" \
             --summary "$GITHUB_STEP_SUMMARY"
 
+  # IOS-SOURCE-ARCHIVE-PER-RELEASE: the corresponding-source archive (Ghostty,
+  # ghostty-next and every Zig package, z2d included) of the exact commit this
+  # run uploads, built and checked by the cmux-next source-archive workflow
+  # before the upload. The upload needs it: no iOS build ships without one.
+  source-archive:
+    name: Build and check the iOS source archive
+    needs: decide
+    if: needs.decide.outputs.upload == 'true' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/cmux-next-source-archive.yml
+    with:
+      ref: ${{ github.sha }}
+      build: ios-${{ github.run_id }}
+      artifact: cmux-ios-source-archive
+
   upload:
     name: Upload to App Store Connect (com.cmux.app)
     # Only ever publish from main: the ASC secrets ship reviewed main, and a
     # dispatch against a feature branch must not upload arbitrary code.
-    needs: decide
+    needs: [decide, source-archive]
     if: needs.decide.outputs.upload == 'true' && github.ref == 'refs/heads/main'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 90
@@ -660,3 +676,36 @@ jobs:
             --bundle-id com.cmux.app \
             --build-number "$BUILD_NUMBER" \
             --group-id ac3d6e62-36ce-4669-88e1-7ee489aac612
+
+  # Attaches the archive as cmux-ios-source-<build>.tar.gz to the ios-source
+  # release (the name the iOS Acknowledgements pane's z2d offer gives) and tags
+  # the commit cmux-next-src-<11 characters>. Only after a successful upload and
+  # only while vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE is 1 (the coordinator's hold).
+  publish-source-archive:
+    name: Publish the iOS source archive
+    needs: [upload, source-archive]
+    if: ${{ !cancelled() && needs.upload.result == 'success' && vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE == '1' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Download the iOS source archive
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-ios-source-archive
+          path: source-archive
+
+      - name: Publish the iOS source archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_NUMBER: ${{ needs.upload.outputs.build_number }}
+          APP_COMMIT: ${{ github.sha }}
+        run: ./scripts/cmux-next/publish-ios-source-archive.sh "$BUILD_NUMBER" "$APP_COMMIT" source-archive

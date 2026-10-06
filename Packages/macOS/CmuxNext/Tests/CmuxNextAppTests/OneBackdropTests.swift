@@ -14,10 +14,7 @@ extension AppThemeGlobalStateTests {
 /// has exactly one translucent backdrop, the root's material and tint,
 /// and every surface above it (sidebar, panes, strips, titlebar, docks)
 /// is clear, so everything reads as the same color. At opacity 1 the
-/// surfaces draw the token or stay clear. One designed exception: beside
-/// the leading rail the sidebar is an inset panel (Leo, 2026-10-03) whose
-/// fill is the theme's translucent `stripStep` over this same backdrop
-/// (`WindowSidebarPanelView`; WindowRailTests checks its fill).
+/// surfaces draw the token or stay clear.
 @MainActor
 @Suite(.serialized)
 struct OneBackdropTests {
@@ -45,7 +42,7 @@ struct OneBackdropTests {
 
     /// Every surface view under `view` that paints a fill, skipping the backdrop.
     private static func filledSurfaces(_ view: NSView, in window: NSWindow, skipping backdrop: NSView) -> [String] {
-        if view === backdrop || view.isHidden || view is WindowSidebarPanelView { return [] }
+        if view === backdrop || view.isHidden { return [] }
         var found: [String] = []
         if isSurface(view, in: window), let fill = fill(of: view) {
             var chain: [String] = []
@@ -92,7 +89,7 @@ struct OneBackdropTests {
         let token = root.themeTokens.surfaceBackground.withAlpha(1)
         var offenders: [String] = []
         func walk(_ view: NSView) {
-            guard !view.isHidden, !(view is WindowSidebarPanelView) else { return }
+            guard !view.isHidden else { return }
             if Self.isSurface(view, in: window), let color = view.layer?.backgroundColor, color.alpha > 0.002,
                let rgb = NSColor(cgColor: color)?.usingColorSpace(.sRGB),
                abs(rgb.redComponent - token.red) > 0.004 || abs(rgb.greenComponent - token.green) > 0.004
@@ -110,15 +107,8 @@ struct OneBackdropTests {
     private func ownWindows() async throws -> [(WindowKind, NSWindow)] {
         let directory = FileManager.default.temporaryDirectory.appending(path: "cmux-one-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let url = directory.appending(path: "cmux.json")
-        try Data("{}".utf8).write(to: url)
-        let registry = ActionRegistry(catalog: [])
-        let settings = SettingsController(registry: registry, design: DesignSettings(), fileURL: url,
-                                          managedReader: FixedManagedPreferenceReader(.empty), managedWatchFiles: [])
-        await settings.reload()
+        // Settings is the React page tab (R82); its window kind is built through the window kit below.
         var windows: [(WindowKind, NSWindow)] = []
-        let settingsWindow = SettingsWindowController(model: SettingsWindowModel(settings: settings, registry: registry, host: nil))
-        windows.append((.settings, try #require(settingsWindow.window)))
         let debug = DebugSettingsWindowController(model: DebugSettingsModel(store: TunableStore(), descriptors: []))
         windows.append((.debugSettings, try #require(debug.window)))
         let appRoot = directory.appending(path: "apps")

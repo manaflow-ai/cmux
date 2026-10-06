@@ -39,8 +39,11 @@ nonisolated enum PageBackground {
     /// `Palette.pageBackground` of `view`'s theme scope (its room,
     /// workspace or terminal theme) as opaque 0xAARRGGBB, the form
     /// `CefBrowserSettings.background_color` takes.
-    @MainActor static func themeARGB(in view: NSView) -> UInt32 {
-        argb(view.performWithTheme { Palette.pageBackground })
+    @MainActor static func themeARGB(in view: NSView, surface: SurfaceKind? = nil) -> UInt32 {
+        argb(view.performWithTheme {
+            if let surface, let override = Palette.surfaceOverride(surface) { return override.withAlphaComponent(1) }
+            return Palette.pageBackground
+        })
     }
 
     /// The app theme's (Ghostty config) page background: Chromium's

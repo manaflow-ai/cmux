@@ -17,6 +17,18 @@
       "scope": "agent:write",
       "class": "mutation"
     },
+    "agents.check_updates": {
+      "scope": "agents:read",
+      "class": "read"
+    },
+    "agents.cycle_variant": {
+      "scope": "agents:write",
+      "class": "mutation"
+    },
+    "agents.open": {
+      "scope": "agents:write",
+      "class": "mutation"
+    },
     "app.storage.delete": {
       "scope": "storage:local",
       "class": "mutation"
@@ -117,6 +129,38 @@
       "scope": "browser:write",
       "class": "mutation"
     },
+    "caffeinate.cycle_variant": {
+      "scope": "caffeinate:write",
+      "class": "mutation"
+    },
+    "caffeinate.keep_awake": {
+      "scope": "caffeinate:write",
+      "class": "mutation"
+    },
+    "caffeinate.keep_awake_hour": {
+      "scope": "caffeinate:write",
+      "class": "mutation"
+    },
+    "caffeinate.list": {
+      "scope": "caffeinate:read",
+      "class": "read"
+    },
+    "caffeinate.show": {
+      "scope": "caffeinate:write",
+      "class": "mutation"
+    },
+    "caffeinate.start": {
+      "scope": "caffeinate:write",
+      "class": "mutation"
+    },
+    "caffeinate.stop": {
+      "scope": "caffeinate:write",
+      "class": "mutation"
+    },
+    "caffeinate.stop_all": {
+      "scope": "caffeinate:write",
+      "class": "mutation"
+    },
     "calendar.calendars.list": {
       "scope": "calendar:read",
       "class": "read"
@@ -157,9 +201,185 @@
       "scope": "closed:write",
       "class": "mutation"
     },
+    "cloud.auth.status": {
+      "scope": "cloud:read",
+      "class": "read"
+    },
+    "cloud.browser.open": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
+    "cloud.file.pull": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
+    "cloud.file.push": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
+    "cloud.file.transfer.cancel": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
+    "cloud.file.transfer.list": {
+      "scope": "cloud:read",
+      "class": "read"
+    },
+    "cloud.fs.list": {
+      "scope": "cloud:read",
+      "class": "read"
+    },
+    "cloud.fs.mkdir": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
+    "cloud.fs.read": {
+      "scope": "cloud:read",
+      "class": "read"
+    },
+    "cloud.fs.stat": {
+      "scope": "cloud:read",
+      "class": "read"
+    },
+    "cloud.fs.write": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
+    "cloud.machine.connect": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
+    "cloud.machine.connect_info": {
+      "scope": "cloud:read",
+      "class": "read"
+    },
+    "cloud.machine.disconnect": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
+    "cloud.machine.get": {
+      "scope": "cloud:read",
+      "class": "read"
+    },
+    "cloud.machine.idle_policy.set": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
+    "cloud.machine.link_token": {
+      "scope": "cloud:execute",
+      "class": "mutation"
+    },
+    "cloud.machine.list": {
+      "scope": "cloud:read",
+      "class": "read"
+    },
+    "cloud.machine.pause": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
+    "cloud.machine.rename": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
+    "cloud.machine.start": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
+    "cloud.machine.upgrade": {
+      "scope": "cloud:execute",
+      "class": "mutation"
+    },
+    "cloud.machine.watch": {
+      "scope": "cloud:read",
+      "class": "read"
+    },
+    "cloud.migration.start": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
+    "cloud.migration.status": {
+      "scope": "cloud:read",
+      "class": "read"
+    },
+    "cloud.plan.get": {
+      "scope": "cloud:read",
+      "class": "read"
+    },
+    "cloud.port.forward": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
+    "cloud.port.list": {
+      "scope": "cloud:read",
+      "class": "read"
+    },
+    "cloud.rescue.open": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
+    "cloud.shell.open": {
+      "scope": "cloud:execute",
+      "class": "mutation"
+    },
+    "cloud.snapshot.list": {
+      "scope": "cloud:read",
+      "class": "read"
+    },
+    "cloud.vm.event.emit": {
+      "scope": "cloud:execute",
+      "class": "mutation"
+    },
+    "cloud.vm.self.get": {
+      "scope": "cloud:read",
+      "class": "read"
+    },
+    "cloud.vm.status.report": {
+      "scope": "cloud:execute",
+      "class": "mutation"
+    },
+    "codemirror.cycle_variant": {
+      "scope": "codemirror:write",
+      "class": "mutation"
+    },
+    "codemirror.open": {
+      "scope": "codemirror:write",
+      "class": "mutation"
+    },
+    "codemirror.revert": {
+      "scope": "codemirror:write",
+      "class": "mutation"
+    },
+    "codemirror.save": {
+      "scope": "codemirror:write",
+      "class": "mutation"
+    },
+    "codemirror.toggle_read_only": {
+      "scope": "codemirror:write",
+      "class": "mutation"
+    },
     "coderouter.accounts.list": {
       "scope": "coderouter:read",
       "class": "read"
+    },
+    "coderouter.app.connect_account": {
+      "scope": "coderouter:write",
+      "class": "mutation"
+    },
+    "coderouter.app.create_key": {
+      "scope": "coderouter:write",
+      "class": "mutation"
+    },
+    "coderouter.app.open": {
+      "scope": "coderouter:write",
+      "class": "mutation"
+    },
+    "coderouter.app.run_test": {
+      "scope": "coderouter:execute",
+      "class": "mutation"
+    },
+    "coderouter.app.start_onboarding": {
+      "scope": "coderouter:write",
+      "class": "mutation"
     },
     "coderouter.status": {
       "scope": "coderouter:read",
@@ -197,6 +417,30 @@
       "scope": "conversation:read",
       "class": "read"
     },
+    "diffs.cycle_variant": {
+      "scope": "diffs:write",
+      "class": "mutation"
+    },
+    "diffs.open_changes": {
+      "scope": "diffs:write",
+      "class": "mutation"
+    },
+    "diffs.open_diff": {
+      "scope": "diffs:write",
+      "class": "mutation"
+    },
+    "diffs.review": {
+      "scope": "diffs:write",
+      "class": "mutation"
+    },
+    "diffs.review_latest": {
+      "scope": "diffs:write",
+      "class": "mutation"
+    },
+    "diffs.toggle_layout": {
+      "scope": "diffs:write",
+      "class": "mutation"
+    },
     "dm.open": {
       "scope": "dm:write",
       "class": "mutation"
@@ -214,6 +458,10 @@
       "class": "mutation"
     },
     "feed.adopt": {
+      "scope": "feed:write",
+      "class": "mutation"
+    },
+    "feed.adopt.cancel": {
       "scope": "feed:write",
       "class": "mutation"
     },
@@ -269,6 +517,22 @@
       "scope": "feed:write",
       "class": "mutation"
     },
+    "finder.add_folder": {
+      "scope": "finder:write",
+      "class": "mutation"
+    },
+    "finder.connect_host": {
+      "scope": "finder:write",
+      "class": "mutation"
+    },
+    "finder.cycle_variant": {
+      "scope": "finder:write",
+      "class": "mutation"
+    },
+    "finder.open": {
+      "scope": "finder:write",
+      "class": "mutation"
+    },
     "firewall.create": {
       "scope": "firewall:write",
       "class": "mutation"
@@ -284,6 +548,10 @@
     "git.checkpoint.create": {
       "scope": "git:write",
       "class": "mutation"
+    },
+    "git.checkpoint.diff": {
+      "scope": "git:read",
+      "class": "read"
     },
     "git.checkpoint.get": {
       "scope": "git:read",
@@ -323,6 +591,38 @@
     },
     "home.settings.set": {
       "scope": "home:write",
+      "class": "mutation"
+    },
+    "inbox_app.cycle_variant": {
+      "scope": "inbox_app:write",
+      "class": "mutation"
+    },
+    "inbox_app.mark_all_read": {
+      "scope": "inbox_app:write",
+      "class": "mutation"
+    },
+    "inbox_app.mark_done": {
+      "scope": "inbox_app:write",
+      "class": "mutation"
+    },
+    "inbox_app.next_item": {
+      "scope": "inbox_app:write",
+      "class": "mutation"
+    },
+    "inbox_app.open": {
+      "scope": "inbox_app:write",
+      "class": "mutation"
+    },
+    "inbox_app.open_item": {
+      "scope": "inbox_app:write",
+      "class": "mutation"
+    },
+    "inbox_app.previous_item": {
+      "scope": "inbox_app:write",
+      "class": "mutation"
+    },
+    "inbox_app.snooze": {
+      "scope": "inbox_app:write",
       "class": "mutation"
     },
     "inbox.archive": {
@@ -372,6 +672,22 @@
     "integration.request": {
       "scope": "integration:<provider>",
       "class": "runtime"
+    },
+    "integrations.connect": {
+      "scope": "integrations:write",
+      "class": "mutation"
+    },
+    "integrations.cycle_variant": {
+      "scope": "integrations:write",
+      "class": "mutation"
+    },
+    "integrations.import_api": {
+      "scope": "integrations:write",
+      "class": "mutation"
+    },
+    "integrations.open": {
+      "scope": "integrations:write",
+      "class": "mutation"
     },
     "invite.accept": {
       "scope": "invite:write",
@@ -429,6 +745,18 @@
       "scope": "mail:read",
       "class": "read"
     },
+    "memory_app.cycle_variant": {
+      "scope": "memory_app:write",
+      "class": "mutation"
+    },
+    "memory_app.open": {
+      "scope": "memory_app:write",
+      "class": "mutation"
+    },
+    "memory_app.reload": {
+      "scope": "memory_app:read",
+      "class": "read"
+    },
     "message.edit": {
       "scope": "message:write",
       "class": "mutation"
@@ -439,6 +767,26 @@
     },
     "message.send": {
       "scope": "message:write",
+      "class": "mutation"
+    },
+    "monaco.cycle_variant": {
+      "scope": "monaco:write",
+      "class": "mutation"
+    },
+    "monaco.open": {
+      "scope": "monaco:write",
+      "class": "mutation"
+    },
+    "monaco.revert": {
+      "scope": "monaco:write",
+      "class": "mutation"
+    },
+    "monaco.save": {
+      "scope": "monaco:write",
+      "class": "mutation"
+    },
+    "monaco.toggle_read_only": {
+      "scope": "monaco:write",
       "class": "mutation"
     },
     "mux.ack": {
@@ -455,6 +803,50 @@
     },
     "network.list": {
       "scope": "network:read",
+      "class": "read"
+    },
+    "notes.append": {
+      "scope": "notes:write",
+      "class": "mutation"
+    },
+    "notes.capture": {
+      "scope": "notes:write",
+      "class": "mutation"
+    },
+    "notes.create": {
+      "scope": "notes:write",
+      "class": "mutation"
+    },
+    "notes.cycle_variant": {
+      "scope": "notes:write",
+      "class": "mutation"
+    },
+    "notes.export": {
+      "scope": "notes:write",
+      "class": "mutation"
+    },
+    "notes.import": {
+      "scope": "notes:write",
+      "class": "mutation"
+    },
+    "notes.list": {
+      "scope": "notes:read",
+      "class": "read"
+    },
+    "notes.new_note": {
+      "scope": "notes:write",
+      "class": "mutation"
+    },
+    "notes.open": {
+      "scope": "notes:write",
+      "class": "mutation"
+    },
+    "notes.read": {
+      "scope": "notes:read",
+      "class": "read"
+    },
+    "notes.search": {
+      "scope": "notes:read",
       "class": "read"
     },
     "notification.ack": {
@@ -535,6 +927,58 @@
     },
     "push.target.remove": {
       "scope": "push:write",
+      "class": "mutation"
+    },
+    "rd.audit.list": {
+      "scope": "rd:read",
+      "class": "read"
+    },
+    "rd.bench": {
+      "scope": "rd:read",
+      "class": "read"
+    },
+    "rd.control.release": {
+      "scope": "rd:write",
+      "class": "mutation"
+    },
+    "rd.control.request": {
+      "scope": "rd:execute",
+      "class": "mutation"
+    },
+    "rd.host.disable": {
+      "scope": "rd:write",
+      "class": "mutation"
+    },
+    "rd.host.enable": {
+      "scope": "rd:write",
+      "class": "mutation"
+    },
+    "rd.host.grant": {
+      "scope": "rd:execute",
+      "class": "mutation"
+    },
+    "rd.host.revoke": {
+      "scope": "rd:write",
+      "class": "mutation"
+    },
+    "rd.host.stop_all": {
+      "scope": "rd:write",
+      "class": "mutation"
+    },
+    "rd.session.list": {
+      "scope": "rd:read",
+      "class": "read"
+    },
+    "rd.session.start": {
+      "scope": "rd:execute",
+      "class": "mutation"
+    },
+    "rd.session.stop": {
+      "scope": "rd:write",
+      "class": "mutation"
+    },
+    "rd.view.open": {
+      "scope": "rd:write",
       "class": "mutation"
     },
     "reaction.add": {
@@ -661,6 +1105,18 @@
       "scope": "workspace:write",
       "class": "mutation"
     },
+    "search_app.clear_recent": {
+      "scope": "search_app:write",
+      "class": "mutation"
+    },
+    "search_app.cycle_variant": {
+      "scope": "search_app:write",
+      "class": "mutation"
+    },
+    "search_app.search": {
+      "scope": "search_app:read",
+      "class": "read"
+    },
     "server.pair.approve": {
       "scope": "server:write",
       "class": "mutation"
@@ -756,6 +1212,18 @@
     "sidebar_view.resize": {
       "scope": "sidebar_view:write",
       "class": "mutation"
+    },
+    "skills_app.cycle_variant": {
+      "scope": "skills_app:write",
+      "class": "mutation"
+    },
+    "skills_app.open": {
+      "scope": "skills_app:write",
+      "class": "mutation"
+    },
+    "skills_app.reload": {
+      "scope": "skills_app:read",
+      "class": "read"
     },
     "slack.post_as_bot": {
       "scope": "slack:external",
@@ -921,9 +1389,17 @@
       "scope": "team:read",
       "class": "read"
     },
+    "team.hosts.list": {
+      "scope": "team:read",
+      "class": "read"
+    },
     "team.integration.release_lock": {
       "scope": "team:write",
       "class": "mutation"
+    },
+    "team.members.list": {
+      "scope": "team:read",
+      "class": "read"
     },
     "team.policy.get": {
       "scope": "team:read",
@@ -1028,6 +1504,22 @@
     "tunnel.rotate-key": {
       "scope": "tunnel:write",
       "class": "mutation"
+    },
+    "usage_app.cycle_variant": {
+      "scope": "usage_app:write",
+      "class": "mutation"
+    },
+    "usage_app.refresh": {
+      "scope": "usage_app:write",
+      "class": "mutation"
+    },
+    "usage_app.show": {
+      "scope": "usage_app:write",
+      "class": "mutation"
+    },
+    "usage_app.status": {
+      "scope": "usage_app:read",
+      "class": "read"
     },
     "usage.summary": {
       "scope": "usage:read",
@@ -1160,6 +1652,15 @@
     "client.metadata.update",
     "client.sizing.release",
     "client.sizing.set",
+    "cloud.billing.checkout",
+    "cloud.fs.remove",
+    "cloud.machine.create",
+    "cloud.machine.delete",
+    "cloud.machine.resize",
+    "cloud.port.close",
+    "cloud.snapshot.create",
+    "cloud.snapshot.delete",
+    "cloud.snapshot.restore",
     "domain.release",
     "firewall.delete",
     "frontend_projection.get",
@@ -1172,6 +1673,7 @@
     "install.revoke",
     "install.sign_out",
     "integration.revoke",
+    "origin.confirmation.issue",
     "pairing_request.list",
     "pairing_request.resolve",
     "pane.close",

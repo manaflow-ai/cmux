@@ -1,7 +1,9 @@
 //! Typed calls the GPUI app used to send through `request_raw`:
 //! `workspace.update`, `tab.pin`/`tab.unpin`/`tab.update`, `column.update`,
-//! `window_record.*`, keyed `new-frontend-browser-tab` and
-//! `update-frontend-browser-tab`, and protocol/2 errors through `request_raw`.
+//! `window_record.*`, the personal workspace groups (`workspace_group.*`,
+//! `workspace.place`, `workspace.placement.list`), keyed
+//! `new-frontend-browser-tab` and `update-frontend-browser-tab`, and
+//! protocol/2 errors through `request_raw`.
 //! Each test runs the SDK against a one-connection mock daemon and checks the
 //! exact request and the typed result.
 
@@ -10,7 +12,8 @@ use cmux::raw::{
 };
 use cmux::{
     ColumnEdge, ColumnMode, ColumnUpdateOptions, Config, Error, MutationOptions, PaneId, ScreenId,
-    SessionId, TabId, TabUpdateOptions, Update, WorkspaceId, WorkspaceUpdateOptions,
+    SessionId, TabId, TabUpdateOptions, Update, WorkspaceGroupCreateOptions,
+    WorkspaceGroupUpdateOptions, WorkspaceId, WorkspacePlaceOptions, WorkspaceUpdateOptions,
 };
 use serde_json::{Map, Value, json};
 use std::io::{BufRead, BufReader, Write};
@@ -221,16 +224,24 @@ fn column_update_sends_typed_edge_mode_and_width() {
         assert_eq!(
             pin["params"],
             json!({"machine": "current", "session": SESSION, "workspace": WORKSPACE,
-                   "screen": SCREEN, "column": SPLIT, "sticky": true, "edge": "left",
+                   "screen": SCREEN, "column": SPLIT, "dock": true, "edge": "left",
                    "mode": "overlay"})
         );
         mutation_ok(stream, &pin, screen.clone());
+        for edge in ["top", "bottom"] {
+            let dock = request(reader, "column.update");
+            assert_eq!(
+                (&dock["params"]["edge"], &dock["params"]["mode"]),
+                (&json!(edge), &json!("docked"))
+            );
+            mutation_ok(stream, &dock, screen.clone());
+        }
         let width = request(reader, "column.update");
         let params = width["params"].as_object().unwrap();
-        assert_eq!((params["width"].as_f64(), params.get("sticky")), (Some(0.5), None));
+        assert_eq!((params["width"].as_f64(), params.get("dock")), (Some(0.5), None));
         mutation_ok(stream, &width, screen.clone());
         let unpin = request(reader, "column.update");
-        assert_eq!(unpin["params"]["sticky"], false);
+        assert_eq!(unpin["params"]["dock"], false);
         assert!(unpin["params"].get("edge").is_none());
         mutation_ok(stream, &unpin, screen);
     });
@@ -242,6 +253,9 @@ fn column_update_sends_typed_edge_mode_and_width() {
     screen
         .update_column(SPLIT, ColumnUpdateOptions::pin(ColumnEdge::Left, ColumnMode::Overlay))
         .unwrap();
+    for edge in [ColumnEdge::Top, ColumnEdge::Bottom] {
+        screen.update_column(SPLIT, ColumnUpdateOptions::pin(edge, ColumnMode::Docked)).unwrap();
+    }
     screen.update_column(SPLIT, ColumnUpdateOptions::width(0.5)).unwrap();
     screen.update_column(SPLIT, ColumnUpdateOptions::unpin()).unwrap();
     for invalid in [
@@ -251,14 +265,14 @@ fn column_update_sends_typed_edge_mode_and_width() {
         ColumnUpdateOptions { edge: Some("left".into()), ..ColumnUpdateOptions::width(0.5) },
         ColumnUpdateOptions { edge: Some("left".into()), ..ColumnUpdateOptions::unpin() },
         ColumnUpdateOptions {
-            edge: Some("top".into()),
-            sticky: Some(true),
+            edge: Some("middle".into()),
+            dock: Some(true),
             mode: None,
             width: None,
         },
         ColumnUpdateOptions {
             mode: Some("floating".into()),
-            sticky: Some(true),
+            dock: Some(true),
             edge: None,
             width: None,
         },
@@ -341,6 +355,204 @@ fn window_records_list_put_with_record_revision_and_delete() {
     assert!(session.put_window_record("install-a", "w1", big, None).is_err());
     let cursor = MutationOptions::unique().unwrap().with_expected_revision(1);
     assert!(session.put_window_record_with("install-a", "w1", record, None, cursor).is_err());
+    client.close().unwrap();
+    mock.finish();
+}
+
+const GROUP: &str = "grp_0b3a5f0e7c2d4a1b";
+const REGISTRY: &str = "reg-local";
+
+fn group_snapshot(name: &str, color: Value, collapsed: bool, index: u32) -> Value {
+    json!({"id": GROUP, "room_id": "default", "name": name, "color": color,
+           "collapsed": collapsed, "index": index})
+}
+
+fn placement_snapshot(group: Value, index: u32) -> Value {
+    json!({"workspace": {"session_id": REGISTRY, "workspace_ref": "wk-1",
+                         "workspace_id": WORKSPACE},
+           "index": index, "group_id": group, "room_id": null})
+}
+
+#[test]
+fn workspace_groups_create_update_move_delete_send_the_catalog_fields() {
+    let mock = mock(|stream, reader| {
+        let create = request(reader, "workspace_group.create");
+        assert_eq!(create["idempotency_key"], "group-1");
+        assert_eq!(
+            create["params"],
+            json!({"machine": "current", "session": SESSION, "name": "Work",
+                   "color": "#225588", "collapsed": false, "index": 0,
+                   "expected_revision": "4"})
+        );
+        mutation_ok(stream, &create, group_snapshot("Work", json!("#225588"), false, 0));
+
+        let minimal = request(reader, "workspace_group.create");
+        assert_eq!(
+            minimal["params"],
+            json!({"machine": "current", "session": SESSION, "name": "Play", "room": "default"})
+        );
+        mutation_ok(stream, &minimal, group_snapshot("Play", Value::Null, false, 1));
+
+        let update = request(reader, "workspace_group.update");
+        assert_eq!(
+            update["params"],
+            json!({"machine": "current", "session": SESSION, "workspace_group": GROUP,
+                   "name": "Deep work", "color": null, "collapsed": true})
+        );
+        mutation_ok(stream, &update, group_snapshot("Deep work", Value::Null, true, 0));
+
+        let moved = request(reader, "workspace_group.move");
+        assert_eq!(
+            moved["params"],
+            json!({"machine": "current", "session": SESSION, "workspace_group": GROUP,
+                   "index": 2})
+        );
+        mutation_ok(stream, &moved, group_snapshot("Deep work", Value::Null, true, 1));
+
+        let delete = request(reader, "workspace_group.delete");
+        assert_eq!(
+            delete["params"],
+            json!({"machine": "current", "session": SESSION, "workspace_group": GROUP})
+        );
+        let ungrouped = json!([{"session_id": REGISTRY, "workspace_ref": "wk-1",
+                                "workspace_id": WORKSPACE},
+                               {"session_id": "reg-other", "workspace_ref": "wk-9",
+                                "workspace_id": null}]);
+        mutation_ok(stream, &delete, json!({"id": GROUP, "ungrouped": ungrouped}));
+    });
+    let client = mock.client();
+    let session = client.session(SessionId::parse(SESSION).unwrap());
+    let options = WorkspaceGroupCreateOptions {
+        color: Some("#225588".into()),
+        collapsed: Some(false),
+        index: Some(0),
+        ..WorkspaceGroupCreateOptions::new("Work")
+    };
+    let mutation = MutationOptions::new("group-1").unwrap().with_expected_revision(4);
+    let created = session.create_workspace_group_with(options, mutation).unwrap();
+    assert_eq!(
+        (created.value.id.as_str(), created.value.color.as_deref(), created.revision),
+        (GROUP, Some("#225588"), 9)
+    );
+    let play = WorkspaceGroupCreateOptions {
+        room: Some("default".into()),
+        ..WorkspaceGroupCreateOptions::new("Play")
+    };
+    assert_eq!(session.create_workspace_group(play).unwrap().value.color, None);
+    let update = WorkspaceGroupUpdateOptions {
+        name: Some("Deep work".into()),
+        color: Update::Clear,
+        collapsed: Some(true),
+        room: None,
+    };
+    let updated = session.update_workspace_group(GROUP, update).unwrap().value;
+    assert_eq!((updated.name.as_str(), updated.collapsed), ("Deep work", true));
+    assert_eq!(session.move_workspace_group(GROUP, 2).unwrap().value.index, 1);
+    let deleted = session.delete_workspace_group(GROUP).unwrap().value;
+    assert_eq!(deleted.ungrouped.len(), 2);
+    assert_eq!(deleted.ungrouped[0].workspace_id, Some(WorkspaceId::parse(WORKSPACE).unwrap()));
+    assert_eq!(deleted.ungrouped[1].placement_id(), "reg-other/wk-9");
+
+    // Refused before any request: nothing to update, bad state ids.
+    let nothing = session.update_workspace_group(GROUP, WorkspaceGroupUpdateOptions::default());
+    assert!(matches!(nothing, Err(Error::InvalidArgument(_))), "{nothing:?}");
+    assert!(session.move_workspace_group("", 0).is_err());
+    assert!(session.delete_workspace_group("g".repeat(65)).is_err());
+    let bad_room = WorkspaceGroupCreateOptions { room: Some(String::new()), ..Default::default() };
+    assert!(session.create_workspace_group(bad_room).is_err());
+    client.close().unwrap();
+    mock.finish();
+}
+
+#[test]
+fn workspace_place_and_the_personal_lists_decode_typed_snapshots() {
+    let mock = mock(|stream, reader| {
+        let list = request(reader, "workspace_group.list");
+        assert!(list.get("idempotency_key").is_none());
+        assert_eq!(list["params"], json!({"machine": "current", "session": SESSION}));
+        respond(
+            stream,
+            &list,
+            json!({"ok": true, "result": [group_snapshot("Work",
+            json!("red"), false, 0)]}),
+        );
+
+        let in_room = request(reader, "workspace_group.list");
+        assert_eq!(in_room["params"]["room"], "default");
+        respond(stream, &in_room, json!({"ok": true, "result": []}));
+
+        let placements = request(reader, "workspace.placement.list");
+        assert_eq!(placements["params"], json!({"machine": "current", "session": SESSION}));
+        let other = json!({"workspace": {"session_id": "reg-other", "workspace_ref": "wk-9",
+                                         "workspace_id": null},
+                           "index": 1, "group_id": null, "room_id": "default"});
+        respond(
+            stream,
+            &placements,
+            json!({"ok": true, "result": [placement_snapshot(json!(GROUP), 0), other]}),
+        );
+
+        let place = request(reader, "workspace.place");
+        assert_eq!(place["idempotency_key"], "place-1");
+        assert_eq!(
+            place["params"],
+            json!({"machine": "current", "session": SESSION, "workspace": WORKSPACE,
+                   "group": GROUP, "index": 3})
+        );
+        mutation_ok(stream, &place, placement_snapshot(json!(GROUP), 3));
+
+        let ungroup = request(reader, "workspace.place");
+        assert_eq!(
+            ungroup["params"],
+            json!({"machine": "current", "session": SESSION, "workspace": WORKSPACE,
+                   "group": null})
+        );
+        mutation_ok(stream, &ungroup, placement_snapshot(Value::Null, 3));
+
+        let reorder = request(reader, "workspace.place");
+        assert!(reorder["params"].get("group").is_none());
+        assert_eq!(reorder["params"]["index"], 0);
+        mutation_ok(stream, &reorder, placement_snapshot(Value::Null, 0));
+    });
+    let client = mock.client();
+    let session = client.session(SessionId::parse(SESSION).unwrap());
+    let groups = session.workspace_groups().unwrap();
+    assert_eq!((groups.len(), groups[0].color.as_deref()), (1, Some("red")));
+    assert!(session.workspace_groups_in_room("default").unwrap().is_empty());
+    let placements = session.workspace_placements().unwrap();
+    assert_eq!(placements[0].group_id.as_deref(), Some(GROUP));
+    assert_eq!(placements[0].workspace.placement_id(), format!("{REGISTRY}/wk-1"));
+    assert_eq!((placements[1].workspace.workspace_id.as_ref(), placements[1].index), (None, 1));
+    assert_eq!(placements[1].room_id.as_deref(), Some("default"));
+
+    let workspace = session.workspace(WorkspaceId::parse(WORKSPACE).unwrap());
+    let into = WorkspacePlaceOptions { group: Update::Set(GROUP.into()), index: Some(3) };
+    let placed = workspace.place_with(into, MutationOptions::new("place-1").unwrap()).unwrap();
+    assert_eq!((placed.value.group_id.as_deref(), placed.value.index), (Some(GROUP), 3));
+    let out = WorkspacePlaceOptions { group: Update::Clear, index: None };
+    assert_eq!(workspace.place(out).unwrap().value.group_id, None);
+    let first = WorkspacePlaceOptions { group: Update::Unchanged, index: Some(0) };
+    assert_eq!(workspace.place(first).unwrap().value.index, 0);
+
+    // Nothing to change is refused before any request.
+    let nothing = workspace.place(WorkspacePlaceOptions::default());
+    assert!(matches!(nothing, Err(Error::InvalidArgument(_))), "{nothing:?}");
+    client.close().unwrap();
+    mock.finish();
+}
+
+#[test]
+fn workspace_group_snapshots_refuse_unknown_fields() {
+    let mock = mock(|stream, reader| {
+        let list = request(reader, "workspace_group.list");
+        let mut group = group_snapshot("Work", Value::Null, false, 0);
+        group["pinned"] = json!(true);
+        respond(stream, &list, json!({"ok": true, "result": [group]}));
+    });
+    let client = mock.client();
+    let session = client.session(SessionId::parse(SESSION).unwrap());
+    let error = session.workspace_groups().unwrap_err();
+    assert!(matches!(error, Error::UnexpectedEnvelope(_)), "{error:?}");
     client.close().unwrap();
     mock.finish();
 }

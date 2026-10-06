@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { answerPermission, listAgents, spawnAgent } from "../src/agents.ts";
 import { AGENT_MUX, type Message, messageText, USER_LOCAL } from "../src/conversation-types.ts";
 import { DaemonClient, DaemonError, MissingCapabilityError } from "../src/daemon-client.ts";
 import { HostAlreadyRunningError } from "../src/host.ts";
+import { takeLock } from "../src/lock.ts";
 import { deferred, world } from "./helpers.ts";
 
 let cleanup: (() => Promise<void>) | undefined;
@@ -316,4 +317,17 @@ describe("owner turn budget", () => {
     await w.daemon.until(() => w.lines.some((line) => line.includes("dropping rejected op")));
     expect(muxReplies(w.daemon.messages(conv)).length).toBe(1);
   }, 15000);
+});
+
+describe("failed start", () => {
+  test("a host whose start fails after taking the lock releases it", async () => {
+    const w = await setup();
+    const host = w.host();
+    // A directory where the session's CLAUDE.md goes: writing the session dir throws.
+    mkdirSync(join(w.home, "session", "CLAUDE.md"), { recursive: true });
+    expect(() => host.start()).toThrow();
+    const release = takeLock(join(w.home, "state", "host.lock"));
+    expect(release).toBeDefined();
+    release?.();
+  });
 });

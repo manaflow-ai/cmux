@@ -112,6 +112,19 @@ import Testing
         #expect(undo["confirm_close"] == .bool(true))
     }
 
+    /// DOCK-WIRE (R87): `set-column-dock {pane, dock, edge?, mode?}`; no `sticky`.
+    @Test func setColumnDockEncodesDock() throws {
+        let pin = try object(SetColumnDockRequest(pane: 4, dock: DockSnapshot(edge: .left, mode: .overlay), transaction: 9))
+        #expect(pin["cmd"] == .string("set-column-dock"))
+        #expect(pin["dock"] == .bool(true))
+        #expect(pin["edge"] == .string("left"))
+        #expect(pin["mode"] == .string("overlay"))
+        #expect(pin["sticky"] == nil)
+        let unpin = try object(SetColumnDockRequest(pane: 4, dock: nil))
+        #expect(unpin["dock"] == .bool(false))
+        #expect(unpin["sticky"] == nil)
+    }
+
     @Test func tabDragCommandsCarryTransaction() throws {
         let split = try object(MoveTabToSplitRequest(surface: 3, pane: 4, edge: .left, transaction: "tx"))
         #expect(split["cmd"] == .string("move-tab-to-split"))
@@ -124,24 +137,27 @@ import Testing
         #expect(column["pane"] == nil)
         let byPane = try object(MoveTabToColumnRequest(surface: 3, target: .pane(7)))
         #expect(byPane["pane"] == .number(7))
-        #expect(byPane["sticky"] == nil)
-        // A pinned new column (edge-docks-v1) carries the pin as {edge, mode}.
+        #expect(byPane["dock"] == nil)
+        // A docked new column (dock-columns-v1) carries the dock as {edge, mode}.
         let docked = try object(MoveTabToColumnRequest(surface: 3, target: .pane(7), width: 0.3,
-                                                       sticky: StickySnapshot(edge: .bottom, mode: .overlay)))
-        #expect(docked["sticky"]?["edge"] == .string("bottom"))
-        #expect(docked["sticky"]?["mode"] == .string("overlay"))
+                                                       dock: DockSnapshot(edge: .bottom, mode: .overlay)))
+        #expect(docked["dock"]?["edge"] == .string("bottom"))
+        #expect(docked["dock"]?["mode"] == .string("overlay"))
         // Docking a pane's only tab leaves a fresh terminal (tab-column-respawn-v1).
         let respawned = try object(MoveTabToColumnRespawnRequest(
-            MoveTabToColumnRequest(surface: 3, target: .pane(7), width: 0.4, sticky: StickySnapshot(edge: .right, mode: .docked)),
+            MoveTabToColumnRequest(surface: 3, target: .pane(7), width: 0.4, dock: DockSnapshot(edge: .right, mode: .docked)),
             respawn: .terminal(SpawnOptions(cwd: "/tmp"))))
         #expect(respawned["cmd"] == .string("move-tab-to-column"))
-        #expect(respawned["sticky"]?["edge"] == .string("right"))
+        #expect(respawned["dock"]?["edge"] == .string("right"))
         #expect(respawned["respawn"]?["kind"] == .string("terminal"))
         #expect(respawned["respawn"]?["cwd"] == .string("/tmp"))
         let workspace = try object(MoveTabToNewWorkspaceRequest(surface: 3, group: "g", index: 2))
         #expect(workspace["cmd"] == .string("move-tab-to-new-workspace"))
         #expect(workspace["group"] == .string("g"))
         #expect(workspace["transaction"] == nil)
+        // `name` only when given (`tab-workspace-name-v1`; older daemons refuse unknown fields).
+        #expect(workspace["name"] == nil)
+        #expect(try object(MoveTabToNewWorkspaceRequest(surface: 3, name: "vim"))["name"] == .string("vim"))
         // A browser respawn names the page, engine and profile; never the dragged tab's URL.
         let respawn = try object(MoveTabToSplitRespawnRequest(
             surface: 3, pane: 4, edge: .right, respawn: .browser(url: "chrome://newtab/", engine: .cef, profileID: "work")))

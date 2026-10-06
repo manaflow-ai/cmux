@@ -102,7 +102,7 @@ export type Block =
   | { kind: "footer"; text: string }
   | { kind: "files"; files: ChangedFile[]; revision?: string };
 
-export interface Provider { id: string; label: string; iconUrl?: string; iconDarkUrl?: string; installed?: boolean; installCommand?: string; }
+export interface Provider { id: string; label: string; installed?: boolean; installCommand?: string; }
 export type { HarnessRecommendation } from "../harness-contract";
 
 export interface CwdHarnessRequest {

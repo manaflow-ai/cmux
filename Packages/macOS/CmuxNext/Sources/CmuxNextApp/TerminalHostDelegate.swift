@@ -12,8 +12,9 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
     /// registry action every other entrypoint runs, targeted at this
     /// terminal's tab. Unmapped requests stay unhandled.
     func terminalSession(_ session: TerminalSession, perform action: TerminalHostAction) -> Bool {
+        services?.keyRouter.trace?("terminal host action \(action) -> \(TerminalHostActionRoute.route(action)?.id.rawValue ?? "no route")")
         guard let services, let route = TerminalHostActionRoute.route(action) else { return false }
-        let invocation = ActionInvocation(target: target(of: session, in: services), arguments: route.arguments)
+        let invocation = ActionInvocation(target: route.targetsTerminal ? target(of: session, in: services) : nil, arguments: route.arguments)
         // A refusal (no neighbor, one pane) is reported by the registry; the
         // key was still a binding, so it never reaches the shell.
         services.registry.perform(route.id, invocation: invocation)

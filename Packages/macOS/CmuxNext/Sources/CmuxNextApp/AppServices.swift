@@ -78,6 +78,8 @@ final class AppServices {
     private(set) lazy var history = HistoryService(services: self)
     /// `cmux://history`: opens the page and serves its data.
     private(set) lazy var historyPage = HistoryPageService(services: self)
+    /// Where agent cursors draw (plans/cmux-next/agent-cursor.md section 3).
+    private(set) lazy var agentCursorVisibility = AgentCursorWiring.makeVisibility(services: self)
     /// `cmux://agent-activity`: the computer use sessions page.
     private(set) lazy var agentActivityPage = AgentActivityPageService(services: self)
     private(set) lazy var remoteViewPages = RemoteViewPageService()
@@ -89,8 +91,11 @@ final class AppServices {
     private(set) lazy var apps = AppsService(services: self)
     /// The Tasks page and its mirror of the local Tasks owner (plans/cmux-next/tasks.md).
     private(set) lazy var tasks = TasksPageService(services: self)
+    /// The viewers' recents, the cmux picker, the diff, markdown and editor tabs (R89, S4, S6, S7).
+    private(set) lazy var viewers = ViewerService(services: self)
     /// The cmux server menu bar item (DEV and NIGHTLY prototype; plans/cmux-next/server.md 14).
-    private(set) lazy var serverMenuBar = ServerMenuBarController()
+    private(set) lazy var serverMenuBar =
+        ServerMenuBarController(makeSource: { [unowned self] in CloudPairingSource.app(feed: feed, auth: cloud.auth) })
     /// Home: local conversations with the mux (plans/cmux-next/home.md).
     private(set) lazy var home = HomeService(services: self)
     /// `cmux://bookmarks`: the manager pages.
@@ -106,6 +111,15 @@ final class AppServices {
     let closedScreens = ClosedScreenHistory()
     /// The kinds of tabs opened on purpose, by folder, for `tabs.newTabKind: auto`.
     var newTabKinds = NewTabKindMemory()
+    /// Pane controller mounts and releases in any window (`PaneMounts`).
+    let paneMounts = PaneMounts()
+    /// The new tab screen's Search | Ask mode and last agent, and what `!` typed ahead.
+    let newTabChoices = NewTabChoiceMemory()
+    let newTabTypeAhead = NewTabTypeAhead()
+    /// One prewarmed new tab page per window (instant open).
+    private(set) lazy var newTabSpares = NewTabSparePool(services: self)
+    /// The one icon picker (R94): Set Icon of workspaces, screens, spaces, browser profiles.
+    private(set) lazy var iconPicker = IconPickerService(services: self)
     /// Trailing tab-strip buttons from `ui.surfaceTabBar.buttons`.
     private(set) var tabBarButtons: TabBarButtonsController!
     /// System-wide hot keys for catalog actions marked `isGlobalHotKey`.
@@ -145,7 +159,9 @@ final class AppServices {
     /// Browser profiles: records, the new-tab cascade, each tab's store.
     private(set) lazy var browserProfiles = BrowserProfileService(services: self)
     /// Agent chat tabs and their shared acpmux host (New Agent Chat).
-    private(set) lazy var agentTabs = AgentTabStore(tag: environment.tag, registry: registry, environment: ProcessInfo.processInfo.environment, showcase: environment.showcase, linkScheme: linkScheme, git: agentGit, settings: settings)
+    private(set) lazy var agentTabs = AgentTabStore.wired(to: self)
+    /// `agentTabs` once made: a tab close releases its view without starting acpmux.
+    var madeAgentTabs: AgentTabStore?
     /// Quick Agent Chat's floating composer (`palette.quickAgentChat`).
     private(set) lazy var quickComposer = makeQuickComposer()
     /// Internal page tabs (Settings, Debug Settings, the App Store).
@@ -160,6 +176,8 @@ final class AppServices {
     let hoverCards = HoverCardCoordinator()
     /// Refusal messages for keyboard and menu runs.
     let refusalHUD = RefusalHUD()
+    /// The browser host's engine provider (idle until the daemon offers the endpoint).
+    private(set) var browserHost: AppBrowserHost?
     /// Remote-terminal tabs: mount, placeholder, snapshot, moves.
     private(set) var remoteTerminals: RemoteTerminalService!
     /// - Parameter launchReveal: The launch load-in the windows' sidebars
@@ -187,7 +205,10 @@ final class AppServices {
             await self?.remoteLocalhost.configuration(for: tab, url: url, base: base) ?? base
         }
         cache.findTab = { [weak self] key in self?.remoteLocalhost.tab(id: key) }
-        cache.onRelease = { [weak self] key in self?.home.releaseTabView(key) }
+        cache.onRelease = { [weak self] key in
+            self?.home.releaseTabView(key)
+            self?.madeAgentTabs?.releaseIfGone(key)
+        }
         cache.machineBadge = { [weak self] key, url in
             guard let self, let tab = remoteLocalhost.tab(id: key) else { return nil }
             let engine: BrowserEngineKind = tab.browserEngine == BrowserEngineTag.cef.rawValue ? .cef : .webkit
@@ -234,16 +255,17 @@ final class AppServices {
         cache.pageRequests.services = self
         keyRouter = KeyRouter(registry: registry)
         keyRouter.services = self
-        keyRouter.whichKey = WhichKeyController(registry: registry)
+        keyRouter.whichKey = WhichKeyController()
         cache.keyRouter = keyRouter
         cache.onPageFocusRequest = { [weak self] key in self?.returnFocusToPage(key) }
         cache.onBrowserEntryCreated = { [registry, unowned self] entry in
             PageInfoHandlers.installRouter(on: entry, registry: registry)
+            CertificateWarningHandlers.installRouter(on: entry, registry: registry)
+            BrowserToolbarHandlers.install(on: entry, services: self)
             bookmarks.attach(entry)
         }
-        cache.extraSuggestionProviders = { [unowned self] profile in
-            [BookmarkSuggestionProvider(service: bookmarks, profile: bookmarks.profile(of: profile))]
-        }
+        cache.onSuggestionEngineCreated = { [unowned self] in BookmarkSuggestionFeed.follow(bookmarks, profile: bookmarks.profile(of: $1), into: $0) }
+        cache.onRevealTab = { [weak self] key in _ = self?.revealTab(key) }
         cache.makeExtensionMenuHandler = { [unowned self] key in ExtensionMenuRouter(services: self, tabKey: key) }
         cache.onDevToolsChange = { [weak self] key, state, focused in self?.devToolsDidChange(key, state: state, focused: focused) }
         registry.menuKeyEquivalentGate = { [weak self] id in self?.keyRouter.allowsMenuKeyEquivalent(id) ?? true }
@@ -251,7 +273,11 @@ final class AppServices {
             self?.keyRouter.interceptKeyDown(event, in: window) ?? false
         }
         surfaceInvariant.services = self
-        cache.onPresentationChange = { [weak self] in self?.surfaceInvariant.noteChange() }
+        surfaceInvariant.observeWindowOcclusion()
+        cache.onPresentationChange = { [weak self] in
+            self?.surfaceInvariant.noteChange()
+            self?.browserHost?.provider.refreshTabs()
+        }
         resources = AppResourceSource(services: self)
         windows = WindowManager(services: self)
         windows.incognitoHistoryReset = { [weak cache, weak self] in
@@ -280,10 +306,13 @@ final class AppServices {
         startInputVerification()
         startNoActivateGuard()
         chromiumWarmup = ChromiumWarmup(engine: cache.cef)
+        browserHost = AppBrowserHost(services: self)
+        browserHost?.start()
         notifications.start(services: self)
         keyRouter.onTyping = { [weak self] window in self?.notifications.noteTyping(in: window) }
-        (NSApp as? CmuxApplication)?.mouseDownObserver = { [weak self] window in
-            self?.notifications.noteMouseDown(in: window)
+        (NSApp as? CmuxApplication)?.mouseDownObserver = { [weak self] event in
+            self?.notifications.noteMouseDown(in: event.window)
+            self?.browserHost?.noteInput(event)
             // A click anywhere ends link hints and a waiting chord (it may move the keyboard).
             self?.linkHints.cancel()
             self?.keyRouter.cancelChord()

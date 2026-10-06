@@ -32,13 +32,6 @@ import Testing
         #expect(keys.contains(.section(cloudSection)))
     }
 
-    @Test func dropAboveTheFirstRowOfAHeaderlessListTargetsIndexZero() {
-        let sections = localOnly([.workspace(w("a")), .workspace(w("b")), .workspace(w("c"))])
-        let base = SidebarLayout.make(sections: sections, metrics: .standard)
-        let target = DropResolver.resolve(y: 0, payload: .workspaces([id("c")]), base: base, sections: sections)
-        #expect(target == .position(DropPosition(section: local, index: 0)))
-    }
-
     @Test func onlyLiveStatusEarnsASecondLine() {
         let m = SidebarLayoutMetrics.standard
         let passive = SidebarWorkspace(id: id("a"), title: "a", subtitle: "~")
@@ -62,6 +55,17 @@ import Testing
         ))
         h.sidebar.list.keyDown(with: key)
         #expect(h.sidebar.model.filterText.isEmpty)
+    }
+
+    @Test func f2StartsWorkspaceRenameForTheActiveRow() throws {
+        let h = Harness()
+        let key = try #require(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: h.window.windowNumber,
+            context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: 120
+        ))
+        h.sidebar.list.keyDown(with: key)
+        #expect(h.sidebar.list.inlineRename.session?.key == .workspace(id("a")))
+        h.sidebar.list.inlineRename.end(commit: false)
     }
 
     @Test func titlebarButtonsRevealOnHoverAndForTabDrags() {

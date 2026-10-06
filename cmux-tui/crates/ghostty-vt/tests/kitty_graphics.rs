@@ -374,14 +374,14 @@ fn replay_preserves_the_next_automatic_image_id_after_eviction() {
 #[test]
 fn replay_preserves_independent_automatic_image_ids_for_both_screens() {
     let mut source = terminal();
-    for image_number in [1, 2] {
-        source.vt_write(&kitty(&format!("a=t,t=d,f=24,I={image_number},s=1,v=1,q=2"), "/wAA"));
+    for _ in 0..2 {
+        source.vt_write(&kitty("a=t,t=d,f=24,s=1,v=1,q=2", "/wAA"));
         let image_id = source.kitty_graphics_snapshot().unwrap().images[0].id;
         source.vt_write(&kitty(&format!("a=d,d=I,i={image_id},q=2"), ""));
     }
 
     source.vt_write(b"\x1b[?1049h");
-    source.vt_write(&kitty("a=t,t=d,f=24,I=3,s=1,v=1,q=2", "/wAA"));
+    source.vt_write(&kitty("a=t,t=d,f=24,s=1,v=1,q=2", "/wAA"));
     let alternate_image_id = source.kitty_graphics_snapshot().unwrap().images[0].id;
     source.vt_write(&kitty(&format!("a=d,d=I,i={alternate_image_id},q=2"), ""));
 
@@ -393,7 +393,7 @@ fn replay_preserves_independent_automatic_image_ids_for_both_screens() {
     let mut mirror = terminal();
     mirror.apply_vt_replay(&replay).unwrap();
 
-    let next_alternate = kitty("a=t,t=d,f=24,I=4,s=1,v=1,q=2", "AP8A");
+    let next_alternate = kitty("a=t,t=d,f=24,s=1,v=1,q=2", "AP8A");
     source.vt_write(&next_alternate);
     mirror.vt_write(&next_alternate);
     assert_eq!(
@@ -404,7 +404,7 @@ fn replay_preserves_independent_automatic_image_ids_for_both_screens() {
 
     source.vt_write(b"\x1b[?1049l");
     mirror.vt_write(b"\x1b[?1049l");
-    let next_primary = kitty("a=t,t=d,f=24,I=5,s=1,v=1,q=2", "AA8A");
+    let next_primary = kitty("a=t,t=d,f=24,s=1,v=1,q=2", "AA8A");
     source.vt_write(&next_primary);
     mirror.vt_write(&next_primary);
     assert_eq!(
@@ -454,7 +454,9 @@ fn replay_preserves_an_occupied_probe_that_is_later_deleted() {
     let delete_probe = kitty(&format!("a=d,d=I,i={FIRST_AUTOMATIC_ID},q=2"), "");
     source.vt_write(&delete_probe);
     mirror.vt_write(&delete_probe);
-    let next = kitty("a=t,t=d,f=24,I=2,s=1,v=1,q=2", "AP8A");
+    // An implicit upload (no i=, no I=) probes the automatic cursor; numbered
+    // uploads take the lowest free ID and never use it (ghostty-next).
+    let next = kitty("a=t,t=d,f=24,s=1,v=1,q=2", "AP8A");
     source.vt_write(&next);
     mirror.vt_write(&next);
 

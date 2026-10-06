@@ -25,7 +25,7 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use cmux_layout_reducer::{
-    Column, LayoutOp, LayoutOpKind, LayoutState, Screen, TabContent, Workspace, apply,
+    Column, LayoutOp, LayoutOpKind, LayoutState, Row, Screen, TabContent, Workspace, apply,
     introduced_violations, placement_mismatches,
 };
 use serde_json::json;
@@ -83,11 +83,7 @@ pub(crate) fn project(state: &State) -> LayoutState {
                         columns: if screen.layout_columns.is_empty() {
                             vec![Column::single(0, screen.root.pane_ids_vec())]
                         } else {
-                            screen
-                                .layout_columns
-                                .iter()
-                                .map(|column| Column::single(column.id, column.root.pane_ids_vec()))
-                                .collect()
+                            screen.layout_columns.iter().map(project_column).collect()
                         },
                     })
                     .collect(),
@@ -109,6 +105,21 @@ pub(crate) fn project(state: &State) -> LayoutState {
             })
             .collect(),
     }
+}
+
+/// One viewport column of the model: its panes in order and, with
+/// `rows-v1`, the rows partitioning them.
+fn project_column(column: &crate::model::LayoutColumn) -> Column {
+    let rows = column
+        .row_trees()
+        .into_iter()
+        .map(|(row, tree)| Row {
+            id: row.id,
+            height_permille: row.height,
+            len: tree.pane_ids_vec().len(),
+        })
+        .collect();
+    Column { id: column.id, panes: column.root.pane_ids_vec(), rows }
 }
 
 /// Run the reducer for `kind` on the model of the live state `before`.

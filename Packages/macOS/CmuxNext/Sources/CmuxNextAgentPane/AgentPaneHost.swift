@@ -59,11 +59,17 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     }
 
     public func handshake(sessionId: String?) async throws -> AgentPaneHandshake {
-        .acpmux(try await endpoint(startsDaemon: true), sessionId: sessionId)
+        .acpmux(connection(try await endpoint(startsDaemon: true)), sessionId: sessionId)
     }
 
     public func reconnectHandshake(sessionId: String?) async throws -> AgentPaneHandshake {
-        .acpmux(try await endpoint(startsDaemon: false), sessionId: sessionId)
+        .acpmux(connection(try await endpoint(startsDaemon: false)), sessionId: sessionId)
+    }
+
+    /// The host socket's connection, with this daemon launch's LocalApp token read now, on the
+    /// actor (it changes at every launch, so it is read at every handshake and reconnect).
+    private func connection(_ endpoint: AcpmuxWebEndpoint) -> AcpmuxConnection {
+        AcpmuxConnection(endpoint: endpoint, home: environment?.home, socketPath: environment?.socketPath)
     }
 
     public func prewarm() async throws {
@@ -90,7 +96,12 @@ public actor AcpmuxHost: AgentPaneHostProviding {
 
     private static func findOrStart(_ environment: AcpmuxEnvironment, startsDaemon: Bool) async throws -> AcpmuxWebEndpoint {
         do {
-            return try await AcpmuxStatusClient.endpoint(socketPath: environment.socketPath)
+            let status = try await AcpmuxStatusClient.status(socketPath: environment.socketPath)
+            // After an update the daemon may be the previous build's: hand it
+            // off (its agents keep running under their hosts) and start ours.
+            guard startsDaemon, await AcpmuxVersionHandoff.handOffIfStale(status, environment: environment) else {
+                return try status.endpoint()
+            }
         } catch AcpmuxStatusClient.Failure.unreachable {
             logger.info("acpmux status unreachable socket=\(environment.socketPath, privacy: .public) startsDaemon=\(startsDaemon, privacy: .public)")
             // Nothing listens on the socket: start a daemon below, unless

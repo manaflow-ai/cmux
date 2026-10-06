@@ -5,11 +5,12 @@ import CmuxNextDaemon
 
 /// Browser-category actions that act on the focused page or create browser
 /// panes. Back, forward, reload, zoom, and the address bar are bound in
-/// `AppActions.bindBrowser`; viewer families without a surface yet
-/// (diff, Markdown, file preview) are unavailable here.
+/// `AppActions.bindBrowser`; the diff viewer in `DiffHandlers`; viewer
+/// families without a surface yet (Markdown, file preview) are unavailable here.
 enum BrowserHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         bindPage(into: registry, context: context)
+        BrowserToolbarHandlers.bind(into: registry, context: context)
         bindSplits(into: registry, context: context)
         bindLinkHints(into: registry, context: context)
         bindUnavailable(registry)
@@ -32,12 +33,22 @@ enum BrowserHandlers {
             if window.focus.state.pane != pane.paneKey { window.focus.send(.focusPane(pane.paneKey, source: .intent)) }
             window.focus.send(.toggleBrowserFocusMode(tab: entry.tab.id.rawValue))
         })
-        registry.bind("toggleBrowserDeveloperTools", run: { WebInspector.toggle(try context.page($0).tab) })
+        registry.bind("toggleBrowserDeveloperTools", run: { invocation in
+            let entry = try context.page(invocation)
+            WebInspector.toggle(entry.tab)
+            // WebKit's inspector visibility is not observable; Chromium's is.
+            entry.chrome.toolbarButtons.refresh()
+        })
         registry.bind("showBrowserJavaScriptConsole", run: { WebInspector.showConsole(try context.page($0).tab) })
         registry.bind("inspectBrowserElement", run: { WebInspector.inspectElement(try context.page($0).tab) })
+        // The toolbar shows the mode (BrowserPageModes); a new document starts with it off.
         registry.bind("toggleBrowserDesignMode", run: { invocation in
-            let tab = try context.page(invocation).tab
-            Task { _ = try? await tab.evaluate("document.designMode = document.designMode === 'on' ? 'off' : 'on'") }
+            let entry = try context.page(invocation)
+            let modes = entry.chrome.toolbarButtons.modes
+            modes.designMode.toggle()
+            let script = "document.designMode = '\(modes.designMode ? "on" : "off")'"
+            let tab = entry.tab
+            Task { _ = try? await tab.evaluate(script) }
         })
         registry.bind("palette.browserOpenDefault", run: { invocation in
             guard let url = try context.page(invocation).tab.state.url, url.scheme != "about" else {
@@ -45,15 +56,13 @@ enum BrowserHandlers {
             }
             try context.open(url)
         })
+        // WebKit follows its view's appearance, Chromium a media emulation;
+        // a page that is not loaded yet gets it when it is (the toolbar's bind).
         registry.bind("browserTheme", run: { invocation in
-            // In-view engines follow the view's appearance for
-            // prefers-color-scheme; nil follows the app.
-            let view = try context.page(invocation).tab.contentView
-            view.appearance = switch invocation["theme"]?.stringValue {
-            case "light": NSAppearance(named: .aqua)
-            case "dark": NSAppearance(named: .darkAqua)
-            default: nil
-            }
+            let entry = try context.page(invocation)
+            let scheme = BrowserToolbarHandlers.colorScheme(invocation)
+            entry.chrome.toolbarButtons.modes.colorScheme = scheme
+            (entry.tab as? any BrowserColorSchemeApplying)?.applyColorScheme(scheme)
         })
         registry.bind("browserScreenshotPage", run: { invocation in
             let tab = try context.page(invocation).tab
@@ -136,16 +145,8 @@ enum BrowserHandlers {
         unavailable(["palette.browserToggleOmnibar"], MiscHandlerStrings.omnibarToggle)
         unavailable(["palette.browserClearHistory"], MiscHandlerStrings.browserHistory)
         unavailable(["palette.enableBrowser", "palette.disableBrowser"], MiscHandlerStrings.browserToggle)
-        unavailable(["openLinkInNewTab", "openLinkInDefaultBrowser"], MiscHandlerStrings.linkTarget)
+        unavailable(["openLinkInDefaultBrowser"], MiscHandlerStrings.linkTarget)
         unavailable(["browserScreenshotSection"], MiscHandlerStrings.sectionScreenshot)
-        unavailable(["saveFilePreview", "toggleFileEditorWordWrap"], MiscHandlerStrings.filePreview)
-        unavailable(["markdownZoomIn", "markdownZoomOut", "markdownZoomReset"], MiscHandlerStrings.markdownViewer)
         unavailable(["palette.vscodeServeWebStop", "palette.vscodeServeWebRestart"], MiscHandlerStrings.vscodeServer)
-        unavailable([
-            "openDiffViewer", "palette.openDirectoryDiffViewer",
-            "diffViewerNextLine", "diffViewerPreviousLine", "diffViewerHalfPageDown", "diffViewerHalfPageUp",
-            "diffViewerNextHunk", "diffViewerPreviousHunk", "diffViewerGoToBottom", "diffViewerGoToTop",
-            "diffViewerSearch", "diffViewerNextFile", "diffViewerPreviousFile",
-        ], MiscHandlerStrings.diffViewer)
     }
 }

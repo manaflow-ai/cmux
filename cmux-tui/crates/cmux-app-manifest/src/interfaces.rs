@@ -28,6 +28,8 @@ interfaces! {
     "cmux.search.provider/1" => "cmux.search.provider",
     "cmux.section/1" => "cmux.section",
     "cmux.status/1" => "cmux.status",
+    "cmux.terminal.backend/1" => "cmux.terminal.backend",
+    "cmux.terminal.connector/1" => "cmux.terminal.connector",
     "cmux.viewer/1" => "cmux.viewer",
 }
 

@@ -17,11 +17,11 @@
         "required": []
       },
       "cli": {
-        "path": "apps run cmux/caffeinate keep-awake",
+        "path": "keep-awake",
         "visible": true
       },
       "mcp": {
-        "expose": "default"
+        "expose": "never"
       },
       "palette": {
         "title": "Keep Awake Until Stopped"
@@ -47,7 +47,7 @@
         "required": []
       },
       "cli": {
-        "path": "apps run cmux/caffeinate keep-awake-hour",
+        "path": "keep-awake-hour",
         "visible": true
       },
       "mcp": {
@@ -129,7 +129,7 @@
         "required": []
       },
       "cli": {
-        "path": "apps run cmux/caffeinate start",
+        "path": "start",
         "visible": true
       },
       "mcp": {
@@ -199,11 +199,11 @@
         ]
       },
       "cli": {
-        "path": "apps run cmux/caffeinate stop",
+        "path": "stop",
         "visible": true
       },
       "mcp": {
-        "expose": "default"
+        "expose": "never"
       },
       "docs": "Stop one keep-awake assertion (pwr_ id from list). Stopping one that someone else started needs a person.",
       "since": "caffeinate/1",
@@ -226,11 +226,11 @@
         "required": []
       },
       "cli": {
-        "path": "apps run cmux/caffeinate stop-all",
+        "path": "stop-all",
         "visible": true
       },
       "mcp": {
-        "expose": "default"
+        "expose": "never"
       },
       "palette": {
         "title": "Stop Keeping the Mac Awake"
@@ -256,7 +256,7 @@
         "required": []
       },
       "cli": {
-        "path": "apps run cmux/caffeinate list",
+        "path": "list",
         "visible": true
       },
       "mcp": {
@@ -282,7 +282,7 @@
         "required": []
       },
       "cli": {
-        "path": "apps run cmux/caffeinate show",
+        "path": "show",
         "visible": true
       },
       "mcp": {
@@ -311,7 +311,7 @@
         "required": []
       },
       "cli": {
-        "path": "apps run cmux/caffeinate cycle-variant",
+        "path": "cycle-variant",
         "visible": false
       },
       "mcp": {

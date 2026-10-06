@@ -6,8 +6,8 @@
 //! cannot tell a prompt from output, so each SIGWINCH redraw lands on reflowed
 //! cells and leaves prompt fragments behind. Ghostty emits those marks by
 //! injecting its shell integration scripts when it spawns a shell; this module
-//! does the same for cmux-tui, using the scripts from the Ghostty submodule
-//! that builds ghostty-vt so both halves always match.
+//! does the same for cmux-tui, using the scripts from ghostty-next, the Ghostty
+//! submodule that builds ghostty-vt, so both halves always match.
 //!
 //! The injection mirrors Ghostty's `src/termio/shell_integration.zig`: zsh via
 //! `ZDOTDIR`, bash via `--posix` plus `ENV`, and fish via `XDG_DATA_DIRS`.
@@ -20,6 +20,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use sha2::{Digest, Sha256};
 
+mod ghostty_files;
+
+use ghostty_files::Mode;
+
 struct Script {
     path: &'static str,
     contents: &'static str,
@@ -28,30 +32,98 @@ struct Script {
 const SCRIPTS: &[Script] = &[
     Script {
         path: "zsh/.zshenv",
-        contents: include_str!("../../../../ghostty/src/shell-integration/zsh/.zshenv"),
+        contents: include_str!("../../../../ghostty-next/src/shell-integration/zsh/.zshenv"),
     },
     Script {
         path: "zsh/ghostty-integration",
-        contents: include_str!("../../../../ghostty/src/shell-integration/zsh/ghostty-integration"),
+        contents: include_str!(
+            "../../../../ghostty-next/src/shell-integration/zsh/ghostty-integration"
+        ),
     },
     Script {
         path: "bash/ghostty.bash",
-        contents: include_str!("../../../../ghostty/src/shell-integration/bash/ghostty.bash"),
+        contents: include_str!("../../../../ghostty-next/src/shell-integration/bash/ghostty.bash"),
     },
     Script {
         path: "bash/bash-preexec.sh",
-        contents: include_str!("../../../../ghostty/src/shell-integration/bash/bash-preexec.sh"),
+        contents: include_str!(
+            "../../../../ghostty-next/src/shell-integration/bash/bash-preexec.sh"
+        ),
     },
     Script {
         path: "fish/vendor_conf.d/ghostty-shell-integration.fish",
         contents: include_str!(
-            "../../../../ghostty/src/shell-integration/fish/vendor_conf.d/ghostty-shell-integration.fish"
+            "../../../../ghostty-next/src/shell-integration/fish/vendor_conf.d/ghostty-shell-integration.fish"
         ),
     },
 ];
 
 /// Opt-out: `CMUX_TUI_SHELL_INTEGRATION=none` launches shells unmodified.
 const OPT_OUT_ENV: &str = "CMUX_TUI_SHELL_INTEGRATION";
+
+/// The features the scripts enable (title, cursor shape, path). Ghostty
+/// always exports it (`setupFeatures` in `src/termio/shell_integration.zig`);
+/// without it the title is whatever the user's own hooks set.
+const FEATURES_ENV: &str = "GHOSTTY_SHELL_FEATURES";
+
+/// The scripts' ssh wrappers run `$GHOSTTY_BIN_DIR/ghostty +ssh`.
+const GHOSTTY_BIN_DIR_ENV: &str = "GHOSTTY_BIN_DIR";
+
+/// The features whose scripts run the Ghostty CLI.
+const CLI_FEATURES: [&str; 2] = ["ssh-env", "ssh-terminfo"];
+
+/// Where the shell finds the Ghostty CLI: its `GHOSTTY_BIN_DIR` as given, or
+/// the directory of `GHOSTTY_BIN`, which the shell then needs exported.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum GhosttyCliDir {
+    Given,
+    FromBinary(String),
+}
+
+fn ghostty_cli_dir(lookup: &dyn Fn(&str) -> Option<String>) -> Option<GhosttyCliDir> {
+    if lookup(GHOSTTY_BIN_DIR_ENV).is_some_and(|dir| !dir.is_empty()) {
+        return Some(GhosttyCliDir::Given);
+    }
+    let binary = lookup("GHOSTTY_BIN").filter(|binary| !binary.is_empty())?;
+    let dir = Path::new(&binary).parent()?.to_str()?.to_string();
+    (!dir.is_empty()).then_some(GhosttyCliDir::FromBinary(dir))
+}
+
+/// `features` without the ones the shell cannot serve: with no Ghostty CLI,
+/// the ssh wrappers would make `ssh` run a missing program, so they go and
+/// plain `ssh` runs (Ghostty itself always has its CLI).
+fn usable_features(features: &str, has_cli: bool) -> String {
+    if has_cli {
+        return features.to_string();
+    }
+    features
+        .split(',')
+        .filter(|feature| !CLI_FEATURES.contains(feature))
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+/// `GHOSTTY_SHELL_FEATURES` and the Ghostty CLI directory for a shell the
+/// daemon starts.
+fn export_features(
+    env: &mut Vec<(String, String)>,
+    lookup: &dyn Fn(&str) -> Option<String>,
+    user: &ghostty_files::Settings,
+) {
+    // A caller (or daemon) value is the user's resolved feature set; with
+    // none, the user's Ghostty config files give it, then Ghostty's defaults
+    // (DAEMON-SHELL-FEATURES-FROM-GHOSTTY-FILES).
+    let cli_dir = ghostty_cli_dir(lookup);
+    let given = lookup(FEATURES_ENV);
+    let features = given.clone().unwrap_or_else(|| user.env_value());
+    let usable = usable_features(&features, cli_dir.is_some());
+    if given.as_deref() != Some(usable.as_str()) {
+        env.push((FEATURES_ENV.into(), usable));
+    }
+    if let Some(GhosttyCliDir::FromBinary(dir)) = cli_dir {
+        env.push((GHOSTTY_BIN_DIR_ENV.into(), dir));
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Shell {
@@ -90,13 +162,35 @@ pub fn integrate_default_shell(
     if lookup(OPT_OUT_ENV).as_deref() == Some("none") {
         return ShellLaunch { command, env: extra_env };
     }
-    let Some(shell) = detect_shell(&command) else {
-        return ShellLaunch { command, env: extra_env };
+    let user = ghostty_files::read(&lookup);
+    // No integration (`shell-integration = none`, an unknown shell, a shell
+    // with no scripts here, or no scripts at all): Ghostty still exports the
+    // features (`Exec` sets them before it detects the shell), for a manual
+    // integration.
+    let features_only = |mut env: Vec<(String, String)>| {
+        export_features(&mut env, &lookup, &user);
+        env
+    };
+    let Some(shell) = shell_for(user.mode, &command) else {
+        return ShellLaunch { env: features_only(extra_env), command };
     };
     let Some(root) = scripts_root().and_then(|root| materialize(&root).ok()) else {
-        return ShellLaunch { command, env: extra_env };
+        return ShellLaunch { env: features_only(extra_env), command };
     };
-    apply(shell, &root, command, extra_env, &lookup)
+    apply(shell, &root, command, extra_env, &lookup, &user)
+}
+
+/// The shell to integrate under the user's `shell-integration`: none for
+/// `none`, the command's shell for `detect`, else the forced shell, as
+/// Ghostty's `Exec` does. elvish and nushell have no scripts here.
+fn shell_for(mode: Mode, command: &[String]) -> Option<Shell> {
+    match mode {
+        Mode::Detect => detect_shell(command),
+        Mode::Bash => Some(Shell::Bash),
+        Mode::Fish => Some(Shell::Fish),
+        Mode::Zsh => Some(Shell::Zsh),
+        Mode::None | Mode::Elvish | Mode::Nushell => None,
+    }
 }
 
 fn detect_shell(command: &[String]) -> Option<Shell> {
@@ -120,7 +214,12 @@ fn apply(
     mut command: Vec<String>,
     mut env: Vec<(String, String)>,
     lookup: &dyn Fn(&str) -> Option<String>,
+    user: &ghostty_files::Settings,
 ) -> ShellLaunch {
+    // The daemon integrates this shell, so it owns the Ghostty integration
+    // keys: a caller value for one of them never reaches the shell.
+    crate::daemon_env::warn_dropped(&crate::daemon_env::strip_integration_owned(&mut env));
+    export_features(&mut env, lookup, user);
     let root_str = root.to_string_lossy().into_owned();
     match shell {
         Shell::Zsh => {
@@ -315,14 +414,17 @@ fn check_owned(path: &Path, directory: bool) -> io::Result<()> {
 }
 
 #[cfg(test)]
+mod user_config_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
-    fn env_of(launch: &ShellLaunch, key: &str) -> Option<String> {
+    pub(super) fn env_of(launch: &ShellLaunch, key: &str) -> Option<String> {
         launch.env.iter().rev().find(|(name, _)| name == key).map(|(_, value)| value.clone())
     }
 
-    fn launch(shell: &str, env: &[(&str, &str)]) -> ShellLaunch {
+    pub(super) fn launch(shell: &str, env: &[(&str, &str)]) -> ShellLaunch {
         let env: Vec<(String, String)> =
             env.iter().map(|(key, value)| ((*key).into(), (*value).into())).collect();
         let lookup = {
@@ -335,6 +437,7 @@ mod tests {
             vec![shell.into()],
             env,
             &lookup,
+            &ghostty_files::read(&lookup),
         )
     }
 
@@ -380,6 +483,33 @@ mod tests {
         assert_eq!(env_of(&with_env, "GHOSTTY_BASH_ENV").as_deref(), Some("/etc/env.sh"));
         assert_eq!(env_of(&with_env, "HISTFILE").as_deref(), Some("/tmp/h"));
         assert_eq!(env_of(&with_env, "GHOSTTY_BASH_UNEXPORT_HISTFILE"), None);
+    }
+
+    /// The daemon integrates the default shell, so it owns the Ghostty
+    /// integration keys: no caller value for one of them reaches the shell.
+    #[test]
+    fn a_daemon_integrated_shell_drops_caller_integration_keys() {
+        let caller = [
+            ("GHOSTTY_ZSH_ZDOTDIR", "/caller/zdotdir"),
+            ("GHOSTTY_BASH_ENV", "/caller/env.sh"),
+            ("GHOSTTY_BASH_INJECT", "caller-inject"),
+            ("GHOSTTY_BASH_UNEXPORT_HISTFILE", "caller-unexport"),
+            ("GHOSTTY_SHELL_INTEGRATION_XDG_DIR", "/caller/xdg"),
+        ];
+        for shell in ["/usr/local/bin/bash", "zsh", "fish"] {
+            let mut env = vec![("HOME", "/home/me")];
+            env.extend(caller);
+            let launched = launch(shell, &env);
+            for (key, value) in caller {
+                assert!(
+                    !launched.env.iter().any(|(name, current)| name == key && current == value),
+                    "{shell}: a caller {key} reached the shell: {:?}",
+                    launched.env
+                );
+            }
+        }
+        let bash = launch("/usr/local/bin/bash", &[("HOME", "/home/me"), caller[2]]);
+        assert_eq!(env_of(&bash, "GHOSTTY_BASH_INJECT").as_deref(), Some("1"));
     }
 
     #[test]
@@ -457,6 +587,336 @@ mod tests {
         fs::set_permissions(&base, fs::Permissions::from_mode(0o700)).unwrap();
         assert_eq!(materialize(&root).unwrap(), root);
         fs::remove_dir_all(&base).unwrap();
+    }
+
+    /// Ghostty exports `GHOSTTY_SHELL_FEATURES` for every shell it starts
+    /// (`setupFeatures`); without it the scripts set no title, cursor shape
+    /// or path. A daemon-integrated shell gets Ghostty's defaults, and a
+    /// caller value (the app's resolved `shell-integration-features`) wins.
+    #[test]
+    fn a_daemon_integrated_shell_gets_ghosttys_default_features() {
+        for shell in ["/usr/local/bin/bash", "zsh", "fish"] {
+            let launched = launch(shell, &[("HOME", "/home/me")]);
+            assert_eq!(
+                env_of(&launched, "GHOSTTY_SHELL_FEATURES").as_deref(),
+                Some("cursor:blink,path,title"),
+                "{shell}"
+            );
+            let configured =
+                launch(shell, &[("HOME", "/home/me"), ("GHOSTTY_SHELL_FEATURES", "path")]);
+            assert_eq!(
+                env_of(&configured, "GHOSTTY_SHELL_FEATURES").as_deref(),
+                Some("path"),
+                "{shell}"
+            );
+        }
+    }
+
+    /// zsh passes preexec a `$2` that drops every word that does not fit its
+    /// 80-byte job text, and oh-my-zsh titles the terminal with it
+    /// (`/usr/bin/python3 /long/a.py /long/b.json 60` became
+    /// `/usr/bin/python3   60`). Ghostty's title feature runs after the
+    /// user's hooks and titles the running command with the full line.
+    #[cfg(unix)]
+    #[test]
+    fn a_daemon_integrated_zsh_titles_a_long_command_with_every_argument() {
+        use std::io::Read;
+        let Some(zsh) = ["/bin/zsh", "/usr/bin/zsh"].into_iter().find(|p| Path::new(p).is_file())
+        else {
+            eprintln!("skipped: zsh is not installed");
+            return;
+        };
+        let base = std::env::temp_dir().join(format!(
+            "cmux-tui-shell-title-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let user = base.join("user");
+        fs::create_dir_all(&user).unwrap();
+        let base = fs::canonicalize(&base).unwrap();
+        let root = materialize(&base.join("shell-integration").join(content_digest())).unwrap();
+        // No system rc files: a distribution's global zshrc can stop at an
+        // interactive compinit question.
+        fs::write(user.join(".zshenv"), "unsetopt global_rcs\n").unwrap();
+        // The title hook oh-my-zsh's termsupport installs, reduced to its use
+        // of zsh's `$2`.
+        fs::write(
+            user.join(".zshrc"),
+            "PS1='$ '\npreexec() { print -rn -- $'\\e]2;'\"$2\"$'\\a' }\n",
+        )
+        .unwrap();
+        let env = vec![
+            ("HOME".to_string(), base.to_string_lossy().into_owned()),
+            (
+                "ZDOTDIR".to_string(),
+                fs::canonicalize(&user).unwrap().to_string_lossy().into_owned(),
+            ),
+        ];
+        let lookup = {
+            let env = env.clone();
+            move |key: &str| env.iter().rev().find(|(name, _)| name == key).map(|(_, v)| v.clone())
+        };
+        let launched =
+            apply(Shell::Zsh, &root, vec![zsh.into()], env, &lookup, &ghostty_files::read(&lookup));
+
+        let pty = cmux_pty::open(cmux_pty::PtySize {
+            rows: 24,
+            cols: 200,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .unwrap();
+        let mut command = cmux_pty::PtyCommand::new(&launched.command[0]);
+        command.args(launched.command[1..].iter().cloned());
+        command.env("TERM", "xterm-256color");
+        for (key, value) in &launched.env {
+            command.env(key.clone(), value.clone());
+        }
+        let mut spawned = pty.spawn(command).unwrap();
+        let mut reader = spawned.master.try_clone_reader().unwrap();
+        let mut writer = spawned.master.take_writer().unwrap();
+        let (chunks, received) = std::sync::mpsc::channel::<Vec<u8>>();
+        std::thread::spawn(move || {
+            let mut chunk = [0u8; 4096];
+            // EOF, or EIO once the child side closes (Linux).
+            while let Ok(n) = reader.read(&mut chunk) {
+                if n == 0 || chunks.send(chunk[..n].to_vec()).is_err() {
+                    break;
+                }
+            }
+        });
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        let mut output = Vec::new();
+        let read_until = |output: &mut Vec<u8>, needle: &[u8]| {
+            while !output.windows(needle.len()).any(|window| window == needle) {
+                let left = deadline.saturating_duration_since(std::time::Instant::now());
+                match received.recv_timeout(left) {
+                    Ok(chunk) => output.extend_from_slice(&chunk),
+                    Err(_) => panic!(
+                        "no {:?} from zsh: {:?}",
+                        String::from_utf8_lossy(needle),
+                        String::from_utf8_lossy(output)
+                    ),
+                }
+            }
+        };
+        // Type the command at the prompt, as a user does: input typed before
+        // the line editor starts can lose characters.
+        read_until(&mut output, b"$ ");
+        // The command's first output (`r92-42`) differs from its echoed
+        // text (`r92-$((40+2))`), so it marks the moment it runs.
+        let line = "print -r -- r92-$((40+2)) \
+                    /Users/someone/nx-jobs/jobs/r92cb-live-final/artifacts/osc52-reader.py \
+                    /Users/someone/nx-jobs/jobs/r92cb-live-final/artifacts/deny-reply.json 60";
+        writer.write_all(format!("{line}\n").as_bytes()).unwrap();
+        read_until(&mut output, b"r92-42");
+        writer.write_all(b"exit\n").unwrap();
+        drop(writer);
+        while spawned.child.try_wait().unwrap().is_none() {
+            assert!(std::time::Instant::now() < deadline, "zsh did not exit");
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        drop(spawned);
+
+        // The title while the command runs: everything the shell wrote
+        // before the command's own output (after every preexec hook),
+        // parsed by the terminal the daemon reads titles from.
+        let start = output.windows(6).position(|window| window == b"r92-42").unwrap();
+        let mut terminal =
+            ghostty_vt::Terminal::new(200, 24, 0, ghostty_vt::Callbacks::default()).unwrap();
+        terminal.vt_write(&output[..start]);
+        assert_eq!(terminal.title().as_deref(), Some(line));
+        fs::remove_dir_all(&base).unwrap();
+    }
+
+    /// The scripts' ssh wrappers run `$GHOSTTY_BIN_DIR/ghostty +ssh`. A shell
+    /// with the ssh features and no Ghostty CLI would wrap `ssh` around a
+    /// missing program, so the features are dropped; with a CLI they stay and
+    /// the shell gets `GHOSTTY_BIN_DIR`.
+    #[test]
+    fn ssh_features_need_a_ghostty_cli() {
+        let all = "cursor:blink,path,ssh-env,ssh-terminfo,sudo,title";
+        for shell in ["/usr/local/bin/bash", "zsh", "fish"] {
+            let none = launch(shell, &[("HOME", "/home/me"), (FEATURES_ENV, all)]);
+            assert_eq!(
+                env_of(&none, FEATURES_ENV).as_deref(),
+                Some("cursor:blink,path,sudo,title"),
+                "{shell}"
+            );
+            assert_eq!(env_of(&none, "GHOSTTY_BIN_DIR"), None, "{shell}");
+            let only_ssh = launch(shell, &[(FEATURES_ENV, "ssh-env,ssh-terminfo")]);
+            assert_eq!(env_of(&only_ssh, FEATURES_ENV).as_deref(), Some(""), "{shell}");
+            let empty_bin = launch(shell, &[(FEATURES_ENV, "ssh-env"), ("GHOSTTY_BIN", "")]);
+            assert_eq!(env_of(&empty_bin, FEATURES_ENV).as_deref(), Some(""), "{shell}");
+
+            let bin = launch(shell, &[(FEATURES_ENV, all), ("GHOSTTY_BIN", "/opt/g/bin/ghostty")]);
+            assert_eq!(env_of(&bin, FEATURES_ENV).as_deref(), Some(all), "{shell}");
+            assert_eq!(env_of(&bin, "GHOSTTY_BIN_DIR").as_deref(), Some("/opt/g/bin"), "{shell}");
+            let dir = launch(shell, &[(FEATURES_ENV, all), ("GHOSTTY_BIN_DIR", "/opt/h/bin")]);
+            assert_eq!(env_of(&dir, FEATURES_ENV).as_deref(), Some(all), "{shell}");
+            assert_eq!(env_of(&dir, "GHOSTTY_BIN_DIR").as_deref(), Some("/opt/h/bin"), "{shell}");
+        }
+    }
+
+    /// The embedded scripts are exactly the zsh, bash and fish injection files
+    /// of ghostty-next, the Ghostty that builds ghostty-vt: a file that
+    /// ghostty-next adds, removes or changes cannot be missed.
+    #[test]
+    fn the_embedded_scripts_are_ghostty_nexts_injection_files() {
+        let tree = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../ghostty-next/src/shell-integration");
+        let mut files = Vec::new();
+        let mut pending: Vec<PathBuf> =
+            ["zsh", "bash", "fish"].iter().map(|d| tree.join(d)).collect();
+        while let Some(dir) = pending.pop() {
+            for entry in fs::read_dir(&dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    pending.push(path);
+                } else {
+                    files.push(
+                        path.strip_prefix(&tree).unwrap().to_string_lossy().replace('\\', "/"),
+                    );
+                }
+            }
+        }
+        files.sort();
+        let mut embedded: Vec<String> =
+            SCRIPTS.iter().map(|script| script.path.to_string()).collect();
+        embedded.sort();
+        assert_eq!(files, embedded);
+        for script in SCRIPTS {
+            assert_eq!(
+                fs::read_to_string(tree.join(script.path)).unwrap(),
+                script.contents,
+                "{}",
+                script.path
+            );
+        }
+    }
+
+    /// The real shells: with the ssh features and no Ghostty CLI, `ssh` is not
+    /// wrapped; with a CLI directory it is (the control that the probe sees
+    /// the wrapper at all).
+    #[cfg(unix)]
+    #[test]
+    fn a_shell_without_a_ghostty_cli_runs_plain_ssh() {
+        let shells: Vec<(Shell, &str)> = [
+            (Shell::Zsh, ["/bin/zsh", "/usr/bin/zsh"].into_iter().find(|p| Path::new(p).is_file())),
+            (
+                Shell::Bash,
+                ["/usr/bin/bash", "/bin/bash", "/opt/homebrew/bin/bash", "/usr/local/bin/bash"]
+                    .into_iter()
+                    .find(|p| Path::new(p).is_file() && detect_shell(&[(*p).into()]).is_some()),
+            ),
+        ]
+        .into_iter()
+        .filter_map(|(shell, exe)| exe.map(|exe| (shell, exe)))
+        .collect();
+        if shells.is_empty() {
+            eprintln!("skipped: neither zsh nor a usable bash is installed");
+            return;
+        }
+        for (shell, exe) in shells {
+            let plain = probe_ssh(shell, exe, None);
+            assert!(!plain.contains("function"), "{exe} without a CLI wrapped ssh: {plain:?}");
+            let wrapped = probe_ssh(shell, exe, Some("/opt/g/bin"));
+            assert!(wrapped.contains("function"), "{exe} with a CLI did not wrap ssh: {wrapped:?}");
+        }
+    }
+
+    /// `type ssh` in an integrated interactive `shell` whose features ask for
+    /// the ssh wrappers; returns what it printed.
+    #[cfg(unix)]
+    fn probe_ssh(shell: Shell, exe: &str, bin_dir: Option<&str>) -> String {
+        use std::io::Read;
+        let base = std::env::temp_dir().join(format!(
+            "cmux-tui-shell-ssh-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let user = base.join("user");
+        fs::create_dir_all(&user).unwrap();
+        let base = fs::canonicalize(&base).unwrap();
+        let user = fs::canonicalize(&user).unwrap();
+        let root = materialize(&base.join("shell-integration").join(content_digest())).unwrap();
+        fs::write(user.join(".zshenv"), "unsetopt global_rcs\n").unwrap();
+        fs::write(user.join(".zshrc"), "PS1='$ '\n").unwrap();
+        fs::write(user.join(".bashrc"), "PS1='$ '\n").unwrap();
+        let mut env = vec![
+            ("HOME".to_string(), user.to_string_lossy().into_owned()),
+            (FEATURES_ENV.to_string(), "ssh-env,ssh-terminfo".to_string()),
+        ];
+        if shell == Shell::Zsh {
+            env.push(("ZDOTDIR".to_string(), user.to_string_lossy().into_owned()));
+        }
+        if let Some(dir) = bin_dir {
+            env.push(("GHOSTTY_BIN_DIR".to_string(), dir.to_string()));
+        }
+        let lookup = {
+            let env = env.clone();
+            move |key: &str| env.iter().rev().find(|(name, _)| name == key).map(|(_, v)| v.clone())
+        };
+        let launched =
+            apply(shell, &root, vec![exe.into()], env, &lookup, &ghostty_files::read(&lookup));
+        let pty = cmux_pty::open(cmux_pty::PtySize {
+            rows: 24,
+            cols: 200,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .unwrap();
+        let mut command = cmux_pty::PtyCommand::new(&launched.command[0]);
+        command.args(launched.command[1..].iter().cloned());
+        command.env("TERM", "xterm-256color");
+        command.env("GHOSTTY_BIN", "");
+        for (key, value) in &launched.env {
+            command.env(key.clone(), value.clone());
+        }
+        let mut spawned = pty.spawn(command).unwrap();
+        let mut reader = spawned.master.try_clone_reader().unwrap();
+        let mut writer = spawned.master.take_writer().unwrap();
+        let (chunks, received) = std::sync::mpsc::channel::<Vec<u8>>();
+        std::thread::spawn(move || {
+            let mut chunk = [0u8; 4096];
+            while let Ok(n) = reader.read(&mut chunk) {
+                if n == 0 || chunks.send(chunk[..n].to_vec()).is_err() {
+                    break;
+                }
+            }
+        });
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        let mut output = Vec::new();
+        let read_until = |output: &mut Vec<u8>, needle: &[u8]| {
+            while !output.windows(needle.len()).any(|window| window == needle) {
+                let left = deadline.saturating_duration_since(std::time::Instant::now());
+                match received.recv_timeout(left) {
+                    Ok(chunk) => output.extend_from_slice(&chunk),
+                    Err(_) => panic!(
+                        "no {:?} from {exe}: {:?}",
+                        String::from_utf8_lossy(needle),
+                        String::from_utf8_lossy(output)
+                    ),
+                }
+            }
+        };
+        read_until(&mut output, b"$ ");
+        // The end marker's echoed text (`ssh-$((40+2))`) differs from its output.
+        writer.write_all(b"type ssh 2>&1 | head -n 1; echo ssh-$((40+2))\n").unwrap();
+        read_until(&mut output, b"ssh-42\r\n");
+        writer.write_all(b"exit\n").unwrap();
+        drop(writer);
+        while spawned.child.try_wait().unwrap().is_none() {
+            assert!(std::time::Instant::now() < deadline, "{exe} did not exit");
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        drop(spawned);
+        fs::remove_dir_all(&base).unwrap();
+        let text = String::from_utf8_lossy(&output).into_owned();
+        // Only the probe's own output: after its echoed line, before the marker.
+        let start = text.find("ssh-$((40+2))").map_or(0, |at| at + "ssh-$((40+2))".len());
+        let end = text.rfind("ssh-42").unwrap_or(text.len());
+        text[start..end.max(start)].to_string()
     }
 
     #[test]

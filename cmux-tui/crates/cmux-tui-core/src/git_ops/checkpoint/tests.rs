@@ -14,6 +14,9 @@ use serde_json::{Value, json};
 use crate::resource_router::handle_resource_message;
 use crate::{Mux, SurfaceOptions};
 
+#[path = "compare_tests.rs"]
+mod compare;
+
 fn temporary(name: &str) -> PathBuf {
     let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
     let folder =
@@ -522,9 +525,11 @@ fn pin_call(mux: &Arc<Mux>, repository: &Path, operation: &str, fields: Value, k
     call(mux, operation, params, Some(key))
 }
 
-/// A second worktree of `repository` on a new branch.
+/// A second worktree of `repository` on a new branch, in its own unique
+/// directory: a fixed `$TMPDIR/<name>-second` collided with the worktree an
+/// earlier or parallel run left behind ("already exists").
 fn second_worktree(repository: &Path, name: &str) -> PathBuf {
-    let worktree = repository.parent().unwrap().join(format!("{name}-second"));
+    let worktree = temporary(&format!("{name}-second")).join("worktree");
     let target = worktree.to_string_lossy().into_owned();
     git(repository, &["worktree", "add", "-q", "-b", name, &target]);
     fs::canonicalize(worktree).unwrap()

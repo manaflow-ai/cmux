@@ -7,6 +7,10 @@ import Foundation
 public nonisolated enum SidebarIntent: Hashable, Sendable {
     /// Activate a workspace (the selection's primary item).
     case select(WorkspaceID)
+    /// Activate a tab listed beneath a workspace.
+    case selectTab(workspace: WorkspaceID, tab: TabID)
+    /// Move a listed tab into another workspace.
+    case moveTab(TabID, from: WorkspaceID, to: WorkspaceID)
     /// Move workspaces, in tree order, to a position. Covers reorder, moving
     /// into or out of groups, pinning, and unpinning.
     case reorder([WorkspaceID], to: DropPosition)
@@ -44,9 +48,11 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     case newProfile
     /// Move a profile to an insertion index (dot drag).
     case reorderProfile(ProfileKey, index: Int)
-    /// Run an item of a sticky section (a built-in's action, a pinned
+    /// Run an item of a pinned section (a built-in's action, a pinned
     /// workspace). plans/cmux-next/sidebar-sections.md
     case activateItem(LayoutItemID, opensWorkspace: Bool = false)
+    /// Run an item's trailing control (`SidebarItemInfo.accessory`).
+    case activateItemAccessory(LayoutItemID)
     /// Change the section layout; the App sends it to the workspace store.
     case layout(SidebarLayoutOp)
     /// Collapse or expand a titled section (client view state).

@@ -26,6 +26,19 @@ export const RETENTION_MAX = { cuaEventsDays: 30, cuaFramesDays: 7 } as const
 /** Audit retention may only lengthen above this floor. */
 export const AUDIT_RETENTION_MIN_DAYS = 365
 
+/**
+ * Link services a policy or grant may give (FINDER-FS): unique, and `daemon` only together with `ssh`.
+ * CloudDO's per-machine grants use the same rule (cloudServicesProblem).
+ */
+export const cloudServicesProblem = (services: ReadonlyArray<string>): string | undefined => {
+  if (new Set(services).size !== services.length) return "services must be unique"
+  if (services.includes("daemon") && !services.includes("ssh")) return "daemon (files and commands) requires ssh on the same machine"
+  return undefined
+}
+export const CloudConnectServices = Schema.Array(Schema.Literals(["daemon", "ssh"]))
+  .check(Schema.isMaxLength(2), Schema.makeFilter((services: ReadonlyArray<string>) => cloudServicesProblem(services) ?? true))
+  .annotate({ identifier: "CloudConnectServices" })
+
 /** The value schema of every policy key, by dotted key. */
 export const policyKeySchemas = {
   // Same values as TeamIntegrationPolicy (integrations.ts), which ConnectionDO enforces as TeamDO's projection.
@@ -43,6 +56,18 @@ export const policyKeySchemas = {
   "computerUse.allowed": Schema.Boolean,
   "browserAutomation.rawCdp": Schema.Boolean,
   "cloud.sandboxes": Schema.Boolean,
+  /**
+   * The `cmux link` services team members may dial on team Cloud machines (decision CLOUD-CONNECT-ACCESS).
+   * FINDER-FS: files are reached only through `daemon`, which also runs commands, so `daemon` requires
+   * `ssh`: a principal without a shell never gets one through the files path.
+   */
+  "cloud.connectServices": CloudConnectServices,
+  /**
+   * Pause a running Cloud machine when its own activity reports show no sessions and no activity past
+   * its idle policy. Default off until auto-start of paused machines is decided (with no auto-start, a
+   * paused machine needs a manual Start on return).
+   */
+  "cloud.idlePause": Schema.Boolean,
   "telemetry.level": Schema.Literals(["full", "crash_only", "off"]),
   "updates.channel": Schema.Literals(["stable", "nightly"]),
   "updates.minimumVersion": Version,
@@ -82,6 +107,8 @@ export const policyProductDefaults: { readonly [K in PolicyKey]?: (typeof policy
   "computerUse.allowed": true,
   "browserAutomation.rawCdp": true,
   "cloud.sandboxes": true,
+  "cloud.connectServices": ["daemon", "ssh"],
+  "cloud.idlePause": false,
   "telemetry.level": "full",
   "updates.channel": "stable",
   "retention.cuaEventsDays": RETENTION_MAX.cuaEventsDays,

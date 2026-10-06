@@ -205,6 +205,8 @@ public final class RegistryControlBridge: ControlActionExecutor {
         (.agentPaneFocused, "agentPaneFocused"),
         (.checkpointCaptureAvailable, "checkpointCaptureAvailable"),
         (.recordingShortcut, "recordingShortcut"),
+        (.omnibarFocused, "omnibarFocused"),
+        (.codeEditorFocused, "codeEditorFocused"),
         (.diffViewerFocused, "diffViewerFocused"),
         (.filePreviewFocused, "filePreviewFocused"),
         (.markdownFocused, "markdownFocused"),

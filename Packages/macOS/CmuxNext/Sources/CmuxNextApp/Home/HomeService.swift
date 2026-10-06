@@ -23,11 +23,21 @@ final class HomeService {
     /// The store's home workspace (`workspace-kind-v1`), from `workspace.ensure_home`.
     var homeWorkspaceID: ResourceID?
     @ObservationIgnored var homeWorkspaceTask: Task<Void, Never>?
+    /// The last step the home workspace setup reached, for `debug.home`.
+    @ObservationIgnored var homeWorkspaceStep = "not started"
+    /// The chief tab creation's idempotency key (one per creation).
+    @ObservationIgnored let chiefTabKey = HomeChiefTabKey()
     @ObservationIgnored private var homeObservation: Task<Void, Never>?
     /// The shared Home core over the local owner (home-mac.md): the native
     /// transcript of every conversation tab reads this one store.
     @ObservationIgnored let homeSource = DaemonHomeSource(me: HomeCoreMapping.participant(HomeService.localUser))
-    @ObservationIgnored private(set) lazy var homeStore = HomeStore(source: homeSource)
+    /// Cloud conversations through the daemon's proxy (home-cloud-proxy.md),
+    /// merged with the local ones into the one store.
+    @ObservationIgnored let cloudSource = CloudHomeSource(me: HomeCoreMapping.participant(HomeService.localUser))
+    @ObservationIgnored private(set) lazy var homeRouter = HomeSourceRouter(local: homeSource, cloud: cloudSource)
+    @ObservationIgnored private(set) lazy var homeStore = HomeStore(source: homeRouter)
+    @ObservationIgnored var cloudLink: Task<Void, Never>?
+    @ObservationIgnored var cloudLinker: HomeCloudLink?
     /// Each conversation tab's view, by tab id; released with the tab.
     @ObservationIgnored var tabViews: [String: HomeHostView] = [:]
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "home")
@@ -51,6 +61,7 @@ final class HomeService {
                 ensureHomeWorkspace(connection)
             }
         }
+        startCloud()
         // task-owner: lives as long as the service; event-driven (Observation)
         homeStore.start()
         availability = Task { [weak self] in
@@ -132,6 +143,8 @@ final class HomeService {
         case .conversationTyping(let typing):
             sessions[typing.conversation]?.setTyping(typing.participant, on: typing.on)
             homeSource.publish(.typing(ConversationID(typing.conversation), ParticipantID(typing.participant), on: typing.on))
+        case .cloudConversations(let event):
+            handleCloud(event)
         default:
             break
         }

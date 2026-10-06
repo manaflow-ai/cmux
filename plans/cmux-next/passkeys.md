@@ -118,6 +118,41 @@ Each default has a docs entry and a test that the default matches the docs.
 
 The CLI verbs go to the Rust CLI session (CLI freeze, AGENT-BRIEF).
 
+## 3.8 Bluetooth (hybrid) passkeys, R122 (2026-10-04)
+
+Lawrence: "make sure we support bluetooth passkeys, the same way chrome supports it." Scope: cross-device passkeys (FIDO hybrid, caBLE v2): the page asks for a passkey, the person scans a QR code with a phone, the phone and the Mac prove proximity over Bluetooth LE, and the assertion goes through Google's tunnel server. Also "linked phones" (no QR after the first time).
+
+What Chrome on macOS does, and what cmux has today (read from Chromium 154 sources and the branch, not run):
+
+| Part | Chrome on macOS | cmux CEF tab (default engine) | cmux WebKit tab |
+| --- | --- | --- | --- |
+| Hybrid QR + BLE | Chromium's own stack (`device/fido/cable/`), on by default (no feature flag gates it in 154) | The same code runs in the browser process, which is the cmux app itself. Missing nothing in code; UNVERIFIED in a build | ASAuthorization offers "iPhone, iPad, or Android device" when WebKit asks with the browser passkey entitlement. cmux's WebKit tabs do not ask for that authorization yet (passkeys.md 0 and 3.3, build plan step 5), so WebKit has no passkeys at all today |
+| Bluetooth usage string | `NSBluetoothAlwaysUsageDescription` in the app | Present in `Resources/Info.plist` (K2). The text is the generic child-process string; a passkey-specific text is better but changes the shared prompt | Same app key |
+| Bluetooth entitlement | Not needed (Chrome is not sandboxed) | Not needed: cmux is not sandboxed and the hardened runtime has no Bluetooth entitlement | Same |
+| macOS Bluetooth TCC prompt | Once per app, attributed to Chrome | Once per app, attributed to cmux (the browser process is the app; helpers do not use Bluetooth) | Same |
+| QR sheet | Chromium's web-modal `AuthenticatorRequestDialogView` | The same dialog (decision D2: keep Chromium's dialog). It is a web-contents-modal widget, so it attaches to the page's child window; placement over the pane is UNVERIFIED (3.2.2) | System sheet |
+| Linked phones | From Google sync | Not available: cmux has no Google sign-in. The QR flow works every time instead | System (iCloud Keychain on the same Apple account needs no QR) |
+| iCloud Keychain platform passkeys | ASAuthorization from Chrome with the browser entitlement | `com.apple.developer.web-browser.public-key-credential` is in the nightly and release entitlements; RC lacks it (K14, decision D6) | Same entitlement |
+
+Known crash that blocks testing (coordinator, 2026-10-04): a WebAuthn call from an opaque-origin frame hits `DCHECK(!caller_origin.opaque())` in `AuthenticatorCommonImpl::GetWebAuthnRequestProxyIfActive`, and the shipped CEF has `dcheck_always_on`, so the whole app aborts. cmux.17 turns DCHECKs off. All passkey measurements wait for a cmux.17 framework, and the tests must not rely on DCHECK behavior.
+
+Plan (failing test first where a test is possible):
+1. Test RP: new scenarios `opaque-origin-iframe-uvpa` and `sandboxed-iframe-create` (a `sandbox` iframe without `allow-same-origin` calls `isUserVerifyingPlatformAuthenticatorAvailable()` and `create()`; expected: a rejection such as `NotAllowedError` or `SecurityError`, and the browser stays up), plus `hybrid-qr-offered` for the manual run (an allow list with `transports: ["hybrid"]`; expected: Chromium's QR sheet). Stock Chromium is the oracle; the cmux run uses a cmux.17 framework only.
+2. Built-bundle check (no source-shape test): the tagged and release builds' `Info.plist` has `NSBluetoothAlwaysUsageDescription`, and the signed nightly has the browser passkey entitlement; the release pipeline's existing entitlement assertion covers the second.
+3. Measurement on cmux-lawrence-2 with a cmux.17 tagged build and a real phone (manual, Lawrence): the steps in section 8 item 2, plus the Bluetooth TCC prompt the first time.
+4. Fix only what the measurement shows. Candidates: QR sheet placement over the child window (fork, one function, cmux.18), the Bluetooth prompt text (Info.plist, localized in `InfoPlist.xcstrings`), an error page when Bluetooth is off (K2 wants "turn on Bluetooth", not "Something went wrong"). No fork change is known to be needed for hybrid itself.
+5. WebKit: hybrid comes with build plan step 5 (authorization) and the D1 measurement; nothing hybrid-specific to build before that.
+6. Agents never complete a hybrid ceremony: the agent lease `refuse` mode (3.5, fork `cmux_tab_set_webauthn_mode`) rides cmux.18 with the other fork changes, never cmux.17.
+
+Manual steps for Lawrence (when the cmux.17 build is ready; needs him at cmux-lawrence-2 or on Screen Sharing, with an iPhone that has Bluetooth on):
+1. Open the tagged build the agent names (a CEF tab).
+2. Go to https://webauthn.io, type a new username, open Advanced Settings, set Authenticator Type to "Cross-platform", click Register.
+3. Expect Chromium's sheet with a QR code. If macOS asks "cmux would like to use Bluetooth", click Allow.
+4. Scan the QR code with the iPhone camera, tap the passkey prompt, approve with Face ID.
+5. Expect "Success! Now try to authenticate...". Click Authenticate, scan again (no linked phones in cmux), approve. Expect success.
+6. Repeat 2-5 in a New WebKit Tab only after WebKit passkey authorization lands (step 5); until then WebKit is expected to fail.
+7. Report: the sheet position (over the pane or detached), the Bluetooth prompt text, any error text.
+
 ## 4. Signing, App IDs and profiles
 
 Checked 2026-10-02 from the installed apps (no secrets read):
@@ -153,7 +188,7 @@ Checked 2026-10-02 from the installed apps (no secrets read):
 
 ## 7. Feature matrix (test RP scenarios)
 
-`tests/passkeys/rp/index.html` (run with `node tests/passkeys/run.mjs`; `--serve` for a person in a cmux pane, `--cdp` for an existing Chromium) runs these in order and reports one JSON object per scenario: `create-platform`, `get-discoverable`, `get-allow-list`, `get-large-challenge` (K12), `get-no-user-handle` (K11), `abort-conditional-then-modal` (K15), `abort-modal` (K15), `prf-create-get`, `large-blob`, `cred-props`, `client-capabilities`, `cross-origin-iframe-denied`, `cross-origin-iframe-allowed`, `transports-hybrid-only` and `transports-internal-hybrid` (K8, reported for the manual check), `user-id-too-long` (expect `TypeError`), `insecure-rp-id` (expect `SecurityError`). The page checks what a browser must produce (clientDataJSON type, origin, challenge echo, crossOrigin, flags, extension outputs); it does not verify signatures, which no browser bug in section 1 involved.
+`tests/passkeys/rp/index.html` (run with `node tests/passkeys/run.mjs`; `--serve` for a person in a cmux pane, `--cdp` for an existing Chromium) runs these in order and reports one JSON object per scenario: `create-platform`, `get-discoverable`, `get-allow-list`, `get-large-challenge` (K12), `get-no-user-handle` (K11), `abort-conditional-then-modal` (K15), `abort-modal` (K15), `prf-create-get`, `large-blob`, `cred-props`, `client-capabilities`, `cross-origin-iframe-denied`, `cross-origin-iframe-allowed`, `transports-hybrid-only` and `transports-internal-hybrid` (K8, reported for the manual check), `user-id-too-long` (expect `TypeError`), `insecure-rp-id` (expect `SecurityError`), `opaque-origin-iframe-uvpa` and `sandboxed-iframe-create` (R122: a sandboxed frame without `allow-same-origin` gets a rejection and the browser stays up). The page checks what a browser must produce (clientDataJSON type, origin, challenge echo, crossOrigin, flags, extension outputs); it does not verify signatures, which no browser bug in section 1 involved.
 
 ## 8. Manual checks for Lawrence (UNVERIFIED until done; signed cmux-next nightly)
 

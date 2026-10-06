@@ -113,6 +113,13 @@ public nonisolated struct LocationTrail: Hashable, Sendable, Codable {
         newerIndex(isAvailable) != nil
     }
 
+    /// Moves to the entry at `index` (a row of a Back or Forward list) and marks it pending, like
+    /// Back and Forward do; nil for an index outside the trail.
+    public mutating func go(to index: Int) -> Entry? {
+        guard entries.indices.contains(index) else { return nil }
+        return move(to: index, index < cursor ? .back : .forward)
+    }
+
     /// Clears a pending navigation that could not land (the tab vanished).
     public mutating func cancelPending() {
         pending = nil

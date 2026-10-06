@@ -29,7 +29,7 @@ So the problems are not depth. They are what is missing, what is misplaced, and 
 
 **Order fights frequency**
 - General opens on History, and the newest useful row (New Tab Opens) sits under Window.
-- A 9-row Columns group of niri tunables (sticky edges, minimum pane sizes) ends the page.
+- A 9-row Columns group of niri tunables (dock edges, minimum pane sizes) ends the page.
 - Notifications is 18 rows: three per-source dismissal overrides and 8 attention-ring details, all at the same level as the two settings most people want (banners, sound).
 
 **Search covers only half the window**
@@ -50,7 +50,7 @@ So the problems are not depth. They are what is missing, what is misplaced, and 
 
 **Several write paths, two sources**
 - The window and the new tab page write through the validated `setSetting`.
-- The palette handlers use typed setters, and some write raw paths with no schema check: focus ring, sticky column and notification dismissal.
+- The palette handlers use typed setters, and some write raw paths with no schema check: focus ring, docked column and notification dismissal.
 - Density is written three ways and theme five ways.
 - cmux.json is the store for preferences. Per-object state lives elsewhere:
   - room and workspace themes in the daemon;
@@ -80,7 +80,7 @@ Rules:
 | Page | Top (always shown) | More… (inline) |
 |---|---|---|
 | General | New Tab Opens, When Quitting, Titlebar, Action Rail | History, Columns (all 9) |
-| Appearance | App theme (new), Density, Interface size (new), Motion | Panes, Focus ring, room/workspace/terminal themes; "Customize…" opens the appearance studio (cc-pane-chrome owns it) |
+| Appearance | App theme (new), Density, Interface size (new), Motion | Panes, Focus ring, room/workspace/terminal themes; Customize Appearance… opens this section (R82 commit 6 removed the floating studio) |
 | Terminal | Font family and size (new), Default shell (new) | Open Ghostty config |
 | Browser | Default engine, New tab page, Bookmarks bar, Import from Browser | Profiles (expanders), Memory, Remote localhost |
 | Agents (new) | Default agent, Computer Use | Agent accounts summary |
@@ -138,7 +138,7 @@ either.
 - #16873 keeps Settings opaque over a see-through theme. It doesn't conflict.
 - #15210 (main app) adds a Font card with live preview and a gallery to Settings > Terminal. It is the model for the missing terminal font control here.
 - #16693 (main app) searches shortcuts by name or by pressing the shortcut. cmux-next search covers shortcuts already, and the jump in step 1 uses the same index.
-- Appearance studio (cc-pane-chrome, `feat-cmux-next-appearance-studio`): the panel reuses the Settings theme cards. Under this plan, Appearance keeps the quick controls and opens the studio from "Customize…".
+- Appearance studio: removed with the Swift Settings UI (R82 commit 6). Customize Appearance… (palette, View menu, sidebar item, `cmux settings customize-appearance`) opens Settings > Appearance; the page sliders preview live in every window.
 
 ## Current captures
 

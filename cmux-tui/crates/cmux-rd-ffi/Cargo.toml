@@ -1,0 +1,30 @@
+[package]
+name = "cmux-rd-ffi"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.91"
+license = "GPL-3.0-or-later"
+publish = false
+description = "C ABI of the cmux remote desktop viewer core: cmux.rd/1 bytes in, access units and feedback datagrams out (no I/O, no threads)"
+
+# Own workspace: the staticlib is built only for the client xcframework
+# (scripts/cmux-next/build-rd-ffi.sh), so cmux-tui workspace builds and its
+# Cargo.lock do not change and builds without the remote view do not pay for it.
+[workspace]
+
+[lib]
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+cmux-rd-core = { path = "../cmux-rd-core" }
+cmux-rd-proto = { path = "../cmux-rd-proto" }
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+unused_qualifications = "warn"
+
+[profile.release]
+opt-level = 3
+codegen-units = 1
+debug = false
+strip = "debuginfo"

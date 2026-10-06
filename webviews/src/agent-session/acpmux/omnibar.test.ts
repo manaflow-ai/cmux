@@ -1,5 +1,13 @@
 import { expect, test } from "bun:test";
-import { defaultRow, matchScore, MAX_ROWS, omnibarRows, type OmnibarContext } from "./omnibar";
+import {
+  defaultRow,
+  matchScore,
+  MAX_NEW_TAB_ENTRIES,
+  MAX_ROWS,
+  omnibarContext,
+  omnibarRows,
+  type OmnibarContext,
+} from "./omnibar";
 
 const context: OmnibarContext = {
   tabs: [
@@ -38,6 +46,28 @@ test("the empty bar lists open tabs and workspaces first, then recent things", (
   expect(defaultRow(rows, "browser", "")).toBe(-1);
 });
 
+test("the web bridge validates and caps each NewTab source", () => {
+  const value = omnibarContext({
+    tabs: Array.from({ length: MAX_NEW_TAB_ENTRIES + 2 }, (_, index) => ({
+      id: `tab-${index}`,
+      kind: "terminal",
+      title: `tab ${index}`,
+    })),
+    workspaces: Array.from({ length: MAX_NEW_TAB_ENTRIES + 2 }, (_, index) => ({
+      id: `workspace-${index}`,
+      name: `workspace ${index}`,
+    })),
+    folders: Array.from({ length: MAX_NEW_TAB_ENTRIES + 2 }, (_, index) => `/src/${index}`),
+    commands: Array.from({ length: MAX_NEW_TAB_ENTRIES + 2 }, (_, index) => `cmd-${index}`),
+    history: Array.from({ length: MAX_NEW_TAB_ENTRIES + 2 }, (_, index) => ({ url: `https://example.com/${index}` })),
+  });
+  expect(value?.tabs).toHaveLength(MAX_NEW_TAB_ENTRIES);
+  expect(value?.workspaces).toHaveLength(MAX_NEW_TAB_ENTRIES);
+  expect(value?.folders).toHaveLength(MAX_NEW_TAB_ENTRIES);
+  expect(value?.commands).toHaveLength(MAX_NEW_TAB_ENTRIES);
+  expect(value?.history).toHaveLength(MAX_NEW_TAB_ENTRIES);
+});
+
 test("typed text: its own row first, matches from every source, and Ask last", () => {
   const rows = omnibarRows("vite", "browser", context);
   expect(rows[0]).toEqual({ type: "open", text: "vite" });
@@ -64,4 +94,36 @@ test("typed rows are capped and Ask is never cut", () => {
   const rows = omnibarRows("a", "browser", many);
   expect(rows.length).toBe(MAX_ROWS);
   expect(rows.at(-1)?.type).toBe("ask");
+});
+
+test("host files and app actions are validated separately from shell commands", () => {
+  const parsed = omnibarContext({
+    files: [{ path: "/src/app/README.md", title: "README" }, { path: 42 }, null],
+    actions: [
+      { id: "settings", title: "Settings", keywords: ["preferences", 42, ""] },
+      { id: "missing-title" },
+      { title: "Missing ID" },
+    ],
+  });
+  expect(parsed?.files).toEqual([{ path: "/src/app/README.md", title: "README" }]);
+  expect(parsed?.actions).toEqual([{ id: "settings", title: "Settings", keywords: ["preferences"] }]);
+  expect(omnibarContext({})?.files).toEqual([]);
+  expect(omnibarContext({})?.actions).toEqual([]);
+});
+
+test("files and app actions match their names, paths and keywords without changing typed defaults", () => {
+  const withActions: OmnibarContext = {
+    ...context,
+    files: [{ path: "/src/app/README.md", title: "Project guide" }],
+    actions: [{ id: "settings", title: "Settings", keywords: ["preferences"] }],
+  };
+  expect(omnibarRows("README", "agent", withActions)).toEqual([
+    { type: "file", path: "/src/app/README.md", title: "Project guide" },
+    { type: "ask", text: "README" },
+  ]);
+  const agent = omnibarRows("preferences", "agent", withActions);
+  expect(agent[0]).toMatchObject({ type: "action", id: "settings", title: "Settings" });
+  expect(defaultRow(agent, "agent", "preferences")).toBe(agent.length - 1);
+  expect(omnibarRows("preferences", "terminal", withActions)[0]).toEqual({ type: "run", text: "preferences" });
+  expect(omnibarRows("README", "browser", withActions)[0]).toEqual({ type: "open", text: "README" });
 });

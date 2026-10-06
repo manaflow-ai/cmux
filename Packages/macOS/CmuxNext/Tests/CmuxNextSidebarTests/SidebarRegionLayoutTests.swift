@@ -3,7 +3,7 @@ import CmuxNextDesign
 import Testing
 @testable import CmuxNextSidebar
 
-/// Sticky section bands (plans/cmux-next/sidebar-sections.md 1, 7): the
+/// Pinned section bands (plans/cmux-next/sidebar-sections.md 1, 7): the
 /// band split around the workspace list, each look's frames, caps, the
 /// sidebar view's placement, and the model's section intents.
 @MainActor @Suite struct SidebarRegionLayoutTests {
@@ -19,20 +19,10 @@ import Testing
 
     // MARK: Bands
 
-    @Test func defaultBandsAreTheDestinationsAboveAndTheAccountBelow() {
+    @Test func defaultBandsAreHomeAboveSettingsAndAccountBelow() {
         let bands = defaults.bands(room: nil)
-        #expect(bands.above.flatMap(\.items).map(\.ref) == [.builtIn(.home), .builtIn(.appStore), .builtIn(.history), .builtIn(.notifications),
-                                                            .builtIn(.settings), .builtIn(.customize), .app("cmux/coderouter")])
-        #expect(bands.below.flatMap(\.items).map(\.ref) == [.builtIn(.account)])
-    }
-
-    /// The sidebar draws its bands only without the rail (`window.rail`
-    /// defaults to "leading", where the rail draws them instead).
-    private func withoutRail(_ body: () throws -> Void) rethrows {
-        let saved = DesignSettings.shared.rail
-        DesignSettings.shared.rail = .off
-        defer { DesignSettings.shared.rail = saved }
-        try body()
+        #expect(bands.above.flatMap(\.items).map(\.ref) == [.app("cmux/home"), .app("cmux/app-store")])
+        #expect(bands.below.flatMap(\.items).map(\.ref) == [.builtIn(.settings), .builtIn(.account)])
     }
 
     @Test func bandsSplitAtTheWorkspacesSectionWhereverItIs() throws {
@@ -132,17 +122,17 @@ import Testing
 
     // MARK: Caps
 
-    @Test func maxRowsCapsTheStickyHeight() {
+    @Test func maxRowsCapsThePinnedHeight() {
         let layout = SidebarRegionLayout.make(sections: [section("a", maxRows: 2, items: 10)], width: 240, look: .quiet, collapsed: [], metrics: m)
         #expect(layout.height == CGFloat(288))
         #expect(layout.cappedHeight == CGFloat(64))
-        #expect(layout.stickyHeight(available: 1_000, share: 0.5) == 64)
+        #expect(layout.pinnedHeight(available: 1_000, share: 0.5) == 64)
     }
 
-    @Test func theShareCapsTheStickyHeight() {
+    @Test func theShareCapsThePinnedHeight() {
         let layout = SidebarRegionLayout.make(sections: [section("a", items: 10)], width: 240, look: .quiet, collapsed: [], metrics: m)
-        #expect(layout.stickyHeight(available: 600, share: 1.0 / 3.0) == 200)
-        #expect(layout.stickyHeight(available: 6_000, share: 1.0 / 3.0) == layout.height)
+        #expect(layout.pinnedHeight(available: 600, share: 1.0 / 3.0) == 200)
+        #expect(layout.pinnedHeight(available: 6_000, share: 1.0 / 3.0) == layout.height)
     }
 
     // MARK: Model
@@ -159,7 +149,7 @@ import Testing
 
     // MARK: View
 
-    @Test func sidebarPlacesBandsAroundTheList() throws { try withoutRail {
+    @Test func sidebarPlacesBandsAroundTheList() throws {
         let model = SidebarModel(sections: SidebarDemoMock.makeSections())
         let view = SidebarView(model: model)
         view.frame = NSRect(x: 0, y: 0, width: 260, height: 700)
@@ -167,7 +157,7 @@ import Testing
         let home = try #require(view.aboveRegion.itemView(LayoutItemID("itm_home")))
         #expect(home.info.title == SidebarBuiltIn.home.title)
         #expect(view.aboveRegion.layoutResult.height > 0)
-        #expect(view.belowRegion.itemView(LayoutItemID("itm_account")) != nil)
+        #expect(view.belowRegion.itemView(LayoutItemID("itm_settings")) != nil)
         let aboveTop = try #require(view.aboveRegion.enclosingScrollView?.superview).frame.minY
         let aboveBottom = try #require(view.aboveRegion.enclosingScrollView?.superview).frame.maxY
         let belowTop = try #require(view.belowRegion.enclosingScrollView?.superview).frame.minY
@@ -179,25 +169,25 @@ import Testing
         view.layoutSubtreeIfNeeded()
         #expect(view.aboveRegion.layoutResult == .empty)
         #expect(try #require(view.list.enclosingScrollView?.superview).frame.minY == aboveTop)
-    } }
+    }
 
-    @Test func clickingAnItemSendsActivate() throws { try withoutRail {
+    @Test func clickingAnItemSendsActivate() throws {
         let model = SidebarModel()
         var sent: [SidebarIntent] = []
         model.onIntent = { sent.append($0) }
         let view = SidebarView(model: model)
         view.frame = NSRect(x: 0, y: 0, width: 260, height: 700)
         view.layoutSubtreeIfNeeded()
-        let account = try #require(view.belowRegion.itemView(LayoutItemID("itm_account")))
-        #expect(account.accessibilityPerformPress())
-        #expect(sent == [.activateItem(LayoutItemID("itm_account"))])
-    } }
+        let settings = try #require(view.belowRegion.itemView(LayoutItemID("itm_settings")))
+        #expect(settings.accessibilityPerformPress())
+        #expect(sent == [.activateItem(LayoutItemID("itm_settings"))])
+    }
 
     // MARK: Hidden apps (D55)
 
-    @Test func hiddenItemsDrawNothingAndStayInTheLayout() throws { try withoutRail {
+    @Test func hiddenItemsDrawNothingAndStayInTheLayout() throws {
         let model = SidebarModel()
-        var doc = SidebarLayoutDocument.preRailDefaults
+        var doc = SidebarLayoutDocument.defaults
         doc.sections[0].items.append(LayoutItem(id: LayoutItemID("itm_app"), ref: .app("manaflow-ai/github-prs")))
         model.layout = doc
         model.itemInfo = [LayoutItemID("itm_app"): SidebarItemInfo(title: "PRs", symbol: "app", isHidden: true)]
@@ -211,7 +201,7 @@ import Testing
         view.needsLayout = true
         view.layoutSubtreeIfNeeded()
         #expect(view.aboveRegion.itemView(LayoutItemID("itm_app")) != nil)
-    } }
+    }
 
 
     /// A suppressed app's sections and items draw nothing (no placeholder)

@@ -17,6 +17,10 @@ pub struct DaemonOptions {
     /// Write one JSON readiness line to this file descriptor once the
     /// socket and the listen address are bound, then close it.
     pub ready_fd: Option<i32>,
+    /// `--allow-dev-origin`: loopback page dev server origins, never saved.
+    pub dev_origins: Vec<String>,
+    /// `--dev`: a development launch (see `dev_origins_permitted`).
+    pub dev: bool,
 }
 
 /// How long SIGTERM or `_acpmux/shutdown` may take before the daemon exits
@@ -38,7 +42,17 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         }
     }
     let login_env = crate::login_env::requested();
+    anyhow::ensure!(
+        opts.dev_origins.is_empty() || dev_origins_permitted(cfg!(debug_assertions), opts.dev),
+        "--allow-dev-origin is for development only: it needs a debug build or --dev"
+    );
+    let dev_origins = opts
+        .dev_origins
+        .iter()
+        .map(|origin| crate::server::dev_origin(origin))
+        .collect::<Result<Vec<_>>>()?;
     let mut config = Config::load()?;
+    config.dev_origins = dev_origins;
     if opts.memory {
         config.store.mode = crate::config::StoreMode::Memory;
     }
@@ -58,10 +72,36 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     let store = crate::store::open(&config.store, &home())?;
     // The dashboard and WebSocket always run. First run picks a loopback port
     // and a random token and saves both, so the URL is stable afterwards.
-    if config.websocket.is_none() {
+    // The token is mandatory (plans/cmux-next/identity.md section 4): a saved
+    // listener without one gets one, and the file keeps it.
+    rotate_saved_token_once(&mut config);
+    let needs_token = config
+        .websocket
+        .as_ref()
+        .is_none_or(|w| w.token.as_deref().is_none_or(|t| t.trim().is_empty()));
+    // Only the shared home owns the fixed port; any other home never saves it.
+    let shared_home = dirs::home_dir().map(|h| h.join(".acpmux")) == Some(home());
+    let saved_listen = config.websocket.as_ref().map(|w| w.listen.clone());
+    let listen_ok =
+        saved_listen.as_deref() == Some(first_run_listen(shared_home, saved_listen.as_deref()));
+    if needs_token || !listen_ok {
+        let kept_token = config
+            .websocket
+            .as_ref()
+            .and_then(|w| w.token.clone())
+            .filter(|t| !t.trim().is_empty());
+        let (allowed_origins, allowed_hosts) = config
+            .websocket
+            .as_ref()
+            .map(|w| (w.allowed_origins.clone(), w.allowed_hosts.clone()))
+            .unwrap_or_default();
         config.websocket = Some(crate::config::WebSocketConfig {
-            listen: "127.0.0.1:47811".into(),
-            token: Some(random_token()),
+            listen: first_run_listen(shared_home, saved_listen.as_deref()).to_owned(),
+            token: Some(kept_token.unwrap_or_else(random_token)),
+            allowed_origins,
+            allowed_hosts,
+            // A kept token was rotated just above; a new one is new.
+            token_rotated: TOKEN_ROTATION,
         });
         if let Err(e) = config.save() {
             tracing::warn!("could not save generated web config: {e}");
@@ -76,6 +116,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
                 listen,
                 opts.ws_token
                     .clone()
+                    .filter(|t| !t.trim().is_empty())
                     .or_else(|| config.websocket.as_ref().and_then(|w| w.token.clone())),
             )
         })
@@ -103,29 +144,104 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // `--listen 127.0.0.1:0` asked for any free port; report the real one.
     let bound = ws_listener.as_ref().and_then(|(l, _)| l.local_addr().ok()).map(|a| a.to_string());
     if let (Some(addr), Some((_, token))) = (&bound, &ws) {
-        config.websocket =
-            Some(crate::config::WebSocketConfig { listen: addr.clone(), token: token.clone() });
+        let (allowed_origins, allowed_hosts) = config
+            .websocket
+            .as_ref()
+            .map(|w| (w.allowed_origins.clone(), w.allowed_hosts.clone()))
+            .unwrap_or_default();
+        let token_rotated = config.websocket.as_ref().map_or(0, |w| w.token_rotated);
+        // A later save (policy, peers, presets) writes the saved token, never
+        // a `--token` value for this run.
+        let saved_token = config.websocket.as_ref().and_then(|w| w.token.clone());
+        if token != &saved_token {
+            config.web_token_override = token.clone();
+        }
+        config.websocket = Some(crate::config::WebSocketConfig {
+            listen: addr.clone(),
+            token: saved_token.or_else(|| token.clone()),
+            allowed_origins,
+            allowed_hosts,
+            token_rotated,
+        });
     }
     let hub = Hub::new(config, store);
+    // Agents outlive this daemon unless the user opts out for this release.
+    // `ACPMUX_IDLE_CHILD_SECS`: how long an unused session harness lives
+    // (default 300; 0 keeps every harness running).
+    if let Some(secs) =
+        std::env::var("ACPMUX_IDLE_CHILD_SECS").ok().and_then(|v| v.parse::<u64>().ok())
+    {
+        hub.set_idle_child((secs > 0).then(|| std::time::Duration::from_secs(secs)));
+    }
+    if !std::env::var("ACPMUX_AGENT_HOSTS").is_ok_and(|v| v == "0") {
+        hub.enable_agent_hosts();
+    }
     hub.begin_startup(login_env);
     std::fs::write(home().join("daemon.pid"), std::process::id().to_string())?;
     let unix = tokio::spawn(crate::server::serve_unix(hub.clone(), unix_listener));
-    let ws_task =
-        ws_listener.map(|(l, token)| tokio::spawn(crate::server::serve_ws(hub.clone(), l, token)));
+    // A new LocalApp token at every launch (`server/local_app.rs`), for the
+    // app's bundled pane and an explicit `--allow-dev-origin` page only.
+    let local_app = if ws_listener.is_some() {
+        let mut pages = vec![crate::server::AGENT_PANE_ORIGIN.to_owned()];
+        // The validated `--allow-dev-origin` values (loopback http, a port).
+        pages.extend(hub.config.read().await.dev_origins.iter().cloned());
+        match crate::server::local_app::LocalAppAuth::create(&home(), &pages) {
+            Ok(auth) => Some(std::sync::Arc::new(auth)),
+            Err(e) => {
+                // Without it the pane is served as remote-origin, never wrongly local.
+                tracing::warn!("no LocalApp token this run: {e:#}");
+                None
+            }
+        }
+    } else {
+        None
+    };
+    // A new peer token at every launch (`server/peer_auth.rs`): the only
+    // proof of a peer daemon, read by it over ssh, never over an RPC.
+    let peer = if ws_listener.is_some() {
+        match crate::server::peer_auth::PeerAuth::create(&home()) {
+            Ok(auth) => Some(std::sync::Arc::new(auth)),
+            Err(e) => {
+                // Without it a peer is served as Web, never wrongly as Peer.
+                tracing::warn!("no peer token this run: {e:#}");
+                None
+            }
+        }
+    } else {
+        None
+    };
+    let local_app_file = local_app.as_ref().map(|a| a.path().to_owned());
+    let peer_file = peer.as_ref().map(|a| a.path().to_owned());
+    let ws_task = ws_listener.map(|(l, token)| {
+        // `needs_token` above gave the saved listener a token.
+        let token = token.unwrap_or_else(random_token);
+        let auth = crate::server::WsAuth { local_app, peer };
+        tokio::spawn(crate::server::serve_ws_with(hub.clone(), l, token, auth))
+    });
     let ready = serde_json::json!({
         "ready": true,
         "pid": std::process::id(),
         "socket": socket_path(),
         "listen": bound,
-        "webUrl": hub.config.read().await.web_listener().map(crate::hub::web_url),
+        "webUrl": crate::hub::web_url(&*hub.config.read().await),
     });
-    tracing::info!("acpmux ready {ready}");
+    // The web URL carries the token; the log (often a 0644 file) never does.
+    tracing::info!(
+        "acpmux ready pid={} socket={} listen={}",
+        std::process::id(),
+        socket_path().display(),
+        bound.as_deref().unwrap_or("none")
+    );
     if let Some(fd) = opts.ready_fd {
         write_ready(fd, &ready);
     }
     {
         let hub = hub.clone();
-        tokio::spawn(async move { hub.finish_startup().await });
+        tokio::spawn(async move {
+            // Agents that outlived the previous daemon come back first.
+            hub.adopt_agent_hosts().await;
+            hub.finish_startup().await
+        });
     }
     tokio::spawn(notify_loop(hub.clone()));
 
@@ -151,6 +267,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         _ = shutdown => {}
     }
     tracing::info!("shutting down");
+    hub.stop_idle_reaper();
     // New clients get "connection refused" instead of a dying daemon.
     let _ = std::fs::remove_file(socket_path());
     if let Some(t) = ws_task {
@@ -161,6 +278,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         hub.flush();
     }
     let _ = std::fs::remove_file(home().join("daemon.pid"));
+    for file in [local_app_file, peer_file].into_iter().flatten() {
+        let _ = std::fs::remove_file(file);
+    }
     tracing::info!("stopped");
     Ok(())
 }
@@ -182,6 +302,50 @@ fn write_ready(fd: i32, ready: &Value) {
     if fd <= 2 {
         // Never close stdio.
         std::mem::forget(f);
+    }
+}
+
+/// Whether `--allow-dev-origin` may take effect: in a debug build, or with
+/// an explicit `--dev` that release launchers never pass. A release config
+/// refuses it, so a dev page origin never becomes a LocalApp origin there.
+pub(crate) fn dev_origins_permitted(debug_build: bool, dev_flag: bool) -> bool {
+    debug_build || dev_flag
+}
+
+/// The rotation `websocket.tokenRotated` records (see `rotate_saved_token_once`).
+const TOKEN_ROTATION: u32 = 1;
+
+/// Builds before this one sent the saved WebSocket token to remote-origin
+/// connections (`_acpmux/status` `webUrl`), so a token saved by one may be
+/// known elsewhere: replace it once, at the first start of this build, and
+/// mark it so it never rotates again. Every reader takes the token fresh
+/// (the app's host and `acpmux web` from `_acpmux/status` over the unix
+/// socket, ssh peers from the remote config at each connect); a `--token`
+/// flag still overrides the listener's token. Returns whether it rotated.
+fn rotate_saved_token_once(config: &mut crate::config::Config) -> bool {
+    let Some(w) = config.websocket.as_mut() else { return false };
+    if w.token_rotated >= TOKEN_ROTATION || w.token.as_deref().is_none_or(|t| t.trim().is_empty()) {
+        return false;
+    }
+    let old = w.token.replace(random_token());
+    w.token_rotated = TOKEN_ROTATION;
+    match config.save() {
+        Ok(()) => {
+            tracing::info!(
+                "the saved WebSocket token was rotated once; run `acpmux web` for the new link"
+            );
+            true
+        }
+        Err(e) => {
+            // Never run on a token the file does not hold (ssh peers read
+            // the file): keep the old one and rotate at the next start.
+            tracing::warn!("could not save the rotated WebSocket token; rotating next start: {e}");
+            if let Some(w) = config.websocket.as_mut() {
+                w.token = old;
+                w.token_rotated = 0;
+            }
+            false
+        }
     }
 }
 
@@ -215,6 +379,11 @@ static DAEMON_PREFIX: std::sync::OnceLock<Vec<std::ffi::OsString>> = std::sync::
 /// Set once, before the first `connect`.
 pub fn set_daemon_prefix(prefix: Vec<std::ffi::OsString>) {
     let _ = DAEMON_PREFIX.set(prefix);
+}
+
+/// The prefix set by [`set_daemon_prefix`]; agent hosts start with it too.
+pub fn daemon_prefix() -> Vec<std::ffi::OsString> {
+    DAEMON_PREFIX.get().cloned().unwrap_or_default()
 }
 
 /// How long a started daemon may take to report that its socket is bound.
@@ -315,14 +484,31 @@ fn not_ready(path: &std::path::Path, ready: &str, error: &anyhow::Error) -> anyh
     )
 }
 
+/// Open the daemon log for append, owner-only like the config file: the log
+/// can carry agent output and request details. A log left by an older build
+/// with wider bits is narrowed to 0600.
+fn open_daemon_log(path: &std::path::Path) -> Result<std::fs::File> {
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    let log = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .mode(0o600)
+        .open(path)
+        .with_context(|| format!("open {}", path.display()))?;
+    if log.metadata()?.permissions().mode() & 0o077 != 0 {
+        log.set_permissions(std::fs::Permissions::from_mode(0o600))
+            .with_context(|| format!("chmod 0600 {}", path.display()))?;
+    }
+    Ok(log)
+}
+
 /// Start `<exe> [prefix] daemon run --ready-fd N` in its own session and
 /// return the read end of its readiness pipe.
 fn spawn_detached() -> Result<std::fs::File> {
     use std::os::fd::FromRawFd;
     let exe = std::env::current_exe()?;
     std::fs::create_dir_all(home())?;
-    let log =
-        std::fs::OpenOptions::new().create(true).append(true).open(home().join("daemon.log"))?;
+    let log = open_daemon_log(&home().join("daemon.log"))?;
     let log_err = log.try_clone()?;
     let mut fds = [0i32; 2];
     // SAFETY: fds has room for the two descriptors pipe writes.
@@ -422,9 +608,67 @@ async fn notify_loop(hub: Arc<Hub>) {
     }
 }
 
+/// The fixed dashboard port belongs to the shared daemon (`~/.acpmux`). Any other home (a
+/// tagged dev build's, `ACPMUX_HOME`) listens on a free port and never saves the fixed one,
+/// so it can never take the release daemon's port; a home that saved it before is moved off.
+/// Returns the address to save: the saved one when it is fine, else the default.
+fn first_run_listen(shared_home: bool, saved: Option<&str>) -> &str {
+    const SHARED: &str = "127.0.0.1:47811";
+    const ANY: &str = "127.0.0.1:0";
+    match saved {
+        Some(saved) if shared_home || !saved.ends_with(":47811") => saved,
+        _ if shared_home => SHARED,
+        _ => ANY,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_release_launch_refuses_a_dev_origin() {
+        assert!(
+            !dev_origins_permitted(false, false),
+            "a release config refuses --allow-dev-origin"
+        );
+        assert!(dev_origins_permitted(false, true), "an explicit --dev launch accepts it");
+        assert!(dev_origins_permitted(true, false), "a debug build accepts it");
+    }
+
+    #[test]
+    fn only_the_shared_home_listens_on_the_fixed_port() {
+        assert_eq!(first_run_listen(true, None), "127.0.0.1:47811");
+        assert_eq!(first_run_listen(false, None), "127.0.0.1:0");
+        // A tagged home that saved the fixed port moves to a free one; other choices stay.
+        assert_eq!(first_run_listen(false, Some("127.0.0.1:47811")), "127.0.0.1:0");
+        assert_eq!(first_run_listen(false, Some("127.0.0.1:5555")), "127.0.0.1:5555");
+        assert_eq!(first_run_listen(true, Some("0.0.0.0:47811")), "0.0.0.0:47811");
+    }
+
+    #[test]
+    fn daemon_log_is_owner_only_when_created_and_when_an_old_log_is_wider() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("acpmux-log-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mode = |p: &std::path::Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+
+        let fresh = dir.join("daemon.log");
+        drop(open_daemon_log(&fresh).unwrap());
+        assert_eq!(mode(&fresh), 0o600);
+
+        let old = dir.join("old.log");
+        std::fs::write(&old, b"kept\n").unwrap();
+        std::fs::set_permissions(&old, std::fs::Permissions::from_mode(0o644)).unwrap();
+        {
+            use std::io::Write;
+            let mut f = open_daemon_log(&old).unwrap();
+            f.write_all(b"appended\n").unwrap();
+        }
+        assert_eq!(mode(&old), 0o600);
+        assert_eq!(std::fs::read_to_string(&old).unwrap(), "kept\nappended\n");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[tokio::test]
     async fn lock_release_wakes_the_waiter_and_a_held_lock_times_out() {

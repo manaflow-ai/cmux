@@ -39,6 +39,7 @@
     }
   },
   "catalog": "catalog/codemirror-catalog.json",
+  "cli": { "name": "codemirror" },
   "implements": {
     "cmux.editor/1": {
       "web": "web/index.html",

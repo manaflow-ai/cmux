@@ -56,7 +56,7 @@ fn invalid_fixtures_fail_at_the_expected_path() {
 }
 
 fn manifest(extra: Value) -> Value {
-    let mut m = json!({ "manifestVersion": 2, "id": "local/x", "name": "X", "version": "1.0.0", "description": "d", "engines": { "cmux": "^2.0" } });
+    let mut m = json!({ "manifestVersion": 2, "id": "local/x", "name": "X", "version": "1.0.0", "description": "d", "engines": { "cmux": "^2.0" }, "icon": "assets/icon.png" });
     for (k, v) in extra.as_object().expect("object") {
         m[k] = v.clone();
     }
@@ -72,7 +72,7 @@ fn native_code_is_first_party_only() {
     let third = manifest(json!({ "id": "octo/x", "repository": "https://github.com/octo/x",
         "server": { "kind": "native", "binaries": { "linux-x64": "x" }, "instances": "user", "hosts": ["local"] },
         "implements": { "cmux.pane/1": { "native": "x.view" } } }));
-    assert_eq!(codes(&third), vec!["tier.native", "tier.native"]);
+    assert_eq!(codes(&third), vec!["tier.native", "tier.native", "tier.nativeReview"]);
     let first = manifest(
         json!({ "id": "cmux/x", "repository": "https://github.com/manaflow-ai/cmux",
         "server": { "kind": "native", "binaries": { "linux-x64": "x" }, "instances": "user", "hosts": ["local"] },
@@ -124,11 +124,16 @@ fn package_paths_are_checked() {
     std::fs::create_dir_all(dir.join("src")).expect("mkdir");
     std::fs::write(dir.join("src/main.js"), "var __cmuxAppExports = {}").expect("write");
     let m = manifest(
-        json!({ "runtime": { "main": "src/main.js" }, "catalog": "catalog.json", "files": ["dist/"] }),
+        json!({ "runtime": { "main": "src/main.js" }, "catalog": "catalog.json", "files": ["dist/"], "icon": { "symbol": "app" } }),
     );
     std::fs::write(dir.join("cmux-app.json"), m.to_string()).expect("write");
     let report = validate_package(&dir);
-    let got: Vec<_> = report.issues.iter().map(|i| (i.path.as_str(), i.code)).collect();
+    let got: Vec<_> = report
+        .issues
+        .iter()
+        .filter(|i| i.code != "icon.noImage")
+        .map(|i| (i.path.as_str(), i.code))
+        .collect();
     assert_eq!(got, vec![("/runtime/main", "path.notInFiles"), ("/catalog", "path.missing")]);
     std::fs::remove_dir_all(&dir).ok();
 }

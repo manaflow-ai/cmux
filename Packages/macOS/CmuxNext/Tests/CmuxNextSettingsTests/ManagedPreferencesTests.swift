@@ -108,7 +108,7 @@ import Testing
         #expect(settings.fileRoot.value(at: ["ui", "animationSpeed"]) == "fast")
 
         let descriptor = try #require(SettingsSchema.descriptor(for: ["ui", "animationSpeed"]))
-        await #expect(throws: SettingManaged(key: Self.speed, source: .device)) { try await settings.setSetting(descriptor, to: "normal") }
+        await #expect(throws: SettingManaged(key: Self.speed, source: .device)) { try await settings.setSetting(descriptor, to: "normal", by: .user) }
         // The control socket's settings.set writes through the file directly; the same guard refuses it.
         await #expect(throws: SettingManaged.self) { try await settings.file.set("normal", at: ["ui", "animationSpeed"]) }
         await #expect(throws: SettingManaged.self) { try await settings.file.set(.object(["animationSpeed": "normal"]), at: ["ui"]) }
@@ -116,7 +116,7 @@ import Testing
         await #expect(throws: SettingManaged.self) { try await settings.file.apply([(path: ["ui", "animationSpeed"], value: nil)]) }
         // Unmanaged neighbors stay writable.
         try await settings.file.set("auto", at: ["layout", "stripScrollbar"])
-        try await settings.resetAllSettings()
+        try await settings.resetAllSettings(by: .user)
         let after = try JSONC.parse(String(contentsOf: url, encoding: .utf8))
         #expect(after.value(at: ["ui", "animationSpeed"]) == "fast")
         #expect(after.value(at: ["layout", "stripScrollbar"]) == nil)
@@ -130,10 +130,15 @@ import Testing
         #expect(settings.snapshot.animationSpeed == .normal)
         #expect(settings.managedKeys == [Self.speed: .team("Acme")])
         let descriptor = try #require(SettingsSchema.descriptor(for: ["ui", "animationSpeed"]))
-        await #expect(throws: SettingManaged(key: Self.speed, source: .team("Acme"))) { try await settings.setSetting(descriptor, to: "off") }
+        await #expect(throws: SettingManaged(key: Self.speed, source: .team("Acme"))) { try await settings.setSetting(descriptor, to: "off", by: .user) }
     }
 
-    @Test(.timeLimit(.minutes(1))) func aProfileChangeReloadsThroughTheFileWatcher() async throws {
+    /// The wiring from the managed-profile watcher to a reload. Watcher
+    /// latency has its own 1 s bound (ConfigFileWatcherTests); this test's
+    /// duration is mostly main-actor hops, which take a minute or more under
+    /// the full package run (a test here without a watcher took 55 s there),
+    /// so its limit only catches a reload that never comes.
+    @Test(.timeLimit(.minutes(5))) func aProfileChangeReloadsThroughTheFileWatcher() async throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "cmux-managed-watch-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let configURL = directory.appending(path: "cmux.json")
@@ -149,9 +154,13 @@ import Testing
 
         try FileManager.default.createDirectory(at: profile.deletingLastPathComponent(), withIntermediateDirectories: true)
         try PropertyListSerialization.data(fromPropertyList: [Self.speed: "off"], format: .xml, options: 0).write(to: profile, options: .atomic)
-        while settings.managedKeys.isEmpty {
+        // waitForLoad returns at once when the test is cancelled (time limit):
+        // stop then, or this loop spins on the main actor and starves every
+        // other main-actor test in the process.
+        while settings.managedKeys.isEmpty, !Task.isCancelled {
             await settings.waitForLoad(atLeast: settings.loadCount + 1)
         }
+        try #require(!settings.managedKeys.isEmpty, "the profile change never reloaded the settings")
         #expect(settings.snapshot.animationSpeed == .off)
     }
 

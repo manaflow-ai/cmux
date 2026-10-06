@@ -32,6 +32,8 @@ public final class HomeController {
     /// My last send from the field until its item appears (the morph source and
     /// the text to restore if the owner refuses it before it is logged).
     var pendingSend: (intent: HomeIntent, text: String, field: CGRect)?
+    /// Where each attachment of the pending send starts its morph, by part index.
+    var pendingOrigins: [Int: CGRect] = [:]
     var reportedRead: Seq = 0
 
     /// Called with every typed change for the owner (send, read cursor).
@@ -51,6 +53,8 @@ public final class HomeController {
     /// A send the owner refused before logging it, in hosted-field mode:
     /// the host puts `text` back into its own field if that is empty.
     public var onRestoreDraft: (String) -> Void = { _ in }
+    /// The same refused send's attachments: the host puts them back in its draft.
+    public var onRestoreAttachments: ([AttachmentRef]) -> Void = { _ in }
     /// The rows changed (not just the viewport): hosts post their platform's
     /// layout-changed accessibility notification here.
     public var onRowsChange: () -> Void = {}
@@ -62,6 +66,8 @@ public final class HomeController {
     var hostedFieldInHost: CGRect?
     /// The latest summary from `update`.
     public var conversationSummary: ConversationSummary? { summary }
+    /// The conversation has no message, here or older (a first-run state).
+    public var isEmpty: Bool { items.isEmpty && !hasOlder }
     /// The host shows this conversation to the user (window visible, app
     /// active). Read cursors advance only while it is true.
     public var isVisibleToUser = false {
@@ -133,6 +139,7 @@ public final class HomeController {
         CATransaction.commit()
         if let field = hostedFieldInHost { scene.hostedField = toDesign(field) }
         let design = CGSize(width: hostSize.width / zoom, height: hostSize.height / zoom)
+        scene.zoom = zoom
         scene.resize(to: design) { self.rows(metrics: $0) }
         publishScrollGeometryIfChanged()
         afterViewportChange()
@@ -192,9 +199,15 @@ public final class HomeController {
     /// `typing` from `HomeStore.typing[conversation]`.
     public func update(items newItems: [TranscriptItem], summary newSummary: ConversationSummary?,
                        typing newTyping: Set<ParticipantID>, hasOlder newHasOlder: Bool) {
-        let unchanged = newItems == items && newTyping == typing && newHasOlder == hasOlder
+        absorbAttachmentState(newItems)
+        // Upload progress and local files change no row: they never lay out.
+        let unchanged = Self.layoutEqual(newItems, items) && newTyping == typing && newHasOlder == hasOlder
             && newSummary?.readCursors == summary?.readCursors && newSummary?.participants == summary?.participants
-        guard !unchanged else { return }
+        guard !unchanged else {
+            // Same rows; keep the newest progress for `cancellableSend`.
+            items = newItems
+            return
+        }
         let oldOthersTyping = !typing.subtracting([me]).isEmpty
         let newOthersTyping = !newTyping.subtracting([me]).isEmpty
         var change = TranscriptChange.classify(old: items, new: newItems, me: me, typing: (oldOthersTyping, newOthersTyping),
@@ -207,19 +220,36 @@ public final class HomeController {
         if newHasOlder != hasOlder || change == .prepend { olderRequested = false }
         hasOlder = newHasOlder
         var sendField: CGRect?
+        var sendOrigins: [Int: CGRect] = [:]
         if let pending = pendingSend, newItems.contains(where: { $0.key == pending.intent.key }) {
-            if change == .send(pending.intent.key) { sendField = pending.field }
+            if change == .send(pending.intent.key) {
+                sendField = pending.field
+                sendOrigins = pendingOrigins
+            }
             pendingSend = nil
+            pendingOrigins = [:]
         }
         if case .send = change, sendField == nil { change = .other }
         if change == .initial { scene.pinned = true }
         guard scene.size.width > 0 else { return }
-        scene.commit(rows(metrics: scene.metrics), change: change, sendField: sendField)
+        scene.commit(rows(metrics: scene.metrics), change: change, sendField: sendField, sendOrigins: sendOrigins)
         onRowsChange()
         publishScrollGeometryIfChanged()
         askForOlderIfNeeded()
         reportReadIfNeeded()
         onAccessibilityChange()
+    }
+
+    /// Equal for layout: everything but upload progress and local files.
+    static func layoutEqual(_ a: [TranscriptItem], _ b: [TranscriptItem]) -> Bool {
+        guard a.count == b.count else { return false }
+        for (x, y) in zip(a, b) {
+            var x = x, y = y
+            x.attachmentProgress = [:]; y.attachmentProgress = [:]
+            x.localAttachments = [:]; y.localAttachments = [:]
+            if x != y { return false }
+        }
+        return true
     }
 
     func rows(metrics: Metrics) -> [RowSpec] {

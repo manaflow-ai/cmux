@@ -5,8 +5,8 @@ import Foundation
 // the document (`sidebar-layout-v1`); clients render it and send
 // `SidebarLayoutOp`s. Field names match the wire (snake_case).
 
-/// Where a section sits: sticky at the top, in the scrolling middle, or
-/// sticky at the bottom.
+/// Where a section sits: pinned at the top, in the scrolling middle, or
+/// pinned at the bottom.
 public nonisolated enum SidebarRegion: String, Hashable, Sendable, Codable, CaseIterable {
     case top
     case middle

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import CmuxNextActions
 
 /// Install cmux CLI in PATH and Uninstall cmux CLI from PATH (the old app's
@@ -12,9 +13,9 @@ enum CLIInstallHandlers {
             Task { // task-owner: one install, ended by its sheet
                 do {
                     let outcome = try await CLIPathInstaller().install()
-                    show(CLIInstallStrings.installed, CLIInstallStrings.body(outcome), .informational, in: window)
+                    show(CLIInstallStrings.installed, CLIInstallStrings.body(outcome), in: window)
                 } catch {
-                    show(CLIInstallStrings.installFailed, CLIInstallStrings.message(error), .warning, in: window)
+                    show(CLIInstallStrings.installFailed, CLIInstallStrings.message(error), in: window)
                 }
             }
         })
@@ -23,25 +24,19 @@ enum CLIInstallHandlers {
             Task { // task-owner: one uninstall, ended by its sheet
                 do {
                     let outcome = try await CLIPathInstaller().uninstall()
-                    show(CLIInstallStrings.uninstalled, CLIInstallStrings.body(outcome), .informational, in: window)
+                    show(CLIInstallStrings.uninstalled, CLIInstallStrings.body(outcome), in: window)
                 } catch {
-                    show(CLIInstallStrings.uninstallFailed, CLIInstallStrings.message(error), .warning, in: window)
+                    show(CLIInstallStrings.uninstallFailed, CLIInstallStrings.message(error), in: window)
                 }
             }
         })
     }
 
-    private static func show(_ title: String, _ body: String, _ style: NSAlert.Style, in window: NSWindow?) {
-        let alert = NSAlert()
-        alert.alertStyle = style
-        alert.messageText = title
-        alert.informativeText = body
-        alert.addButton(withTitle: CLIInstallStrings.ok)
-        guard let window = window ?? NSApp.keyWindow ?? NSApp.mainWindow else {
-            alert.runModal()
-            return
-        }
-        alert.beginSheetModal(for: window)
+    /// A cmux dialog on the window, else app-wide (never an app-modal run loop).
+    private static func show(_ title: String, _ body: String, in window: NSWindow?) {
+        let spec = CmuxDialogSpec(title: title, lines: [body], buttons: [.ok(CLIInstallStrings.ok)], identifier: "cmux.dialog.cliInstall")
+        let scope: CmuxDialogScope = (window ?? NSApp.keyWindow ?? NSApp.mainWindow).map { .window($0) } ?? .app
+        CmuxDialogCenter.shared.present(spec, in: scope) { _ in }
     }
 }
 

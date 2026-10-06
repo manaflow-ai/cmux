@@ -15,7 +15,7 @@ public nonisolated struct LayoutSection: Hashable, Sendable, Codable, Identifiab
     public var arrangement: SectionArrangement
     /// The room this section shows in; nil = every room.
     public var room: String?
-    /// Rows a sticky section shows before it scrolls inside; nil = the
+    /// Rows a pinned section shows before it scrolls inside; nil = the
     /// region's share of the sidebar height.
     public var maxRows: Int?
     public var content: SectionContent
@@ -94,54 +94,26 @@ public nonisolated struct SidebarLayoutDocument: Hashable, Sendable, Codable {
     public static let workspacesSectionID = LayoutSectionID("sec_workspaces")
     public static let bottomSectionID = LayoutSectionID("sec_bottom")
 
-    /// Buttons the default top section shows on the rail before the rest
-    /// go under its More button (the section's `maxRows`).
-    public static let railTopRows = 4
-
-    /// The rail layout (Leo, 2026-10-03; `window.rail` is "leading" by
-    /// default, the Codex app's skinny strip). Top: Home, the App Store,
-    /// History and Notifications as rail buttons, then Settings, Customize
-    /// Appearance and CodeRouter (a first-party app's label item; it opens
-    /// the app's page) under the rail's More button (`maxRows`
-    /// `railTopRows`). Settings goes under More like in the Codex app, where
-    /// it lives behind a menu rather than in the strip: ⌘, opens it, so the
-    /// button is rarely needed. Middle: workspaces, so the sidebar starts
-    /// with the workspace list. Bottom: the account avatar, pinned to the
-    /// rail's bottom. Sticky sections use the built-in look and draw no
-    /// header. Stored layouts that still equal `preRailDefaults` move to
-    /// this one (`railMigrationOps`); customized ones are kept.
+    /// The default layout (plans/cmux-next/sidebar-sections.md): the
+    /// first-party apps Home and the App Store as plain rows on top (app
+    /// items, R63/R64: apps like any other, from their manifests; Lawrence
+    /// 2026-10-05: rows, not the large tiles of #17349), the workspaces, then one bottom
+    /// row with Settings (icon and label) over 7/8 of the width and the
+    /// account avatar (icon only) over the last 1/8 (a grid of 8 columns,
+    /// R53). Pinned sections use
+    /// the built-in look and draw no header. The window rail's default
+    /// (Leo, 2026-10-03) was removed by R52; stored layouts still equal to
+    /// it move back (`sectionsMigrationOps`).
     public static let defaults = SidebarLayoutDocument(sections: [
-        LayoutSection(id: topSectionID, region: .top, look: .builtIn, maxRows: railTopRows,
-                      items: [LayoutItem(id: LayoutItemID("itm_home"), ref: .builtIn(.home)),
-                              LayoutItem(id: LayoutItemID("itm_app_store"), ref: .builtIn(.appStore)),
-                              LayoutItem(id: LayoutItemID("itm_history"), ref: .builtIn(.history)),
-                              LayoutItem(id: LayoutItemID("itm_notifications"), ref: .builtIn(.notifications)),
-                              LayoutItem(id: LayoutItemID("itm_settings"), ref: .builtIn(.settings)),
-                              LayoutItem(id: LayoutItemID("itm_customize"), ref: .builtIn(.customize)),
-                              // First-party apps are label items that open their page (Lawrence R36).
-                              LayoutItem(id: LayoutItemID("itm_app_coderouter"), ref: .app("cmux/coderouter"))]),
-        LayoutSection(id: workspacesSectionID, region: .middle, look: .list, content: .workspaces),
-        LayoutSection(id: bottomSectionID, region: .bottom, look: .builtIn, arrangement: SectionArrangement(layout: .inline, align: .fill), items: [
-            LayoutItem(id: LayoutItemID("itm_account"), ref: .builtIn(.account), showsLabel: false),
-        ]),
-    ])
-
-    /// The default layout before the destinations moved into the rail
-    /// (until 2026-10-03): Home, the App Store and CodeRouter on top, the
-    /// workspaces, then one bottom line with Settings (icon and label) at
-    /// the leading edge and the account avatar (icon only) at the trailing
-    /// edge. A stored layout still equal to it migrates
-    /// (`railMigrationOps`).
-    public static let preRailDefaults = SidebarLayoutDocument(sections: [
         LayoutSection(id: topSectionID, region: .top, look: .builtIn,
-                      items: [LayoutItem(id: LayoutItemID("itm_home"), ref: .builtIn(.home)),
-                              LayoutItem(id: LayoutItemID("itm_app_store"), ref: .builtIn(.appStore)),
-                              LayoutItem(id: LayoutItemID("itm_app_coderouter"), ref: .app("cmux/coderouter"))]),
+                      items: [LayoutItem(id: LayoutItemID("itm_home"), ref: .app("cmux/home")),
+                              LayoutItem(id: LayoutItemID("itm_app_store"), ref: .app("cmux/app-store"))]),
+        // CodeRouter is not here by default (FIRST-PARTY-APPS): the palette and the App Store reach it.
         LayoutSection(id: workspacesSectionID, region: .middle, look: .list, content: .workspaces),
         LayoutSection(id: bottomSectionID, region: .bottom, look: .builtIn,
-                      arrangement: SectionArrangement(layout: .inline, align: .fill), items: [
-                          LayoutItem(id: LayoutItemID("itm_settings"), ref: .builtIn(.settings)),
-                          LayoutItem(id: LayoutItemID("itm_account"), ref: .builtIn(.account), showsLabel: false),
+                      arrangement: SectionArrangement(layout: .grid, align: .fill, columns: 8), items: [
+                          LayoutItem(id: LayoutItemID("itm_settings"), ref: .builtIn(.settings), span: 7),
+                          LayoutItem(id: LayoutItemID("itm_account"), ref: .builtIn(.account), showsLabel: false, span: 1),
                       ]),
     ])
 

@@ -28,7 +28,12 @@ RUNTIME_NAMED_REQUEST_REFS = {
     "TerminalSizingPolicy": "SizePolicy",
     "ClientIdentityWire": "SizingIdentity",
     "SplitRespawnRequest": "SplitRespawn",
-    "crate::model::ColumnSticky": "ColumnPin",
+    "crate::mux::CloseReason": "CloseReason",
+    "AgentSessionParams": "AgentSessionSource",
+    "crate::model::ColumnDock": "ColumnPin",
+    "SnapshotHave": "SnapshotRequestHave",
+    "RowMarkerPoint": "RowMarkerPoint",
+    "RowHeight": "RowHeight",
 }
 
 sys.path.insert(0, str(BINDINGS))
@@ -147,7 +152,8 @@ def _parse_rust_fields(body: str, label: str) -> dict[str, RuntimeField]:
         if attribute:
             attributes.append(attribute.group(1))
             continue
-        field = re.fullmatch(r"([a-z][A-Za-z0-9_]*): (.+),", line)
+        # Field visibility (pub, pub(crate), pub(super), pub(in path)) does not change the wire shape.
+        field = re.fullmatch(r"(?:pub(?:\((?:crate|super|self|in [a-z_:]+)\))? )?([a-z][A-Za-z0-9_]*): (.+),", line)
         if not field:
             fail(f"cannot parse {label} line {line!r}")
         name, rust_type = field.groups()
@@ -241,12 +247,22 @@ def _expand_flattened(
     expanded: dict[str, RuntimeField] = {}
     for field_name, field in parsed.items():
         if any(re.search(r"\bflatten\b", value) for value in field.attributes):
-            if not re.fullmatch(r"[A-Z][A-Za-z0-9]*", field.rust_type) or not re.search(
-                rf"(?m)^(?:pub(?:\([a-z:]+\))? )?struct {re.escape(field.rust_type)} \{{",
-                source,
+            # `module::Type` names a request struct in `server/<module>.rs`.
+            flat_source, flat_type = source, field.rust_type
+            qualified = re.fullmatch(r"([a-z_]+)::([A-Z][A-Za-z0-9]*)", field.rust_type)
+            if qualified:
+                module_path = SERVER.with_suffix("") / f"{qualified.group(1)}.rs"
+                try:
+                    flat_source = module_path.read_text(encoding="utf-8")
+                except (OSError, UnicodeError) as error:
+                    fail(f"cannot read {module_path.relative_to(ROOT)}: {error}")
+                flat_type = qualified.group(2)
+            if not re.fullmatch(r"[A-Z][A-Za-z0-9]*", flat_type) or not re.search(
+                rf"(?m)^(?:pub(?:\([a-z:]+\))? )?struct {re.escape(flat_type)} \{{",
+                flat_source,
             ):
                 fail(f"unsupported flattened Rust request type {field.rust_type!r} in {label}")
-            for flat_name, flat_field in _rust_struct_fields(source, field.rust_type).items():
+            for flat_name, flat_field in _rust_struct_fields(flat_source, flat_type).items():
                 if flat_name in expanded:
                     fail(f"duplicate flattened request field {flat_name!r} in {label}")
                 expanded[flat_name] = flat_field
@@ -264,6 +280,10 @@ def _unwrap_rust_option(rust_type: str) -> tuple[str, bool]:
 
 def _runtime_field_presence(field: RuntimeField) -> tuple[str, bool]:
     rust_type, optional_type = _unwrap_rust_option(field.rust_type)
+    # An `Option<T>` with the `required_nullable` deserializer must be present
+    # and may be null.
+    if optional_type and any("required_nullable" in value for value in field.attributes):
+        return "required", True
     has_default = any(re.search(r"\bdefault\b", value) for value in field.attributes)
     presence = "optional" if optional_type or has_default else "required"
     # serde_json::Value includes JSON null even though it is not Option<Value>.
@@ -374,10 +394,27 @@ def _schema_type_shape(
     return ""
 
 
+# Fields the server reads only to refuse them with invalid-argument: a
+# pre-rename name an older client may still send. They are not part of the
+# SDK contract, so the SDKs never send them.
+REFUSED_LEGACY_REQUEST_FIELDS = {
+    # R87 DOCK-WIRE: `sticky` was renamed to `dock`; ignoring it would turn an
+    # older client's pin into a plain column.
+    "move-tab-to-column": {"sticky"},
+}
+
+
 def validate_runtime_request_fields(ir: SdkIR) -> None:
     """Reject request-field drift against the server's Deserialize contract."""
 
     runtime_commands = runtime_command_fields()
+    for command_name, refused in REFUSED_LEGACY_REQUEST_FIELDS.items():
+        fields = runtime_commands.get(command_name, {})
+        missing = refused - set(fields)
+        if missing:
+            fail(f"refused legacy request field missing from {command_name}: {sorted(missing)}")
+        for name in refused:
+            del fields[name]
     compare_names(set(ir.commands), set(runtime_commands), "runtime SDK command")
     for command_name, command in ir.commands.items():
         request = command["request"]

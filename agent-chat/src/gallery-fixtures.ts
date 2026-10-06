@@ -1,10 +1,10 @@
 import type { Block, CommandGroup, Provider, ProviderCapabilities, SessionActions, SessionOption } from "./session";
 
 export const galleryProviders: Provider[] = [
-  { id: "claude", label: "Claude Code", installed: true, iconUrl: "/icons/claude", installCommand: "npm i -g @anthropic-ai/claude-code" },
-  { id: "codex", label: "Codex", installed: true, iconUrl: "/icons/codex", iconDarkUrl: "/icons/codex?dark=1", installCommand: "npm i -g @openai/codex" },
-  { id: "opencode", label: "OpenCode", installed: true, iconUrl: "/icons/opencode", installCommand: "npm i -g opencode-ai" },
-  { id: "pi", label: "pi", installed: true, iconUrl: "/icons/pi", installCommand: "npm i -g @mariozechner/pi" },
+  { id: "claude", label: "Claude Code", installed: true, installCommand: "npm i -g @anthropic-ai/claude-code" },
+  { id: "codex", label: "Codex", installed: true, installCommand: "npm i -g @openai/codex" },
+  { id: "opencode", label: "OpenCode", installed: true, installCommand: "npm i -g opencode-ai" },
+  { id: "pi", label: "pi", installed: true, installCommand: "npm i -g @mariozechner/pi" },
   { id: "gemini", label: "Gemini", installed: false, installCommand: "npm i -g @google/gemini-cli" },
 ];
 

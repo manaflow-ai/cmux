@@ -941,7 +941,10 @@ def is_web_change(path: str) -> bool:
         # the merge driver that keeps it mergeable: react-apps-check verifies
         # the page and runs the driver's test.
         "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/index.html",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/pane.js",
         "scripts/cmux-next/build-agent-pane-web.sh",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextPalette/Resources/palette-ranker.js",
+        "scripts/cmux-next/build-palette-ranker.sh",
         "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity/index.html",
         "scripts/cmux-next/build-agent-activity-web.sh",
         "scripts/cmux-next/regenerate-web-bundles.sh",

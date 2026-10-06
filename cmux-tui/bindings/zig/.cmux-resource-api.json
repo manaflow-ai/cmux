@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "3f5c91bf097a4f4e0c8ace671e7b0ebc74ab951a0d7c7aeca42ff8ef008f99e2",
+  "catalog_sha256": "c0b3333b38b3e1bb06bdf062ec53293fce5f25f6a7a983de979de471c65e082d",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -91,6 +91,9 @@
     "git.checkpoint.create": {
       "class": "mutation"
     },
+    "git.checkpoint.diff": {
+      "class": "read"
+    },
     "git.checkpoint.get": {
       "class": "read"
     },
@@ -129,6 +132,9 @@
     },
     "notification.list": {
       "class": "read"
+    },
+    "origin.confirmation.issue": {
+      "class": "connection_control"
     },
     "pairing_request.list": {
       "class": "read"

@@ -38,9 +38,14 @@ enum Canvas {
         layer.isGeometryFlipped = !ancestorsFlipped
         defer { layer.isGeometryFlipped = was }
         #endif
-        return image(size: rect.size, opaque: true) { ctx in
-            ctx.setFillColor(background)
-            ctx.fill(CGRect(origin: .zero, size: rect.size))
+        // A see-through background (the macOS pane under Home paints the
+        // window's backdrop) snapshots with alpha; an opaque one fills.
+        let opaque = background.alpha >= 1
+        return image(size: rect.size, opaque: opaque) { ctx in
+            if opaque {
+                ctx.setFillColor(background)
+                ctx.fill(CGRect(origin: .zero, size: rect.size))
+            }
             ctx.translateBy(x: -rect.minX, y: -rect.minY)
             layer.render(in: ctx)
         }

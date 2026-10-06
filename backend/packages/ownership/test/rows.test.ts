@@ -224,4 +224,22 @@ describe("row-backed domains (E1)", () => {
     expect(engine.canReplayFrom(15)).toBe(true)
     expect(engine.pruneEvents(100_000, 5)).toBe(0)
   })
+
+  it("keyRange reads one key window in key order from SQLite and memory alike (unordered tables)", () => {
+    const sql = sqliteStore(new DatabaseSync(":memory:"))
+    const engine = new OwnerEngine(sql, logDomain, { stream: "inbox:k", prefix: "inbox_", rowMode: { snapshotTable: "msg", snapshotTail: 0 } })
+    const memory = new MemoryRows()
+    const writes = ["a1", "a3", "a2", "b1", "b2", "c"].map((key) => ({ table: "order", op: "upsert" as const, key, n: null, row: { key } }))
+    sql.transaction(() => engine.rows.apply(writes))
+    memory.apply([...writes, { table: "other", op: "upsert", key: "a15", n: null, row: {} }])
+    for (const rows of [engine.rows, memory]) {
+      const keys = (range: Parameters<typeof rows.keyRange>[1]) => rows.keyRange<{ key: string }>("order", range).map((r) => r.key)
+      expect(keys({ after: "a", before: "b", limit: 10 })).toEqual(["a1", "a2", "a3"])
+      expect(keys({ after: "a1", before: "b", limit: 1 })).toEqual(["a2"])
+      expect(keys({ after: "a3", before: "b", limit: 10 })).toEqual([])
+      expect(keys({ after: "b", limit: 10 })).toEqual(["b1", "b2", "c"])
+      expect(keys({ before: "a2", limit: 10 })).toEqual(["a1"])
+      expect(keys({ limit: 0 })).toEqual([])
+    }
+  })
 })

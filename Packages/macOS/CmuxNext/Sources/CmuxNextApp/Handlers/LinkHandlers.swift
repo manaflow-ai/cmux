@@ -38,17 +38,17 @@ enum LinkHandlers {
         })
     }
 
-    /// The agent tab an invocation names: an explicit `local-agent:` tab
+    /// The agent tab an invocation names: an explicit agent chat tab
     /// target, else the focused pane's selected tab when it is one. Nil
     /// for anything else, which the daemon tab path resolves or refuses.
     static func agentTab(_ invocation: ActionInvocation, services: AppServices) -> String? {
         let explicit = [invocation.target, invocation["tab"]?.targetValue, invocation["pane"]?.targetValue]
             .compactMap { $0 }.first { $0.kind == .tab || $0.kind == .pane }
         if let explicit {
-            return explicit.kind == .tab && explicit.id.hasPrefix(LocalAgentTab.prefix) ? explicit.id : nil
+            return explicit.kind == .tab && services.agentTabs.isAgentTab(explicit.id) ? explicit.id : nil
         }
         guard let selected = services.windows.active?.focusedPane?.stripModel.selectedID?.rawValue,
-              selected.hasPrefix(LocalAgentTab.prefix) else { return nil }
+              services.agentTabs.isAgentTab(selected) else { return nil }
         return selected
     }
 }

@@ -22,6 +22,10 @@ public enum InstallAuthError: Error, Hashable, Sendable {
     case userMismatch
     case transport
     case malformedReply
+    /// The team requires a newer app (`updates.minimumVersion`); the owner
+    /// names the minimum. Not an install problem: the key and record stay,
+    /// and the same install mints again once the app is updated.
+    case clientTooOld(minimumVersion: String?)
 }
 
 /// The public JWK the owner stores for the install.

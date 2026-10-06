@@ -4,6 +4,7 @@ import type { PermissionDecision } from "./permissions/protocol";
 import { acpmuxPerf, frameStats, isBlank, median, round2, typingSummary } from "./perf";
 import { openPicker, pickerLabels } from "./pickerOpeners";
 import { syntheticRows } from "./synthetic";
+import { runStream, type StreamOptions } from "./streamDebug";
 import { workedTurnRows } from "./workedTurn";
 import { acpWire, type AcpWireLog } from "./wire";
 
@@ -44,6 +45,8 @@ export type AcpmuxDebug = {
   openChanges(): Record<string, unknown>;
   setModel(model: string, effort?: string): Promise<Record<string, unknown>>;
   models(): Record<string, unknown>;
+  /** Streams a scripted reply into a long synthetic transcript and reports the frames (streamDebug.ts). */
+  stream(options?: StreamOptions): Promise<Record<string, unknown>>;
 };
 
 const NO_AUTOMATION = { error: "the page has no automation host" };
@@ -145,7 +148,11 @@ export function createAcpmuxDebug(
 
     perfStats(options = {}) {
       acpmuxPerf.enable();
-      return { running, ...acpmuxPerf.stats(options.raw === true), agent: acpmuxPerf.agentLatency() };
+      return {
+        running,
+        ...acpmuxPerf.stats(options.raw === true),
+        agent: acpmuxPerf.agentLatency(),
+      };
     },
 
     agentLatency() {
@@ -209,6 +216,9 @@ export function createAcpmuxDebug(
     },
     models() {
       return host.automation ? automation.models(host.automation) : NO_AUTOMATION;
+    },
+    stream(options = {}) {
+      return runStream(host.replaceRows, options);
     },
   };
 }

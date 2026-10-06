@@ -200,56 +200,111 @@
 
   const DRAFT_TTL_MS = 30 * 60 * 1000;
 
+  // A private deep copy of plain data, so a write keeps no object its caller
+  // can still change. Each own enumerable property is read once (a getter or
+  // Proxy cannot answer differently later); arrays and plain objects from
+  // any realm are copied, a Date becomes a new Date, an object with toJSON
+  // (URL) its JSON value. Functions, symbols, cycles and other objects are
+  // refused.
+  function copyInput(value, name = "input", seen = []) {
+    if (typeof value === "function" || typeof value === "symbol") throw new SiteError("invalid", `${name}: expected plain data, got a ${typeof value}`);
+    if (value === null || typeof value !== "object") return value;
+    const tag = Object.prototype.toString.call(value);
+    if (tag === "[object Date]") return new Date(value.getTime());
+    if (seen.includes(value)) throw new SiteError("invalid", `${name}: expected plain data, got a cycle`);
+    if (Array.isArray(value)) {
+      const out = [];
+      const n = value.length;
+      seen.push(value);
+      for (let i = 0; i < n; i++) out.push(copyInput(value[i], `${name}[${i}]`, seen));
+      seen.pop();
+      return out;
+    }
+    const proto = Object.getPrototypeOf(value);
+    if (tag !== "[object Object]" || (proto !== null && Object.getPrototypeOf(proto) !== null)) {
+      if (typeof value.toJSON === "function") return copyInput(value.toJSON(), name, seen);
+      throw new SiteError("invalid", `${name}: expected plain data, got ${tag}`);
+    }
+    const out = {};
+    seen.push(value);
+    for (const key of Object.keys(value)) out[key] = copyInput(value[key], `${name}.${key}`, seen);
+    seen.pop();
+    return out;
+  }
+
+  function deepFreeze(value) {
+    if (value && typeof value === "object" && !Object.isFrozen(value)) {
+      Object.freeze(value);
+      for (const key of Object.keys(value)) deepFreeze(value[key]);
+    }
+    return value;
+  }
+
   // Drafts live in the REPL session that made them, so a draft can be
   // confirmed only by the session the user saw it in (use --session NAME).
+  // A draft's record (status, expiry, preview) stays here; the agent gets
+  // frozen views of it. The preview is a frozen JSON copy whose canonical
+  // text is kept: confirming runs the draft with that same preview, after
+  // checking the text still matches, so the action is the one shown.
   function createDrafts(host) {
     const drafts = new Map();
     let n = 0;
     const now = () => (host.now ? host.now() : Date.now());
     const rand = () => Math.floor(Math.random() * 0xffffff).toString(16).padStart(6, "0");
+    const view = (e) =>
+      Object.freeze({
+        id: e.id,
+        site: e.site,
+        action: e.action,
+        status: e.status,
+        summary: e.summary,
+        category: e.category,
+        preview: e.preview,
+        expiresAt: new Date(e.expiresAt).toISOString(),
+        confirm: `await sites.${e.site}.${e.action}(${JSON.stringify(e.id)}, { confirm: true })`,
+      });
     return {
       create({ site, action, category, summary, preview, run }) {
+        let canonical;
+        try {
+          canonical = JSON.stringify(preview === undefined ? null : preview);
+        } catch (e) {
+          throw new SiteError("invalid", `sites.${site}.${action}: the draft preview is not JSON data (${(e && e.message) || e})`);
+        }
         const id = `draft-${++n}-${rand()}`;
-        const draft = {
-          id,
-          site,
-          action,
-          status: "draft",
-          summary,
-          category,
-          preview,
-          expiresAt: new Date(now() + DRAFT_TTL_MS).toISOString(),
-          confirm: `await sites.${site}.${action}(${JSON.stringify(id)}, { confirm: true })`,
-        };
-        drafts.set(id, { draft, run });
-        return draft;
+        const entry = { id, site, action, status: "draft", summary: String(summary), category: String(category), preview: deepFreeze(JSON.parse(canonical)), canonical, expiresAt: now() + DRAFT_TTL_MS, run };
+        drafts.set(id, entry);
+        return view(entry);
       },
       async run(id, site, action) {
         const entry = drafts.get(id);
         if (!entry) throw new SiteError("draft_not_found", `sites.${site}.${action}: no draft ${JSON.stringify(id)} in this REPL session. Drafts live in the session that made them; run both calls in one named session (cmux browser repl --session NAME).`);
-        const { draft, run } = entry;
-        if (draft.site !== site || draft.action !== action) throw new SiteError("draft_mismatch", `sites.${site}.${action}: draft ${id} is a sites.${draft.site}.${draft.action} draft`);
-        if (draft.status !== "draft") throw new SiteError("draft_used", `sites.${site}.${action}: draft ${id} is ${draft.status}; make a new draft`);
-        if (now() > Date.parse(draft.expiresAt)) {
-          draft.status = "expired";
+        if (entry.site !== site || entry.action !== action) throw new SiteError("draft_mismatch", `sites.${site}.${action}: draft ${id} is a sites.${entry.site}.${entry.action} draft`);
+        if (entry.status !== "draft") throw new SiteError("draft_used", `sites.${site}.${action}: draft ${id} is ${entry.status}; make a new draft`);
+        if (now() > entry.expiresAt) {
+          entry.status = "expired";
           throw new SiteError("draft_expired", `sites.${site}.${action}: draft ${id} expired; make a new draft and show it to the user again`);
         }
-        draft.status = "sending";
+        if (JSON.stringify(entry.preview) !== entry.canonical) {
+          entry.status = "failed";
+          throw new SiteError("draft_changed", `sites.${site}.${action}: draft ${id} no longer matches its preview; nothing was sent. Make a new draft and show it to the user again`);
+        }
+        entry.status = "sending";
         try {
-          const result = await run();
-          draft.status = "sent";
+          const result = await entry.run(entry.preview);
+          entry.status = "sent";
           return result;
         } catch (e) {
           // A failed send may have reached the site; never retry it blindly.
-          draft.status = "failed";
+          entry.status = "failed";
           throw e;
         }
       },
-      list: () => [...drafts.values()].map((e) => e.draft),
-      get: (id) => (drafts.has(id) ? drafts.get(id).draft : null),
+      list: () => [...drafts.values()].map(view),
+      get: (id) => (drafts.has(id) ? view(drafts.get(id)) : null),
       discard(id) {
         const entry = drafts.get(id);
-        if (entry && entry.draft.status === "draft") entry.draft.status = "discarded";
+        if (entry && entry.status === "draft") entry.status = "discarded";
         return !!entry;
       },
     };
@@ -354,8 +409,13 @@
         const url = page.url();
         if (patterns.some((p) => p.test(url))) throw new SiteError("not_signed_in", `${name}: the cmux browser is not signed in (landed on ${url.split("?")[0]}). Open the site with tabs.open(url) and ask the user to sign in, or use sites.browserAuth.request().`);
       },
+      // A private deep copy of plain data (see copyInput).
+      copyInput,
       // A write that reaches other people: the first call returns a draft; a
       // second call with the draft id and { confirm: true } performs it.
+      // make() receives a private copy of input, so what it captures for
+      // run() cannot be changed by the caller afterwards; run() receives the
+      // frozen preview.
       write(site, action, input, options, make) {
         const isDraftId = typeof input === "string" && /^draft-\d+-[0-9a-f]+$/.test(input);
         if (isDraftId) {
@@ -363,7 +423,7 @@
           return drafts.run(input, site, action);
         }
         if (options && options.confirm) throw new SiteError("draft_required", `sites.${site}.${action}: { confirm: true } takes a draft id. Call sites.${site}.${action}(input) first, show the returned draft to the user, then confirm it.`);
-        const spec = make(input);
+        const spec = make(copyInput(input, `sites.${site}.${action}`));
         return drafts.create({ site, action, category: spec.category, summary: spec.summary, preview: spec.preview, run: spec.run });
       },
     };
@@ -400,5 +460,5 @@
     return sites;
   }
 
-  ns.sites = { register, createSites, shared, SiteError, embeddedJSON, decodeEntities, parseCSV, parseA1Range, pageFunction, ELEMENT_MARKDOWN };
+  ns.sites = { register, createSites, shared, SiteError, copyInput, embeddedJSON, decodeEntities, parseCSV, parseA1Range, pageFunction, ELEMENT_MARKDOWN };
 })(typeof globalThis !== "undefined" ? globalThis : this);

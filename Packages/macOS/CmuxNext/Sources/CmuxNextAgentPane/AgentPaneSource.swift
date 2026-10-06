@@ -47,6 +47,14 @@ public nonisolated enum AgentPaneSource: Equatable, Sendable {
         }
     }
 
+    /// The dev server's origin (`http://<loopback>:<port>`), nil for the
+    /// bundled page. The app's daemon never needs it: the host's socket
+    /// carries the bundled pane's origin (AgentPaneTransport).
+    public var devServerOrigin: String? {
+        guard case .devServer(let url) = self, let host = url.host, let port = url.port else { return nil }
+        return "http://\(host):\(port)"
+    }
+
     /// Environment variable naming the dev server, for example
     /// `http://127.0.0.1:4176/`.
     public static let devURLVariable = "CMUX_NEXT_AGENT_PANE_DEV_URL"

@@ -90,7 +90,10 @@ enum RealBinary {
 
 @Suite(.enabled(if: RealBinary.url != nil, "no cmux-tui binary available"), .timeLimit(.minutes(2)), .liveDaemon)
 struct IntegrationTests {
-    @Test func ensureCreateAttachEchoShutdown() async throws {
+    /// Uses `move-tab-to-workspace`, which only the same-tree cmux-tui
+    /// serves; a release client answers "unknown variant".
+    @Test(.enabled(if: RealBinary.isBranchBuild, "needs the same-tree cmux-tui (scripts/cmux-next/pin-cmux-tui.sh fetch)"))
+    func ensureCreateAttachEchoShutdown() async throws {
         let binary = try #require(RealBinary.url)
         let root = URL(fileURLWithPath: "/tmp/cnd-it-\(UUID().uuidString.prefix(8).lowercased())")
         let session = "cnd-it-\(UUID().uuidString.prefix(8).lowercased())"

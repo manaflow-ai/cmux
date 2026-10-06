@@ -47,7 +47,12 @@ The daemon starts on demand, like the tmux server. `acpmux daemon` runs it in th
 
 The daemon serves a dashboard on the same port as its WebSocket, by default
 `http://127.0.0.1:47811/?token=…`. The token is generated on first run and saved in
-`config.json`; `acpmux web` prints the full link and opens it. The page follows the Codex
+`config.json`; `acpmux web` prints the full link and opens it. Only the local socket ever
+reads it back: a remote-origin (WebSocket) connection gets no `webUrl` and no peer URL query.
+Release note: earlier builds did send `webUrl` to WebSocket clients, so the first start of
+this build replaces a saved token once (`websocket.tokenRotated` records it). Open the new
+link from `acpmux web`, and give a `ws://` peer that pins the old token the new one; the app,
+the TUI and `ssh://` peers read it again by themselves. The page follows the Codex
 desktop app like the TUI does: a rail with `New session` (a draft: `What should we build in
 <project>?`, the harness and permission chips pick its settings, the project name opens the
 directory picker, with separate harness, model, and permission buttons, and the session is created when you send the first message), sessions
@@ -66,6 +71,16 @@ draft. Keys: `⌘K`/`Ctrl-K` new session, `Alt-↑`/`Alt-↓` (or `Alt-j`/`Alt-k
 sheet behind a `Sessions` button. To reach it
 from another machine, set `websocket.listen` to a non-loopback address and put a tunnel or
 firewall in front.
+
+### Remote connections (`webRoots`, `webAskingModes`)
+
+A WebSocket connection other than the app's own pane (the dashboard, a paired or relayed
+device, a peer daemon) works only inside folders that are known projects (the cwds of local
+sessions) or listed in `webRoots`, and only in modes that ask before they act: the reviewed
+per-harness table in `src/server/remote_guard.rs` plus what `webAskingModes` adds, for example
+`"webAskingModes": {"myharness": ["ask"]}`. Both live in `config.json` and are never written over
+a WebSocket. **Warning: a mode that you add to `webAskingModes` lets paired devices start that
+mode without a per-action prompt.** See `plans/cmux-next/acp-remote-guard.md`.
 
 ## CLI
 
@@ -435,6 +450,32 @@ acpmux run -p deepseek "…"
 acpmux run -p omx --cwd ~/proj -m codex/gpt-5.5 "…"                 # -m and -e still win over the preset
 acpmux preset                                                        # list; `preset NAME --clear` removes one
 ```
+
+A preset's `args` are words appended to the harness command line, given as one JSON list
+(`acpmux preset compact harness=claude-sr 'args=["--tools", "", "--no-session-persistence"]'`).
+Each entry is one argv word passed as it is, never through a shell. They are an allowlist that
+can only take capabilities away: on a Claude Code harness `--tools ""` (an empty value only),
+`--strict-mcp-config` (no `--mcp-config` may be given) and `--no-session-persistence`; on any
+other harness none. Every other word is refused when the preset is set and when a session
+starts, `=` forms and short aliases included.
+
+A preset's `systemPrompt` is the text of a Claude Code system prompt (set over the RPC
+`_acpmux/presets`, never echoed back). acpmux writes it to `presets/<name>/system.md` next to
+its `config.json` (directory 0700, file read-only), records its sha256 (`systemPromptSha256`),
+checks the file against that hash at every session start (a mismatch or a missing file refuses
+the start) and passes `--system-prompt-file` with that path itself. Set the preset again when
+the text changes; the new hash applies to sessions that start after it. Preset names that carry
+one use ASCII letters, digits, `-`, `_` and `.`.
+
+A connection from the WebSocket listener (peer daemons, remote clients) is remote-origin:
+remote chains build their settings from scratch, so it never starts a session with, sets,
+changes or clears a preset that carries `args` or a `systemPrompt`, and a session it created
+never spawns with one later.
+
+On Claude Code harnesses, a text block's `cache_control` in `session/prompt` reaches Claude
+Code's stream-json input unchanged (other extra block fields are dropped), so a client can
+place its own cache breakpoint. Claude Code adds up to three breakpoints of its own and the API
+allows four, so a client has room for one.
 
 ### Bring your own ACP harness
 

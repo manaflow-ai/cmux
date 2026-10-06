@@ -27,6 +27,10 @@ pub struct EventRecord {
     pub kind: String,
     /// Raw JSON-RPC message, or the acpmux payload.
     pub msg: Value,
+    /// The agent host entry this record logs (`hostSeq`), so a controller
+    /// that adopts the host resumes after it (agent hosts, durable sessions).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_seq: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Copy)]
@@ -130,6 +134,10 @@ pub struct SessionMeta {
     /// errorText?, errorSource?, endedAt}.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_turn: Option<Value>,
+    /// Created over a remote-origin connection (the WebSocket listener):
+    /// its harness never spawns with a preset's args or system prompt.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub remote_origin: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -461,6 +469,7 @@ mod tests {
             tags: Default::default(),
             unread: false,
             last_turn: None,
+            remote_origin: false,
         }
     }
 
@@ -471,6 +480,7 @@ mod tests {
             dir: "mux".into(),
             kind: "status".into(),
             msg: serde_json::json!({"seq": seq}),
+            host_seq: None,
         }
     }
 

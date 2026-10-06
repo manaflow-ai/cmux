@@ -3,7 +3,7 @@
 import React from "react";
 import type { DiffEdit, TurnFile } from "../diff";
 import { ChevronDown, Code, Eye, FileTypeIcon, OpenTab } from "../changeIcons";
-import { t } from "../i18n";
+import { useT } from "../i18n";
 import { Counts } from "./Counts";
 import { FileMenu } from "./FileMenu";
 
@@ -29,6 +29,7 @@ export function FileHeader({
   view: FileView;
   on: FileActions;
 }) {
+  const t = useT();
   const slash = file.displayPath.lastIndexOf("/");
   const additions = edit.hunks.reduce((sum, hunk) => sum + hunk.lines.filter((line) => line.type === "add").length, 0);
   const deletions = edit.hunks.reduce((sum, hunk) => sum + hunk.lines.filter((line) => line.type === "del").length, 0);
@@ -46,8 +47,8 @@ export function FileHeader({
         <span>{file.displayPath.slice(slash + 1)}</span>
         <ChevronDown className="acpmux-fh-chevron" width={14} height={14} />
       </button>
-      {file.created && index === 0 && <span className="acpmux-fh-badge">New</span>}
-      {file.deleted && <span className="acpmux-fh-badge">Deleted</span>}
+      {file.created && index === 0 && <span className="acpmux-fh-badge">{t("changes.badgeNew")}</span>}
+      {file.deleted && <span className="acpmux-fh-badge">{t("changes.badgeDeleted")}</span>}
       {file.edits.length > 1 && <span className="acpmux-fh-badge">{`Edit ${index + 1} of ${file.edits.length}`}</span>}
       {file.outside && (
         <span className="acpmux-fh-badge acpmux-fh-outside" title={t("turn.outside.title")}>
@@ -59,7 +60,7 @@ export function FileHeader({
       <button
         type="button"
         className="acpmux-fh-btn"
-        aria-label={view.viewed ? `Mark ${file.displayPath} as not viewed` : `Mark ${file.displayPath} as viewed`}
+        aria-label={t(view.viewed ? "changes.markNotViewed" : "changes.markViewed", { path: file.displayPath })}
         aria-pressed={view.viewed}
         onClick={() => on.toggleViewed(file.path)}
       >
@@ -71,8 +72,8 @@ export function FileHeader({
           <button
             type="button"
             className="acpmux-fh-btn"
-            aria-label={`Open ${file.displayPath} in a tab`}
-            title="Open file in a tab"
+            aria-label={t("changes.openPathInTab", { path: file.displayPath })}
+            title={t("changes.openInTab")}
             onClick={() => on.openFile(file.path, "tab")}
           >
             <OpenTab />
@@ -80,8 +81,8 @@ export function FileHeader({
           <button
             type="button"
             className="acpmux-fh-btn"
-            aria-label={`Open ${file.displayPath} in the editor`}
-            title="Open in editor"
+            aria-label={t("changes.openPathInEditor", { path: file.displayPath })}
+            title={t("changes.openInEditor")}
             onClick={() => on.openFile(file.path, "editor")}
           >
             <Code />

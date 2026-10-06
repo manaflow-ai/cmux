@@ -401,6 +401,13 @@ export class MockAcpmuxSocket {
           params.query,
           params.limit,
         );
+      case "git.checkpoint.diff":
+        // The fixture has no checkpoints: a turn reads as the uncommitted changes.
+        return {
+          ...mockGitDiff(target, "uncommitted", params.include_patch === true),
+          from: params.from,
+          ...(typeof params.to === "string" ? { to: params.to } : {}),
+        };
       case "git.diff":
         return mockGitDiff(target, params.scope, params.include_patch === true);
       case "git.status":

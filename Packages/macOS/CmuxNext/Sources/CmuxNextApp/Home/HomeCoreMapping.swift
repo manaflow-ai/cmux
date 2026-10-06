@@ -21,7 +21,7 @@ nonisolated enum HomeCoreMapping {
     static func participant(_ participant: ConversationParticipant) -> Participant {
         let isChief = participant.kind == .agent && participant.agentClass == "mux"
         return Participant(id: ParticipantID(participant.id), kind: participant.kind == .agent ? .agent : .human,
-                           displayName: participant.displayName,
+                           displayName: isChief ? HomeStrings.chiefName : participant.displayName,
                            agentClass: participant.kind == .agent ? (isChief ? .chief : .agent) : nil)
     }
 

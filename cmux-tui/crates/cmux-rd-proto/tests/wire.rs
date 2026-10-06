@@ -1,6 +1,6 @@
 use cmux_rd_proto::{
     Arrival, DatagramHeader, DatagramKind, DecodeError, Feedback, FrameBody, HEADER_LEN,
-    InputEvent, InputPacket, Nack, REF_NONE, flags,
+    INPUT_PACKET_PREFIX_LEN, InputEvent, InputPacket, Nack, REF_NONE, flags,
 };
 use proptest::prelude::*;
 
@@ -83,7 +83,9 @@ fn event() -> impl Strategy<Value = InputEvent> {
         (any::<u8>(), any::<bool>()).prop_map(|(button, down)| InputEvent::Button { button, down }),
         (any::<i32>(), any::<i32>(), any::<bool>())
             .prop_map(|(dx, dy, precise)| InputEvent::Scroll { dx, dy, precise }),
-        "[a-zA-Z0-9 ]{0,40}".prop_map(InputEvent::Text),
+        "[a-zA-Z0-9 é]{0,300}".prop_map(InputEvent::Text),
+        (any::<bool>(), proptest::collection::vec(any::<u8>(), 0..64))
+            .prop_map(|(must_deliver, bytes)| InputEvent::Service { must_deliver, bytes }),
     ]
 }
 
@@ -91,7 +93,27 @@ proptest! {
     #[test]
     fn input_round_trips(first_seq in any::<u32>(), events in proptest::collection::vec(event(), 0..20)) {
         let packet = InputPacket { first_seq, events };
-        prop_assert_eq!(InputPacket::decode(&packet.encode()).expect("decode"), packet);
+        let encoded = packet.encode();
+        let expected_len: usize =
+            INPUT_PACKET_PREFIX_LEN + packet.events.iter().map(InputEvent::encoded_len).sum::<usize>();
+        prop_assert_eq!(encoded.len(), expected_len);
+        let decoded = InputPacket::decode(&encoded).expect("decode");
+        // Text longer than MAX_TEXT_BYTES arrives cut on a character boundary.
+        let truncated: Vec<InputEvent> = packet
+            .events
+            .iter()
+            .map(|e| match e {
+                InputEvent::Text(t) => {
+                    let mut end = t.len().min(cmux_rd_proto::MAX_TEXT_BYTES);
+                    while !t.is_char_boundary(end) {
+                        end -= 1;
+                    }
+                    InputEvent::Text(t[..end].to_owned())
+                }
+                other => other.clone(),
+            })
+            .collect();
+        prop_assert_eq!(decoded, InputPacket { first_seq, events: truncated });
     }
 
     #[test]
@@ -140,4 +162,105 @@ fn large_frames_without_parity_are_accepted_and_large_fec_blocks_refused() {
     assert!(DatagramHeader::decode(&header(300, 1, 300, DatagramKind::Fec)).is_err());
     assert!(DatagramHeader::decode(&header(254, 1, 254, DatagramKind::Fec)).is_ok());
     assert!(DatagramHeader::decode(&header(4097, 0, 0, DatagramKind::Video)).is_err());
+}
+
+#[test]
+fn stream_frames_split_at_any_chunk_boundary() {
+    use cmux_rd_proto::{STREAM_CONTROL, STREAM_DATAGRAM, StreamDeframer, encode_stream_frame};
+    let mut bytes = Vec::new();
+    encode_stream_frame(STREAM_CONTROL, br#"{"t":"stop"}"#, &mut bytes).expect("control");
+    encode_stream_frame(STREAM_DATAGRAM, &[7u8; 40], &mut bytes).expect("datagram");
+    assert_eq!(&bytes[..5], &[1, 12, 0, 0, 0]);
+    for chunk in 1..bytes.len() {
+        let mut d = StreamDeframer::default();
+        let mut frames = Vec::new();
+        for part in bytes.chunks(chunk) {
+            d.extend(part);
+            while let Some(f) = d.next_frame().expect("frame") {
+                frames.push(f);
+            }
+        }
+        assert_eq!(frames.len(), 2);
+        assert_eq!(frames[0], (STREAM_CONTROL, br#"{"t":"stop"}"#.to_vec()));
+        assert_eq!(frames[1], (STREAM_DATAGRAM, vec![7u8; 40]));
+        assert_eq!(d.buffered(), 0);
+    }
+}
+
+#[test]
+fn stream_refuses_unknown_types_and_oversized_lengths() {
+    use cmux_rd_proto::{MAX_STREAM_FRAME, StreamDeframer, encode_stream_frame};
+    assert!(encode_stream_frame(9, b"x", &mut Vec::new()).is_err());
+    let mut d = StreamDeframer::default();
+    d.extend(&[9, 1, 0, 0, 0, 0]);
+    assert!(d.next_frame().is_err());
+    // The failure is sticky.
+    d.extend(&[1, 0, 0, 0, 0]);
+    assert!(d.next_frame().is_err());
+    let mut d = StreamDeframer::default();
+    d.extend(&[2]);
+    d.extend(&((MAX_STREAM_FRAME as u32) + 1).to_le_bytes());
+    assert!(d.next_frame().is_err());
+}
+
+#[test]
+fn many_small_frames_in_one_chunk_are_all_read() {
+    use cmux_rd_proto::{STREAM_CONTROL, StreamDeframer, encode_stream_frame};
+    let mut bytes = Vec::new();
+    for _ in 0..100_000 {
+        encode_stream_frame(STREAM_CONTROL, b"", &mut bytes).expect("control");
+    }
+    bytes.extend_from_slice(&[STREAM_CONTROL, 3, 0]);
+    let mut d = StreamDeframer::default();
+    d.extend(&bytes);
+    let mut n = 0;
+    while let Some((kind, payload)) = d.next_frame().expect("frame") {
+        assert_eq!((kind, payload.len()), (STREAM_CONTROL, 0));
+        n += 1;
+    }
+    assert_eq!(n, 100_000);
+    // Only the partial frame stays, and it completes with the next chunk.
+    assert_eq!(d.buffered(), 3);
+    d.extend(&[0, 0, b'a', b'b', b'c']);
+    assert_eq!(d.next_frame().expect("frame"), Some((STREAM_CONTROL, b"abc".to_vec())));
+    assert_eq!(d.buffered(), 0);
+}
+
+/// The stream carrier bytes of `{"t":"stop"}` then a 3-byte datagram. The
+/// same vector is pinned in cmux-rd-host's src/wire.rs tests (which also
+/// round-trip it through the host's writer and reader).
+#[test]
+fn stream_framing_matches_the_golden_vector() {
+    use cmux_rd_proto::{STREAM_CONTROL, STREAM_DATAGRAM, StreamDeframer, encode_stream_frame};
+    const GOLDEN: &[u8] = &[
+        1, 12, 0, 0, 0, b'{', b'"', b't', b'"', b':', b'"', b's', b't', b'o', b'p', b'"', b'}', 2,
+        3, 0, 0, 0, 7, 7, 7,
+    ];
+    let mut bytes = Vec::new();
+    encode_stream_frame(STREAM_CONTROL, br#"{"t":"stop"}"#, &mut bytes).expect("control");
+    encode_stream_frame(STREAM_DATAGRAM, &[7, 7, 7], &mut bytes).expect("datagram");
+    assert_eq!(bytes, GOLDEN);
+    let mut d = StreamDeframer::default();
+    d.extend(GOLDEN);
+    assert_eq!(d.next_frame().expect("frame"), Some((STREAM_CONTROL, br#"{"t":"stop"}"#.to_vec())));
+    assert_eq!(d.next_frame().expect("frame"), Some((STREAM_DATAGRAM, vec![7, 7, 7])));
+}
+
+#[test]
+fn service_events_have_tag_0x80_and_refuse_unknown_flag_bits() {
+    let packet = InputPacket {
+        first_seq: 5,
+        events: vec![InputEvent::Service { must_deliver: true, bytes: vec![9, 8] }],
+    };
+    let bytes = packet.encode();
+    // u32 first_seq, u8 n, then tag, flags, u16 len, payload.
+    assert_eq!(bytes, vec![5, 0, 0, 0, 1, 0x80, 0x01, 2, 0, 9, 8]);
+    assert_eq!(InputPacket::decode(&bytes).expect("decode"), packet);
+    let mut unknown = bytes;
+    unknown[6] = 0x03;
+    assert!(InputPacket::decode(&unknown).is_err());
+    let mut too_long = vec![5, 0, 0, 0, 1, 0x80, 0x00];
+    too_long.extend_from_slice(&(cmux_rd_proto::MAX_SERVICE_BYTES as u16 + 1).to_le_bytes());
+    too_long.extend(std::iter::repeat_n(0u8, cmux_rd_proto::MAX_SERVICE_BYTES + 1));
+    assert!(InputPacket::decode(&too_long).is_err());
 }

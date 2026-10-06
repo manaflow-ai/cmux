@@ -50,3 +50,15 @@ Already on feat-cmux-next: about 60 agent pane PRs by Leo's lanes, among them #1
 
 - 2026-10-03 tag acpui3-v1 (feat-cmux-next 9f5432bc66d): bundled acpmux from the same commit; the pane loads from cmux-agent://pane (the handshake is trusted only from that URL) and connects; the composer has focus on open (`chat_state.focus = composer`) while the app stays inactive with no key window; the React-Compiler page renders and runs. Codex end to end through `debug.agent_pane`: new chat in a git folder, prompt, streamed reply, an edit with its edited-files card, a grouped permission ask answered Allow once (`HTTP/2 200`), the Changes view showing the turn's diff, the session list. Claude Code waits on `~/bin/sr` (re-pointed 2026-10-02 21:01 to a binary without `claude proxy`). The Codex approval mode "Approve for me" answers most requests itself; a permission ask needs mode read-only and a network command.
 - 2026-10-03 webviews/bun.lock: making @babel/core a direct dev dependency moved the hoisted `semver` from 7.8.1 to 6.3.1. Only three packages use semver: @babel/core and @babel/helper-compilation-targets declare ^6.3.1 (they now get the hoisted 6.3.1 instead of a nested copy), and conf (through react-doctor) declares ^7.7.2 and gets a nested 7.8.1. No package imports semver without declaring it (grep over node_modules), so nothing that needs semver 7 regressed; no override is needed.
+
+## Known gaps
+
+- Pane strings in 21 languages: DONE 2026-10-05. acpmux/Localizable.xcstrings feeds
+  scripts/pages/gen-strings.mjs (agentPane); the shipped pane loads English plus the app's
+  language from locales/<code>.js before its module runs. 19 languages are machine translations
+  (needs_review); Khmer needs a native review first.
+- Plural-aware pane strings (follow-up, coordinator 2026-10-05): count strings are `.one`/`.other`
+  key pairs; languages with more plural categories (ru, pl, uk, ar) use a "label: {n}" wording for
+  now. Move them to xcstrings plural variations and an Intl.PluralRules lookup.
+- Strings still outside the table: the pane header ("Agent Chat", "Connecting"), the composer
+  placeholder ("Do anything") and native error messages built in TypeScript render in English.

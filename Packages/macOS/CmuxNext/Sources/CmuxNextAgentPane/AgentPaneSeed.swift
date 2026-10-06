@@ -16,13 +16,17 @@ public nonisolated struct AgentPaneSeed: Sendable, Equatable {
     public var adopt: AgentPaneAdopt?
     /// Where the page is shown when it is not a pane tab (the quick panel).
     public var surface: AgentPaneSurface?
+    /// The harness a new chat starts on (`newTab.submit --agent`); nil is the default.
+    public var harness: String?
 
-    public init(cwd: String? = nil, draft: String? = nil, prompt: String? = nil, adopt: AgentPaneAdopt? = nil, surface: AgentPaneSurface? = nil) {
+    public init(cwd: String? = nil, draft: String? = nil, prompt: String? = nil, adopt: AgentPaneAdopt? = nil,
+                surface: AgentPaneSurface? = nil, harness: String? = nil) {
         self.cwd = cwd
         self.draft = draft
         self.prompt = prompt
         self.adopt = adopt
         self.surface = surface
+        self.harness = harness
     }
 }
 

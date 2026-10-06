@@ -58,7 +58,7 @@ struct WindowKindMatrixTests {
                 "appStore.show"].contains(descriptor.id.rawValue) { return .run }
             let content: Set<ActionTargetKind> = [.tab, .pane, .workspace, .workspaceGroup, .screen, .screenGroup, .tabGroup, .column, .window]
             if descriptor.isDestructive && !content.isDisjoint(with: descriptor.targets) {
-                return .disabled(reason: MiscHandlerStrings.noPane)
+                return .disabled(reason: MiscHandlerStrings.notInThisWindow)
             }
             return .run
         }
@@ -111,7 +111,7 @@ struct WindowKindMatrixTests {
     /// Each kind through the window kit: a visible close button above the
     /// content, a `debug.window_snapshot` PNG, and a background pixel equal
     /// to the surface token (the app theme is opaque here).
-    @Test func everyKindShowsACloseButtonAndSnapshotsItsSurface() throws {
+    @Test(.requiresGUISession) func everyKindShowsACloseButtonAndSnapshotsItsSurface() throws {
         _ = NSApplication.shared
         let services = ActionBindingCoverageTests.boundServices()
         let directory = FileManager.default.temporaryDirectory.appending(path: "cmux-kinds-\(UUID().uuidString)")

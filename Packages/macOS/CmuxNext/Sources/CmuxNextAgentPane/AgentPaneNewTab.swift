@@ -28,33 +28,35 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     /// What Cmd-T opens (`tabs.newTabKind`: "same-kind", "terminal",
     /// "browser", "agent", "page" or "auto"), for the "default: X" toggle.
     public var defaultKind: String?
+    /// The design to show; nil is the page's default (B).
+    public var layout: AgentPaneNewTabLayout?
+    /// The agent last picked.
+    public var lastAgent: String?
+    /// The home folder, so the field reads `~/path` as a folder.
+    public var home: String?
 
     public init(kind: AgentPaneTabKind, hotkeys: [AgentPaneTabKind: String] = [:], cwd: String? = nil,
                 location: String? = nil, omnibar: AgentPaneOmnibar = AgentPaneOmnibar(), projects: [String] = [],
-                defaultKind: String? = nil) {
+                defaultKind: String? = nil, layout: AgentPaneNewTabLayout? = nil,
+                lastAgent: String? = nil, home: String? = nil) {
         self.kind = kind
         self.hotkeys = Dictionary(uniqueKeysWithValues: hotkeys.map { ($0.key.rawValue, $0.value) })
         self.cwd = cwd
         self.location = location
         self.omnibar = omnibar
-        self.projects = Array(projects.prefix(AgentPaneOmnibar.maximumEntries))
+        // Keep the host DTO lossless. The web page owns presentation limits and
+        // validation after the Codable handshake crosses the bridge.
+        self.projects = projects
         self.defaultKind = defaultKind
-    }
-
-    /// The `newTab` value of the handshake reply.
-    var reply: [String: Any] {
-        var value: [String: Any] = ["kind": kind.rawValue, "hotkeys": hotkeys, "omnibar": omnibar.reply]
-        if let cwd { value["cwd"] = cwd }
-        if let location { value["location"] = location }
-        if !projects.isEmpty { value["projects"] = projects }
-        if let defaultKind { value["defaultKind"] = defaultKind }
-        return value
+        self.layout = layout
+        self.lastAgent = lastAgent
+        self.home = home
     }
 }
 
 /// The location bar's suggestions from the app (#16651 follow-up): open tabs and
 /// workspaces to jump to, folders to open a terminal in, recent commands and pages.
-/// Capped per list; the page ranks and filters them as you type.
+/// The page validates and caps each list before ranking it.
 public nonisolated struct AgentPaneOmnibar: Codable, Sendable, Equatable {
     public struct Tab: Codable, Sendable, Equatable {
         public var id: String
@@ -94,23 +96,59 @@ public nonisolated struct AgentPaneOmnibar: Codable, Sendable, Equatable {
         }
     }
 
-    /// Longest list of each kind sent to the page.
+    /// A host-owned action the omnibar may invoke by id.
+    public struct Action: Codable, Sendable, Equatable {
+        public var id: String
+        public var title: String
+        public var detail: String?
+        public var keywords: [String]
+
+        public init(id: String, title: String, detail: String? = nil, keywords: [String] = []) {
+            self.id = id
+            self.title = title
+            self.detail = detail
+            self.keywords = keywords
+        }
+    }
+
+    /// Bound for newly introduced recent project and action suggestions.
     public static let maximumEntries = 40
 
     public var tabs: [Tab]
     public var workspaces: [Workspace]
     public var folders: [String]
+    /// Recent local project folders for the agent picker. This is separate
+    /// from `folders`, which is kept for terminal suggestions.
+    public var projects: [String]
+    public var actions: [Action]
     public var commands: [String]
     public var history: [Page]
 
-    public init(tabs: [Tab] = [], workspaces: [Workspace] = [], folders: [String] = [], commands: [String] = [],
-                history: [Page] = []) {
+    public init(tabs: [Tab] = [], workspaces: [Workspace] = [], folders: [String] = [], projects: [String] = [],
+                actions: [Action] = [], commands: [String] = [], history: [Page] = []) {
         let cap = Self.maximumEntries
-        self.tabs = Array(tabs.prefix(cap))
-        self.workspaces = Array(workspaces.prefix(cap))
-        self.folders = Array(folders.prefix(cap))
-        self.commands = Array(commands.prefix(cap))
-        self.history = Array(history.prefix(cap))
+        self.tabs = tabs
+        self.workspaces = workspaces
+        self.folders = folders
+        self.projects = Array(projects.prefix(cap))
+        self.actions = Array(actions.prefix(cap))
+        self.commands = commands
+        self.history = history
+    }
+
+    private enum CodingKeys: String, CodingKey { case tabs, workspaces, folders, projects, actions, commands, history }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            tabs: try values.decodeIfPresent([Tab].self, forKey: .tabs) ?? [],
+            workspaces: try values.decodeIfPresent([Workspace].self, forKey: .workspaces) ?? [],
+            folders: try values.decodeIfPresent([String].self, forKey: .folders) ?? [],
+            projects: try values.decodeIfPresent([String].self, forKey: .projects) ?? [],
+            actions: try values.decodeIfPresent([Action].self, forKey: .actions) ?? [],
+            commands: try values.decodeIfPresent([String].self, forKey: .commands) ?? [],
+            history: try values.decodeIfPresent([Page].self, forKey: .history) ?? []
+        )
     }
 
     var reply: [String: Any] {
@@ -124,6 +162,11 @@ public nonisolated struct AgentPaneOmnibar: Codable, Sendable, Equatable {
             },
             "workspaces": workspaces.map { optional([("id", $0.id), ("name", $0.name), ("detail", $0.detail)]) },
             "folders": folders,
+            "projects": projects,
+            "actions": actions.map {
+                optional([("id", $0.id), ("title", $0.title), ("detail", $0.detail)])
+                    .merging(["keywords": $0.keywords]) { left, _ in left }
+            },
             "commands": commands,
             "history": history.map { optional([("url", $0.url), ("title", $0.title)]) },
         ]

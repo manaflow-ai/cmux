@@ -47,16 +47,33 @@ final class PaneHostView: NSView {
 
     override var isFlipped: Bool { true }
 
+    /// Whether the pane sits in a docked (docked) column: it then shows the
+    /// user's docks background under its content (`appearance.surfaces.docks`).
+    var isDocked = false {
+        didSet { if isDocked != oldValue { applyDockFill() } }
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyDockFill()
+    }
+
+    private func applyDockFill() {
+        clipView.layer?.backgroundColor = isDocked ? performWithTheme { Palette.surfaceOverride(.docks)?.cgColor } : nil
+    }
+
     /// Height of the content's header (tab strip, toolbar); 0 without one.
     var headerHeight: CGFloat { reporter?.paneHeaderHeight ?? 0 }
+    /// Height of the content's footer (a tab strip at the bottom); 0 without one.
+    var footerHeight: CGFloat { reporter?.paneFooterHeight ?? 0 }
 
     /// The padded rect the content view fills, in this view's coordinates.
     var contentRect: CGRect { clipView.frame }
 
-    /// The rounded area the border and ring trace: below the content's
-    /// header, or the whole padded rect for content without one.
+    /// The rounded area the border and ring trace: between the content's
+    /// header and footer, or the whole padded rect for content without them.
     var roundedRect: CGRect {
-        PaneChromeGeometry.roundedRect(inPadded: clipView.frame, headerHeight: reporter?.paneHeaderHeight ?? 0)
+        PaneChromeGeometry.roundedRect(inPadded: clipView.frame, headerHeight: headerHeight, footerHeight: footerHeight)
     }
 
     /// Applies the pane padding and corner radius (live style values).
@@ -78,15 +95,21 @@ final class PaneHostView: NSView {
         style.paneCornerRadius = cornerRadius
         let rect = PaneChromeGeometry.contentRect(forCell: bounds, style: style)
         if clipView.frame != rect { clipView.frame = rect }
-        let header = reporter?.paneHeaderHeight ?? 0
-        let radius = PaneChromeGeometry.cornerRadius(for: PaneChromeGeometry.roundedRect(inPadded: rect, headerHeight: header), style: style)
+        // A restored pane can be populated before its host receives the
+        // launch frame. AppKit does not reliably run the child's autoresizing
+        // pass when the clip view is resized manually, so keep the content
+        // frame in lockstep with the clip bounds here.
+        if content.frame != clipView.bounds { content.frame = clipView.bounds }
+        let header = headerHeight, footer = footerHeight
+        let rounded = PaneChromeGeometry.roundedRect(inPadded: rect, headerHeight: header, footerHeight: footer)
+        let radius = PaneChromeGeometry.cornerRadius(for: rounded, style: style)
         if let reporter {
             clipView.setCornerRadius(0)
             reporter.setPaneContentCornerRadius(radius)
         } else {
             clipView.setCornerRadius(radius)
         }
-        chrome.setShape(padding: padding, cornerRadius: cornerRadius, headerHeight: header)
+        chrome.setShape(padding: padding, cornerRadius: cornerRadius, headerHeight: header, footerHeight: footer)
     }
 
     /// Tells the content when the pane's frame in the window changed.
@@ -98,7 +121,7 @@ final class PaneHostView: NSView {
         reporter.paneFrameInWindowDidChange()
     }
 
-    /// Clips the host to `rect` (its own coordinates) where a docked sticky
+    /// Clips the host to `rect` (its own coordinates) where a docked docked
     /// column covers it; nil removes the clip.
     func setStripClip(_ rect: CGRect?) {
         guard let layer else { return }

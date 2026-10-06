@@ -34,6 +34,9 @@ public final class LayoutRootView: NSView {
     /// coordinates; nil when nothing is highlighted. The drag session flies
     /// the ghost to it, so the ghost lands where the preview showed (R47).
     public internal(set) var tabDragHighlightOnScreen: CGRect?
+    /// Overlay sync observers by id (`observeOverlaySync`).
+    var overlaySyncObservers: [Int: () -> Void] = [:]
+    var nextOverlaySyncObserver = 0
 
     /// Everything the view reads from the model, observed as one value.
     private struct Snapshot: Equatable, Sendable {
@@ -106,7 +109,7 @@ public final class LayoutRootView: NSView {
         return view.splitPlacement(splitting: pane, axis: axis, removing: removing)
     }
 
-    /// Pane frames of the active screen for directional focus: sticky
+    /// Pane frames of the active screen for directional focus: docked
     /// columns placed before and after the strip (one logical line).
     public var navigationFrames: [PaneID: CGRect] {
         guard let active = model.activeScreenID, let view = screenViews[active] else { return [:] }

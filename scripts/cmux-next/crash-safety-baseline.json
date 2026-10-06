@@ -1,0 +1,160 @@
+{
+ "rust": {
+  "exit": {
+   "acpmux": 5,
+   "chatmux-relay": 12,
+   "cmux-app-host": 2,
+   "cmux-browser-host": 2,
+   "cmux-pane-protocol": 1,
+   "cmux-rd-host": 3,
+   "cmux-tasks": 1,
+   "cmux-tui": 1
+  },
+  "expect": {
+   "acpmux": 10,
+   "chatmux-relay": 132,
+   "cmux-app-host": 2,
+   "cmux-app-manifest": 14,
+   "cmux-browser-host": 1,
+   "cmux-layout-reducer": 13,
+   "cmux-pane-protocol": 1,
+   "cmux-pty": 1,
+   "cmux-relay": 4,
+   "cmux-remote": 60,
+   "cmux-remote-protocol": 1,
+   "cmux-server-core": 9,
+   "cmux-tasks": 1,
+   "cmux-tasks-core": 25,
+   "cmux-tui": 195,
+   "cmux-tui-cdp": 3,
+   "cmux-tui-core": 299,
+   "cmux-unix-socket": 1,
+   "cmux-wg": 15,
+   "ghostty-vt": 3
+  },
+  "panic_macro": {
+   "acpmux": 2,
+   "chatmux-relay": 1,
+   "cmux-app-manifest": 1,
+   "cmux-pane-protocol": 1,
+   "cmux-pty": 3,
+   "cmux-relay": 1,
+   "cmux-remote": 13,
+   "cmux-tui": 43,
+   "cmux-tui-core": 39,
+   "ghostty-vt": 1
+  },
+  "unwrap": {
+   "acpmux": 183,
+   "chatmux-relay": 8,
+   "cmux-link": 6,
+   "cmux-pty": 12,
+   "cmux-relay": 1,
+   "cmux-remote": 51,
+   "cmux-remote-protocol": 2,
+   "cmux-terminal-client": 27,
+   "cmux-tui": 457,
+   "cmux-tui-cdp": 30,
+   "cmux-tui-core": 1676,
+   "cmux-wg": 13,
+   "ghostty-vt": 3
+  }
+ },
+ "swift": {
+  "as_bang": {
+   "CmuxNextApp": 3,
+   "CmuxNextCloud": 1,
+   "CmuxNextSettings": 4
+  },
+  "assume_isolated": {
+   "CmuxNextAgentActivity": 1,
+   "CmuxNextAgentPane": 4,
+   "CmuxNextApp": 33,
+   "CmuxNextApps": 9,
+   "CmuxNextBrowser": 21,
+   "CmuxNextBrowserAutomation": 2,
+   "CmuxNextControl": 1,
+   "CmuxNextDesign": 15,
+   "CmuxNextHome": 4,
+   "CmuxNextOnboarding": 1,
+   "CmuxNextPalette": 1,
+   "CmuxNextRemoteView": 1,
+   "CmuxNextSidebar": 3,
+   "CmuxNextTabs": 7,
+   "CmuxNextTasks": 3,
+   "CmuxNextTerminal": 16,
+   "CmuxNextWakeups": 1
+  },
+  "fatal_error": {
+   "CmuxNextApp": 1
+  },
+  "force_unwrap": {
+   "CmuxNextActions": 9,
+   "CmuxNextAgentActivity": 1,
+   "CmuxNextAgentPane": 2,
+   "CmuxNextApp": 99,
+   "CmuxNextApps": 1,
+   "CmuxNextBookmarks": 3,
+   "CmuxNextBrowser": 25,
+   "CmuxNextBrowserAutomation": 1,
+   "CmuxNextBrowserImport": 4,
+   "CmuxNextCloud": 11,
+   "CmuxNextCodeRouter": 5,
+   "CmuxNextDesign": 3,
+   "CmuxNextFeed": 1,
+   "CmuxNextHistory": 1,
+   "CmuxNextHome": 1,
+   "CmuxNextLayout": 6,
+   "CmuxNextOnboarding": 22,
+   "CmuxNextPages": 2,
+   "CmuxNextRemote": 2,
+   "CmuxNextRemoteView": 1,
+   "CmuxNextResources": 2,
+   "CmuxNextSettings": 10,
+   "CmuxNextSidebar": 8,
+   "CmuxNextTabs": 5,
+   "CmuxNextTerminal": 1
+  },
+  "iuo": {
+   "CmuxNextApp": 27,
+   "CmuxNextBrowser": 8,
+   "CmuxNextOnboarding": 17,
+   "CmuxNextSidebar": 5
+  },
+  "precondition": {
+   "CmuxNextBrowserImport": 2,
+   "CmuxNextSettings": 2,
+   "CmuxNextSidebar": 1,
+   "CmuxNextWakeups": 1
+  },
+  "unchecked": {
+   "CmuxNextAgentActivity": 1,
+   "CmuxNextAgentPane": 2,
+   "CmuxNextApp": 5,
+   "CmuxNextApps": 1,
+   "CmuxNextBridge": 1,
+   "CmuxNextBrowser": 5,
+   "CmuxNextBrowserAutomation": 1,
+   "CmuxNextBrowserImport": 1,
+   "CmuxNextControl": 3,
+   "CmuxNextDaemon": 4,
+   "CmuxNextDesign": 1,
+   "CmuxNextDictation": 6,
+   "CmuxNextHome": 1,
+   "CmuxNextRemoteView": 5,
+   "CmuxNextServerHelper": 6,
+   "CmuxNextSettings": 1,
+   "CmuxNextTabs": 7,
+   "CmuxNextTerminal": 7
+  },
+  "unowned": {
+   "CmuxNextApp": 73,
+   "CmuxNextBrowser": 16,
+   "CmuxNextOnboarding": 1,
+   "CmuxNextPalette": 4,
+   "CmuxNextSidebar": 2,
+   "CmuxNextTerminal": 1,
+   "CmuxNextWakeups": 1
+  }
+ }
+}

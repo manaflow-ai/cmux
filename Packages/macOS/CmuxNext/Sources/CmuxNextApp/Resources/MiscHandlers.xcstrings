@@ -2490,268 +2490,6 @@
         }
       }
     },
-    "handlers.misc.unavailable.diffViewer": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux-next has no diff viewer yet."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux-next にはまだ差分ビューアがありません。"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "لا يحتوي cmux-next على عارض فروقات بعد."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next još nema preglednik razlika."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next har endnu ingen diff-visning."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next hat noch keinen Diff-Viewer."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next aún no tiene visor de diffs."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next n’a pas encore de visionneuse de diff."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next non ha ancora un visualizzatore diff."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next មិនទាន់មានកម្មវិធីមើល diff នៅឡើយទេ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next에는 아직 Diff 뷰어가 없습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next har ingen diff-viser ennå."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next nie ma jeszcze przeglądarki różnic."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "O cmux-next ainda não tem visualizador de diff."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "В cmux-next пока нет просмотра diff."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next ยังไม่มีตัวแสดง Diff"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next’te henüz diff görüntüleyici yok."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next ще не має переглядача diff."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next chưa có trình xem diff."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next 尚无差异查看器。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next 尚無差異檢視器。"
-          }
-        }
-      }
-    },
-    "handlers.misc.unavailable.filePreview": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux-next has no file preview surface yet."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux-next にはまだファイルプレビューがありません。"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "لا يحتوي cmux-next على سطح معاينة للملفات بعد."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next još nema površinu za pregled datoteka."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next har endnu ingen filvisning."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next hat noch keine Dateivorschau."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next aún no tiene vista previa de archivos."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next n’a pas encore de surface d’aperçu de fichier."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next non ha ancora una superficie di anteprima file."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next មិនទាន់មានផ្ទៃមើលឯកសារជាមុននៅឡើយទេ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next에는 아직 파일 미리보기가 없습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next har ingen flate for filforhåndsvisning ennå."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next nie ma jeszcze podglądu plików."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "O cmux-next ainda não tem superfície de pré-visualização de arquivos."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "В cmux-next пока нет предпросмотра файлов."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next ยังไม่มีพื้นผิวแสดงตัวอย่างไฟล์"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next’te henüz dosya önizleme yüzeyi yok."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next ще не має поверхні попереднього перегляду файлів."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next chưa có bề mặt xem trước tệp."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next 尚无文件预览表面。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next 尚無檔案預覽介面。"
-          }
-        }
-      }
-    },
     "handlers.misc.unavailable.linkTarget": {
       "extractionState": "manual",
       "localizations": {
@@ -2879,137 +2617,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "連結的快顯選單尚未將連結傳遞給動作。"
-          }
-        }
-      }
-    },
-    "handlers.misc.unavailable.markdownViewer": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux-next has no Markdown viewer yet."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux-next にはまだ Markdown ビューアがありません。"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "لا يحتوي cmux-next على عارض Markdown بعد."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next još nema Markdown preglednik."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next har endnu ingen Markdown-visning."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next hat noch keinen Markdown-Viewer."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next aún no tiene visor de Markdown."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next n’a pas encore de visionneuse Markdown."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next non ha ancora un visualizzatore Markdown."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next មិនទាន់មានកម្មវិធីមើល Markdown នៅឡើយទេ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next에는 아직 Markdown 뷰어가 없습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next har ingen Markdown-viser ennå."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next nie ma jeszcze przeglądarki Markdown."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "O cmux-next ainda não tem visualizador de Markdown."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "В cmux-next пока нет просмотра Markdown."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next ยังไม่มีตัวแสดง Markdown"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next’te henüz Markdown görüntüleyici yok."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next ще не має переглядача Markdown."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next chưa có trình xem Markdown."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next 尚无 Markdown 查看器。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next 尚無 Markdown 檢視器。"
           }
         }
       }
@@ -5237,6 +4844,1241 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "未命名工作區"
+          }
+        }
+      }
+    },
+    "handlers.misc.unavailable.windowKind": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not available in this window."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このウィンドウでは使用できません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "غير متاح في هذه النافذة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nije dostupno u ovom prozoru."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ikke tilgængelig i dette vindue."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "In diesem Fenster nicht verfügbar."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No disponible en esta ventana."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Non disponible dans cette fenêtre."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Non disponibile in questa finestra."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនអាចប្រើបានក្នុងបង្អួចនេះទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 창에서는 사용할 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ikke tilgjengelig i dette vinduet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Niedostępne w tym oknie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não disponível nesta janela."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Недоступно в этом окне."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่พร้อมใช้งานในหน้าต่างนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu pencerede kullanılamaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Недоступно в цьому вікні."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không khả dụng trong cửa sổ này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在此窗口中不可用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在此視窗中無法使用。"
+          }
+        }
+      }
+    },
+    "handlers.misc.failed.agentChromiumPage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automation cannot open Chromium's own pages (chrome://, chrome-extension://, devtools://)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動操作では Chromium 自身のページ (chrome://、chrome-extension://、devtools://) を開けません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يمكن للأتمتة فتح صفحات Chromium الخاصة (chrome://، chrome-extension://، devtools://)."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automatizacija ne može otvoriti Chromiumove vlastite stranice (chrome://, chrome-extension://, devtools://)."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automatisering kan ikke åbne Chromiums egne sider (chrome://, chrome-extension://, devtools://)."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automatisierung kann Chromiums eigene Seiten nicht öffnen (chrome://, chrome-extension://, devtools://)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La automatización no puede abrir las páginas propias de Chromium (chrome://, chrome-extension://, devtools://)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’automatisation ne peut pas ouvrir les pages propres à Chromium (chrome://, chrome-extension://, devtools://)."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’automazione non può aprire le pagine proprie di Chromium (chrome://, chrome-extension://, devtools://)."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ស្វ័យប្រវត្តិកម្មមិនអាចបើកទំព័រផ្ទាល់របស់ Chromium បានទេ (chrome://, chrome-extension://, devtools://)។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "자동화는 Chromium 자체 페이지(chrome://, chrome-extension://, devtools://)를 열 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automatisering kan ikke åpne Chromiums egne sider (chrome://, chrome-extension://, devtools://)."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automatyzacja nie może otwierać własnych stron Chromium (chrome://, chrome-extension://, devtools://)."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A automação não pode abrir as páginas próprias do Chromium (chrome://, chrome-extension://, devtools://)."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Автоматизация не может открывать собственные страницы Chromium (chrome://, chrome-extension://, devtools://)."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ระบบอัตโนมัติเปิดหน้าของ Chromium เองไม่ได้ (chrome://, chrome-extension://, devtools://)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otomasyon Chromium’un kendi sayfalarını açamaz (chrome://, chrome-extension://, devtools://)."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Автоматизація не може відкривати власні сторінки Chromium (chrome://, chrome-extension://, devtools://)."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tự động hóa không thể mở các trang riêng của Chromium (chrome://, chrome-extension://, devtools://)."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自动化无法打开 Chromium 自身的页面（chrome://、chrome-extension://、devtools://）。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自動化無法開啟 Chromium 自身的頁面（chrome://、chrome-extension://、devtools://）。"
+          }
+        }
+      }
+    },
+    "handlers.misc.failed.unknownBrowserProfile": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ليس ملف تعريف متصفح. استخدم \"agent\" أو معرّف ملف تعريف موجود."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ nije profil preglednika. Koristite \"agent\" ili ID postojećeg profila."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ er ikke en browserprofil. Brug \"agent\" eller id'et for en eksisterende profil."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ist kein Browserprofil. Verwenden Sie \"agent\" oder die ID eines vorhandenen Profils."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is not a browser profile. Use \"agent\" or the id of an existing profile."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ no es un perfil del navegador. Usa \"agent\" o el id de un perfil existente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ n’est pas un profil de navigateur. Utilisez « agent » ou l’identifiant d’un profil existant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ non è un profilo del browser. Usa \"agent\" o l’id di un profilo esistente."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ はブラウザプロファイルではありません。\"agent\" または既存のプロファイルの ID を使ってください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ មិនមែនជាប្រវត្តិរូបកម្មវិធីរុករកទេ។ ប្រើ \"agent\" ឬ id នៃប្រវត្តិរូបដែលមានស្រាប់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@은(는) 브라우저 프로필이 아닙니다. \"agent\" 또는 기존 프로필의 ID를 사용하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ er ikke en nettleserprofil. Bruk \"agent\" eller ID-en til en eksisterende profil."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ nie jest profilem przeglądarki. Użyj \"agent\" lub identyfikatora istniejącego profilu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ não é um perfil do navegador. Use \"agent\" ou o id de um perfil existente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ не является профилем браузера. Используйте \"agent\" или id существующего профиля."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ไม่ใช่โปรไฟล์เบราว์เซอร์ ใช้ \"agent\" หรือ id ของโปรไฟล์ที่มีอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ bir tarayıcı profili değil. \"agent\" ya da mevcut bir profilin kimliğini kullanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ не є профілем браузера. Використайте \"agent\" або id наявного профілю."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ không phải là hồ sơ trình duyệt. Dùng \"agent\" hoặc id của một hồ sơ hiện có."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 不是浏览器配置文件。请使用 \"agent\" 或现有配置文件的 ID。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 不是瀏覽器設定檔。請使用 \"agent\" 或現有設定檔的 ID。"
+          }
+        }
+      }
+    },
+    "handlers.misc.agentBrowserProfile.name": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الوكلاء"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agenti"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agenter"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agenten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agents"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agentes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agents"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agenti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェント"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ភ្នាក់ងារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agenter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agenci"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agentes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Агенты"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajanlar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Агенти"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tác tử"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "代理"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "代理程式"
+          }
+        }
+      }
+    },
+    "handlers.misc.closed.toast": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Closed “%@”"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」を閉じました"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تم إغلاق «%@»"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zatvoreno „%@“"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lukkede “%@”"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "„%@“ geschlossen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Se cerró «%@»"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "« %@ » fermé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chiuso “%@”"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានបិទ “%@”"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” 닫음"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lukket «%@»"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zamknięto „%@”"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” fechado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Закрыто: «%@»"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปิด “%@” แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” kapatıldı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Закрито: «%@»"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã đóng “%@”"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已关闭“%@”"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已關閉「%@」"
+          }
+        }
+      }
+    },
+    "handlers.misc.closed.toastTabs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Closed %lld tab"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Closed %lld tabs"
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld 個のタブを閉じました"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld 個のタブを閉じました"
+                }
+              }
+            }
+          }
+        },
+        "ar": {
+          "variations": {
+            "plural": {
+              "zero": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "تم إغلاق %lld علامة تبويب"
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "تم إغلاق علامة تبويب %lld"
+                }
+              },
+              "two": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "تم إغلاق %lld علامتي تبويب"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "تم إغلاق %lld علامات تبويب"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "تم إغلاق %lld علامة تبويب"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "تم إغلاق %lld علامة تبويب"
+                }
+              }
+            }
+          }
+        },
+        "bs": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Zatvorena %lld kartica"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Zatvorene %lld kartice"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Zatvoreno %lld kartica"
+                }
+              }
+            }
+          }
+        },
+        "da": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Lukkede %lld fane"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Lukkede %lld faner"
+                }
+              }
+            }
+          }
+        },
+        "de": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld Tab geschlossen"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld Tabs geschlossen"
+                }
+              }
+            }
+          }
+        },
+        "es": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Se cerró %lld pestaña"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Se cerraron %lld pestañas"
+                }
+              }
+            }
+          }
+        },
+        "fr": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld onglet fermé"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld onglets fermés"
+                }
+              }
+            }
+          }
+        },
+        "it": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld scheda chiusa"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld schede chiuse"
+                }
+              }
+            }
+          }
+        },
+        "km": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "បានបិទផ្ទាំង %lld"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "បានបិទផ្ទាំង %lld"
+                }
+              }
+            }
+          }
+        },
+        "ko": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "탭 %lld개를 닫음"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "탭 %lld개를 닫음"
+                }
+              }
+            }
+          }
+        },
+        "nb": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Lukket %lld fane"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Lukket %lld faner"
+                }
+              }
+            }
+          }
+        },
+        "pl": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Zamknięto %lld kartę"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Zamknięto %lld karty"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Zamknięto %lld kart"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Zamknięto %lld karty"
+                }
+              }
+            }
+          }
+        },
+        "pt-BR": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld aba fechada"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld abas fechadas"
+                }
+              }
+            }
+          }
+        },
+        "ru": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Закрыта %lld вкладка"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Закрыты %lld вкладки"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Закрыто %lld вкладок"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Закрыто %lld вкладки"
+                }
+              }
+            }
+          }
+        },
+        "th": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "ปิด %lld แท็บแล้ว"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "ปิด %lld แท็บแล้ว"
+                }
+              }
+            }
+          }
+        },
+        "tr": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld sekme kapatıldı"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld sekme kapatıldı"
+                }
+              }
+            }
+          }
+        },
+        "uk": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Закрито %lld вкладку"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Закрито %lld вкладки"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Закрито %lld вкладок"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Закрито %lld вкладки"
+                }
+              }
+            }
+          }
+        },
+        "vi": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Đã đóng %lld thẻ"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Đã đóng %lld thẻ"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "已关闭 %lld 个标签页"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "已关闭 %lld 个标签页"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hant": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "已關閉 %lld 個分頁"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "已關閉 %lld 個分頁"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "handlers.misc.refusal.pickerNeedsFocus": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The picker opens only when focus is requested."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ピッカーはフォーカスが要求されたときにのみ開きます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يفتح المنتقي إلا عند طلب التركيز."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Birač se otvara samo kada se zatraži fokus."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vælgeren åbner kun, når der anmodes om fokus."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Auswahl öffnet sich nur, wenn der Fokus angefordert wird."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El selector solo se abre cuando se solicita el foco."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le sélecteur ne s’ouvre que si le focus est demandé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il selettore si apre solo quando viene richiesto il focus."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីជ្រើសរើសបើកតែនៅពេលស្នើសុំការផ្ដោតប៉ុណ្ណោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "선택기는 포커스를 요청할 때만 열립니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Velgeren åpnes bare når fokus er bedt om."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Selektor otwiera się tylko wtedy, gdy zażądano fokusu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O seletor só abre quando o foco é solicitado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Средство выбора открывается, только если запрошен фокус."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตัวเลือกจะเปิดเมื่อมีการขอโฟกัสเท่านั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Seçici yalnızca odak istendiğinde açılır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Засіб вибору відкривається, лише коли запитано фокус."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bộ chọn chỉ mở khi yêu cầu tiêu điểm."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "仅在请求焦点时才会打开选择器。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "僅在要求焦點時才會開啟選擇器。"
           }
         }
       }

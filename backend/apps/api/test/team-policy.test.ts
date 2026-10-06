@@ -1,5 +1,5 @@
 import { env, exports } from "cloudflare:workers"
-import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test"
+import { runInDurableObject } from "cloudflare:test"
 import type { ReduceContext } from "@cmux/ownership"
 import { policyKeys } from "@cmux/protocol"
 import { importJWK, SignJWT, type JWK } from "jose"
@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest"
 import { teamDomain, type TeamState } from "../src/domains/team.ts"
 import { currentPolicy, integrationSlice, POLICY_HISTORY_LIMIT } from "../src/domains/team-policy.ts"
 import { integrationSyncPending, sliceHash } from "../src/domains/team-integration-sync.ts"
+import { fireAlarm } from "./setup/alarm.ts"
 
 const testEnv = env as unknown as { STACK_PROJECT_ID: string; STACK_TEST_PRIVATE_JWK: string; TEAM_DO: DurableObjectNamespace; CONNECTION_DO: DurableObjectNamespace }
 const worker = (exports as unknown as { default: Fetcher }).default
@@ -76,6 +77,41 @@ describe("team policy reducer (TeamDO single writer)", () => {
     expect(run(s, "team.policy.update", { changes: [set("sso.enforce", true, "default")], expected_version: 0 }).ok).toBe(true)
     expect(run(s, "team.policy.update", { changes: [set("github.repoScope", "allow_list")], expected_version: 0 })).toMatchObject({ ok: false, code: "policy.invalid" })
     expect(run(s, "team.policy.update", { changes: [set("integrations.allowedProviders", ["notion"])], expected_version: 0 })).toMatchObject({ ok: false, code: "policy.invalid" })
+  })
+
+  it("enforced SSO reads the team's real SSO facts: an active connection that serves a verified domain", () => {
+    const domain = (state: "pending" | "verified" | "lapsed") => ({ domain: "acme.dev", state, record_name: "_cmux-challenge.acme.dev", record_value: "v", requested_at: 1, expires_at: 2, verified_at: state === "verified" ? 1 : null })
+    const connection = (state: "draft" | "active" | "disabled", domains = ["acme.dev"]) => ({
+      id: "ssoc_00000000000000000001",
+      kind: "oidc" as const,
+      state,
+      domains,
+      oidc: { issuer: "https://idp.acme.dev", client_id: "c", scopes: ["openid"], authorization_endpoint: null, token_endpoint: null, jwks_uri: null },
+      secret_set: true,
+      jit: { enabled: true, default_role: "member" as const },
+      created_at: 1,
+      updated_at: 1
+    })
+    const withSso = (d: "pending" | "verified" | "lapsed", c: "draft" | "active" | "disabled", domains?: Array<string>): TeamState => ({
+      ...baseState(),
+      domains: { "acme.dev": domain(d) },
+      sso_connections: { ssoc_00000000000000000001: connection(c, domains) }
+    })
+    const enforce = { changes: [set("sso.enforce", true)], expected_version: 0 }
+    expect(run(withSso("verified", "active"), "team.policy.update", enforce).ok).toBe(true)
+    expect(run(withSso("verified", "draft"), "team.policy.update", enforce)).toMatchObject({ ok: false, code: "policy.invalid" })
+    expect(run(withSso("verified", "disabled"), "team.policy.update", enforce)).toMatchObject({ ok: false, code: "policy.invalid" })
+    expect(run(withSso("lapsed", "active"), "team.policy.update", enforce)).toMatchObject({ ok: false, code: "policy.invalid" })
+    // The active connection must serve the verified domain, not another one.
+    expect(run(withSso("verified", "active", ["other.dev"]), "team.policy.update", enforce)).toMatchObject({ ok: false, code: "policy.invalid" })
+    // Rollback rechecks against the facts of now.
+    const on = run(withSso("verified", "active"), "team.policy.update", enforce)
+    if (!on.ok) throw new Error("enforce refused")
+    const off = run(on.state as TeamState, "team.policy.update", { changes: [{ key: "sso.enforce", value: null }], expected_version: 1 })
+    if (!off.ok) throw new Error("clear refused")
+    const lapsed = { ...(off.state as TeamState), domains: { "acme.dev": domain("lapsed") } }
+    expect(run(lapsed, "team.policy.rollback", { version: 1, expected_version: 2 })).toMatchObject({ ok: false, code: "policy.invalid" })
+    expect(run(off.state as TeamState, "team.policy.rollback", { version: 1, expected_version: 2 }).ok).toBe(true)
   })
 
   it("maps the integration keys onto ConnectionDO's TeamIntegrationPolicy fields", () => {
@@ -226,7 +262,7 @@ describe("integration seed and slice sync (TeamDO)", () => {
  */
 const settle = async (check: () => Promise<boolean>, stub: DurableObjectStub) => {
   for (let i = 0; i < 50; i++) {
-    await runDurableObjectAlarm(stub)
+    await fireAlarm(stub)
     if (await check()) return
     await new Promise((r) => setTimeout(r, 20))
   }
@@ -438,12 +474,12 @@ describe("team policy over the API (workerd)", () => {
     })
     // ConnectionDO's notice reaches TeamDO without any new TeamPolicy version.
     const managedBy = async () => (await call("/v1/read", session, { op: "team.policy.get", params: {} })).json.value.integration_managed_by
-    await settle(async () => { await runDurableObjectAlarm(connStub); return (await managedBy()) === "sso" }, teamStub)
+    await settle(async () => { await fireAlarm(connStub); return (await managedBy()) === "sso" }, teamStub)
 
     const released = await call("/v1/ops", session, { op: "team.integration.release_lock", params: { reason: "left the IdP" }, idempotency_key: crypto.randomUUID(), origin: "user" })
     expect(released.json.ok).toBe(true)
     await settle(async () => {
-      await runDurableObjectAlarm(connStub)
+      await fireAlarm(connStub)
       const conn = (await call("/v1/read", session, { op: "integration.policy.get", params: {} })).json.value
       return conn.source === "team_policy" && (await managedBy()) === null
     }, teamStub)

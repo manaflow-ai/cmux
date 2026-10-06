@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 9a93a666e8f059fe58fafce71e3c8f25d47a930c49c9058ed455f3ca46b21d7b. */
+/* cmux-tui mux protocol 12, IR c791daea9e2a658f8293f260b364a89979c93c5813028768c8d545339bc50b5e. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -15,6 +15,17 @@ export type AgentRecord = {
 };
 
 export type AgentReportSource = "socket" | "hook";
+
+export type AgentSessionSource = {
+  /** The agent kind the chat was started with. */
+  "harness"?: (string) | null;
+  /** install: and the stable install id of the machine whose acpmux runs the session. */
+  "host": string;
+  /** Display name of the host machine: 1 to 255 bytes, no control characters. */
+  "host_name"?: (string) | null;
+  /** The acpmux session id; null for a new chat until bind-conversation-tab-session. */
+  "session"?: (string) | null;
+};
 
 export type AgentSource = "plugin" | "detected" | "socket" | "hook";
 
@@ -48,6 +59,13 @@ export type BrowserFrame = {
   "height": number;
   "seq": bigint;
   "width": number;
+};
+
+export type BrowserHostProviderResult = {
+  "host_pid": number;
+  "listener_pid": number;
+  "secret": string;
+  "socket": string;
 };
 
 export type BrowserProviderAuthentication = "none" | "bearer";
@@ -109,6 +127,8 @@ export type ClientSize = {
 
 export type ClientTransport = "local" | "unix" | "ws";
 
+export type CloseReason = "session_end";
+
 export type CloseTerminalResult = {
   "already_closed": boolean;
   "closed": true;
@@ -125,6 +145,120 @@ export type ColorHex = string;
 export type ColumnPin = {
   "edge": string;
   "mode": string;
+};
+
+export type ConversationChange = {
+  /** kind conversation. */
+  "conversation"?: ConversationSummary;
+  /** Known values: message and message-updated (message), read-cursor (participant, seq), conversation (conversation). A change of another kind keeps its fields in the additional properties. */
+  "kind": string;
+  /** kind message or message-updated. */
+  "message"?: ConversationMessage;
+  /** kind read-cursor. */
+  "participant"?: string;
+  /** kind read-cursor. */
+  "seq"?: bigint;
+  [key: string]: unknown;
+};
+
+export type ConversationMessage = {
+  "author": string;
+  "client_msg_id": string;
+  "conversation": string;
+  "created_at": string;
+  "edited_at"?: string;
+  "id": string;
+  "parts": Array<ConversationPart>;
+  "reactions": Array<ConversationReaction>;
+  "reply_to"?: ConversationPartRef;
+  "retracted_at"?: string;
+  "seq": bigint;
+};
+
+export type ConversationPart = {
+  /** type work. */
+  "host"?: string;
+  /** type work. */
+  "preview"?: string;
+  /** type text. */
+  "runs"?: Array<ConversationTextRun>;
+  /** type work. */
+  "session"?: string;
+  /** type work. Known values: running, done, failed, waiting. */
+  "status"?: string;
+  /** type text. */
+  "text"?: string;
+  /** Known values: text (text, runs) and work (session, host, status, preview). A part of another type keeps its fields in the additional properties. */
+  "type": string;
+  [key: string]: unknown;
+};
+
+export type ConversationPartRef = {
+  "message_id": string;
+  "part_index": number;
+};
+
+export type ConversationParticipant = {
+  "acp_session"?: string;
+  /** Known values: mux, agent. Other values are future classes. */
+  "agent_class"?: string;
+  "display_name": string;
+  "id": string;
+  /** Known values: human, agent. Other values are future kinds. */
+  "kind": string;
+};
+
+export type ConversationReaction = {
+  "at": string;
+  "author": string;
+  "kind": ConversationReactionKind;
+  "part_index": number;
+};
+
+export type ConversationReactionKind = {
+  "emoji"?: string;
+  /** Known values: love, like, dislike, laugh, emphasize, question. */
+  "tapback"?: string;
+  [key: string]: unknown;
+};
+
+export type ConversationSearchHit = {
+  "author": string;
+  "conversation": string;
+  "created_at": string;
+  "message_id": string;
+  "seq": bigint;
+  "snippet": string;
+  "title": string;
+};
+
+export type ConversationSummary = {
+  "created_at": string;
+  "id": string;
+  "last_message"?: ConversationMessage;
+  "last_seq": bigint;
+  "owner": string;
+  "participants": Array<ConversationParticipant>;
+  "read_cursors": Record<string, bigint>;
+  "rev": bigint;
+  "title": string;
+  "updated_at": string;
+};
+
+export type ConversationTabRecord = {
+  /** Agent session source (agent-session-tabs-v1); exclusive with conversation and owner. */
+  "agent_session"?: AgentSessionSource;
+  /** Conversation source: a conv_ id, with owner. */
+  "conversation"?: string;
+  /** Conversation source: local or cloud. */
+  "owner"?: string;
+};
+
+export type ConversationTextRun = {
+  "length": number;
+  "link"?: string;
+  "mention"?: string;
+  "start": number;
 };
 
 export type CopyResult = {
@@ -392,6 +526,14 @@ export type MoveTerminalResult = {
   "workspace_key": string;
 };
 
+export type NewRowResult = {
+  "pane": Id;
+  "surface": Id;
+  "terminal_id"?: (string) | null;
+  "terminal_incarnation"?: (string) | null;
+  "transaction"?: string;
+};
+
 export type NoteSizeActivityResult = {
   "changed": boolean;
   "participant": string;
@@ -415,6 +557,8 @@ export type NotifyResult = {
 export type Pane = (LivePane) | (DeadPane);
 
 export type PaneDirection = "left" | "right" | "up" | "down";
+
+export type PaneKind = "pty" | "browser";
 
 export type PaneNeighborResult = {
   "pane": (Id) | null;
@@ -579,6 +723,16 @@ export type ResourceSelectors = {
   "tab"?: (string) | null;
   "terminal"?: (string) | null;
   "workspace"?: (string) | null;
+};
+
+export type RowHeight = {
+  "height": bigint;
+  "row": Id;
+};
+
+export type RowMarkerPoint = {
+  "col": number;
+  "row_marker": bigint;
 };
 
 export type RunResult = {
@@ -769,6 +923,20 @@ export type SizingIdentity = {
   "user_id"?: (string) | null;
 };
 
+export type SnapshotRequestHave = {
+  "generation"?: (bigint) | null;
+  "offset"?: (bigint) | null;
+  "snapshot_version"?: (number) | null;
+};
+
+export type SnapshotRequestResult = {
+  "reason"?: (string) | null;
+  "request_id"?: (string) | null;
+  "retry_after_ms"?: (bigint) | null;
+  "status": "accepted" | "collapsed" | "snapshot_throttled";
+  "surface": Id;
+};
+
 export type SplitDirection = "right" | "down";
 
 export type SplitRespawn = {
@@ -809,6 +977,24 @@ export type Tab = {
 
 /** Opaque JSON: A tab named by its numeric surface id or its public tab_ id. */
 export type TabRef = JsonValue;
+
+export type TerminalClipboardHost = {
+  "kind": TerminalClipboardHostKind;
+  "name"?: string;
+};
+
+export type TerminalClipboardHostKind = "local" | "remote" | "cloud";
+
+export type TerminalClipboardLocation = "standard" | "selection" | "primary";
+
+export type TerminalClipboardReplyResult = {
+  "accepted": boolean;
+  "granted": boolean;
+};
+
+export type TerminalClipboardSubscribeResult = {
+  "clipboard_read_ready": boolean;
+};
 
 export type TerminalColorOverrides = {
   "bg": (ColorHex) | null;
@@ -856,6 +1042,21 @@ export type TerminalExitOutcome = ({ "kind": "exit" } & {
   "reason": string;
 });
 
+export type TerminalHistoryPage = {
+  "data": string;
+  "marker": bigint;
+  "rows": number;
+};
+
+export type TerminalHistoryPagesResult = {
+  "done": boolean;
+  "marker_epoch": bigint;
+  "next_before"?: (bigint) | null;
+  "pages": Array<TerminalHistoryPage>;
+  "snapshot_version": number;
+  "surface": Id;
+};
+
 export type TerminalKey = "unidentified" | "backquote" | "backslash" | "bracket-left" | "bracket-right" | "comma" | "digit0" | "digit1" | "digit2" | "digit3" | "digit4" | "digit5" | "digit6" | "digit7" | "digit8" | "digit9" | "equal" | "a" | "b" | "c" | "d" | "e" | "f" | "g" | "h" | "i" | "j" | "k" | "l" | "m" | "n" | "o" | "p" | "q" | "r" | "s" | "t" | "u" | "v" | "w" | "x" | "y" | "z" | "minus" | "period" | "quote" | "semicolon" | "slash" | "backspace" | "enter" | "space" | "tab" | "delete" | "end" | "home" | "insert" | "page-down" | "page-up" | "arrow-down" | "arrow-left" | "arrow-right" | "arrow-up" | "numpad0" | "numpad1" | "numpad2" | "numpad3" | "numpad4" | "numpad5" | "numpad6" | "numpad7" | "numpad8" | "numpad9" | "numpad-add" | "numpad-backspace" | "numpad-comma" | "numpad-decimal" | "numpad-divide" | "numpad-enter" | "numpad-equal" | "numpad-multiply" | "numpad-subtract" | "numpad-up" | "numpad-down" | "numpad-right" | "numpad-left" | "numpad-begin" | "numpad-home" | "numpad-end" | "numpad-insert" | "numpad-delete" | "numpad-page-up" | "numpad-page-down" | "escape" | "f1" | "f2" | "f3" | "f4" | "f5" | "f6" | "f7" | "f8" | "f9" | "f10" | "f11" | "f12" | "f13" | "f14" | "f15" | "f16" | "f17" | "f18" | "f19" | "f20";
 
 export type TerminalKeyAction = "press" | "release" | "repeat";
@@ -899,6 +1100,12 @@ export type TerminalPlacement = {
   "terminal_incarnation": (string) | null;
   "terminal_revision": bigint;
   "workspace": (Id) | null;
+};
+
+export type TerminalReadRangeResult = {
+  "surface": Id;
+  "text": string;
+  "truncated": boolean;
 };
 
 export type TerminalRecord = {

@@ -1,11 +1,11 @@
-import type { EventFrame, Principal } from "@cmux/ownership"
+import type { EventFrame, OpFrame, Principal } from "@cmux/ownership"
 import { feedKindSchemas, FeedList, type FeedItem, type PushTarget } from "@cmux/protocol"
 import { decodeParams } from "./domains/common.ts"
 import { listItems } from "./domains/feed-query.ts"
 import { feedCounts, feedDomain, nextFeedWake, visibleTo, type FeedState } from "./domains/feed.ts"
 import { isUserClient, prunableAt, pushEligible, RETENTION_MS } from "./domains/feed-state.ts"
 import type { Env } from "./env.ts"
-import { OwnerDO, type ReadResult } from "./owner-do.ts"
+import { OwnerDO, type ReadResult, type SubmitResult } from "./owner-do.ts"
 import { FEED_ENGINE_OPTIONS, scrubFeedText } from "./feed-privacy.ts"
 import type { SweepState } from "./feed-sweep.ts"
 import { apnsConfig, sendApns } from "./push/apns.ts"
@@ -22,6 +22,9 @@ interface Presence {
  * Presence (which client is active) lives only in socket attachments: it is
  * client view state, used for the push decision, never committed.
  */
+/** Posts per day for all scopes of one install (DO audit 5.6: a runaway agent cannot churn the event window). */
+export const MAX_POSTS_PER_DAY = 5_000
+
 export class FeedDO extends OwnerDO<FeedState> {
   constructor(ctx: DurableObjectState, env: Env) {
     // Subscribers are the user's own clients; events show the acting install, never email or Stack ids.
@@ -33,6 +36,43 @@ export class FeedDO extends OwnerDO<FeedState> {
       ...(p.install_kind ? { install_kind: p.install_kind } : {}),
       ...(p.agent ? { agent: p.agent } : {})
     }), FEED_ENGINE_OPTIONS)
+  }
+
+  /** Posts per day for all scopes of one install (DO audit 5.6); a field so tests can lower it. */
+  protected maxPostsPerDay = MAX_POSTS_PER_DAY
+
+  /**
+   * feed.post and feed.adopt from an install count toward its daily cap, kept in a side table (the
+   * shared reducer and its vectors stay unchanged). A retry of a decided key always replays.
+   */
+  override async submit(entity: string, principal: Principal, frame: OpFrame): Promise<SubmitResult> {
+    // Every poster counts (an install, or a session by its identity); system ops do not.
+    const poster = principal.kind === "system" ? undefined : (principal.install ?? principal.identity)
+    if ((frame.op !== "feed.post" && frame.op !== "feed.adopt") || poster === undefined) return super.submit(entity, principal, frame)
+    const day = Math.floor(Date.now() / 86_400_000)
+    const sql = this.ctx.storage.sql
+    const used = () => {
+      if (sql.exec(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'feed_daily'`).toArray().length === 0) return 0
+      return Number(sql.exec<{ count: number }>(`SELECT count FROM feed_daily WHERE install = ? AND day = ?`, poster, day).toArray()[0]?.count ?? 0)
+    }
+    // bind() (not the cached engine, which is unset after a cold start) so a decided key always replays.
+    const replay = this.isBound(entity) && this.bind(entity).gate(principal, frame) === "replay"
+    if (!replay && used() >= this.maxPostsPerDay) {
+      const key = String(frame.idempotency_key ?? "")
+      return {
+        frames: [
+          { t: "reject", tx: "", idempotency_key: key, code: "feed.rate_limited", message: `at most ${this.maxPostsPerDay} posts per day per install; try again tomorrow (UTC)`, retryable: false, replayed: false },
+          { t: "request-settled", tx: "", idempotency_key: key, stream: `feed:${entity}`, sequence: 0, ok: false }
+        ]
+      }
+    }
+    const res = await super.submit(entity, principal, frame)
+    if (res.frames.some((f) => f.t === "result" && !f.replayed)) {
+      sql.exec(`CREATE TABLE IF NOT EXISTS feed_daily (install TEXT NOT NULL, day INTEGER NOT NULL, count INTEGER NOT NULL, PRIMARY KEY (install, day))`)
+      sql.exec(`DELETE FROM feed_daily WHERE day < ?`, day)
+      sql.exec(`INSERT INTO feed_daily (install, day, count) VALUES (?, ?, 1) ON CONFLICT (install, day) DO UPDATE SET count = count + 1`, poster, day)
+    }
+    return res
   }
 
   /** Text written without the redaction is scrubbed on bind (feed-privacy.ts). */
@@ -124,6 +164,18 @@ export class FeedDO extends OwnerDO<FeedState> {
       // Active until the client says otherwise (app resigns, screen sleeps or locks) or the socket closes.
       return Boolean(p && p.client === "mac" && p.active)
     })
+  }
+
+  /**
+   * For Home push (UserDO): true while this user's Mac is active and the feed's
+   * `push_skip_when_mac_active` preference holds (default on). The same rule as feed pushes,
+   * so one presence source (the Mac's feed socket) quiets both. Only a Mac counts: a phone
+   * can be suspended without saying so, while a Mac says when it resigns, sleeps or locks.
+   */
+  async homePushQuiet(user: string): Promise<boolean> {
+    const state = this.boundEngine?.currentState
+    if (state?.user && state.user !== user) return false
+    return (state?.prefs.push_skip_when_mac_active ?? true) && this.macActive()
   }
 
   /**

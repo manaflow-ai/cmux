@@ -26,7 +26,7 @@
         "required": []
       },
       "cli": {
-        "path": "apps run cmux/monaco open",
+        "path": "open",
         "visible": true
       },
       "mcp": {
@@ -57,7 +57,7 @@
         "required": []
       },
       "cli": {
-        "path": "apps run cmux/monaco save",
+        "path": "save",
         "visible": true
       },
       "mcp": {
@@ -97,11 +97,11 @@
         "required": []
       },
       "cli": {
-        "path": "apps run cmux/monaco revert",
+        "path": "revert",
         "visible": true
       },
       "mcp": {
-        "expose": "default"
+        "expose": "never"
       },
       "palette": {
         "title": "Revert to Saved"
@@ -127,7 +127,7 @@
         "required": []
       },
       "cli": {
-        "path": "apps run cmux/monaco toggle-read-only",
+        "path": "toggle-read-only",
         "visible": true
       },
       "mcp": {
@@ -156,7 +156,7 @@
         "required": []
       },
       "cli": {
-        "path": "apps run cmux/monaco cycle-variant",
+        "path": "cycle-variant",
         "visible": false
       },
       "mcp": {

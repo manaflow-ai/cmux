@@ -59,4 +59,13 @@ struct TranslucentSheetTests {
         // opacity; a 0 override would erase them, so Ghostty's value stays.
         #expect(GhosttyRuntimeSurfacePolicy.override(configuredOpacity: 0.8, opacityCells: true) == nil)
     }
+
+    /// A terminal background override (R55) is painted by the terminal host,
+    /// so the cells draw a transparent default background in an opaque
+    /// window too.
+    @Test func aTerminalOverrideMakesOpaqueSurfacesTransparent() {
+        #expect(GhosttyRuntimeSurfacePolicy.override(configuredOpacity: 1, opacityCells: false, ownerPaintsBackground: true)
+            == "background-opacity = 0")
+        #expect(GhosttyRuntimeSurfacePolicy.override(configuredOpacity: 1, opacityCells: true, ownerPaintsBackground: true) == nil)
+    }
 }

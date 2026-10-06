@@ -135,27 +135,6 @@ impl DeclaredModel {
     }
 }
 
-/// A named bundle: one harness plus the model, effort, policy and env to
-/// start it with. `acpmux run -p NAME`. Explicit flags still win.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct Preset {
-    /// A family or a profile name.
-    pub harness: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub model: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub effort: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub policy: Option<PermissionPolicy>,
-    /// Wins over the profile's and the family's env. `${cwd}`, `${home}`,
-    /// `${model}` and a leading `~/` expand.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub env: BTreeMap<String, String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-}
-
 /// Session defaults for a family or a single profile (`defaults` in
 /// config.json). Precedence at `session/new`: explicit request, then the
 /// profile's own entry, then its family's entry, then the daemon defaults.
@@ -314,6 +293,23 @@ pub struct WebSocketConfig {
     pub listen: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token: Option<String>,
+    /// Browser origins allowed besides the listener's own and the agent
+    /// pane's (for example a page dev server). `null` is never allowed.
+    #[serde(default, alias = "allowed_origins", skip_serializing_if = "Vec::is_empty")]
+    pub allowed_origins: Vec<String>,
+    /// `Host` names allowed besides loopback (a proxy that keeps a public
+    /// name). Both lists are read when the listener starts.
+    #[serde(default, alias = "allowed_hosts", skip_serializing_if = "Vec::is_empty")]
+    pub allowed_hosts: Vec<String>,
+    /// `tokenRotated`: the saved token was replaced at the first start of a
+    /// build that never sends it to a remote-origin connection (earlier
+    /// builds did, in `_acpmux/status`). Set, it never rotates again.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub token_rotated: u32,
+}
+
+fn is_zero(n: &u32) -> bool {
+    *n == 0
 }
 
 fn default_palette_prefix() -> String {
@@ -370,16 +366,6 @@ impl Default for TuiConfig {
     }
 }
 
-/// A remote acpmux daemon this daemon mirrors. Sessions there appear here as
-/// `<peer>/<name>` and every request is forwarded.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct PeerConfig {
-    pub url: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub token: Option<String>,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Config {
@@ -416,6 +402,16 @@ pub struct Config {
     pub websocket: Option<WebSocketConfig>,
     #[serde(default)]
     pub tui: TuiConfig,
+    /// `webAskingModes`: more asking modes per family (`server/remote_guard.rs`).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub web_asking_modes: BTreeMap<String, Vec<String>>,
+    /// `webRoots`: folders a Web connection may use (`server/remote_guard.rs`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub web_roots: Vec<String>,
+    /// `pool`: hidden pre-created sessions that make a harness switch
+    /// instant (`hub/pool/`).
+    #[serde(default, skip_serializing_if = "PoolConfig::is_default")]
+    pub pool: PoolConfig,
     /// Where this config was loaded from. A config built in code (tests,
     /// `--memory` runs) has no path and is never written to disk.
     #[serde(skip)]
@@ -439,6 +435,14 @@ pub struct Config {
     /// not being served. Kept apart so a save does not drop the address.
     #[serde(skip)]
     pub web_unbound: bool,
+    /// Loopback page dev server origins from `--allow-dev-origin` (this run
+    /// only, never saved).
+    #[serde(skip)]
+    pub dev_origins: Vec<String>,
+    /// The listener's token for this run when `--token` gave one: the
+    /// dashboard link uses it, and it is never saved over `websocket.token`.
+    #[serde(skip)]
+    pub web_token_override: Option<String>,
     /// Profiles whose launcher failed its start-up check, with the reason.
     /// They stay configured (sessions on them keep their history) but no
     /// family preference or fallback routes new work to them.
@@ -599,6 +603,12 @@ impl Config {
         Ok(cfg)
     }
 
+    /// Where preset directories live (`presets/` next to config.json); None
+    /// for an in-code config, which then takes no `systemPrompt`.
+    pub fn presets_dir(&self) -> Option<PathBuf> {
+        self.path.as_ref().and_then(|p| p.parent()).map(|d| d.join("presets"))
+    }
+
     /// Write back to the file this config came from. No-op for in-code configs.
     pub fn save(&self) -> Result<()> {
         let Some(path) = &self.path else {
@@ -731,6 +741,14 @@ pub fn discover_harnesses() -> BTreeMap<String, HarnessProfile> {
                 },
             );
         }
+    }
+    // Codex speaks ACP only through its adapter. Without a codex-acp on PATH (or an ~/.acpx
+    // entry), an installed codex still gets a harness through the pinned adapter package.
+    if !agents.contains_key("codex")
+        && let Some(profile) =
+            codex_through_adapter_package(which("codex").as_deref(), which("npx").as_deref())
+    {
+        agents.insert("codex".to_owned(), profile);
     }
     // A direct Claude falls over to the pool when its account is exhausted.
     if agents.contains_key("claude-sr")
@@ -953,6 +971,21 @@ pub fn scrub_nested_claude_env_tokio(cmd: &mut tokio::process::Command) {
         cmd.env_remove(k);
     }
 }
+
+mod codex_adapter;
+pub use codex_adapter::{
+    CODEX_ACP_PACKAGE, adapter_package_launch, codex_through_adapter_package,
+    resolve_adapter_package_bin,
+};
+mod peer;
+pub use peer::PeerConfig;
+mod pool;
+pub use pool::PoolConfig;
+mod preset_args;
+pub use preset_args::{
+    Preset, SYSTEM_PROMPT_FILE, check_preset_args, check_preset_dir_name, checked_system_prompt,
+    parse_preset_args, remove_preset_dir, write_system_prompt,
+};
 
 #[cfg(test)]
 mod tests;

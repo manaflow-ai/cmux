@@ -1,4 +1,5 @@
 import type { Principal } from "./engine-types.ts"
+import { reachDecision } from "./reach.ts"
 import { SYSTEM_ACTOR, type ConversationHead, type Participant } from "./types.ts"
 import { safeDisplayName } from "./validate.ts"
 
@@ -31,9 +32,11 @@ export const actorOf = (principal: Principal): string | null => {
 /**
  * The rules that need no outside data: the caller themself (name from the
  * principal); a address (its id comes from `address.ensure` in the Worker); a
- * former participant of this conversation (its stored record is trusted); a
- * departed agent only when the caller is its stored owner. Everyone else is
- * refused: an injected policy decides those.
+ * departed agent only when the caller is its stored owner. Another human,
+ * also one who left this conversation, follows the reach rule (reach.ts) when
+ * the Worker resolved the caller's `home_reach` facts (a departed human keeps
+ * their stored name); without facts (local and self-hosted owners) a former
+ * participant rejoins with its stored record and other humans are refused. Agents beyond these need an injected policy.
  */
 export const defaultParticipantPolicy: ParticipantPolicy = (principal, participant, head) => {
   const actor = actorOf(principal)
@@ -44,6 +47,14 @@ export const defaultParticipantPolicy: ParticipantPolicy = (principal, participa
     return { ok: false, code: "forbidden" }
   }
   if (participant.id === actor) return { ok: true, display_name: safeDisplayName(principal.display_name, FALLBACK_NAME) }
+  // A current participant: the core refuses the duplicate.
+  if (known && known.left_at === undefined) return { ok: true, display_name: known.display_name }
+  if (principal.home_reach !== undefined) {
+    // A departed human is a stored record, not a link: rejoining needs a current link like any
+    // other add (review of section 16); the stored name stays.
+    const decision = reachDecision(principal.home_reach.find((reach) => reach.user === participant.id))
+    return decision.ok && known ? { ok: true, display_name: known.display_name } : decision
+  }
   if (known) return { ok: true, display_name: known.display_name }
   return { ok: false, code: "forbidden" }
 }

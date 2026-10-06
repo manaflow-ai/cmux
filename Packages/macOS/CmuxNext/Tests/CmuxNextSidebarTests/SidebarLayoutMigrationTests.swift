@@ -1,41 +1,32 @@
 import Testing
 @testable import CmuxNextSidebar
 
-/// Moving the destinations into the rail (Leo, 2026-10-03) changes the
-/// default layout. A stored layout that still equals the layout the app
-/// shipped before is rewritten to the new one through ordinary layout ops
-/// (the owner applies them like any edit); a layout the user changed is
-/// left exactly as it is.
+/// The window rail (Leo, 2026-10-03) changed the default layout; R52
+/// (Lawrence, 2026-10-03) removed the rail. A stored layout that still
+/// equals the rail's default is rewritten to the sections default through
+/// ordinary layout ops (the owner applies them like any edit); a layout the
+/// user changed is left exactly as it is.
 @Suite struct SidebarLayoutMigrationTests {
-    private let preRail = SidebarLayoutDocument.preRailDefaults
+    private let rail = SidebarLayoutDocument.railDefaults
 
     private func apply(_ ops: [SidebarLayoutOp], to document: SidebarLayoutDocument) throws -> SidebarLayoutDocument {
         try ops.reduce(document) { try SidebarLayoutReducer.reduce($0, $1).get() }
     }
 
-    /// The layout before the rail: Home, the App Store and CodeRouter on top,
-    /// Settings and the account on one line at the bottom.
-    @Test func thePreRailDefaultsAreTheOldLayout() {
-        #expect(preRail.sections(in: .top, room: nil).flatMap(\.items).map(\.ref) == [.builtIn(.home), .builtIn(.appStore), .app("cmux/coderouter")])
-        #expect(preRail.sections(in: .bottom, room: nil).flatMap(\.items).map(\.ref) == [.builtIn(.settings), .builtIn(.account)])
-        #expect(preRail.sections != SidebarLayoutDocument.defaults.sections)
-    }
-
-    @Test func aStoredPreRailLayoutBecomesTheNewDefaults() throws {
-        let stored = SidebarLayoutDocument(revision: 7, sections: preRail.sections)
-        let ops = stored.railMigrationOps
+    @Test func aStoredRailLayoutBecomesTheSectionsDefaults() throws {
+        let stored = SidebarLayoutDocument(revision: 7, sections: rail.sections)
+        let ops = stored.layoutMigrationOps
         #expect(!ops.isEmpty)
         let migrated = try apply(ops, to: stored)
-        #expect(migrated.sections == SidebarLayoutDocument.defaults.sections)
-        #expect(stored.migratedToRail.sections == SidebarLayoutDocument.defaults.sections)
+        #expect(migrated.sections == SidebarLayoutDocument.migrationTarget.sections)
+        #expect(stored.layoutMigration.sections == SidebarLayoutDocument.migrationTarget.sections)
         // Each op is a change the owner commits, so the revision moves on.
         #expect(migrated.revision > stored.revision)
-        // Moves keep item ids: Settings is the same item, now on top.
-        #expect(migrated.locate(LayoutItemID("itm_settings"))?.section == 0)
+        // Moves keep item ids: Settings is the same item, back at the bottom.
+        #expect(migrated.locate(LayoutItemID("itm_settings"))?.section == 2)
     }
 
-    /// Only the exact old default migrates: removing Home, adding an item,
-    /// reordering or relabeling all count as the user's own layout.
+    /// Only the exact rail default migrates.
     @Test func aCustomizedLayoutIsLeftAlone() throws {
         let edits: [SidebarLayoutOp] = [
             .itemRemove(LayoutItemID("itm_home")),
@@ -45,18 +36,49 @@ import Testing
             .sectionUpdate(SidebarLayoutDocument.bottomSectionID, SectionPatch(title: .set("Me"))),
         ]
         for edit in edits {
-            let customized = try SidebarLayoutReducer.reduce(preRail, edit).get()
-            #expect(customized.railMigrationOps.isEmpty, "\(edit)")
-            #expect(customized.migratedToRail == customized, "\(edit)")
+            let customized = try SidebarLayoutReducer.reduce(rail, edit).get()
+            #expect(customized.sectionsMigrationOps.isEmpty, "\(edit)")
+            #expect(customized.sectionsMigration == customized, "\(edit)")
         }
     }
 
-    /// The new defaults (and anything else) need nothing, so migrating
-    /// twice is the same as once.
-    @Test func theNewDefaultsNeedNoMigration() {
-        #expect(SidebarLayoutDocument.defaults.railMigrationOps.isEmpty)
-        let once = preRail.migratedToRail
-        #expect(once.railMigrationOps.isEmpty)
-        #expect(once.migratedToRail == once)
+    /// The sections defaults need nothing, so migrating twice is the same as once.
+    @Test func theDefaultsNeedNoMigration() {
+        #expect(SidebarLayoutDocument.defaults.layoutMigrationOps.isEmpty)
+        let once = rail.layoutMigration
+        #expect(once.layoutMigrationOps.isEmpty)
+        #expect(once.layoutMigration == once)
+    }
+
+    /// Lawrence 2026-10-05: plain rows are the default top again. A stored
+    /// plain-row top section (with CodeRouter after it or not) stays rows;
+    /// no migration turns it into the large tiles.
+    @Test func aPlainRowTopSectionStaysRows() {
+        let rows = [LayoutItem(id: LayoutItemID("itm_home"), ref: .app("cmux/home")),
+                    LayoutItem(id: LayoutItemID("itm_app_store"), ref: .app("cmux/app-store"))]
+        let coderouter = LayoutItem(id: LayoutItemID("itm_app_coderouter"), ref: .app("cmux/coderouter"))
+        for items in [rows, rows + [coderouter]] {
+            var stored = SidebarLayoutDocument.defaults
+            stored.revision = 3
+            stored.sections[0] = LayoutSection(id: SidebarLayoutDocument.topSectionID, region: .top, look: .builtIn, items: items)
+            #expect(stored.layoutMigrationOps.isEmpty)
+            #expect(stored.layoutMigration.section(SidebarLayoutDocument.topSectionID)?.arrangement == .list)
+        }
+    }
+}
+
+/// R53: the sections default before the grid bottom row (one inline line)
+/// moves to the grid row through ordinary ops; a customized one is kept.
+@Suite struct SidebarGridBottomMigrationTests {
+    @Test func theInlineBottomDefaultBecomesTheGridRow() {
+        let stored = SidebarLayoutDocument(revision: 4, sections: SidebarLayoutDocument.inlineBottomDefaults.sections)
+        #expect(stored.layoutMigration.sections == SidebarLayoutDocument.migrationTarget.sections)
+        #expect(stored.layoutMigration.layoutMigrationOps.isEmpty)
+    }
+
+    @Test func aCustomizedInlineBottomIsKept() throws {
+        let custom = try SidebarLayoutReducer.reduce(SidebarLayoutDocument.inlineBottomDefaults,
+                                                     .itemRemove(LayoutItemID("itm_account"))).get()
+        #expect(custom.sectionsMigrationOps.isEmpty)
     }
 }

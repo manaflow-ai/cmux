@@ -1,5 +1,5 @@
 public import CmuxNextTerminalFind
-import GhosttyKit
+import GhosttyNextKit
 
 // The find bar drives Ghostty's search bindings on whichever surface is
 // live (a replay swaps it). Ghostty reports results as SEARCH_TOTAL and

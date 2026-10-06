@@ -1,7 +1,8 @@
 import { env, exports } from "cloudflare:workers"
-import { runDurableObjectAlarm } from "cloudflare:test"
+
 import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
+import { fireAlarm } from "./setup/alarm.ts"
 
 /** Chief records in UserDO (chief-mac.md section 9) through the API, and their MuxDO binding. */
 const testEnv = env as unknown as { STACK_PROJECT_ID: string; STACK_TEST_PRIVATE_JWK: string; USER_DO: DurableObjectNamespace; MUX_DO: DurableObjectNamespace }
@@ -57,7 +58,7 @@ describe("chief records", { timeout: 60_000 }, () => {
     const mux = testEnv.MUX_DO.get(testEnv.MUX_DO.idFromName(chief.id)) as unknown as { readOp(e: string, p: unknown, op: string, params: unknown): Promise<{ ok: boolean; value: unknown }> }
     let read = { ok: false, value: undefined as unknown }
     for (let i = 0; i < 20 && !read.ok; i++) {
-      await runDurableObjectAlarm(userDO)
+      await fireAlarm(userDO)
       read = await mux.readOp(chief.id, { identity: `session:${user}`, kind: "session", user }, "mux.queue", {})
     }
     expect(read.ok).toBe(true)

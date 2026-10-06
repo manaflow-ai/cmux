@@ -15,7 +15,7 @@ enum RowArt {
     static var receiptFont: CTFont { Fonts.system(Style.captionSize, .semibold) }
     static var nameFont: CTFont { Fonts.system(11) }
     /// Sender names start over the bubble's text.
-    static let nameLeft: CGFloat = Style.leftEdge + Style.bubblePadX
+    static func nameLeft(_ metrics: Metrics) -> CGFloat { metrics.leftEdge + Style.bubblePadX }
 
     /// The typing bubble without its dots (the dots are animated layers).
     static let typingBubble = CGRect(x: 20, y: Style.rowMargin + 4, width: 44, height: 27.5)
@@ -28,7 +28,7 @@ enum RowArt {
     /// Body rect of a part row in row coordinates.
     static func bodyRect(_ spec: RowSpec, metrics: Metrics) -> CGRect {
         guard let p = spec.partRow else { return .zero }
-        let x = p.outgoing ? metrics.rightEdge - p.size.width : Style.leftEdge
+        let x = p.outgoing ? metrics.rightEdge - p.size.width : metrics.leftEdge
         return CGRect(x: x, y: Style.rowMargin, width: p.size.width, height: p.bodySize.height)
     }
 
@@ -66,7 +66,7 @@ enum RowArt {
             return CGRect(x: 0, y: 0, width: typingWidth, height: height)
         case .senderName(let name):
             let w = TextDraw.width(name, font: nameFont)
-            return CGRect(x: nameLeft - pad, y: 0, width: w + 2 * pad, height: height)
+            return CGRect(x: nameLeft(metrics) - pad, y: 0, width: w + 2 * pad, height: height)
         }
     }
 

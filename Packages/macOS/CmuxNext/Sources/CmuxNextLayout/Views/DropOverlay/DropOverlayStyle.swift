@@ -6,6 +6,10 @@ public import CmuxNextDesign
 /// back to a blur or an opaque fill (`OverlayMaterial`), and every style
 /// snaps instead of moving under Reduce Motion.
 public nonisolated enum DropOverlayStyle: String, Sendable, CaseIterable, TunableChoice {
+    /// A rounded accent border exactly around the future rect, no fill,
+    /// moved by the compositor (tab-dnd default, Lawrence 2026-10-04: "i
+    /// dont like solid thing, id rather just draw the border").
+    case outline
     /// Real Liquid Glass filling the target region (the original look).
     case glassFill
     /// A band of glass tracing the target's edge, the content visible inside.
@@ -34,6 +38,7 @@ public nonisolated enum DropOverlayStyle: String, Sendable, CaseIterable, Tunabl
 
     public var tunableTitle: String {
         switch self {
+        case .outline: "Outline"
         case .glassFill: "Liquid Glass fill"
         case .glassOutline: "Glass outline"
         case .insetCard: "Inset glass card"
@@ -53,10 +58,10 @@ public nonisolated enum DropOverlayStyle: String, Sendable, CaseIterable, Tunabl
     public var usesGlass: Bool {
         switch self {
         case .glassFill, .glassOutline, .insetCard, .splitPreview, .tabGhost, .morph: true
-        case .insertionLine, .edgeGlow, .dimOthers, .hairline, .dashed, .corners: false
+        case .outline, .insertionLine, .edgeGlow, .dimOthers, .hairline, .dashed, .corners: false
         }
     }
 
-    /// The style the overlay draws now (the tunable; default `glassFill`).
+    /// The style the overlay draws now (the tunable; default `outline`).
     public static var current: DropOverlayStyle { DropOverlayTunables.style.value }
 }

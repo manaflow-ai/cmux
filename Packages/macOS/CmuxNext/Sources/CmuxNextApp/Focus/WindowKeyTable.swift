@@ -73,7 +73,7 @@ struct WindowKeyTable {
         guard close == .window else { return .run }
         if Self.isClose(id) { return overRoot ? .consume : .closeWindow }
         if Self.appLevel.contains(id) { return .run }
-        if destroysContent(id) { return .disabled(reason: MiscHandlerStrings.noPane) }
+        if destroysContent(id) { return .disabled(reason: MiscHandlerStrings.notInThisWindow) }
         return .run
     }
 
@@ -103,31 +103,9 @@ struct WindowKeyTable {
 }
 
 extension AppServices {
-    /// The window the key window acts for, its close semantics, and
-    /// whether the key window is a sheet or panel over it. Nil when there
-    /// is no key window of ours: a parentless Chromium page window, or a
-    /// borderless panel no window owns.
-    ///
-    /// The kind comes from the window kit (`NSWindow.windowKindRoot`). A
-    /// window no owner installed acts as a main window when a main window
-    /// owns it (palette, sheets), else as a window of its own when its
-    /// root is titled and closable.
-    var keyWindowRole: (root: NSWindow, close: WindowCloseSemantics, overRoot: Bool)? {
+    /// The key window's role (`KeyWindowRole.resolve`).
+    var keyWindowRole: KeyWindowRole? {
         guard let key = keyWindowSource() else { return nil }
-        let root = key.windowKindRoot
-        // A Chromium page window inside the root (an undocked inspector's
-        // page, a popup's page) acts for it.
-        let inside = key === root || (key.sheetParent == nil && Self.isChromiumPageWindow(key))
-        if let kind = root.windowKind { return (root, kind.traits.close, !inside) }
-        if windows.owner(of: key) != nil { return (root, .contentFirst, !inside) }
-        if root === key, Self.isChromiumPageWindow(key) { return nil }
-        guard root.styleMask.isSuperset(of: [.titled, .closable]) else { return nil }
-        return (root, .window, !inside)
-    }
-
-    /// `CefNSWindow`: a Chromium page window.
-    private static func isChromiumPageWindow(_ window: NSWindow) -> Bool {
-        guard let pageClass = NSClassFromString("CefNSWindow") else { return false }
-        return window.isKind(of: pageClass)
+        return KeyWindowRole.resolve(key, ownedByMain: windows.owner(of: key) != nil, isPalette: palette?.owns(key) == true)
     }
 }

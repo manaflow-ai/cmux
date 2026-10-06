@@ -17,6 +17,8 @@ cmux attach [START OPTIONS] [--terminal <terminal-id>]
 cmux relay [ROUTING OPTIONS]
 cmux machine-agent [OPTIONS]
 cmux wg hub --config <wg-quick file> --socket <unix socket>
+cmux link dial --host <install or host id> [--service daemon|ssh] [--socket <absolute path>]
+cmux apps run <app> <op> [--args JSON] [--idempotency-key KEY]
 ```
 
 `relay` copies private protocol bytes between standard I/O and one session
@@ -24,7 +26,47 @@ socket. Machine connectors use it as a transport primitive. `wg hub` owns one
 in-process WireGuard tunnel and serves SOCKS5 CONNECT on an owner-only Unix
 socket so several `remote connect --wireguard-hub <socket>` clients share one
 key; it prints one `hub-ready` JSON line when listening and removes the socket
-on SIGTERM or SIGINT. `attach` opens the
+on SIGTERM or SIGINT.
+
+`link dial` bridges standard I/O to a service of a paired install or a Cloud
+host (`host_…`) through this machine's running `cmux link` (the caller never
+holds peer keys or link tokens). `--service` is `daemon` (the default; the
+session's remote entry) or `ssh` (the host's sshd, Cloud hosts only, when
+their policy allows it; paired installs serve only `daemon`). `--socket`
+dials exactly that link socket instead of looking up the running link (for a
+caller with a private `HOME`, or a tagged link); it must be an absolute path
+to a socket (otherwise exit 64), and a path that does not exist means the
+link is not running (exit 6). Standard error
+always gets exactly one JSON line first: `{"ok":true,"path_state":"direct"|"tunnel",
+"relay_available":false}` when connected, then the stream's bytes use
+standard input and output until the stream ends; otherwise
+`{"ok":false,"error_code":...,"path_state":"unreachable","relay_available":false}`.
+Key order is not part of the contract. Exit codes:
+
+| Exit | `error_code` | Meaning |
+| --- | --- | --- |
+| 0 | (none) | connected; the stream ended |
+| 2 | `unknown_host` | no paired install or Cloud machine has this id |
+| 3 | `not_authorized` | the caller may not reach this host or service |
+| 4 | `host_paused` | the Cloud machine is paused; start it and dial again |
+| 5 | `unreachable` | no path answered |
+| 6 | `link_unavailable` | no `cmux link` runs, or it did not answer the dial |
+| 64 | `bad_request` | bad arguments or a malformed dial |
+
+`apps run` runs one catalog op of an installed app through the session
+daemon (`apps-run`; the CLI sends no `origin`, so gesture-required and
+destructive ops answer `apps.gesture_required` or `apps.scope_missing`) and
+prints its result data as JSON (exit 0; an op error exits 1 with its
+`error_code` and `error_details`). Ctrl-C cancels the op: when the daemon
+advertises `cancel-request-v1` in `identify`, the CLI sends
+`{"cmd":"cancel-request","target":<the apps-run id>}` on the same connection,
+waits at most 3 seconds for the run to answer `cmux.op.cancelled`, prints
+"cancelled" and exits 130; otherwise it closes the connection (the daemon
+then cancels the op) and prints "cancelled (no confirmation)", exit 130. A
+second Ctrl-C exits 130 at once. A cancelled mutation may or may not have
+taken effect; retry it with the same `--idempotency-key`.
+
+`attach` opens the
 complete session TUI. `attach --terminal <terminal-id>` resolves an exact ID
 from `cmux terminal list` and renders only that terminal, without session
 chrome or unrelated event traffic. Startup attach does not accept internal
@@ -375,12 +417,13 @@ git diff [TARGET] [--scope uncommitted|unstaged|staged|committed|branch] [--patc
   [--max-patch-bytes <n>] [--max-files <n>] [<path>...]
 git files [TARGET] [--limit <n>] <query>...
 git checkpoint create [TARGET] [--untracked eligible | <untracked-path>...] [--exclude <path,...>]
-  [--reason manual|handoff] [--max-bytes <n>] [--max-files <n>]
+  [--reason manual|handoff|turn] [--max-bytes <n>] [--max-files <n>]
   [--expected-repository <id>] [--expected-worktree <id>]
 git checkpoint get [TARGET] <checkpoint> | --key <idempotency-key>
 git checkpoint list [TARGET] [--cursor <cursor>] [--limit <n>] [--candidates]
 git checkpoint pin [TARGET] <checkpoint> --pin <pin-id> --reason <text>
 git checkpoint unpin [TARGET] <checkpoint> --pin <pin-id>
+git checkpoint diff [TARGET] <from> [<to>] [--only <path,...>] [--patch] [--max-patch-bytes <n>] [--max-files <n>]
 notify [--title <text>] [--subtitle <text>] [--body <text>] [--clear] [--surface <term_id|current>] [--workspace <ws_id|current>]
 agent list|report
 agent plugin list|install|use|update|remove

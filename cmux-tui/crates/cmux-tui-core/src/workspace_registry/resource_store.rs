@@ -1837,9 +1837,11 @@ fn validate_registry_browser(browser: &RegistryBrowser) -> anyhow::Result<()> {
 }
 
 mod screen_rows;
+pub(crate) use screen_rows::repair_resources_at_open;
 mod viewport;
 use screen_rows::upsert_resource_screen;
-pub use viewport::{RegistryViewport, RegistryViewportColumn};
+use viewport::validate_registry_viewport;
+pub use viewport::{RegistryRow, RegistryViewport, RegistryViewportColumn};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
@@ -2292,98 +2294,6 @@ fn validate_layout_node<'a>(
     Ok(())
 }
 
-fn validate_registry_viewport(
-    viewport: &RegistryViewport,
-    screen_layout: &RegistryLayoutNode,
-    screen_panes: &HashSet<&PanePublicId>,
-    screen_splits: &HashSet<&SplitPublicId>,
-) -> anyhow::Result<()> {
-    let valid_width = |width: f32| {
-        width.is_finite()
-            && (crate::MIN_VIEWPORT_PANE_WIDTH..=crate::MAX_VIEWPORT_PANE_WIDTH).contains(&width)
-    };
-    if viewport.columns.is_empty() {
-        if viewport.base_width.is_some() {
-            anyhow::bail!("viewport metadata has no columns");
-        }
-        return Ok(());
-    }
-    if viewport.columns.len() < 2 {
-        anyhow::bail!("viewport must have at least two columns when active");
-    }
-    let base_width =
-        viewport.base_width.ok_or_else(|| anyhow::anyhow!("viewport is missing base width"))?;
-    if !valid_width(base_width) || viewport.columns[0].width != base_width {
-        anyhow::bail!("viewport has invalid base width {base_width}");
-    }
-    let mut column_ids = HashSet::new();
-    let mut internal_splits = HashSet::new();
-    let mut column_panes = HashSet::new();
-    for (index, column) in viewport.columns.iter().enumerate() {
-        if !valid_width(column.width) {
-            anyhow::bail!("viewport column has invalid width {}", column.width);
-        }
-        if !column_ids.insert(&column.id) {
-            anyhow::bail!("viewport has duplicate column id {}", column.id);
-        }
-        if index != 0 && !screen_splits.contains(&column.id) {
-            anyhow::bail!("viewport column has unknown projected split {}", column.id);
-        }
-        let mut panes = HashSet::new();
-        let mut splits = HashSet::new();
-        validate_layout_node(&column.layout, &mut panes, &mut splits)?;
-        if panes.iter().any(|pane| !screen_panes.contains(*pane))
-            || splits.iter().any(|split| !screen_splits.contains(*split))
-        {
-            anyhow::bail!("viewport column references content outside its screen");
-        }
-        for split in splits {
-            if !internal_splits.insert(split) {
-                anyhow::bail!("split {split} appears in more than one viewport column");
-            }
-        }
-        if let Some(auto_layout) = &column.auto_layout
-            && (auto_layout.len() != panes.len()
-                || auto_layout.iter().any(|pane| !panes.contains(pane)))
-        {
-            anyhow::bail!("viewport column has invalid auto-layout membership");
-        }
-        for pane in panes {
-            if !column_panes.insert(pane) {
-                anyhow::bail!("pane {pane} appears in more than one viewport column");
-            }
-        }
-    }
-    if &column_panes != screen_panes {
-        anyhow::bail!("viewport columns do not cover the screen panes");
-    }
-    let owners = viewport.columns.iter().skip(1).map(|column| &column.id).collect::<HashSet<_>>();
-    if owners.iter().any(|owner| internal_splits.contains(*owner)) {
-        anyhow::bail!("viewport boundary owner also appears inside a column");
-    }
-    let covered_splits =
-        owners.iter().copied().chain(internal_splits.iter().copied()).collect::<HashSet<_>>();
-    if &covered_splits != screen_splits {
-        anyhow::bail!("viewport columns do not cover the screen splits");
-    }
-    let mut projected = viewport.columns[0].layout.clone();
-    let mut width_before = viewport.columns[0].width;
-    for column in viewport.columns.iter().skip(1) {
-        projected = RegistryLayoutNode::Split {
-            split: column.id.clone(),
-            direction: "right".into(),
-            ratio: width_before / (width_before + column.width),
-            first: Box::new(projected),
-            second: Box::new(column.layout.clone()),
-        };
-        width_before += column.width;
-    }
-    if &projected != screen_layout {
-        anyhow::bail!("viewport compatibility layout does not match its ordered columns");
-    }
-    Ok(())
-}
-
 pub(crate) fn validate_registry_screen_projection(
     screen: &RegistryScreen,
     expected_panes: &HashSet<PanePublicId>,
@@ -2535,7 +2445,7 @@ pub(crate) fn load_resource_topology(
             })
             .collect::<anyhow::Result<Vec<_>>>()?
     };
-    let screens = screen_rows::with_column_docks(connection, screens)?;
+    let screens = screen_rows::with_side_tables(connection, screens)?;
     let panes = {
         let mut statement = connection.prepare(
             "SELECT public_id, screen_id, name, active_tab_id, creation_ordinal
@@ -3162,8 +3072,9 @@ fn resource_change_is_stored(
                             == screen.zoomed_pane.as_ref().map(PanePublicId::as_str)
                         && auto == desired_auto
                         && layout == canonical_json(&serde_json::to_value(&screen.layout)?)?
-                        && viewport == canonical_json(&serde_json::to_value(&screen.viewport)?)?
-                        && screen_rows::column_docks_match(transaction, screen)?
+                        && viewport
+                            == canonical_json(&serde_json::to_value(screen.viewport.durable())?)?
+                        && screen_rows::side_tables_match(transaction, screen)?
                 }
             }
         }
@@ -4021,7 +3932,7 @@ fn tombstone_resource_screen(
         require_known_resource(transaction, screen_id, "screen")?;
         return Ok(());
     };
-    screen_rows::delete_column_docks(transaction, screen_id)?;
+    screen_rows::delete_side_tables(transaction, screen_id, revision)?;
     let panes = {
         let mut statement = transaction.prepare(
             "SELECT public_id FROM resource_panes
@@ -4784,12 +4695,7 @@ fn validate_touched_screen(transaction: &Transaction<'_>, screen_id: &str) -> an
     {
         anyhow::bail!("screen {screen_id} selects a pane outside its layout");
     }
-    let mut split_ids = Vec::new();
-    collect_screen_split_public_ids(&layout, &viewport, &mut split_ids);
-    for split in split_ids {
-        validate_identity_state(transaction, &split, "split", true)?;
-    }
-    Ok(())
+    screen_rows::validate_screen_splits(transaction, screen_id, &layout, &viewport)
 }
 
 fn validate_touched_pane(transaction: &Transaction<'_>, pane_id: &str) -> anyhow::Result<()> {

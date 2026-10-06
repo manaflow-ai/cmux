@@ -62,6 +62,7 @@ import {
   type Document,
   type FrontendProjectionSnapshot,
   type LayoutColumn,
+  type LayoutColumnDock,
   type LayoutDocument,
   type LayoutNode,
   type MachineSnapshot,
@@ -726,6 +727,17 @@ function clientTerminalSize(value: unknown): ClientTerminalSize {
   });
 }
 
+/** An omitted or null flag reads as absent (the column scrolls). */
+function layoutColumnDock(value: unknown): LayoutColumnDock | undefined {
+  if (value === undefined || value === null) return undefined;
+  const dock = record(value, "layout column dock");
+  strictObject(dock, ["edge", "mode"], "layout column dock");
+  return Object.freeze({
+    edge: requiredEnum(dock, "edge", ["left", "right", "top", "bottom"] as const),
+    mode: requiredEnum(dock, "mode", ["docked", "overlay"] as const),
+  });
+}
+
 function layoutNode(value: unknown): LayoutNode {
   const payload = record(value, "layout node");
   const kind = requiredString(payload, "kind");
@@ -806,15 +818,19 @@ function layoutNode(value: unknown): LayoutNode {
     }
     const columns: LayoutColumn[] = payload.columns.map((item) => {
       const column = record(item, "layout column");
-      strictObject(column, ["column_id", "width", "root"], "layout column");
+      strictObject(column, ["column_id", "width", "root", "dock", "sticky"], "layout column");
       const width = requiredNumber(column, "width");
       if (width < 0.1 || width > 1) {
         throw new CmuxProtocolError("layout column width must be between 0.1 and 1");
       }
+      // `sticky` is the pre-R87 name of `dock`: a replayed or older result
+      // still decodes; `dock` wins when both are present.
+      const dock = layoutColumnDock("dock" in column ? column.dock : column.sticky);
       return Object.freeze({
         columnId: requiredId(column, ["column_id"], splitId),
         width,
         root: layoutNode(column.root),
+        ...(dock !== undefined ? { dock } : {}),
       });
     });
     return Object.freeze({
@@ -1321,6 +1337,9 @@ function layoutNodeFields(node: LayoutNode): Record<string, unknown> {
           column_id: column.columnId,
           width: column.width,
           root: layoutNodeFields(column.root),
+          ...(column.dock !== undefined
+            ? { dock: { edge: column.dock.edge, mode: column.dock.mode } }
+            : {}),
         })),
       };
   }
@@ -3604,14 +3623,14 @@ export class Screen extends Handle<ScreenId, ScreenSnapshot> {
 
   /**
    * Pins, unpins, or resizes one viewport column (`column.update`). `column`
-   * is the column's split ID. Set `sticky`, `width`, or both; `edge` and
-   * `mode` apply only with `sticky: true`.
+   * is the column's split ID. Set `dock`, `width`, or both; `edge` and
+   * `mode` apply only with `dock: true`.
    */
   updateColumn(
     column: string,
     update: {
-      sticky?: boolean;
-      edge?: "left" | "right";
+      dock?: boolean;
+      edge?: "left" | "right" | "top" | "bottom";
       mode?: "docked" | "overlay";
       width?: number;
     },

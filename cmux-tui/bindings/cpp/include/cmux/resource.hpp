@@ -437,11 +437,11 @@ struct CreateBrowserTabOptions {
     [[nodiscard]] Result<Json::Object> to_params() const;
 };
 
-/// `column.update`: set `sticky`, `width`, or both. `edge` ("left" or
-/// "right") and `mode` ("docked" or "overlay") apply only when `sticky` is
-/// true.
+/// `column.update`: set `dock`, `width`, or both. `edge` ("left",
+/// "right", "top" or "bottom") and `mode` ("docked" or "overlay") apply only
+/// when `dock` is true.
 struct ColumnUpdateOptions {
-    std::optional<bool> sticky;
+    std::optional<bool> dock;
     std::optional<std::string> edge;
     std::optional<std::string> mode;
     std::optional<double> width;
@@ -720,10 +720,19 @@ struct LayoutStack {
     PaneId expanded_pane_id;
 };
 
+/// A pinned column's `edge` ("left", "right", "top" or "bottom") and
+/// `mode` ("docked" or "overlay").
+struct LayoutColumnDock {
+    std::string edge;
+    std::string mode;
+};
+
 struct LayoutColumn {
     SplitId column_id;
     double width = 1.0;
     std::shared_ptr<const LayoutNode> root;
+    /// The column's dock flag (dock-columns-v1); empty while it scrolls.
+    std::optional<LayoutColumnDock> dock;
 };
 
 struct LayoutViewport {

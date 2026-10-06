@@ -19,6 +19,14 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
                 cliName: "pane new-column", mainMenu: .view, startsTerminal: true
             ),
             ActionDescriptor(
+                id: "newRow",
+                title: String(localized: "action.newRow", defaultValue: "New Row", bundle: .module),
+                keywords: ["scroll", "row", "pane"],
+                defaultShortcut: Shortcut("d", modifiers: [.control, .shift, .command]), category: .pane,
+                symbol: "rectangle.grid.1x2", surfaces: [.palette, .keyboard, .menu, .contextMenu], targets: [.pane],
+                cliName: "pane new-row", mainMenu: .view, startsTerminal: true
+            ),
+            ActionDescriptor(
                 id: "splitDown",
                 title: String(localized: "action.splitDown", defaultValue: "Split Down", bundle: .module),
                 keywords: ["pane", "horizontal"], defaultShortcut: Shortcut("d", modifiers: [.command, .shift]),
@@ -51,28 +59,28 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "resizePaneLeft",
                 title: String(localized: "action.resizePaneLeft", defaultValue: "Resize Pane Left", bundle: .module),
-                keywords: ["resize"], defaultShortcut: Shortcut("h", modifiers: [.control, .shift]), category: .pane,
+                keywords: ["resize"], defaultShortcut: Shortcut("h", modifiers: [.control, .command]), category: .pane,
                 symbol: "arrow.left.to.line", surfaces: [.palette, .keyboard, .menu], targets: [.pane],
                 cliName: "pane resize-left", mainMenu: .view
             ),
             ActionDescriptor(
                 id: "resizePaneRight",
                 title: String(localized: "action.resizePaneRight", defaultValue: "Resize Pane Right", bundle: .module),
-                keywords: ["resize"], defaultShortcut: Shortcut("l", modifiers: [.control, .shift]), category: .pane,
+                keywords: ["resize"], defaultShortcut: Shortcut("l", modifiers: [.control, .command]), category: .pane,
                 symbol: "arrow.right.to.line", surfaces: [.palette, .keyboard, .menu], targets: [.pane],
                 cliName: "pane resize-right", mainMenu: .view
             ),
             ActionDescriptor(
                 id: "resizePaneUp",
                 title: String(localized: "action.resizePaneUp", defaultValue: "Resize Pane Up", bundle: .module),
-                keywords: ["resize"], defaultShortcut: Shortcut("k", modifiers: [.control, .shift]), category: .pane,
+                keywords: ["resize"], defaultShortcut: Shortcut("k", modifiers: [.control, .command]), category: .pane,
                 symbol: "arrow.up.to.line.compact", surfaces: [.palette, .keyboard, .menu], targets: [.pane],
                 cliName: "pane resize-up", mainMenu: .view
             ),
             ActionDescriptor(
                 id: "resizePaneDown",
                 title: String(localized: "action.resizePaneDown", defaultValue: "Resize Pane Down", bundle: .module),
-                keywords: ["resize"], defaultShortcut: Shortcut("j", modifiers: [.control, .shift]), category: .pane,
+                keywords: ["resize"], defaultShortcut: Shortcut("j", modifiers: [.control, .command]), category: .pane,
                 symbol: "arrow.down.to.line.compact", surfaces: [.palette, .keyboard, .menu], targets: [.pane],
                 cliName: "pane resize-down", mainMenu: .view
             ),
@@ -325,13 +333,14 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
                 targets: [.pane], cliName: "pane open-cloud-as"
             ),
             // A file in a tab of the pane or in the text editor: the agent pane's changed
-            // files (#16723), the palette with a path, and `cmux file open`.
+            // files (#16723), the palette and the File menu (no path: the cmux
+            // picker at the pane's folder, R89), and `cmux file open`.
             ActionDescriptor(
                 id: "file.open",
                 title: String(localized: "action.file.open", defaultValue: "Open File…", bundle: .module),
                 keywords: ["file", "editor", "preview", "path"], category: .pane, symbol: "doc",
-                surfaces: [.palette], arguments: [CatalogArgument.pathString, CatalogArgument.whereChoice],
-                targets: [.pane], cliName: "file open"
+                surfaces: [.palette, .menu], arguments: [CatalogArgument.optionalPathString, CatalogArgument.whereChoice],
+                targets: [.pane], cliName: "file open", mainMenu: .file
             ),
         ]
     }

@@ -2,30 +2,43 @@
 //! and broadcasts [`MuxEvent`]s to subscribed frontends.
 
 mod agent_hook_errors;
+mod browser_tab_create;
+pub(crate) use browser_tab_create::{
+    FRONTEND_BROWSER_ACTIVATE_CAPABILITY, frontend_fields as frontend_browser_fields,
+};
+pub(crate) mod app_terminals;
+mod cloud_conversations;
 mod conversations;
+mod dock_columns;
 mod exit_settle;
 mod host_close;
 #[cfg(all(test, unix))]
 mod host_death_tests;
 mod idle_close;
+mod journal_plugin_host;
 mod kitty_reservation;
+use kitty_reservation::{kitty_image_limits_exceed, kitty_image_limits_within};
 pub(crate) mod layout_invariants;
+mod layout_ratio_error;
+mod layout_undo_commit;
 mod personal;
 mod presentation;
 mod public_projections;
 mod registry_viewport;
 mod resource_content;
 mod resource_topology;
+mod rows;
 mod screen_changed;
 pub(crate) mod screen_groups;
 mod session_paths;
-mod sticky_columns;
 pub(crate) mod tab_drag;
 pub(crate) mod tab_groups;
 pub(crate) mod tab_strip;
+mod tab_workspace_name;
 
 pub(crate) use crate::state::{PersonalChange, ScreenChange, WorkspaceStatusChange};
 pub(crate) use tab_strip::StripRequest;
+mod pending_terminals;
 mod terminal_directory;
 mod terminal_exit;
 mod terminal_move_topology;
@@ -39,17 +52,20 @@ use agent_hook_errors::{
     agent_hook_retry_class, agent_hook_terminal_gone,
 };
 
+pub use dock_columns::{ColumnDockError, ColumnDockOutcome, parse_column_dock};
 pub use idle_close::{IDLE_CLOSE_REAP_INTERVAL, IdleTerminalReaper, start_idle_terminal_reaper};
+pub use layout_ratio_error::LayoutRatioError;
 pub use presentation::{
-    TabDirectory, TabNotificationAck, TabPinChange, TreeDecorations, WorkspaceGroupChange,
+    PendingTerminal, TabDirectory, TabNotificationAck, TabPinChange, TreeDecorations,
+    WorkspaceGroupChange,
 };
 pub(crate) use resource_content::ResourceEffectProjection;
-pub(crate) use resource_topology::{BatchCloseOutcome, BatchCloseTarget};
+pub(crate) use resource_topology::{BatchCloseOutcome, BatchCloseTarget, CloseReason};
+pub use rows::{RowHeightsOutcome, RowsError};
 pub(crate) use screen_groups::workspace_screen_groups;
 pub use screen_groups::{
     ScreenDestination, ScreenGroupOutcome, ScreenMoveOutcome, ScreenSpec, WorkspaceScreenGroup,
 };
-pub use sticky_columns::{ColumnStickyError, ColumnStickyOutcome, parse_column_sticky};
 use tab_drag::restore_dragged_tab;
 pub use tab_drag::{ColumnMove, SplitRespawn, TabDragOutcome, TabDropEdge};
 pub(crate) use tab_groups::{PaneTabGroup, pane_tab_groups};
@@ -410,24 +426,6 @@ fn kitty_image_limits_for_capacity(capacity: usize) -> KittyGraphicsLimits {
         .unwrap_or(0)
         .min(ghostty_vt::MAX_KITTY_PLACEMENTS);
     KittyGraphicsLimits { image_bytes, inflight_bytes, images, placements }
-}
-
-fn kitty_image_limits_within(candidate: KittyGraphicsLimits, ceiling: KittyGraphicsLimits) -> bool {
-    candidate.image_bytes <= ceiling.image_bytes
-        && candidate.inflight_bytes <= ceiling.inflight_bytes
-        && candidate.images <= ceiling.images
-        && candidate.placements <= ceiling.placements
-}
-
-fn kitty_image_limits_exceed(candidate: KittyGraphicsLimits, ceiling: KittyGraphicsLimits) -> bool {
-    !kitty_image_limits_within(candidate, ceiling)
-}
-
-fn kitty_image_limits_enabled(limits: KittyGraphicsLimits) -> bool {
-    limits.image_bytes > 0
-        && limits.inflight_bytes > 0
-        && limits.images > 0
-        && limits.placements > 0
 }
 
 #[derive(Clone)]
@@ -1008,6 +1006,8 @@ pub enum MuxEvent {
     },
     BookmarksChanged(personal::BookmarksChange),
     Conversation(Arc<crate::conversation_store::ConversationEvent>),
+    /// An event of the cloud conversations proxy (`cloud-conversations-v1`).
+    CloudConversation(Arc<crate::cloud_conversations::CloudEvent>),
     /// A durable terminal-registry mutation committed. Consumers use this as
     /// a barrier, then fetch `terminal-events` or a fresh snapshot.
     TerminalRegistryChanged {
@@ -1803,40 +1803,6 @@ impl fmt::Display for LayoutUndoError {
 impl std::error::Error for LayoutUndoError {}
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum LayoutRatioError {
-    UnknownPaneSplit { pane: PaneId },
-    UnknownSplit { split: SplitId },
-    UnrepresentableViewportWidth { split: SplitId, ratio: f32, width: f32 },
-}
-
-impl LayoutRatioError {
-    pub const UNKNOWN_TARGET_CODE: &'static str = "layout-ratio-target-missing";
-    pub const OUT_OF_RANGE_CODE: &'static str = "layout-ratio-out-of-range";
-
-    pub fn code(&self) -> &'static str {
-        match self {
-            Self::UnknownPaneSplit { .. } | Self::UnknownSplit { .. } => Self::UNKNOWN_TARGET_CODE,
-            Self::UnrepresentableViewportWidth { .. } => Self::OUT_OF_RANGE_CODE,
-        }
-    }
-}
-
-impl fmt::Display for LayoutRatioError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::UnknownPaneSplit { pane } => write!(formatter, "unknown pane/split {pane}"),
-            Self::UnknownSplit { split } => write!(formatter, "unknown split {split}"),
-            Self::UnrepresentableViewportWidth { split, ratio, width } => write!(
-                formatter,
-                "split {split} ratio {ratio} implies viewport width {width}; width must be between {MIN_VIEWPORT_PANE_WIDTH} and {MAX_VIEWPORT_PANE_WIDTH}"
-            ),
-        }
-    }
-}
-
-impl std::error::Error for LayoutRatioError {}
-
-#[derive(Debug, Clone, PartialEq)]
 pub enum ViewportWidthError {
     OutOfRange { width: f32 },
     PaneNotResizable { pane: PaneId },
@@ -2577,6 +2543,9 @@ pub struct Mux {
     /// attached clients stay where they are.
     last_reported_focus: Mutex<Option<(PaneId, Option<usize>)>>,
     conversations: crate::conversation_store::ConversationHost,
+    /// The cloud conversations proxy (`cloud-conversations-v1`), installed by
+    /// a binary that has a cloud transport; absent otherwise.
+    cloud_conversations: OnceLock<crate::cloud_conversations::CloudConversations>,
     #[cfg(test)]
     client_resize_before_apply: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
@@ -2618,6 +2587,8 @@ pub struct Mux {
     #[cfg(test)]
     resource_close_after_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
+    layout_undo_before_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    #[cfg(test)]
     resource_close_cleanup: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     browser_providers: Arc<BrowserProviderRegistry>,
     browser_runtime: Mutex<Option<Arc<BrowserRuntime>>>,
@@ -2625,6 +2596,8 @@ pub struct Mux {
     deadline_fanout_pool: DeadlineFanoutPool,
     kitty_image_budget: Mutex<KittyImageBudgetState>,
     kitty_image_budget_changed: Condvar,
+    /// App byte-backend terminals (`app_terminals.rs`), by catalog surface.
+    app_terminals: Mutex<HashSet<SurfaceId>>,
     #[cfg(debug_assertions)]
     terminal_host_reconnect_completion_failures: AtomicU64,
     #[cfg(debug_assertions)]
@@ -2715,6 +2688,13 @@ pub struct Mux {
     resource_creation_execution: Mutex<()>,
     resource_creation_active: AtomicBool,
     terminal_adoptions: Mutex<HashSet<String>>,
+    /// Terminals with a possibly live host and no runtime surface (R41),
+    /// keyed by public terminal id (`term_…`, what the tab JSON reads), with
+    /// the host terminal id. A leaf lock: nothing else is locked under it.
+    pending_terminals: Mutex<HashMap<String, (String, PendingTerminal)>>,
+    /// Typed ends (`TerminalEnd::wire_json`) of ended terminals that have no
+    /// runtime surface, keyed by public terminal id. A leaf lock.
+    terminal_ends: Mutex<HashMap<String, Value>>,
     terminal_exit_detaches: Arc<TerminalExitDetachTracker>,
     terminal_adoption_insert_failures: AtomicU64,
     template_completion_failures: AtomicU64,
@@ -3040,6 +3020,7 @@ impl Mux {
             client_focus_memory: Mutex::new(Vec::new()),
             last_reported_focus: Mutex::new(None),
             conversations: Default::default(),
+            cloud_conversations: OnceLock::new(),
             #[cfg(test)]
             client_resize_before_apply: Mutex::new(None),
             #[cfg(test)]
@@ -3079,6 +3060,8 @@ impl Mux {
             #[cfg(test)]
             resource_close_after_commit: Mutex::new(None),
             #[cfg(test)]
+            layout_undo_before_commit: Mutex::new(None),
+            #[cfg(test)]
             resource_close_cleanup: Mutex::new(None),
             browser_providers: Arc::new(BrowserProviderRegistry::default()),
             browser_runtime: Mutex::new(None),
@@ -3086,6 +3069,7 @@ impl Mux {
             deadline_fanout_pool: DeadlineFanoutPool::new(),
             kitty_image_budget: Mutex::new(KittyImageBudgetState::default()),
             kitty_image_budget_changed: Condvar::new(),
+            app_terminals: Mutex::default(),
             #[cfg(debug_assertions)]
             terminal_host_reconnect_completion_failures: AtomicU64::new(
                 std::env::var("CMUX_TUI_TEST_RECONNECT_COMPLETION_FAILURES")
@@ -3151,6 +3135,8 @@ impl Mux {
             resource_creation_execution: Mutex::new(()),
             resource_creation_active: AtomicBool::new(false),
             terminal_adoptions: Mutex::new(HashSet::new()),
+            pending_terminals: Mutex::new(HashMap::new()),
+            terminal_ends: Mutex::new(HashMap::new()),
             terminal_exit_detaches: Arc::new(TerminalExitDetachTracker::default()),
             terminal_adoption_insert_failures: AtomicU64::new(
                 std::env::var("CMUX_TUI_TEST_ADOPTION_INSERT_FAILURES")
@@ -3722,8 +3708,11 @@ impl Mux {
                     } else {
                         // Socket loss and descriptor pressure are not process
                         // death proof. Keep the capability and retry the same
-                        // host rather than spawning a replacement shell.
+                        // host rather than spawning a replacement shell. The
+                        // tab has no surface meanwhile; it is adopting, not
+                        // dead (R41).
                         handled_terminals.insert(terminal_id.clone());
+                        self.set_pending_terminal(&terminal_id, PendingTerminal::Adopting);
                         self.schedule_terminal_adoption(options.clone(), record, record_path);
                     }
                     continue;
@@ -3750,6 +3739,7 @@ impl Mux {
                         &record,
                     );
                 } else {
+                    self.set_pending_terminal(&terminal_id, PendingTerminal::Adopting);
                     self.schedule_terminal_adoption(options.clone(), record, record_path);
                 }
                 continue;
@@ -3758,6 +3748,8 @@ impl Mux {
             handled_terminals.insert(terminal_id);
             self.reap_if_dead(&surface);
         }
+
+        self.mark_unadoptable_terminal_hosts(&options, &mut handled_terminals)?;
 
         // No launcher survives a daemon restart. A durable lifecycle row
         // without a host-owned record therefore represents a closed crash
@@ -3771,6 +3763,7 @@ impl Mux {
             }
             if terminal.lifecycle == TerminalLifecycle::Exited {
                 self.detach_exited_terminal_topology(&terminal.terminal_id)?;
+                self.record_terminal_end(&terminal.terminal_id);
                 continue;
             }
             self.mark_terminal_ended(
@@ -3944,6 +3937,7 @@ impl Mux {
         reason: &str,
         options: &SurfaceOptions,
     ) -> anyhow::Result<()> {
+        self.clear_pending_terminal(terminal_id);
         let terminal = self.workspace_registry.lock().unwrap().terminal_record(terminal_id)?;
         let Some(terminal) = terminal else { return Ok(()) };
         if terminal.lifecycle == TerminalLifecycle::Tombstoned {
@@ -3985,6 +3979,7 @@ impl Mux {
             )?;
         }
         self.detach_exited_terminal_topology(terminal_id)?;
+        self.record_terminal_end(terminal_id);
         Ok(())
     }
 
@@ -4074,6 +4069,10 @@ impl Mux {
         drop(state);
         self.emit_terminal_registry_changed(&registry, revision);
         drop(registry);
+        // Clients read tab liveness from the tree: an adopting tab is live now.
+        if self.clear_pending_terminal(terminal_id) {
+            self.emit(MuxEvent::TreeChanged);
+        }
         // Adoption makes the terminal's resource surface available. Retry
         // only hooks scoped to this terminal, not the entire pending table.
         if let Ok(terminal_id) = TerminalPublicId::parse(terminal_id) {
@@ -4350,10 +4349,12 @@ impl Mux {
                     }
                     delay = (delay * 2).min(Duration::from_secs(5));
                 }
+                mux.clear_adopting_marker(&terminal_id);
                 mux.terminal_adoptions.lock().unwrap().remove(&terminal_id);
             });
         if spawn_result.is_err() {
             self.terminal_adoptions.lock().unwrap().remove(&cleanup_id);
+            self.clear_pending_terminal(&cleanup_id);
         }
     }
 
@@ -10803,6 +10804,7 @@ impl Mux {
     ) {
         #[cfg(unix)]
         {
+            self.clear_pending_terminal(terminal_id);
             let root = self.surface_options.lock().unwrap().terminal_host_root.clone();
             let Some(root) = root else { return };
             terminate_discovered_terminal_host_in(&root, terminal_id, incarnation);
@@ -12333,50 +12335,6 @@ impl Mux {
         {
             surface.kill();
             self.emit(MuxEvent::SurfaceExited(surface.id));
-        }
-    }
-
-    /// Configure the optional userland agent plugin. The process starts only
-    /// after the local resource socket has been bound.
-    pub fn configure_journal_plugin(&self, options: Option<crate::JournalPluginOptions>) {
-        self.journal_plugin.configure(options);
-    }
-
-    /// Start the configured journal plugin against the bound local socket.
-    pub fn start_journal_plugin(&self, socket: std::path::PathBuf) {
-        let generation = match self.workspace_registry.lock() {
-            Ok(registry) => registry.reserve_journal_plugin_generation(),
-            Err(_) => Err(anyhow::anyhow!("workspace registry mutex is poisoned")),
-        };
-        match generation {
-            Ok(generation) => self.journal_plugin.start_with_generation_seed(
-                socket,
-                self.session.clone(),
-                generation,
-            ),
-            Err(error) => eprintln!(
-                "cmux-tui: journal plugin not started because its generation could not be reserved: {error}"
-            ),
-        }
-    }
-
-    /// Journal a supervisor-observed plugin exit. The roster reducer removes
-    /// only entries owned by this producer, so a crash cannot leave stale
-    /// rows until the next terminal scan and the cleanup remains replayable.
-    fn record_journal_plugin_exit(&self, plugin_id: &str, generation: u64) {
-        let ingress =
-            match crate::agent_hooks::journal_plugin_exit_journal_ingress(plugin_id, generation) {
-                Ok(ingress) => ingress,
-                Err(error) => {
-                    eprintln!("cmux-tui: invalid journal plugin exit id {plugin_id:?}: {error}");
-                    return;
-                }
-            };
-        let key =
-            format!("journal-plugin-exit-{plugin_id}-{}", crate::workspace_registry::new_uuid_v4());
-        if let Err(error) = self.append_journal_ingress(&ingress, "journal-plugin-supervisor", &key)
-        {
-            eprintln!("cmux-tui: journal plugin exit cleanup could not be journaled: {error}");
         }
     }
 
@@ -14336,16 +14294,16 @@ impl Mux {
         cwd: Option<String>,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
-        self.new_screen_named(workspace, None, cwd, size)
+        self.new_screen_named(workspace, None, TerminalSpawnOptions::new(cwd, Vec::new()), size)
     }
 
-    /// New screen with a name (set in the creating commit) and a directory
-    /// for its first terminal.
+    /// New screen with a name (set in the creating commit) and the spawn
+    /// options (directory, env, terminal id, program) of its first terminal.
     pub(crate) fn new_screen_named(
         self: &Arc<Self>,
         workspace: Option<WorkspaceId>,
         name: Option<String>,
-        cwd: Option<String>,
+        spawn: TerminalSpawnOptions,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
@@ -14364,7 +14322,7 @@ impl Mux {
         };
         let mut fields = Map::new();
         Self::insert_optional_string(&mut fields, "name", name);
-        Self::insert_optional_string(&mut fields, "cwd", cwd);
+        Self::insert_spawn_options(&mut fields, spawn);
         Self::insert_cell_size(&mut fields, size);
         let commit = self.commit_ordinary_topology_operation(
             ResourceOperation::ScreenCreate,
@@ -14996,268 +14954,6 @@ impl Mux {
         )?;
         self.emit_resource_topology_legacy_events(ResourceOperation::TabCreateBrowser, &commit);
         self.ordinary_created_surface(&commit)
-    }
-
-    pub(crate) fn new_browser_tab_reserved(
-        self: &Arc<Self>,
-        url: String,
-        pane: Option<PaneId>,
-        size: Option<(u16, u16)>,
-        resource_identity: TabResourceIdentity,
-        workspace_key: Option<String>,
-    ) -> anyhow::Result<Arc<Surface>> {
-        self.new_browser_tab_with_resource_identity(
-            url,
-            pane,
-            size,
-            Some(resource_identity),
-            workspace_key,
-        )
-    }
-
-    fn new_browser_tab_with_resource_identity(
-        self: &Arc<Self>,
-        url: String,
-        pane: Option<PaneId>,
-        size: Option<(u16, u16)>,
-        resource_identity: Option<TabResourceIdentity>,
-        workspace_key: Option<String>,
-    ) -> anyhow::Result<Arc<Surface>> {
-        let (target, empty_workspace) = {
-            let state = self.state.lock().unwrap();
-            let target = match pane {
-                Some(id) => {
-                    if !state.panes.contains_key(&id) {
-                        anyhow::bail!("unknown pane {id}");
-                    }
-                    Some(id)
-                }
-                None => state.active_pane(),
-            };
-            let empty_workspace = target
-                .is_none()
-                .then(|| state.workspaces.get(state.active_workspace))
-                .flatten()
-                .filter(|workspace| workspace.screens.is_empty())
-                .map(|workspace| workspace.id);
-            (target, empty_workspace)
-        };
-        let Some(target) = target else {
-            if let Some(workspace) = empty_workspace {
-                return self.create_browser_surface_in_workspace(
-                    workspace,
-                    url,
-                    size,
-                    resource_identity,
-                );
-            }
-            let workspace_key = match workspace_key {
-                Some(workspace_key) => workspace_key,
-                None => Self::new_workspace_key()?,
-            };
-            let surface = self.spawn_browser_surface_with_resource_identity(
-                url,
-                size,
-                None,
-                resource_identity,
-            )?;
-            let (pane_id, pane) = self.make_pane(surface.id)?;
-            let screen_id = self.next_id();
-            let ws_id = self.next_id();
-            let notifications = self.tree_decorations();
-            if let Some(workspace_id) = empty_workspace {
-                let delta = {
-                    let mut state = self.state.lock().unwrap();
-                    let Some(workspace_index) =
-                        state.workspaces.iter().position(|workspace| workspace.id == workspace_id)
-                    else {
-                        state.surfaces.remove(&surface.id);
-                        surface.kill();
-                        anyhow::bail!("workspace disappeared while creating browser tab");
-                    };
-                    state.insert_pane(pane);
-                    stamp_pane_focus(self, &mut state, pane_id);
-                    state.workspaces[workspace_index].screens.push(Screen {
-                        id: screen_id,
-                        public_id: ScreenPublicId::random()?,
-                        name: None,
-                        root: Node::Leaf(pane_id),
-                        active_pane: pane_id,
-                        zoomed_pane: None,
-                        zellij_auto_layout: Some(vec![pane_id]),
-                        viewport_splits: Default::default(),
-                        viewport_base_width: None,
-                        layout_columns: Vec::new(),
-                        layout_revision: 0,
-                        layout_undo: Default::default(),
-                    });
-                    state.workspaces[workspace_index].active_screen = 0;
-                    let entity = crate::server::tree_entity_json(
-                        &state,
-                        &notifications,
-                        TreeDeltaKind::ScreenAdded,
-                        screen_id,
-                    )
-                    .expect("first workspace screen is present in tree snapshot");
-                    TreeDelta {
-                        kind: TreeDeltaKind::ScreenAdded,
-                        workspace: workspace_id,
-                        screen: Some(screen_id),
-                        pane: None,
-                        surface: None,
-                        index: Some(0),
-                        entity,
-                        workspace_revision: None,
-                        transaction: None,
-                    }
-                };
-                self.emit(MuxEvent::TreeDelta(delta));
-                self.reap_if_dead(&surface);
-                return Ok(surface);
-            }
-            let mutation = WorkspaceMutation::local("cmux-tui");
-            let workspace_public_id = WorkspacePublicId::random()?;
-            let mut registry = self.workspace_registry.lock().unwrap();
-            let delta = {
-                let mut state = self.state.lock().unwrap();
-                let name = Self::default_workspace_name(&state);
-                let index = state.workspaces.len();
-                let mut desired = self.registry_projection(&state);
-                desired.push(RegistryWorkspace {
-                    id: ws_id,
-                    public_id: workspace_public_id.clone(),
-                    key: workspace_key.clone(),
-                    name: name.clone(),
-                    group_key: self.session.clone(),
-                });
-                let commit = match registry.commit(
-                    &mutation,
-                    &serde_json::json!({
-                        "op": "new-browser-workspace",
-                        "workspace": ws_id,
-                        "key": workspace_key.clone(),
-                        "name": name,
-                    }),
-                    None,
-                    None,
-                    "workspace-added",
-                    &workspace_key,
-                    &desired,
-                    &serde_json::json!({
-                        "workspace": ws_id,
-                        "workspace_id": workspace_public_id.as_str(),
-                        "key": workspace_key.clone(),
-                        "index": index,
-                    }),
-                ) {
-                    Ok(commit) => commit,
-                    Err(error) => {
-                        drop(state);
-                        drop(registry);
-                        self.discard_spawned(vec![surface]);
-                        return Err(error);
-                    }
-                };
-                state.insert_pane(pane);
-                stamp_pane_focus(self, &mut state, pane_id);
-                state.push_workspace(Workspace {
-                    id: ws_id,
-                    public_id: workspace_public_id,
-                    key: workspace_key,
-                    name,
-                    screens: vec![Screen {
-                        id: screen_id,
-                        public_id: ScreenPublicId::random()?,
-                        name: None,
-                        root: Node::Leaf(pane_id),
-                        active_pane: pane_id,
-                        zoomed_pane: None,
-                        zellij_auto_layout: Some(vec![pane_id]),
-                        viewport_splits: Default::default(),
-                        viewport_base_width: None,
-                        layout_columns: Vec::new(),
-                        layout_revision: 0,
-                        layout_undo: Default::default(),
-                    }],
-                    active_screen: 0,
-                });
-                state.active_workspace = state.workspaces.len() - 1;
-                state.workspace_revision = commit.revision;
-                let workspace_revision = commit.revision;
-                let entity = crate::server::tree_entity_json(
-                    &state,
-                    &notifications,
-                    TreeDeltaKind::WorkspaceAdded,
-                    ws_id,
-                )
-                .expect("new workspace is present in tree snapshot");
-                TreeDelta {
-                    kind: TreeDeltaKind::WorkspaceAdded,
-                    workspace: ws_id,
-                    screen: None,
-                    pane: None,
-                    surface: None,
-                    index: Some(index),
-                    entity,
-                    workspace_revision: Some(workspace_revision),
-                    transaction: None,
-                }
-            };
-            let selection_resync = delta.index.is_some_and(|index| index > 0);
-            self.emit_committed_workspace_delta(&registry, delta, selection_resync);
-            drop(registry);
-            self.reap_if_dead(&surface);
-            return Ok(surface);
-        };
-
-        let surface =
-            self.spawn_browser_surface_with_resource_identity(url, size, None, resource_identity)?;
-        let active_at = self.next_active_at();
-        let notifications = self.tree_decorations();
-        let attached = {
-            let mut state = self.state.lock().unwrap();
-            match state.panes.get_mut(&target) {
-                Some(pane) => {
-                    pane.tabs.push(surface.id);
-                    pane.active_tab = pane.tabs.len() - 1;
-                    pane.active_at = active_at;
-                    let index = pane.tabs.len() - 1;
-                    fence_layout_undo_for_tab_membership(&mut state, &[target]);
-                    let (wi, si) = state.screen_of(target).expect("live pane belongs to a screen");
-                    let workspace = state.workspaces[wi].id;
-                    let screen = state.workspaces[wi].screens[si].id;
-                    let entity = crate::server::tree_entity_json(
-                        &state,
-                        &notifications,
-                        TreeDeltaKind::TabAdded,
-                        surface.id,
-                    )
-                    .expect("new browser tab is present in tree snapshot");
-                    Some(TreeDelta {
-                        kind: TreeDeltaKind::TabAdded,
-                        workspace,
-                        screen: Some(screen),
-                        pane: Some(target),
-                        surface: Some(surface.id),
-                        index: Some(index),
-                        entity,
-                        workspace_revision: None,
-                        transaction: None,
-                    })
-                }
-                None => {
-                    state.surfaces.remove(&surface.id);
-                    None
-                }
-            }
-        };
-        let Some(delta) = attached else {
-            surface.kill();
-            anyhow::bail!("pane disappeared while creating browser tab");
-        };
-        self.emit_tree_delta(delta, true);
-        self.reap_if_dead(&surface);
-        Ok(surface)
     }
 
     fn create_browser_surface_in_workspace(
@@ -16716,6 +16412,9 @@ impl Mux {
                 return Err(LayoutRatioError::UnknownSplit { split });
             }
             let screen = &state.workspaces[workspace_index].screens[screen_index];
+            if screen.layout_columns.iter().any(|column| column.is_row_split(split)) {
+                return Err(LayoutRatioError::RowSplitCompatReadonly { split });
+            }
             if let Some(index) = screen
                 .layout_columns
                 .iter()
@@ -17178,9 +16877,12 @@ impl Mux {
         })?;
         let mut fields = Map::from_iter([("confirm_close".into(), Value::Bool(confirm_close))]);
         fields.insert("expected_layout_revision".into(), Value::from(current_revision));
-        let expected_resource_revision = if created_panes.is_empty() {
-            None
-        } else {
+        // The confirmation token fences exactly what closes; it is computed
+        // once. The resource revision is only the commit's precondition, so a
+        // conflict from an unrelated commit between reading it and committing
+        // is retried (bounded) with the same token: the commit re-checks the
+        // token against the state it commits on.
+        if !created_panes.is_empty() {
             let registry = self.workspace_registry.lock().unwrap();
             let state = self.state.lock().unwrap();
             let Some((workspace_index, screen_index)) = state.screen_of(pane) else {
@@ -17195,29 +16897,9 @@ impl Mux {
                 .as_str()
                 .context("layout undo confirmation omitted its token")?;
             fields.insert("confirmation_token".into(), Value::String(token.to_string()));
-            Some(registry.resource_topology_snapshot()?.revision)
-        };
-        let commit = self
-            .commit_resource_topology_operation(
-                ResourceOperation::ScreenLayoutUndo,
-                selectors,
-                fields,
-                expected_resource_revision,
-                &WorkspaceMutation::local("cmux-tui-layout-undo"),
-            )
-            .map_err(|error| {
-                if error
-                    .downcast_ref::<ResourceError>()
-                    .is_some_and(|error| error.code == "revision.conflict")
-                {
-                    anyhow::Error::new(LayoutUndoError::Stale(
-                        "layout revision conflict: resource topology changed before confirmed undo could commit"
-                            .to_string(),
-                    ))
-                } else {
-                    error
-                }
-            })?;
+        }
+        let commit =
+            self.commit_confirmed_layout_undo(selectors, fields, !created_panes.is_empty())?;
         let screen = commit
             .result
             .get("screen")
@@ -18740,6 +18422,7 @@ fn terminate_discovered_terminal_host_in(
             schedule_terminal_host_record_cleanup(record, path);
         }
     }
+    pending_terminals::terminate_unadoptable_hosts_in(root, terminal_id);
     let record_path = root.join(format!("{terminal_id}.json"));
     let _ = acknowledge_terminal_exit_sidecar(&record_path, terminal_id, incarnation);
 }
@@ -20193,8 +19876,10 @@ mod tests {
     use std::collections::HashMap;
 
     mod column_update;
+    mod dock_columns;
     mod kitty_reservation;
-    mod sticky_columns;
+    mod layout_undo_commit;
+    mod rows;
 
     use crate::layout::{DEFAULT_VIEWPORT_PANE_WIDTH, VirtualRect};
     use crate::resource::{BrowserPublicId, MachinePublicId, SessionPublicId, TabPublicId};
@@ -20642,14 +20327,16 @@ mod tests {
                             width: 0.8,
                             layout: first_column_layout,
                             auto_layout: None,
-                            sticky: None,
+                            dock: None,
+                            rows: Vec::new(),
                         },
                         RegistryViewportColumn {
                             id: boundary_split,
                             width: 0.4,
                             layout: RegistryLayoutNode::Leaf { pane: panes[3].clone() },
                             auto_layout: Some(vec![panes[3].clone()]),
-                            sticky: None,
+                            dock: None,
+                            rows: Vec::new(),
                         },
                     ],
                 },
@@ -21822,9 +21509,13 @@ mod tests {
 
     #[test]
     fn durable_workspace_creation_supports_the_in_process_terminal_runtime() {
+        // A child that writes nothing: a live shell's OSC 7 cwd report can
+        // commit a second revision before the snapshot below (1 of 3 full runs).
+        let quiet = vec!["/bin/sh".into(), "-c".into(), "IFS= read -r line".into()];
+        let options = SurfaceOptions { command: Some(quiet), ..SurfaceOptions::default() };
         let mux = Mux::new(
             format!("in-process-resource-{}", WorkspacePublicId::random().unwrap()),
-            SurfaceOptions::default(),
+            options,
         );
 
         let surface = mux.new_workspace(Some("headless".into()), Some((80, 24))).unwrap();
@@ -29736,14 +29427,8 @@ mod tests {
                 panic!("test layout should have two stack branches");
             };
             screen.layout_columns = vec![
-                LayoutColumn {
-                    id: mux.next_id(),
-                    width: 1.0,
-                    root: *a,
-                    zellij_auto_layout: None,
-                    sticky: None,
-                },
-                LayoutColumn { id, width: 0.5, root: *b, zellij_auto_layout: None, sticky: None },
+                LayoutColumn::new(mux.next_id(), 1.0, *a, None),
+                LayoutColumn::new(id, 0.5, *b, None),
             ];
             screen.sync_layout_column_projection();
             Mux::rebuild_split_screen_index(&mut state);

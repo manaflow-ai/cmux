@@ -13,13 +13,14 @@ import { isFoldedRun } from "./toolRunSummary";
 import { TurnActionsContext } from "./turnActions";
 import { workedLabel } from "./turns";
 import { ChevronRight, Copy, Retry, TurnFork } from "./icons";
-import { t } from "../i18n";
+import { useT } from "../i18n";
 
 /// The "Worked for 15s" line; it opens the turn's commentary and tool calls.
 export function WorkedFor({ row, expanded, onToggle }: { row: AcpmuxRow; expanded: boolean; onToggle: () => void }) {
+  const t = useT();
   return (
     <button type="button" className="cv-worked has-divider is-toggle" aria-expanded={expanded} onClick={onToggle}>
-      <span className="cv-worked__label">{workedLabel(row)}</span>
+      <span className="cv-worked__label">{workedLabel(t, row)}</span>
       <ChevronRight
         size={14}
         strokeWidth={1.2}
@@ -72,6 +73,7 @@ const clock = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-d
 /// complete. A turn without a "Worked for" line (history paged in mid-turn) says its time and
 /// count here instead.
 export function TurnFooter({ row }: { row: AcpmuxRow }) {
+  const t = useT();
   const [copied, setCopied] = useState(false);
   const { fork, retry } = useContext(TurnActionsContext);
   const text = row.text;
@@ -80,7 +82,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const failed = row.status === "failed" || row.status === "error";
   return (
     <div className="cv-turn-actions">
-      {!row.folded && <span className="cv-turn-summary">{workedLabel(row)}</span>}
+      {!row.folded && <span className="cv-turn-summary">{workedLabel(t, row)}</span>}
       {text && (
         <button
           type="button"

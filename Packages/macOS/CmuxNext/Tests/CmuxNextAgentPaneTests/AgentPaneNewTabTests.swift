@@ -60,9 +60,25 @@ import Testing
         let value = try #require(reply["value"] as? [String: Any])
         #expect(value["newTab"] == nil)
         var opened = 0
-        model.onOpenTab = { _, _, _ in opened += 1 }
+        model.onOpenTab = { _ in opened += 1 }
         #expect(await model.respond(to: .openTab(.terminal, text: "ls"))["ok"] as? Bool == false)
         #expect(opened == 0)
+    }
+
+    @Test func aDirectBlankChatCanConvertWithoutAChooserPage() async throws {
+        let model = AgentPaneModel(host: MockAgentPaneHost(), allowsTabConversion: true)
+        var opened: AgentPaneOpenTab?
+        var typed: String?
+        model.onOpenTab = { opened = $0 }
+        model.onTypeAhead = { typed = $0 }
+        #expect(await model.respond(to: .openTab(.terminal, text: "", cwd: "/src/app", run: false))["ok"] as? Bool == true)
+        #expect(opened?.cwd == "/src/app")
+        #expect(opened?.run == false)
+        _ = await model.respond(to: .persistSession("blank-project-session"))
+        #expect(await model.respond(to: .typeAhead("git status"))["ok"] as? Bool == true)
+        #expect(typed == "git status")
+        let value = try #require(await model.respond(to: .ready)["value"] as? [String: Any])
+        #expect(value["newTab"] == nil)
     }
 
     @Test func pickingTerminalOrBrowserReachesTheApp() async {
@@ -70,7 +86,7 @@ import Testing
         var opened: [String] = []
         var edited: [AgentPaneTabKind] = []
         var jumped: [String] = []
-        model.onOpenTab = { opened.append("\($0.rawValue):\($1)\($2.map { "@" + $0 } ?? "")") }
+        model.onOpenTab = { opened.append("\($0.kind.rawValue):\($0.text)\($0.cwd.map { "@" + $0 } ?? "")") }
         model.onJump = { jumped.append("\($0.rawValue):\($1)") }
         model.onEditShortcut = { edited.append($0) }
         #expect(await model.respond(to: .openTab(.terminal, text: "bun dev"))["ok"] as? Bool == true)
@@ -81,6 +97,59 @@ import Testing
         #expect(opened == ["terminal:bun dev", "browser:localhost:5173", "terminal:@/src/api"])
         #expect(jumped == ["tab:tab-7"])
         #expect(edited == [.agent])
+    }
+
+    /// Variant B (plans/cmux-next/new-tab.md): a search row searches even an
+    /// address-like text, and `!` only types its command; what is typed
+    /// after `!` follows as type-ahead; Tab and an agent pick are remembered.
+    @Test func theScreenRequestsParseSearchTypeOnlyTypeAheadAndMemory() {
+        func request(_ method: String, _ params: [String: Any]) -> AgentPaneRequest {
+            AgentPaneRequest(body: ["method": method, "params": params] as [String: Any])
+        }
+        #expect(request("tab.open", ["kind": "browser", "text": "node.js", "search": true])
+            == .openTab(.browser, text: "node.js", search: true))
+        #expect(request("tab.open", ["kind": "terminal", "text": "ls", "run": false, "cwd": "/src"])
+            == .openTab(.terminal, text: "ls", cwd: "/src", run: false))
+        // Search is a browser choice and type-only a terminal one.
+        #expect(request("tab.open", ["kind": "terminal", "text": "ls", "search": true]) == .openTab(.terminal, text: "ls"))
+        #expect(request("tab.open", ["kind": "browser", "text": "x", "run": false]) == .openTab(.browser, text: "x"))
+        #expect(request("tab.typeAhead", ["text": "git st"]) == .typeAhead("git st"))
+        #expect(request("tab.typeAhead", [:]) == .unsupported("tab.typeAhead"))
+        let long = String(repeating: "a", count: AgentPaneRequest.maximumOpenTabText + 1)
+        #expect(request("tab.typeAhead", ["text": long]) == .typeAhead(String(long.prefix(AgentPaneRequest.maximumOpenTabText))))
+        // One input (R86): only the agent pick is remembered; a page's old `mode` is refused.
+        #expect(request("newTab.remember", ["agent": "codex"]) == .rememberNewTab(agent: "codex"))
+        #expect(request("newTab.remember", ["mode": "search"]) == .unsupported("newTab.remember"))
+        #expect(request("newTab.remember", ["agent": String(repeating: "a", count: 200)]) == .unsupported("newTab.remember"))
+    }
+
+    @Test func typeAheadAndMemoryReachTheAppOnlyFromTheNewTabPage() async {
+        let model = AgentPaneModel(host: MockAgentPaneHost(), newTab: page)
+        var typed: [String] = []
+        var remembered: [String] = []
+        var opened: [AgentPaneOpenTab] = []
+        model.onOpenTab = { opened.append($0) }
+        model.onTypeAhead = { typed.append($0) }
+        model.onRememberNewTab = { remembered.append($0) }
+        #expect(await model.respond(to: .openTab(.terminal, text: "", run: false))["ok"] as? Bool == true)
+        #expect(await model.respond(to: .typeAhead("ls"))["ok"] as? Bool == true)
+        #expect(await model.respond(to: .rememberNewTab(agent: "codex"))["ok"] as? Bool == true)
+        #expect(opened == [AgentPaneOpenTab(kind: .terminal, text: "", run: false)])
+        #expect(typed == ["ls"])
+        #expect(remembered == ["codex"])
+        // The type-ahead outlives the page's switch to a chat only until a session exists.
+        _ = await model.respond(to: .persistSession("s-1"))
+        #expect(await model.respond(to: .typeAhead("x"))["ok"] as? Bool == false)
+        #expect(typed == ["ls"])
+    }
+
+    @Test func theHandshakeCarriesLayoutAgentAndHome() throws {
+        let page = AgentPaneNewTab(kind: .agent, layout: .a, lastAgent: "codex", home: "/Users/me")
+        let json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(page)) as? [String: Any]
+        #expect(json?["layout"] as? String == "a")
+        #expect(json?["mode"] == nil)
+        #expect(json?["lastAgent"] as? String == "codex")
+        #expect(json?["home"] as? String == "/Users/me")
     }
 
     @Test func requestsParseOnlyKnownKinds() {
@@ -132,16 +201,18 @@ import Testing
         #expect(picked == ["agent"])
     }
 
-    @Test func theHandshakeCarriesTheLocationAndCappedSuggestions() throws {
+    @Test func theHandshakeCarriesTheLocationAndLosslessSuggestions() async throws {
         let tabs = (0..<50).map { AgentPaneOmnibar.Tab(id: "t\($0)", kind: .terminal, title: "t\($0)") }
         let page = AgentPaneNewTab(kind: .browser, location: "https://vite.dev/guide/", omnibar: AgentPaneOmnibar(
             tabs: tabs, workspaces: [AgentPaneOmnibar.Workspace(id: "w1", name: "docs-site")], folders: ["/src/app"],
             history: [AgentPaneOmnibar.Page(url: "https://vite.dev/config/", title: "Configuring Vite")]
         ))
-        let reply = page.reply
-        #expect(reply["location"] as? String == "https://vite.dev/guide/")
-        let omnibar = try #require(reply["omnibar"] as? [String: Any])
-        #expect((omnibar["tabs"] as? [[String: Any]])?.count == AgentPaneOmnibar.maximumEntries)
+        let model = AgentPaneModel(host: MockAgentPaneHost(), newTab: page)
+        let value = try #require(await model.respond(to: .ready)["value"] as? [String: Any])
+        let newTab = try #require(value["newTab"] as? [String: Any])
+        #expect(newTab["location"] as? String == "https://vite.dev/guide/")
+        let omnibar = try #require(newTab["omnibar"] as? [String: Any])
+        #expect((omnibar["tabs"] as? [[String: Any]])?.count == 50)
         #expect((omnibar["workspaces"] as? [[String: Any]])?.first?["name"] as? String == "docs-site")
         #expect((omnibar["workspaces"] as? [[String: Any]])?.first?["detail"] == nil)
         #expect(omnibar["folders"] as? [String] == ["/src/app"])

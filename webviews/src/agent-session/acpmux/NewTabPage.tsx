@@ -1,4 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { AgentMark as BrandMark } from "../shared/AgentMark";
+import { agentBrand } from "../shared/agentBrand";
 import { agentDisplayName } from "./agents";
 import { ArrowUpIcon } from "./ComposerPickers";
 import type { AcpmuxSnapshot } from "./model";
@@ -6,13 +8,14 @@ import { ProjectChooser, type Project } from "./ProjectChooser";
 import {
   defaultRow,
   EMPTY_OMNIBAR,
+  MAX_NEW_TAB_ENTRIES,
   omnibarContext,
   omnibarRows,
   type OmnibarContext,
   type OmnibarRow,
 } from "./omnibar";
 import { homePath, projectLabel, sessionEntry, sessionMark, type AcpmuxSessionEntry } from "./sessionList";
-import { t } from "./i18n";
+import { type StringKey, type Translate, translate, useT } from "./i18n";
 
 /// The three things a new tab can become (#16620). Order is the switch's order and Tab's cycle.
 export const TAB_KINDS = ["terminal", "browser", "agent"] as const;
@@ -25,49 +28,52 @@ export const FOCUS_LOCATION_EVENT = "acpmux-focus-location";
 export const DEFAULT_KINDS = ["same-kind", "terminal", "browser", "agent", "page", "auto"] as const;
 export type DefaultKind = (typeof DEFAULT_KINDS)[number];
 
-/// New tab page copy. English defaults until the host passes localized labels, as the rest of the pane does today.
+/// New tab page copy: keys of the pane's string table.
 export const NEW_TAB_LABELS = {
-  kinds: { terminal: "Terminal", browser: "Browser", agent: "Agent" } satisfies Record<TabKind, string>,
+  kinds: {
+    terminal: "newTabPage.kind.terminal",
+    browser: "newTabPage.kind.browser",
+    agent: "newTabPage.kind.agent",
+  } satisfies Record<TabKind, StringKey>,
   placeholder: {
-    terminal: (folder: string) => (folder ? `Run a command in ${folder}` : "Run a command"),
-    browser: () => "Search or type a URL, or ! to run a command",
-    agent: (agent: string) => `Ask ${agent} to build, fix or explain`,
-  } satisfies Record<TabKind, (name: string) => string>,
-  switchLabel: "Open as",
-  editShortcut: (kind: string, keys: string) => `${kind} (${keys}). Right-click to change the shortcut`,
-  open: "Open",
-  importAndSync: t("newtab.importAndSync"),
-  suggestions: "Suggestions",
+    terminal: (t: Translate, folder: string) =>
+      folder ? t("newTabPage.placeholder.terminalIn", { folder }) : t("newTabPage.placeholder.terminal"),
+    browser: (t: Translate) => t("newTabPage.placeholder.browser"),
+    agent: (t: Translate, agent: string) => t("newTabPage.placeholder.agent", { agent }),
+  } satisfies Record<TabKind, (t: Translate, name: string) => string>,
+  switchLabel: "newTabPage.switchLabel",
+  /// `{kind}` is a tab kind's name, `{keys}` its shortcut.
+  editShortcut: "newTabPage.editShortcut",
+  open: "newTabPage.open",
+  suggestions: "newTabPage.suggestions",
   rows: {
-    tab: "Switch to tab",
-    workspace: "Switch to workspace",
-    session: "Open chat",
-    folder: "New terminal here",
-    command: "Run",
-    history: "Open",
-    run: "Run in terminal",
-    open: "Open",
-  } satisfies Record<Exclude<OmnibarRow["type"], "ask">, string>,
-  ask: (agent: string) => `Ask ${agent}`,
-  defaultKind: (kind: string) => `default: ${kind}`,
+    tab: "newTabPage.row.tab",
+    workspace: "newTabPage.row.workspace",
+    session: "newTabPage.row.session",
+    folder: "newTabPage.row.folder",
+    command: "newTabPage.row.command",
+    file: "newTabPage.row.open",
+    action: "newTabPage.row.open",
+    history: "newTabPage.row.history",
+    run: "newTabPage.row.run",
+    open: "newTabPage.row.open",
+  } satisfies Record<Exclude<OmnibarRow["type"], "ask">, StringKey>,
+  ask: "newTabPage.ask",
+  /// `{kind}` is one of `defaultKinds`.
+  defaultKind: "newTabPage.defaultKind",
+
   defaultKinds: {
-    "same-kind": "same kind",
-    terminal: "terminal",
-    browser: "browser",
-    agent: "agent",
-    page: "this page",
-    auto: "auto",
-  } satisfies Record<DefaultKind, string>,
-  defaultKindHint: "What ⌘T and + open. Click to change.",
-  recent: "Recent",
-  allSessions: "All sessions",
-  thisMac: "This Mac",
-  noRecent: "Chats you start show up here.",
-  status: { input: "Needs input", running: "Running", error: "Failed", unread: "Unread" } satisfies Record<
-    NonNullable<ReturnType<typeof sessionMark>>,
-    string
-  >,
-};
+    "same-kind": "newTabPage.defaultKind.sameKind",
+    terminal: "newTabPage.defaultKind.terminal",
+    browser: "newTabPage.defaultKind.browser",
+    agent: "newTabPage.defaultKind.agent",
+    page: "newTabPage.defaultKind.page",
+    auto: "newTabPage.defaultKind.auto",
+  } satisfies Record<DefaultKind, StringKey>,
+  defaultKindHint: "newTabPage.defaultKindHint",
+  allSessions: "newTabPage.allSessions",
+  thisMac: "newTabPage.thisMac",
+} as const;
 
 /// What the host's handshake says about a tab opened as a new tab page.
 export type NewTabHost = {
@@ -80,6 +86,13 @@ export type NewTabHost = {
   projects?: string[];
   omnibar?: OmnibarContext;
   defaultKind?: DefaultKind;
+  /// Which design (Debug Settings `newTab.layout`): "b" the one-input screen (default),
+  /// "a" this Terminal | Browser | Agent page, kept until B passes dogfood (decision Q6).
+  layout: "a" | "b";
+  /// The agent last picked (decision Q3).
+  lastAgent?: string;
+  /// The home folder, so `~/path` reads as a folder.
+  home?: string;
 };
 
 /// Reads `newTab` from the handshake: `true`, or `{hotkeys, kind, cwd, host}`. Nil for a plain chat.
@@ -105,11 +118,18 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
     ...(typeof object.location === "string" && object.location ? { location: object.location } : {}),
     ...(omnibar ? { omnibar } : {}),
     ...(Array.isArray(object.projects)
-      ? { projects: object.projects.filter((path): path is string => typeof path === "string" && path.length > 0) }
+      ? {
+          projects: object.projects
+            .filter((path): path is string => typeof path === "string" && path.length > 0)
+            .slice(0, MAX_NEW_TAB_ENTRIES),
+        }
       : {}),
     ...(DEFAULT_KINDS.includes(object.defaultKind as DefaultKind)
       ? { defaultKind: object.defaultKind as DefaultKind }
       : {}),
+    layout: object.layout === "a" ? "a" : "b",
+    ...(typeof object.lastAgent === "string" && object.lastAgent ? { lastAgent: object.lastAgent } : {}),
+    ...(typeof object.home === "string" && object.home.startsWith("/") ? { home: object.home } : {}),
   };
 }
 
@@ -143,13 +163,13 @@ export function recentSessions(sessions: AcpmuxSnapshot["sessions"], count = REC
 }
 
 /// "now", "5m", "3h", "2d": the card's age, as compact as the sidebar's.
-export function ageLabel(updatedAt: number | undefined, now = Date.now()): string {
+export function ageLabel(updatedAt: number | undefined, now = Date.now(), t: Translate = translate): string {
   if (!updatedAt) return "";
   const minutes = Math.max(0, Math.round((now - updatedAt) / 60_000));
-  if (minutes < 1) return "now";
-  if (minutes < 60) return `${minutes}m`;
+  if (minutes < 1) return t("age.now");
+  if (minutes < 60) return t("age.minutes", { n: minutes });
   const hours = Math.round(minutes / 60);
-  return hours < 24 ? `${hours}h` : `${Math.round(hours / 24)}d`;
+  return hours < 24 ? t("age.hours", { n: hours }) : t("age.days", { n: Math.round(hours / 24) });
 }
 
 type Props = {
@@ -173,19 +193,27 @@ type Props = {
   defaultKind?: DefaultKind;
   /// The toggle picked the next default.
   onSetDefaultKind?(kind: DefaultKind): void;
-  /// Recent projects are offered inline before Browse is needed.
-  projects?: Project[];
   /// Make the tab `kind`: run `text` (in `cwd`), open it, or ask it.
   onSubmit(kind: TabKind, text: string, cwd?: string): void;
+  /// Recent projects for the agent kind. Picking one starts a chat there.
+  projects?: Project[];
+  /// Loads the host's bounded project scan after the first paint.
+  loadProjects?(): Promise<Project[]>;
+  /// Open a folder picker as the last project choice.
+  onBrowseProject?(): Promise<string | undefined>;
   /// Go to an open tab or workspace instead of opening a duplicate.
   onJump?(target: "tab" | "workspace", id: string): void;
+  /// Open a host-provided file or invoke a host-owned app action.
+  onOpenFile?(path: string): void;
+  onAction?(id: string): void;
   onOpenSession(sessionId: string): void;
   onShowAll(): void;
   onEditShortcut?(kind: TabKind): void;
   onImport?(): void;
-  onBrowseProject?(): void;
   now?: number;
 };
+
+const EMPTY_PROJECTS: Project[] = [];
 
 /// A new tab before it is anything: one field, a Terminal | Browser | Agent switch that
 /// Tab cycles, each option with its own shortcut, and the recent sessions below. Enter
@@ -201,15 +229,19 @@ export function NewTabPage({
   location,
   defaultKind: initialDefault,
   onSetDefaultKind,
-  projects = [],
+  projects = EMPTY_PROJECTS,
   onSubmit,
+  loadProjects,
+  onBrowseProject,
   onJump,
+  onOpenFile,
+  onAction,
   onOpenSession,
   onShowAll,
   onEditShortcut,
   onImport,
-  onBrowseProject,
 }: Props) {
+  const t = useT();
   const [kind, setKind] = useState<TabKind>(initialKind);
   const [defaultKind, setDefaultKind] = useState(initialDefault);
   const [projectCwd, setProjectCwd] = useState(cwd);
@@ -247,7 +279,30 @@ export function NewTabPage({
   const selectedProject = projectCwd ? projectLabel(projectCwd) : undefined;
   const folder = projectCwd ? projectLabel(projectCwd) : "";
   const agent = agentDisplayName(snapshot.summary?.harness ?? snapshot.catalog[0]?.id ?? "agent");
-  const placeholder = NEW_TAB_LABELS.placeholder[kind](kind === "agent" ? agent : folder);
+  const placeholder = NEW_TAB_LABELS.placeholder[kind](t, kind === "agent" ? agent : folder);
+  const [loadedProjects, setLoadedProjects] = useState(projects);
+  useEffect(() => setLoadedProjects(projects), [projects]);
+  useEffect(() => {
+    if (!loadProjects) return;
+    let cancelled = false;
+    void loadProjects()
+      .then((next) => {
+        if (!cancelled && next.length) setLoadedProjects(next);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [loadProjects]);
+  const canChooseProject = loadedProjects.length > 0 || onBrowseProject !== undefined;
+  const chooseProject = (project: string) => onSubmit("agent", "", project);
+  const browseProject = onBrowseProject
+    ? () => {
+        void onBrowseProject().then((project) => {
+          if (project) chooseProject(project);
+        });
+      }
+    : undefined;
 
   // The field takes the keyboard when the page appears, as a browser's new tab does, and
   // again on Cmd-L (the host's FOCUS_LOCATION_EVENT), wherever focus moved on the page.
@@ -277,6 +332,10 @@ export function NewTabPage({
         return onSubmit("terminal", "", row.path);
       case "command":
         return onSubmit("terminal", row.command, projectCwd);
+      case "file":
+        return onOpenFile?.(row.path);
+      case "action":
+        return onAction?.(row.id);
       case "history":
         return onSubmit("browser", row.url);
       case "run":
@@ -357,7 +416,7 @@ export function NewTabPage({
               composing.current = false;
             }}
           />
-          <fieldset className="acpmux-newtab-switch" aria-label={NEW_TAB_LABELS.switchLabel}>
+          <fieldset className="acpmux-newtab-switch" aria-label={t(NEW_TAB_LABELS.switchLabel)}>
             {TAB_KINDS.map((option) => (
               <button
                 key={option}
@@ -367,7 +426,7 @@ export function NewTabPage({
                 className={option === kind ? "acpmux-newtab-kind is-selected" : "acpmux-newtab-kind"}
                 title={
                   hotkeys[option]
-                    ? NEW_TAB_LABELS.editShortcut(NEW_TAB_LABELS.kinds[option], hotkeys[option]!)
+                    ? t(NEW_TAB_LABELS.editShortcut, { kind: t(NEW_TAB_LABELS.kinds[option]), keys: hotkeys[option]! })
                     : undefined
                 }
                 onClick={() => choose(option)}
@@ -378,7 +437,7 @@ export function NewTabPage({
                 }}
               >
                 <KindIcon kind={option} />
-                <span>{NEW_TAB_LABELS.kinds[option]}</span>
+                <span>{t(NEW_TAB_LABELS.kinds[option])}</span>
                 {hotkeys[option] && <kbd>{hotkeys[option]}</kbd>}
               </button>
             ))}
@@ -399,36 +458,46 @@ export function NewTabPage({
             {kind === "terminal" && (
               <span className="acpmux-newtab-chip">
                 <LaptopIcon />
-                {host ?? NEW_TAB_LABELS.thisMac}
+                {host ?? t(NEW_TAB_LABELS.thisMac)}
               </span>
             )}
-            {kind === "agent" && (
-              <span className="acpmux-newtab-chip">
-                <KindIcon kind="agent" />
-                {agent}
-              </span>
-            )}
+            {kind === "agent" &&
+              (canChooseProject ? (
+                <ProjectChooser
+                  projects={loadedProjects}
+                  current={cwd}
+                  currentLabel={folder || undefined}
+                  icon={<FolderIcon />}
+                  onPick={chooseProject}
+                  onBrowse={browseProject}
+                />
+              ) : (
+                <span className="acpmux-newtab-chip">
+                  <KindIcon kind="agent" />
+                  {agent}
+                </span>
+              ))}
             {kind === "agent" && Chips && <Chips snapshot={snapshot} />}
           </span>
           {defaultKind && onSetDefaultKind && (
             <button
               type="button"
               className="acpmux-newtab-default"
-              title={NEW_TAB_LABELS.defaultKindHint}
+              title={t(NEW_TAB_LABELS.defaultKindHint)}
               onClick={() => {
                 const next = DEFAULT_KINDS[(DEFAULT_KINDS.indexOf(defaultKind) + 1) % DEFAULT_KINDS.length]!;
                 setDefaultKind(next);
                 onSetDefaultKind(next);
               }}
             >
-              {NEW_TAB_LABELS.defaultKind(NEW_TAB_LABELS.defaultKinds[defaultKind])}
+              {t(NEW_TAB_LABELS.defaultKind, { kind: t(NEW_TAB_LABELS.defaultKinds[defaultKind]) })}
             </button>
           )}
           <button
             type="submit"
             className={`acpmux-send${query.trim() || kind !== "browser" ? " acpmux-send-ready" : ""}`}
-            aria-label={NEW_TAB_LABELS.open}
-            title={`${NEW_TAB_LABELS.open} ↵`}
+            aria-label={t(NEW_TAB_LABELS.open)}
+            title={`${t(NEW_TAB_LABELS.open)} ↵`}
           >
             <ArrowUpIcon />
           </button>
@@ -441,7 +510,7 @@ export function NewTabPage({
           id="acpmux-omni"
           // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
           role="listbox"
-          aria-label={NEW_TAB_LABELS.suggestions}
+          aria-label={t(NEW_TAB_LABELS.suggestions)}
         >
           {/* Virtual focus, as the composer's slash menu: the field keeps focus and names the row. */}
           {rows.map((row, index) => (
@@ -462,13 +531,13 @@ export function NewTabPage({
               <RowIcon row={row} agent={snapshot.summary?.harness ?? snapshot.catalog[0]?.id} />
               <span className="acpmux-omni-text">
                 <span className="acpmux-omni-title">
-                  {row.type === "ask" && <b>{NEW_TAB_LABELS.ask(agent)}: </b>}
+                  {row.type === "ask" && <b>{t(NEW_TAB_LABELS.ask, { agent })}: </b>}
                   {rowTitle(row)}
                 </span>
                 {rowDetail(row) && <span className="acpmux-omni-detail">{rowDetail(row)}</span>}
               </span>
               <span className="acpmux-omni-action">
-                {row.type === "ask" ? NEW_TAB_LABELS.ask(agent) : NEW_TAB_LABELS.rows[row.type]}
+                {row.type === "ask" ? t(NEW_TAB_LABELS.ask, { agent }) : t(NEW_TAB_LABELS.rows[row.type])}
                 {index === selected && <kbd>↵</kbd>}
               </span>
             </div>
@@ -477,12 +546,12 @@ export function NewTabPage({
       )}
       <div className="acpmux-newtab-actions">
         <button type="button" className="acpmux-newtab-all" onClick={onShowAll}>
-          {NEW_TAB_LABELS.allSessions}
+          {t(NEW_TAB_LABELS.allSessions)}
           <ChevronRight />
         </button>
         {onImport && (
           <button type="button" className="acpmux-newtab-all" onClick={onImport}>
-            {NEW_TAB_LABELS.importAndSync}
+            {t("newtab.importAndSync")}
           </button>
         )}
       </div>
@@ -495,9 +564,11 @@ function rowKey(row: OmnibarRow): string {
     case "tab":
     case "workspace":
     case "session":
+    case "action":
       return `${row.type}:${row.id}`;
     case "folder":
-      return `folder:${row.path}`;
+    case "file":
+      return `${row.type}:${row.path}`;
     case "command":
       return `command:${row.command}`;
     case "history":
@@ -512,9 +583,12 @@ function rowTitle(row: OmnibarRow): string {
     case "tab":
     case "workspace":
     case "session":
+    case "action":
       return row.title;
     case "folder":
       return projectLabel(row.path);
+    case "file":
+      return row.title || projectLabel(row.path);
     case "command":
       return row.command;
     case "history":
@@ -529,9 +603,12 @@ function rowDetail(row: OmnibarRow): string | undefined {
     case "tab":
     case "workspace":
     case "session":
+    case "action":
       return row.detail;
     case "folder":
       return homePath(row.path);
+    case "file":
+      return row.detail || homePath(row.path);
     case "history":
       return row.title ? row.url.replace(/^https?:\/\//, "") : undefined;
     default:
@@ -548,7 +625,10 @@ function RowIcon({ row, agent }: { row: OmnibarRow; agent?: string }) {
     case "session":
       return <AgentMark harness={row.harness} />;
     case "folder":
+    case "file":
       return <FolderIcon />;
+    case "action":
+      return <WorkspaceIcon />;
     case "command":
     case "run":
       return <KindIcon kind="terminal" />;
@@ -561,23 +641,10 @@ function RowIcon({ row, agent }: { row: OmnibarRow; agent?: string }) {
   }
 }
 
-/// A small mark per agent family, so a session's row says which agent it is at a glance.
+/// The agent's brand mark (design/agent-icons), so a session's row says which agent it
+/// is at a glance; an agent without a mark draws the generic agent glyph.
 export function AgentMark({ harness }: { harness?: string }) {
-  const id = harness?.toLowerCase() ?? "";
-  if (id.startsWith("claude"))
-    return (
-      <Icon>
-        <path d="M8 2v12M2.8 5l10.4 6M2.8 11l10.4-6" />
-      </Icon>
-    );
-  if (id.startsWith("codex"))
-    return (
-      <Icon>
-        <path d="M8 1.9 13.3 5v6L8 14.1 2.7 11V5Z" />
-        <path d="m6 6.6 1.6 1.4L6 9.4M8.6 9.6h1.6" />
-      </Icon>
-    );
-  return <KindIcon kind="agent" />;
+  return agentBrand(harness) ? <BrandMark agent={harness} size={16} /> : <KindIcon kind="agent" />;
 }
 
 // 16px stroke icons in currentColor, matching ComposerPickers.

@@ -8,6 +8,10 @@ Debug builds only: `RemoteDesktopPane`, its view and the mock host compile out o
 
 A `remote_view` tab is the store browser record `cmux://remote-view?host=<host>&target=display:<n>|window:<id>|virtual&mode=view|control` (`RemoteViewTabRecord`). `RemoteViewTabPolicy` decides what it shows (plans/cmux-next/remote-desktop.md 7): records from a remote tree never open; Release and NIGHTLY show "not available" (`RemoteViewUnavailableView`); development builds connect only to loopback hosts, and only after a person opened or confirmed the tab (CLI, MCP, agents and restore get a Connect button). Until the in-app transport lands, the host `mock` is the only one that streams.
 
+## Rust viewer core (`Core/`)
+
+`RemoteRdCore` wraps the shared Rust core (crate `cmux-tui/crates/cmux-rd-ffi`, the same reassembly, FEC and feedback code as the host's bench viewer) through the client xcframework `CCmuxRdFFI`: `cmux.rd/1` datagrams or stream-carrier bytes in; access units, transport messages and feedback datagrams out; `nextDeadlineMicros` names the one timer the owner arms. Every build links it: it ships inside `CCmuxAppFFI`, the app's one Rust static library (`cmux-tui/crates/cmux-app-ffi`, built by `scripts/cmux-next/build-app-ffi.sh` and pinned in `Package.swift`).
+
 ## Settings the viewer reads
 
 `RemoteDesktopSettingsTests` checks this table against `RemoteDesktopSettings()`.

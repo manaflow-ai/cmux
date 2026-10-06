@@ -4,8 +4,9 @@ import Foundation
 /// One HTTP exchange; the iOS app supplies a redirect-refusing session.
 public protocol InstallAuthTransport: Sendable {
     /// POSTs JSON to `path` (relative to the API Worker) with an optional
-    /// bearer. Returns the status and body.
-    func post(_ path: String, json: Data, bearer: String?) async throws -> (status: Int, body: Data)
+    /// bearer and extra request `headers` (for example the client version).
+    /// Returns the status and body.
+    func post(_ path: String, json: Data, bearer: String?, headers: [String: String]) async throws -> (status: Int, body: Data)
 }
 
 /// What the install keeps between launches (never the token).
@@ -38,6 +39,10 @@ public actor InstallAuthClient {
     /// owner's to verify); trust comes from TLS and the per-host install key.
     public private(set) var environment: String?
     private let deviceName: String
+    /// This app's version (`CFBundleShortVersionString`), sent as
+    /// `x-cmux-client-version`; the owner refuses an older one when the team
+    /// sets `updates.minimumVersion` (enterprise P17).
+    private let clientVersion: String?
     private let onRecord: @Sendable (InstallRecord?) async -> Void
     private let now: @Sendable () -> Date
     private var record: InstallRecord?
@@ -48,11 +53,13 @@ public actor InstallAuthClient {
     public static let refreshMargin: TimeInterval = 60
     /// Never trust a token longer than this (device clock skew).
     public static let maximumLifetime: TimeInterval = 540
+    /// The header the owner's version gate reads (token mint and wire connects).
+    public static let clientVersionHeader = "x-cmux-client-version"
 
     /// - Parameters:
     ///   - onRecord: persists the record (Keychain) the moment it changes.
     public init(transport: any InstallAuthTransport, signer: any InstallSigner, sessionToken: SessionToken?,
-                stackUser: String, deviceName: String, record: InstallRecord?,
+                stackUser: String, deviceName: String, clientVersion: String?, record: InstallRecord?,
                 onRecord: @escaping @Sendable (InstallRecord?) async -> Void = { _ in },
                 now: @escaping @Sendable () -> Date = Date.init) {
         self.transport = transport
@@ -60,6 +67,7 @@ public actor InstallAuthClient {
         self.sessionToken = sessionToken
         self.stackUser = stackUser
         self.deviceName = deviceName
+        self.clientVersion = clientVersion
         self.record = record
         self.onRecord = onRecord
         self.now = now
@@ -78,8 +86,10 @@ public actor InstallAuthClient {
         return try await task.value
     }
 
-    /// The op classes the phone's install asks for (a narrowing of the default grant).
-    public static let grantClasses = ["read", "mutate-own", "mutate-shared"]
+    /// The op classes the phone's install asks for: the backend's ios default grant
+    /// (`defaultInstallClasses`), which a register may narrow but never widen.
+    /// `cloud-link` lets the phone mint Cloud link tokens; it has no `execute`.
+    public static let grantClasses = ["read", "mutate-own", "cloud-link"]
 
     /// L14-2: sign-out revokes this install (needs the Stack session; the
     /// owner also drops the install's push targets). The key is rotated and
@@ -221,17 +231,30 @@ public actor InstallAuthClient {
         return value
     }
 
+    /// The headers every request carries.
+    public static func headers(clientVersion: String?) -> [String: String] {
+        guard let clientVersion, !clientVersion.isEmpty else { return [:] }
+        return [clientVersionHeader: clientVersion]
+    }
+
     private func postJSON(_ path: String, _ object: [String: Any], bearer: String?) async throws -> [String: Any] {
         let body = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
         let (status, data): (Int, Data)
-        do { (status, data) = try await transport.post(path, json: body, bearer: bearer) } catch {
+        do {
+            (status, data) = try await transport.post(path, json: body, bearer: bearer,
+                                                      headers: Self.headers(clientVersion: clientVersion))
+        } catch {
             throw InstallAuthError.transport
         }
         guard let reply = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw status == 200 ? InstallAuthError.malformedReply : InstallAuthError.refused("http_\(status)")
         }
         guard (200..<300).contains(status) else {
-            throw InstallAuthError.refused(reply["code"] as? String ?? "http_\(status)")
+            let code = reply["code"] as? String
+            if code == "client.too_old" {
+                throw InstallAuthError.clientTooOld(minimumVersion: reply["minimum_version"] as? String)
+            }
+            throw InstallAuthError.refused(code ?? "http_\(status)")
         }
         return reply
     }

@@ -92,3 +92,34 @@ client decision, not an op.
 The chief conversation is a normal local conversation (`agent_mux`, agent
 class `.chief`), shown by the same view. One `HomeStore` per daemon session,
 owned by the app; the view never creates one. Offline Send is off (H17).
+
+## 6. Open follow-ups from the lane 16 re-check (2026-10-05)
+
+Accepted for merge; not fixed on feat-cmux-next-home-cloud-source.
+
+- P3-2, a delivery can reach nobody. `HomeStore.liveHooks(for:)`
+  (Packages/Shared/CmuxHomeCore/Sources/CmuxHomeCore/Store/HomeStore.swift:1257)
+  holds the hooks strongly for the whole delivery. When the last binding of
+  the conversation loses its last reference on a background thread during
+  that delivery, its hooks stay in the snapshot, but their `[weak self]`
+  closures
+  (Packages/Shared/CmuxHomeRender/Sources/CmuxHomeRender/Public/HomeStoreBinding.swift:68-75)
+  find no binding. `reportRefusal` and `reportUnanswered` (HomeStore.swift:1265,
+  1273) saw a non-empty list, so the store's own `onRefusal`/`onUnanswered`
+  are not called either. Fix direction: hooks report whether they delivered,
+  and the store falls back when no hook did.
+- P3-3, edit-echo deadline race. `editDeadlinePassed`
+  (Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/CloudHomeSource+EditEcho.swift:61-67)
+  checks only the generation and `inFlight == 0`. A deadline callback that
+  was already dispatched when `beginEdit` (:11) cancelled it can run after
+  a later edit finished (:28) and end that edit's subscription before its
+  echo or its own `editEchoDeadline`. Fix direction: a per-schedule token in
+  `EditHold` that the callback must match.
+- P3-4, a repeated close drops an in-flight inbox edit's hold. `close`
+  (CloudHomeSource+HomeSource.swift:141-156) removes `editHolds[conversation]` (:146) and
+  the target whether or not an edit is in flight. A second close of a
+  conversation that is not on screen (an inbox edit in flight through
+  `requireEditable`) unsubscribes mid-edit; `finishEdit` (CloudHomeSource+EditEcho.swift:30) then finds
+  no hold and returns, so the echo is never awaited. Fix direction: close
+  ends only a hold with `inFlight == 0`, and an in-flight hold keeps the
+  target until its edits finish.

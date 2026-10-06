@@ -1,9 +1,10 @@
 // Why dictation did not run, with a way to fix it.
 import React from "react";
 import type { Dictation } from "./dictation";
-import { t } from "./i18n";
+import { useT } from "./i18n";
 
 export function DictationNotice({ dictation }: { dictation: Dictation }) {
+  const t = useT();
   const notice = dictation.notice;
   if (!notice?.message) return null;
   return (

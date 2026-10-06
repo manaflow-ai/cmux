@@ -54,16 +54,32 @@ final class HomeTranscriptScrollView: UIScrollView {
     }
 
     /// The core's range or offset changed: content size, inset and offset follow.
+    /// The host resized the scroll view. UIKit may move the offset to keep it
+    /// in range while the frame changes; that is not a user scroll, so it
+    /// does not reach the core (which resizes itself next and keeps the
+    /// transcript pinned or anchored).
+    func setFrameFromHost(_ frame: CGRect) {
+        guard self.frame != frame else { return }
+        applyingModel = true
+        defer { applyingModel = false }
+        self.frame = frame
+    }
+
+    /// Never animated, even inside a UIKit animation (the keyboard's): the
+    /// core already moved the rows, and an animated offset (the scroll
+    /// view's bounds) would move them a second time.
     func apply(_ g: HomeController.ScrollGeometry) {
         applyingModel = true
         defer { applyingModel = false }
-        let size = CGSize(width: bounds.width, height: max(0, g.pinnedOffset + bounds.height))
-        if contentSize != size { contentSize = size }
-        if contentInset.top != -g.minOffset { contentInset.top = -g.minOffset }
-        // Also during a drag or deceleration: a rebase moves every row, and
-        // UIKit continues the gesture from the moved offset.
-        if contentOffset.y != g.offset {
-            contentOffset = CGPoint(x: 0, y: g.offset)
+        UIView.performWithoutAnimation {
+            let size = CGSize(width: bounds.width, height: max(0, g.pinnedOffset + bounds.height))
+            if contentSize != size { contentSize = size }
+            if contentInset.top != -g.minOffset { contentInset.top = -g.minOffset }
+            // Also during a drag or deceleration: a rebase moves every row, and
+            // UIKit continues the gesture from the moved offset.
+            if contentOffset.y != g.offset {
+                contentOffset = CGPoint(x: 0, y: g.offset)
+            }
         }
     }
 
