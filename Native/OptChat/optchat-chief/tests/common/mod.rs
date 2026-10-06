@@ -311,6 +311,8 @@ pub fn acpx_catalog() -> Value {
         "claude-sr": {"argv": [acp], "env": {"ANTHROPIC_BASE_URL": "http://cmux-lawrences-mac-mini.tail137216.ts.net:31415"}, "description": "Claude through the subrouter server http://cmux-lawrences-mac-mini.tail137216.ts.net:31415", "family": "claude"},
         "codex": {"argv": ["/Users/lawrence/.local/share/cmux-acp/current/bin/codex-acp"], "description": "imported from ~/.acpx", "family": "codex"},
     }, "defaultHarness": "claude"})
+    /// Every permission answer: (session, permission id, option id).
+    pub responses: Vec<(String, String, Option<String>)>,
 }
 
 pub struct FakeAgents {
@@ -527,6 +529,20 @@ impl AgentPort for FakeAgents {
         Ok(())
     }
 
+    fn respond_permission(
+        &self,
+        session: &str,
+        permission: &str,
+        option: Option<&str>,
+    ) -> Result<(), String> {
+        self.inner.lock().unwrap().responses.push((
+            session.to_owned(),
+            permission.to_owned(),
+            option.map(str::to_owned),
+        ));
+        Ok(())
+    }
+
     /// Ends the held turn with stop reason `cancelled`, as acpmux answers a
     /// prompt that `session/cancel` interrupted.
     fn cancel(&self, session: &str) -> Result<(), String> {
@@ -563,6 +579,7 @@ pub fn settings(dir: &Path) -> Settings {
         harness: "claude-sr".into(),
         policy: "approve-all".into(),
         model: None,
+        effort: Some("medium".into()),
         parent: PARENT.into(),
         turn_prefix: TURN_PREFIX.into(),
         agent_gap: Duration::from_millis(30),
@@ -572,9 +589,10 @@ pub fn settings(dir: &Path) -> Settings {
         chief_id: "h0me".into(),
         system_text: optchat_chief::prompt::claude_md(None),
         engine_file: None,
-        effort: None,
         families: Default::default(),
         codex_preset: None,
+        settings_file: dir.join("settings.json"),
+        trace_dir: Some(dir.join("traces")),
     }
 }
 

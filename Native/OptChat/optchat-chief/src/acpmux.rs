@@ -185,6 +185,17 @@ pub trait AgentPort: Send + Sync {
     fn harness_catalog(&self) -> Result<Value, String> {
         Err("this acpmux port reports no harness catalog".into())
     }
+
+    /// Answers a pending permission request of `session`
+    /// (`_acpmux/permission_respond`) with `option` (None: cancelled).
+    fn respond_permission(
+        &self,
+        _session: &str,
+        _permission: &str,
+        _option: Option<&str>,
+    ) -> Result<(), String> {
+        Err("answering permissions is not supported".into())
+    }
     /// Whether the connected daemon installed `preset` with its `args`.
     fn preset_args(&self, _preset: &str) -> bool {
         false
@@ -670,6 +681,22 @@ impl AgentPort for Acpmux {
         self.client()?
             .request("_acpmux/harnesses", json!({}))
             .map_err(|e| format!("harnesses: {e}"))
+    }
+
+    fn respond_permission(
+        &self,
+        session: &str,
+        permission: &str,
+        option: Option<&str>,
+    ) -> Result<(), String> {
+        let mut params = json!({"sessionId": session, "permissionId": permission});
+        if let Some(option) = option {
+            params["optionId"] = json!(option);
+        }
+        self.client()?
+            .request("_acpmux/permission_respond", params)
+            .map(|_| ())
+            .map_err(|e| format!("permission_respond: {e}"))
     }
 
     fn preset_args(&self, preset: &str) -> bool {

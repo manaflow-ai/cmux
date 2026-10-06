@@ -7,7 +7,9 @@
 //! is one chat with one user (section 1), so this Chief reads only its own
 //! conversation; mentions in other conversations are not answered.
 
-use cmux_chief::rules::{AGENT_MUX, PAGE, message_text, wakes};
+use cmux_chief::rules::{AGENT_MUX, PAGE, message_text};
+
+use crate::wake::chief_wakes;
 use cmux_conversation::{Change, Message, Op};
 
 use super::{Brain, Source};
@@ -165,10 +167,34 @@ impl Brain {
             return;
         };
         let text = message_text(&message);
-        if !text.trim().is_empty() && wakes(summary, &message, |id| self.mux_messages.contains(id))
+        if !text.trim().is_empty()
+            && chief_wakes(summary, &message, |id| self.mux_messages.contains(id))
         {
-            self.queue(text, Source::Message { seq: message.seq });
-            return;
+            // An answer to a pending approval of the running turn: it
+            // answers, is logged, and is not a new message (it neither
+            // queues nor interrupts the turn).
+            match crate::approval::Answer::parse(&text) {
+                Some(answer) if !self.approvals.is_empty() => {
+                    self.answer_approval(answer, &message);
+                    if let Err(e) = self.chat.append(optchat_core::Kind::User, &text) {
+                        (self.log)(&format!("logging an approval failed: {e}"));
+                    }
+                }
+                _ => {
+                    let remote = message
+                        .origin
+                        .as_ref()
+                        .map(|cmux_conversation::Origin::Remote { install }| install.clone());
+                    self.queue(
+                        text,
+                        Source::Message {
+                            seq: message.seq,
+                            remote,
+                        },
+                    );
+                    return;
+                }
+            }
         }
         if !self
             .queue

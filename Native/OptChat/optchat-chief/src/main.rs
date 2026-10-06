@@ -17,7 +17,12 @@ optchat-chief stats [--since 24h] [--json] [--mux-home DIR]      per turn, node 
 optchat-chief agents spawn --name N --cwd DIR [--harness H] [--policy P] \"task\"
 optchat-chief agents list | prompt NAME \"text\" | allow NAME [OPTION_ID] | deny NAME
 optchat-chief browse [--mux-home DIR] [--out FILE]          the whole memory as one HTML page
-optchat-chief import [--mux-home DIR] FILE                  append JSON lines {\"text\", \"kind\"?} (host stopped)
+optchat-chief import [--mux-home DIR] FILE                  append JSON lines {\"text\", \"kind\"?, \"date\"?} (host stopped)
+optchat-chief settings [show | set remote.autoApprove true|false] [--mux-home DIR]
+                                                           per-Chief settings (on only from the Mac, outside a remote-origin turn)
+optchat-chief import-claude-code dry-run|write [--projects DIR] [--mux-home DIR] [--append-after-live]
+                                                           Claude Code transcripts (default ~/.claude/projects) as messages;
+                                                           dry-run prints counts only, write appends them (host stopped)
 Env: CMUX_DAEMON_SOCKET, MUX_HOME (~/.cmux/mux), MUX_AGENT_TOKEN_FILE,
      OPTCHAT_CHIEF_HARNESS / MUX_HARNESS (claude-sr), OPTCHAT_COMPACTOR_HARNESS (the Chief's),
      MUX_POLICY (approve-all), OPTCHAT_CHIEF_MODEL, ACPMUX_SOCKET / ACPMUX_HOME / ACPMUX_BIN,
@@ -27,7 +32,11 @@ fn main() -> std::process::ExitCode {
     let started_ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_millis() as u64);
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    let mut args: Vec<String> = std::env::args().skip(1).collect();
+    // A boolean flag: taken out before parsing, which would read the next
+    // argument as its value.
+    let append_after_live = args.iter().any(|a| a == "--append-after-live");
+    args.retain(|a| a != "--append-after-live");
     let flags = Flags::parse(&args);
     let code = match flags.words.first().map(String::as_str) {
         Some("host") => optchat_chief::host::run(&flags, started_ms),
@@ -125,6 +134,48 @@ fn main() -> std::process::ExitCode {
                 1
             }
         },
+        Some("settings") => {
+            let paths = Paths::new(&home(&flags));
+            let set = match (
+                flags.words.get(1).map(String::as_str),
+                flags.words.get(2),
+                flags.words.get(3),
+            ) {
+                (None | Some("show"), None, None) => Ok(None),
+                (Some("set"), Some(key), Some(value)) => Ok(Some((key.as_str(), value.as_str()))),
+                _ => Err(USAGE.to_owned()),
+            };
+            let result = set.and_then(|set| {
+                match optchat_chief::tools::ask_settings(&paths.tools_socket, set) {
+                    // No host: no turn runs, so the Mac's own CLI edits the file.
+                    Err(e) if e.contains("not running") => {
+                        let file = paths.root.join("settings.json");
+                        let mut s = optchat_chief::chief_settings::ChiefSettings::load(&file);
+                        if let Some((key, value)) = set {
+                            if key != optchat_chief::chief_settings::REMOTE_AUTO_APPROVE {
+                                return Err(format!("unknown setting {key:?}"));
+                            }
+                            s.remote_auto_approve =
+                                optchat_chief::chief_settings::parse_bool(value)?;
+                            s.save(&file)
+                                .map_err(|e| format!("{}: {e}", file.display()))?;
+                        }
+                        Ok(format!("{:#}", s.to_json()))
+                    }
+                    other => other,
+                }
+            });
+            match result {
+                Ok(text) => {
+                    println!("{text}");
+                    0
+                }
+                Err(e) => {
+                    eprintln!("optchat-chief settings: {e}");
+                    1
+                }
+            }
+        }
         Some("browse") => {
             let paths = Paths::new(&home(&flags));
             let page = optchat_chief::tools::ask_browse(&paths.tools_socket).or_else(|_| {
@@ -164,6 +215,64 @@ fn main() -> std::process::ExitCode {
                 }
                 Err(e) => {
                     eprintln!("optchat-chief import: {e}");
+                    1
+                }
+            }
+        }
+        Some("import-claude-code") => {
+            let paths = Paths::new(&home(&flags));
+            let projects = flags
+                .values
+                .get("projects")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| {
+                    let user_home = std::env::var_os("HOME")
+                        .map(PathBuf::from)
+                        .unwrap_or_default();
+                    optchat_chief::claude_import::default_projects_dir(
+                        &user_home,
+                        std::env::var("CLAUDE_CONFIG_DIR").ok(),
+                    )
+                });
+            let mode = flags.words.get(1).map(String::as_str);
+            let converted = match mode {
+                Some("dry-run" | "write") => {
+                    optchat_chief::claude_import::convert_projects(&projects)
+                        .map_err(|e| format!("{}: {e}", projects.display()))
+                }
+                _ => Err(USAGE.to_owned()),
+            };
+            match converted.and_then(|(items, stats)| {
+                println!("{}: {stats}", projects.display());
+                if mode == Some("write") {
+                    optchat_chief::claude_import::import_history(
+                        &paths.chat,
+                        &items,
+                        append_after_live,
+                    )
+                    .map(Some)
+                } else {
+                    match optchat_chief::claude_import::existing_messages(&paths.chat) {
+                        Ok(n) => {
+                            if let Some(warning) = optchat_chief::claude_import::order_warning(n) {
+                                println!("warning: {warning}");
+                            }
+                        }
+                        Err(e) => println!("warning: cannot count the memory's messages: {e}"),
+                    }
+                    Ok(None)
+                }
+            }) {
+                Ok(Some(n)) => {
+                    println!("imported {n} messages");
+                    0
+                }
+                Ok(None) => {
+                    println!("dry run: nothing written");
+                    0
+                }
+                Err(e) => {
+                    eprintln!("optchat-chief import-claude-code: {e}");
                     1
                 }
             }

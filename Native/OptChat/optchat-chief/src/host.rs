@@ -39,11 +39,9 @@ const PASSTHROUGH: [&str; 5] = [
 /// harness does not silence the Chief for a day.
 const DEFAULT_TURN_LIMIT_MIN: u64 = 180;
 
-/// The native engine's model and effort (`OPTCHAT_CHIEF_MODEL`,
-/// `OPTCHAT_CHIEF_EFFORT`): the Chief is long-horizon agentic work, which
-/// repays more effort than Claude Opus 5.5's default (medium).
+/// The native engine's model (`OPTCHAT_CHIEF_MODEL`); its effort is
+/// `effort::native_effort` (medium, as Taelin runs it).
 const NATIVE_MODEL: &str = "claude-opus-5-5";
-const NATIVE_EFFORT: &str = "high";
 /// Longest one bash command of the native engine may run.
 const BASH_TIMEOUT: Duration = Duration::from_secs(600);
 
@@ -481,9 +479,10 @@ fn start(
             let slots = Slots::new(optchat_core::JOBS);
             let compactor_log: crate::compactor::Log = Arc::new(|line: &str| log(line));
             let build = |model: Option<&str>| {
+                let spec = compactor_spec(paths, home, &compactor_harness, compactor_family, model);
                 let spec = crate::compactor::CompactorSpec {
-                    effort: compactor_effort.clone(),
-                    ..compactor_spec(paths, home, &compactor_harness, compactor_family, model)
+                    effort: compactor_effort.clone().or(spec.effort.clone()),
+                    ..spec
                 };
                 Arc::new(
                     AcpmuxCompactor::new(port.clone(), spec, slots.clone())
@@ -491,11 +490,15 @@ fn start(
                         .with_trace(trace.clone()),
                 ) as Arc<dyn CompactModel>
             };
+            let effort = compactor_effort
+                .clone()
+                .or_else(|| crate::compactor::compactor_effort(compactor_family));
             let text = format!(
-                "{} in deny-all {compactor_harness} sessions through acpmux",
+                "{} at effort {} in deny-all {compactor_harness} sessions through acpmux",
                 compactor_model
                     .as_deref()
-                    .unwrap_or("the harness's default model")
+                    .unwrap_or("the harness's default model"),
+                effort.as_deref().unwrap_or("default")
             );
             let fallback = config
                 .fallback_model
@@ -530,6 +533,39 @@ fn start(
         )
         .map_err(|e| format!("opening the memory: {e}"))?,
     );
+    // `optchat-chief settings` reaches the brain, which owns the settings.
+    let settings_tx = Mutex::new(tx.clone());
+    let control: crate::tools::Control = Arc::new(move |request: crate::tools::ControlRequest| {
+        use crate::tools::ControlRequest;
+        let tx = settings_tx.lock().expect("settings tx").clone();
+        let stopping = |_| "the host is stopping".to_owned();
+        let wait = Duration::from_secs(30);
+        let late = |_| "the host did not answer".to_owned();
+        match request {
+            ControlRequest::Set(key, value) => {
+                let (reply, answer) = channel();
+                tx.send(Input::Setting { key, value, reply })
+                    .map_err(stopping)?;
+                answer.recv_timeout(wait).map_err(late)?
+            }
+            ControlRequest::Show => {
+                let (reply, answer) = channel();
+                tx.send(Input::Settings { reply }).map_err(stopping)?;
+                answer
+                    .recv_timeout(wait)
+                    .map(|v| format!("{v:#}"))
+                    .map_err(late)
+            }
+            ControlRequest::SpawnPolicy => {
+                let (reply, answer) = channel();
+                tx.send(Input::SpawnPolicy { reply }).map_err(stopping)?;
+                answer
+                    .recv_timeout(wait)
+                    .map(Option::unwrap_or_default)
+                    .map_err(late)
+            }
+        }
+    });
     // Section 9: spawn and tell, served beside zoom and date (acpmux only).
     let workspaces: Option<Arc<dyn crate::workspaces::Workspaces>> =
         if env("OPTCHAT_SUBAGENT_WORKSPACES").as_deref() == Some("0") {
@@ -582,6 +618,7 @@ fn start(
         crate::tools::Served {
             memory: chat.clone(),
             orchestrator,
+            control: Some(control),
         },
     )
     .map_err(|e| format!("serving the memory tools: {e}"))?;
@@ -606,7 +643,7 @@ fn start(
         Some("native") => {
             let native_config = NativeConfig {
                 model: env("OPTCHAT_CHIEF_MODEL").unwrap_or_else(|| NATIVE_MODEL.into()),
-                effort: Some(env("OPTCHAT_CHIEF_EFFORT").unwrap_or_else(|| NATIVE_EFFORT.into())),
+                effort: Some(crate::effort::native_effort(env("OPTCHAT_CHIEF_EFFORT"))),
                 max_tokens: 64_000,
                 server_fallback: env("OPTCHAT_CHIEF_SERVER_FALLBACK").as_deref() == Some("1"),
                 system: crate::prompt::claude_md(instructions.as_deref()),
@@ -655,6 +692,7 @@ fn start(
         harness,
         policy: env("MUX_POLICY").unwrap_or_else(|| "approve-all".into()),
         model: env("OPTCHAT_CHIEF_MODEL"),
+        effort: crate::effort::turn_effort(env("OPTCHAT_CHIEF_EFFORT"), family),
         parent: parent_tag(home),
         turn_prefix: format!("optchat-{}", crate::paths::home_id(home)),
         agent_gap: Duration::from_millis(cmux_chief::rules::AGENT_GAP_RETRY_MS),
@@ -664,9 +702,10 @@ fn start(
         chief_id: crate::paths::home_id(home),
         system_text: claude_text,
         engine_file: Some(crate::engine::path(home)),
-        effort: env("OPTCHAT_CHIEF_EFFORT"),
         families,
         codex_preset,
+        settings_file: paths.root.join("settings.json"),
+        trace_dir: Some(paths.root.join("traces")),
     };
     let brain_log: crate::brain::Log = Arc::new(|line: &str| log(line));
     // Section 10: persist after each turn.

@@ -172,3 +172,26 @@ fn tool_results_are_capped_when_logged() {
     let id = chat.append(Kind::User, &big).unwrap();
     assert_eq!(chat.message(id).unwrap().1, big);
 }
+
+/// Section 10 imports old history; section 2 stores each message's ISO
+/// `date`. An imported message keeps the date it was first written, so
+/// `date(id)` answers "7 months ago" instead of the import's own time. A
+/// date that is not RFC 3339 is refused and nothing is logged.
+#[test]
+fn an_imported_message_keeps_its_own_date() {
+    let dir = tempfile::tempdir().unwrap();
+    let chat = open(dir.path(), 128_000, instant(200));
+    let date = "2026-03-01T09:30:00.000-08:00";
+    assert_eq!(chat.append_dated(Kind::Note, "old note", date).unwrap(), 0);
+    assert_eq!(chat.stamp(0).as_deref(), Some(date));
+    assert!(
+        chat.date(0).unwrap().starts_with("2026-03-0"),
+        "{:?}",
+        chat.date(0)
+    );
+    assert!(chat.append_dated(Kind::Note, "bad", "March 1st").is_err());
+    assert_eq!(chat.status().messages, 1);
+    let text = fs::read_to_string(day_file(dir.path(), "main")).unwrap();
+    let line: serde_json::Value = serde_json::from_str(text.lines().next().unwrap()).unwrap();
+    assert_eq!(line["date"], date);
+}

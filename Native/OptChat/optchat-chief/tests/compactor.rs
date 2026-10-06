@@ -127,7 +127,10 @@ fn a_node_is_built_in_one_deny_all_session_that_is_then_purged() {
         Some("optchat-compact-test-preset-slot-0"),
         "the compactor names its slot's own preset, which acpmux must have"
     );
-    assert_eq!(s.effort, None, "no effort until it is verified live");
+    assert_eq!(
+        s.effort, None,
+        "the spec's effort (here none) reaches the session"
+    );
     assert!(s.name.starts_with("optchat-compact-test-"));
     // System text, then the context pieces, then the step (section 8's order).
     let blocks = texts(&inner.prompts[0]);
@@ -652,7 +655,7 @@ fn the_compactor_has_its_own_isolated_configuration() {
         Family::Claude,
         Some("claude-sonnet-5-5"),
     );
-    assert_eq!(spec.effort, None);
+    assert_eq!(spec.effort.as_deref(), Some("medium"));
     assert_eq!(slot_preset(&spec.preset, 0), preset.name);
     assert!(spec.transcript_dirs.contains(&paths.compactor_config));
     assert!(
@@ -1269,4 +1272,23 @@ fn the_probe_fails_when_a_codex_session_offers_skills() {
         .unwrap_err();
     assert!(error.message.contains("$cmux-browser"), "{error:?}");
     assert!(error.message.contains("$imagegen"), "{error:?}");
+}
+
+/// Section 4.2: the reference compactor runs Claude Sonnet at medium effort
+/// ("at low effort it overshot the size limit much more"). acpmux maps
+/// `effort` onto Claude Code's `--effort` and codex's `reasoning_effort`;
+/// a harness of another family keeps its own default.
+#[test]
+fn the_compactor_runs_at_medium_effort_like_the_spec() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    let paths = Paths::new(&home);
+    for (harness, family, effort) in [
+        ("claude-sr", Family::Claude, Some("medium")),
+        ("codex", Family::Codex, Some("medium")),
+        ("opencode", Family::Other, None),
+    ] {
+        let spec = compactor_spec(&paths, &home, harness, family, None);
+        assert_eq!(spec.effort.as_deref(), effort, "{harness}");
+    }
 }

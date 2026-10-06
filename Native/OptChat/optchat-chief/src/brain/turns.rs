@@ -130,7 +130,14 @@ impl Brain {
                             }
                             texts.recv().unwrap_or_default()
                         };
-                        native.run(&chat, &start, &*log, &mailbox, &|| interrupt.is_set())
+                        native.run_gated(
+                            &chat,
+                            &start,
+                            &*log,
+                            &mailbox,
+                            &|| interrupt.is_set(),
+                            &|| interrupt.gated(),
+                        )
                     }
                 };
                 let _ = tx.send(Input::TurnEnded {
@@ -198,6 +205,27 @@ impl Brain {
         self.stop_wanted = false;
         let items_sources: Vec<&'static str> =
             items.iter().map(|i| source_name(&i.source)).collect();
+        // The strictest origin of the turn: a paired device's message (or
+        // a remote turn this one supersedes) makes it ask for every local
+        // effect, unless the user turned on remote.autoApprove on the Mac.
+        self.turn_remote = std::mem::take(&mut self.remote_taint)
+            || items.iter().any(|i| {
+                matches!(
+                    i.source,
+                    Source::Message {
+                        remote: Some(_),
+                        ..
+                    }
+                )
+            });
+        self.turn_ask = self.turn_remote && !self.chief.remote_auto_approve;
+        self.clear_turn_approvals();
+        self.interrupt.set_gate(self.turn_ask);
+        let policy = if self.turn_ask {
+            "ask".to_owned()
+        } else {
+            self.settings.policy.clone()
+        };
         let texts: Vec<String> = items.into_iter().map(|i| i.text).collect();
         // The engine of this turn, read now (engine.rs): a change applies
         // from this turn on and is logged as a note after its messages.
@@ -259,7 +287,7 @@ impl Brain {
                 name: format!("{}-{first}", self.settings.turn_prefix),
                 cwd: self.settings.session_dir.clone(),
                 harness: engine.harness.clone(),
-                policy: self.settings.policy.clone(),
+                policy,
                 model: engine.model.clone(),
                 effort: engine.effort.clone(),
                 preset,
@@ -321,6 +349,19 @@ impl Brain {
             return Vec::new();
         }
         let items: Vec<Queued> = self.queue.drain(..).collect();
+        if items.iter().any(|i| {
+            matches!(
+                i.source,
+                Source::Message {
+                    remote: Some(_),
+                    ..
+                }
+            )
+        }) {
+            self.turn_remote = true;
+            self.turn_ask = !self.chief.remote_auto_approve;
+            self.interrupt.set_gate(self.turn_ask);
+        }
         let at = self.chat.status().messages;
         if let Some(turn) = self.state.turn.as_mut() {
             turn.mid.push(Batch {
@@ -352,6 +393,9 @@ impl Brain {
         if self.phase != Phase::Running {
             return;
         }
+        // A pending approval holds the tool call: a newer message denies it,
+        // so the turn can stop and the next one answers.
+        self.deny_pending("a newer message");
         if matches!(self.settings.engine, Engine::Acpmux) {
             self.stop_wanted = true;
         }
@@ -550,7 +594,13 @@ impl Brain {
         };
         if superseded {
             (self.log)(&format!("turn {key} stopped for a newer message"));
+            // The turn that answers both keeps this one's remote origin.
+            self.remote_taint |= self.turn_remote;
         }
+        self.turn_remote = false;
+        self.turn_ask = false;
+        self.clear_turn_approvals();
+        self.interrupt.set_gate(false);
         if let Some(orphan) = outcome.orphan {
             self.state.orphans.push(orphan);
         }
@@ -591,7 +641,7 @@ fn source_name(source: &Source) -> &'static str {
 /// A queued item's source as the pending turn saves it.
 fn item(queued: &Queued) -> Item {
     match &queued.source {
-        Source::Message { seq } => Item {
+        Source::Message { seq, .. } => Item {
             seq: Some(*seq),
             ..Item::default()
         },
