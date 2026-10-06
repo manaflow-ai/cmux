@@ -8,7 +8,15 @@ const dom = new JSDOM("<!doctype html><div id=root></div>", {
 });
 const globals = globalThis as Record<string, unknown>;
 const saved = Object.fromEntries(
-  ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"].map((key) => [key, globals[key]]),
+  [
+    "window",
+    "document",
+    "navigator",
+    "HTMLElement",
+    "requestAnimationFrame",
+    "cancelAnimationFrame",
+    "IS_REACT_ACT_ENVIRONMENT",
+  ].map((key) => [key, globals[key]]),
 );
 const { proseMirrorGlobals, promptField, typeInto } = await import("./promptFieldTesting");
 Object.assign(globals, {
@@ -18,9 +26,23 @@ Object.assign(globals, {
   HTMLElement: dom.window.HTMLElement,
   // The composer's prompt is a Milkdown (ProseMirror) editor.
   ...proseMirrorGlobals(dom.window as unknown as Window & typeof globalThis),
+  // The context popover is the shared Base UI Popover (src/ui), which animates on frames.
+  requestAnimationFrame: (callback: FrameRequestCallback) => setTimeout(() => callback(0), 0) as unknown as number,
+  cancelAnimationFrame: (handle: number) => clearTimeout(handle),
   IS_REACT_ACT_ENVIRONMENT: true,
 });
-afterAll(() => Object.assign(globals, saved));
+// Base UI reaches for DOM classes by name.
+const domClasses = Object.getOwnPropertyNames(dom.window).filter(
+  (key) =>
+    /^(HTML|SVG|Element|Event|KeyboardEvent|PointerEvent|MouseEvent|FocusEvent|Shadow|Document|Mutation|Resize|getComputedStyle|Node)/.test(
+      key,
+    ) && !(key in globals),
+);
+for (const key of domClasses) globals[key] = (dom.window as unknown as Record<string, unknown>)[key];
+afterAll(() => {
+  Object.assign(globals, saved);
+  for (const key of domClasses) delete globals[key];
+});
 
 const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
@@ -670,7 +692,7 @@ describe("acpmux composer pickers", () => {
     expect(pop()).toBeNull();
     await act(async () => ring.click());
     expect(ring.getAttribute("aria-expanded")).toBe("true");
-    expect(pop()!.getAttribute("role")).toBe("dialog");
+    expect(pop()!.closest("[role=dialog]")).not.toBeNull();
     expect(pop()!.querySelector(".acpmux-context-percent")!.textContent).toBe("17% used");
     expect(pop()!.querySelector(".acpmux-context-tokens")!.textContent).toBe("34K of 200K tokens");
     // A second click closes it; so does Escape.
@@ -684,11 +706,12 @@ describe("acpmux composer pickers", () => {
     await act(async () => pop()!.querySelector<HTMLButtonElement>(".acpmux-context-compact")!.click());
     expect(compacted).toBe(1);
     expect(pop()).toBeNull();
-    // Without the agent's compact command there is no Compact; before any usage the details say so.
+    // Without the agent's compact command there is no Compact; before any usage there are no token counts.
     await render(snapshot({}), { onCompact });
     await act(async () => doc.querySelector<HTMLButtonElement>("button.acpmux-context-ring")!.click());
     expect(pop()!.querySelector(".acpmux-context-compact")).toBeNull();
-    expect(pop()!.textContent).toContain("Usage shows after the agent's first reply.");
+    expect(pop()!.querySelector(".acpmux-context-percent")!.textContent).toBe("0% used");
+    expect(pop()!.querySelector(".acpmux-context-tokens")).toBeNull();
   });
 });
 

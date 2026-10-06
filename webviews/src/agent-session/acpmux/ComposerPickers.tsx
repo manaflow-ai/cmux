@@ -11,6 +11,7 @@ import type { AcpmuxSnapshot } from "./model";
 import { EffortPicker } from "./EffortPicker";
 import { type StringKey, useT } from "./i18n";
 import { ModelPicker } from "./ModelPicker";
+import { Popover } from "../../ui/Popover";
 import { registerPicker } from "./pickerOpeners";
 
 /// Picker copy. English defaults until the host passes localized labels, as the rest of the pane does today.
@@ -314,7 +315,6 @@ export function isPlan(modeId: string): boolean {
 
 /// How much of the context window the session has used, as a ring that fills. A click opens
 /// the details: the share used, tokens used of the window, and Compact when the agent offers it.
-/// Before the agent reports usage the ring is empty and the details say so.
 export function ContextRing({
   used,
   size,
@@ -328,9 +328,7 @@ export function ContextRing({
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
-  const root = useRef<HTMLSpanElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
-  const id = useId();
   const known = used !== undefined && size !== undefined && size > 0;
   const fraction = known ? Math.min(1, Math.max(0, used / size)) : 0;
   const percent = Math.round(fraction * 100);
@@ -338,36 +336,10 @@ export function ContextRing({
   const radius = 6.5;
   const circumference = 2 * Math.PI * radius;
   useEffect(() => registerPicker(t("context.title"), () => setOpen(true)), [t]);
-  useEffect(() => {
-    if (!open) return;
-    const away = (event: PointerEvent) => {
-      if (!root.current?.contains(event.target as Node)) setOpen(false);
-    };
-    const blur = () => setOpen(false);
-    document.addEventListener("pointerdown", away);
-    window.addEventListener("blur", blur);
-    return () => {
-      document.removeEventListener("pointerdown", away);
-      window.removeEventListener("blur", blur);
-    };
-  }, [open]);
   const tokens = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });
-  // Escape, on the ring or on Compact (the details' only control), closes them back to the ring.
-  const escape = (event: React.KeyboardEvent) => {
-    if (!open || event.key !== "Escape") return;
-    event.preventDefault();
-    event.stopPropagation();
-    setOpen(false);
-    trigger.current?.focus();
-  };
+  const full = fraction >= 0.8 ? " acpmux-context-full" : "";
   return (
-    <span
-      ref={root}
-      className={`acpmux-picker acpmux-context${fraction >= 0.8 ? " acpmux-context-full" : ""}`}
-      onBlur={(event) => {
-        if (open && !root.current?.contains(event.relatedTarget as Node | null)) setOpen(false);
-      }}
-    >
+    <span className={`acpmux-picker acpmux-context${full}`}>
       <button
         ref={trigger}
         type="button"
@@ -376,13 +348,7 @@ export function ContextRing({
         aria-label={label}
         aria-haspopup="dialog"
         aria-expanded={open}
-        aria-controls={open ? id : undefined}
-        onKeyDown={escape}
-        onClick={() => {
-          setOpen(!open);
-          // WebKit doesn't focus a clicked button; Escape must reach the popover.
-          trigger.current?.focus();
-        }}
+        onClick={() => setOpen(!open)}
       >
         <svg width={16} height={16} viewBox="0 0 16 16" aria-hidden="true" focusable="false">
           <circle cx="8" cy="8" r={radius} fill="none" stroke="currentColor" strokeOpacity={0.28} strokeWidth={2} />
@@ -401,45 +367,38 @@ export function ContextRing({
           )}
         </svg>
       </button>
-      {open && (
-        <div
-          className="acpmux-menu acpmux-menu-end acpmux-context-pop"
-          id={id}
-          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-          role="dialog"
-          aria-label={t("context.title")}
-        >
-          <div className="acpmux-context-title">{t("context.title")}</div>
-          {known ? (
-            <>
-              <div className="acpmux-context-percent">{t("context.percent", { percent })}</div>
-              <div className="acpmux-context-bar" aria-hidden="true">
-                <span style={{ width: `${percent}%` }} />
-              </div>
-              <div className="acpmux-context-tokens">
-                {t("context.tokens", { used: tokens.format(used), size: tokens.format(size) })}
-              </div>
-            </>
-          ) : (
-            <div className="acpmux-context-tokens">{t("context.pending")}</div>
-          )}
-          {onCompact && (
-            <button
-              type="button"
-              className="acpmux-context-compact"
-              disabled={working}
-              title={t("context.compactHint")}
-              onKeyDown={escape}
-              onClick={() => {
-                setOpen(false);
-                onCompact();
-              }}
-            >
-              {t("context.compact")}
-            </button>
-          )}
+      <Popover
+        open={open}
+        onOpenChange={setOpen}
+        anchor={open ? trigger.current : null}
+        label={t("context.title")}
+        className={`acpmux-context-pop${full}`}
+        finalFocus={trigger}
+      >
+        <div className="acpmux-context-title">{t("context.title")}</div>
+        <div className="acpmux-context-percent">{t("context.percent", { percent })}</div>
+        <div className="acpmux-context-bar" aria-hidden="true">
+          <span style={{ width: `${percent}%` }} />
         </div>
-      )}
+        {known && (
+          <div className="acpmux-context-tokens">
+            {t("context.tokens", { used: tokens.format(used), size: tokens.format(size) })}
+          </div>
+        )}
+        {onCompact && (
+          <button
+            type="button"
+            className="acpmux-context-compact"
+            disabled={working}
+            onClick={() => {
+              setOpen(false);
+              onCompact();
+            }}
+          >
+            {t("context.compact")}
+          </button>
+        )}
+      </Popover>
     </span>
   );
 }
