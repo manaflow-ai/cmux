@@ -139,10 +139,14 @@ enum DebugKey {
     }
 
     /// The key-down `debug.key` sends for `name` (a key name such as `return`, or the character
-    /// typed) and `modifiers` (`cmd`, `shift`, `option`, `control`).
+    /// typed) and `modifiers` (`cmd`, `shift`, `option`, `control`). A typed character keeps its
+    /// case (the named "d" or "l" must not turn "D" or "L" into lowercase), and a capital letter
+    /// has Shift, as from a keyboard.
     static func keyPress(_ name: String, modifiers: [String]) -> (characters: String, keyCode: UInt16, flags: NSEvent.ModifierFlags) {
-        let key = named[name.lowercased()] ?? (name, ansiKeyCodes[name.lowercased()] ?? 0)
-        var flags: NSEvent.ModifierFlags = []
+        let lower = name.lowercased()
+        let capital = name.count == 1 && name != lower && name.uppercased() == name
+        let key = capital ? (name, ansiKeyCodes[lower] ?? 0) : named[lower] ?? (name, ansiKeyCodes[lower] ?? 0)
+        var flags: NSEvent.ModifierFlags = capital ? .shift : []
         for modifier in modifiers {
             switch modifier {
             case "cmd", "command": flags.insert(.command)
