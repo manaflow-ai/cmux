@@ -257,18 +257,18 @@ final class SidebarBridge {
         var sections = SidebarMapping.shared.sections(PersonalSidebar.sections(of: machines.local, room: profile, machines: machines),
                                                machine: machine(for: machines.local, name: Strings.localMachine, kind: .local),
                                                hidesHomeWorkspace: hidesHome, showsUnread: showsUnread, selectedTab: selectedTab,
-                                               newTabPages: newTabPages)
+                                               newTabPages: newTabPages, newTabTitle: Strings.untitledBrowser)
         for session in machines.cloud {
             let header = machine(for: session.daemon, name: session.machine.title, kind: .cloud, live: session.machine.status.isLive,
                                  compatibility: machines.compatibility(of: session.daemon))
             sections += SidebarMapping.shared.sections(PersonalSidebar.sections(of: session.daemon, room: profile, machines: machines),
                                                 machine: header, showsUnread: showsUnread, selectedTab: selectedTab,
-                                                newTabPages: newTabPages)
+                                                newTabPages: newTabPages, newTabTitle: Strings.untitledBrowser)
         }
         for session in machines.ssh {
             sections += SidebarMapping.shared.sections(PersonalSidebar.sections(of: session.daemon, room: profile, machines: machines),
                                                 machine: sshMachine(session, machines: machines), selectedTab: selectedTab,
-                                                newTabPages: newTabPages)
+                                                newTabPages: newTabPages, newTabTitle: Strings.untitledBrowser)
         }
         return sections
     }

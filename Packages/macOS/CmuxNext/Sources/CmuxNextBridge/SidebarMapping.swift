@@ -14,14 +14,15 @@ public struct SidebarMapping {
     /// `statusLine` maps a workspace id to the status hooks reported
     /// (`set_status`), the row's live second line. The cwd stays passive
     /// detail (tooltip, accessibility). `newTabPages` are the ids of tabs
-    /// still on the New Tab page, which the tab list draws as new tabs.
+    /// still on the New Tab page, which the tab list draws as new tabs
+    /// titled `newTabTitle` (localized by the App).
     public func sections(_ daemonSections: [DaemonSidebarSection], machine: SidebarMachine,
                                 collapsedGroups: Set<String> = [],
                                 hidesHomeWorkspace: Bool = true,
                                 showsUnread: Bool = true,
                                 statusLine: (String) -> String? = { _ in nil },
                                 selectedTab: (PaneModel) -> String? = { _ in nil },
-                                newTabPages: Set<String> = []) -> [SidebarRowSection] {
+                                newTabPages: Set<String> = [], newTabTitle: String = "") -> [SidebarRowSection] {
         var nodes: [SidebarNode] = []
         for section in daemonSections {
             // The home workspace (`kind` "home") is what the Home item in the
@@ -29,7 +30,7 @@ public struct SidebarMapping {
             // while that item is in the layout (`hidesHomeWorkspace`).
             let rows = section.workspaces.filter { !hidesHomeWorkspace || $0.kind != Self.homeKind }
                 .map { row($0, machine: machine.id, status: statusLine($0.id), showsUnread: showsUnread, selectedTab: selectedTab,
-                           newTabPages: newTabPages) }
+                           newTabPages: newTabPages, newTabTitle: newTabTitle) }
             if let group = section.group {
                 nodes.append(.group(SidebarGroup(
                     id: GroupID(group.id.rawValue),
@@ -47,9 +48,11 @@ public struct SidebarMapping {
 
     /// `showsUnread: false` hides the unread badge (`notifications.attention.showOnSidebar`).
     /// `selectedTab` is the window's tab selection in a pane (a `TabModel.id`), nil for the
-    /// daemon's default tab. `newTabPages` are the ids of tabs still on the New Tab page.
+    /// daemon's default tab. `newTabPages` are the ids of tabs still on the New Tab page,
+    /// listed as `newTabTitle` when it is not empty.
     public func row(_ workspace: WorkspaceModel, machine: MachineID, status: String? = nil, showsUnread: Bool = true,
-                    selectedTab: (PaneModel) -> String? = { _ in nil }, newTabPages: Set<String> = []) -> SidebarWorkspace {
+                    selectedTab: (PaneModel) -> String? = { _ in nil }, newTabPages: Set<String> = [],
+                    newTabTitle: String = "") -> SidebarWorkspace {
         let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
         let unread = showsUnread ? workspace.unreadCount : 0
         let indicator = StatusMapping.shared.summary(tabs: tabs)
@@ -70,7 +73,9 @@ public struct SidebarMapping {
             agentBrand: agentBrand(tabs),
             progress: progress(workspace, tabs: tabs),
             tabs: tabs.map { tab in
-                SidebarTab(id: TabID(tab.id), title: tab.displayTitle, kind: Self.listedKind(tab, newTabPages: newTabPages), isUnread: tab.hasUnread)
+                let isNewTabPage = newTabPages.contains(tab.id) && !newTabTitle.isEmpty
+                return SidebarTab(id: TabID(tab.id), title: isNewTabPage ? newTabTitle : tab.displayTitle,
+                                  kind: Self.listedKind(tab, newTabPages: newTabPages), isUnread: tab.hasUnread)
             }
         )
     }
