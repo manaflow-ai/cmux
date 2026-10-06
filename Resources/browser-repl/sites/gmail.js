@@ -247,7 +247,7 @@
             const hash = decodeURIComponent(new URL(page.url()).hash);
             if (/^#[^/]+\/[^/]+$/.test(hash)) out.threadId = hash;
           } catch (e) {}
-          out.messageIds = (await page.evaluate(threadFn, { format: "text" })).messages.map((x) => x.messageId);
+          out.messageIds = (await t.readBack(page, threadFn, { format: "text" })).messages.map((x) => x.messageId);
         }
         return out;
       }

@@ -79,7 +79,8 @@
       // (it can send that tab elsewhere: sign-in, SSO), and only whether
       // that tab found a config leaves it; the calls then read
       // app.slack.com's own config through the guard.
-      const slackPage = async (body) => {
+      // { world: "agent" }: the calls run in the agent's world (a commit).
+      const slackPage = async (body, options = {}) => {
         if (!(await t.inOrigin(APP, hasConfig))) {
           await t.withTab(APP + "/client", (page) => t.waitIn(page, hasConfig, undefined, { timeout: 30000, what: "Slack's web client to load the workspaces", name: "slack" }).catch(() => {}));
         }
@@ -90,9 +91,9 @@
             if (r && r.error === "invalid_method") throw new S.SiteError("invalid", `slack: ${JSON.stringify(arg.method)} is not a Web API method name`);
             return r;
           }),
-        );
+        { world: options.world });
       };
-      const withSlack = (body) =>
+      const withSlack = (body, options) =>
         slackPage((run) =>
           body(async (team, method, params, expect) => {
             const r = await run(slackCall, { team, method, params, expect });
@@ -103,7 +104,7 @@
             if (!r.json.ok) throw new S.SiteError(r.json.error === "invalid_auth" || r.json.error === "not_authed" ? "not_signed_in" : "slack_error", `slack ${method}: ${r.json.error}${r.json.needed ? ` (needs ${r.json.needed})` : ""}`);
             return r.json;
           }),
-        );
+        options);
       const msg = (m) => ({ ts: m.ts, user: m.user || m.bot_id || null, text: m.text, ...(m.thread_ts && m.thread_ts !== m.ts ? { threadTs: m.thread_ts } : {}), ...(m.reply_count ? { replyCount: m.reply_count } : {}), ...(m.files ? { files: m.files.map((f) => f.name) } : {}), ...(m.subtype ? { subtype: m.subtype } : {}) });
       async function channelId(call, team, channel) {
         if (/^[CDG][A-Z0-9]{6,}$/.test(channel)) return channel;
@@ -212,7 +213,7 @@
                       return { status: "posted", channel: r.channel, ts: r.ts };
                     },
                   );
-                }),
+                }, { world: "agent" }),
             };
           });
         },

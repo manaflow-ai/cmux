@@ -187,7 +187,7 @@
       else if (/^\d+$/.test(u.searchParams.get("authuser") || "")) at = Number(u.searchParams.get("authuser"));
     } catch (e) {}
     if (at === undefined || at === null) at = 0;
-    const named = await t.waitIn(page, pageAccountEmails, undefined, { timeout: 10000, what: "the page to name its Google account" }).catch(() => null);
+    const named = await t.waitIn(page, pageAccountEmails, undefined, { timeout: 10000, what: "the page to name its Google account", world: "agent" }).catch(() => null);
     const row = (await listAccounts(t, name)).find((a) => a.uid === at);
     const out = { account: at };
     if (!row || row.signedOut || !named) return out;

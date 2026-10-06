@@ -45,9 +45,9 @@
           // with that position's id. Nothing when the two disagree (a
           // collaborator moved, added or removed a slide meanwhile).
           const both = async (page) => {
-            const before = await page.evaluate(filmstrip);
+            const before = await t.readBack(page, filmstrip);
             const slides = await ed.deck("googleSlides.setNotes", r);
-            const after = await page.evaluate(filmstrip);
+            const after = await t.readBack(page, filmstrip);
             if (!before || !after || before.join("\n") !== after.join("\n") || before.length !== slides.length) return null;
             return before.map((id, i) => ({ id, title: slides[i].title, notes: slides[i].notes }));
           };

@@ -180,7 +180,7 @@
                   // whole text the composer holds, right before Post.
                   return c.write(
                     async () => {
-                      const now = await page.evaluate(authenticatedUser, { bearer: WEB_BEARER });
+                      const now = await t.readBack(page, authenticatedUser, { bearer: WEB_BEARER });
                       let answers;
                       try {
                         answers = new URL(page.url()).searchParams.get("in_reply_to");

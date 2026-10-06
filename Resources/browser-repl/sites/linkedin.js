@@ -155,7 +155,7 @@
                   // has no post bound to a member).
                   return c.write(
                     async () => {
-                      const r = await page.evaluate(voyager, { path: "/voyager/api/me" });
+                      const r = await t.readBack(page, voyager, { path: "/voyager/api/me" });
                       const now = r && r.status >= 200 && r.status < 300 && r.json ? viewer(r.json) : null;
                       return { ...(now && now.publicIdentifier ? { account: now.publicIdentifier } : {}), ...(now && now.id ? { memberId: now.id } : {}), text: await t.composerText(box) };
                     },

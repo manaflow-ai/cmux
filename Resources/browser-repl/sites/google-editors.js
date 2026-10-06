@@ -198,7 +198,7 @@
         try {
           fileId = (/\/d\/([\w-]+)\//.exec(new URL(page.url()).pathname) || [])[1];
         } catch (e) {}
-        const title = await page.evaluate(() => { const i = document.querySelector(".docs-title-input"); return i ? i.value : null; }).catch(() => null);
+        const title = await t.readBack(page, () => { const i = document.querySelector(".docs-title-input"); return i ? i.value : null; }).catch(() => null);
         const label = await editors.sharing(page);
         const who = await g.observeAccount(t, name, page, ref.uid);
         return { fileId, title: typeof title === "string" ? title : undefined, sharing: label || undefined, account: who.accountEmail, accountId: who.accountId };

@@ -14,6 +14,18 @@
 (function (root) {
   "use strict";
   const ns = (root.CmuxBrowserRepl = root.CmuxBrowserRepl || {});
+  // Built-ins the commit checks use, captured when the loader runs: code
+  // that changes these globals later (agent code shares this realm) does
+  // not change how a read-back is copied or compared.
+  const stringify = JSON.stringify;
+  const objectKeys = Object.keys;
+  const getPrototypeOf = Object.getPrototypeOf;
+  const ownNames = Object.getOwnPropertyNames;
+  const ownDescriptor = Object.getOwnPropertyDescriptor;
+  const isArray = Array.isArray;
+  const defineProperty = Object.defineProperty;
+  const objectTag = Function.prototype.call.bind(Object.prototype.toString);
+  const numberIsFinite = Number.isFinite;
   const registry = [];
   const shared = {};
 
@@ -250,9 +262,50 @@
 
   // JSON with object keys sorted, so two values compare by content.
   function canonicalJSON(value) {
-    if (Array.isArray(value)) return "[" + value.map(canonicalJSON).join(",") + "]";
-    if (value && typeof value === "object") return "{" + Object.keys(value).sort().map((k) => JSON.stringify(k) + ":" + canonicalJSON(value[k])).join(",") + "}";
-    return JSON.stringify(value === undefined ? null : value);
+    if (isArray(value)) {
+      let out = "[";
+      for (let i = 0; i < value.length; i++) out += (i ? "," : "") + canonicalJSON(value[i]);
+      return out + "]";
+    }
+    if (value && typeof value === "object") {
+      const keys = objectKeys(value).sort();
+      let out = "{";
+      for (let i = 0; i < keys.length; i++) out += (i ? "," : "") + stringify(keys[i]) + ":" + canonicalJSON(value[keys[i]]);
+      return out + "}";
+    }
+    return stringify(value === undefined ? null : value);
+  }
+
+  // A read-back value as plain data, copied: strings, booleans, finite
+  // numbers and null, in arrays and plain objects (of any realm: an
+  // Object.prototype or no prototype) whose own properties are all
+  // enumerable data properties. Each is read once through its descriptor,
+  // so no getter, toJSON or toString runs and nothing answers differently
+  // later; the copy has only those own values (nothing it inherits).
+  // Anything else (a function, a symbol, a Date or other object, an
+  // accessor, past 32 levels, so also a cycle) is not a reading: NOT_PLAIN.
+  const NOT_PLAIN = Symbol("not plain data");
+  const isPlainObject = (value) => {
+    if (objectTag(value) !== "[object Object]") return false;
+    const proto = getPrototypeOf(value);
+    return proto === null || getPrototypeOf(proto) === null;
+  };
+  function plainReading(value, depth = 0) {
+    if (value === null || typeof value === "string" || typeof value === "boolean") return value;
+    if (typeof value === "number") return numberIsFinite(value) ? value : NOT_PLAIN;
+    if (typeof value !== "object" || depth > 32) return NOT_PLAIN;
+    const array = isArray(value);
+    if (!array && !isPlainObject(value)) return NOT_PLAIN;
+    const out = array ? [] : {};
+    for (const key of ownNames(value)) {
+      if (array && key === "length") continue;
+      const d = ownDescriptor(value, key);
+      if (!d || !("value" in d) || !d.enumerable) return NOT_PLAIN;
+      const v = plainReading(d.value, depth + 1);
+      if (v === NOT_PLAIN) return NOT_PLAIN;
+      defineProperty(out, key, { value: v, enumerable: true, writable: true, configurable: true });
+    }
+    return out;
   }
   const shown = (v) => {
     const text = typeof v === "string" ? JSON.stringify(v) : canonicalJSON(v);
@@ -302,12 +355,26 @@
   // every field not `sent` must be read back and equal. A difference fails
   // as <group>_mismatch, a field the page did not give as
   // <group>_unverified; account first, then target, then content.
-  function checkIntent(where, entry, observed) {
+  //
+  // `observed` is read once, as plain data (plainReading): a bound field
+  // whose value is not plain data (it would serialize or convert itself:
+  // toJSON, toString, a getter) is unread, so <group>_unverified.
+  function checkIntent(where, entry, read) {
     const { preview, groupOf, sent, canon } = entry.intent;
     const problems = { account: [], target: [], content: [] };
     const unknown = { account: [], target: [], content: [] };
-    const has = (k) => !!observed && typeof observed === "object" && Object.prototype.hasOwnProperty.call(observed, k) && observed[k] !== undefined;
-    for (const k of Object.keys(preview)) {
+    const observed = {};
+    const unreadable = new Set();
+    if (read && typeof read === "object" && isPlainObject(read)) {
+      for (const k of ownNames(read)) {
+        const d = ownDescriptor(read, k);
+        const v = d && "value" in d && d.enumerable ? (d.value === undefined ? undefined : plainReading(d.value)) : NOT_PLAIN;
+        if (v === NOT_PLAIN) unreadable.add(k);
+        else if (v !== undefined) defineProperty(observed, k, { value: v, enumerable: true, writable: true, configurable: true });
+      }
+    }
+    const has = (k) => ownDescriptor(observed, k) !== undefined;
+    for (const k of objectKeys(preview)) {
       if (sent.has(k)) continue;
       const g = groupOf[k];
       if (!has(k)) {
@@ -326,10 +393,12 @@
       }
       if (a !== b) problems[g].push(`${k} is ${shown(observed[k])}, not ${shown(preview[k])}`);
     }
-    for (const k of observed && typeof observed === "object" ? Object.keys(observed) : []) if (!(k in preview)) problems.content.push(`it also holds ${k} ${shown(observed[k])}, which the draft does not show`);
+    const drafted = (k) => ownDescriptor(preview, k) !== undefined;
+    for (const k of unreadable) if (!drafted(k)) unknown.content.push(k);
+    for (const k of objectKeys(observed)) if (!drafted(k)) problems.content.push(`it also holds ${k} ${shown(observed[k])}, which the draft does not show`);
     for (const g of INTENT_GROUPS) if (problems[g].length) throw new SiteError(`${g}_mismatch`, `${where}: the ${GROUP_WORDS[g]} differs from the draft (${problems[g].join("; ")}); nothing was sent. Make a new draft and show it to the user again`);
     for (const g of INTENT_GROUPS) if (unknown[g].length) throw new SiteError(`${g}_unverified`, `${where}: could not read ${unknown[g].join(", ")} back from the site right before the write, so the ${GROUP_WORDS[g]} is not verified; nothing was sent`);
-    return Object.keys(preview).filter((k) => !sent.has(k));
+    return objectKeys(preview).filter((k) => !sent.has(k));
   }
 
   // Drafts live in the REPL session that made them, so a draft can be
@@ -503,6 +572,17 @@
       async inOrigin(origin, fn, arg, options = {}) {
         return tool.withOrigin(origin, (run) => run(fn, arg), options);
       },
+      // Runs page function fn(arg) in the agent's isolated world of
+      // `page`'s main frame (the world locators read in) and returns its
+      // result. A commit's observe() reads the site with this, never with
+      // page.evaluate: a page-world result is whatever the page makes of it
+      // (its own JSON.stringify, toJSON, getters, patched built-ins), while
+      // the agent's world has its own built-ins and the result crosses as
+      // that world's JSON. The function sees the document and its cookies
+      // (same origin), not the page's script globals.
+      async readBack(page, fn, arg) {
+        return page._mainFrame._call("agent", ns.core.functionSource(fn), [arg], undefined, "the read-back");
+      },
       // Like inOrigin for several calls on one tab: body(run) where
       // run(fn, arg) evaluates in the page. A redirect can leave the tab on
       // another origin, whose page would then receive the call with the
@@ -510,6 +590,9 @@
       // URL is on `origin`, and the evaluation itself first checks the
       // document's own location.origin, so no call runs in a document of
       // another origin, also one that replaced the page after the check.
+      // { world: "agent" } runs the calls in the agent's isolated world
+      // (readBack): a commit's observe() reads through that, since a
+      // site's service worker can serve the path a page with scripts.
       async withOrigin(origin, body, options = {}) {
         const base = String(origin).replace(/\/$/, "");
         let want;
@@ -529,7 +612,7 @@
             if (at !== want) throw changed(page.url());
             // eslint-disable-next-line no-new-func
             const guarded = new Function("__cmux", `if (location.origin !== __cmux.origin) return { __cmuxWrongOrigin: String(location.origin) };\nreturn (${String(fn)})(__cmux.arg);`);
-            const r = await page.evaluate(guarded, { origin: want, arg });
+            const r = options.world === "agent" ? await tool.readBack(page, guarded, { origin: want, arg }) : await page.evaluate(guarded, { origin: want, arg });
             if (r && typeof r === "object" && typeof r.__cmuxWrongOrigin === "string" && Object.keys(r).length === 1) throw changed(r.__cmuxWrongOrigin);
             return r;
           }),
@@ -538,13 +621,15 @@
       // Waits in `page` until fn(arg) returns a truthy value; returns it.
       // With { signIn: [patterns], name }, a tab that reaches a sign-in page
       // at any point (sites also redirect from script) fails as not_signed_in.
-      async waitIn(page, fn, arg, { timeout = 20000, what = "the page", signIn, name = "sites" } = {}) {
+      // { world: "agent" } evaluates in the agent's world (readBack), as a
+      // commit's observe() must.
+      async waitIn(page, fn, arg, { timeout = 20000, what = "the page", signIn, name = "sites", world = "page" } = {}) {
         const deadline = session.now() + timeout;
         for (;;) {
           if (signIn) tool.assertSignedIn(name, page, signIn);
           let v = null;
           try {
-            v = await page.evaluate(fn, arg);
+            v = world === "agent" ? await tool.readBack(page, fn, arg) : await page.evaluate(fn, arg);
           } catch (e) {
             // A navigation replaced the document; try again on the new one.
             if (!/stale|navigat|context|detached|destroyed/i.test(String(e && e.message))) throw e;

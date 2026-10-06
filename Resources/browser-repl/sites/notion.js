@@ -155,7 +155,7 @@
         const fixed = pinned(options);
         let rs;
         for (const o of fixed ? [fixed] : apiOrigin ? [apiOrigin] : API_ORIGINS) {
-          rs = await t.inOrigin(o, notionCall, { calls: list, userId: options.userId });
+          rs = await t.inOrigin(o, notionCall, { calls: list, userId: options.userId }, { world: options.world });
           if (rs[0] && rs[0].status !== 401) {
             if (!fixed) apiOrigin = o;
             break;
@@ -258,13 +258,13 @@
                     // user answers as themself), then the page as the
                     // drafted user (x-notion-active-user-header: Notion
                     // answers as that user or refuses).
-                    const [nowSpaces] = await calls([{ endpoint: "getSpaces", body: {} }], { ...input, userId: undefined });
+                    const [nowSpaces] = await calls([{ endpoint: "getSpaces", body: {} }], { ...input, userId: undefined, world: "agent" });
                     const holder = rec(((nowSpaces && nowSpaces[account.userId] && nowSpaces[account.userId].notion_user) || {})[account.userId]);
                     const others = Object.entries(nowSpaces || {}).map(([uid, v]) => ({ userId: uid, email: (rec((v.notion_user || {})[uid]) || {}).email || null }));
                     const out = { account: holder ? { userId: account.userId, email: holder.email || null } : others.find((o) => o.userId !== account.userId) || { userId: null, email: null } };
                     // A refusal (the session no longer holds that user)
                     // leaves the page unverified.
-                    const r = await calls([{ endpoint: "syncRecordValues", body: { requests: [{ pointer: { table: "block", id }, version: -1 }] } }], as).then(([x]) => x, () => null);
+                    const r = await calls([{ endpoint: "syncRecordValues", body: { requests: [{ pointer: { table: "block", id }, version: -1 }] } }], { ...as, world: "agent" }).then(([x]) => x, () => null);
                     if (!r) return out;
                     parent = rec(((r.recordMap || {}).block || {})[id]);
                     out.page = parent && parent.alive !== false ? parent.id : null;
