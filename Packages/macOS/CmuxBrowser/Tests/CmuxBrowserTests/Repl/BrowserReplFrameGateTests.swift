@@ -309,6 +309,33 @@ struct BrowserReplFrameGateTests {
         #expect(error?.code == "stale", "files were given to a chooser whose frame shows another document: \(String(describing: error))")
     }
 
+    /// A refusal names the blocked frame, which the session may not read:
+    /// its URL reaches the session as frames.list gives it to any reader
+    /// (``BrowserReplPageURL`` with no creator), never with the credential
+    /// values in it.
+    @Test func aRefusalNamesABlockedFrameWithoutTheCredentialsInItsURL() async throws {
+        let html = """
+            <iframe id=a src="cmux-test://allowed.test/child" style="position:absolute;left:10px;top:10px;width:100px;height:80px;border:0"></iframe>
+            <iframe id=b src="cmux-test://blocked.test/x?access_token=T0KEN&page=2" style="position:absolute;left:200px;top:10px;width:100px;height:80px;border:0"></iframe>
+            """
+        let page = try await FramePage.load(html: html) { frames in frames.count >= 3 && frames.allSatisfy { !$0.url.isEmpty } }
+        let gate = Self.gate()
+        let blocked = try #require(page.frame(host: "blocked.test"))
+        try #require(blocked.url.contains("T0KEN"))
+        _ = try await page.run("document.getElementById('f').focus(); return true", in: blocked)
+        let refusals = [
+            await Self.error { try await gate.checkPointer(at: [CGPoint(x: 250, y: 50)], in: page.webView, frames: page.frames) },
+            await Self.error { try await gate.checkFocus(in: page.webView, frames: page.frames) },
+            await Self.error { try gate.checkCapture(in: page.webView, frames: page.frames) },
+        ]
+        for refusal in refusals {
+            let refusal = try #require(refusal)
+            #expect(refusal.code == "blocked")
+            #expect(!refusal.message.contains("T0KEN"), "a refusal named the blocked frame with its credential: \(refusal.message)")
+            #expect(refusal.message.contains("blocked.test/x"), "a refusal no longer names the frame: \(refusal.message)")
+        }
+    }
+
     /// `window.frames` leaves out frames in shadow trees, so a child's index
     /// in WebKit's frame tree is not its index there. A blocked frame in a
     /// shadow tree must still refuse a point over it.
