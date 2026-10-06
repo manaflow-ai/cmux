@@ -46,6 +46,13 @@ pub(super) fn recover(chat: &OptChat, state: &mut HostState, acpmux: bool) -> Ve
             opening_logged = logged > 0;
         }
         for item in &items[..logged] {
+            // A logged image keeps its description pending until the note is
+            // written (the save after the describe may have been lost).
+            for image in &item.images {
+                if !state.undescribed.contains(image) {
+                    state.undescribed.push(image.clone());
+                }
+            }
             if let Some(seq) = item.seq {
                 human = true;
                 state.logged_seq = state.logged_seq.max(seq);

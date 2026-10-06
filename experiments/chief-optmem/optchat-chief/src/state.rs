@@ -34,6 +34,10 @@ pub struct HostState {
     /// at the next acpmux connect.
     #[serde(default)]
     pub orphans: Vec<crate::turn::Orphan>,
+    /// Logged turn images whose description note is not written yet: the
+    /// next connect reads them from the owner again and describes them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub undescribed: Vec<crate::brain::images::ImageRef>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -94,7 +98,7 @@ impl PendingTurn {
             .iter()
             .map(|seq| Item {
                 seq: *seq,
-                child: None,
+                ..Item::default()
             })
             .collect()
     }
@@ -111,6 +115,10 @@ pub struct Item {
     /// A child's report.
     #[serde(default)]
     pub child: Option<ChildRef>,
+    /// The human message's images (never their bytes): the pending turn
+    /// keeps them so a restart can still describe them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub images: Vec<crate::brain::images::ImageRef>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

@@ -62,7 +62,8 @@ pub enum Input {
     /// and answers with the texts to deliver (section 7).
     Boundary {
         key: String,
-        reply: Sender<Vec<String>>,
+        /// The prompt blocks to deliver: the messages' images, then their text.
+        reply: Sender<Vec<serde_json::Value>>,
     },
     TurnEnded {
         key: String,
@@ -77,7 +78,7 @@ pub enum Input {
     },
     /// A description of a turn's image arrived (or failed): logged as a note.
     Described {
-        image: images::TurnImage,
+        image: Box<images::TurnImage>,
         description: Result<String, String>,
     },
 }
@@ -232,6 +233,8 @@ pub struct Brain {
     marker_refused: Arc<std::sync::atomic::AtomicBool>,
     /// Writes the log's description of each turn image (None: references only).
     describer: Option<Arc<dyn images::Describe>>,
+    /// Images being described now (`conversation/hash`), started once each.
+    describing: HashSet<String>,
 }
 
 impl Brain {
@@ -278,6 +281,7 @@ impl Brain {
             notices: Vec::new(),
             noticed: HashSet::new(),
             describer: None,
+            describing: HashSet::new(),
         };
         brain.save();
         brain
@@ -363,8 +367,8 @@ impl Brain {
                 after,
             } => self.progress(&key, session_id, after),
             Input::Boundary { key, reply } => {
-                let texts = self.boundary(&key);
-                let _ = reply.send(texts);
+                let blocks = self.boundary(&key);
+                let _ = reply.send(blocks);
             }
             Input::TurnEnded { key, outcome } => self.turn_ended(&key, outcome),
             Input::Notice { key, text } => self.notice(key, text),

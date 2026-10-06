@@ -435,7 +435,10 @@ fn an_image_sent_during_a_native_turn_is_delivered_with_its_text() {
                 poster: None,
                 preview: None,
             },
-            cmux_conversation::Part::Text { text: "what does this say?".into(), runs: None },
+            cmux_conversation::Part::Text {
+                text: "what does this say?".into(),
+                runs: None,
+            },
         ],
     );
     *model.gate.lock().unwrap() = false;
@@ -443,7 +446,10 @@ fn an_image_sent_during_a_native_turn_is_delivered_with_its_text() {
     h.settle();
     let bodies = model.bodies.lock().unwrap().clone();
     assert_eq!(bodies.len(), 2, "delivered in the same turn");
-    let content = bodies[1]["messages"][2]["content"].as_array().unwrap().clone();
+    let content = bodies[1]["messages"][2]["content"]
+        .as_array()
+        .unwrap()
+        .clone();
     assert_eq!(
         content[1],
         json!({"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "QUJD"}})

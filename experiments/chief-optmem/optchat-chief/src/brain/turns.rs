@@ -285,7 +285,7 @@ impl Brain {
     /// A native turn is between tool calls: everything queued is logged as
     /// `user` and delivered (section 7: "Messages the user types mid-run are
     /// delivered at the agent's next tool boundary and logged as `user`").
-    pub(super) fn boundary(&mut self, key: &str) -> Vec<String> {
+    pub(super) fn boundary(&mut self, key: &str) -> Vec<serde_json::Value> {
         let current = self.state.turn.as_ref().is_some_and(|t| t.key == key);
         if self.phase != Phase::Running || !current {
             return Vec::new();
@@ -313,7 +313,20 @@ impl Brain {
         }
         self.save();
         self.set_cursor(self.handled);
-        items.into_iter().map(|i| i.text).collect()
+        // The delivered messages' images go with them, and are described
+        // for the log like a turn's own.
+        let images: Vec<super::images::TurnImage> = items
+            .iter()
+            .flat_map(|i| i.images.iter().cloned())
+            .collect();
+        self.describe_images(&images);
+        let mut blocks: Vec<serde_json::Value> = images
+            .iter()
+            .filter_map(super::images::TurnImage::block)
+            .collect();
+        let texts: Vec<String> = items.into_iter().map(|i| i.text).collect();
+        blocks.push(serde_json::json!({"type": "text", "text": texts.join("\n\n")}));
+        blocks
     }
 
     /// A human message arrived during a turn (decision 2026-10-04): the
@@ -412,10 +425,12 @@ fn with_images(
 
 /// A queued item's source as the pending turn saves it.
 fn item(queued: &Queued) -> Item {
+    let images = queued.images.iter().map(|i| i.source.clone()).collect();
     match &queued.source {
         Source::Message { seq } => Item {
             seq: Some(*seq),
             child: None,
+            images,
         },
         Source::Child { session_id, floor } => Item {
             seq: None,
@@ -423,7 +438,11 @@ fn item(queued: &Queued) -> Item {
                 session_id: session_id.clone(),
                 floor: *floor,
             }),
+            images,
         },
-        Source::Note => Item::default(),
+        Source::Note => Item {
+            images,
+            ..Item::default()
+        },
     }
 }

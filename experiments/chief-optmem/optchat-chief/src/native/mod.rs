@@ -127,11 +127,8 @@ impl Native {
             .iter()
             .enumerate()
             .map(|(i, block)| {
-                // A turn image (an ACP block) in the Messages API's shape.
-                if block["type"] == "image" && block.get("mimeType").is_some() {
-                    return json!({"type": "image", "source": {
-                        "type": "base64", "media_type": block["mimeType"], "data": block["data"],
-                    }});
+                if block["type"] == "image" {
+                    return api_block(block);
                 }
                 let mut block = block.clone();
                 if i < views && i < VIEW_BREAKPOINTS {
@@ -199,7 +196,7 @@ impl Native {
         chat: &OptChat,
         start: &TurnStart,
         log: &dyn Fn(&str),
-        mailbox: &dyn Fn() -> Vec<String>,
+        mailbox: &dyn Fn() -> Vec<Value>,
         interrupted: &dyn Fn() -> bool,
     ) -> TurnOutcome {
         let deadline = start.limit.map(|limit| Instant::now() + limit);
@@ -359,21 +356,33 @@ impl Native {
     }
 }
 
-/// Adds delivered messages (already logged as `user` by the brain) to the
-/// request: at the end of the last user message, else as a new one.
-fn deliver(messages: &mut Vec<Value>, delivered: Vec<String>) {
+/// A prompt block in the Messages API's shape: a turn image (an ACP image
+/// block) becomes a base64 image source; any other block is sent as is.
+fn api_block(block: &Value) -> Value {
+    if block["type"] == "image" && block.get("mimeType").is_some() {
+        return json!({"type": "image", "source": {
+            "type": "base64", "media_type": block["mimeType"], "data": block["data"],
+        }});
+    }
+    block.clone()
+}
+
+/// Adds delivered messages (already logged as `user` by the brain; their
+/// images, then their text) to the request: at the end of the last user
+/// message, else as a new one.
+fn deliver(messages: &mut Vec<Value>, delivered: Vec<Value>) {
     if delivered.is_empty() {
         return;
     }
-    let block = json!({"type": "text", "text": delivered.join("\n\n")});
+    let blocks: Vec<Value> = delivered.iter().map(api_block).collect();
     if let Some(last) = messages.last_mut()
         && last["role"] == "user"
         && let Some(content) = last["content"].as_array_mut()
     {
-        content.push(block);
+        content.extend(blocks);
         return;
     }
-    messages.push(json!({"role": "user", "content": [block]}));
+    messages.push(json!({"role": "user", "content": blocks}));
 }
 
 fn limit_text(limit: Option<Duration>) -> String {

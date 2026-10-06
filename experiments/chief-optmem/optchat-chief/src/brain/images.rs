@@ -23,6 +23,8 @@ pub const MAX_ORIGINAL_BYTES: u64 = 3_750_000;
 /// One image of a turn, its bytes already base64 (as the owner sends them).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TurnImage {
+    /// Where the bytes are: re-read after a restart to finish a description.
+    pub source: ImageRef,
     pub hash: String,
     pub name: String,
     /// The type of the bytes in `data` (a preview is JPEG or WebP).
@@ -69,51 +71,84 @@ pub fn short(hash: &str) -> &str {
 /// model reads its type and size, else the image's preview (a JPEG of at
 /// most 1024 px and 512 KB), else a reference without bytes.
 pub fn read_images(port: &mut dyn ConversationPort, message: &Message) -> Vec<TurnImage> {
-    let mut images = Vec::new();
-    for part in &message.parts {
-        let Part::Attachment {
-            hash,
-            name,
-            mime_type,
-            byte_count,
-            width,
-            height,
-            preview,
-            ..
-        } = part
-        else {
-            continue;
-        };
-        if !mime_type.starts_with("image/") {
-            continue;
-        }
-        let mut data = None;
-        let mut mime = mime_type.clone();
-        if VIEWABLE.contains(&mime_type.as_str()) && *byte_count <= MAX_ORIGINAL_BYTES {
-            data = port
-                .attachment(&message.conversation, hash, "original", *byte_count)
-                .ok();
-        }
-        if data.is_none()
-            && let Some(preview) = preview
-        {
-            data = port
-                .attachment(&message.conversation, hash, "preview", preview.byte_count)
-                .ok();
-            if data.is_some() {
-                mime = preview.mime_type.clone();
-            }
-        }
-        images.push(TurnImage {
-            hash: hash.clone(),
-            name: name.clone(),
-            mime_type: mime,
-            width: *width,
-            height: *height,
-            data,
-        });
+    message
+        .parts
+        .iter()
+        .filter_map(|part| {
+            read_image(
+                port,
+                &ImageRef {
+                    conversation: message.conversation.clone(),
+                    part: part.clone(),
+                },
+            )
+        })
+        .collect()
+}
+
+/// One image part read from the owner (None when it is not an image part).
+pub fn read_image(port: &mut dyn ConversationPort, source: &ImageRef) -> Option<TurnImage> {
+    let Part::Attachment {
+        hash,
+        name,
+        mime_type,
+        byte_count,
+        width,
+        height,
+        preview,
+        ..
+    } = &source.part
+    else {
+        return None;
+    };
+    if !mime_type.starts_with("image/") {
+        return None;
     }
-    images
+    let mut data = None;
+    let mut mime = mime_type.clone();
+    if VIEWABLE.contains(&mime_type.as_str()) && *byte_count <= MAX_ORIGINAL_BYTES {
+        data = port
+            .attachment(&source.conversation, hash, "original", *byte_count)
+            .ok();
+    }
+    if data.is_none()
+        && let Some(preview) = preview
+    {
+        data = port
+            .attachment(&source.conversation, hash, "preview", preview.byte_count)
+            .ok();
+        if data.is_some() {
+            mime = preview.mime_type.clone();
+        }
+    }
+    Some(TurnImage {
+        source: source.clone(),
+        hash: hash.clone(),
+        name: name.clone(),
+        mime_type: mime,
+        width: *width,
+        height: *height,
+        data,
+    })
+}
+
+/// An image part and its conversation: what the host keeps (pending turn,
+/// descriptions not written yet) to read the bytes again after a restart.
+/// Never the bytes themselves.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ImageRef {
+    pub conversation: String,
+    /// An `attachment` part with an image type.
+    pub part: Part,
+}
+
+impl ImageRef {
+    fn key(&self) -> String {
+        match &self.part {
+            Part::Attachment { hash, .. } => format!("{}/{hash}", self.conversation),
+            _ => self.conversation.clone(),
+        }
+    }
 }
 
 /// The user line of a message with images: its text, then one reference
@@ -164,39 +199,102 @@ pub trait Describe: Send + Sync {
 }
 
 impl super::Brain {
-    /// Logs a turn image's description as a note that names its hash.
+    /// Logs a turn image's description as a note that names its hash, and
+    /// forgets the image's pending description.
     pub(super) fn described(&mut self, image: &TurnImage, description: Result<String, String>) {
+        let key = image.source.key();
+        self.describing.remove(&key);
         let line = description_line(image, description.as_deref().map_err(String::as_str));
         if let Err(e) = self.chat.append(optchat_core::Kind::Note, &line) {
             (self.log)(&format!("logging an image description failed: {e}"));
+            return;
         }
+        self.state.undescribed.retain(|r| r.key() != key);
+        self.save();
     }
 
     /// Starts one description per readable image, off the brain thread;
-    /// each answer comes back as `Input::Described`.
-    pub(super) fn describe_images(&self, images: &[TurnImage]) {
+    /// each answer comes back as `Input::Described`. The images are saved
+    /// as pending first (`HostState::undescribed`), so a host that stops
+    /// before an answer describes them after its restart.
+    pub(super) fn describe_images(&mut self, images: &[TurnImage]) {
+        if self.describer.is_none() {
+            return;
+        }
+        for image in images.iter().filter(|i| i.data.is_some()) {
+            if !self
+                .state
+                .undescribed
+                .iter()
+                .any(|r| r.key() == image.source.key())
+            {
+                self.state.undescribed.push(image.source.clone());
+            }
+        }
+        self.save();
+        for image in images {
+            self.spawn_describe(image);
+        }
+    }
+
+    /// After a (re)connect: describes the images a stopped host left
+    /// pending, reading their bytes from the owner again.
+    pub(super) fn describe_pending(&mut self) {
+        if self.describer.is_none() {
+            return;
+        }
+        let pending: Vec<ImageRef> = self
+            .state
+            .undescribed
+            .iter()
+            .filter(|r| !self.describing.contains(&r.key()))
+            .cloned()
+            .collect();
+        for source in pending {
+            let image = match self.daemon.as_mut() {
+                Some(daemon) => read_image(daemon.as_mut(), &source),
+                None => return,
+            };
+            match image {
+                Some(image) if image.data.is_some() => self.spawn_describe(&image),
+                Some(image) => {
+                    self.described(&image, Err("the image is no longer readable".into()))
+                }
+                None => {
+                    self.state.undescribed.retain(|r| r.key() != source.key());
+                    self.save();
+                }
+            }
+        }
+    }
+
+    fn spawn_describe(&mut self, image: &TurnImage) {
         let Some(describer) = self.describer.clone() else {
             return;
         };
-        for image in images {
-            let Some(blocks) = describe_blocks(image) else {
-                continue;
-            };
-            let (tx, describer) = (self.tx.clone(), describer.clone());
-            // The note needs the reference only, never the bytes.
-            let image = TurnImage {
-                data: None,
-                ..image.clone()
-            };
-            let spawned = std::thread::Builder::new()
-                .name("optchat-describe".into())
-                .spawn(move || {
-                    let description = describer.describe(blocks);
-                    let _ = tx.send(super::Input::Described { image, description });
+        let Some(blocks) = describe_blocks(image) else {
+            return;
+        };
+        if !self.describing.insert(image.source.key()) {
+            return;
+        }
+        let tx = self.tx.clone();
+        // The note needs the reference only, never the bytes.
+        let image = TurnImage {
+            data: None,
+            ..image.clone()
+        };
+        let spawned = std::thread::Builder::new()
+            .name("optchat-describe".into())
+            .spawn(move || {
+                let description = describer.describe(blocks);
+                let _ = tx.send(super::Input::Described {
+                    image: Box::new(image),
+                    description,
                 });
-            if let Err(e) = spawned {
-                (self.log)(&format!("starting an image description failed: {e}"));
-            }
+            });
+        if let Err(e) = spawned {
+            (self.log)(&format!("starting an image description failed: {e}"));
         }
     }
 }
@@ -207,6 +305,13 @@ mod tests {
 
     fn image(data: Option<&str>) -> TurnImage {
         TurnImage {
+            source: ImageRef {
+                conversation: "conv_1".into(),
+                part: Part::Text {
+                    text: String::new(),
+                    runs: None,
+                },
+            },
             hash: "0123456789abcdef".repeat(4),
             name: "shot.png".into(),
             mime_type: "image/png".into(),

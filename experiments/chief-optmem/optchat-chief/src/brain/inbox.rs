@@ -51,6 +51,7 @@ impl Brain {
                 self.post_notices();
                 self.flush_outbox();
                 self.catch_up();
+                self.describe_pending();
             }
             DaemonEvent::Changed {
                 conversation,
