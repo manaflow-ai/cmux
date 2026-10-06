@@ -277,9 +277,9 @@
   // characters before each cut, the longest form a masked value takes
   // (4,096 bytes, BrowserReplSecretStore.maximumValueBytes, each character
   // at most 13 characters as an HTML reference, `&#1114111;`), and writes
-  // "…" there. CUT is a noncharacter: page text that holds one only loses
-  // the text before it.
-  const CUT = "\ufdd0";
+  // "…" there. CUT is random and lives only in this world (as docToken), so
+  // page text, which may hold any character, cannot forge a cut.
+  const CUT = "\ufdd0" + docToken + "\ufdd0";
   const CUT_MARGIN = 13 * 4096;
   // `s` with each cut settled: the text within CUT_MARGIN before it dropped.
   function settleCuts(s) {
@@ -291,8 +291,8 @@
       // Never split a surrogate pair.
       if (end > from && /[\ud800-\udbff]/.test(s[end - 1])) end--;
       out += s.slice(from, end) + "…";
-      from = i + 1;
-      while (s[from] === CUT) from++;
+      from = i + CUT.length;
+      while (s.startsWith(CUT, from)) from += CUT.length;
     }
     return out + s.slice(from);
   }
