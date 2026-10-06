@@ -203,7 +203,10 @@ final class SidebarListView: NSView {
         var leaving: [SidebarRowView] = []
         for (key, view) in rowViews where !keep.contains(key) {
             rowViews[key] = nil
-            if suppressed.contains(key) || !animate {
+            // An empty section's placeholder stands in for the rows that
+            // replace it: it leaves at once, not fading under the first one.
+            let placeholder = if case .emptySection = key { true } else { false }
+            if suppressed.contains(key) || !animate || placeholder {
                 recycle(view)
             } else {
                 leaving.append(view)
