@@ -280,7 +280,8 @@ fn shutdown_daemon_keep_layout_renames_the_dead_tab_after_restart() {
         }),
     );
     let tab = |harness: &RecoveryHarness, id: u64| {
-        let tree = request(&harness.socket, serde_json::json!({"id": id, "cmd": "list-workspaces"}));
+        let tree =
+            request(&harness.socket, serde_json::json!({"id": id, "cmd": "list-workspaces"}));
         tree["workspaces"]
             .as_array()
             .unwrap()
