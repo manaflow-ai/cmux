@@ -405,9 +405,7 @@ final class RowCell: UICollectionViewCell {
         connector.strokeColor = Fixture.connector.cgColor
         connector.lineWidth = 2.6
         connector.lineCap = .round
-        fillGradient.colors = Fixture.themedGradient?.map { $0.1.cgColor }  // cmux: themed accent
-            ?? Fixture.gradientStops.map { Fixture.gradientColor($0.1, $0.2).cgColor }
-        fillGradient.locations = (Fixture.themedGradient?.map(\.0) ?? Fixture.gradientStops.map(\.0)).map { NSNumber(value: Double($0 / (Fixture.gradientHeight * 2))) }
+        applyFillPalette()  // cmux: themed accent
         fillContainer.addSublayer(fillGradient)
         fillContainer.mask = fillMask
         connectorLine.backgroundColor = connector.strokeColor
@@ -496,8 +494,7 @@ final class RowCell: UICollectionViewCell {
                 d.backgroundColor = Fixture.typingDot.cgColor
                 d.sublayers?.first?.backgroundColor = Fixture.typingDotHighlight.cgColor
             }
-            fillGradient.colors = Fixture.themedGradient?.map { $0.1.cgColor }  // cmux: themed accent
-            ?? Fixture.gradientStops.map { Fixture.gradientColor($0.1, $0.2).cgColor }
+            applyFillPalette()  // cmux: colours and locations together (8 measured stops, 11 themed)
             CATransaction.commit()
             self.spec = nil
         }
@@ -629,7 +626,28 @@ final class RowCell: UICollectionViewCell {
         fillContainer.frame = CGRect(x: 0, y: 0, width: spec.width, height: spec.height + 2 * RowDraw.margin)
         fillMask.frame = body
         fillMask.path = BubblePath.cached(size: body.size, outgoing: true, tail: p.tail)
-        fillGradient.frame = CGRect(x: 0, y: -windowY, width: spec.width, height: Fixture.gradientHeight)
+        fillGradient.frame = fillFrame(width: spec.width)  // cmux: a pane taller than the measured window
+    }
+
+    /// cmux: the outgoing gradient's colours and their locations from one
+    /// stop list. A palette change that set only the colours left a cell
+    /// made under the measured palette (8 stops) with 11 themed colours.
+    private func applyFillPalette() {
+        let stops: [(CGFloat, CGColor)] = Fixture.themedGradient?.map { ($0.0, $0.1.cgColor) }
+            ?? Fixture.gradientStops.map { ($0.0, Fixture.gradientColor($0.1, $0.2).cgColor) }
+        fillGradient.colors = stops.map(\.1)
+        fillGradient.locations = stops.map { NSNumber(value: Double($0.0 / (Fixture.gradientHeight * 2))) }
+    }
+
+    /// cmux: the gradient layer in cell coordinates. It spans MessagesLab's
+    /// measured 1041 pt window, so in a taller pane a row whose fill would end
+    /// below that window takes the gradient's deepest band (the same colour
+    /// `Fixture.color(in:atPx:)` gives a static bitmap there) instead of
+    /// falling outside the layer and drawing with no fill under its text.
+    func fillFrame(width: CGFloat) -> CGRect {
+        let height = fillContainer.bounds.height
+        let span = max(Fixture.gradientHeight, height)
+        return CGRect(x: 0, y: -min(windowY, span - height), width: width, height: span)
     }
 
     /// Window y of the cell's top: the outgoing fill shades with it.
@@ -637,7 +655,7 @@ final class RowCell: UICollectionViewCell {
         didSet {
             guard windowY != oldValue, !fillContainer.isHidden else { return }
             CATransaction.begin(); CATransaction.setDisableActions(true)
-            fillGradient.frame.origin.y = -windowY
+            fillGradient.frame = fillFrame(width: fillGradient.frame.width)  // cmux: clamped to the pane
             CATransaction.commit()
         }
     }

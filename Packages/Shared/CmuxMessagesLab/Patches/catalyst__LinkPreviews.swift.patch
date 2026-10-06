@@ -1,6 +1,6 @@
 --- a/Sources/MessagesLabHome/Vendor/catalyst/LinkPreviews.swift
 +++ b/Sources/MessagesLabHome/Vendor/catalyst/LinkPreviews.swift
-@@ -27,7 +27,10 @@
+@@ -28,7 +28,10 @@
      /// Fetches running now (tests).
      var inFlight: Int { waiting.count }
      private let dir: URL = {
@@ -12,7 +12,7 @@
          try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
          return d
      }()
-@@ -40,6 +43,10 @@
+@@ -41,6 +44,10 @@
      }
      private struct Saved: Codable { var ok: Bool; var title: String?; var site: String?; var image: String? }
  

@@ -2,13 +2,14 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextSettings
+import CmuxNextWakeups
 import ImageIO
 import UniformTypeIdentifiers
 
 /// DEBUG ONLY. `debug.window_record` {dir, seconds (at most 8), window?}:
 /// the window as the window server composited it (`compositedSnapshot`,
-/// as `debug.window_snapshot`), once per display frame of its screen (the
-/// window's display link, 120 Hz on ProMotion), as JPEG frames
+/// as `debug.window_snapshot`), once per display frame of its screen (a
+/// FrameClient of the window's FrameScheduler, 120 Hz on ProMotion), as JPEG frames
 /// `DIR/frame-NNNNN.jpg` plus `DIR/frames.json` (index, host time in
 /// seconds since the first frame). Returns at once; the recording stops by
 /// itself. For before/after motion proof of the Home tab against
@@ -34,12 +35,13 @@ enum DebugWindowRecord {
         return .object(["dir": .string(dir), "seconds": .number(seconds)])
     }
 
-    private final class Recorder: NSObject {
+    @MainActor
+    private final class Recorder {
         let window: NSWindow
         let dir: URL
         let seconds: Double
         let done: () -> Void
-        private var link: CADisplayLink?
+        private var client: FrameClient?
         private var start0: CFTimeInterval?
         private var times: [Double] = []
         private let encoder = DispatchQueue(label: "debug.window_record", qos: .userInitiated)
@@ -52,17 +54,20 @@ enum DebugWindowRecord {
         }
 
         func start() {
-            let link = window.displayLink(target: self, selector: #selector(tick(_:)))
-            link.add(to: .main, forMode: .common)
-            self.link = link
+            let client = FrameClient(owner: "debug.window_record", isAnimation: false, on: .forWindow(window)) { [weak self] tick in
+                self?.tick(tick) ?? false
+            }
+            self.client = client
+            client.activate()
         }
 
-        @objc private func tick(_ link: CADisplayLink) {
-            let now = link.timestamp
+        /// One frame; false once the recording is over.
+        private func tick(_ tick: FrameTick) -> Bool {
+            let now = tick.timestamp
             let t0 = start0 ?? now
             start0 = t0
-            guard now - t0 <= seconds else { finish(); return }
-            guard let image = window.compositedSnapshot() else { return }
+            guard now - t0 <= seconds else { finish(); return false }
+            guard let image = window.compositedSnapshot() else { return true }
             let index = times.count
             times.append(now - t0)
             let url = dir.appendingPathComponent(String(format: "frame-%05d.jpg", index))
@@ -71,11 +76,11 @@ enum DebugWindowRecord {
                 CGImageDestinationAddImage(dest, image, [kCGImageDestinationLossyCompressionQuality: 0.85] as CFDictionary)
                 CGImageDestinationFinalize(dest)
             }
+            return true
         }
 
+        /// The client goes idle when `tick` returns false.
         private func finish() {
-            link?.invalidate()
-            link = nil
             let index = dir.appendingPathComponent("frames.json")
             let times = self.times
             encoder.async {

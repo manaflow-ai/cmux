@@ -240,7 +240,8 @@ enum PartRenderer {
                 UIColor(white: 1, alpha: 0.85).setFill()
                 tri.fill()
             }
-            drawSaveButton(ctx, body: body, outgoing: p.outgoing)
+            // cmux: an undelivered photo shows only the red badge (Messages); the button sat under it.
+            if !p.failed { drawSaveButton(ctx, body: body, outgoing: p.outgoing) }
         case "voiceMemo":
             fillBubble(ctx, shape, outgoing: p.outgoing, windowY: windowY)
             let fg: UIColor = p.outgoing ? Fixture.outgoingText : Fixture.incomingText  // cmux: themed (white by default)

@@ -1,6 +1,6 @@
 --- a/Sources/MessagesLabHome/Vendor/appkit-native/NativeScroll.swift
 +++ b/Sources/MessagesLabHome/Vendor/appkit-native/NativeScroll.swift
-@@ -320,7 +320,9 @@
+@@ -343,7 +343,9 @@
      var barRect: NSRect {
          guard let win = window else { return .zero }
          let k = rect(for: .knob)

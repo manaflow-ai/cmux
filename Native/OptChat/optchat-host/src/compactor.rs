@@ -13,14 +13,16 @@ use optchat_core::{
 };
 
 use crate::clock::Clock;
-use crate::files::FileStore;
+use crate::db::Db;
 use crate::model::{CompactModel, Followup, ModelError};
 use crate::report::{Report, Reporter};
 
 /// Everything behind the chat's one mutex.
 pub struct State {
     pub memory: Memory,
-    pub store: FileStore,
+    pub store: Db,
+    /// Messages appended since the last saved checkpoint.
+    pub appended: u64,
     /// Nodes whose last call failed, with their first error.
     pub failing: BTreeMap<NodeId, String>,
     pub closed: bool,
@@ -35,8 +37,19 @@ impl State {
         !self.closed && self.fatal.is_none()
     }
 
-    /// A write failed: the file may end in a partial line that the next
-    /// append would glue onto, so writing stops here. Load repairs it.
+    /// Saves where the memory stands (`db::checkpoint`); a failure costs
+    /// only a longer fold at the next start, so it is reported, not fatal.
+    pub fn save_checkpoint(&mut self) {
+        match crate::db::checkpoint::save(&mut self.store, &self.memory) {
+            Ok(()) => self.appended = 0,
+            Err(e) => self.reports.push(Report::Checkpoint {
+                error: e.to_string(),
+            }),
+        }
+    }
+
+    /// A write failed (its transaction rolled back): writing stops here
+    /// until a restart, which reopens the database.
     pub fn set_fatal(&mut self, error: String) {
         if self.fatal.is_none() {
             self.reports.push(Report::Fatal {
@@ -84,15 +97,18 @@ impl Shared {
 pub fn drive(shared: &Arc<Shared>, st: &mut State) {
     if st.writable() {
         let work = st.memory.pump(&st.store);
-        // Free nodes first: the core already counts them as built, and a model
-        // request built below reads them (as children or as view lines).
-        for w in &work {
-            if let Work::Free { node, text } = w {
-                if let Err(e) = st.store.append_node(*node, text) {
-                    st.set_fatal(format!("writing node {}: {e}", node.name()));
-                    break;
-                }
-            }
+        // Free nodes first, in one transaction: the core already counts them
+        // as built, and a model request built below reads them (as children
+        // or as view lines).
+        let free: Vec<(NodeId, &str)> = work
+            .iter()
+            .filter_map(|w| match w {
+                Work::Free { node, text } => Some((*node, text.as_str())),
+                Work::Model { .. } => None,
+            })
+            .collect();
+        if let Err(e) = st.store.append_nodes(&free) {
+            st.set_fatal(format!("writing {} free nodes: {e}", free.len()));
         }
         if st.writable() {
             for w in work {
@@ -143,13 +159,18 @@ fn job(shared: Arc<Shared>, request: CompactRequest) {
     }
     let error = match result {
         Ok(text) => {
-            if let Err(e) = st.store.append_node(node, &text) {
+            // The node and its completion: the row commits before the core
+            // counts it built, so a crash leaves it either stored or to build.
+            if let Err(e) = st.store.append_nodes(&[(node, &text)]) {
                 st.set_fatal(format!("writing node {}: {e}", node.name()));
                 shared.changed.notify_all();
                 return shared.unlock(st);
             }
             st.failing.remove(&node);
-            st.memory.complete(node, &text);
+            {
+                let s = &mut *st;
+                s.memory.complete_in(node, &text, &s.store);
+            }
             drive(&shared, &mut st);
             return shared.unlock(st);
         }

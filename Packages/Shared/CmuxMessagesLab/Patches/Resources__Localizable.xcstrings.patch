@@ -16,7 +16,7 @@
            }
          }
        }
-@@ -480,27 +480,183 @@
+@@ -514,27 +514,183 @@
      "menu.tapbackDetails": {
        "extractionState": "manual",
        "localizations": {
@@ -200,7 +200,7 @@
            }
          },
          "ja": {
-@@ -508,159 +664,1257 @@
+@@ -542,159 +698,1257 @@
              "state": "translated",
              "value": "ステッカーを添付…"
            }

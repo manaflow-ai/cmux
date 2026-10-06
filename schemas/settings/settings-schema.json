@@ -8948,6 +8948,55 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.attachments",
+        "text" : "Attachments"
+      },
+      "help" : {
+        "key" : "settings.home.keepLocation.help",
+        "text" : "When off, location data is removed from photos and videos before they are attached."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "home.attachments.keepLocation",
+      "keywords" : [
+        "gps",
+        "location",
+        "privacy",
+        "metadata",
+        "exif",
+        "attachments",
+        "photos"
+      ],
+      "kind" : "toggle",
+      "path" : [
+        "home",
+        "attachments",
+        "keepLocation"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "home",
+      "title" : {
+        "key" : "settings.home.keepLocation",
+        "text" : "Keep Location in Photos and Videos"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "keystroke",
         "click",
         "focus",
@@ -11106,7 +11155,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "84ff7f5c55ffbf0fb887a2eb30a199a22dda02fb8133f1ca1624efb51715b5b4",
+  "schema_hash" : "9bb88a276325bf7e1bdc8b9e6ec75d3b026eb7a66f69d049c9fcf22efa803d70",
   "sections" : [
     {
       "id" : "general",
@@ -11138,6 +11187,14 @@
       "title" : {
         "key" : "settings.section.browser",
         "text" : "Browser"
+      }
+    },
+    {
+      "id" : "home",
+      "symbol" : "house",
+      "title" : {
+        "key" : "settings.section.home",
+        "text" : "Home"
       }
     },
     {
