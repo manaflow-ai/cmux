@@ -61,6 +61,7 @@ struct BrowserReplKeyResendTests {
         // WebKit's own `copy:` and `paste:`, which Swift does not see.
         @objc(copy:) func countCopy(_ sender: Any?) { commands.append("copy:") }
         @objc(paste:) func countPaste(_ sender: Any?) { commands.append("paste:") }
+        @objc(cut:) func countCut(_ sender: Any?) { commands.append("cut:") }
     }
 
     private final class Loaded: NSObject, WKNavigationDelegate {
@@ -180,6 +181,25 @@ struct BrowserReplKeyResendTests {
         }
         #expect(routed == ["paste:", "selectAll:"])
         #expect(webView.commands == ["selectAll:"], "a routed Paste also ran the web view's own paste:")
+    }
+
+    // `cmux browser press` carries no REPL session: in a tab a session
+    // created (one with the page clipboard guard) its Meta+C, Meta+X and
+    // Meta+V must reach neither the system pasteboard (the web view's own
+    // copy:, cut:, paste:) nor any session's virtual clipboard. A person's
+    // Command-C in that tab is not a `cmux browser press` and keeps the
+    // web view's own action.
+    @Test func cmuxBrowserPressRunsNoClipboardCommandInASessionTab() async throws {
+        let webView = try await load("<input id=i value=abc><script>\(Self.countKeys)</script>")
+        BrowserReplPageClipboard(shim: try BrowserReplPasteboardRedirectTests.PageScripts.shim()).install(on: webView) { _, _ in true }
+        try await Self.withAppDroppingResends {
+            try press(["Meta", "c"], in: webView)
+            try press(["Meta", "x"], in: webView)
+            try press(["Meta", "v"], in: webView)
+            try press(["Meta", "a"], in: webView)
+            try await settle(webView, keys: 8)
+        }
+        #expect(webView.commands == ["selectAll:"], "cmux browser press ran a clipboard command in a session's tab: \(webView.commands)")
     }
 
     // The mobile browser stream replays a person's keys from their phone
