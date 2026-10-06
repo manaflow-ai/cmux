@@ -145,7 +145,7 @@ test("a decoy Share label never shows a shared file as private", async () => {
 
 // Crafted exports (a shared file's owner controls what Google exports):
 // the xlsx/pptx reader bounds the ZIP it unzips (site-tools.md, "Editing
-// Google files"): 10,000 entries, 32 MiB per entry, 64 MiB in all, and
+// Google files"): 10,000 entries, 64 MiB per entry and in all, and
 // an entry never decompresses past its declared size.
 const MiB = 1024 * 1024;
 const WORKBOOK = [
@@ -158,10 +158,25 @@ async function cellsFailure(exportBody) {
   return s.value(`sites.googleSheets.cells(${JSON.stringify(url)}).then((r) => ({ ok: r }), (e) => ({ code: e.code, message: e.message }))`);
 }
 
-test("googleSheets.cells refuses an entry that inflates past 32 MiB (a high-ratio export)", async () => {
-  const r = await cellsFailure(zip([...WORKBOOK, ["xl/worksheets/sheet1.xml", Buffer.alloc(40 * MiB, 0x20)]]));
+test("googleSheets.cells refuses an entry that inflates past 64 MiB (a high-ratio export)", async () => {
+  const r = await cellsFailure(zip([...WORKBOOK, ["xl/worksheets/sheet1.xml", Buffer.alloc(70 * MiB, 0x20)]]));
   assert.equal(r.code, "limit", JSON.stringify(r).slice(0, 300));
-  assert.match(r.message, /xl\/worksheets\/sheet1\.xml.*33554432 bytes/);
+  assert.match(r.message, /xl\/worksheets\/sheet1\.xml declares \d+ bytes.*67108864 bytes per entry/);
+});
+
+test("googleSheets.cells reads one entry of 40 MiB (under the per-entry cap)", async () => {
+  const big = '<worksheet><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>big</t></is></c></row></sheetData></worksheet>' + " ".repeat(40 * MiB);
+  const r = await cellsFailure(zip([...WORKBOOK, ["xl/worksheets/sheet1.xml", big]]));
+  assert.deepEqual(r.ok && r.ok.cells, [{ cell: "A1", value: "big" }], JSON.stringify(r).slice(0, 300));
+});
+
+test("googleSlides.slides stops a pptx entry at its declared size (the same bounded reader)", async () => {
+  const slide = "<p:sld><p:cSld><p:spTree><p:sp><p:txBody><a:p><a:r><a:t>x</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>" + " ".repeat(20 * MiB);
+  const id = env.state.editors.add({ kind: "presentation", title: "crafted deck", shared: true, slides: [{ id: "g0", title: "", body: [], notes: "" }], exportBody: zip([["ppt/slides/slide1.xml", slide, { size: 100 }]]) });
+  const url = `https://docs.google.com/presentation/d/${id}/edit`;
+  const r = await s.value(`sites.googleSlides.slides(${JSON.stringify(url)}).then((r) => ({ ok: r }), (e) => ({ code: e.code, message: e.message }))`);
+  assert.equal(r.code, "limit", JSON.stringify(r).slice(0, 300));
+  assert.match(r.message, /^googleSlides\.slides: ppt\/slides\/slide1\.xml decompresses past its declared size of 100 bytes/);
 });
 
 test("googleSheets.cells stops an entry at its declared size (a lying header)", async () => {
