@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextDaemon
+import CmuxNextMobileConnect
 import Observation
 
 extension AppServices {
@@ -39,6 +40,10 @@ extension AppServices {
         // The phone link runs as this Mac's install for the signed-in account.
         mobile.link.accountProvider = { name in
             CloudMobileLinkAccount.make(auth: cloud.auth, apiBaseURL: apiBaseURL, launch: launch, macName: name)
+        }
+        mobile.link.servicesProvider = { [weak self] setting in
+            guard let self else { return MobileLinkServices() }
+            return AppMobileLinkServices.make(self, setting: setting)
         }
         return Task { [weak self] in
             var account: String?

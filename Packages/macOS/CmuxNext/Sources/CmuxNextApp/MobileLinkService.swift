@@ -12,6 +12,8 @@ final class MobileLinkService {
     /// The install principal for the signed-in account, given the Mac's name;
     /// nil while signed out.
     var accountProvider: (@MainActor (String) -> (any MobileLinkHostAccount)?)?
+    /// The app's files, git, browser, remote desktop, tunnel, simulator and task services (D1b).
+    var servicesProvider: (@MainActor (MobileLinkSetting) -> MobileLinkServices)?
     private var runner: MobileLinkHostRunner?
     private var starting: Task<Void, Never>?
     /// Bumped by every start and stop; a start that lost the race drops out.
@@ -32,6 +34,7 @@ final class MobileLinkService {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         let keys = support.appendingPathComponent(namespace, isDirectory: true).appendingPathComponent("mobile-link", isDirectory: true)
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
+        let linkServices = servicesProvider?(setting) ?? MobileLinkServices()
         starting = Task { [weak self, logger] in
             let name = await MacName.computerName()
             guard let self, self.generation == current, !Task.isCancelled else { return }
@@ -42,7 +45,8 @@ final class MobileLinkService {
             let runner = MobileLinkHostRunner(
                 account: account,
                 options: MobileLinkHostOptions(macName: name, appVersion: version,
-                                               wireGuardOverWebRTC: setting.wireGuardOverWebRTC, keyDirectory: keys),
+                                               wireGuardOverWebRTC: setting.wireGuardOverWebRTC, keyDirectory: keys,
+                                               services: linkServices),
                 endpointProvider: { @MainActor in try await daemon.endpoint() })
             self.runner = runner
             do {
