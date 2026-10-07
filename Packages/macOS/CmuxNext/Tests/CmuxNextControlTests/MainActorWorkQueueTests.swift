@@ -100,6 +100,9 @@ import Testing
             let value = try await queue.run(method: "debug.remote_browser", deadline: .now + .seconds(5)) { 42 }
             reply.withLock { $0 = value }
         }
+        // NSApplication makes the tracking mode a common mode; this headless
+        // test process has no NSApplication, so do the same here.
+        CFRunLoopAddCommonMode(CFRunLoopGetMain(), CFRunLoopMode(RunLoop.Mode.eventTracking.rawValue as CFString))
         // Keep the tracking mode non-empty, as the menu's own sources do.
         let keepAlive = Timer(timeInterval: 0.01, repeats: true) { _ in }
         RunLoop.main.add(keepAlive, forMode: .eventTracking)
