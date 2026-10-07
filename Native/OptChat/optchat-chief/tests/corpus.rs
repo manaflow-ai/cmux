@@ -406,6 +406,64 @@ fn run_outbox(case: &Value) -> Result<Outcome, String> {
     )
 }
 
+/// The corpus's `policy` cases through optchat-chief's entry points: its
+/// settings file reader, its harness gate, and the shared turn-policy and
+/// spawn-floor rules its brain calls (brain/turns.rs, brain/approvals.rs).
+fn policy_result(function: &str, args: &Value) -> Value {
+    let flag = |key: &str| args[key].as_bool().unwrap();
+    match function {
+        "remote_auto_approve" => {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("settings.json");
+            if !args["settings"].is_null() {
+                std::fs::write(&path, args["settings"].to_string()).unwrap();
+            }
+            json!(optchat_chief::chief_settings::ChiefSettings::load(&path).remote_auto_approve)
+        }
+        "turn_policy" => json!(cmux_chief::policy::turn_policy(
+            flag("remote"),
+            flag("auto_approve"),
+            args["configured"].as_str().unwrap()
+        )),
+        "spawn_floor" => json!(cmux_chief::policy::spawn_floor(
+            flag("auto_approve"),
+            flag("turn_ask"),
+            flag("ask_child_live"),
+            flag("ask_subagent_live")
+        )),
+        "harness_admit" => match optchat_chief::harness_gate::admit(
+            &args["answer"],
+            args["requested"].as_str().unwrap(),
+        ) {
+            Ok(a) => {
+                let family = match a.family {
+                    optchat_chief::acpmux::Family::Claude => "claude",
+                    optchat_chief::acpmux::Family::Codex => "codex",
+                    optchat_chief::acpmux::Family::Other => "other",
+                };
+                json!({"admitted": {"profile": a.profile, "kind": a.kind, "argv0": a.argv0, "family": family}})
+            }
+            Err(refused) => json!({ "refused": refused }),
+        },
+        other => panic!("unknown policy function {other}"),
+    }
+}
+
+#[test]
+fn the_shared_policy_cases_hold_for_optchat_chief() {
+    let corpus: Value = serde_json::from_str(CORPUS).unwrap();
+    let cases = corpus["policy"].as_array().cloned().unwrap_or_default();
+    assert!(!cases.is_empty(), "the corpus has no policy cases");
+    let failures: Vec<String> = cases
+        .iter()
+        .filter_map(|c| {
+            let got = policy_result(c["fn"].as_str().unwrap(), &c["args"]);
+            (got != c["result"]).then(|| format!("{}: want {} got {got}", c["name"], c["result"]))
+        })
+        .collect();
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
 #[test]
 fn the_shared_behavior_corpus_holds_for_optchat_chief() {
     let corpus: Value = serde_json::from_str(CORPUS).unwrap();

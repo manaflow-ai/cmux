@@ -263,3 +263,66 @@ body {
 .gallery-play--warn {
   color: #c69026;
 }
+/* The served commit (Revision) above the filter. */
+.gallery-revision {
+  margin: 0 2px 8px;
+  font-size: 11px;
+  color: var(--g-muted);
+}
+.gallery-revision a {
+  color: inherit;
+}
+.gallery-revision-live {
+  color: #3fb950;
+  font-weight: 600;
+}
+/* Compile errors outside the shell, and entry files that do not load (ErrorBanner). */
+.gallery-banner {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  margin: 0 -16px;
+  padding: 8px 16px;
+  background: #b62324;
+  color: #fff;
+  font-size: 12px;
+}
+/* One entry's failure (EntryBoundary): in the list (compact) and in the main area. */
+.gallery-entry-error {
+  margin: 4px 10px 8px;
+  padding: 8px 10px;
+  border: 1px solid #e5534b;
+  border-radius: 6px;
+  background: color-mix(in srgb, #e5534b 10%, transparent);
+}
+main .gallery-entry-error {
+  margin: 16px 0;
+}
+.gallery-entry-error-title {
+  font-weight: 600;
+  color: #e5534b;
+}
+.gallery-entry-error-title code {
+  font-weight: 400;
+  color: var(--g-text);
+  word-break: break-all;
+}
+.gallery-entry-error-line {
+  margin-top: 2px;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gallery-entry-error pre {
+  margin: 8px 0;
+  font: 12px/1.45 ui-monospace, monospace;
+  white-space: pre-wrap;
+  overflow: auto;
+  max-height: 60vh;
+}
+.gallery-entry-loading {
+  color: var(--g-muted);
+}
+/* Comparison previews keep their real thumbnail width; the shared picker scrolls the row. */
+.gallery .variant-pick-option { flex: 0 0 auto; }

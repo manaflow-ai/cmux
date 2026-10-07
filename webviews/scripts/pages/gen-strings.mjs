@@ -64,6 +64,10 @@ export const PAGES = {
       { file: "Resources/Localizable.xcstrings", keys: (all) => all.filter((key) => key.startsWith("diffViewer.")) },
     ],
   },
+  variantPick: {
+    out: "webviews/src/ui/variant-pick/generated/strings.json",
+    catalogs: [{ file: "webviews/src/ui/variant-pick/Localizable.xcstrings" }],
+  },
   // Every key the settings schema names (CmuxNextSettings catalog), every `settingsPage.` and
   // `settingsWindow.` key (CmuxNextSettingsWindow catalog); merged from the Settings lead's generate-strings.mjs with the
   // same output.

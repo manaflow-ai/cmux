@@ -28,7 +28,8 @@
     "verify:tanstack-router": "node scripts/verify-tanstack-router-security.mjs",
     "react-doctor": "react-doctor . --full --no-score --fail-on none",
     "react-doctor:ci": "react-doctor . --full --no-score --fail-on none",
-    "gallery:build": "vp build --config vite.config.gallery.ts"
+    "gallery:build": "vp build --config vite.config.gallery.ts",
+    "gallery:dev": "vp dev --config vite.config.gallery-dev.ts"
   },
   "dependencies": {
     "@base-ui/react": "1.8.0",
