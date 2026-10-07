@@ -42,4 +42,10 @@ public protocol ConversationBackend: AnyObject, Sendable {
     func markRead(upToSeq: Int) async
     func uploadImage(_ data: Data, mimeType: String) async throws -> ConversationAttachment
     func close()
+    /// Fetches rich link metadata for `url` (composer preview, tap to load).
+    func linkPreview(for url: URL) async throws -> ConversationLinkPreview?
+}
+
+public extension ConversationBackend {
+    func linkPreview(for url: URL) async throws -> ConversationLinkPreview? { nil }
 }

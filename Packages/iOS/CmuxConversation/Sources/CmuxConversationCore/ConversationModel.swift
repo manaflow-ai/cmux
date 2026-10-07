@@ -119,6 +119,8 @@ public struct ConversationMessage: Sendable, Hashable, Identifiable {
     public var reactions: [ConversationReactionMark]
     public var attachments: [ConversationAttachment]
     public var delivery: ConversationDelivery?
+    /// Rich link card for the URL that opens or ends `text`, if any.
+    public var linkPreview: ConversationLinkPreview?
 
     public init(
         id: String,
@@ -132,7 +134,8 @@ public struct ConversationMessage: Sendable, Hashable, Identifiable {
         editedAt: Date? = nil,
         reactions: [ConversationReactionMark] = [],
         attachments: [ConversationAttachment] = [],
-        delivery: ConversationDelivery? = nil
+        delivery: ConversationDelivery? = nil,
+        linkPreview: ConversationLinkPreview? = nil
     ) {
         self.id = id
         self.seq = seq
@@ -146,6 +149,7 @@ public struct ConversationMessage: Sendable, Hashable, Identifiable {
         self.reactions = reactions
         self.attachments = attachments
         self.delivery = delivery
+        self.linkPreview = linkPreview
     }
 
     /// Identity that survives the pending to acknowledged transition, so the

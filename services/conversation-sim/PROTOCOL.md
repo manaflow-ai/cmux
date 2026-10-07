@@ -26,6 +26,7 @@ process and keep growing.
 | `edit` | `{messageId, text}` | `{message: Message}` |
 | `typing` | `{isTyping: Bool}` | `{}` |
 | `markRead` | `{upToSeq: Int}` | `{}` |
+| `unfurl` | `{url}` | `{linkPreview: LinkPreview}` |
 
 `history` with `beforeSeq: null` returns the newest page. Messages are sorted
 ascending by `seq`. `send` is idempotent on `clientMessageId`: a retry returns
@@ -60,6 +61,11 @@ Message {
   reactions: [{participantId, reaction}],
   attachments: [{id, kind: "image", width, height, url}],
   status?: "sent"|"delivered"|"read", readAt?    // only on my messages
+  linkPreview?: LinkPreview   // when a URL opens or ends `text`
+}
+LinkPreview {
+  url, title?, siteName?, state: "loaded"|"loading"|"tapToLoad",
+  image?: {url, width, height}, icon?: {url, width, height}
 }
 Reaction = "heart"|"thumbsup"|"thumbsdown"|"haha"|"exclamation"|"question"
 ```
@@ -75,7 +81,19 @@ Reaction = "heart"|"thumbsup"|"thumbsdown"|"haha"|"exclamation"|"question"
   messages rapidly (pressure testing).
 - `POST /admin/disconnect`: drop every socket (reconnect testing).
 - `POST /admin/knobs` JSON `{latencyScale, failRate, historyFailRate,
-  duplicateRate, disconnectEverySeconds, botIntervalScale}`.
+  duplicateRate, disconnectEverySeconds, botIntervalScale, botLinkRate}`.
+
+## Link previews
+
+Messages turns a URL that opens or ends a message into a rich link card; a URL
+in the middle stays inline text. The server attaches `linkPreview` to such
+messages from canned, offline metadata (`links.ts`: GitHub PRs/issues/repo,
+apple.com/iphone, YouTube, Spotify, Wikipedia, Hacker News) and a bare domain
+card for anything else. Images are procedural PNGs at `/media/og_*.png`.
+Messages from senders in `STRANGERS` (env, comma separated, default `austin`)
+carry only `{url, state: "tapToLoad"}`; the client fetches the card with
+`unfurl` when tapped. `unfurl` also backs the composer's pending preview
+(300 to 1200 ms latency). Bots send link messages at `botLinkRate`.
 
 ## Simulated traffic
 

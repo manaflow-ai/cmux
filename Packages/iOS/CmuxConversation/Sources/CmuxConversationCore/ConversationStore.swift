@@ -215,6 +215,12 @@ public final class ConversationStore {
         if incoming.attachments.isEmpty, !existing.attachments.isEmpty, incoming.seq == nil {
             result.attachments = existing.attachments
         }
+        // A preview loaded here (composer, tap to load) outlives an echo that lacks it.
+        if let local = existing.linkPreview, local.state != .tapToLoad,
+           incoming.linkPreview == nil || (incoming.linkPreview?.state == .tapToLoad && incoming.linkPreview?.url == local.url),
+           ConversationLinkSplit.split(text: incoming.text, preview: local) != nil {
+            result.linkPreview = local
+        }
         return result
     }
 
@@ -403,7 +409,7 @@ public final class ConversationStore {
 
     /// Appends the optimistic row at once, then uploads and sends.
     @discardableResult
-    public func send(text: String, images: [(data: Data, width: Int, height: Int, mimeType: String)] = [], replyToID: String? = nil) -> String? {
+    public func send(text: String, images: [(data: Data, width: Int, height: Int, mimeType: String)] = [], replyToID: String? = nil, linkPreview: ConversationLinkPreview? = nil) -> String? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard (!trimmed.isEmpty || !images.isEmpty), let meID else { return nil }
         let clientID = makeClientMessageID()
@@ -426,7 +432,8 @@ public final class ConversationStore {
             text: trimmed,
             replyToID: replyToID,
             attachments: attachments,
-            delivery: .sending
+            delivery: .sending,
+            linkPreview: linkPreview
         )
         upsert(pending)
         sortAndReindex()
@@ -501,6 +508,29 @@ public final class ConversationStore {
         messages[index].delivery = .failed(reason)
         failedAnchorSeq[messages[index].id] = messages.last { $0.seq != nil }?.seq ?? 0
         notify(.live(insertedRowIDs: [], sentByMe: true))
+    }
+
+    // MARK: Link previews
+
+    /// Composer preview for a URL being typed, fetched through the backend.
+    public func fetchLinkPreview(for url: URL) async -> ConversationLinkPreview? {
+        try? await backend.linkPreview(for: url)
+    }
+
+    /// Tap to Load Preview: fetches the card for a message from an unknown sender.
+    public func loadLinkPreview(messageID: String) {
+        guard let index = indexByID[messageID], let preview = messages[index].linkPreview, preview.state == .tapToLoad else { return }
+        messages[index].linkPreview?.state = .loading
+        notify(.live(insertedRowIDs: [], sentByMe: false))
+        Task { [weak self] in
+            guard let self else { return }
+            let loaded = try? await self.backend.linkPreview(for: preview.url)
+            guard let index = self.indexByID[messageID] else { return }
+            var result = loaded ?? ConversationLinkPreview(url: preview.url)
+            result.state = .loaded
+            self.messages[index].linkPreview = result
+            self.notify(.live(insertedRowIDs: [], sentByMe: false))
+        }
     }
 
     // MARK: Reactions, typing, read

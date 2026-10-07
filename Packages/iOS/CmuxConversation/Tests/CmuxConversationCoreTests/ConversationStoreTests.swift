@@ -332,6 +332,9 @@ final class ScriptedBackend: ConversationBackend, @unchecked Sendable {
         ConversationAttachment(id: "up", kind: .image, width: 10, height: 10, url: nil)
     }
     func close() {}
+    private var _linkPreviews: [URL: ConversationLinkPreview] = [:]
+    var linkPreviews: [URL: ConversationLinkPreview] { get { lock.withLock { _linkPreviews } } set { lock.withLock { _linkPreviews = newValue } } }
+    func linkPreview(for url: URL) async throws -> ConversationLinkPreview? { linkPreviews[url] }
 }
 
 @MainActor

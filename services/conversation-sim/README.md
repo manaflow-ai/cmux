@@ -11,7 +11,8 @@ bun run services/conversation-sim/selftest.ts        # boots its own server on a
 
 Env: `PORT`, `HOST`, `SEED` (history seed, default 1337), `LOG=verbose` (log
 every RPC and media fetch), `EVENT_LOG_CAP` (default 50000),
-`GROUP_MESSAGES` / `DIRECT_MESSAGES` (default 20000 / 5000).
+`GROUP_MESSAGES` / `DIRECT_MESSAGES` (default 20000 / 5000), `STRANGERS`
+(participant ids whose links arrive as Tap to Load Preview, default `austin`).
 
 Connect a simulator or the DEBUG app to `ws://127.0.0.1:4870/ws?conversation=group`
 (or `conversation=direct`). From a physical device use the Mac's LAN or
@@ -30,6 +31,7 @@ connected with, so they resolve from the same network path.
 | `duplicateRate` | 0.02 | each `event` notification is sent twice |
 | `disconnectEverySeconds` | 240 | each socket is dropped at a jittered 0.5x to 1.5x interval; 0 disables |
 | `botIntervalScale` | 1 | multiplies bot pacing (typing, replies, tapbacks); large values silence bots |
+| `botLinkRate` | 0.05 | share of live bot messages that are links (cards, inline URLs, phone numbers, addresses) |
 
 ## Pressure CLI
 

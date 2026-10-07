@@ -3,6 +3,7 @@
 import type { ServerWebSocket } from "bun";
 import { mulberry32, proceduralPNG, sniffImageSize } from "./png";
 import { editedText, imageSize, messageText, pick, randInt, replyText, type Rng } from "./corpus";
+import { LINK_MESSAGES, type LinkPreview, previewImages, previewURL, unfurl } from "./links";
 
 // ---------------------------------------------------------------- types
 
@@ -66,6 +67,8 @@ const EVENT_LOG_CAP = Number(process.env.EVENT_LOG_CAP ?? 50_000);
 const REPLAY_LIMIT = 500;
 const GROUP_COUNT = Number(process.env.GROUP_MESSAGES ?? 20_000);
 const DIRECT_COUNT = Number(process.env.DIRECT_MESSAGES ?? 5_000);
+// Senders not in my contacts: their links arrive as "Tap to Load Preview".
+const STRANGERS = new Set((process.env.STRANGERS ?? "austin").split(",").filter(Boolean));
 
 const knobs = {
   latencyScale: 1,
@@ -74,6 +77,7 @@ const knobs = {
   duplicateRate: 0.02,
   disconnectEverySeconds: 240,
   botIntervalScale: 1,
+  botLinkRate: 0.05,
 };
 type Knobs = typeof knobs;
 
@@ -397,6 +401,41 @@ function wireMessage(m: Message, base: string) {
   if (m.editedAt) out.editedAt = m.editedAt;
   if (m.status) out.status = m.status;
   if (m.readAt) out.readAt = m.readAt;
+  const preview = linkPreviewFor(m);
+  if (preview) out.linkPreview = wireLinkPreview(preview, base);
+  return out;
+}
+
+// ---------------------------------------------------------------- link previews
+
+const unfurlCache = new Map<string, LinkPreview>();
+function unfurlCached(url: string): LinkPreview {
+  let p = unfurlCache.get(url);
+  if (!p) {
+    p = unfurl(url);
+    for (const img of previewImages(p)) {
+      if (!media.has(img.id)) media.set(img.id, { width: img.width, height: img.height, ext: "png", mime: "image/png" });
+    }
+    unfurlCache.set(url, p);
+    if (unfurlCache.size > 2000) unfurlCache.delete(unfurlCache.keys().next().value!);
+  }
+  return p;
+}
+
+function linkPreviewFor(m: Message): LinkPreview | undefined {
+  const url = previewURL(m.text);
+  if (!url) return undefined;
+  if (STRANGERS.has(m.senderId)) return { url, state: "tapToLoad" };
+  return unfurlCached(url);
+}
+
+function wireLinkPreview(p: LinkPreview, base: string) {
+  const image = (i: LinkPreview["image"]) => i && { url: `${base}/media/${i.id}.png`, width: i.width, height: i.height };
+  const out: Record<string, unknown> = { url: p.url, state: p.state ?? "loaded" };
+  if (p.title) out.title = p.title;
+  if (p.siteName) out.siteName = p.siteName;
+  if (p.image) out.image = image(p.image);
+  if (p.icon) out.icon = image(p.icon);
   return out;
 }
 
@@ -485,6 +524,11 @@ async function handleRpc(conn: Conn, rpcId: unknown, method: string, p: any): Pr
       if (typeof p?.isTyping !== "boolean") throw invalid("isTyping");
       vlog(`typing conn=${conn.id} ${p.isTyping}`);
       return {};
+    case "unfurl": {
+      if (typeof p?.url !== "string" || !/^https?:\/\//i.test(p.url)) throw invalid("url");
+      await sleep(lat(300, 1200));
+      return { linkPreview: wireLinkPreview(unfurlCached(p.url), conn.base) };
+    }
     case "markRead":
       if (!Number.isInteger(p?.upToSeq)) throw invalid("upToSeq");
       store.lastReadSeq = Math.max(store.lastReadSeq, Math.min(p.upToSeq, store.headSeq));
@@ -586,6 +630,7 @@ async function botReply(store: Store, mine: Message) {
 function randomBotMessage(store: Store): { text: string; opts: Partial<Message> } {
   const opts: Partial<Message> = {};
   let text = messageText(R);
+  if (R() < knobs.botLinkRate) return { text: pick(R, LINK_MESSAGES), opts };
   if (R() < 0.04) {
     const [w, h] = imageSize(R);
     const id = `img_${store.conv.id}_live_${crypto.randomUUID().slice(0, 8)}`;
