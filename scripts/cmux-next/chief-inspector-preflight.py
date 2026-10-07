@@ -190,6 +190,8 @@ proc = None
 try:
     seed()
     proc = launch()
+    # The tag's app session keeps the last shown place: show Home, which starts the Chief.
+    wait(lambda: rpc("action.run", {"id": "home.show"}).get("ran"), 60, 1)
     info = os.path.join(CHIEF, "optchat", "inspector.json")
     endpoint = wait(lambda: os.path.exists(info) and json.load(open(info)), 180, 1)
     note("inspector.json", present=bool(endpoint), url=(endpoint or {}).get("url"))
