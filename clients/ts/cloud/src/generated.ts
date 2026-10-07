@@ -8,6 +8,27 @@ export interface MutationResult<T> {
   readonly replayed: boolean
 }
 
+/** A Live Activity, named by the device that started it. */
+export type ActivityId = string
+
+/** What a Live Activity follows: a task or a terminal on one host. */
+export type ActivitySubject = {
+  readonly host: string
+  readonly task?: string
+  readonly terminal?: string
+}
+
+/** One Live Activity's push-to-update registration. */
+export type ActivityTarget = {
+  readonly activity: ActivityId
+  readonly install: string
+  readonly push_token: PushToken
+  readonly subject: ActivitySubject
+  readonly title: string
+  readonly started_at: number
+  readonly registered_at: number
+}
+
 /** HMAC id of a normalized email or phone; never the raw address. */
 export type AddressId = string
 
@@ -702,6 +723,13 @@ export type PublicJwk = {
   readonly crv: "P-256"
   readonly x: string
   readonly y: string
+}
+
+/** One device's push preferences. */
+export type PushPrefs = {
+  readonly kinds: ReadonlyArray<"permission" | "question" | "planApproval" | "finished" | "terminalAlert">
+  readonly sound: boolean
+  readonly time_sensitive: boolean
 }
 
 /** One device's APNs registration. */
@@ -2404,6 +2432,27 @@ export interface CloudOps {
       }>
     }
   }
+  /** The Live Activity ended on the device: stop updating it. */
+  readonly "notify.activity.end": {
+    readonly params: {
+      readonly activity: ActivityId
+    }
+    readonly result: {
+      readonly activity: ActivityId
+      readonly ended: boolean
+    }
+  }
+  /** Register a Live Activity's push token (a new token for the same activity replaces the old one). */
+  readonly "notify.activity.register": {
+    readonly params: {
+      readonly activity: ActivityId
+      readonly push_token: PushToken
+      readonly subject: ActivitySubject
+      readonly title?: string
+      readonly started_at?: number
+    }
+    readonly result: ActivityTarget
+  }
   /** Add a user who shares a team with you or is connected to you, when their allow_requests_from setting allows it, or a chief its reachability allows (max 64). Anyone else needs invite.create. At most 120 per hour per caller (home.rate_limited, with details.retry_after_ms); home.user_not_ready (not retryable) until the caller ran user.ensure once. */
   readonly "participants.add": {
     readonly params: {
@@ -2419,6 +2468,11 @@ export interface CloudOps {
       readonly participant: ParticipantId
     }
     readonly result: HomeConversationCommit
+  }
+  /** Set the calling iPhone or iPad install's push preferences (kinds, sound, time-sensitive); the feed owner filters by them. */
+  readonly "push.prefs.set": {
+    readonly params: Readonly<Record<string, never>>
+    readonly result: PushPrefs
   }
   /** Register the calling iPhone or iPad install's APNs token (replaces the install's earlier token). */
   readonly "push.target.register": {
@@ -3092,8 +3146,11 @@ export const cloudOpMeta = {
   "mux.ack": { class: "mutation", owner: "cloud:MuxDO", risk: "mutate-own" },
   "mux.configure": { class: "mutation", owner: "cloud:MuxDO", risk: "mutate-own" },
   "network.list": { class: "read", owner: "cloud:UserDO", risk: "read" },
+  "notify.activity.end": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
+  "notify.activity.register": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "participants.add": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
   "participants.remove": { class: "mutation", owner: "cloud:ConversationDO", risk: "destructive" },
+  "push.prefs.set": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "push.target.register": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "push.target.remove": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "reaction.add": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },

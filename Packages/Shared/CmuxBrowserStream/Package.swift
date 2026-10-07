@@ -5,7 +5,8 @@ import PackageDescription
 // (plans/cmux-next/ios-next/c2-browser-stream.md): the cmux.rd/1 and
 // cmux.rb/1 wire in Swift (datagram header, frame bodies, feedback, input
 // packets, rb messages), the packetizer and reassembler, H.264 Annex-B
-// helpers, and the phone-side client of one `browser` channel over CmuxLink.
+// helpers, and the phone-side client of one `browser` channel on the
+// phone's per-Mac `MobileLinkClient` (CmuxMobileLink).
 // No UIKit, no AppKit: the Mac handler (CmuxMobileHost) and the iOS screen
 // (CmuxiOSBrowser) both build on it.
 let package = Package(
@@ -14,6 +15,7 @@ let package = Package(
     products: [.library(name: "CmuxBrowserStream", targets: ["CmuxBrowserStream"])],
     dependencies: [
         .package(path: "../CmuxLink"),
+        .package(path: "../CmuxMobileLink"),
         .package(path: "../CmuxMobileWire"),
     ],
     targets: [
@@ -21,6 +23,7 @@ let package = Package(
             name: "CmuxBrowserStream",
             dependencies: [
                 .product(name: "CmuxLink", package: "CmuxLink"),
+                .product(name: "CmuxMobileLink", package: "CmuxMobileLink"),
                 .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
             ]
         ),
@@ -30,6 +33,7 @@ let package = Package(
                 "CmuxBrowserStream",
                 .product(name: "CmuxLink", package: "CmuxLink"),
                 .product(name: "CmuxLinkTesting", package: "CmuxLink"),
+                .product(name: "CmuxMobileLink", package: "CmuxMobileLink"),
                 .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
             ]
         ),

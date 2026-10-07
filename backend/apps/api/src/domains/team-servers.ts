@@ -1,3 +1,4 @@
+import { guestOf } from "./team-guests.ts"
 import type { ReduceContext } from "@cmux/ownership"
 import { ServerRevoke, type Host } from "@cmux/protocol"
 import { decodeParams, reject } from "./common.ts"
@@ -136,8 +137,11 @@ export interface HostAccess {
  */
 export const hostAccessFor = (state: TeamState, rows: RowReader | undefined, host: string, p: { user?: string; install?: string; kind?: string; agent?: string }): HostAccess | null => {
   const h = hostOf(state, rows, host)
-  if (!h || !p.user || !memberOf(state, rows, p.user) || state.server_revocations?.[h.enrolled_by]) return null
+  if (!h || !p.user || state.server_revocations?.[h.enrolled_by]) return null
   const summary = { id: h.id, name: h.name, platform: h.platform, owner_user: h.owner_user, enrolled_by: h.enrolled_by }
+  // A guest device the host owner accepted (b6-pairing.md 4.2): admitted as a device, never as a chief.
+  const guest = guestOf(state, host, p.install)
+  if (!memberOf(state, rows, p.user)) return guest && guest.user === p.user && p.kind === "install" && !p.agent ? { role: "device", host: summary } : null
   if (p.kind === "install" && !p.agent && p.install === h.enrolled_by) return { role: "host", host: summary }
   return p.agent ? null : { role: "device", host: summary }
 }

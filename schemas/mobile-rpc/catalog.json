@@ -36,10 +36,13 @@
         { "name": "workspace.tab.upsert", "kind": "owner", "plane": "control", "dir": "s2c", "owner": "mac-workspace-store" },
         { "name": "workspace.tab.remove", "kind": "owner", "plane": "control", "dir": "s2c", "owner": "mac-workspace-store" },
         { "name": "workspace.status.set", "kind": "owner", "plane": "control", "dir": "s2c", "owner": "mac-workspace-store" },
+        { "name": "workspace.preview.set", "kind": "owner", "plane": "control", "dir": "s2c", "owner": "mac-workspace-store" },
         { "name": "workspace.create", "kind": "op", "plane": "control", "dir": "c2s", "owner": "mac-workspace-store" },
         { "name": "workspace.rename", "kind": "op", "plane": "control", "dir": "c2s", "owner": "mac-workspace-store", "errors": ["workspace.not_found"] },
         { "name": "workspace.tab.create", "kind": "op", "plane": "control", "dir": "c2s", "owner": "mac-workspace-store", "errors": ["workspace.not_found"] },
-        { "name": "workspace.tab.close", "kind": "op", "plane": "control", "dir": "c2s", "owner": "mac-workspace-store", "errors": ["workspace.tab_not_found"] }
+        { "name": "workspace.tab.close", "kind": "op", "plane": "control", "dir": "c2s", "owner": "mac-workspace-store", "errors": ["workspace.tab_not_found"] },
+        { "name": "workspace.close", "kind": "op", "plane": "control", "dir": "c2s", "owner": "mac-workspace-store", "errors": ["workspace.not_found"] },
+        { "name": "workspace.read", "kind": "op", "plane": "control", "dir": "c2s", "owner": "mac-workspace-store", "errors": ["workspace.not_found"] }
       ]
     },
     {
@@ -86,12 +89,13 @@
       "plane": "stream",
       "owner": "mac-host",
       "messages": [
-        { "name": "files.upload", "kind": "channel", "plane": "stream", "dir": "c2s", "owner": "mac-host", "class": "bulk", "errors": ["files.too_large", "files.dest_invalid"] },
-        { "name": "files.download", "kind": "channel", "plane": "stream", "dir": "c2s", "owner": "mac-host", "class": "bulk", "errors": ["files.not_found"] },
+        { "name": "files.upload", "kind": "channel", "plane": "stream", "dir": "c2s", "owner": "mac-host", "class": "bulk", "errors": ["files.too_large", "files.dest_invalid", "files.forbidden"] },
+        { "name": "files.download", "kind": "channel", "plane": "stream", "dir": "c2s", "owner": "mac-host", "class": "bulk", "errors": ["files.not_found", "files.forbidden", "files.too_large"] },
         { "name": "files.chunk", "kind": "record", "plane": "stream", "dir": "both", "owner": "mac-host" },
         { "name": "files.upload.end", "kind": "message", "plane": "stream", "dir": "c2s", "owner": "mac-host" },
         { "name": "files.upload.done", "kind": "message", "plane": "stream", "dir": "s2c", "owner": "mac-host", "errors": ["files.digest_mismatch"] },
-        { "name": "files.list", "kind": "read", "plane": "stream", "dir": "c2s", "owner": "mac-host", "errors": ["files.not_found"] }
+        { "name": "files.list", "kind": "read", "plane": "stream", "dir": "c2s", "owner": "mac-host", "errors": ["files.not_found", "files.forbidden"] },
+        { "name": "files.roots", "kind": "read", "plane": "stream", "dir": "c2s", "owner": "mac-host" }
       ]
     },
     {
@@ -114,8 +118,9 @@
       "messages": [
         { "name": "push.target.register", "kind": "op", "plane": "control", "dir": "c2s", "owner": "UserDO", "existing": true },
         { "name": "push.target.remove", "kind": "op", "plane": "control", "dir": "c2s", "owner": "UserDO", "existing": true },
-        { "name": "notify.activity.register", "kind": "op", "plane": "control", "dir": "c2s", "owner": "UserDO" },
-        { "name": "notify.activity.end", "kind": "op", "plane": "control", "dir": "c2s", "owner": "UserDO" },
+        { "name": "push.prefs.set", "kind": "op", "plane": "control", "dir": "c2s", "owner": "UserDO", "existing": true },
+        { "name": "notify.activity.register", "kind": "op", "plane": "control", "dir": "c2s", "owner": "UserDO", "existing": true },
+        { "name": "notify.activity.end", "kind": "op", "plane": "control", "dir": "c2s", "owner": "UserDO", "existing": true },
         { "name": "notify.badge.set", "kind": "owner", "plane": "control", "dir": "s2c", "owner": "UserDO" }
       ]
     },
@@ -145,13 +150,24 @@
     {
       "name": "pairing",
       "plane": "control",
-      "owner": "PairingDO",
+      "owner": "UserDO",
+      "stream": "trust:<user>",
       "messages": [
         { "name": "pairing.hosts", "kind": "read", "plane": "control", "dir": "c2s", "owner": "UserDO" },
-        { "name": "pairing.offer", "kind": "op", "plane": "control", "dir": "c2s", "owner": "PairingDO" },
-        { "name": "pairing.claim", "kind": "op", "plane": "control", "dir": "c2s", "owner": "PairingDO", "errors": ["pairing.code_invalid", "pairing.code_expired", "pairing.account_mismatch"] },
-        { "name": "pairing.trust.set", "kind": "owner", "plane": "control", "dir": "s2c", "owner": "UserDO" },
-        { "name": "pairing.revoke", "kind": "op", "plane": "control", "dir": "c2s", "owner": "UserDO", "errors": ["pairing.device_not_found"] }
+        { "name": "trust.key.publish", "kind": "op", "plane": "control", "dir": "c2s", "owner": "UserDO", "errors": ["trust.bad_signature", "trust.cert_stale"] },
+        { "name": "pairing.offer", "kind": "op", "plane": "control", "dir": "c2s", "owner": "PairingDO", "errors": ["pairing.no_host_key"] },
+        { "name": "pairing.claim", "kind": "op", "plane": "control", "dir": "c2s", "owner": "PairingDO", "errors": ["pairing.offer_unknown", "pairing.key_mismatch", "pairing.offer_used", "pairing.declined", "pairing.no_device_key"] },
+        { "name": "trust.request.accept", "kind": "op", "plane": "control", "dir": "c2s", "owner": "UserDO", "errors": ["pairing.offer_unknown", "pairing.offer_used", "pairing.declined"] },
+        { "name": "trust.request.decline", "kind": "op", "plane": "control", "dir": "c2s", "owner": "UserDO" },
+        { "name": "pairing.revoke", "kind": "op", "plane": "control", "dir": "c2s", "owner": "UserDO", "errors": ["selector.not_found"] },
+        { "name": "trust.key.set", "kind": "owner", "plane": "control", "dir": "s2c", "owner": "UserDO" },
+        { "name": "trust.install.revoked", "kind": "owner", "plane": "control", "dir": "s2c", "owner": "UserDO" },
+        { "name": "trust.request.add", "kind": "owner", "plane": "control", "dir": "s2c", "owner": "UserDO" },
+        { "name": "trust.request.remove", "kind": "owner", "plane": "control", "dir": "s2c", "owner": "UserDO" },
+        { "name": "trust.guest.add", "kind": "owner", "plane": "control", "dir": "s2c", "owner": "UserDO" },
+        { "name": "trust.guest.remove", "kind": "owner", "plane": "control", "dir": "s2c", "owner": "UserDO" },
+        { "name": "trust.remote.add", "kind": "owner", "plane": "control", "dir": "s2c", "owner": "UserDO" },
+        { "name": "trust.remote.remove", "kind": "owner", "plane": "control", "dir": "s2c", "owner": "UserDO" }
       ]
     },
     {

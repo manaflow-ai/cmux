@@ -4,6 +4,7 @@ import CmuxiOSFeatureKit
 import CmuxLink
 import CmuxLinkTesting
 import CmuxMobileHost
+import CmuxMobileLink
 import CmuxMobileWire
 import CryptoKit
 import Foundation
@@ -21,7 +22,7 @@ struct BrowserHostHarness {
                                         maxConnectAttempts: 100, resumeWindow: .seconds(30))
 
     let host: MobileHost
-    let phone: LinkSession
+    let client: MobileLinkClient
     let pages: StubPages
 
     static func make() async throws -> BrowserHostHarness {
@@ -36,31 +37,26 @@ struct BrowserHostHarness {
                               handlers: MobileChannelHandlers(channels: [.browser: BrowserChannelHandler(pages: pages)]),
                               linkConfiguration: fast)
         await host.start()
-        let phone = LinkSession(peer: LinkPeer(hostID: hostID),
-                                selector: PathSelector(carriers: [network.carrier(kind: .direct, path: .direct)],
-                                                       policy: PathPolicy(preferenceWindow: .milliseconds(5), upgradeRetry: nil)),
-                                configuration: fast)
-        await phone.connect()
-        let proof = try DeviceProof(install: install, keyID: "k1", issuedAt: Int64(Date().timeIntervalSince1970 * 1000),
-                                    hostID: hostID, sessionID: phone.sessionID) { try key.signature(for: $0).rawRepresentation }
-        let hello = HelloFrame(caps: ["device-proof"], client: HelloClient(install: install, platform: "ios", appVersion: "1.0"))
-        guard case .object(var object) = try MobileFrame.hello(hello).jsonValue else { throw TimeoutError() }
-        object["auth"] = proof.jsonValue
-        let session = try await phone.openChannel(ChannelDescriptor(stream: "cmux.mobile/session", reliability: .reliableOrdered,
-                                                                    priority: .control))
-        let channel = MobileChannel(id: 0, link: session)
-        try await channel.send(json: .object(object))
-        guard case .json(let reply) = await channel.receive(), reply["t"]?.stringValue == "hello.ok" else { throw TimeoutError() }
-        return BrowserHostHarness(host: host, phone: phone, pages: pages)
+        let carrier = network.carrier(kind: .direct, path: .direct)
+        let client = MobileLinkClient(
+            hostID: hostID, signer: KeySigner(key: key), client: HelloClient(install: install, platform: "ios", appVersion: "1.0"),
+            makeSession: {
+                LinkSession(peer: LinkPeer(hostID: hostID),
+                            selector: PathSelector(carriers: [carrier],
+                                                   policy: PathPolicy(preferenceWindow: .milliseconds(5), upgradeRetry: nil)),
+                            configuration: fast)
+            })
+        _ = try await client.helloOK()
+        return BrowserHostHarness(host: host, client: client, pages: pages)
     }
 
     func shutdown() async {
-        await phone.close()
+        await client.close()
         await host.stop()
     }
 
     var source: LinkBrowserStreamSource {
-        LinkBrowserStreamSource(links: StubLinks(session: HarnessLink(link: phone)), directory: StubDirectory(),
+        LinkBrowserStreamSource(clients: StubClients(client: client), directory: StubDirectory(),
                                 viewport: { BrowserViewport(width: 393, height: 852, scale: 3) })
     }
 
@@ -77,30 +73,18 @@ struct BrowserHostHarness {
     }
 }
 
-final class HarnessLink: MobileSessionLink {
-    let link: any CmuxLink
-    private let ids = HarnessChannelIDs()
+struct KeySigner: MobileDeviceSigner {
+    let key: P256.Signing.PrivateKey
+    let install = BrowserHostHarness.install
+    let keyID = "k1"
 
-    init(link: any CmuxLink) {
-        self.link = link
-    }
-
-    func allocateChannelID() async -> UInt32 { await ids.take() }
+    func sign(_ message: Data) throws -> Data { try key.signature(for: message).rawRepresentation }
 }
 
-actor HarnessChannelIDs {
-    private var next: UInt32 = 1
+struct StubClients: MobileLinkClientProvider {
+    let client: MobileLinkClient
 
-    func take() -> UInt32 {
-        defer { next += 2 }
-        return next
-    }
-}
-
-struct StubLinks: MobileSessionLinkProvider {
-    let session: any MobileSessionLink
-
-    func session(toHost hostID: String) async throws -> any MobileSessionLink { session }
+    func client(for host: HostID) async throws -> MobileLinkClient { client }
 }
 
 struct StubDirectory: BrowserTabDirectory {

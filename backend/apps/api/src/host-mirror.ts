@@ -7,6 +7,9 @@
  *   sequence end to end. The tail is bounded: past COMPACT_EVENTS (or bytes) the caller asks the
  *   Mac for a compacting snapshot; past MAX_EVENTS new events are dropped (the next one is a gap,
  *   which asks again) rather than keeping a tail that could not rebuild the head.
+ * - Epochs: the Mac stamps snapshots and events with its stream instance (`epoch`, B5). A snapshot
+ *   of a new epoch replaces the mirror and drops the tail even when its seq is lower; an event of
+ *   another epoch than the stored one is a gap (the Mac sends a snapshot of its epoch).
  * - Owned streams (`host:`): HostDO writes the state and the event together, so the snapshot is
  *   always at the head and the tail is only for `after_seq` replay (oldest dropped past OWNED_TAIL).
  */
@@ -21,6 +24,8 @@ export interface StreamHead {
   readonly snapSeq: number
   readonly head: number
   readonly state: unknown
+  /** The owner's stream instance, null for owned streams and owners that send none. */
+  readonly epoch: string | null
 }
 
 export interface EventLike {
@@ -33,12 +38,14 @@ export type AppendOutcome = "applied" | "gap" | "stale" | "full"
 export class HostStreams {
   constructor(private readonly sql: SqlStorage) {
     sql.exec(`CREATE TABLE IF NOT EXISTS host_stream (stream TEXT PRIMARY KEY, snap_seq INTEGER NOT NULL, head INTEGER NOT NULL, state TEXT NOT NULL, tail_bytes INTEGER NOT NULL DEFAULT 0)`)
+    // Objects created before epochs existed get the column (SQLite has no ADD COLUMN IF NOT EXISTS).
+    if (!sql.exec<{ name: string }>(`PRAGMA table_info(host_stream)`).toArray().some((c) => c.name === "epoch")) sql.exec(`ALTER TABLE host_stream ADD COLUMN epoch TEXT`)
     sql.exec(`CREATE TABLE IF NOT EXISTS host_event (stream TEXT NOT NULL, seq INTEGER NOT NULL, frame TEXT NOT NULL, PRIMARY KEY (stream, seq))`)
   }
 
   head(stream: string): StreamHead | undefined {
-    const row = this.sql.exec<{ snap_seq: number; head: number; state: string }>(`SELECT snap_seq, head, state FROM host_stream WHERE stream = ?`, stream).toArray()[0]
-    return row ? { snapSeq: Number(row.snap_seq), head: Number(row.head), state: JSON.parse(row.state) as unknown } : undefined
+    const row = this.sql.exec<{ snap_seq: number; head: number; state: string; epoch: string | null }>(`SELECT snap_seq, head, state, epoch FROM host_stream WHERE stream = ?`, stream).toArray()[0]
+    return row ? { snapSeq: Number(row.snap_seq), head: Number(row.head), state: JSON.parse(row.state) as unknown, epoch: row.epoch ?? null } : undefined
   }
 
   private tailInfo(stream: string): { count: number; bytes: number; min: number | null } {
@@ -48,15 +55,16 @@ export class HostStreams {
   }
 
   /** Replaces a mirrored stream's snapshot (Mac reconnect, gap repair, compaction); the tail goes. */
-  replaceSnapshot(stream: string, seq: number, state: unknown): void {
+  replaceSnapshot(stream: string, seq: number, state: unknown, epoch: string | null = null): void {
     const text = JSON.stringify(state)
     this.sql.exec(`DELETE FROM host_event WHERE stream = ?`, stream)
     this.sql.exec(
-      `INSERT INTO host_stream (stream, snap_seq, head, state, tail_bytes) VALUES (?, ?, ?, ?, 0) ON CONFLICT(stream) DO UPDATE SET snap_seq = excluded.snap_seq, head = excluded.head, state = excluded.state, tail_bytes = 0`,
+      `INSERT INTO host_stream (stream, snap_seq, head, state, tail_bytes, epoch) VALUES (?, ?, ?, ?, 0, ?) ON CONFLICT(stream) DO UPDATE SET snap_seq = excluded.snap_seq, head = excluded.head, state = excluded.state, tail_bytes = 0, epoch = excluded.epoch`,
       stream,
       seq,
       seq,
-      text
+      text,
+      epoch
     )
   }
 
@@ -64,6 +72,9 @@ export class HostStreams {
   appendMirrored(stream: string, event: EventLike): AppendOutcome {
     const h = this.head(stream)
     if (!h) return "gap"
+    // Another instance of the owner's stream: its seqs say nothing about ours.
+    const epoch = typeof event.epoch === "string" ? event.epoch : null
+    if (epoch !== null && epoch !== h.epoch) return "gap"
     if (event.seq <= h.head) return "stale"
     if (event.seq !== h.head + 1) return "gap"
     if (this.tailInfo(stream).count >= MAX_EVENTS) return "full"
@@ -104,14 +115,16 @@ export class HostStreams {
    * What a subscriber with `afterSeq` needs: a replay of events when the tail covers the gap,
    * otherwise the snapshot and the events after it. Undefined when the stream has no state yet.
    */
-  resume(stream: string, afterSeq: number | undefined): { snapshot?: { seq: number; state: unknown }; events: Array<EventLike> } | undefined {
+  resume(stream: string, afterSeq: number | undefined, epoch?: string): { snapshot?: { seq: number; state: unknown; epoch: string | null }; events: Array<EventLike> } | undefined {
     const h = this.head(stream)
     if (!h) return undefined
-    if (afterSeq !== undefined && afterSeq <= h.head) {
+    // A cursor of another epoch cannot be replayed: snapshot.
+    const sameEpoch = epoch === undefined || epoch === h.epoch
+    if (afterSeq !== undefined && afterSeq <= h.head && sameEpoch) {
       const min = this.tailInfo(stream).min
       if (afterSeq === h.head) return { events: [] }
       if (afterSeq >= h.snapSeq || (min !== null && afterSeq >= min - 1)) return { events: this.eventsAfter(stream, afterSeq) }
     }
-    return { snapshot: { seq: h.snapSeq, state: h.state }, events: this.eventsAfter(stream, h.snapSeq) }
+    return { snapshot: { seq: h.snapSeq, state: h.state, epoch: h.epoch }, events: this.eventsAfter(stream, h.snapSeq) }
   }
 }

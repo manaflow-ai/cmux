@@ -11,16 +11,52 @@ public enum MockFixtures {
         [
             HostWorkspaces(hostID: studio, hostName: "Mac Studio", isReachable: true, workspaces: [
                 WorkspaceSummary(id: "ws_studio1", hostID: studio, title: "cmux", status: .running,
-                                 paneCount: 3, unreadCount: 2, lastActivity: now.addingTimeInterval(-40)),
+                                 paneCount: 2, unreadCount: 2, lastActivity: now.addingTimeInterval(-40),
+                                 panes: [
+                                    WorkspacePane(id: "pane_s1a", surfaces: [
+                                        WorkspaceSurface(id: "tab_s1a", kind: .agent, title: "Claude Code", terminalID: "term_s1a",
+                                                         status: .running, unreadCount: 2, preview: "Running swift test (41/120)"),
+                                        WorkspaceSurface(id: "tab_s1b", kind: .terminal, title: "zsh", terminalID: "term_s1b",
+                                                         preview: "~/src/cmux main"),
+                                    ]),
+                                    WorkspacePane(id: "pane_s1b", surfaces: [
+                                        WorkspaceSurface(id: "tab_s1c", kind: .browser, title: "localhost:3000",
+                                                         url: URL(string: "http://localhost:3000")),
+                                    ]),
+                                 ],
+                                 preview: "Running swift test (41/120)", isPinned: true, order: 0),
                 WorkspaceSummary(id: "ws_studio2", hostID: studio, title: "backend", status: .waitingForInput,
-                                 paneCount: 2, unreadCount: 1, lastActivity: now.addingTimeInterval(-300)),
+                                 paneCount: 1, unreadCount: 1, lastActivity: now.addingTimeInterval(-300),
+                                 panes: [
+                                    WorkspacePane(id: "pane_s2a", surfaces: [
+                                        WorkspaceSurface(id: "tab_s2a", kind: .agent, title: "Codex", terminalID: "term_s2a",
+                                                         status: .waitingForInput, unreadCount: 1,
+                                                         preview: "Keep the current migration or replace it?"),
+                                    ]),
+                                 ],
+                                 preview: "Keep the current migration or replace it?",
+                                 group: WorkspaceGroup(id: "grp_api", name: "API"), order: 1),
                 WorkspaceSummary(id: "ws_studio3", hostID: studio, title: "docs", status: .idle,
-                                 paneCount: 1, lastActivity: now.addingTimeInterval(-7200)),
+                                 paneCount: 1, lastActivity: now.addingTimeInterval(-7200),
+                                 panes: [
+                                    WorkspacePane(id: "pane_s3a", surfaces: [
+                                        WorkspaceSurface(id: "tab_s3a", kind: .terminal, title: "zsh", terminalID: "term_s3a",
+                                                         preview: "Done in 2.1s"),
+                                    ]),
+                                 ],
+                                 preview: "Done in 2.1s", group: WorkspaceGroup(id: "grp_api", name: "API"), order: 2),
             ]),
             HostWorkspaces(hostID: mini, hostName: "Mac mini", isReachable: false, workspaces: [
                 WorkspaceSummary(id: "ws_mini1", hostID: mini, title: "release", status: .failed,
-                                 paneCount: 2, lastActivity: now.addingTimeInterval(-86_400)),
-            ]),
+                                 paneCount: 1, lastActivity: now.addingTimeInterval(-86_400),
+                                 panes: [
+                                    WorkspacePane(id: "pane_m1a", surfaces: [
+                                        WorkspaceSurface(id: "tab_m1a", kind: .terminal, title: "archive", terminalID: "term_m1a",
+                                                         status: .failed, preview: "Archive step exited with 65"),
+                                    ]),
+                                 ],
+                                 preview: "Archive step exited with 65", order: 0),
+            ], offlineReason: "Asleep"),
         ]
     }
 

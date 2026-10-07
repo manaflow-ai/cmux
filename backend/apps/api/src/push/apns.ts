@@ -1,5 +1,6 @@
-import type { FeedItem, PushTarget } from "@cmux/protocol"
+import type { FeedItem, PushPrefs, PushTarget } from "@cmux/protocol"
 import { importPKCS8, SignJWT } from "jose"
+import { feedCategory, interruptionLevel, notificationKindOf, promptScopes, promptSubject, wantsItem } from "./notify-kind.ts"
 
 /**
  * APNs sender for owner-decided pushes (plans/cmux-next/feed.md 7.3). A
@@ -45,26 +46,47 @@ export const cut = (text: string, max: number) => Array.from(text).slice(0, max)
 /** APNs refuses payloads over 4 KB; text is cut well below it. */
 export const APNS_MAX_PAYLOAD_BYTES = 4096
 
-export const apnsPayload = (item: FeedItem) => {
+/** Per-device shaping (c7-notify.md section 4): the owner's badge and the device's preferences. */
+export interface FeedPushOptions {
+  readonly badge?: number
+  readonly prefs?: PushPrefs
+}
+
+export const apnsPayload = (item: FeedItem, opts: FeedPushOptions = {}) => {
   const mail = item.kind === "mail"
   const poster = cut([item.poster.harness, item.poster.label].filter(Boolean).join(" · "), 120)
+  const level = interruptionLevel(opts.prefs, item)
+  const kind = notificationKindOf(item)
+  const scopes = item.kind === "approve" ? promptScopes(item) : []
+  const subject = item.kind === "review" ? promptSubject(item) : undefined
   return {
     aps: {
       alert: mail ? { title: "New mail" } : { title: cut(item.title, 200), ...(poster ? { subtitle: poster } : {}), ...(item.body && item.type === "notice" ? { body: cut(item.body, 240) } : {}) },
-      sound: "default",
+      ...(opts.prefs?.sound === false ? {} : { sound: "default" }),
       "thread-id": item.thread ?? item.id,
-      category: `FEED_${item.type === "request" ? item.kind.toUpperCase().replace(/[^A-Z0-9]/g, "_") : "NOTICE"}`,
-      ...(item.priority === "urgent" ? { "interruption-level": "time-sensitive" } : {})
+      category: feedCategory(item),
+      // The Notification Service extension assigns categories, applies preferences and shortens previews.
+      "mutable-content": 1,
+      ...(opts.badge !== undefined ? { badge: opts.badge } : {}),
+      ...(level ? { "interruption-level": level } : {})
     },
-    cmux: { feed_item: item.id, kind: item.kind, type: item.type }
+    cmux: {
+      feed_item: item.id,
+      kind: item.kind,
+      type: item.type,
+      expires_at: item.expires_at,
+      ...(kind ? { notify_kind: kind } : {}),
+      ...(scopes.length > 0 ? { scopes } : {}),
+      ...(subject ? { subject } : {})
+    }
   }
 }
 
 /** The JSON body, guaranteed under the APNs limit (falls back to the title alone). */
-export const payloadText = (item: FeedItem): string => {
-  const full = JSON.stringify(apnsPayload(item))
+export const payloadText = (item: FeedItem, opts: FeedPushOptions = {}): string => {
+  const full = JSON.stringify(apnsPayload(item, opts))
   if (new TextEncoder().encode(full).length <= APNS_MAX_PAYLOAD_BYTES) return full
-  return JSON.stringify({ aps: { alert: { title: cut(item.title, 100) }, sound: "default" }, cmux: { feed_item: item.id } })
+  return JSON.stringify({ aps: { alert: { title: cut(item.title, 100) }, sound: "default", category: feedCategory(item), "mutable-content": 1 }, cmux: { feed_item: item.id, kind: item.kind, type: item.type } })
 }
 
 /**
@@ -74,15 +96,18 @@ export const payloadText = (item: FeedItem): string => {
  */
 export interface ApnsMessage {
   readonly body: string
+  /** Empty: no collapse id (background pushes). */
   readonly collapseId: string
+  /** Default `alert`; `background` for content-available pushes (dismiss sync). */
+  readonly pushType?: "alert" | "background"
   readonly priority: "5" | "10"
   /** Unix ms. */
   readonly expiresAt: number
 }
 
 /** The message for one feed item. */
-export const feedMessage = (item: FeedItem, now: number): ApnsMessage => ({
-  body: payloadText(item),
+export const feedMessage = (item: FeedItem, now: number, opts: FeedPushOptions = {}): ApnsMessage => ({
+  body: payloadText(item, opts),
   collapseId: item.id.slice(0, 64),
   priority: item.priority === "low" ? "5" : "10",
   // An item stops mattering when it closes or expires; APNs drops it after that.
@@ -96,10 +121,10 @@ export const apnsMessageRequest = (target: PushTarget, message: ApnsMessage, tok
     headers: {
       authorization: `bearer ${token}`,
       "apns-topic": target.topic,
-      "apns-push-type": "alert",
+      "apns-push-type": message.pushType ?? "alert",
       "apns-priority": message.priority,
       "apns-expiration": String(Math.floor(message.expiresAt / 1000)),
-      "apns-collapse-id": message.collapseId.slice(0, 64),
+      ...(message.collapseId ? { "apns-collapse-id": message.collapseId.slice(0, 64) } : {}),
       "content-type": "application/json"
     },
     body: message.body
@@ -107,6 +132,19 @@ export const apnsMessageRequest = (target: PushTarget, message: ApnsMessage, tok
 }
 
 export const apnsRequest = (target: PushTarget, item: FeedItem, token: string, now: number): Request => apnsMessageRequest(target, feedMessage(item, now), token)
+
+/**
+ * The background push that removes banners for items answered or read elsewhere
+ * (c7-notify.md section 3). Delivered banners use the item id as their identifier.
+ */
+export const dismissMessage = (items: ReadonlyArray<string>, badge: number, now: number): ApnsMessage => ({
+  body: JSON.stringify({ aps: { "content-available": 1 }, cmux: { dismiss: items.slice(0, 256), badge } }),
+  collapseId: "",
+  pushType: "background",
+  // Apple requires priority 5 for background pushes.
+  priority: "5",
+  expiresAt: now + 3600_000
+})
 
 /** What to do with a target after one APNs answer. */
 export type ApnsOutcome = "sent" | "drop_target" | "retry_later" | "failed"
@@ -147,3 +185,23 @@ export const sendApnsMessage = async (config: ApnsConfig, targets: ReadonlyArray
 /** Sends one feed item to every target; never throws. */
 export const sendApns = (config: ApnsConfig, targets: ReadonlyArray<PushTarget>, item: FeedItem, now: number, fetcher: typeof fetch = fetch): Promise<ReadonlyArray<SendResult>> =>
   sendApnsMessage(config, targets, feedMessage(item, now), now, fetcher)
+
+/** A push target with its install's preferences (UserDO.notifyTargets). */
+export type PrefTarget = PushTarget & { readonly prefs?: PushPrefs }
+
+/**
+ * Sends one feed item to the devices that want its kind, each shaped by its own
+ * preferences, with the owner's badge. Never throws.
+ */
+export const sendFeedItem = async (config: ApnsConfig, targets: ReadonlyArray<PrefTarget>, item: FeedItem, badge: number, now: number, fetcher: typeof fetch = fetch): Promise<ReadonlyArray<SendResult>> => {
+  const groups = new Map<string, { message: ApnsMessage; targets: Array<PushTarget> }>()
+  for (const t of targets) {
+    if (!wantsItem(t.prefs, item)) continue
+    const message = feedMessage(item, now, { badge, ...(t.prefs ? { prefs: t.prefs } : {}) })
+    const group = groups.get(message.body) ?? { message, targets: [] }
+    group.targets.push(t)
+    groups.set(message.body, group)
+  }
+  const results = await Promise.all([...groups.values()].map((g) => sendApnsMessage(config, g.targets, g.message, now, fetcher)))
+  return results.flat()
+}

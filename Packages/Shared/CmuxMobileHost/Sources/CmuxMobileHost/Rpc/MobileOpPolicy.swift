@@ -21,6 +21,8 @@ public struct MobileOpPolicy: Sendable {
     public static let allowedParams: [String: Set<String>] = [
         "workspace.rename": ["workspace", "name"],
         "workspace.tab.close": ["tab"],
+        "workspace.close": ["workspace"],
+        "workspace.read": ["workspace"],
         "workspace.create": ["host", "name"],
         "workspace.tab.create": ["workspace", "pane", "kind"],
     ]
@@ -70,6 +72,12 @@ public struct MobileOpPolicy: Sendable {
             }
             guard state.tab(tab) != nil else { return .failure(Self.notFound("workspace.tab_not_found", tab)) }
             return .success(.closeTab(tab: tab))
+        case "workspace.close", "workspace.read":
+            guard let workspace = object["workspace"]?.stringValue, Self.matches(workspace, prefix: "ws_") else {
+                return .failure(Self.invalid("\(op) needs a ws_ id"))
+            }
+            guard state.workspace(workspace) != nil else { return .failure(Self.notFound("workspace.not_found", workspace)) }
+            return .success(op == "workspace.close" ? .closeWorkspace(workspace: workspace) : .markWorkspaceRead(workspace: workspace))
         case "workspace.create":
             if let host = object["host"], host.stringValue != hostID {
                 return .failure(Self.invalid("params.host names another host"))

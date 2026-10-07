@@ -7,7 +7,11 @@ import CmuxiOSCrashReporting
 import CmuxiOSFeatureKit
 import CmuxiOSFeed
 import CmuxiOSFeedCloud
+import CmuxiOSFiles
+import CmuxiOSFilesCore
 import CmuxiOSIdentity
+import CmuxiOSNotifyCore
+import CmuxPhonePush
 import CmuxiOSPlatform
 import CmuxiOSOnboarding
 import CmuxiOSOnboardingCore
@@ -15,6 +19,9 @@ import CmuxiOSPush
 import CmuxiOSSettingsCore
 import CmuxiOSShell
 import CmuxiOSSSHCore
+import CmuxiOSTerminalLink
+import CmuxiOSWorkspaces
+import CmuxiOSWorkspacesCore
 import Foundation
 import OSLog
 import UIKit
@@ -75,8 +82,24 @@ final class AppContainer {
     /// B5/D1 fill this with the live path badge per device once they hold a
     /// `CmuxLink` per host; nil serves mock badges while devices are mocked.
     var linkDiagnosticsFactory: (@Sendable () -> any LinkDiagnosticsSource)?
+    /// Lane C1: workspace terminals of real Macs open over each Mac's
+    /// `cmux.mobile/1` session (`.host` over `CmuxLink`). B2/B4 replace the
+    /// directory with one that holds a `MobileLinkClient` per reachable Mac;
+    /// until then a terminal says "No connection to this Mac". Mock
+    /// workspaces keep A2's mock host (ShellComposition).
+    var linkDirectory: any MobileLinkDirectory = UnavailableMobileLinkDirectory()
+    var terminalSources: (any WorkspaceTerminalSourceFactory)? {
+        LinkWorkspaceTerminalSourceFactory(directory: linkDirectory)
+    }
     private var features: FeatureSources?
     private var featuresAccount: String?
+    /// Lane C4: pickers, uploads and the transfer list over the account's
+    /// files seam; one per seam set so its background handling lives as long.
+    private var files: FilesFeature?
+    /// C1/D1 fill this with the terminal channel's paste; nil skips the paste.
+    var terminalPathPasterFactory: (@Sendable () -> any TerminalPathPaster)?
+    /// C8 fills this with the composer's attachment intake; nil keeps uploads in the inbox.
+    var fileAttachmentSinkFactory: (@Sendable () -> any FileAttachmentSink)?
     /// DEV: the mock owners' simulated connection.
     private(set) var mockOffline = false
     let push: PushRegistration
@@ -91,6 +114,12 @@ final class AppContainer {
     private var accountChanges: Task<Void, Never>?
     let feedResponder: FeedNotificationResponder
     private let notificationDelegate: NotificationDelegate
+    /// Lane C7: dismiss pushes, the foreground badge and banner sync, and
+    /// Live Activities for running agents (c7-notify.md).
+    let remoteNotifications = RemoteNotificationHandler()
+    let activities: AgentActivityCenter
+    private var foregroundSync: ForegroundNotificationSync?
+    private var signedInAccount: SignedInAccount?
     private(set) var home: HomeStore?
     private var homeAccount: String?
     /// Set while the API Worker refuses this app version (enterprise P17,
@@ -132,8 +161,8 @@ final class AppContainer {
         let localHosts = LocalHostsStore(url: sshDirectory.appendingPathComponent("hosts.json"))
         var factories = RealFeatureFactories()
         factories.hosts = { localHosts }
-        // Lane C2: nil until D1/B6 hand out admitted sessions and C5 mirrors tab records.
-        factories.browser = BrowserComposition.realSource(links: nil, directory: nil)
+        // Lane C2: nil until D1 provides the per-Mac MobileLinkClient (as for files).
+        factories.browser = BrowserComposition.realSource(clients: nil, directory: nil)
         sourceModes = FeatureSourceModeStore(environment: environment, isDebug: isDebug)
         demo = DemoModePolicy(environment: environment, isDebug: isDebug)
         onboardingPolicy = OnboardingLaunchPolicy(environment: environment, isDebug: isDebug)
@@ -148,7 +177,8 @@ final class AppContainer {
             InstallIdentity(baseURL: $0, bundleID: Bundle.main.bundleIdentifier ?? "", deviceName: UIDevice.current.name)
         }
         identity = madeIdentity
-        realFactories = Self.addingFeed(to: factories, base: base, identity: madeIdentity)
+        realFactories = Self.addingFiles(to: Self.addingWorkspaces(
+            to: Self.addingFeed(to: factories, base: base, identity: madeIdentity), base: base, identity: madeIdentity))
         let ops: any CloudOpsSending
         if let base, let madeIdentity {
             ops = CloudOpsClient(baseURL: base, tokens: IdentityTokens(identity: madeIdentity))
@@ -165,7 +195,14 @@ final class AppContainer {
         permissions = SystemPermissionCenter(defaults: .standard, clock: ContinuousClock()) {
             Task { await pushForPermissions.authorizationChanged() }
         }
-        feedResponder = FeedNotificationResponder(ops: ops)
+        feedResponder = FeedNotificationResponder(performer: OpsFeedIntentPerformer(ops: ops, device: UIDevice.current.name))
+        activities = AgentActivityCenter(ops: ops)
+        // C11's preferences reach the push owner and the extension (c7-notify.md section 4).
+        // The keychain store the extension reads (an App Group is absent on release App IDs).
+        let share = NotificationPreferencesShare(
+            read: { Bundle.main.phonePushSharedStateStorage.data(forKey: NotificationPreferencesShare.key) },
+            write: { Bundle.main.phonePushSharedStateStorage.setData($0, forKey: NotificationPreferencesShare.key) })
+        notificationPreferencesSinkFactory = { CloudNotificationPreferencesSink(ops: ops, share: share) }
         notificationDelegate = NotificationDelegate(responder: feedResponder, router: router)
         UNUserNotificationCenter.current().delegate = notificationDelegate
         // A banner answer can arrive before auth restores (background launch):
@@ -195,6 +232,11 @@ final class AppContainer {
             // Replaced by the root controller, which opens the Feed tab.
             Logger(subsystem: "dev.cmux.ios", category: "push").info("open feed item \(item, privacy: .public)")
         }
+        foregroundSync = ForegroundNotificationSync { [weak self] in
+            guard let self, let account = self.signedInAccount else { return nil }
+            return self.featureSources(for: account).feed
+        }
+        activities.resume()
     }
 
     /// C6: the feed seam's real owner is `FeedDO` over `/v1/wire/feed`,
@@ -206,6 +248,10 @@ final class AppContainer {
         if let base, let identity {
             let device = UIDevice.current.name
             let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+            // B6: the account's trust store, pairing and Mac presence (one registry per account build).
+            let pairing = PairingComposition(base: base, identity: identity, bundleID: Bundle.main.bundleIdentifier ?? "",
+                                             appVersion: version ?? "0")
+            factories.devices = { pairing.registry() }
             factories.feed = {
                 CloudFeedSource(apiBaseURL: base, device: device, clientVersion: version) {
                     try await identity.token(for: nil)
@@ -213,6 +259,60 @@ final class AppContainer {
             }
         }
         return factories
+    }
+
+    /// C5: workspaces of the account's paired Macs over the control plane.
+    private static func addingWorkspaces(to factories: RealFeatureFactories, base: URL?,
+                                         identity: InstallIdentity?) -> RealFeatureFactories {
+        var factories = factories
+        // One `ControlPlaneClient` per paired Mac on `/v1/wire/host/<host>`,
+        // as this install (b1-control-do.md). Without an API origin each Mac
+        // shows as unreachable instead of as fake data.
+        let channels: any WorkspaceChannelFactory
+        if let base, let identity {
+            let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+            channels = ControlPlaneWorkspaceChannelFactory(
+                apiBaseURL: base, appVersion: version ?? "0", reasons: WorkspacesFeature.controlPlaneReasons,
+                install: { try await identity.ownerInstall().install },
+                token: { try await identity.token(for: nil) })
+        } else {
+            channels = UnavailableWorkspaceChannelFactory(reason: WorkspacesFeature.controlPlaneUnavailable)
+        }
+        factories.workspaces = { devices in
+            ControlPlaneWorkspaceSource(directory: DeviceRegistryHostDirectory(registry: devices), channels: channels)
+        }
+        return factories
+    }
+
+    /// C4: the real `FileTransfer` once a lane can dial a Mac over CmuxLink
+    /// (`fileHostConnector()`); until then the files seam stays on its mock.
+    private static func addingFiles(to factories: RealFeatureFactories) -> RealFeatureFactories {
+        guard let connector = fileHostConnector() else { return factories }
+        var factories = factories
+        // One instance per process: one journal per file, whatever rebuilds the seams.
+        let transfer = LinkFileTransfer(connector: connector, journalURL: LinkFileTransfer.defaultJournalURL)
+        factories.files = { transfer }
+        return factories
+    }
+
+    /// B2/B4 with D1 return their per-host `CmuxLink` owner and B6's signer
+    /// here. Nil: no carrier dials Macs from the app yet.
+    private static func fileHostConnector() -> (any FileHostConnector)? {
+        nil
+    }
+
+    /// The account's files feature (built with its seams).
+    func filesFeature(for sources: FeatureSources) -> FilesFeature {
+        if let files { return files }
+        let made = FilesFeature(transfer: sources.files, paster: terminalPathPasterFactory?(),
+                                attachments: fileAttachmentSinkFactory?())
+        files = made
+        return made
+    }
+
+    /// DEV: the files feature of the signed-in seams, or one over the mock.
+    var currentFilesFeature: FilesFeature {
+        filesFeature(for: features ?? FeatureSources.mock())
     }
 
     /// Follows the account's remote config until sign-out.
@@ -321,6 +421,7 @@ final class AppContainer {
         // Demo mode resolves every seam to its mock (canned fixtures).
         let made = realFactories.resolve(isDemo ? [:] : sourceModes.modes)
         features = made
+        files = nil
         if mockOffline { Task { await made.setMockConnection(.offline(reason: nil)) } }
         return made
     }
@@ -329,6 +430,7 @@ final class AppContainer {
     func dropFeatureSources() {
         features = nil
         featuresAccount = nil
+        files = nil
     }
 
     func setMockOffline(_ offline: Bool) async {
@@ -340,6 +442,7 @@ final class AppContainer {
     /// is false while onboarding will prime the notifications prompt.
     func signedIn(account: SignedInAccount, requestPushPermission: Bool = true) {
         diagnostics.info("auth", "signed in")
+        signedInAccount = account
         startRemoteConfig()
         let coordinator = auth.coordinator
         let identity = self.identity
@@ -354,11 +457,16 @@ final class AppContainer {
                 await identity?.signedOut(of: replaced)
             }
             await push.start(for: account.userID, requestPermission: requestPushPermission)
+            // This install starts on the owner's defaults: send the device's choice.
+            await MainActor.run { self.notificationPreferences.resend() }
         }
+        foregroundSync?.run()
     }
 
     func signedOut() {
         diagnostics.info("auth", "signed out")
+        signedInAccount = nil
+        foregroundSync?.cancel()
         stopRemoteConfig()
         let identity = self.identity
         let push = self.push

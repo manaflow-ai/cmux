@@ -6,7 +6,8 @@ import CmuxMobileWire
 /// - workspace added, or its metadata or pane/tab shape changed: `workspace.upsert` (whole record);
 /// - workspace gone: `workspace.remove`;
 /// - a tab's title, kind, terminal or url changed in place: `workspace.tab.upsert`;
-/// - only a tab's status or unread changed: `workspace.status.set`.
+/// - only a tab's status or unread changed: `workspace.status.set`;
+/// - only a tab's preview changed: `workspace.preview.set` (empty string clears it).
 public struct WorkspaceDiff: Sendable {
     public let changes: [WorkspaceChange]
 
@@ -37,11 +38,18 @@ public struct WorkspaceDiff: Sendable {
                             "tab": (try? JSONValue(encoding: newTab)) ?? .null,
                         ])))
                     } else {
-                        changes.append(WorkspaceChange(op: "workspace.status.set", params: .object([
-                            "tab": .string(newTab.id),
-                            "status": .string((newTab.status ?? .idle).rawValue),
-                            "unread": .int(Int64(newTab.unread ?? 0)),
-                        ])))
+                        if oldTab.status != newTab.status || oldTab.unread != newTab.unread {
+                            changes.append(WorkspaceChange(op: "workspace.status.set", params: .object([
+                                "tab": .string(newTab.id),
+                                "status": .string((newTab.status ?? .idle).rawValue),
+                                "unread": .int(Int64(newTab.unread ?? 0)),
+                            ])))
+                        }
+                        if oldTab.preview != newTab.preview {
+                            changes.append(WorkspaceChange(op: "workspace.preview.set", params: .object([
+                                "tab": .string(newTab.id), "preview": .string(newTab.preview ?? ""),
+                            ])))
+                        }
                     }
                 }
             }

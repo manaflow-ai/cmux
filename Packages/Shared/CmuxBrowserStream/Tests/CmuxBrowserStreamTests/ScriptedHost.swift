@@ -1,6 +1,7 @@
 import CmuxBrowserStream
 import CmuxLink
 import CmuxLinkTesting
+import CmuxMobileLink
 import CmuxMobileWire
 import Foundation
 
@@ -17,29 +18,40 @@ struct ScriptedHost {
     )
 
     let host: LinkHost
-    let phone: LinkSession
+    let client: MobileLinkClient
     let hostSession: LinkSession
 
+    /// A host that answers the phone's hello with `hello.ok` (it checks no proof).
     static func make() async throws -> ScriptedHost {
         let network = LoopbackNetwork()
         let host = LinkHost(acceptor: network.acceptor, configuration: fast)
         await host.start()
-        let phone = LinkSession(
-            peer: LinkPeer(hostID: "h_mac1"),
-            selector: PathSelector(carriers: [network.carrier(kind: .direct, path: .direct)],
-                                   policy: PathPolicy(preferenceWindow: .milliseconds(5), upgradeRetry: nil)),
-            configuration: fast)
-        await phone.connect()
+        let carrier = network.carrier(kind: .direct, path: .direct)
+        let client = MobileLinkClient(
+            hostID: "h_mac1", signer: UnsignedSigner(), client: HelloClient(install: "in_phone1", platform: "ios", appVersion: "1.0"),
+            makeSession: {
+                LinkSession(peer: LinkPeer(hostID: "h_mac1"),
+                            selector: PathSelector(carriers: [carrier],
+                                                   policy: PathPolicy(preferenceWindow: .milliseconds(5), upgradeRetry: nil)),
+                            configuration: fast)
+            })
         let sessions = await host.sessions()
+        async let hello = client.helloOK()
         let session = try await Self.within {
             for await session in sessions { return session }
             throw TimeoutError()
         }
-        return ScriptedHost(host: host, phone: phone, hostSession: session)
+        let scripted = ScriptedHost(host: host, client: client, hostSession: session)
+        let sessionChannel = try await scripted.acceptReliable()
+        _ = try await Self.next(sessionChannel)
+        let ok = HelloOKFrame(version: 1, caps: ["device-proof"], serverTime: 0, maxFrame: 256 * 1024)
+        try await sessionChannel.send(try StreamRecord.json(channel: 0, seq: 1, object: try MobileFrame.helloOK(ok).jsonValue).encoded)
+        _ = try await hello
+        return scripted
     }
 
     func shutdown() async {
-        await phone.close()
+        await client.close()
         await host.close()
     }
 
@@ -73,12 +85,9 @@ struct ScriptedHost {
     }
 }
 
-final class ScriptedSessionLink: MobileSessionLink {
-    let link: any CmuxLink
+struct UnsignedSigner: MobileDeviceSigner {
+    let install = "in_phone1"
+    let keyID = "k1"
 
-    init(link: any CmuxLink) {
-        self.link = link
-    }
-
-    func allocateChannelID() async -> UInt32 { 7 }
+    func sign(_ message: Data) throws -> Data { Data(count: 64) }
 }

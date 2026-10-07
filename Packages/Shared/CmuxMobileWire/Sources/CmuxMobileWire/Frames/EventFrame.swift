@@ -11,9 +11,12 @@ public struct EventFrame: Hashable, Sendable, Codable {
     public var at: Int64
     /// Row-mode owners: the op's effects (new head state and row writes).
     public var effects: JSONValue?
+    /// The owner's stream instance (`ep_…`); an event of another epoch than
+    /// the mirror's is a gap.
+    public var epoch: String?
 
     public init(stream: String, seq: UInt64, tx: String, op: String, params: JSONValue, actor: [String: JSONValue],
-                origin: Origin, at: Int64, effects: JSONValue? = nil) {
+                origin: Origin, at: Int64, effects: JSONValue? = nil, epoch: String? = nil) {
         self.stream = stream
         self.seq = seq
         self.tx = tx
@@ -23,5 +26,6 @@ public struct EventFrame: Hashable, Sendable, Codable {
         self.origin = origin
         self.at = at
         self.effects = effects
+        self.epoch = epoch
     }
 }

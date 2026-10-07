@@ -24,6 +24,7 @@ import PackageDescription
 //     WireGuard hub and cmux-tui remote links; no UI, no daemon)
 //   CmuxNextRemote -> CmuxNextCloud (SSH machines: ssh argv, probe, install, relay policy; no UI, no daemon)
 //   CmuxNextMobile -> Daemon, CMUXMobileCore, CmuxIrxTransport (phone host; no UI)
+//   CmuxNextMobileLink -> Daemon, CmuxMobileHost (cmux.mobile/1 daemon adapter; no UI, not linked by the App yet)
 //   CmuxNextUpdater -> Design, CmuxUpdater, Sparkle (update checks, appcast probe, update sheet; no daemon)
 //   CmuxNextMallocZone -> libSystem only (C: the delegating default malloc zone that lets the
 //     Chromium framework load later from another thread; plans/cmux-next/browser-isolation.md)
@@ -128,6 +129,10 @@ let package = Package(
         // The Mac Home transcript: MessagesLabAppKitNative, vendored (home-mac.md).
         .package(path: "../../Shared/CmuxMessagesLab"),
         .package(path: "../../Shared/CmuxIrxTransport"),
+        // cmux.mobile/1 host (plans/cmux-next/ios-next/b5-mac-host.md) for CmuxNextMobileLink.
+        .package(path: "../../Shared/CmuxMobileHost"),
+        .package(path: "../../Shared/CmuxMobileWire"),
+        .package(path: "../../Shared/CmuxTerminalStream"),
         // Sparkle driver shared with the legacy app (no bonsplit, no legacy deps).
         .package(path: "../CmuxUpdater"),
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.9.0"),
@@ -926,6 +931,29 @@ let package = Package(
         // Phone access (plans/cmux-next/cloud-ios.md): irx host, the daemon
         // lane splice, and the mobile.* compat adapter for shipped iOS builds.
         // No UI; the App wires it to the daemon connection and auth.
+        // The cmux.mobile/1 host's daemon adapter (c1-terminal-rpc.md section 2):
+        // MobileDaemon over DaemonConnection and TerminalAttachment. No UI.
+        .target(
+            name: "CmuxNextMobileLink",
+            dependencies: [
+                "CmuxNextDaemon",
+                .product(name: "CmuxMobileHost", package: "CmuxMobileHost"),
+                .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
+                .product(name: "CmuxTerminalStream", package: "CmuxTerminalStream"),
+            ],
+            swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextMobileLinkTests",
+            dependencies: [
+                "CmuxNextMobileLink",
+                "CmuxNextDaemon",
+                .product(name: "CmuxMobileHost", package: "CmuxMobileHost"),
+                .product(name: "CmuxTerminalStream", package: "CmuxTerminalStream"),
+            ],
+            resources: [.copy("Fixtures")],
+            swiftSettings: daemonSwiftSettings
+        ),
         .target(
             name: "CmuxNextMobile",
             dependencies: [

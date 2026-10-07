@@ -1,3 +1,4 @@
+import CmuxMobileLink
 import CmuxMobileWire
 
 /// The pluggable services of a host: channel handlers by kind and read

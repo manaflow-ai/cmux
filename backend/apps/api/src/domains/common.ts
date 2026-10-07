@@ -1,4 +1,5 @@
 import type { Principal, Reject } from "@cmux/ownership"
+import { hostGuestInternalOps } from "./team-guests.ts"
 import { cloudInternalOps, cloudOpByName, InstallRegister, MachineId, ServerCapabilities, connectionInternalOps, DisplayName, feedInternalOps, pushInternalOps, userConfirmInternalOps, InstallId, Platform, schedulerInternalOps, teamSshInternalOps, teamVmInternalOps, TeamId, UserId, WgPublicKey, type CloudOpDef } from "@cmux/protocol"
 import { Exit, Schema } from "effect"
 
@@ -394,7 +395,8 @@ export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
   ...userConfirmInternalOps.map((d) => [d.name, d] as const),
   ...teamVmInternalOps.map((d) => [d.name, d] as const),
   ...cloudInternalOps.map((d) => [d.name, d] as const),
-  ...teamSshInternalOps.map((d) => [d.name, d] as const)
+  ...teamSshInternalOps.map((d) => [d.name, d] as const),
+  ...hostGuestInternalOps.map((d) => [d.name, d] as const)
 ])
 
 /**

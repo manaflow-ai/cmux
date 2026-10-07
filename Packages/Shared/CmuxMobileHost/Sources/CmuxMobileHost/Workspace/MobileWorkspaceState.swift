@@ -34,6 +34,19 @@ public struct MobileWorkspaceState: Hashable, Sendable, Codable {
         return nil
     }
 
+    /// The state with every tab's preview sanitized (`MobilePreview`).
+    public var sanitized: MobileWorkspaceState {
+        var copy = self
+        for w in copy.workspaces.indices {
+            for p in copy.workspaces[w].panes.indices {
+                for t in copy.workspaces[w].panes[p].tabs.indices {
+                    copy.workspaces[w].panes[p].tabs[t].preview = MobilePreview(copy.workspaces[w].panes[p].tabs[t].preview).text
+                }
+            }
+        }
+        return copy
+    }
+
     public var jsonValue: JSONValue {
         get throws { try JSONValue(encoding: self) }
     }

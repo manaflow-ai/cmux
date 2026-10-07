@@ -193,7 +193,9 @@ public actor ControlPlaneClient {
             return true
         case .snapshot(let snapshot):
             guard var sub = subscriptions[snapshot.stream] else { return false }
+            // A snapshot always restores: it may carry a new epoch at a lower seq.
             sub.seq = snapshot.seq
+            sub.epoch = snapshot.epoch
             sub.repairing = false
             subscriptions[snapshot.stream] = sub
             sub.continuation.yield(.snapshot(snapshot))
@@ -237,7 +239,17 @@ public actor ControlPlaneClient {
 
     private func apply(_ event: EventFrame) {
         guard var sub = subscriptions[event.stream], let seq = sub.seq else { return }
-        if event.seq <= seq || sub.repairing { return }
+        if sub.repairing { return }
+        // Another epoch (the owner's stream restarted): its seqs say nothing about this mirror, so
+        // the cursor is reset and a fresh snapshot requested instead of dropping it as stale.
+        if let epoch = event.epoch, epoch != sub.epoch {
+            sub.seq = nil
+            sub.repairing = true
+            subscriptions[event.stream] = sub
+            trySend(.snapshotRequest(SnapshotRequestFrame(stream: event.stream, pending: pendingKeys())))
+            return
+        }
+        if event.seq <= seq { return }
         guard event.seq == seq + 1 else {
             // A gap: never apply out of order; the owner answers with a snapshot.
             sub.repairing = true
@@ -256,7 +268,7 @@ public actor ControlPlaneClient {
         for (stream, sub) in subscriptions.sorted(by: { $0.key < $1.key }) {
             // With intents in flight the owner sends a snapshot carrying their decided keys.
             let after = pending.isEmpty ? sub.seq : nil
-            trySend(.subscribe(SubscribeFrame(stream: stream, afterSeq: after, pending: pending.isEmpty ? nil : pending)))
+            trySend(.subscribe(SubscribeFrame(stream: stream, afterSeq: after, pending: pending.isEmpty ? nil : pending, epoch: after == nil ? nil : sub.epoch)))
         }
         for key in pendingOps.keys.sorted() {
             pendingOps[key]?.resent = true

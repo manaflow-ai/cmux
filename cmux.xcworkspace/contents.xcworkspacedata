@@ -26,6 +26,9 @@
          location = "group:CmuxAuthRuntime">
       </FileRef>
       <FileRef
+         location = "group:CmuxControlPlane">
+      </FileRef>
+      <FileRef
          location = "group:CmuxFeedPushCore">
       </FileRef>
       <FileRef
@@ -47,10 +50,25 @@
          location = "group:CmuxIrxTransport">
       </FileRef>
       <FileRef
+         location = "group:CmuxLink">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxLinkDirect">
+      </FileRef>
+      <FileRef
          location = "group:CmuxMessagesLab">
       </FileRef>
       <FileRef
          location = "group:CMUXMobileCore">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobileHost">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobileLink">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobileWire">
       </FileRef>
       <FileRef
          location = "group:CmuxSentryTelemetry">
@@ -60,6 +78,9 @@
       </FileRef>
       <FileRef
          location = "group:CmuxTerminalClient">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxTerminalLink">
       </FileRef>
       <FileRef
          location = "group:CmuxTerminalRenderCore">

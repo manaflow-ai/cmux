@@ -64,6 +64,18 @@ actor FakeDaemon: MobileDaemon {
                     state.workspaces[w].panes[p].tabs.removeAll { $0.id == tab }
                 }
             }
+        case .closeWorkspace(let id):
+            guard state.workspaces.contains(where: { $0.id == id }) else {
+                throw MobileDaemonError(code: "workspace.not_found", message: id)
+            }
+            state.workspaces.removeAll { $0.id == id }
+        case .markWorkspaceRead(let id):
+            guard let w = state.workspaces.firstIndex(where: { $0.id == id }) else {
+                throw MobileDaemonError(code: "workspace.not_found", message: id)
+            }
+            for p in state.workspaces[w].panes.indices {
+                for t in state.workspaces[w].panes[p].tabs.indices { state.workspaces[w].panes[p].tabs[t].unread = 0 }
+            }
         case .createWorkspace, .createTab:
             break
         }

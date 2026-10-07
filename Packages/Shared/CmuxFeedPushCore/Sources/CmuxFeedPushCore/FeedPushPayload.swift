@@ -1,20 +1,36 @@
-/// The parts of a feed push the app reads: `cmux.feed_item`, `kind`, `type`
-/// and `aps.category`. Mail pushes carry no content (only the item id).
+import Foundation
+
+/// The parts of a feed push the app reads: `cmux.feed_item`, `kind`, `type`,
+/// `scopes`, `subject`, `expires_at`, `notify_kind` and `aps.category`. Mail pushes carry no
+/// content (only the item id).
 public struct FeedPushPayload: Hashable, Sendable {
     public var item: String
     public var kind: String?
     public var type: String?
     public var category: FeedPushCategory?
+    /// The scopes an approve request offers (`once`, `session`, `always`).
+    public var scopes: [String]
+    /// A review's subject (`plan`, `diff`, ...).
+    public var subject: String?
+    /// When the item stops mattering (owner clock, unix ms).
+    public var expiresAt: Date?
+    /// The owner's preference kind for the item (`cmux.notify_kind`).
+    public var notifyKind: NotificationKind?
 
-    public init(item: String, kind: String? = nil, type: String? = nil, category: FeedPushCategory? = nil) {
+    public init(item: String, kind: String? = nil, type: String? = nil, category: FeedPushCategory? = nil,
+                scopes: [String] = [], subject: String? = nil, expiresAt: Date? = nil, notifyKind: NotificationKind? = nil) {
         self.item = item
         self.kind = kind
         self.type = type
         self.category = category
+        self.scopes = scopes
+        self.subject = subject
+        self.expiresAt = expiresAt
+        self.notifyKind = notifyKind
     }
 
     /// Owner item ids: a lowercase prefix, "_", then letters and digits (at most 80 characters).
-    static func isItemID(_ value: String) -> Bool {
+    public static func isItemID(_ value: String) -> Bool {
         guard value.utf8.count <= 80, let underscore = value.firstIndex(of: "_") else { return false }
         let prefix = value[..<underscore]
         let rest = value[value.index(after: underscore)...]
@@ -29,7 +45,17 @@ public struct FeedPushPayload: Hashable, Sendable {
         self.item = item
         kind = cmux["kind"] as? String
         type = cmux["type"] as? String
+        scopes = ((cmux["scopes"] as? [Any]) ?? []).compactMap { $0 as? String }
+        subject = cmux["subject"] as? String
+        expiresAt = (cmux["expires_at"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1000) }
+        notifyKind = (cmux["notify_kind"] as? String).flatMap(NotificationKind.init(rawValue:))
         let aps = userInfo["aps"] as? [String: Any]
         category = (aps?["category"] as? String).flatMap(FeedPushCategory.init(rawValue:))
+    }
+
+    /// The category the banner should use: the owner's when it named a known
+    /// one, else derived from the kind.
+    public var resolvedCategory: FeedPushCategory? {
+        category ?? FeedPushCategory(feedKind: kind, type: type, scopes: scopes, subject: subject)
     }
 }

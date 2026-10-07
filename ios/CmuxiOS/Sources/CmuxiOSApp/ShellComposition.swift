@@ -5,6 +5,7 @@ import CmuxiOSFeed
 import CmuxiOSSettingsCore
 import CmuxiOSShell
 import CmuxiOSSSH
+import CmuxiOSWorkspaces
 import UIKit
 
 /// Builds the signed-in shell from the container: Home in its navigation
@@ -16,6 +17,9 @@ enum ShellComposition {
         replayTour: @escaping @MainActor () -> Void
     ) -> ShellRootController {
         let sources = container.featureSources(for: account)
+        // Lane C4: built with the seams so background transfer handling runs
+        // for the whole signed-in session.
+        _ = container.filesFeature(for: sources)
         let settings = ShellSettingsModel(
             account: ShellAccount(displayName: account.displayName, email: account.email),
             about: ShellAbout.current(),
@@ -43,8 +47,19 @@ enum ShellComposition {
         let deviceName = UIDevice.current.name
         // Lane C2: Mac browser tabs open from workspace surfaces over the browser seam.
         let browser = BrowserFeature(source: sources.browser, isMock: sources.resolved[.browser] != .real)
+        // Lane C5: the Workspaces tab; real Macs' terminals open over C1's
+        // link sources, mock workspaces over A2's mock host. `workspaces.makePicker` is the
+        // picker the composer (C8) presents.
+        let workspacesAreReal = sources.resolved[.workspaces] == .real
+        let terminalSources = workspacesAreReal ? container.terminalSources : nil
+        let workspaces = WorkspacesFeature(
+            source: sources.workspaces, terminalSources: terminalSources ?? MockWorkspaceTerminalSourceFactory(),
+            // Real Macs' browser tabs need the real browser seam; mock tabs open on the mock.
+            surfaces: sources.resolved[.browser] == .real || !workspacesAreReal ? browser.surfaceFactories : SurfaceScreenFactories(),
+            isMock: !workspacesAreReal)
         let content = ShellContent(sources: sources, home: home, settings: settings, screens: [
             .hosts: { ssh.makeHostsScreen() },
+            .workspaces: { workspaces.makeWorkspacesScreen() },
             .feed: {
                 let feed = FeedViewController(source: feedSource, navigator: feedNavigator, isMock: feedIsMock, device: deviceName)
                 let navigation = UINavigationController(rootViewController: feed)

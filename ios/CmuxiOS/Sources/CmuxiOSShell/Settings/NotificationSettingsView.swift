@@ -1,3 +1,4 @@
+import CmuxFeedPushCore
 import CmuxiOSSettingsCore
 import SwiftUI
 import UIKit

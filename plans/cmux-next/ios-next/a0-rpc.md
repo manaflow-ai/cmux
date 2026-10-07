@@ -181,8 +181,8 @@ on one side only.
 ## 5. Families
 
 Params are in `families/<family>.schema.json`; one fixture per message is in
-`fixtures/<family>.json`. Ids: `h_…` host, `ws_…` workspace, `pane_…`, `tab_…`, `term_…` (daemon public
-ids), `in_…` install, `fi_…` feed item, `task_…`, `ssh_…`, `sess_…` signaling session.
+`fixtures/<family>.json`. Ids: `h_…` host (the backend mints `host_<20>`, also accepted), `ws_…` workspace, `pane_…`, `tab_…`, `term_…` (daemon public
+ids), `in_…` install (backend `inst_<20>`, also accepted), `fi_…` feed item, `task_…`, `ssh_…`, `sess_…` signaling session.
 
 ### 5.1 host (control; owner `HostDO`, registry `TeamDO`; stream `host:<host>`)
 `host.list` (read): hosts the principal may reach with presence and caps. `host.presence.set` (owner,
@@ -193,8 +193,11 @@ wake a paused VM or a sleeping Mac (`wake` relay frame).
 ### 5.2 workspace (control; owner the Mac workspace store, mirrored by `HostDO`; stream `workspace:<host>`)
 Snapshot state is the host's workspace list with panes and tabs (arrangement only, no scrollback).
 Owner events: `workspace.upsert`, `workspace.remove`, `workspace.tab.upsert`, `workspace.tab.remove`,
-`workspace.status.set` (tab status `idle | running | needs_input | error`, unread count). Client ops:
-`workspace.create`, `workspace.rename`, `workspace.tab.create`, `workspace.tab.close`. Selection and
+`workspace.status.set` (tab status `idle | running | needs_input | error`, unread count),
+`workspace.preview.set` (C5: a tab's preview line, sent only while the host has viewers). Client ops:
+`workspace.create`, `workspace.rename`, `workspace.tab.create`, `workspace.tab.close`, and from C5
+`workspace.close` and `workspace.read` (caps `workspace.close`, `workspace.read`, `workspace.preview`;
+c5-workspaces.md section 2). Selection and
 focus are client view state and never on the wire (OWNERSHIP-PRINCIPLES).
 
 ### 5.3 terminal (stream; owner the Mac session host)
@@ -244,10 +247,15 @@ Synced SSH host records (C9): `ssh.host.upsert`, `ssh.host.remove`, `ssh.known_h
 never leave the device; records name a public key fingerprint. SSH sessions run on the phone and are
 rendered by A2; they are not on this wire.
 
-### 5.11 pairing (control; owner `PairingDO` per code, trust store in `UserDO`)
-`pairing.hosts` (read: same-account Macs to pair with), `pairing.offer` (the Mac makes a QR code),
-`pairing.claim` (the phone presents the code and its device key), `pairing.trust.set` (owner),
-`pairing.revoke`.
+### 5.11 pairing (control; `UserDO` on `/v1/wire/user`, offers in `PairingDO`; stream `trust:<user>`)
+Shapes and flows live in [b6-pairing.md](b6-pairing.md) sections 4 and 6.
+- `pairing.hosts` (read): own Macs and other accounts' hosts this account was accepted on, each with its `direct` key.
+- `trust.key.publish` (op): an install publishes a signed `direct` or `wg` link certificate.
+- `pairing.offer` (op, Mac): mints a single-use QR offer, result `{offer, offer_id, expires_at, link}`.
+- `pairing.claim` (op, phone): claims the offer bound to the host and its key, result `trusted` or `pending`.
+- `trust.request.accept` / `trust.request.decline` (op, host owner): settle a cross-account claim by `offer_id`.
+- `pairing.revoke` (op): removes a guest device from a host on both accounts.
+- Owner events: `trust.key.set`, `trust.install.revoked`, `trust.request.add/remove`, `trust.guest.add/remove`, `trust.remote.add/remove`.
 
 ### 5.12 signal (control; relayed by `HostDO`, never stored)
 `signal.turn_credentials` (read, minted by the backend for Cloudflare Realtime TURN), and ephemeral

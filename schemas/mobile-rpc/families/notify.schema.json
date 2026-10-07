@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "families/notify.schema.json",
   "title": "cmux.mobile/1 notify family (control; UserDO)",
-  "description": "push.target.* are existing cloud ops (backend/packages/protocol/src/push.ts).",
+  "description": "push.target.* are cloud ops in backend/packages/protocol/src/push.ts; push.prefs.set and notify.activity.* in notify.ts (plans/cmux-next/ios-next/c7-notify.md).",
   "$defs": {
     "PushToken": { "type": "string", "pattern": "^[a-f0-9]{32,200}$" },
     "push.target.register": {
@@ -15,6 +15,14 @@
       }
     },
     "push.target.remove": { "type": "object", "additionalProperties": false, "required": ["token"], "properties": { "token": { "$ref": "#/$defs/PushToken" } } },
+    "push.prefs.set": {
+      "type": "object", "additionalProperties": false, "required": ["kinds", "sound", "time_sensitive"],
+      "properties": {
+        "kinds": { "type": "array", "maxItems": 5, "items": { "enum": ["permission", "question", "planApproval", "finished", "terminalAlert"] } },
+        "sound": { "type": "boolean" },
+        "time_sensitive": { "type": "boolean" }
+      }
+    },
     "notify.activity.register": {
       "type": "object", "additionalProperties": false, "required": ["activity", "push_token", "subject"],
       "properties": {
@@ -23,7 +31,9 @@
         "subject": {
           "type": "object", "additionalProperties": false, "required": ["host"],
           "properties": { "host": { "$ref": "../common.schema.json#/$defs/HostId" }, "task": { "$ref": "../common.schema.json#/$defs/TaskId" }, "terminal": { "$ref": "../common.schema.json#/$defs/TerminalId" } }
-        }
+        },
+        "title": { "type": "string", "maxLength": 80 },
+        "started_at": { "type": "integer" }
       }
     },
     "notify.activity.end": { "type": "object", "additionalProperties": false, "required": ["activity"], "properties": { "activity": { "type": "string", "pattern": "^act_[A-Za-z0-9]{2,64}$" } } },

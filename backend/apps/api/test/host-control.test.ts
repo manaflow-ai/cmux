@@ -121,6 +121,41 @@ describe("HostDO control sockets", { timeout: 60_000 }, () => {
     expect(await again.next((f) => f.t === "error" && f.code === "auth.forbidden")).toBeTruthy()
   })
 
+  it("keeps the Mac's epoch, and a new epoch replaces the mirror even at a lower seq", async () => {
+    const u = await hostUser("ctl-epoch")
+    const mac = await openHost(u.host, u.mac.token)
+    await mac.hello("mac")
+    const ev = (seq: number, epoch: string) => ({ t: "event", stream: ws(u.host), seq, tx: `tx_${seq}`, op: "workspace.upsert", params: { workspace: { id: "ws_main01", name: `n${seq}`, order: 0, panes: [] } }, actor: {}, origin: "user", at: seq, epoch })
+    mac.send({ t: "snapshot", stream: ws(u.host), seq: 40, state: workspaceState(u.host, "old"), decided: [], epoch: "ep_1_a" })
+    mac.send(ev(41, "ep_1_a"))
+    const phone = await openHost(u.host, u.phone.token)
+    await phone.hello()
+    phone.send({ t: "subscribe", stream: ws(u.host) })
+    expect(await phone.next((f) => f.t === "snapshot")).toMatchObject({ seq: 40, epoch: "ep_1_a" })
+    expect(await phone.next((f) => f.t === "event" && f.seq === 41)).toMatchObject({ epoch: "ep_1_a" })
+
+    // An event of another epoch is a gap: not forwarded, the Mac is asked for a snapshot.
+    const at = mac.frames.length
+    mac.send(ev(42, "ep_2_b"))
+    expect(await mac.next((f) => f.t === "snapshot.request" && f.stream === ws(u.host), at)).toBeTruthy()
+    // The Mac's store restarted: a lower seq in a new epoch replaces the mirror and resets the tail.
+    mac.send({ t: "snapshot", stream: ws(u.host), seq: 2, state: workspaceState(u.host, "new"), decided: [], epoch: "ep_2_b" })
+    expect(await phone.next((f) => f.t === "snapshot" && f.seq === 2)).toMatchObject({ epoch: "ep_2_b", state: { workspaces: [{ name: "new" }] } })
+    mac.send(ev(3, "ep_2_b"))
+    expect(await phone.next((f) => f.t === "event" && f.seq === 3)).toMatchObject({ epoch: "ep_2_b" })
+    expect(phone.frames.some((f) => f.t === "event" && f.seq === 42)).toBe(false)
+
+    // A cursor of the old epoch inside the new range gets a snapshot, never a replay.
+    const again = await openHost(u.host, u.session)
+    await again.hello("web")
+    again.send({ t: "subscribe", stream: ws(u.host), after_seq: 2, epoch: "ep_1_a" })
+    expect(await again.next((f) => f.t === "snapshot" && f.stream === ws(u.host))).toMatchObject({ seq: 2, epoch: "ep_2_b" })
+    const later = again.frames.length
+    again.send({ t: "subscribe", stream: ws(u.host), after_seq: 2, epoch: "ep_2_b" })
+    expect(await again.next((f) => f.t === "event" && f.seq === 3, later)).toBeTruthy()
+    expect(again.frames.slice(later).some((f) => f.t === "snapshot")).toBe(false)
+  })
+
   it("asks the Mac for a compacting snapshot once the tail passes its bound", async () => {
     const u = await hostUser("ctl-compact")
     const mac = await openHost(u.host, u.mac.token)

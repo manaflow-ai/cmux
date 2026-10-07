@@ -174,10 +174,10 @@ shows the path badge (a3-link.md 6); control stays enabled.
 | rd and rb wire in Swift (datagram header, FrameBody, feedback, input packets, rb messages, packetizer, reassembler, Annex-B helpers) | `Packages/Shared/CmuxBrowserStream` (module `CmuxBrowserStream`) |
 | phone client: channel handshake, datagram lane, reassembly, input seq, navigation requests | same module, `BrowserStreamClient` |
 | Mac handler | `Packages/Shared/CmuxMobileHost/Sources/CmuxMobileHost/Browser`: `BrowserChannelHandler` (`MobileChannelHandler` for `.browser`), `BrowserPageHost` / `BrowserPageAttachment` (app seam), `BrowserVideoSource` (pull, newest-wins), `VideoToolboxH264Encoder`, `ScreenCaptureFrameCapture` (macOS) |
-| Datagram lane hand-off | `MobileSessionServer` + `MobileChannel.datagramLanes()` |
+| Datagram lane hand-off | `MobileSessionServer` + `MobileChannel.datagramLanes()` and `MobileDatagramLane` (CmuxMobileLink) |
 | iOS screen | `ios/CmuxiOS/Sources/CmuxiOSBrowser`: `BrowserStreamViewController` (URL bar, toolbar, tab switcher), `BrowserVideoView` (VideoToolbox decode into `AVSampleBufferDisplayLayer`), `BrowserGestureMapper`, `BrowserTextInputView` (UITextInput for IME) |
-| Real seam | `LinkBrowserStreamSource` (`BrowserStreamSource`) over `MobileSessionLinkProvider` (the admitted link per host; D1/B6 supply it) and `BrowserTabDirectory` |
-| Reachability | `SurfaceScreenFactories.browser` (FeatureKit, UIKit only); Workspaces lists a host's browser tabs and opens the screen through it; C5's workspace detail takes the same factory |
+| Real seam | `LinkBrowserStreamSource` (`BrowserStreamSource`) over a `MobileLinkClientProvider` (the phone's one `MobileLinkClient` per Mac, shared with C1 terminals and C4 files; `openDatagramLane(for:)` added to it) and `BrowserTabDirectory` (`WorkspaceBrowserTabDirectory` over C5's workspace source) |
+| Reachability | `SurfaceScreenFactories.browser` (FeatureKit, UIKit only), passed to C5's `WorkspacesFeature`: a `browser` surface in the workspace detail opens the screen |
 
 App wiring left to the app lane (no local app build, disk): `BrowserPageHost` over the app's browser
 tabs (find the tab's view and window, `ScreenCaptureFrameCapture` on that window rect, input through

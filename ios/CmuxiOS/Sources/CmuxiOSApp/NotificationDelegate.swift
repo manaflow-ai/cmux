@@ -3,8 +3,9 @@ import CmuxiOSPush
 import UserNotifications
 
 /// The app's notification-center delegate: banners show while the app is in
-/// front; a tap on a routed push (C7's `cmux.route` keys) goes to the
-/// router; feed banner actions go to the feed responder.
+/// front; a tap on a routed push (`cmux.route` keys) goes to the router;
+/// feed banner actions and taps go to the feed responder, which sends
+/// actions as feed intents under a background task (c7-notify.md section 2).
 final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
     private let responder: FeedNotificationResponder
     private let router: ShellRouter
@@ -30,6 +31,8 @@ final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
             await MainActor.run { _ = router.openNotification(route) }
             return
         }
+        // Returning ends iOS's own grace period; the responder holds a
+        // background task for the send, so the answer finishes from the lock screen.
         let decision = FeedNotificationResponder.decision(for: response)
         await responder.handle(decision)
     }

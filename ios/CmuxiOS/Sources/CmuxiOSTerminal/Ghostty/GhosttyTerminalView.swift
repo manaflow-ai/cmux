@@ -334,6 +334,8 @@ public final class GhosttyTerminalView: UIView, TerminalRenderer {
     // MARK: TerminalRenderer
 
     public var snapshotVersion: UInt16 { GhosttyOutputSurface.snapshotVersion }
+    /// The GHOSTSNP version this build restores, for a source's attach params.
+    public static var supportedSnapshotVersion: UInt16 { GhosttyOutputSurface.snapshotVersion }
 
     @discardableResult
     public func enqueueOutput(_ work: @escaping @Sendable (any TerminalOutputSurface) -> Void) -> Bool {

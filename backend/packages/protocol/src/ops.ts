@@ -20,6 +20,7 @@ import { integrationOps } from "./integrations.ts"
 import { googleOps } from "./google-ops.ts"
 import { feedOps } from "./feed.ts"
 import { pushOps } from "./push.ts"
+import { notifyOps } from "./notify.ts"
 import { userConfirmOps } from "./user-confirm-ops.ts"
 import { enrollmentOps } from "./enrollment-ops.ts"
 import { ssoOps } from "./sso-ops.ts"
@@ -236,6 +237,7 @@ export const cloudOps = [
   ...googleOps,
   ...feedOps,
   ...pushOps,
+  ...notifyOps,
   ...userConfirmOps,
   ...policyOps,
   ...networkOps,

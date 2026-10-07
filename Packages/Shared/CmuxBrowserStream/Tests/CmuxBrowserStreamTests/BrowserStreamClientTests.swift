@@ -16,12 +16,12 @@ struct BrowserStreamClientTests {
         let first = try await ScriptedHost.next(channel)
         guard case .channelOpen(let open)? = try? MobileFrame(value: try first.jsonObject()) else { throw TimeoutError() }
         #expect(open.kind == .browser)
-        #expect(open.channel == 7)
+        #expect(open.channel == 1)
         #expect(try BrowserChannelParams(params: open.params) == params)
-        let ok = BrowserChannelOpened(datagramChannel: 7, encoder: .h264, width: 1178, height: 736, pageWidth: 1440,
+        let ok = BrowserChannelOpened(datagramChannel: 1, encoder: .h264, width: 1178, height: 736, pageWidth: 1440,
                                       pageHeight: 900, caps: ["navigate"])
-        let reply = try StreamRecord.json(channel: 7, seq: 1,
-                                          object: try MobileFrame.channelOpened(ChannelOpenedFrame(channel: 7, window: 1 << 20,
+        let reply = try StreamRecord.json(channel: 1, seq: 1,
+                                          object: try MobileFrame.channelOpened(ChannelOpenedFrame(channel: 1, window: 1 << 20,
                                                                                                    params: ok.params, resumed: false)).jsonValue)
         try await channel.send(reply.encoded)
         #expect(try await opened == ok)
@@ -31,7 +31,7 @@ struct BrowserStreamClientTests {
     @Test func aMissingFrameMakesThePhoneAskForRecoveryOnTheReliableChannel() async throws {
         let host = try await ScriptedHost.make()
         defer { Task { await host.shutdown() } }
-        let client = BrowserStreamClient(session: ScriptedSessionLink(link: host.phone), params: Self.params)
+        let client = BrowserStreamClient(client: host.client, params: Self.params)
         let channel = try await Self.open(host, client: client)
         var packetizer = RdPacketizer(maxDatagram: RdPacketizer.streamDatagram)
         var seq: UInt64 = 1
@@ -40,7 +40,7 @@ struct BrowserStreamClientTests {
             let body = RdFrameBody(captureMicros: 0, refFrame: ref, accessUnit: Data([UInt8(number)]))
             for datagram in try packetizer.packetize(frame: number, flags: ref == RdFrameBody.refNone ? .keyframe : [], body: body) {
                 seq += 1
-                try await channel.send(StreamRecord(channel: 7, seq: seq, payload: BrowserStreamPayload.encodedDatagram(datagram)).encoded)
+                try await channel.send(StreamRecord(channel: 1, seq: seq, payload: BrowserStreamPayload.encodedDatagram(datagram)).encoded)
             }
         }
         var recovery: RdFeedback?
@@ -60,7 +60,7 @@ struct BrowserStreamClientTests {
     @Test func inputPacketsCarryConsecutiveSequenceNumbers() async throws {
         let host = try await ScriptedHost.make()
         defer { Task { await host.shutdown() } }
-        let client = BrowserStreamClient(session: ScriptedSessionLink(link: host.phone), params: Self.params)
+        let client = BrowserStreamClient(client: host.client, params: Self.params)
         let channel = try await Self.open(host, client: client)
         try await client.send(.imeCommit(text: "a", replacement: nil))
         try await client.send(.key(RbKeyEvent(down: true, code: "Enter", key: "Enter")))
@@ -80,12 +80,12 @@ struct BrowserStreamClientTests {
     @Test func aRefusalIsReported() async throws {
         let host = try await ScriptedHost.make()
         defer { Task { await host.shutdown() } }
-        let client = BrowserStreamClient(session: ScriptedSessionLink(link: host.phone), params: Self.params)
+        let client = BrowserStreamClient(client: host.client, params: Self.params)
         async let opened = client.open()
         let channel = try await host.acceptReliable()
         _ = try await ScriptedHost.next(channel)
-        let refused = ChannelRefusedFrame(channel: 7, code: "browser.tab_not_found", message: "gone", retryable: false)
-        try await channel.send(try StreamRecord.json(channel: 7, seq: 1, object: try MobileFrame.channelRefused(refused).jsonValue).encoded)
+        let refused = ChannelRefusedFrame(channel: 1, code: "browser.tab_not_found", message: "gone", retryable: false)
+        try await channel.send(try StreamRecord.json(channel: 1, seq: 1, object: try MobileFrame.channelRefused(refused).jsonValue).encoded)
         let outcome: Result<BrowserChannelOpened, BrowserStreamClientError>
         do {
             outcome = .success(try await opened)

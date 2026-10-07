@@ -12,6 +12,9 @@ let package = Package(
     ],
     products: [
         .library(name: "CmuxiOSApp", targets: ["CmuxiOSApp"]),
+        // The Live Activity attributes and widget UI, linked by the app and
+        // the AgentActivityWidget extension target.
+        .library(name: "CmuxiOSLiveActivity", targets: ["CmuxiOSLiveActivity"]),
     ],
     dependencies: [
         .package(path: "../../Packages/Shared/CmuxHomeCore"),
@@ -24,9 +27,15 @@ let package = Package(
         .package(path: "../../Packages/Shared/CmuxAuthRuntime"),
         .package(path: "../../Packages/Shared/CmuxTerminalStream"),
         .package(path: "../../Packages/Shared/CmuxTerminalRenderCore"),
+        .package(path: "../../Packages/Shared/CmuxMobileWire"),
+        .package(path: "../../Packages/Shared/CmuxControlPlane"),
         .package(path: "../../Packages/Shared/CmuxTheme"),
         .package(path: "../../Packages/Shared/CmuxLink"),
         .package(path: "../../Packages/Shared/CmuxBrowserStream"),
+        .package(path: "../../Packages/Shared/CmuxMobileLink"),
+        .package(path: "../../Packages/Shared/CmuxTerminalLink"),
+        .package(path: "../../Packages/Shared/CmuxPairing"),
+        .package(path: "../../Packages/Shared/CmuxMobileFiles"),
         .package(path: "../../Packages/Shared/CmuxMobileHost"),
         .package(path: "../../Packages/Shared/CmuxGhosttyKit"),
         .package(path: "../../Packages/iOS/CmuxMobileSupport"),
@@ -47,9 +56,13 @@ let package = Package(
                 .product(name: "CmuxTerminalRenderCore", package: "CmuxTerminalRenderCore"),
                 "CmuxiOSDesign",
                 "CmuxiOSPush",
+                "CmuxiOSNotifyCore",
+                "CmuxiOSLiveActivity",
                 "CmuxiOSIdentity",
                 "CmuxiOSShell",
                 "CmuxiOSFeatureKit",
+                "CmuxiOSFiles",
+                "CmuxiOSFilesCore",
                 "CmuxiOSFeed",
                 "CmuxiOSFeedCloud",
                 "CmuxiOSPlatform",
@@ -66,6 +79,14 @@ let package = Package(
                 "CmuxiOSBrowser",
                 "CmuxiOSBrowserCore",
                 .product(name: "CmuxBrowserStream", package: "CmuxBrowserStream"),
+                "CmuxiOSWorkspaces",
+                "CmuxiOSWorkspacesCore",
+                "CmuxiOSTerminalLink",
+                "CmuxiOSPairing",
+                "CmuxiOSPairingCore",
+                .product(name: "CmuxPairing", package: "CmuxPairing"),
+                .product(name: "CmuxControlPlane", package: "CmuxControlPlane"),
+                .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
                 .product(name: "CmuxFeedPushCore", package: "CmuxFeedPushCore"),
                 "CmuxiOSTextConfirm",
                 .product(name: "CmuxTextConfirmCore", package: "CmuxTextConfirmCore"),
@@ -138,9 +159,42 @@ let package = Package(
         .target(
             name: "CmuxiOSPush",
             dependencies: [
+                "CmuxiOSFeatureKit",
+                "CmuxiOSNotifyCore",
+                "CmuxiOSLiveActivity",
                 .product(name: "CmuxFeedPushCore", package: "CmuxFeedPushCore"),
                 .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
             ],
+            resources: [.process("Resources")],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // Lane C7 (plans/cmux-next/ios-next/c7-notify.md): banner actions as
+        // C6 feed intents, the one-shot ops performer and the badge and
+        // stale-banner reconciler. Foundation only, so its tests run on macOS.
+        .target(
+            name: "CmuxiOSNotifyCore",
+            dependencies: [
+                "CmuxiOSFeatureKit",
+                "CmuxiOSFeedCloud",
+                "CmuxiOSFeedModel",
+                .product(name: "CmuxFeedPushCore", package: "CmuxFeedPushCore"),
+            ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .testTarget(
+            name: "CmuxiOSNotifyCoreTests",
+            dependencies: [
+                "CmuxiOSNotifyCore", "CmuxiOSFeatureKit",
+                .product(name: "CmuxFeedPushCore", package: "CmuxFeedPushCore"),
+            ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // Live Activities for running agents: ActivityKit attributes and the
+        // lock screen and Dynamic Island views (no app-only API, so the
+        // widget extension links it too).
+        .target(
+            name: "CmuxiOSLiveActivity",
+            dependencies: [.product(name: "CmuxFeedPushCore", package: "CmuxFeedPushCore")],
             resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
@@ -173,6 +227,41 @@ let package = Package(
             dependencies: ["CmuxiOSFeatureKit"],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
+        // Lane C4 (plans/cmux-next/ios-next/c4-files.md): the real
+        // `FileTransfer` over CmuxLink, the transfer list model, staging and
+        // HEIC conversion, and the send-to-terminal / attach-to-task path.
+        // No UIKit, so its tests also run on macOS.
+        .target(
+            name: "CmuxiOSFilesCore",
+            dependencies: [
+                "CmuxiOSFeatureKit",
+                .product(name: "CmuxMobileFiles", package: "CmuxMobileFiles"),
+                .product(name: "CmuxMobileLink", package: "CmuxMobileLink"),
+                .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
+            ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .testTarget(
+            name: "CmuxiOSFilesCoreTests",
+            dependencies: [
+                "CmuxiOSFilesCore", "CmuxiOSFeatureKit",
+                .product(name: "CmuxMobileFiles", package: "CmuxMobileFiles"),
+                .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
+                .product(name: "CmuxMobileHost", package: "CmuxMobileHost"),
+                .product(name: "CmuxMobileLink", package: "CmuxMobileLink"),
+                .product(name: "CmuxLink", package: "CmuxLink"),
+                .product(name: "CmuxLinkTesting", package: "CmuxLink"),
+            ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // Pickers (photos, camera, documents), the transfer list and the
+        // QuickLook viewer hook C13 replaces.
+        .target(
+            name: "CmuxiOSFiles",
+            dependencies: ["CmuxiOSFilesCore", "CmuxiOSFeatureKit"],
+            resources: [.process("Resources")],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
         // First-run onboarding (plans/cmux-next/ios-next/c10-onboarding.md):
         // the platform-neutral flow, persistence and pairing projection...
         .target(
@@ -188,7 +277,38 @@ let package = Package(
         // ...and its screens.
         .target(
             name: "CmuxiOSOnboarding",
-            dependencies: ["CmuxiOSOnboardingCore", "CmuxiOSFeatureKit", "CmuxiOSDesign"],
+            dependencies: ["CmuxiOSOnboardingCore", "CmuxiOSFeatureKit", "CmuxiOSDesign", "CmuxiOSPairing"],
+            resources: [.process("Resources")],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // Lane B6 (plans/cmux-next/ios-next/b6-pairing.md): the real
+        // DeviceRegistry over the trust store mirror and host presence,
+        // pairing tickets and links. No UIKit, so its tests run on macOS.
+        .target(
+            name: "CmuxiOSPairingCore",
+            dependencies: [
+                "CmuxiOSFeatureKit",
+                .product(name: "CmuxPairing", package: "CmuxPairing"),
+                .product(name: "CmuxControlPlane", package: "CmuxControlPlane"),
+                .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
+            ],
+            resources: [.process("Resources")],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .testTarget(
+            name: "CmuxiOSPairingCoreTests",
+            dependencies: [
+                "CmuxiOSPairingCore",
+                "CmuxiOSFeatureKit",
+                .product(name: "CmuxPairing", package: "CmuxPairing"),
+                .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
+            ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // The AVFoundation QR scanner (replaces C10's placeholder viewfinder).
+        .target(
+            name: "CmuxiOSPairing",
+            dependencies: ["CmuxiOSPairingCore", .product(name: "CmuxPairing", package: "CmuxPairing")],
             resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
@@ -238,6 +358,7 @@ let package = Package(
                 "CmuxiOSFeatureKit",
                 .product(name: "CmuxBrowserStream", package: "CmuxBrowserStream"),
                 .product(name: "CmuxLink", package: "CmuxLink"),
+                .product(name: "CmuxMobileLink", package: "CmuxMobileLink"),
             ],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
@@ -247,6 +368,7 @@ let package = Package(
                 "CmuxiOSBrowserCore",
                 "CmuxiOSFeatureKit",
                 .product(name: "CmuxBrowserStream", package: "CmuxBrowserStream"),
+                .product(name: "CmuxMobileLink", package: "CmuxMobileLink"),
                 .product(name: "CmuxLink", package: "CmuxLink"),
                 .product(name: "CmuxLinkTesting", package: "CmuxLink"),
                 .product(name: "CmuxMobileHost", package: "CmuxMobileHost"),
@@ -298,6 +420,7 @@ let package = Package(
             name: "CmuxiOSSettingsCore",
             dependencies: [
                 "CmuxiOSFeatureKit",
+                .product(name: "CmuxFeedPushCore", package: "CmuxFeedPushCore"),
                 .product(name: "CmuxTheme", package: "CmuxTheme"),
                 .product(name: "CmuxTerminalRenderCore", package: "CmuxTerminalRenderCore"),
                 .product(name: "CmuxLink", package: "CmuxLink"),
@@ -308,10 +431,64 @@ let package = Package(
             name: "CmuxiOSSettingsCoreTests",
             dependencies: [
                 "CmuxiOSSettingsCore", "CmuxiOSFeatureKit",
+                .product(name: "CmuxFeedPushCore", package: "CmuxFeedPushCore"),
                 .product(name: "CmuxTheme", package: "CmuxTheme"),
                 .product(name: "CmuxTerminalRenderCore", package: "CmuxTerminalRenderCore"),
                 .product(name: "CmuxLink", package: "CmuxLink"),
             ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // Lane C5 (plans/cmux-next/ios-next/c5-workspaces.md): workspace
+        // mirrors and intent logs over the control plane, the list model and
+        // the seams for the terminal source (C1) and the picker (C8). No
+        // UIKit, so its tests also run on macOS.
+        .target(
+            name: "CmuxiOSWorkspacesCore",
+            dependencies: [
+                "CmuxiOSFeatureKit",
+                .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
+                .product(name: "CmuxControlPlane", package: "CmuxControlPlane"),
+                .product(name: "CmuxTerminalRenderCore", package: "CmuxTerminalRenderCore"),
+            ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .testTarget(
+            name: "CmuxiOSWorkspacesCoreTests",
+            dependencies: [
+                "CmuxiOSWorkspacesCore",
+                "CmuxiOSFeatureKit",
+                .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
+                .product(name: "CmuxControlPlane", package: "CmuxControlPlane"),
+            ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // Lane C1 (plans/cmux-next/ios-next/c1-terminal-rpc.md): workspace
+        // terminals over the Mac's cmux.mobile/1 session.
+        .target(
+            name: "CmuxiOSTerminalLink",
+            dependencies: [
+                "CmuxiOSFeatureKit",
+                "CmuxiOSWorkspacesCore",
+                "CmuxiOSTerminal",
+                .product(name: "CmuxMobileLink", package: "CmuxMobileLink"),
+                .product(name: "CmuxTerminalLink", package: "CmuxTerminalLink"),
+                .product(name: "CmuxTerminalRenderCore", package: "CmuxTerminalRenderCore"),
+                .product(name: "CmuxTerminalStream", package: "CmuxTerminalStream"),
+            ],
+            resources: [.process("Resources")],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // The Workspaces tab, workspace detail, machines sheet and picker.
+        .target(
+            name: "CmuxiOSWorkspaces",
+            dependencies: [
+                "CmuxiOSWorkspacesCore",
+                "CmuxiOSFeatureKit",
+                "CmuxiOSDesign",
+                "CmuxiOSTerminal",
+                .product(name: "CmuxTerminalRenderCore", package: "CmuxTerminalRenderCore"),
+            ],
+            resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         // Root navigation, placeholder screens, feature flags, DEV sources.
@@ -319,6 +496,7 @@ let package = Package(
             name: "CmuxiOSShell",
             dependencies: [
                 "CmuxiOSDesign", "CmuxiOSFeatureKit", "CmuxiOSPlatform", "CmuxiOSSettingsCore",
+                .product(name: "CmuxFeedPushCore", package: "CmuxFeedPushCore"),
                 .product(name: "CmuxLink", package: "CmuxLink"),
                 .product(name: "CmuxTheme", package: "CmuxTheme"),
                 .product(name: "CmuxTerminalRenderCore", package: "CmuxTerminalRenderCore"),

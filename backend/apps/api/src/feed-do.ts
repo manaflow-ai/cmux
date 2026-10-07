@@ -1,14 +1,16 @@
-import type { EventFrame, OpFrame, Principal } from "@cmux/ownership"
-import { feedKindSchemas, FeedList, type FeedItem, type PushTarget } from "@cmux/protocol"
+import type { EventFrame, OpFrame, OwnerFrame, Principal } from "@cmux/ownership"
+import { feedKindSchemas, FeedList, type FeedItem } from "@cmux/protocol"
 import { decodeParams } from "./domains/common.ts"
 import { listItems } from "./domains/feed-query.ts"
 import { feedCounts, feedDomain, nextFeedWake, visibleTo, type FeedState } from "./domains/feed.ts"
+import { feedBadge } from "./domains/feed-notify.ts"
+import { runFeedPushEffects } from "./feed-push-effects.ts"
 import { isUserClient, prunableAt, pushEligible, RETENTION_MS } from "./domains/feed-state.ts"
 import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult, type SubmitResult } from "./owner-do.ts"
 import { FEED_ENGINE_OPTIONS, scrubFeedText } from "./feed-privacy.ts"
 import type { SweepState } from "./feed-sweep.ts"
-import { apnsConfig, sendApns } from "./push/apns.ts"
+import { apnsConfig, sendFeedItem } from "./push/apns.ts"
 
 interface Presence {
   readonly active: boolean
@@ -196,9 +198,10 @@ export class FeedDO extends OwnerDO<FeedState> {
     // Delivery is at most once (feed.md 7.3): the decision is committed before the send.
     try {
       const users = this.env.USER_DO.get(this.env.USER_DO.idFromName(user))
-      let targets: ReadonlyArray<PushTarget> = [...(await users.pushTargets(user))]
+      // Each device gets the kinds it wants, shaped by its preferences, with the owner's badge (c7-notify.md 4).
+      let targets = [...(await users.notifyTargets(user)).push]
       for (const item of items) {
-        const results = await sendApns(config, targets, item, Date.now())
+        const results = await sendFeedItem(config, targets, item, feedBadge(this.boundEngine!.currentState, Date.now()), Date.now())
         const dropped = new Set(results.filter((r) => r.outcome === "drop_target").map((r) => r.token))
         for (const token of dropped) await users.dropPushTarget(user, token, results.find((r) => r.token === token)?.reason ?? "rejected")
         targets = targets.filter((t) => !dropped.has(t.token))
@@ -207,6 +210,29 @@ export class FeedDO extends OwnerDO<FeedState> {
     } catch (e) {
       console.error(JSON.stringify({ msg: "feed.push.failed", error: String(e).slice(0, 200) }))
     }
+  }
+
+  /**
+   * After every committed op (socket, RPC or the owner's own alarm ops): dismiss
+   * pushes and Live Activity updates (feed-push-effects.ts). An effect after
+   * commit; it never fails the op.
+   */
+  protected override afterOp(principal: Principal, op: string, frames: ReadonlyArray<OwnerFrame>, params?: unknown) {
+    super.afterOp(principal, op, frames, params)
+    const state = this.boundEngine?.currentState
+    if (!state?.user || !frames.some((f) => f.t === "result" && !f.replayed)) return
+    const user = state.user
+    const users = () => this.env.USER_DO.get(this.env.USER_DO.idFromName(user))
+    this.ctx.waitUntil(
+      runFeedPushEffects({
+        sql: this.ctx.storage.sql,
+        state,
+        config: apnsConfig(this.env),
+        targets: () => users().notifyTargets(user),
+        dropTarget: (token, reason) => users().dropPushTarget(user, token, reason),
+        now: Date.now()
+      }).catch((e) => console.error(JSON.stringify({ msg: "feed.notify.failed", error: String(e).slice(0, 200) })))
+    )
   }
 
   protected override async onWake(now: number): Promise<void> {
