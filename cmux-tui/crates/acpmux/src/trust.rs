@@ -56,6 +56,9 @@ pub struct Paths {
     pub claude_json: PathBuf,
     pub codex_config: PathBuf,
     pub record: PathBuf,
+    /// The folder that holds cmux's agent-home folders (`agent_home_root`): the private folder
+    /// cmux makes for each new chat in a workspace without a folder. None: no such folder.
+    pub agent_home: Option<PathBuf>,
 }
 
 impl Paths {
@@ -66,9 +69,19 @@ impl Paths {
             claude_json: user.join(".claude.json"),
             codex_config: user.join(".codex").join("config.toml"),
             record: crate::config::home().join("trust.json"),
+            agent_home: agent_home_root(),
         })
     }
 }
+
+/// `~/Library/Application Support/cmux/agent-home` on macOS (the app's `AgentHome.standard`):
+/// the app makes each workspace's agent-home folder there.
+pub fn agent_home_root() -> Option<PathBuf> {
+    dirs::data_dir().map(|data| data.join("cmux").join("agent-home"))
+}
+
+/// The file the app writes in each agent-home folder it makes (`AgentHome.ensure`).
+pub const AGENT_HOME_MARKER: &str = ".cmux-agent-home";
 
 /// A folder path the record can key: absolute, without a trailing slash.
 /// The path is resolved (symlinks, `.` and `..`, /tmp vs /private/tmp) when it exists,
