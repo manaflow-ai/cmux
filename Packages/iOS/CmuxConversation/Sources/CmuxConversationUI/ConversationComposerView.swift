@@ -54,6 +54,13 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
     }
 
     private(set) var fieldHeight: CGFloat = ConversationTheme.composerMinHeight
+    /// How far the keyboard has risen (0 hidden, 1 fully shown). Messages
+    /// widens the composer as the keyboard rises: both side insets shrink by
+    /// 12 pt, in step with the keyboard (measured on iOS 26 Messages).
+    var keyboardProgress: CGFloat = 0 {
+        didSet { if oldValue != keyboardProgress { setNeedsLayout() } }
+    }
+    static let keyboardSideInsetReduction: CGFloat = 12
     private let attachmentHeight: CGFloat = 120
     private let verticalPadding: CGFloat = 9
     private let fieldTextInset: CGFloat = 14.5
@@ -147,10 +154,11 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         super.layoutSubviews()
         let t = ConversationTheme.self
         let plusSize = t.plusButtonSize
-        plusGlass.frame = CGRect(x: t.composerSideInset, y: bounds.height - 4 - (t.composerMinHeight + plusSize) / 2 + 1, width: plusSize, height: plusSize)
+        let sideInset = t.composerSideInset - Self.keyboardSideInsetReduction * keyboardProgress
+        plusGlass.frame = CGRect(x: sideInset, y: bounds.height - 4 - (t.composerMinHeight + plusSize) / 2 + 1, width: plusSize, height: plusSize)
         plusButton.frame = plusGlass.bounds
         let fieldX = plusGlass.frame.maxX + t.composerFieldGap
-        fieldGlass.frame = CGRect(x: fieldX, y: bounds.height - 4 - fieldHeight, width: bounds.width - fieldX - t.composerSideInset + 1, height: fieldHeight)
+        fieldGlass.frame = CGRect(x: fieldX, y: bounds.height - 4 - fieldHeight, width: bounds.width - fieldX - sideInset + 1, height: fieldHeight)
         let field = fieldGlass.bounds
         var textTop: CGFloat = 0
         if !attachments.isEmpty {

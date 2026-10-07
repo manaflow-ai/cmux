@@ -83,6 +83,11 @@ public final class ConversationViewController: UIViewController {
     var photoDrawer: ConversationPhotoGridView?
     var pickedAssets: [String: UUID] = [:]
     var drawerHeightConstraint: NSLayoutConstraint?
+    /// Keyboard-relative base line of the composer (see `composerBottomConstraint`).
+    let composerBase = UILayoutGuide()
+    var composerDropConstraint: NSLayoutConstraint?
+    /// Height of the docked keyboard when fully shown, from its notifications.
+    var dockedKeyboardHeight: CGFloat = 0
 
     public init(store: ConversationStore, options: ConversationPresentationOptions = ConversationPresentationOptions()) {
         self.store = store
@@ -131,8 +136,14 @@ public final class ConversationViewController: UIViewController {
         view.keyboardLayoutGuide.followsUndockedKeyboard = true
         let composerHeight = composer.heightAnchor.constraint(equalToConstant: composer.preferredHeight)
         composerHeightConstraint = composerHeight
-        let composerBottom = composerContainer.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor, constant: -4)
+        // `composerBottomConstraint` places a base line 4 pt above the keyboard
+        // (or the safe area, or a drawer); the composer then sits `composerDrop`
+        // below that line, which follows the keyboard's progress.
+        view.addLayoutGuide(composerBase)
+        let composerBottom = composerBase.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor, constant: -4)
         composerBottomConstraint = composerBottom
+        let drop = composerContainer.bottomAnchor.constraint(equalTo: composerBase.bottomAnchor, constant: Self.composerDrop(keyboardProgress: 0))
+        composerDropConstraint = drop
         NSLayoutConstraint.activate([
             collectionView.topAnchor.constraint(equalTo: view.topAnchor),
             collectionView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -145,6 +156,10 @@ public final class ConversationViewController: UIViewController {
             composerContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             composerContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             composerBottom,
+            drop,
+            composerBase.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            composerBase.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            composerBase.heightAnchor.constraint(equalToConstant: 0),
             composer.topAnchor.constraint(equalTo: composerContainer.topAnchor),
             composer.leadingAnchor.constraint(equalTo: composerContainer.leadingAnchor),
             composer.trailingAnchor.constraint(equalTo: composerContainer.trailingAnchor),
@@ -177,6 +192,7 @@ public final class ConversationViewController: UIViewController {
         NotificationCenter.default.addObserver(forName: UIResponder.keyboardWillShowNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.dismissPhotoDrawer() }
         }
+        observeKeyboardFrames()
         store.onChange = { [weak self] change in self?.storeDidChange(change) }
         store.start()
         rebuild(change: .reset)
@@ -189,6 +205,7 @@ public final class ConversationViewController: UIViewController {
 
     public override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        followKeyboardProgress()
         updateInsets()
         let available = composerContainer.frame.maxY - header.frame.maxY - 8
         composer.maximumFieldHeight = max(ConversationTheme.composerMinHeight, available - 8)
@@ -238,6 +255,52 @@ public final class ConversationViewController: UIViewController {
             }
         }
         lastBottomInset = bottom
+    }
+
+    /// The composer's offset below its base line, measured on iOS 26
+    /// Messages: at rest the field's bottom sits 28.25 pt above the screen
+    /// bottom (6 pt into the home indicator's safe area); with the keyboard
+    /// up it sits 17.5 pt above the keyboard. In between it moves linearly
+    /// with the keyboard, so the gap closes as the keyboard rises.
+    static func composerDrop(keyboardProgress p: CGFloat) -> CGFloat {
+        let rest: CGFloat = 13.75
+        let docked: CGFloat = -9.5
+        return rest + (docked - rest) * min(1, max(0, p))
+    }
+
+    /// 0 with the keyboard hidden, 1 when it is fully shown (the share of the
+    /// docked keyboard above the bottom safe area); an interactive dismissal
+    /// passes through every value in between.
+    var keyboardProgress: CGFloat {
+        let rest = view.bounds.maxY - view.safeAreaInsets.bottom
+        let top = view.keyboardLayoutGuide.layoutFrame.minY
+        guard top < rest - 0.5 else { return 0 }
+        let travel = dockedKeyboardHeight - view.safeAreaInsets.bottom
+        guard travel > 1 else { return 1 }
+        return min(1, (rest - top) / travel)
+    }
+
+    /// Applies the keyboard's progress to the composer in the same layout
+    /// pass (and so the same animation) that moves the keyboard guide.
+    private func followKeyboardProgress() {
+        // A drawer in the keyboard's place keeps the composer on its base line.
+        let p = photoDrawer == nil ? keyboardProgress : 0
+        let drop = photoDrawer == nil ? Self.composerDrop(keyboardProgress: p) : 0
+        guard composerDropConstraint?.constant != drop || composer.keyboardProgress != p else { return }
+        composerDropConstraint?.constant = drop
+        composer.keyboardProgress = p
+        view.layoutIfNeeded()
+    }
+
+    private func observeKeyboardFrames() {
+        let center = NotificationCenter.default
+        center.addObserver(forName: UIResponder.keyboardWillShowNotification, object: nil, queue: .main) { [weak self] note in
+            let end = (note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                if let end, end.height > 0 { self.dockedKeyboardHeight = end.height }
+            }
+        }
     }
 
     var bottomOffset: CGPoint {
