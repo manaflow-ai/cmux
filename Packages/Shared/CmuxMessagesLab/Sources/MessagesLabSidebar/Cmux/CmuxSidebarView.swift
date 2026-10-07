@@ -97,6 +97,20 @@ public final class CmuxSidebarView: NSView {
         controller.reloadData()
     }
 
+    /// In the compact (avatar-only) list the search field is hidden rather
+    /// than clipped to a few letters, and a search in progress ends, so no
+    /// hidden filter stays on the rows. (Upstream ask: Messages' compact search.)
+    public override func layout() {
+        super.layout()
+        let compact = bounds.width < SidebarMetrics.compactBelow
+        guard controller.searchField.isHidden != compact else { return }
+        controller.searchField.isHidden = compact
+        if compact, !controller.searchField.stringValue.isEmpty {
+            controller.searchField.stringValue = ""
+            controller.setQuery("")
+        }
+    }
+
     /// True while the list is too narrow for the search field.
     public var searchHidden: Bool { controller.searchField.isHidden }
 
