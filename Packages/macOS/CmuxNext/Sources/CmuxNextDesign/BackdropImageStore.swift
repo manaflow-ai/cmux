@@ -20,13 +20,32 @@ public final class BackdropImageStore {
         let image: CGImage
     }
 
-    public init() {}
+    /// The longest side, in pixels, of a decoded backdrop (stub: unused).
+    public let maxPixelSize: Int
+    /// Where snapshots of decoded backdrops live (stub: unused).
+    public let snapshots: URL?
+    /// Texture passes run (stub: none).
+    private(set) var renderCount = 0
+
+    public init(maxPixelSize: Int? = nil, snapshots: URL? = nil) {
+        self.maxPixelSize = maxPixelSize ?? 4096
+        self.snapshots = snapshots
+    }
 
     /// The decoded image of `selection`, or nil until it has loaded.
-    func cached(_ selection: BackdropSelection) -> NSImage? { images[selection.id] }
+    func cached(_ selection: BackdropSelection, texture: BackdropTexture = .default) -> NSImage? { images[selection.id] }
+
+    /// A snapshot from an earlier launch for the first frame (stub: none).
+    func preview(_ selection: BackdropSelection, texture: BackdropTexture = .default) -> NSImage? { nil }
+
+    /// Starts loading `selection` before any window asks (stub: does nothing).
+    public func prewarm(_ selection: BackdropSelection?, texture: BackdropTexture = .default) {}
+
+    /// Waits for the loads ``prewarm(_:texture:)`` started (tests).
+    func settled() async {}
 
     /// The decoded image of `selection`, loading it off the main actor once.
-    func image(_ selection: BackdropSelection) async -> NSImage? {
+    func image(_ selection: BackdropSelection, texture: BackdropTexture = .default) async -> NSImage? {
         let id = selection.id
         if let image = images[id] { return image }
         let load: Task<Decoded?, Never>
