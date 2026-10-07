@@ -25,7 +25,7 @@ pub mod flags {
     /// the surface stream it applies on top of. Sent only with the `tile` cap.
     pub const TILE: u8 = 0b1000;
     /// Every defined flag.
-    pub const ALL: u8 = KEYFRAME | REFINE | RECOVERY;
+    pub const ALL: u8 = KEYFRAME | REFINE | RECOVERY | TILE;
 }
 
 /// What a datagram carries.

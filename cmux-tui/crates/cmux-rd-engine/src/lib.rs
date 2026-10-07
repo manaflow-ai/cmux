@@ -147,6 +147,8 @@ struct StreamState {
     last_forced_idr_us: Option<u64>,
     /// The first damage covers the whole stream.
     started: bool,
+    /// A tile stream's surface stream (rd change C3).
+    tile_of: Option<u16>,
 }
 
 impl StreamState {
@@ -160,6 +162,7 @@ impl StreamState {
             force_idr: true,
             last_forced_idr_us: None,
             started: false,
+            tile_of: None,
         }
     }
 
@@ -220,9 +223,26 @@ impl MediaEngine {
         Ok(())
     }
 
-    /// Adds a lossless tile stream for surface `of` (red-commit stub: a plain stream).
-    pub fn add_tile_stream(&mut self, stream: u16, _of: u16, width: u32, height: u32) -> Result<(), StreamError> {
-        self.add_stream(stream, width, height)
+    /// Adds a lossless tile stream (rd change C3) for surface stream `of`:
+    /// the source encodes tile top-offs of static regions into its requests'
+    /// access units; every frame carries `flags::TILE` and the surface
+    /// stream's latest frame as `ref_frame` (the frame the tiles apply on
+    /// top of). Send only when welcome lists the `tile` cap.
+    pub fn add_tile_stream(
+        &mut self,
+        stream: u16,
+        of: u16,
+        width: u32,
+        height: u32,
+    ) -> Result<(), StreamError> {
+        if !self.streams.contains_key(&of) {
+            return Err(StreamError::NoSurface(of));
+        }
+        self.add_stream(stream, width, height)?;
+        if let Some(state) = self.streams.get_mut(&stream) {
+            state.tile_of = Some(of);
+        }
+        Ok(())
     }
 
     /// Removes a display stream and its frame state.
@@ -305,20 +325,38 @@ impl MediaEngine {
         now_us: u64,
     ) -> Result<Output, PacketizeError> {
         let loss = self.loss;
+        let surface_frame = self
+            .streams
+            .get(&req.stream)
+            .and_then(|s| s.tile_of)
+            .and_then(|of| self.streams.get(&of))
+            .map(|s| if s.last_frame == 0 { REF_NONE } else { s.last_frame });
         let Some(state) = self.streams.get_mut(&req.stream) else { return Ok(Output::default()) };
         let Some(enc) = encoded.filter(|e| !e.access_unit.is_empty()) else {
             state.gate.clear_in_flight();
             return Ok(Output::default());
         };
+        let tile = state.tile_of.is_some();
         let body = FrameBody {
             t_capture_us: enc.t_capture_us,
-            ref_frame: if enc.idr { REF_NONE } else { state.last_frame },
+            ref_frame: match surface_frame {
+                Some(video_frame) => video_frame,
+                None if enc.idr => REF_NONE,
+                None => state.last_frame,
+            },
             access_unit: enc.access_unit,
         };
         let data_shards =
             (body.access_unit.len() + FRAME_PREFIX_LEN).div_ceil(self.packetizer.shard_len());
-        let parity = parity_for(data_shards, loss, enc.idr);
-        let flags = if enc.idr { flags::KEYFRAME } else { 0 };
+        // Tile frames are standalone, so they get keyframe-grade protection.
+        let parity = parity_for(data_shards, loss, enc.idr || tile);
+        let flags = if tile {
+            flags::TILE
+        } else if enc.idr {
+            flags::KEYFRAME
+        } else {
+            0
+        };
         self.packetizer.set_stream(req.stream);
         let packets = match self.packetizer.packetize(req.frame, flags, &body, parity) {
             Ok(p) => p,
@@ -343,7 +381,7 @@ impl MediaEngine {
         state.force_idr = false;
         state.last_frame = req.frame;
         self.frames += 1;
-        self.keyframes += u64::from(enc.idr);
+        self.keyframes += u64::from(enc.idr && !tile);
         Ok(Output { datagrams: packets.datagrams, ..Output::default() })
     }
 
