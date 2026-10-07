@@ -32,6 +32,9 @@ public actor MobileLinkClient {
     private var closed = false
     private var badgeSubscribers: [UUID: AsyncStream<PathBadge>.Continuation] = [:]
     private var badgeTask: Task<Void, Never>?
+    private var stateSubscribers: [UUID: AsyncStream<LinkState>.Continuation] = [:]
+    private var stateTask: Task<Void, Never>?
+    private var lastState: LinkState = .idle
     // Reads (MobileLinkClient+Reads.swift): one shared `rpc` channel per generation.
     var rpc: (channel: MobileChannel, generation: UInt64)?
     var rpcOpening: Task<MobileChannel, any Error>?
@@ -68,6 +71,23 @@ public actor MobileLinkClient {
 
     private func removeBadgeSubscriber(_ id: UUID) {
         badgeSubscribers[id] = nil
+    }
+
+    /// The connection state of whichever link session is current, newest
+    /// first (`idle` between generations): the terminal chrome's banner.
+    public func linkStates() -> AsyncStream<LinkState> {
+        let (stream, continuation) = AsyncStream<LinkState>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let id = UUID()
+        stateSubscribers[id] = continuation
+        continuation.yield(lastState)
+        continuation.onTermination = { [weak self] _ in
+            Task { await self?.removeStateSubscriber(id) }
+        }
+        return stream
+    }
+
+    private func removeStateSubscriber(_ id: UUID) {
+        stateSubscribers[id] = nil
     }
 
     /// The current session's `hello.ok` (starting a session when there is none).
@@ -220,6 +240,13 @@ public actor MobileLinkClient {
     }
 
     private func followBadges(_ link: LinkSession) {
+        stateTask?.cancel()
+        stateTask = Task { [weak self] in
+            for await state in await link.states() {
+                guard !Task.isCancelled else { return }
+                await self?.publish(state: state)
+            }
+        }
         badgeTask?.cancel()
         badgeTask = Task { [weak self] in
             for await badge in await link.pathBadges() {
@@ -227,6 +254,12 @@ public actor MobileLinkClient {
                 await self?.publish(badge)
             }
         }
+    }
+
+    private func publish(state: LinkState) {
+        guard state != lastState else { return }
+        lastState = state
+        for continuation in stateSubscribers.values { continuation.yield(state) }
     }
 
     private func publish(_ badge: PathBadge) {
@@ -239,6 +272,9 @@ public actor MobileLinkClient {
         guard let session, session.generation == generation else { return }
         self.session = nil
         session.hello.cancel()
+        stateTask?.cancel()
+        stateTask = nil
+        publish(state: .idle)
         let link = session.link
         Task { await link.close() }
     }
@@ -261,5 +297,7 @@ public actor MobileLinkClient {
         badgeTask = nil
         for continuation in badgeSubscribers.values { continuation.finish() }
         badgeSubscribers.removeAll()
+        for continuation in stateSubscribers.values { continuation.finish() }
+        stateSubscribers.removeAll()
     }
 }
