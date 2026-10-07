@@ -166,7 +166,7 @@ test("a folder already decided, another chat, or a failed save each behave witho
   expect(row()).not.toBeNull();
   // Another chat in another folder asks about that folder.
   await render({ levels, chat: { sessionId: "t", cwd: "/work/api", prompts: 0 } });
-  expect(row()!.getAttribute("title")).toBe("/work/api");
+  expect(row()!.textContent).toBe("Claude Code can edit and run code in apiTrustDon't trust");
   await render({ levels, chat: { sessionId: "u", cwd: "/work/web", prompts: 1 }, fail: true });
   await press("Trust");
   expect(row()!.textContent).toBe("Couldn't save that. Try again.TrustDon't trust");
