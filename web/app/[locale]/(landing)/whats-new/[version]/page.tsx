@@ -10,9 +10,7 @@ import { WhatsNewDocumentView } from "../whats-new-document";
 
 type PageParams = { locale: string; version: string };
 
-// Every document is known at build time; another version is a 404.
-export const dynamicParams = false;
-
+// Every document is prerendered at build time; another version renders notFound().
 export function generateStaticParams() {
   return whatsNewStore.documents.map((document) => ({ version: document.version }));
 }

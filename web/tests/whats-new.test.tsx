@@ -43,10 +43,10 @@ function minimal(version: string, extra: Record<string, unknown> = {}) {
 }
 
 describe("What's New documents", () => {
-  test("versions order numerically, prereleases before their release", () => {
+  test("versions order numerically, prereleases (by number) before their release", () => {
     const shuffled = ["0.10.0", "0.9.0", "1.0.0-nightly.12", "0.10.0-rc.2", "1.0.0", "0.10.0-nightly.3", "1.0.0-nightly.3"];
     expect([...shuffled].sort(compareWhatsNewVersions)).toEqual([
-      "0.9.0", "0.10.0-nightly.3", "0.10.0-rc.2", "0.10.0", "1.0.0-nightly.3", "1.0.0-nightly.12", "1.0.0",
+      "0.9.0", "0.10.0-rc.2", "0.10.0-nightly.3", "0.10.0", "1.0.0-nightly.3", "1.0.0-nightly.12", "1.0.0",
     ]);
   });
 
