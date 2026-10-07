@@ -1737,6 +1737,54 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.computerUse",
+        "text" : "Computer Use"
+      },
+      "help" : {
+        "key" : "settings.computerUse.enabled.help",
+        "text" : "Lets agents see and use your apps through the signed cmux Computer Use helper. macOS asks for Accessibility and Screen Recording when you first allow them."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "computerUse.enabled",
+      "keywords" : [
+        "computer use",
+        "agents",
+        "automation",
+        "screen recording",
+        "accessibility",
+        "helper"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "computerUse",
+        "enabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.computerUse.enabled",
+        "text" : "Computer Use"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "even",
         "halve"
       ],
@@ -15844,7 +15892,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "665e98bbc05ba8e173364f96157dbe32fba60fb43e3e169d98b29f86e36b8858",
+  "schema_hash" : "1b0672acc9c2db09805c707b4c27dfb1c5054dfe1216d254ebc068d9fb8910cd",
   "sections" : [
     {
       "id" : "general",
