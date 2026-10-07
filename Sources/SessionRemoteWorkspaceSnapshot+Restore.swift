@@ -230,7 +230,13 @@ extension SessionRemoteWorkspaceSnapshot {
                 // The agent the connection authenticated with wins over a
                 // `ForwardAgent` path, as it does for cmux-tui carriers.
                 explicitAgentSocketPath: agentSocketPath,
-                explicitAgentSocketPathIsSet: agentSocketPathOverrideIsSet
+                explicitAgentSocketPathIsSet: agentSocketPathOverrideIsSet,
+                // `restorableAgentSocketPath` already applied the restore
+                // liveness policy (and accepts an injected test seam). Do not
+                // replace that result with a second process-wide filesystem
+                // check here. An explicit override is caller-supplied and
+                // retains the normal filesystem validation.
+                explicitAgentSocketPathAlreadyValidated: overrideAgentSocketPath == nil
             ),
             agentSocketPathOverrideIsSet: agentSocketPathOverrideIsSet,
             daemonWebSocketEndpoint: nil,

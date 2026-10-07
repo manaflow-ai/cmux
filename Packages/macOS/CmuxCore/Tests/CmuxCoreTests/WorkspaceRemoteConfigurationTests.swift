@@ -82,6 +82,20 @@ struct WorkspaceRemoteConfigurationNormalizationTests {
         #expect(WorkspaceRemoteConfiguration.hasSSHOptionKey(options, key: "SERVERALIVEINTERVAL"))
         #expect(!WorkspaceRemoteConfiguration.hasSSHOptionKey(options, key: "ControlPath"))
     }
+
+    @Test("validated restore agent paths are not rechecked against the process filesystem")
+    func validatedRestoreAgentPathWins() {
+        let path = "/tmp/cmux-test-current-agent.sock"
+        #expect(WorkspaceRemoteConfiguration.resolvedAgentSocketPath(
+            sshOptions: [],
+            explicitAgentSocketPath: path,
+            explicitAgentSocketPathAlreadyValidated: true
+        ) == path)
+        #expect(WorkspaceRemoteConfiguration.resolvedAgentSocketPath(
+            sshOptions: [],
+            explicitAgentSocketPath: path
+        ) == nil)
+    }
 }
 
 @Suite("WorkspaceRemoteConfiguration value behavior")

@@ -214,13 +214,32 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
     }
 
     /// Resolves the SSH agent socket to use for a remote configuration from an explicit socket or durable options.
+    ///
+    /// - Parameters:
+    ///   - sshOptions: Durable SSH options that may contain a `ForwardAgent` socket.
+    ///   - explicitAgentSocketPath: A caller-selected socket path, when one exists.
+    ///   - explicitAgentSocketPathIsSet: Whether the caller explicitly supplied an
+    ///     agent value, including an empty value that disables inheritance.
+    ///   - explicitAgentSocketPathAlreadyValidated: Whether the explicit path was
+    ///     selected by a caller-owned liveness check. Restore uses this after
+    ///     applying its injected liveness seam; ordinary control requests leave it
+    ///     false so paths still require a live socket on disk.
     public static func resolvedAgentSocketPath(
         sshOptions: [String],
         explicitAgentSocketPath: String? = nil,
-        explicitAgentSocketPathIsSet: Bool = false
+        explicitAgentSocketPathIsSet: Bool = false,
+        explicitAgentSocketPathAlreadyValidated: Bool = false
     ) -> String? {
         if explicitAgentSocketPathIsSet {
+            if explicitAgentSocketPathAlreadyValidated {
+                return SSHAgentSocketResolver().normalizedAgentSocketPath(explicitAgentSocketPath)
+            }
             return existingAgentSocketPath(explicitAgentSocketPath)
+        }
+        if explicitAgentSocketPathAlreadyValidated,
+           let normalizedExplicitAgentSocketPath = SSHAgentSocketResolver()
+            .normalizedAgentSocketPath(explicitAgentSocketPath) {
+            return normalizedExplicitAgentSocketPath
         }
         return existingAgentSocketPath(explicitAgentSocketPath)
             ?? existingAgentSocketPath(sshAgentSocketPath(for: sshOptions))
