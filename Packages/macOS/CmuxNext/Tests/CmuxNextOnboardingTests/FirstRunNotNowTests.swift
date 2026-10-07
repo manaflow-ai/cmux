@@ -79,7 +79,7 @@ import Testing
     @Test func theCloseButtonIsNotNowAndARebuildIsNot() {
         let services = MockOnboardingServices()
         let controller = OnboardingWindowController(model: OnboardingModel(services: services))
-        controller.window?.standardWindowButton(.closeButton)?.performClick(nil)
+        controller.closeWithCloseButton()
         #expect(services.leftNotNow == true)
         #expect(controller.window?.isVisible == false)
         let rebuilt = MockOnboardingServices()
