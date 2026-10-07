@@ -1,4 +1,4 @@
-public import Foundation
+import Foundation
 
 /// A string prepared for matching once, when its owner's snapshot changes,
 /// so a keystroke never normalizes candidate text again.
