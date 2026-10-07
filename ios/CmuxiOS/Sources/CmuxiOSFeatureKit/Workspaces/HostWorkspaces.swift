@@ -15,11 +15,13 @@ public struct HostWorkspaces: Identifiable, Hashable, Sendable {
     /// True while the mirror waits for a snapshot after a revision gap; the
     /// rows show the last confirmed state.
     public var isResyncing: Bool
+    /// The host's sidebar groups in order, including empty ones.
+    public var groups: [WorkspaceGroup]
 
     public init(
         hostID: HostID, hostName: String, isReachable: Bool, workspaces: [WorkspaceSummary],
         kind: WorkspaceHostKind = .mac, capabilities: WorkspaceCapabilities = .all,
-        offlineReason: String? = nil, isResyncing: Bool = false
+        offlineReason: String? = nil, isResyncing: Bool = false, groups: [WorkspaceGroup] = []
     ) {
         self.hostID = hostID
         self.hostName = hostName
@@ -29,5 +31,6 @@ public struct HostWorkspaces: Identifiable, Hashable, Sendable {
         self.capabilities = capabilities
         self.offlineReason = offlineReason
         self.isResyncing = isResyncing
+        self.groups = groups
     }
 }

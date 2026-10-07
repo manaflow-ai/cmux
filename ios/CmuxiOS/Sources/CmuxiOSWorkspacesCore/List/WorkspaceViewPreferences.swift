@@ -12,16 +12,47 @@ public struct WorkspaceViewPreferences: Codable, Hashable, Sendable {
     /// Machines in the user's order; machines not listed follow in the
     /// directory's order.
     public var hostOrder: [HostID]
+    /// Group sections collapsed on this phone (`<host>/<group>`), E3.
+    public var collapsedGroups: Set<String>
 
     public init(
         filter: WorkspaceListFilter = .all, sort: WorkspaceListSort = .ownerOrder,
-        grouping: WorkspaceListGrouping = .byMachine, hiddenHosts: Set<HostID> = [], hostOrder: [HostID] = []
+        grouping: WorkspaceListGrouping = .byMachine, hiddenHosts: Set<HostID> = [], hostOrder: [HostID] = [],
+        collapsedGroups: Set<String> = []
     ) {
         self.filter = filter
         self.sort = sort
         self.grouping = grouping
         self.hiddenHosts = hiddenHosts
         self.hostOrder = hostOrder
+        self.collapsedGroups = collapsedGroups
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case filter, sort, grouping, hiddenHosts, hostOrder, collapsedGroups
+    }
+
+    /// Decodes what older builds saved (no `collapsedGroups`) as well.
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        filter = try c.decode(WorkspaceListFilter.self, forKey: .filter)
+        sort = try c.decode(WorkspaceListSort.self, forKey: .sort)
+        grouping = try c.decode(WorkspaceListGrouping.self, forKey: .grouping)
+        hiddenHosts = try c.decode(Set<HostID>.self, forKey: .hiddenHosts)
+        hostOrder = try c.decode([HostID].self, forKey: .hostOrder)
+        collapsedGroups = try c.decodeIfPresent(Set<String>.self, forKey: .collapsedGroups) ?? []
+    }
+
+    /// The key of a group section in `collapsedGroups`.
+    public static func groupKey(host: HostID, group: String) -> String { host.rawValue + "/" + group }
+
+    public func isCollapsed(host: HostID, group: String) -> Bool {
+        collapsedGroups.contains(Self.groupKey(host: host, group: group))
+    }
+
+    public mutating func toggleCollapsed(host: HostID, group: String) {
+        let key = Self.groupKey(host: host, group: group)
+        if collapsedGroups.remove(key) == nil { collapsedGroups.insert(key) }
     }
 
     /// `hosts` in the user's machine order.

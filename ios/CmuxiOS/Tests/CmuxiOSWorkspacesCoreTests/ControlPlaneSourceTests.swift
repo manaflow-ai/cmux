@@ -8,7 +8,8 @@ import Testing
     let mac = HostID("h_mac1")
     let mini = HostID("h_mini")
     let wire = WireFrames(host: "h_mac1")
-    let allCaps: Set<String> = ["workspace.close", "workspace.read", "workspace.preview"]
+    let allCaps: Set<String> = ["workspace.close", "workspace.read", "workspace.preview",
+                                "workspace.move", "workspace.group.rename", "workspace.customize"]
 
     func make(_ hosts: [HostID] = [HostID("h_mac1")]) -> (ControlPlaneWorkspaceSource, FakeChannelFactory, StaticHostDirectory) {
         let factory = FakeChannelFactory(hosts)

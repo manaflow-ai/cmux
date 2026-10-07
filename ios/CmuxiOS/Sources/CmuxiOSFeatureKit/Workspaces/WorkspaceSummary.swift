@@ -17,8 +17,11 @@ public struct WorkspaceSummary: Identifiable, Hashable, Sendable {
     public var preview: String?
     public var isPinned: Bool
     public var group: WorkspaceGroup?
-    /// The workspace color as `#RRGGBB`, when set on the Mac.
+    /// The workspace color: a palette token (`blue`, `red`, ...) or
+    /// `#RRGGBB`, when set on the Mac.
     public var color: String?
+    /// An SF Symbol name, when set on the Mac.
+    public var icon: String?
     /// The owner's order within the host.
     public var order: Int
 
@@ -26,7 +29,7 @@ public struct WorkspaceSummary: Identifiable, Hashable, Sendable {
         id: String, hostID: HostID, title: String, status: WorkspaceStatus,
         paneCount: Int, unreadCount: Int = 0, lastActivity: Date? = nil,
         panes: [WorkspacePane] = [], preview: String? = nil, isPinned: Bool = false,
-        group: WorkspaceGroup? = nil, color: String? = nil, order: Int = 0
+        group: WorkspaceGroup? = nil, color: String? = nil, icon: String? = nil, order: Int = 0
     ) {
         self.id = id
         self.hostID = hostID
@@ -40,6 +43,7 @@ public struct WorkspaceSummary: Identifiable, Hashable, Sendable {
         self.isPinned = isPinned
         self.group = group
         self.color = color
+        self.icon = icon
         self.order = order
     }
 }

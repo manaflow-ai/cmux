@@ -35,7 +35,8 @@ public enum MockFixtures {
                                     ]),
                                  ],
                                  preview: "Keep the current migration or replace it?",
-                                 group: WorkspaceGroup(id: "grp_api", name: "API"), order: 1),
+                                 group: WorkspaceGroup(id: "grp_api", name: "API", order: 0), color: "purple", icon: "server.rack",
+                                 order: 1),
                 WorkspaceSummary(id: "ws_studio3", hostID: studio, title: "docs", status: .idle,
                                  paneCount: 1, lastActivity: now.addingTimeInterval(-7200),
                                  panes: [
@@ -44,8 +45,8 @@ public enum MockFixtures {
                                                          preview: "Done in 2.1s"),
                                     ]),
                                  ],
-                                 preview: "Done in 2.1s", group: WorkspaceGroup(id: "grp_api", name: "API"), order: 2),
-            ]),
+                                 preview: "Done in 2.1s", group: WorkspaceGroup(id: "grp_api", name: "API", order: 0), order: 2),
+            ], groups: [WorkspaceGroup(id: "grp_api", name: "API", order: 0), WorkspaceGroup(id: "grp_ops", name: "Ops", order: 1)]),
             HostWorkspaces(hostID: mini, hostName: "Mac mini", isReachable: false, workspaces: [
                 WorkspaceSummary(id: "ws_mini1", hostID: mini, title: "release", status: .failed,
                                  paneCount: 1, lastActivity: now.addingTimeInterval(-86_400),

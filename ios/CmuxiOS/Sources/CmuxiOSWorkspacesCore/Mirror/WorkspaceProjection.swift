@@ -21,8 +21,8 @@ struct WorkspaceProjection {
             paneCount: panes.count, unreadCount: surfaces.reduce(0) { $0 + $1.unreadCount },
             lastActivity: wire.activityAt.map { Date(timeIntervalSince1970: TimeInterval($0) / 1000) },
             panes: panes, preview: previewSource?.preview, isPinned: wire.pinned ?? false,
-            group: wire.group.map { WorkspaceGroup(id: $0.id, name: $0.name) }, color: wire.color,
-            order: wire.order)
+            group: wire.group.map { WorkspaceGroup(id: $0.id, name: $0.name, order: $0.order) }, color: wire.color,
+            icon: wire.icon, order: wire.order)
     }
 
     private func surface(_ tab: WireTab) -> WorkspaceSurface {

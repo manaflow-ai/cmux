@@ -11,8 +11,10 @@ public struct WorkspaceListBuilder: Sendable {
         self.preferences = preferences
     }
 
-    /// `hosts == nil` means no snapshot has arrived yet.
-    public func snapshot(for hosts: [HostWorkspaces]?) -> WorkspaceListSnapshot {
+    /// `hosts == nil` means no snapshot has arrived yet. `editing` (reorder
+    /// mode) also lists empty groups and an empty ungrouped section of a
+    /// machine with groups, so each can take a drop.
+    public func snapshot(for hosts: [HostWorkspaces]?, editing: Bool = false) -> WorkspaceListSnapshot {
         guard let hosts else { return WorkspaceListSnapshot(sections: [], emptyState: .loading, allOffline: false) }
         guard !hosts.isEmpty else { return WorkspaceListSnapshot(sections: [], emptyState: .noMachines, allOffline: false) }
         let visible = preferences.ordered(hosts, id: \.hostID).filter { !preferences.hiddenHosts.contains($0.hostID) }
@@ -20,11 +22,11 @@ public struct WorkspaceListBuilder: Sendable {
         let allOffline = !visible.contains(where: \.isReachable)
         let sections: [WorkspaceListSection]
         switch preferences.grouping {
-        case .byMachine: sections = visible.flatMap(machineSections)
+        case .byMachine: sections = visible.flatMap { machineSections($0, editing: editing) }
         case .flat: sections = flatSection(visible)
         }
         var empty: WorkspaceListEmptyState?
-        if sections.allSatisfy({ $0.rows.isEmpty }) {
+        if sections.allSatisfy({ $0.rows.isEmpty && !$0.isCollapsed }) {
             let hasWorkspaces = visible.contains { !$0.workspaces.isEmpty }
             if preferences.filter != .all && hasWorkspaces {
                 empty = .filterEmpty(preferences.filter)
@@ -37,39 +39,47 @@ public struct WorkspaceListBuilder: Sendable {
 
     // MARK: Sections
 
-    private func machineSections(_ host: HostWorkspaces) -> [WorkspaceListSection] {
+    private func machineSections(_ host: HostWorkspaces, editing: Bool) -> [WorkspaceListSection] {
         let rows = sorted(host.workspaces.filter(matches)).map { row($0, host: host) }
         let header = machineHeader(host)
         let base = "host:" + host.hostID.rawValue
-        if rows.isEmpty {
+        let groups = groupOrder(host)
+        let showsEmpty = editing && preferences.filter == .all && !groups.isEmpty
+        if rows.isEmpty && !showsEmpty {
             // With a filter, a machine with nothing matching is left out.
             guard preferences.filter == .all else { return [] }
             return [WorkspaceListSection(id: base + "/empty", hostID: host.hostID, machine: header, kind: .empty, rows: [])]
         }
         var sections: [WorkspaceListSection] = []
+        func section(_ id: String, _ kind: WorkspaceListSectionKind, _ rows: [WorkspaceListRow],
+                     collapsed: Bool = false, members: Int? = nil) -> WorkspaceListSection {
+            WorkspaceListSection(id: base + id, hostID: host.hostID, machine: nil, kind: kind, rows: collapsed ? [] : rows,
+                                 isCollapsed: collapsed, memberCount: members ?? rows.count,
+                                 capabilities: host.capabilities, isReachable: host.isReachable)
+        }
         let pinned = rows.filter(\.isPinned)
-        if !pinned.isEmpty {
-            sections.append(WorkspaceListSection(id: base + "/pinned", hostID: host.hostID, machine: nil, kind: .pinned, rows: pinned))
-        }
+        if !pinned.isEmpty { sections.append(section("/pinned", .pinned, pinned)) }
         let unpinned = rows.filter { !$0.isPinned }
-        let groupOf = Dictionary(host.workspaces.compactMap { w in w.group.map { (w.id, $0.id) } },
-                                 uniquingKeysWith: { first, _ in first })
-        var groupOrder: [WorkspaceGroup] = []
-        for workspace in host.workspaces.sorted(by: { $0.order < $1.order }) {
-            if let group = workspace.group, !groupOrder.contains(where: { $0.id == group.id }) { groupOrder.append(group) }
+        for group in groups {
+            let members = unpinned.filter { $0.groupID == group.id }
+            guard !members.isEmpty || showsEmpty else { continue }
+            let collapsed = preferences.isCollapsed(host: host.hostID, group: group.id)
+            sections.append(section("/group:" + group.id, .group(id: group.id, name: group.name), members, collapsed: collapsed))
         }
-        for group in groupOrder {
-            let members = unpinned.filter { groupOf[$0.workspaceID] == group.id }
-            guard !members.isEmpty else { continue }
-            sections.append(WorkspaceListSection(
-                id: base + "/group:" + group.id, hostID: host.hostID, machine: nil, kind: .group(group.name), rows: members))
-        }
-        let rest = unpinned.filter { groupOf[$0.workspaceID] == nil }
-        if !rest.isEmpty {
-            sections.append(WorkspaceListSection(id: base + "/all", hostID: host.hostID, machine: nil, kind: .workspaces, rows: rest))
-        }
+        let rest = unpinned.filter { $0.groupID == nil }
+        if !rest.isEmpty || showsEmpty { sections.append(section("/all", .workspaces, rest)) }
         sections[0].machine = header
         return sections
+    }
+
+    /// The host's groups in its order: the owner's list, then any group a
+    /// workspace names that the list lacks, ordered by its first member.
+    private func groupOrder(_ host: HostWorkspaces) -> [WorkspaceGroup] {
+        var order = host.groups
+        for workspace in host.workspaces.sorted(by: { $0.order < $1.order }) {
+            if let group = workspace.group, !order.contains(where: { $0.id == group.id }) { order.append(group) }
+        }
+        return order
     }
 
     private func flatSection(_ hosts: [HostWorkspaces]) -> [WorkspaceListSection] {
@@ -126,7 +136,8 @@ public struct WorkspaceListBuilder: Sendable {
             unreadCount: workspace.unreadCount, machineName: host.hostName,
             machineColor: MachineColor(hostID: host.hostID), isReachable: host.isReachable,
             isPinned: workspace.isPinned, lastActivity: workspace.lastActivity,
-            capabilities: host.capabilities, paneCount: workspace.paneCount)
+            capabilities: host.capabilities, paneCount: workspace.paneCount,
+            color: workspace.color, icon: workspace.icon, groupID: workspace.group?.id)
     }
 
     private func machineHeader(_ host: HostWorkspaces) -> WorkspaceMachineHeader {

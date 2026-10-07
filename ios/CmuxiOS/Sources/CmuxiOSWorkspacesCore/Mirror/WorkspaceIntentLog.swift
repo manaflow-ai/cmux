@@ -50,23 +50,35 @@ public struct WorkspaceIntentLog: Sendable {
     /// The visible workspaces: `confirmed` with every pending intent applied
     /// in order.
     public func overlay(_ confirmed: [WorkspaceSummary]) -> [WorkspaceSummary] {
-        entries.reduce(into: confirmed) { workspaces, entry in
+        overlay(WorkspaceArrangement(workspaces: confirmed, groups: [])).workspaces
+    }
+
+    /// The visible workspaces and groups: `confirmed` with every pending
+    /// intent applied in order, the way the owner applies it.
+    public func overlay(_ confirmed: WorkspaceArrangement) -> WorkspaceArrangement {
+        entries.reduce(into: confirmed) { arrangement, entry in
             switch entry.intent {
             case .create:
                 // The owner picks the id; the row appears with the echo.
                 break
             case .rename(let id, let title):
-                if let index = workspaces.firstIndex(where: { $0.id == id }) { workspaces[index].title = title }
+                if let index = arrangement.workspaces.firstIndex(where: { $0.id == id }) { arrangement.workspaces[index].title = title }
             case .close(let id):
-                workspaces.removeAll { $0.id == id }
+                arrangement.workspaces.removeAll { $0.id == id }
             case .markRead(let id):
-                guard let index = workspaces.firstIndex(where: { $0.id == id }) else { return }
-                workspaces[index].unreadCount = 0
-                for p in workspaces[index].panes.indices {
-                    for s in workspaces[index].panes[p].surfaces.indices {
-                        workspaces[index].panes[p].surfaces[s].unreadCount = 0
+                guard let index = arrangement.workspaces.firstIndex(where: { $0.id == id }) else { return }
+                arrangement.workspaces[index].unreadCount = 0
+                for p in arrangement.workspaces[index].panes.indices {
+                    for s in arrangement.workspaces[index].panes[p].surfaces.indices {
+                        arrangement.workspaces[index].panes[p].surfaces[s].unreadCount = 0
                     }
                 }
+            case .move(let id, let group, let index):
+                arrangement.move(id, to: group, index: index)
+            case .renameGroup(_, let group, let name):
+                arrangement.renameGroup(group, to: name)
+            case .customize(let id, let color, let icon):
+                arrangement.customize(id, color: color, icon: icon)
             }
         }
     }

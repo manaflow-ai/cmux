@@ -40,7 +40,32 @@ public final class MockWorkspaceSource: WorkspaceSource {
                     hosts[host].workspaces[index].panes[pane].surfaces[surface].unreadCount = 0
                 }
             }
+        case .move(let workspaceID, let placement, let index):
+            let (host, _) = try locate(workspaceID, in: hosts)
+            if case .group(let groupID) = placement, Self.arrangement(of: hosts[host]).group(groupID) == nil {
+                throw MockRefusal("Unknown group")
+            }
+            try Self.arrange(&hosts[host]) { $0.move(workspaceID, to: placement, index: index) }
+        case .renameGroup(let hostID, let groupID, let name):
+            guard let host = hosts.firstIndex(where: { $0.hostID == hostID }) else { throw MockRefusal("Unknown host") }
+            guard hosts[host].isReachable else { throw MockRefusal("Host unreachable") }
+            guard Self.arrangement(of: hosts[host]).group(groupID) != nil else { throw MockRefusal("Unknown group") }
+            try Self.arrange(&hosts[host]) { $0.renameGroup(groupID, to: name) }
+        case .customize(let workspaceID, let color, let icon):
+            let (host, _) = try locate(workspaceID, in: hosts)
+            try Self.arrange(&hosts[host]) { $0.customize(workspaceID, color: color, icon: icon) }
         }
+    }
+
+    private static func arrangement(of host: HostWorkspaces) -> WorkspaceArrangement {
+        WorkspaceArrangement(workspaces: host.workspaces, groups: host.groups)
+    }
+
+    private static func arrange(_ host: inout HostWorkspaces, _ change: (inout WorkspaceArrangement) -> Void) throws {
+        var arrangement = arrangement(of: host)
+        change(&arrangement)
+        host.workspaces = arrangement.workspaces
+        host.groups = arrangement.groups
     }
 
     /// The host and row of a workspace on a reachable host.

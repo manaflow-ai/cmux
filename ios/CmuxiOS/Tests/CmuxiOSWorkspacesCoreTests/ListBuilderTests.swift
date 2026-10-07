@@ -19,7 +19,7 @@ import Testing
         ])
         #expect(list.sections[0].machine?.name == "Mac Studio")
         #expect(list.sections[1].machine == nil)
-        #expect(list.sections[1].kind == .group("API"))
+        #expect(list.sections[1].kind == .group(id: "grp_api", name: "API"))
         #expect(list.sections[1].rows.map(\.workspaceID) == ["ws_studio2", "ws_studio3"])
         #expect(list.sections[2].machine?.isReachable == false)
         #expect(list.sections[2].machine?.offlineReason == "Asleep")

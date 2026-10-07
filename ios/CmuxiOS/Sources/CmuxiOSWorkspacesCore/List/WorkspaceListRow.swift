@@ -18,4 +18,9 @@ public struct WorkspaceListRow: Identifiable, Hashable, Sendable {
     public var lastActivity: Date?
     public var capabilities: WorkspaceCapabilities
     public var paneCount: Int
+    /// The workspace look (E3): a palette token or `#RRGGBB`, an SF Symbol.
+    public var color: String? = nil
+    public var icon: String? = nil
+    /// The owner group the workspace is filed in.
+    public var groupID: String? = nil
 }

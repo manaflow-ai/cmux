@@ -33,7 +33,8 @@ struct WorkspaceHostSession {
         switch state {
         case .live(_, let caps):
             reachable = true
-            capabilities = WorkspaceCapabilities(negotiated: caps)
+            // An SSH host's sessions are a read-only projection (E3): no intents.
+            capabilities = descriptor.kind == .ssh ? [] : WorkspaceCapabilities(negotiated: caps)
             reason = nil
         case .connecting:
             reachable = false
@@ -44,10 +45,12 @@ struct WorkspaceHostSession {
             capabilities = []
             reason = why
         }
+        let visible = log.overlay(WorkspaceArrangement(workspaces: mirror.summaries(hostID: descriptor.id),
+                                                       groups: mirror.confirmedGroups))
         return HostWorkspaces(
             hostID: descriptor.id, hostName: descriptor.name, isReachable: reachable,
-            workspaces: log.overlay(mirror.summaries(hostID: descriptor.id)), kind: descriptor.kind,
+            workspaces: visible.workspaces, kind: descriptor.kind,
             capabilities: capabilities, offlineReason: reason,
-            isResyncing: mirror.hasSnapshot && mirror.needsSnapshot)
+            isResyncing: mirror.hasSnapshot && mirror.needsSnapshot, groups: visible.groups)
     }
 }

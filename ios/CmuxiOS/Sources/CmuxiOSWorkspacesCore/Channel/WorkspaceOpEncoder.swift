@@ -25,6 +25,15 @@ public struct WorkspaceOpEncoder: Sendable {
         case .markRead(let id):
             op = "workspace.read"
             params = try JSONValue(encoding: WorkspaceRefParams(workspace: id))
+        case .move(let id, let group, let index):
+            op = "workspace.move"
+            params = WorkspaceMoveParams(workspace: id, group: group, index: index).json
+        case .renameGroup(_, let group, let name):
+            op = "workspace.group.rename"
+            params = try JSONValue(encoding: WorkspaceGroupRenameParams(group: group, name: name))
+        case .customize(let id, let color, let icon):
+            op = "workspace.customize"
+            params = WorkspaceCustomizeParams(workspace: id, color: color, icon: icon).json
         }
         return OpFrame(op: op, params: params, idempotencyKey: key.rawValue, origin: .user, stream: stream)
     }

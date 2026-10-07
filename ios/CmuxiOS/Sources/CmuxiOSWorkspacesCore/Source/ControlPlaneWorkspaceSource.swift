@@ -223,7 +223,10 @@ public actor ControlPlaneWorkspaceSource: WorkspaceSource {
         case .create(let hostID, _):
             guard sessions[hostID] != nil else { throw FeatureSourceError.notFound(hostID.rawValue) }
             return hostID
-        case .rename(let id, _), .close(let id), .markRead(let id):
+        case .renameGroup(let hostID, _, _):
+            guard sessions[hostID] != nil else { throw FeatureSourceError.notFound(hostID.rawValue) }
+            return hostID
+        case .rename(let id, _), .close(let id), .markRead(let id), .move(let id, _, _), .customize(let id, _, _):
             // The confirmed mirror decides the owner, so a repeated close of a
             // row the overlay already hides still reaches its host (which
             // answers by key or with `workspace.not_found`).

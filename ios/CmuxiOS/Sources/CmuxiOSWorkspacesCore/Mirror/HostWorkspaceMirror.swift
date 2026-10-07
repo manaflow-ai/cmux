@@ -15,6 +15,8 @@ public struct HostWorkspaceMirror: Sendable {
     /// when the owner or relay does not send one.
     public private(set) var epoch: String?
     private(set) var workspaces: [WireWorkspace] = []
+    /// The owner's ordered groups, when it sends them (E3).
+    private(set) var groups: [WireGroup] = []
 
     public init() {}
 
@@ -26,6 +28,18 @@ public struct HostWorkspaceMirror: Sendable {
         return workspaces.map(projection.summary)
     }
 
+    /// The owner's groups in order: the listed ones, else those its
+    /// workspaces are filed in (an older Mac), ordered by first member.
+    public var confirmedGroups: [WorkspaceGroup] {
+        if !groups.isEmpty {
+            return groups.enumerated().sorted { ($0.element.order ?? $0.offset, $0.offset) < ($1.element.order ?? $1.offset, $1.offset) }
+                .map { WorkspaceGroup(id: $0.element.id, name: $0.element.name, order: $0.element.order) }
+        }
+        var seen = Set<String>()
+        return workspaces.compactMap(\.group).filter { seen.insert($0.id).inserted }
+            .map { WorkspaceGroup(id: $0.id, name: $0.name, order: $0.order) }
+    }
+
     /// Replaces the mirror with the owner's state at the snapshot's seq.
     /// A malformed state leaves the mirror unchanged and throws.
     public mutating func apply(_ snapshot: SnapshotFrame) throws {
@@ -34,6 +48,7 @@ public struct HostWorkspaceMirror: Sendable {
         // stay uniquely identified.
         var seen = Set<String>()
         workspaces = state.workspaces.filter { seen.insert($0.id).inserted }.sorted { $0.order < $1.order }
+        groups = state.groups ?? []
         seq = snapshot.seq
         epoch = snapshot.epoch
         needsSnapshot = false
@@ -63,6 +78,7 @@ public struct HostWorkspaceMirror: Sendable {
 
     private mutating func dropForNewEpoch() {
         workspaces = []
+        groups = []
         seq = nil
         epoch = nil
         needsSnapshot = true
@@ -101,6 +117,8 @@ public struct HostWorkspaceMirror: Sendable {
             let params = try event.params.decode(as: TabPreviewParams.self)
             // An empty preview clears the line.
             editTab(params.tab) { _, pane, index in pane.tabs[index].preview = params.preview.isEmpty ? nil : params.preview }
+        case "workspace.groups.set":
+            groups = try event.params.decode(as: GroupsSetParams.self).groups
         default:
             // An op of the family this client does not know (a newer Mac):
             // receivers ignore unknown messages and keep the sequence.

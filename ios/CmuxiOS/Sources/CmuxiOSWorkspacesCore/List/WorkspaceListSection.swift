@@ -10,4 +10,12 @@ public struct WorkspaceListSection: Identifiable, Hashable, Sendable {
     public var machine: WorkspaceMachineHeader?
     public var kind: WorkspaceListSectionKind
     public var rows: [WorkspaceListRow]
+    /// A group collapsed on this phone: `rows` is empty, `memberCount` says
+    /// how many it holds.
+    public var isCollapsed: Bool = false
+    /// Workspaces in the section, listed or collapsed.
+    public var memberCount: Int = 0
+    /// What the host accepts (Rename Group needs `.renameGroup`).
+    public var capabilities: WorkspaceCapabilities = []
+    public var isReachable: Bool = false
 }
