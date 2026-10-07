@@ -27,7 +27,7 @@ parser that re-serializes; the page copy is only for preview, the owner sanitize
 
 A React page (`webviews/src/pages/icon-picker`, `cmux-page://cmux.icon-picker/`), shown in a native
 popover; it moves onto the one shared prewarmed page host (the shell) when that lands. Tabs Emoji,
-Symbols, Image, SVG. Data: Unicode emoji-test 17.0, CLDR 48.2.0 annotations (en, ja), emojibase
+Symbols, Image, SVG. Data: Unicode emoji-test 18.0, CLDR 48.2.0 annotations (en, ja), emojibase
 17.0.0 GitHub shortcodes (MIT), pinned by SHA-256 (`webviews/scripts/icon-picker`). Search by
 names, keywords, shortcodes, kana-folded Japanese, flag ISO codes. Recents by frecency in the
 personal projection `icon-picker.prefs`, remembered skin tone, docked section headers, a detail bar

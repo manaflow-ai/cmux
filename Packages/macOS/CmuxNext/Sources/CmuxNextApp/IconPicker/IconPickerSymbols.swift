@@ -39,7 +39,7 @@ final class IconPickerSymbols: PageDynamicResourceSource {
     /// The newest Emoji version (times 10) the system emoji font draws, so the picker hides
     /// emoji that would show as empty boxes: one new single code point per version, newest first.
     static func maxEmojiVersion(font: CTFont = CTFontCreateWithName("AppleColorEmoji" as CFString, 16, nil)) -> Int {
-        let sentinels: [(Int, UInt32)] = [(170, 0x1FAEA), (160, 0x1FAE9), (150, 0x1FAE8), (140, 0x1FAE0), (130, 0x1F978)]
+        let sentinels: [(Int, UInt32)] = [(180, 0x1FAEB), (170, 0x1FAEA), (160, 0x1FAE9), (150, 0x1FAE8), (140, 0x1FAE0), (130, 0x1F978)]
         for (version, scalar) in sentinels where draws(scalar, font: font) { return version }
         return 120
     }
