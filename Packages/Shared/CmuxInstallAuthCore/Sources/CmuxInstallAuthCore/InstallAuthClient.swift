@@ -39,6 +39,7 @@ public actor InstallAuthClient {
     /// owner's to verify); trust comes from TLS and the per-host install key.
     public private(set) var environment: String?
     private let deviceName: String
+    private let registration: InstallRegistration
     /// This app's version (`CFBundleShortVersionString`), sent as
     /// `x-cmux-client-version`; the owner refuses an older one when the team
     /// sets `updates.minimumVersion` (enterprise P17).
@@ -60,8 +61,10 @@ public actor InstallAuthClient {
     ///   - onRecord: persists the record (Keychain) the moment it changes.
     public init(transport: any InstallAuthTransport, signer: any InstallSigner, sessionToken: SessionToken?,
                 stackUser: String, deviceName: String, clientVersion: String?, record: InstallRecord?,
+                registration: InstallRegistration = .iOS,
                 onRecord: @escaping @Sendable (InstallRecord?) async -> Void = { _ in },
                 now: @escaping @Sendable () -> Date = Date.init) {
+        self.registration = registration
         self.transport = transport
         self.signer = signer
         self.sessionToken = sessionToken
@@ -189,13 +192,16 @@ public actor InstallAuthClient {
             let thumbprint = SHA256.hash(data: x963).prefix(16).map { String(format: "%02x", $0) }.joined()
             do {
                 // Keyed by (user, key): a lost reply is replayed, never a second install.
-                let install = try await op("install.register", params: [
-                    "public_jwk": jwk.json, "kind": "ios", "name": "cmux iOS",
-                    "device_name": Self.displayName(deviceName), "platform": "ios",
-                    // L14-1: the phone's install never gets `execute` (no terminal
-                    // input, no code, no CUA acts from a stolen phone token).
-                    "op_classes": Self.grantClasses,
-                ], key: "install-register-\(userID)-\(thumbprint)", bearer: session)
+                var params: [String: Any] = [
+                    "public_jwk": jwk.json, "kind": registration.kind, "name": registration.name,
+                    "device_name": Self.displayName(deviceName, fallback: registration.fallbackDeviceName),
+                    "platform": registration.platform,
+                ]
+                // L14-1: the phone's install never gets `execute` (no terminal
+                // input, no code, no CUA acts from a stolen phone token).
+                if let classes = registration.opClasses { params["op_classes"] = classes }
+                let install = try await op("install.register", params: params,
+                                           key: "install-register-\(userID)-\(thumbprint)", bearer: session)
                 guard let installID = install["id"] as? String else { throw InstallAuthError.malformedReply }
                 let made = InstallRecord(user: userID, install: installID)
                 record = made
@@ -210,13 +216,13 @@ public actor InstallAuthClient {
     }
 
     /// 1 to 80 UTF-16 units (the owner's display-name limit).
-    static func displayName(_ name: String) -> String {
+    static func displayName(_ name: String, fallback: String = "iPhone") -> String {
         var result = ""
         for character in name {
             if result.utf16.count + String(character).utf16.count > 80 { break }
             result.append(character)
         }
-        return result.isEmpty ? "iPhone" : result
+        return result.isEmpty ? fallback : result
     }
 
     private func op(_ name: String, params: [String: Any], key: String, bearer: String) async throws -> [String: Any] {

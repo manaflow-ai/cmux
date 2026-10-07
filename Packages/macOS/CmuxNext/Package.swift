@@ -136,6 +136,7 @@ let package = Package(
         // B4 direct, B2 WebRTC, B3 acceptors, B6 trust store, for CmuxNextMobileConnect.
         .package(path: "../../Shared/CmuxMobileConnect"),
         .package(path: "../../Shared/CmuxPairing"),
+        .package(path: "../../Shared/CmuxInstallAuthCore"),
         .package(path: "../../Shared/CmuxControlPlane"),
         .package(path: "../../Shared/CmuxLink"),
         .package(path: "../../Shared/CmuxLinkDirect"),
@@ -979,6 +980,7 @@ let package = Package(
                 .product(name: "CmuxMobileHost", package: "CmuxMobileHost"),
                 .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
                 .product(name: "CmuxPairing", package: "CmuxPairing"),
+                .product(name: "CmuxInstallAuthCore", package: "CmuxInstallAuthCore"),
                 .product(name: "CmuxControlPlane", package: "CmuxControlPlane"),
                 .product(name: "CmuxLinkSignaling", package: "CmuxLink"),
                 .product(name: "CmuxLinkDirect", package: "CmuxLinkDirect"),
@@ -997,6 +999,7 @@ let package = Package(
                 .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
                 .product(name: "CmuxPairing", package: "CmuxPairing"),
                 .product(name: "CmuxLinkWebRTC", package: "CmuxLinkWebRTC"),
+                .product(name: "CmuxInstallAuthCore", package: "CmuxInstallAuthCore"),
             ],
             swiftSettings: daemonSwiftSettings
         ),

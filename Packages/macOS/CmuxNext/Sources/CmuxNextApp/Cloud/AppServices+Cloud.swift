@@ -35,6 +35,11 @@ extension AppServices {
     func startCloud() -> Task<Void, Never> {
         cloud.start()
         let cloud = cloud!, machines = machines
+        let apiBaseURL = feed.apiBaseURL, launch = environment.launch
+        // The phone link runs as this Mac's install for the signed-in account.
+        mobile.link.accountProvider = { name in
+            CloudMobileLinkAccount.make(auth: cloud.auth, apiBaseURL: apiBaseURL, launch: launch, macName: name)
+        }
         return Task { [weak self] in
             var account: String?
             for await state in Observations({ (cloud.isSignedIn, machines.cloud.count, cloud.auth.user?.id, cloud.auth.teamID) }) {
