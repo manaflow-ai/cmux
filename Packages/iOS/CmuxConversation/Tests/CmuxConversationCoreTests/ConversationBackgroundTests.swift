@@ -33,25 +33,22 @@ import Testing
         #expect(Set(ConversationBackgroundLook.all.map(\.id)).count == ConversationBackgroundLook.all.count)
     }
 
-    @Test func noticeStripsChatKitEmphasisMarkers() {
-        let mine = ConversationBackgroundStrings.emphasized("#You# changed the background.")
-        #expect(mine.text == "You changed the background.")
-        #expect(mine.emphasis.map { String(mine.text[$0]) } == "You")
-        let ja = ConversationBackgroundStrings.emphasized("#あなた#が背景を変更しました。")
-        #expect(ja.text == "あなたが背景を変更しました。")
-        #expect(ja.emphasis.map { String(ja.text[$0]) } == "あなた")
-        #expect(ConversationBackgroundStrings.emphasized("plain").emphasis == nil)
-    }
-
-    @Test func noticeNamesTheActorByFirstName() {
+    @Test func backgroundLinesAreStatusRowsWithTheActorEmphasized() {
         let info = ConversationInfo(id: "g", title: "cmux", kind: .group, participants: [
             ConversationParticipant(id: "me", name: "Me", initials: "ME", colorHex: "#0A84FF", isMe: true),
             ConversationParticipant(id: "leo", name: "Leo Li", initials: "LL", colorHex: "#BF5AF2", isMe: false),
         ])
-        let theirs = ConversationBackgroundStrings.notice(.backgroundRemoved, senderID: "leo", meID: "me", info: info)
-        #expect(theirs.text == "Leo removed the background.")
-        #expect(theirs.emphasis.map { String(theirs.text[$0]) } == "Leo")
-        #expect(ConversationBackgroundStrings.notice(.backgroundChanged, senderID: "me", meID: "me", info: info).text == "You changed the background.")
+        func line(_ kind: ConversationSystemEvent.Kind, by sender: String) -> ConversationSystemText? {
+            var message = ConversationMessage(id: "m", seq: 1, clientMessageID: nil, senderID: sender, sentAt: Date(), text: "")
+            message.systemEvent = ConversationSystemEvent(kind: kind)
+            return ConversationStatusStrings.text(for: message, meID: "me", info: info)
+        }
+        let theirs = line(.removedBackground, by: "leo")
+        #expect(theirs?.text == "Leo Li removed the background.")
+        #expect(theirs.map { ($0.text as NSString).substring(with: $0.emphasized[0]) } == "Leo Li")
+        let mine = line(.changedBackground, by: "me")
+        #expect(mine?.text == "You changed the background.")
+        #expect(mine.map { ($0.text as NSString).substring(with: $0.emphasized[0]) } == "You")
     }
 
     @Test func wireDecodingReadsBackgroundsAndSystemLines() throws {
@@ -69,8 +66,8 @@ import Testing
         let derived = WireDecoding.background(["id": "x", "kind": "color", "colors": ["#000000", "#FFFFFF"]], base: base)
         #expect(derived?.luminance == 0.5)
         #expect(WireDecoding.conversation(["id": "d"])?.background == nil)
-        let line = WireDecoding.message(["id": "m", "seq": 3, "senderId": "john", "text": "", "system": "backgroundChanged"], base: base)
-        #expect(line?.systemEvent == .backgroundChanged && line?.isNotice == true)
+        let line = WireDecoding.message(["id": "m", "seq": 3, "senderId": "john", "text": "", "system": ["kind": "changedBackground"]], base: base)
+        #expect(line?.systemEvent?.kind == .changedBackground && line?.isNotice == true)
         let draft = WireDecoding.wireBackground(ConversationBackgroundDraft(kind: .photo, attachmentID: "up_1", luminance: 0.25))
         #expect(draft["kind"] as? String == "photo" && draft["attachmentId"] as? String == "up_1" && draft["luminance"] as? Double == 0.25)
         #expect(draft["colors"] == nil)
@@ -84,7 +81,7 @@ import Testing
             )
         }
         let plan = ConversationRunPlan(messages: [
-            message(1, "me", delivery: .delivered), message(2, "lc", system: .backgroundChanged), message(3, "me", delivery: .sent),
+            message(1, "me", delivery: .delivered), message(2, "lc", system: ConversationSystemEvent(kind: .changedBackground)), message(3, "me", delivery: .sent),
         ], meID: "me")
         #expect(plan.entries[0].isLastInRun && plan.entries[2].isFirstInRun)
         #expect(plan.entries[0].status != .none)
@@ -163,12 +160,12 @@ import Testing
         store.apply(.readState(ConversationReadState(lastReadSeq: 10, unreadCount: 0, headSeq: 10)))
         var line = backend.makeMessage(seq: 11, sender: "lc")
         line.text = ""
-        line.systemEvent = .backgroundChanged
+        line.systemEvent = ConversationSystemEvent(kind: .changedBackground)
         store.apply(.message(line, eventSeq: 1))
         #expect(store.unreadCount == 0)
         var mine = backend.makeMessage(seq: 12, sender: "me")
         mine.text = ""
-        mine.systemEvent = .backgroundRemoved
+        mine.systemEvent = ConversationSystemEvent(kind: .removedBackground)
         store.apply(.message(mine, eventSeq: 2))
         #expect(!store.canEdit(mine) && !store.canUnsend(mine))
     }

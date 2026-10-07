@@ -24,17 +24,19 @@ import Testing
         store.start()
         try await until { store.hasLoadedNewest }
         var line = ConversationMessage(id: "m7", seq: 7, clientMessageID: nil, senderID: "lc", sentAt: Date(), text: "")
-        line.systemEvent = .backgroundChanged
+        line.systemEvent = ConversationSystemEvent(kind: .changedBackground)
         store.apply(.message(line, eventSeq: 1))
         var mine = ConversationMessage(id: "m8", seq: 8, clientMessageID: nil, senderID: "me", sentAt: Date(), text: "")
-        mine.systemEvent = .backgroundRemoved
+        mine.systemEvent = ConversationSystemEvent(kind: .removedBackground)
         store.apply(.message(mine, eventSeq: 2))
         let rows = MacConversationRowBuilder.rows(store: store)
         let notices = rows.compactMap { row -> String? in
-            if case let .notice(id, text) = row, id.hasPrefix("system:") { return text }
+            if case let .systemEvent(id, text) = row, id.hasPrefix("system:") { return text.text }
             return nil
         }
-        #expect(notices == ["Lawrence changed the background.", "You removed the background."])
+        // Status rows name the actor in full (emphasized), as group status rows do.
+        #expect(notices.count == 2 && notices[0].hasPrefix("Lawrence") && notices[0].hasSuffix(" changed the background."))
+        #expect(notices.last == "You removed the background.")
         #expect(!rows.contains { if case let .message(model) = $0 { return model.message.systemEvent != nil } else { return false } })
         store.stop()
     }

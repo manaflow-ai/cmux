@@ -707,7 +707,7 @@ async function main() {
   );
   const bgPushed = await bb.waitFor(() => bb.frames.find((f) => f.method === "conversation" && f.params.conversation.background?.id === sky.id), 3000, "background push");
   check(bgPushed.params.conversation.background.look === "sky.dusk", "the other device receives the background");
-  const notice = await bb.waitFor(() => bb.events().find((e) => e.kind === "message.created" && e.message.system === "backgroundChanged"), 3000, "background notice");
+  const notice = await bb.waitFor(() => bb.events().find((e) => e.kind === "message.created" && e.message.system?.kind === "changedBackground"), 3000, "background notice");
   check(notice.message.senderId === "aziz" && notice.message.text === "" && !notice.message.status, "setting writes a system line by me, with no delivery status");
   const solid = await ba.call("setBackground", { background: { kind: "color", colors: ["#ffffff"] } });
   check(solid.conversation.background.colors[0] === "#FFFFFF" && solid.conversation.background.luminance === 1, "a solid color derives its luminance");
@@ -723,7 +723,7 @@ async function main() {
   );
   const cleared = await ba.call("setBackground", { background: null });
   check(!("background" in cleared.conversation), "setBackground null removes it");
-  await bb.waitFor(() => bb.events().find((e) => e.kind === "message.created" && e.message.system === "backgroundRemoved"), 3000, "removed notice");
+  await bb.waitFor(() => bb.events().find((e) => e.kind === "message.created" && e.message.system?.kind === "removedBackground"), 3000, "removed notice");
   check(true, "removing writes a 'removed the background' line");
   const bgEventsBefore = ba.events().length;
   await ba.call("setBackground", { background: null });
@@ -732,7 +732,7 @@ async function main() {
   const byBot = await post("/admin/background?conversation=direct&sender=john&look=glitter.gold");
   check(byBot.conversation.background.kind === "glitter" && byBot.conversation.background.setBy === "john", "admin background: John sets Glitter");
   check(byBot.conversation.background.luminance < 0.18, `Glitter is as dark as its base, not the mean of its sparkle colors (L=${byBot.conversation.background.luminance})`);
-  const botNotice = await ba.waitFor(() => ba.events().find((e) => e.message.system === "backgroundChanged" && e.message.senderId === "john"), 3000, "bot notice");
+  const botNotice = await ba.waitFor(() => ba.events().find((e) => e.message.system?.kind === "changedBackground" && e.message.senderId === "john"), 3000, "bot notice");
   const afterBot = await ba.call("hello", { clientId: "bg-a2" });
   check(afterBot.unreadCount === bgUnreadBefore && afterBot.conversation.background.setBy === "john", "a system line from someone else is not unread; hello carries the background");
   const botPhoto = await post("/admin/background?conversation=direct&sender=john&kind=photo");
@@ -740,7 +740,7 @@ async function main() {
   const bpBytes = new Uint8Array(await (await fetch(bp.photo.url)).arrayBuffer());
   check(bp.kind === "photo" && sniffImageSize(bpBytes)?.height === 1200 && bp.luminance > 0 && bp.luminance < 1, `a bot photo background is served with its luminance (L=${bp.luminance})`);
   const bgPage = await ba.call("history", { beforeSeq: null, limit: 10 });
-  check(bgPage.messages.some((m: any) => m.id === botNotice.message.id && m.system === "backgroundChanged"), "history carries system lines");
+  check(bgPage.messages.some((m: any) => m.id === botNotice.message.id && m.system?.kind === "changedBackground"), "history carries system lines");
   await post("/admin/background?conversation=direct&clear=1&sender=john");
   ba.close();
   bb.close();
