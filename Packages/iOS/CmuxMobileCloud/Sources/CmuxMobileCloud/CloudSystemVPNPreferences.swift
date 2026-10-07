@@ -83,7 +83,17 @@ public final class CloudSystemVPNPreferences: CloudSystemVPNManaging {
         guard isAvailable else { throw CloudSystemVPNError.unavailable }
         do {
             try await runCancellable { [self] in
-                let manager = try await load() ?? NETunnelProviderManager()
+                let manager: NETunnelProviderManager
+                if let existing = try await load() {
+                    manager = existing
+                } else {
+                    // Apple requires one loadFromPreferences call on a newly
+                    // created manager before its first saveToPreferences.
+                    // loadAllFromPreferences() returning no matching profile
+                    // does not satisfy that requirement.
+                    manager = NETunnelProviderManager()
+                    try await manager.loadFromPreferences()
+                }
                 try Task.checkCancellation()
                 self.manager = manager
                 switch manager.connection.status {
