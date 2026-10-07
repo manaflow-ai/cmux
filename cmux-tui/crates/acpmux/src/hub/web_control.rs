@@ -185,10 +185,11 @@ impl Hub {
     /// rules write takes: the session may have changed since the guard ran,
     /// or while this prompt waited in the queue. A refused prompt never
     /// reaches the harness; the log records `prompt_refused`.
-    pub(super) fn check_dispatch(
-        &self,
-        session: &Session,
+    pub(super) async fn check_dispatch(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
         control: Control,
+        trust_gate: bool,
         prompt_id: &str,
         turn_id: &str,
         client: &str,
@@ -196,6 +197,12 @@ impl Hub {
         let refused = {
             let m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             self.web_control_verdict(session, &m, control).err()
+        };
+        let refused = match refused {
+            Some(e) => Some(e),
+            None => {
+                crate::server::trust_gate::check_dispatch(self, trust_gate, session).await.err()
+            }
         };
         let Some(e) = refused else { return Ok(()) };
         self.append(
@@ -216,6 +223,9 @@ impl Hub {
     ) -> Result<(), RpcError> {
         if control != Control::Web {
             return Ok(());
+        }
+        if let Some(e) = self.local_claude_refusal(meta) {
+            return Err(e);
         }
         let mode = crate::web_modes::mode_of(meta);
         let shown = mode.as_deref().unwrap_or("(unknown)").to_owned();
@@ -270,6 +280,43 @@ impl Hub {
             })));
         }
         Ok(())
+    }
+}
+
+impl Hub {
+    /// D13: a Claude Code session the Mac started (not a remote chain) runs
+    /// with the user's own Claude permission rules, whose allow rules run
+    /// tools with no acpmux request, so the remote floor cannot hold there:
+    /// a remote device never controls it (reads stay). A remote chain's
+    /// Claude Code runs with ask-only settings in the sandbox
+    /// (`remote_sandbox.rs`). Unknown (the profile is gone, or the config is
+    /// being written): refused.
+    pub(crate) fn local_claude_refusal(
+        &self,
+        meta: &crate::store::SessionMeta,
+    ) -> Option<RpcError> {
+        // Claude Code itself (claude-stdio) or a Claude adapter (family
+        // claude): both read the user's Claude settings.
+        let stdio = match self.config.try_read() {
+            Ok(cfg) => {
+                super::resolve::session_profile(&cfg, &meta.harness, &meta.cwd, meta.remote_origin)
+                    .ok()
+                    .map(|p| p.kind == crate::config::HarnessKind::ClaudeStdio)
+            }
+            Err(_) => None,
+        };
+        let family = crate::web_modes::family_of(meta) == "claude";
+        // A remote chain's Claude Code (claude-stdio, remote origin) runs in
+        // the sandbox with ask-only settings; everything else that is or may
+        // be Claude is refused (unknown: refused).
+        let refused = !meta.remote_origin && (stdio != Some(false) || family);
+        refused.then(|| {
+            RpcError::new(
+                -32000,
+                "This chat runs with your Mac's Claude permissions. Start a new chat from this device to control it remotely.",
+            )
+            .with_data(json!({"reason": "remote.local_claude_session", "harness": meta.harness}))
+        })
     }
 }
 

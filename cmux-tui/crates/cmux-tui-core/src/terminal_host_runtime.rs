@@ -854,7 +854,9 @@ mod unix {
     mod barrier_sync;
     mod clipboard_read;
     mod control_responses;
+    mod exited_drain;
     mod host_parser;
+    mod host_signals;
     mod metric_commits;
     mod renderer_grant;
     mod standby;
@@ -1850,7 +1852,8 @@ mod unix {
     /// Strip every descriptor except the private bootstrap stdio before the
     /// hidden host starts any threads or opens its endpoint. This runs inside
     /// the freshly exec'd `__terminal-host`, so descriptor enumeration is
-    /// race-free and cannot affect the daemon's own open files.
+    /// race-free and cannot affect the daemon's own open files. It then
+    /// installs the host's signal guard (`host_signals`).
     pub fn isolate_terminal_host_process_fds() -> anyhow::Result<()> {
         let mut last_error = None;
         let mut inherited = None;
@@ -1891,7 +1894,7 @@ mod unix {
                 }
             }
         }
-        Ok(())
+        host_signals::install()
     }
 
     pub fn launch_terminal_host(
@@ -2191,6 +2194,7 @@ mod unix {
         let endpoint = PathBuf::from(&current.endpoint);
         fs::remove_file(record_path)?;
         let _ = fs::remove_file(proof);
+        crate::terminal_loss_log::remove_signals(record_path);
         if fs::symlink_metadata(&endpoint).is_ok_and(|metadata| metadata.file_type().is_socket()) {
             let _ = fs::remove_file(endpoint);
         }
@@ -2370,6 +2374,9 @@ mod unix {
             return Ok(false);
         }
         fs::remove_file(record_path)?;
+        // The terminal ended with a recorded exit: its signal breadcrumbs
+        // (`<id>.signals`, same stem as `<id>.exit`) are no longer evidence.
+        crate::terminal_loss_log::remove_signals(record_path);
         if let Some(parent) = record_path.parent() {
             File::open(parent)?.sync_all()?;
         }
@@ -4762,6 +4769,8 @@ mod unix {
             }
         };
 
+        let stopping = shared.clone();
+        host_signals::on_service_manager_stop(Box::new(move || stopping.request_termination()));
         let endpoint = PathBuf::from(&launch.endpoint);
         let mut unpublished = UnpublishedHostGuard {
             shared: shared.clone(),
@@ -4817,6 +4826,11 @@ mod unix {
         // leave behind an undiscoverable terminal process.
         write_record(Path::new(&launch.record_path), &record)?;
         guard.published = true;
+        host_signals::set_breadcrumb_path(
+            Path::new(&launch.record_path).with_extension("signals"),
+            record.terminal_id.clone(),
+            record.incarnation,
+        );
         crate::debug_spans::mark("host.record_written");
         crate::debug_spans::finish(crate::debug_spans::take());
 
@@ -5098,6 +5112,7 @@ mod unix {
                 .is_some_and(|pid| wait_for_child_exit_without_reaping(pid).is_ok());
             if observed_without_reaping {
                 child_host.mark_child_waitable();
+                let mut drain = exited_drain::ExitedDrain::start();
                 loop {
                     let signal = child_host.child_signal_lock.lock().unwrap();
                     let escalation_complete =
@@ -5114,15 +5129,7 @@ mod unix {
                     }
                     drop(signal);
                     let state = child_host.child_exit.0.lock().unwrap();
-                    let _state = child_host
-                        .child_exit
-                        .1
-                        .wait_while(state, |_| {
-                            !child_host.group_escalation_complete.load(Ordering::Acquire)
-                                && (child_host.termination_started.load(Ordering::Acquire)
-                                    || !child_host.pty_drained.load(Ordering::Acquire))
-                        })
-                        .unwrap();
+                    drain.wait(&child_host, state);
                 }
                 child_host.child_exit.1.notify_all();
                 child_host.publish_exit_if_drained();
