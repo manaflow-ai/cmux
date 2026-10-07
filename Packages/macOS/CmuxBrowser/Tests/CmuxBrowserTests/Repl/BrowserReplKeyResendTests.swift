@@ -114,7 +114,7 @@ struct BrowserReplKeyResendTests {
 
     /// Runs `body` with `-[NSApplication sendEvent:]` dropping WebKit's
     /// resend of an automated key, as the app's own `sendEvent` does.
-    private static func withAppDroppingResends(_ body: () async throws -> Void) async throws {
+    static func withAppDroppingResends(_ body: () async throws -> Void) async throws {
         _ = NSApplication.shared
         let selector = #selector(NSApplication.sendEvent(_:))
         let method = try #require(class_getInstanceMethod(NSApplication.self, selector))
