@@ -402,6 +402,8 @@ fn browser_host_drives_headless_chromium_over_the_pipe() {
           snapshot: () => [...document.querySelectorAll("input")]
             .map((i) => `${i.id}=${i.value}|${i.getAttribute("value") || ""}`).join(" "),
           fill: (id, v) => { el(id).value = v; },
+          // observe runs each read inside the agent's reply.
+          reply: (v) => v,
         };
       }"#}),
     );

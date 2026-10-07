@@ -198,8 +198,41 @@
     }
   };
   const normalize = (s) => String(s || "").replace(/\s+/g, " ").trim();
+  // A random token that lives only in this world (classic's docToken).
+  const docToken = (() => {
+    const bytes = new Uint8Array(8);
+    if (global.crypto && typeof global.crypto.getRandomValues === "function") global.crypto.getRandomValues(bytes);
+    else for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
+    return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  })();
+  // Where this world cuts a page string, it leaves CUT until the reply is
+  // sealed (`reply`). Secrets are masked after the reply leaves the page (the
+  // host's frame.observe redaction, the session's secret masking), by
+  // matching whole values, so a cut inside a value would hand on its
+  // unmasked prefix: sealing drops the CUT_MARGIN characters before each
+  // cut, the longest form a masked value takes (4,096 bytes, each character
+  // at most 13 characters as an HTML reference, `&#1114111;`), and writes
+  // "…" there. CUT is random and lives only in this world, so page text,
+  // which may hold any character, cannot forge a cut.
+  const CUT = "﷐" + docToken + "﷐";
+  const CUT_MARGIN = 13 * 4096;
+  // `s` with each cut settled: the text within CUT_MARGIN before it dropped.
+  function settleCuts(s) {
+    if (typeof s !== "string" || s.indexOf(CUT) === -1) return s;
+    let out = "";
+    let from = 0;
+    for (let i = s.indexOf(CUT); i !== -1; i = s.indexOf(CUT, from)) {
+      let end = Math.max(from, i - CUT_MARGIN);
+      // Never split a surrogate pair.
+      if (end > from && /[\ud800-\udbff]/.test(s[end - 1])) end--;
+      out += s.slice(from, end) + "…";
+      from = i + CUT.length;
+      while (s.startsWith(CUT, from)) from += CUT.length;
+    }
+    return out + s.slice(from);
+  }
   // A safety cap only: the host decides how much of a name to print.
-  const capName = (s) => (s.length > 2000 ? s.slice(0, 1999) + "…" : s);
+  const capName = (s) => (s.length > 2000 ? s.slice(0, 1999) + CUT : s);
 
   function parentCrossingShadow(el) {
     if (el.parentElement) return el.parentElement;
@@ -596,6 +629,169 @@
     if (ctx.focus === el) node.focused = true;
   }
 
+  // ---------------------------------------------------------------------------
+  // The page-read budget (classic page-agent.js, same constants). A hostile
+  // page can hold millions of nodes (or make each one slow to read), and a
+  // read runs on the page's main thread before any output limit applies.
+  // Every read that sends page-controlled values to the session reads at
+  // most MAX_NODES nodes and returns at most MAX_SIZE characters (values, and
+  // NODE_SIZE for each node's keys), for MAX_WALK_MS (under the host's 10 s
+  // frame timeout, so an inner frame answers cut instead of timing out);
+  // past any of them it stops and says why (`truncated`: "nodes", "size" or
+  // "time"), and the session prints a note (core.readCutNote). A caller can
+  // lower a bound, never raise it. `spend`, `chargeSize` and `fit` charge it.
+  const now = () => (global.performance && global.performance.now ? global.performance.now() : Date.now());
+  const MAX_NODES = 250000;
+  const MAX_WALK_MS = 8000;
+  const MAX_SIZE = 2000000;
+  const NODE_SIZE = 32;
+  function readBudget(opts) {
+    const o = opts || {};
+    const nodes = Math.min(MAX_NODES, o.maxNodes > 0 ? Math.floor(o.maxNodes) : MAX_NODES);
+    const size = Math.min(MAX_SIZE, o.maxSize > 0 ? Math.floor(o.maxSize) : MAX_SIZE);
+    return { left: nodes, sizeLeft: size, nodes, size, deadline: now() + MAX_WALK_MS, ticks: 0, truncated: undefined };
+  }
+  // The budget for page functions the runtime runs in this world
+  // (agent-tools.js): A.budget(opts).
+  function budget(opts) {
+    const b = readBudget(opts);
+    return {
+      spend: (count) => spend(b, count === undefined ? 1 : count),
+      charge: (count) => chargeSize(b, count),
+      fit: (s) => fit(b, s),
+      // `s` cut where the budget ends, before the caller normalizes it.
+      head: (s) => head(b, s),
+      // The characters left to charge, so a caller can refuse work (such as
+      // parsing a URL) on a value fit would cut anyway.
+      get sizeLeft() {
+        return b.sizeLeft;
+      },
+      // `s` with its cuts settled, for a page function that cuts or
+      // searches its own text before it replies (sealing settles the rest).
+      settle: (s) => settleCuts(s),
+      get truncated() {
+        return b.truncated;
+      },
+      // What the session needs for its note and for the budget it passes on.
+      report: () => ({ visited: b.nodes - b.left, size: b.size - b.sizeLeft, maxNodes: b.nodes, maxSize: b.size, truncated: b.truncated }),
+    };
+  }
+  // Reading the clock every node costs; every 256th is enough.
+  function spend(ctx, count) {
+    if (ctx.truncated) return false;
+    if (ctx.left < count) {
+      ctx.truncated = "nodes";
+      return false;
+    }
+    ctx.left -= count;
+    if (++ctx.ticks % 256 === 0 && now() > ctx.deadline) {
+      ctx.truncated = "time";
+      return false;
+    }
+    return true;
+  }
+  function chargeSize(ctx, count) {
+    if (ctx.sizeLeft >= count) {
+      ctx.sizeLeft -= count;
+      return true;
+    }
+    ctx.sizeLeft = 0;
+    if (!ctx.truncated) ctx.truncated = "size";
+    return false;
+  }
+  // `s` charged to the size budget, cut where the budget ends (CUT, which
+  // sealing turns into "…" well before the cut).
+  function fit(ctx, s) {
+    if (typeof s !== "string" || !s) return s;
+    const left = ctx.sizeLeft;
+    if (chargeSize(ctx, s.length)) return s;
+    let end = left;
+    // Never split a surrogate pair.
+    if (end > 0 && /[\ud800-\udbff]/.test(s[end - 1])) end--;
+    return s.slice(0, end) + CUT;
+  }
+  // `s` cut where the size budget ends, before the caller normalizes or
+  // parses it (normalizing only shortens a string); not charged, `fit`
+  // charges what the caller keeps. A cut leaves CUT and stops the read
+  // ("size"), as `fit` does.
+  function head(ctx, s) {
+    if (typeof s !== "string" || s.length <= ctx.sizeLeft) return s;
+    if (!ctx.truncated) ctx.truncated = "size";
+    let end = ctx.sizeLeft;
+    if (end > 0 && /[\ud800-\udbff]/.test(s[end - 1])) end--;
+    return s.slice(0, end) + CUT;
+  }
+  // `read` (a bounded DOM read, `read(node, budget)`) of `node` within what
+  // `ctx` has left: its nodes charged to `ctx`, and a read it cut stops `ctx`
+  // too. Characters are charged when the caller fits what it keeps.
+  function readWithin(ctx, read, node) {
+    const b = readBudget({ maxNodes: Math.max(1, ctx.left), maxSize: Math.max(1, ctx.sizeLeft) });
+    const text = read(node, b);
+    spend(ctx, b.nodes - b.left);
+    if (b.truncated && !ctx.truncated) ctx.truncated = b.truncated;
+    return text;
+  }
+  // Visits `root` and its descendants in tree order: enter(node) before a
+  // node's children (false skips them, STOP ends the walk), leave(node)
+  // after them. `templates`: a <template>'s content counts as its children.
+  // Iterative: a page can nest elements deeper than the stack.
+  const STOP = {};
+  function walkTree(root, enter, leave, templates) {
+    const outs = [];
+    let n = root;
+    for (;;) {
+      const r = enter(n);
+      if (r === STOP) return;
+      let child = null;
+      if (r !== false) {
+        if (templates && n.nodeType === 1 && tagOf(n) === "template" && n.content) {
+          child = n.content.firstChild;
+          if (child) outs.push(n);
+        } else child = n.firstChild;
+      }
+      if (child) {
+        n = child;
+        continue;
+      }
+      for (;;) {
+        if (leave && leave(n) === STOP) return;
+        if (n === root) return;
+        if (n.nextSibling) {
+          n = n.nextSibling;
+          break;
+        }
+        let p = n.parentNode;
+        if (outs.length && (!p || p === outs[outs.length - 1].content)) p = outs.pop();
+        if (!p) return;
+        n = p;
+      }
+    }
+  }
+
+  // Every reply this world sends to the session passes through `reply`:
+  // the runtime wraps each agent-world call in it (runtime-core.js,
+  // Frame._call) and the host's frame.observe script runs each read inside
+  // it, so a method or page function added here cannot reply around it.
+  // Sealing settles every cut the reply's strings hold (settleCuts).
+  function settleReply(value) {
+    if (typeof value === "string") return settleCuts(value);
+    const stack = [value];
+    while (stack.length) {
+      const v = stack.pop();
+      if (v === null || typeof v !== "object") continue;
+      for (const key of Array.isArray(v) ? v.keys() : Object.keys(v)) {
+        const item = v[key];
+        if (typeof item === "string") {
+          if (item.indexOf(CUT) !== -1) v[key] = settleCuts(item);
+        } else if (item !== null && typeof item === "object") stack.push(item);
+      }
+    }
+    return value;
+  }
+  function reply(value) {
+    return value instanceof Promise ? value.then(settleReply) : settleReply(value);
+  }
+
   // The walk descends at most MAX_DEPTH elements, over the whole stitched
   // tree (classic's bound: a frame's walk starts at its iframe's depth,
   // `opts.nest`); a deeper element prints as a generic with a ref and
@@ -856,7 +1052,6 @@
   }
 
   // opts: { root: handle | null, showHidden, base, nest } -> { flat, max }
-  const now = () => (global.performance && global.performance.now ? global.performance.now() : Date.now());
   function snapshot(opts) {
     return withReadCaches(() => readSnapshot(opts || {}));
   }
@@ -1302,6 +1497,8 @@
     contentBox,
     annotate,
     clearAnnotations,
+    budget,
+    reply,
     injected,
     adoptClosedRoot,
   };

@@ -99,9 +99,13 @@ final class GroupHeaderRowView: SidebarRowView {
             // Group headers use the title and color dot as their affordance.
             // Keep the layer allocated for reuse, but never render a capsule.
             pill.backgroundColor = nil
-            // Fills only: a drop onto the group tints the row in its color.
+            // Fills only: a drop onto the group tints the row in its color; a
+            // selected group (or the collapsed group that holds the selected
+            // workspace) paints the selection fill.
             if isDropTarget {
                 paintFill(color == .grey ? Palette.selectionFill : tint.withAlphaComponent(0.16))
+            } else if isSelected {
+                paintFill(Palette.selectionFill)
             } else {
                 paintFill(isHovered ? Palette.hoverFill : nil)
             }
