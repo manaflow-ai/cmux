@@ -156,3 +156,16 @@ fn peers_resolve_vm_ids_and_addresses() {
     assert_eq!(api::resolve_peer("10.128.16.9", None).unwrap(), Ipv4Addr::new(10, 128, 16, 9));
     assert!(api::resolve_peer("vm_missing", Some(&map)).is_err());
 }
+
+/// The Worker returns the mesh's IPv6 /64 in allowedIps too (the provider requires it on
+/// the tunnel); this IPv4-only agent keeps the IPv4 ranges and ignores the IPv6 ones.
+#[test]
+fn ipv6_allowed_ips_are_ignored() {
+    let json = format!(
+        r#"{{"id":"tun_1","meshId":"mesh_1","deviceId":"dev_1",
+            "endpointHost":"203.0.113.30","endpointPort":51820,"interfaceAddress":"100.64.0.1/32",
+            "serverPublicKey":"{SERVER_KEY}","allowedIps":["10.128.16.0/20","fd3b:5c80:74b4::/64"]}}"#
+    );
+    let tunnel = config::parse_tunnel(&json).unwrap();
+    assert!(tunnel.routes_contain(Ipv4Addr::new(10, 128, 16, 5)));
+}
