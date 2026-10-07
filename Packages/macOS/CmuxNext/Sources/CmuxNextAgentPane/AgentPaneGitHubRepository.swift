@@ -23,11 +23,13 @@ public struct AgentPaneGitHubRepository {
         process.standardError = Pipe()
         do {
             try process.run()
+            // concurrency-allow: readSync runs only inside the detached utility task; git output is bounded.
             process.waitUntilExit()
         } catch {
             return nil
         }
         guard process.terminationStatus == 0,
+              // concurrency-allow: this read runs only inside the detached utility task after git exits.
               let remote = String(data: output.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)
         else { return nil }
         return parse(remote)
