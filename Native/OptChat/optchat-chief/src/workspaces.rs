@@ -32,6 +32,9 @@ pub trait Workspaces: Send + Sync {
     fn open(&self, session: &str, name: &str, cwd: &Path) -> Result<String, String>;
     /// Renames the workspace `key`.
     fn rename(&self, key: &str, name: &str) -> Result<(), String>;
+    /// Where its workspaces live, for the Chief to tell the user (for
+    /// example "the cmux app on this Mac").
+    fn place(&self) -> String;
 }
 
 /// A subagent's workspace name: its id and the task's first words.
@@ -162,6 +165,10 @@ impl Workspaces for AppWorkspaces {
 
     fn rename(&self, key: &str, name: &str) -> Result<(), String> {
         self.rename_once(key, name)
+    }
+
+    fn place(&self) -> String {
+        "the cmux app on this Mac".to_owned()
     }
 }
 

@@ -1039,3 +1039,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_nightly_next_release_notes_fetch.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_browser_host_release_package.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_browser_host_release_smoke.py"
+lane = "linux-guard"
