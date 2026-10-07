@@ -218,7 +218,9 @@ web view's own Copy, Cut and Paste. A key whose outcome WebKit has not reported 
 The outcome is judged only once WebKit has queued the key for the page: in
 editable content of a web view in a window, WebKit first gives the key to the
 window's input method, and a judgment before that would call every shortcut
-handled. WebKit's resend of an unhandled key decides the outcome at once.
+handled. WebKit's resend of an unhandled key decides the outcome at once. An earlier key that the input method still holds when a shortcut is sent
+(for example, during a composition) can make the shortcut count as handled, so
+its command does not run: WebKit shows no such key (accepted residual).
 
 ## Hibernated and crashed tabs
 
