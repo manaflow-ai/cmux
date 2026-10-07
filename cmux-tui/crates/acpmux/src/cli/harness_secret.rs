@@ -41,9 +41,36 @@ pub struct StoreCommand {
     pub stdin: String,
 }
 
-/// The store command for `os` (red: not yet).
-pub fn store_command(_os: &str, _id: &str, _key: &str, _value: &str) -> Result<StoreCommand> {
-    Ok(StoreCommand { argv: vec![], stdin: String::new() })
+/// The store command for `os` ("macos" or any other unix).
+pub fn store_command(os: &str, id: &str, key: &str, value: &str) -> Result<StoreCommand> {
+    if value.is_empty() {
+        bail!("the value is empty");
+    }
+    if value.contains(['\n', '\r', '\0']) {
+        bail!("the value has a line break or NUL byte; a secret must be one line");
+    }
+    let account = format!("{id}/{key}");
+    let label = format!("cmux harness {id} {key}");
+    Ok(if os == "macos" {
+        StoreCommand {
+            argv: vec!["/usr/bin/security".into(), "-i".into()],
+            stdin: format!(
+                "add-generic-password -U -s {SERVICE} -a {} -l {} -w {}\n",
+                security_quote(&account),
+                security_quote(&label),
+                security_quote(value)
+            ),
+        }
+    } else {
+        StoreCommand {
+            argv: ["secret-tool", "store", "--label", &label, "service", SERVICE, "account"]
+                .iter()
+                .map(|s| (*s).to_owned())
+                .chain(std::iter::once(account))
+                .collect(),
+            stdin: value.to_owned(),
+        }
+    })
 }
 
 /// A word for `security -i`'s command parser: double quotes, with `\` and
@@ -88,20 +115,95 @@ pub enum FileChange {
     Manual { path: Option<String>, reason: String },
 }
 
-/// Store the secret and point the profile at it (red: not yet).
+/// Store the secret and point the profile at it. `store` runs a
+/// [`StoreCommand`] (tests pass a fake).
 pub fn secret_set(
-    _id: &str,
-    _key: &str,
-    _value: &str,
-    _cfg: &Config,
-    _store: &dyn Fn(&StoreCommand) -> Result<()>,
+    id: &str,
+    key: &str,
+    value: &str,
+    cfg: &Config,
+    store: &dyn Fn(&StoreCommand) -> Result<()>,
 ) -> Result<FileChange> {
-    Ok(FileChange::Manual { path: None, reason: "not implemented".into() })
+    if !profiles::valid_id(id) {
+        bail!("id {id:?} must be 1-40 lowercase letters, digits or '-'");
+    }
+    if !profiles::valid_env_key(key) {
+        bail!("{key:?} is not a valid env variable name");
+    }
+    store(&store_command(std::env::consts::OS, id, key, value)?)?;
+    Ok(match cfg.profile_meta.get(id) {
+        Some(meta) if meta.source == ProfileSource::UserFile => {
+            let path = PathBuf::from(&meta.source_path);
+            match write_reference(&path, id, key) {
+                Ok(true) => FileChange::Written(path),
+                Ok(false) => FileChange::Unchanged(path),
+                Err(reason) => FileChange::Manual { path: Some(meta.source_path.clone()), reason },
+            }
+        }
+        Some(meta) => FileChange::Manual {
+            path: Some(meta.source_path.clone()),
+            reason: "this profile is not a file in your harness folder".into(),
+        },
+        None => FileChange::Manual { path: None, reason: format!("no profile file for {id}") },
+    })
 }
 
-/// Put the reference under `[env]` (red: not yet).
-pub fn write_reference(_path: &Path, _id: &str, _key: &str) -> Result<bool, String> {
-    Ok(false)
+/// Put `KEY = { keychain = "cmux-harness/<id>/<KEY>" }` under `[env]` of the
+/// profile file: replace a one-line `KEY = …`, else add it after `[env]`,
+/// else append an `[env]` table. Ok(false): the file already had it. The
+/// result must parse with the reference in place, or nothing is written.
+pub fn write_reference(path: &Path, id: &str, key: &str) -> Result<bool, String> {
+    let text = std::fs::read_to_string(path).map_err(|e| format!("cannot read: {e}"))?;
+    let want = format!("${{keychain:{}}}", reference(id, key));
+    let current = |text: &str| -> Result<Option<String>, String> {
+        let stem = path.file_stem().map(|s| s.to_string_lossy().into_owned());
+        match profiles::parse_profile_toml(text, path, stem.as_deref(), ProfileSource::UserFile) {
+            Ok((_, profile, _, _)) => Ok(profile.env.get(key).cloned()),
+            Err(errors) => {
+                Err(errors.into_iter().map(|d| d.message).collect::<Vec<_>>().join("; "))
+            }
+        }
+    };
+    if current(&text)?.as_deref() == Some(want.as_str()) {
+        return Ok(false);
+    }
+    let line = reference_line(id, key);
+    let mut lines: Vec<String> = text.lines().map(str::to_owned).collect();
+    let header = |l: &str| l.trim_start().starts_with('[');
+    let is_env_header = |l: &str| {
+        let t = l.trim();
+        t == "[env]" || (t.starts_with("[env]") && t[5..].trim_start().starts_with('#'))
+    };
+    let env_at = lines.iter().position(|l| is_env_header(l));
+    let key_at = env_at.and_then(|start| {
+        lines[start + 1..]
+            .iter()
+            .take_while(|l| !header(l))
+            .position(|l| {
+                l.trim_start()
+                    .strip_prefix(key)
+                    .is_some_and(|rest| rest.trim_start().starts_with('='))
+            })
+            .map(|i| start + 1 + i)
+    });
+    match (env_at, key_at) {
+        (_, Some(at)) => lines[at] = line,
+        (Some(at), None) => lines.insert(at + 1, line),
+        (None, None) => {
+            lines.push(String::new());
+            lines.push("[env]".into());
+            lines.push(line);
+        }
+    }
+    let mut edited = lines.join("\n");
+    edited.push('\n');
+    match current(&edited) {
+        Ok(Some(v)) if v == want => {}
+        Ok(_) => return Err(format!("could not place {key} under [env] safely")),
+        Err(e) => return Err(format!("the edited file would not parse: {e}")),
+    }
+    crate::config::write_atomic(path, edited.as_bytes()).map_err(|e| e.to_string())?;
+    Ok(true)
 }
 
 /// Read the value: a no-echo prompt on a terminal, else all of stdin with
