@@ -64555,6 +64555,2913 @@
           }
         }
       }
+    },
+    "settings.tabs.cmdWClosesPinnedTabs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W Closes Pinned Tabs"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W يغلق علامات التبويب المثبتة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W zatvara prikačene kartice"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W lukker fastgjorte faner"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W schließt angeheftete Tabs"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W cierra las pestañas fijadas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W ferme les onglets épinglés"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W chiude le schede fissate"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W でピン留めしたタブを閉じる"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W បិទផ្ទាំងដែលបានខ្ទាស់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W로 고정된 탭 닫기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W lukker festede faner"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W zamyka przypięte karty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W Fecha Abas Fixadas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W закрывает закреплённые вкладки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W ปิดแท็บที่ปักหมุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W Sabitlenmiş Sekmeleri Kapatır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W закриває закріплені вкладки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W đóng các thẻ đã ghim"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W 关闭固定的标签页"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W 關閉固定的分頁"
+          }
+        }
+      }
+    },
+    "settings.tabs.cmdWClosesPinnedTabs.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When off, Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. Close a pinned tab from its menu."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عند الإيقاف، يحدد Cmd-W على علامة تبويب مثبتة علامة التبويب التالية ويحتفظ بالعلامة المثبتة. أغلق علامة التبويب المثبتة من قائمتها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kada je isključeno, Cmd-W na prikačenoj kartici bira sljedeću karticu i zadržava prikačenu. Zatvorite prikačenu karticu iz njenog menija."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når den er slået fra, vælger Cmd-W på en fastgjort fane den næste fane og beholder den fastgjorte fane. Luk en fastgjort fane fra dens menu."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wenn aus, wählt Cmd-W auf einem angehefteten Tab den nächsten Tab und behält den angehefteten Tab. Schließe einen angehefteten Tab über sein Menü."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Si está desactivado, Cmd-W en una pestaña fijada selecciona la siguiente pestaña y conserva la fijada. Cierra una pestaña fijada desde su menú."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Désactivé, Cmd-W sur un onglet épinglé sélectionne l’onglet suivant et garde l’onglet épinglé. Fermez un onglet épinglé depuis son menu."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se disattivato, Cmd-W su una scheda fissata seleziona la scheda successiva e mantiene quella fissata. Chiudi una scheda fissata dal suo menu."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフのとき、ピン留めしたタブで Cmd-W を押すと次のタブを選択し、ピン留めしたタブは残ります。ピン留めしたタブはそのメニューから閉じます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពេលបិទ Cmd-W លើផ្ទាំងដែលបានខ្ទាស់ ជ្រើសផ្ទាំងបន្ទាប់ ហើយរក្សាផ្ទាំងដែលបានខ្ទាស់។ បិទផ្ទាំងដែលបានខ្ទាស់ពីម៉ឺនុយរបស់វា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "끄면 고정된 탭에서 Cmd-W를 누를 때 다음 탭을 선택하고 고정된 탭은 유지합니다. 고정된 탭은 탭 메뉴에서 닫으세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når av, velger Cmd-W på en festet fane neste fane og beholder den festede fanen. Lukk en festet fane fra menyen dens."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gdy wyłączone, Cmd-W na przypiętej karcie wybiera następną kartę i zachowuje przypiętą. Zamknij przypiętą kartę z jej menu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando desativado, Cmd-W em uma aba fixada seleciona a próxima aba e mantém a fixada. Feche uma aba fixada pelo menu dela."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Если выключено, Cmd-W на закреплённой вкладке выбирает следующую вкладку и оставляет закреплённую. Закройте закреплённую вкладку через её меню."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมื่อปิด Cmd-W บนแท็บที่ปักหมุดจะเลือกแท็บถัดไปและเก็บแท็บที่ปักหมุดไว้ ปิดแท็บที่ปักหมุดจากเมนูของแท็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kapalıyken sabitlenmiş bir sekmede Cmd-W sonraki sekmeyi seçer ve sabitlenmiş sekmeyi tutar. Sabitlenmiş bir sekmeyi menüsünden kapatın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Якщо вимкнено, Cmd-W на закріпленій вкладці вибирає наступну вкладку й залишає закріплену. Закрийте закріплену вкладку з її меню."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khi tắt, Cmd-W trên một thẻ đã ghim sẽ chọn thẻ tiếp theo và giữ thẻ đã ghim. Đóng thẻ đã ghim từ menu của nó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭时，在固定的标签页上按 Cmd-W 会选择下一个标签页并保留固定的标签页。请从标签页菜单关闭固定的标签页。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉時，在固定的分頁上按 Cmd-W 會選取下一個分頁並保留固定的分頁。請從分頁選單關閉固定的分頁。"
+          }
+        }
+      }
+    },
+    "settings.layout.newPanePlacement": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Terminals and Browsers"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الطرفيات والمتصفحات الجديدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Novi terminali i preglednici"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nye terminaler og browsere"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Neue Terminals und Browser"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminales y navegadores nuevos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nouveaux terminaux et navigateurs"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nuovi terminali e browser"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいターミナルとブラウザ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទែមីណល់ និងកម្មវិធីរុករកថ្មី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "새 터미널 및 브라우저"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nye terminaler og nettlesere"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nowe terminale i przeglądarki"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Novos terminais e navegadores"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Новые терминалы и браузеры"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เทอร์มินัลและเบราว์เซอร์ใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yeni terminaller ve tarayıcılar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нові термінали та браузери"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal và trình duyệt mới"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新终端和浏览器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新終端機和瀏覽器"
+          }
+        }
+      }
+    },
+    "settings.layout.newPanePlacement.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open a Tab adds a tab to the focused pane. Split Automatically splits the largest pane, like New Pane (Auto Layout)."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يضيف خيار فتح علامة تبويب علامة تبويب إلى الجزء المحدد. ويقسم خيار التقسيم تلقائيًا أكبر جزء، مثل جزء جديد (تخطيط تلقائي)."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otvori karticu dodaje karticu u fokusirano okno. Automatski podijeli dijeli najveće okno, kao Novo okno (automatski raspored)."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åbn en fane tilføjer en fane i den fokuserede rude. Opdel automatisk opdeler den største rude, som Ny rude (automatisk layout)."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„Tab öffnen“ fügt dem fokussierten Bereich einen Tab hinzu. „Automatisch teilen“ teilt den größten Bereich, wie „Neuer Bereich (automatisches Layout)“."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir una pestaña añade una pestaña al panel enfocado. Dividir automáticamente divide el panel más grande, como Nuevo panel (diseño automático)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir un onglet ajoute un onglet au volet actif. Diviser automatiquement divise le plus grand volet, comme Nouveau volet (disposition automatique)."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apri una scheda aggiunge una scheda al riquadro attivo. Dividi automaticamente divide il riquadro più grande, come Nuovo riquadro (layout automatico)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「タブを開く」はフォーカス中のペインにタブを追加します。「自動で分割」は「新規ペイン（自動レイアウト）」と同じく、最も大きいペインを分割します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បើកផ្ទាំង បន្ថែមផ្ទាំងមួយទៅផ្ទាំងដែលកំពុងផ្តោត។ បំបែកដោយស្វ័យប្រវត្តិ បំបែកផ្ទាំងធំបំផុត ដូចជា ផ្ទាំងថ្មី (ប្លង់ស្វ័យប្រវត្តិ)។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "탭 열기는 포커스된 패널에 탭을 추가합니다. 자동으로 분할은 새 패널(자동 레이아웃)처럼 가장 큰 패널을 분할합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åpne en fane legger til en fane i ruten med fokus. Del automatisk deler den største ruten, som Ny rute (automatisk oppsett)."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otwórz kartę dodaje kartę do aktywnego panelu. Dziel automatycznie dzieli największy panel, jak Nowy panel (układ automatyczny)."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir uma aba adiciona uma aba ao painel em foco. Dividir automaticamente divide o maior painel, como Novo painel (layout automático)."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«Открыть вкладку» добавляет вкладку в активную панель. «Разделять автоматически» делит самую большую панель, как «Новая панель (автомакет)»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปิดแท็บจะเพิ่มแท็บในบานที่โฟกัสอยู่ แยกโดยอัตโนมัติจะแยกบานที่ใหญ่ที่สุด เหมือนบานใหม่ (เลย์เอาต์อัตโนมัติ)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sekme aç, odaktaki bölmeye bir sekme ekler. Otomatik böl, Yeni Bölme (Otomatik Düzen) gibi en büyük bölmeyi böler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«Відкрити вкладку» додає вкладку до активної панелі. «Ділити автоматично» ділить найбільшу панель, як «Нова панель (автомакет)»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mở một tab thêm một tab vào ngăn đang được chọn. Tự động chia sẽ chia ngăn lớn nhất, giống Ngăn mới (Bố cục tự động)."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“打开标签页”会在当前聚焦的窗格中添加标签页。“自动拆分”会拆分最大的窗格，与“新建窗格（自动布局）”相同。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「開啟分頁」會在目前聚焦的窗格中新增分頁。「自動分割」會分割最大的窗格，與「新增窗格（自動版面配置）」相同。"
+          }
+        }
+      }
+    },
+    "settings.choice.newPaneTab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open a Tab"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "فتح علامة تبويب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otvori karticu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åbn en fane"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab öffnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abrir una pestaña"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ouvrir un onglet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apri una scheda"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブを開く"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បើកផ្ទាំង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "탭 열기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åpne en fane"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otwórz kartę"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abrir uma aba"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Открыть вкладку"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เปิดแท็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sekme aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відкрити вкладку"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mở một tab"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "打开标签页"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "開啟分頁"
+          }
+        }
+      }
+    },
+    "settings.choice.newPaneSplit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Split Automatically"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "التقسيم تلقائيًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automatski podijeli"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opdel automatisk"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automatisch teilen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dividir automáticamente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diviser automatiquement"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dividi automaticamente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動で分割"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បំបែកដោយស្វ័យប្រវត្តិ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "자동으로 분할"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Del automatisk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dziel automatycznie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dividir automaticamente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Разделять автоматически"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แยกโดยอัตโนมัติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otomatik böl"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ділити автоматично"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tự động chia"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自动拆分"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自動分割"
+          }
+        }
+      }
+    },
+    "settings.layout.tileBrowsers": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Split for Browsers Too"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "التقسيم للمتصفحات أيضًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Podijeli i za preglednike"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opdel også for browsere"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Auch für Browser teilen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dividir también para navegadores"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diviser aussi pour les navigateurs"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dividi anche per i browser"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザも分割"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បំបែកសម្រាប់កម្មវិធីរុករកផងដែរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "브라우저도 분할"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Del også for nettlesere"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dziel także dla przeglądarek"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dividir também para navegadores"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Разделять и для браузеров"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แยกสำหรับเบราว์เซอร์ด้วย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tarayıcılar için de böl"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ділити й для браузерів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chia cả cho trình duyệt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "浏览器也拆分"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "瀏覽器也分割"
+          }
+        }
+      }
+    },
+    "settings.layout.tileBrowsers.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "With Split Automatically, new browsers also get their own pane instead of a tab."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مع خيار التقسيم تلقائيًا، تحصل المتصفحات الجديدة أيضًا على جزء خاص بها بدلًا من علامة تبويب."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uz Automatski podijeli, novi preglednici također dobivaju vlastito okno umjesto kartice."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Med Opdel automatisk får nye browsere også deres egen rude i stedet for en fane."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mit „Automatisch teilen“ erhalten neue Browser ebenfalls einen eigenen Bereich statt eines Tabs."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Con Dividir automáticamente, los navegadores nuevos también tienen su propio panel en lugar de una pestaña."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Avec Diviser automatiquement, les nouveaux navigateurs ont aussi leur propre volet au lieu d’un onglet."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Con Dividi automaticamente, anche i nuovi browser hanno un riquadro proprio invece di una scheda."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「自動で分割」のとき、新しいブラウザもタブではなく専用のペインで開きます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ជាមួយ បំបែកដោយស្វ័យប្រវត្តិ កម្មវិធីរុករកថ្មីក៏ទទួលបានផ្ទាំងផ្ទាល់ខ្លួនជំនួសឱ្យផ្ទាំងទំព័រ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "자동으로 분할을 사용하면 새 브라우저도 탭 대신 자체 패널을 갖습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Med Del automatisk får nye nettlesere også sin egen rute i stedet for en fane."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przy opcji Dziel automatycznie nowe przeglądarki także dostają własny panel zamiast karty."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Com Dividir automaticamente, novos navegadores também ganham um painel próprio em vez de uma aba."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "При «Разделять автоматически» новые браузеры тоже получают свою панель вместо вкладки."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เมื่อใช้แยกโดยอัตโนมัติ เบราว์เซอร์ใหม่จะได้บานของตัวเองแทนแท็บด้วย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otomatik böl ile yeni tarayıcılar da sekme yerine kendi bölmelerini alır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "З «Ділити автоматично» нові браузери теж отримують власну панель замість вкладки."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Với Tự động chia, trình duyệt mới cũng có ngăn riêng thay vì một tab."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "使用“自动拆分”时，新浏览器也会获得自己的窗格，而不是标签页。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "使用「自動分割」時，新瀏覽器也會取得自己的窗格，而不是分頁。"
+          }
+        }
+      }
+    },
+    "settings.sidebar.showChats": {
+        "extractionState": "manual",
+        "localizations": {
+          "ar": { "stringUnit": { "state": "needs_review", "value": "إظهار المحادثات" } },
+          "bs": { "stringUnit": { "state": "needs_review", "value": "Show Chats (bs)" } },
+          "da": { "stringUnit": { "state": "needs_review", "value": "Show Chats (da)" } },
+          "de": { "stringUnit": { "state": "needs_review", "value": "Chats anzeigen" } },
+          "en": { "stringUnit": { "state": "translated", "value": "Show Chats" } },
+          "es": { "stringUnit": { "state": "needs_review", "value": "Mostrar chats" } },
+          "fr": { "stringUnit": { "state": "needs_review", "value": "Afficher les conversations" } },
+          "it": { "stringUnit": { "state": "needs_review", "value": "Show Chats (it)" } },
+          "ja": { "stringUnit": { "state": "translated", "value": "チャットを表示" } },
+          "km": { "stringUnit": { "state": "needs_review", "value": "Show Chats (km)" } },
+          "ko": { "stringUnit": { "state": "needs_review", "value": "채팅 표시" } },
+          "nb": { "stringUnit": { "state": "needs_review", "value": "Show Chats (nb)" } },
+          "pl": { "stringUnit": { "state": "needs_review", "value": "Show Chats (pl)" } },
+          "pt-BR": { "stringUnit": { "state": "needs_review", "value": "Show Chats (pt-BR)" } },
+          "ru": { "stringUnit": { "state": "needs_review", "value": "Show Chats (ru)" } },
+          "th": { "stringUnit": { "state": "needs_review", "value": "Show Chats (th)" } },
+          "tr": { "stringUnit": { "state": "needs_review", "value": "Show Chats (tr)" } },
+          "uk": { "stringUnit": { "state": "needs_review", "value": "Show Chats (uk)" } },
+          "vi": { "stringUnit": { "state": "needs_review", "value": "Show Chats (vi)" } },
+          "zh-Hans": { "stringUnit": { "state": "needs_review", "value": "显示聊天" } },
+          "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "顯示聊天" } }
+        }
+      },
+    "settings.sidebar.showChats.help": {
+        "extractionState": "manual",
+        "localizations": {
+          "ar": { "stringUnit": { "state": "needs_review", "value": "يعرض قسم المحادثات على الجهاز في الشريط الجانبي." } },
+          "bs": { "stringUnit": { "state": "needs_review", "value": "Shows the device-wide Chats section in the sidebar. (bs)" } },
+          "da": { "stringUnit": { "state": "needs_review", "value": "Shows the device-wide Chats section in the sidebar. (da)" } },
+          "de": { "stringUnit": { "state": "needs_review", "value": "Zeigt den geräteweiten Chat-Bereich in der Seitenleiste an." } },
+          "en": { "stringUnit": { "state": "translated", "value": "Shows the device-wide Chats section in the sidebar." } },
+          "es": { "stringUnit": { "state": "needs_review", "value": "Muestra la sección de chats del dispositivo en la barra lateral." } },
+          "fr": { "stringUnit": { "state": "needs_review", "value": "Affiche la section des conversations de l’appareil dans la barre latérale." } },
+          "it": { "stringUnit": { "state": "needs_review", "value": "Shows the device-wide Chats section in the sidebar. (it)" } },
+          "ja": { "stringUnit": { "state": "translated", "value": "デバイス全体のチャットセクションをサイドバーに表示します。" } },
+          "km": { "stringUnit": { "state": "needs_review", "value": "Shows the device-wide Chats section in the sidebar. (km)" } },
+          "ko": { "stringUnit": { "state": "needs_review", "value": "기기 전체 채팅 섹션을 사이드바에 표시합니다." } },
+          "nb": { "stringUnit": { "state": "needs_review", "value": "Shows the device-wide Chats section in the sidebar. (nb)" } },
+          "pl": { "stringUnit": { "state": "needs_review", "value": "Shows the device-wide Chats section in the sidebar. (pl)" } },
+          "pt-BR": { "stringUnit": { "state": "needs_review", "value": "Shows the device-wide Chats section in the sidebar. (pt-BR)" } },
+          "ru": { "stringUnit": { "state": "needs_review", "value": "Shows the device-wide Chats section in the sidebar. (ru)" } },
+          "th": { "stringUnit": { "state": "needs_review", "value": "Shows the device-wide Chats section in the sidebar. (th)" } },
+          "tr": { "stringUnit": { "state": "needs_review", "value": "Shows the device-wide Chats section in the sidebar. (tr)" } },
+          "uk": { "stringUnit": { "state": "needs_review", "value": "Shows the device-wide Chats section in the sidebar. (uk)" } },
+          "vi": { "stringUnit": { "state": "needs_review", "value": "Shows the device-wide Chats section in the sidebar. (vi)" } },
+          "zh-Hans": { "stringUnit": { "state": "needs_review", "value": "在侧边栏显示设备上的聊天部分。" } },
+          "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "在側邊欄顯示裝置上的聊天區段。" } }
+        }
+      },
+    "settings.group.chats": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chats"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المحادثات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Razgovori"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Samtaler"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chatverläufe"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conversaciones"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Discussions"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャット"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជជែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Samtaler"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czaty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conversas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чаты"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbetler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чати"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天"
+          }
+        }
+      }
+    },
+    "settings.chats.enabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable Chats"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تفعيل المحادثات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Omogući razgovore"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktivér chats"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chats aktivieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activar chats"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activer les discussions"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abilita chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットを有効にする"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បើកការជជែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅 활성화"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktiver samtaler"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Włącz czaty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ativar conversas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Включить чаты"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปิดใช้แชต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbetleri etkinleştir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Увімкнути чати"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bật trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "启用聊天"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "啟用聊天"
+          }
+        }
+      }
+    },
+    "settings.chats.enabled.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show chats stored on this device. Nothing is uploaded."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار المحادثات المخزنة على هذا الجهاز. لا يتم رفع أي شيء."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži razgovore pohranjene na ovom uređaju. Ništa se ne otprema."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis chats gemt på denne enhed. Intet uploades."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf diesem Gerät gespeicherte Chats anzeigen. Es wird nichts hochgeladen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muestra los chats guardados en este dispositivo. No se sube nada."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher les discussions stockées sur cet appareil. Rien n’est envoyé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra le chat salvate su questo dispositivo. Non viene caricato nulla."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このデバイスに保存されたチャットを表示します。アップロードは行いません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញការជជែកដែលរក្សាទុកនៅលើឧបករណ៍នេះ។ គ្មានអ្វីត្រូវបានផ្ទុកឡើងទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 기기에 저장된 채팅을 표시합니다. 아무것도 업로드하지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis samtaler lagret på denne enheten. Ingenting lastes opp."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokaż czaty zapisane na tym urządzeniu. Nic nie jest przesyłane."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra conversas salvas neste dispositivo. Nada é enviado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывать чаты, сохранённые на этом устройстве. Ничего не загружается в сеть."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงแชตที่เก็บไว้ในอุปกรณ์นี้ ไม่มีการอัปโหลดข้อมูล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu cihazda saklanan sohbetleri göster. Hiçbir şey yüklenmez."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показувати чати, збережені на цьому пристрої. Нічого не надсилається."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiển thị các cuộc trò chuyện trên thiết bị này. Không tải lên bất cứ thứ gì."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示存储在此设备上的聊天。不会上传任何内容。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示儲存在此裝置上的聊天。不會上傳任何內容。"
+          }
+        }
+      }
+    },
+    "settings.chats.discovery": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Discover Chat Folders"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اكتشاف مجلدات المحادثات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otkrij fascikle razgovora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Find chatmapper"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chatordner erkennen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detectar carpetas de chats"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Détecter les dossiers de discussion"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rileva cartelle delle chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットフォルダを自動検出"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្វែងរកថតការជជែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅 폴더 자동 검색"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finn samtalemapper"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wykrywaj foldery czatów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detectar pastas de conversas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обнаруживать папки чатов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ค้นหาโฟลเดอร์แชต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbet klasörlerini keşfet"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Виявляти папки чатів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tự tìm thư mục trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动发现聊天文件夹"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動探索聊天資料夾"
+          }
+        }
+      }
+    },
+    "settings.chats.discovery.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Find harness chat folders automatically. When off, only the listed folders are used."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "العثور على مجلدات محادثات أدوات الوكلاء تلقائيًا. عند إيقافه، تُستخدم المجلدات المدرجة فقط."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatski pronađi fascikle razgovora alata za agente. Kada je isključeno, koriste se samo navedene fascikle."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Find automatisk chatmapper fra agentværktøjer. Når det er slået fra, bruges kun de angivne mapper."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chatordner von Agentenwerkzeugen automatisch finden. Wenn deaktiviert, werden nur die aufgelisteten Ordner verwendet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Busca automáticamente carpetas de chats de herramientas de agentes. Si se desactiva, solo se usan las carpetas indicadas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Détecter automatiquement les dossiers de discussion des outils d’agent. Sinon, seuls les dossiers indiqués sont utilisés."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trova automaticamente le cartelle delle chat degli strumenti agente. Se disattivato, usa solo le cartelle elencate."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントツールのチャットフォルダを自動検出します。オフの場合、一覧のフォルダのみを使用します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្វែងរកថតការជជែករបស់ឧបករណ៍ភ្នាក់ងារដោយស្វ័យប្រវត្តិ។ ពេលបិទ ប្រើតែថតក្នុងបញ្ជីប៉ុណ្ណោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 도구의 채팅 폴더를 자동으로 찾습니다. 끄면 목록에 있는 폴더만 사용합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finn chatmapper fra agentverktøy automatisk. Når av, brukes bare de oppførte mappene."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatycznie znajdź foldery czatów narzędzi agentowych. Po wyłączeniu używane są tylko wymienione foldery."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Encontra automaticamente pastas de conversas de ferramentas de agentes. Quando desativado, usa apenas as pastas listadas."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Автоматически находить папки чатов инструментов агентов. Если выключено, используются только указанные папки."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ค้นหาโฟลเดอร์แชตของเครื่องมือเอเจนต์โดยอัตโนมัติ เมื่อปิด จะใช้เฉพาะโฟลเดอร์ที่ระบุไว้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajan araçlarının sohbet klasörlerini otomatik bul. Kapalıyken yalnızca listelenen klasörler kullanılır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Автоматично знаходити папки чатів інструментів агентів. Якщо вимкнено, використовуються лише вказані папки."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tự động tìm thư mục trò chuyện của công cụ tác tử. Khi tắt, chỉ dùng các thư mục trong danh sách."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动查找代理工具的聊天文件夹。关闭后仅使用列出的文件夹。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動尋找代理工具的聊天資料夾。關閉後僅使用列出的資料夾。"
+          }
+        }
+      }
+    },
+    "settings.chats.roots": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat Folders"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مجلدات المحادثات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fascikle razgovora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chatmapper"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chatordner"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carpetas de chats"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dossiers de discussion"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cartelle delle chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットフォルダ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ថតការជជែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅 폴더"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Samtalemapper"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Foldery czatów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pastas de conversas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Папки чатов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โฟลเดอร์แชต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbet klasörleri"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Папки чатів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thư mục trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天文件夹"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天資料夾"
+          }
+        }
+      }
+    },
+    "settings.chats.roots.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add absolute paths to harness data folders. Protected folders are refused. Your organization can add locked folders."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أضف مسارات مطلقة لمجلدات بيانات أدوات الوكلاء. تُرفض المجلدات المحمية. يمكن لمؤسستك إضافة مجلدات مقفلة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dodajte apsolutne putanje do fascikli podataka alata za agente. Zaštićene fascikle se odbijaju. Organizacija može dodati zaključane fascikle."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilføj absolutte stier til agentværktøjers datamapper. Beskyttede mapper afvises. Din organisation kan tilføje låste mapper."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Absolute Pfade zu Datenordnern von Agentenwerkzeugen hinzufügen. Geschützte Ordner werden abgelehnt. Ihre Organisation kann gesperrte Ordner hinzufügen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añade rutas absolutas a carpetas de datos de herramientas de agentes. Se rechazan las carpetas protegidas. Tu organización puede añadir carpetas bloqueadas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajouter des chemins absolus vers les dossiers de données des outils d’agent. Les dossiers protégés sont refusés. Votre organisation peut ajouter des dossiers verrouillés."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiungi percorsi assoluti alle cartelle dati degli strumenti agente. Le cartelle protette vengono rifiutate. La tua organizzazione può aggiungere cartelle bloccate."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントツールのデータフォルダを絶対パスで追加します。保護されたフォルダは拒否されます。組織は削除できないフォルダを追加できます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បន្ថែមផ្លូវពេញទៅថតទិន្នន័យឧបករណ៍ភ្នាក់ងារ។ ថតដែលការពារត្រូវបានបដិសេធ។ អង្គការអាចបន្ថែមថតដែលចាក់សោ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 도구 데이터 폴더의 절대 경로를 추가합니다. 보호된 폴더는 거부됩니다. 조직에서 잠긴 폴더를 추가할 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Legg til absolutte stier til agentverktøyenes datamapper. Beskyttede mapper avvises. Organisasjonen kan legge til låste mapper."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dodaj ścieżki bezwzględne do folderów danych narzędzi agentowych. Chronione foldery są odrzucane. Organizacja może dodać zablokowane foldery."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adicione caminhos absolutos para pastas de dados de ferramentas de agentes. Pastas protegidas são recusadas. Sua organização pode adicionar pastas bloqueadas."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавьте абсолютные пути к папкам данных инструментов агентов. Защищённые папки не допускаются. Организация может добавлять заблокированные папки."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เพิ่มเส้นทางแบบเต็มไปยังโฟลเดอร์ข้อมูลของเครื่องมือเอเจนต์ โฟลเดอร์ที่ได้รับการป้องกันจะถูกปฏิเสธ องค์กรของคุณสามารถเพิ่มโฟลเดอร์ที่ล็อกได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajan araçlarının veri klasörlerine mutlak yollar ekleyin. Korumalı klasörler reddedilir. Kuruluşunuz kilitli klasörler ekleyebilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Додайте абсолютні шляхи до папок даних інструментів агентів. Захищені папки не допускаються. Організація може додавати заблоковані папки."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thêm đường dẫn tuyệt đối đến thư mục dữ liệu công cụ tác tử. Thư mục được bảo vệ sẽ bị từ chối. Tổ chức có thể thêm thư mục bị khóa."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加代理工具数据文件夹的绝对路径。受保护的文件夹会被拒绝。组织可以添加锁定的文件夹。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增代理工具資料夾的絕對路徑。受保護的資料夾會被拒絕。組織可以新增鎖定的資料夾。"
+          }
+        }
+      }
+    },
+    "settings.chats.root.relative": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use an absolute folder path."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استخدم مسار مجلد مطلقًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koristite apsolutnu putanju fascikle."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brug en absolut mappesti."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwenden Sie einen absoluten Ordnerpfad."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa una ruta absoluta de carpeta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisez un chemin de dossier absolu."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa un percorso assoluto della cartella."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダの絶対パスを指定してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្រើផ្លូវពេញរបស់ថត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "폴더의 절대 경로를 사용하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bruk en absolutt mappesti."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Użyj bezwzględnej ścieżki folderu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use um caminho absoluto de pasta."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Укажите абсолютный путь к папке."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ใช้เส้นทางแบบเต็มของโฟลเดอร์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mutlak bir klasör yolu kullanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Укажіть абсолютний шлях до папки."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dùng đường dẫn thư mục tuyệt đối."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请使用文件夹的绝对路径。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請使用資料夾的絕對路徑。"
+          }
+        }
+      }
+    },
+    "settings.chats.root.system": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The root folder cannot be a chat folder."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن أن يكون المجلد الجذر مجلد محادثات."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Korijenska fascikla ne može biti fascikla razgovora."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rodmappen kan ikke være en chatmappe."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Stammordner kann kein Chatordner sein."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La carpeta raíz no puede ser una carpeta de chats."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le dossier racine ne peut pas être un dossier de discussion."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La cartella radice non può essere una cartella delle chat."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ルートフォルダはチャットフォルダに指定できません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ថតឫសមិនអាចជាថតការជជែកបានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "루트 폴더는 채팅 폴더로 사용할 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rotmappen kan ikke være en samtalemappe."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Folder główny nie może być folderem czatów."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A pasta raiz não pode ser uma pasta de conversas."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Корневая папка не может быть папкой чатов."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โฟลเดอร์รากไม่สามารถเป็นโฟลเดอร์แชตได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kök klasör sohbet klasörü olamaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Коренева папка не може бути папкою чатів."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thư mục gốc không thể là thư mục trò chuyện."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "根文件夹不能用作聊天文件夹。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "根資料夾不能用作聊天資料夾。"
+          }
+        }
+      }
+    },
+    "settings.chats.root.home": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose a harness data folder, not your home folder."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اختر مجلد بيانات أداة وكيل، وليس مجلدك الرئيسي."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odaberite fasciklu podataka alata za agente, a ne svoju početnu fasciklu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vælg en datamappe for et agentværktøj, ikke din hjemmemappe."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wählen Sie einen Datenordner des Agentenwerkzeugs statt Ihres Benutzerordners."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elige una carpeta de datos de la herramienta de agente, no tu carpeta de inicio."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisissez un dossier de données d’outil d’agent, pas votre dossier personnel."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scegli una cartella dati dello strumento agente, non la cartella Inizio."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホームフォルダではなく、エージェントツールのデータフォルダを選択してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ជ្រើសរើសថតទិន្នន័យឧបករណ៍ភ្នាក់ងារ មិនមែនថតផ្ទះរបស់អ្នកទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "홈 폴더가 아닌 에이전트 도구의 데이터 폴더를 선택하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Velg agentverktøyets datamappe, ikke hjemmemappen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wybierz folder danych narzędzia agentowego, a nie folder domowy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escolha uma pasta de dados da ferramenta de agente, não sua pasta pessoal."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выберите папку данных инструмента агента, а не домашнюю папку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เลือกโฟลเดอร์ข้อมูลของเครื่องมือเอเจนต์ ไม่ใช่โฟลเดอร์โฮม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ana klasörünüz yerine ajan aracının veri klasörünü seçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Виберіть папку даних інструмента агента, а не домашню папку."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chọn thư mục dữ liệu công cụ tác tử, không phải thư mục nhà."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请选择代理工具的数据文件夹，而不是主文件夹。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請選擇代理工具的資料夾，而非個人專屬資料夾。"
+          }
+        }
+      }
+    },
+    "settings.chats.root.protected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This folder is protected by macOS privacy controls."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هذا المجلد محمي بضوابط خصوصية macOS."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ova fascikla je zaštićena kontrolama privatnosti macOS-a."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne mappe er beskyttet af macOS’ privatlivskontrol."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Ordner ist durch die macOS-Datenschutzeinstellungen geschützt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta carpeta está protegida por los controles de privacidad de macOS."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce dossier est protégé par les contrôles de confidentialité de macOS."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa cartella è protetta dai controlli privacy di macOS."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このフォルダはmacOSのプライバシー制御で保護されています。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ថតនេះត្រូវបានការពារដោយការគ្រប់គ្រងឯកជនភាពរបស់ macOS។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 폴더는 macOS 개인정보 보호 기능으로 보호됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne mappen er beskyttet av personvernkontrollene i macOS."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten folder jest chroniony przez ustawienia prywatności macOS."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta pasta é protegida pelos controles de privacidade do macOS."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Эта папка защищена настройками конфиденциальности macOS."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โฟลเดอร์นี้ได้รับการป้องกันโดยการควบคุมความเป็นส่วนตัวของ macOS"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu klasör macOS gizlilik denetimleriyle korunmaktadır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ця папка захищена налаштуваннями приватності macOS."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thư mục này được bảo vệ bởi kiểm soát quyền riêng tư macOS."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此文件夹受 macOS 隐私控制保护。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此資料夾受 macOS 隱私權控制保護。"
+          }
+        }
+      }
+    },
+    "settings.chats.root.volume": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Folders on other or network volumes are not allowed."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يُسمح بالمجلدات الموجودة على وحدات تخزين أخرى أو شبكية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fascikle na drugim ili mrežnim diskovima nisu dozvoljene."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mapper på andre diske eller netværksdrev er ikke tilladt."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ordner auf anderen oder Netzwerklaufwerken sind nicht zulässig."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se permiten carpetas en otros volúmenes o volúmenes de red."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les dossiers sur d’autres volumes ou sur des volumes réseau ne sont pas autorisés."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le cartelle su altri volumi o volumi di rete non sono consentite."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別のボリュームやネットワークボリュームのフォルダは使用できません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអនុញ្ញាតថតនៅលើភាគផ្ទុកផ្សេង ឬបណ្តាញទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 볼륨이나 네트워크 볼륨의 폴더는 허용되지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mapper på andre disker eller nettverksdisker er ikke tillatt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Foldery na innych lub sieciowych woluminach nie są dozwolone."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pastas em outros volumes ou volumes de rede não são permitidas."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Папки на других или сетевых томах не допускаются."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่อนุญาตให้ใช้โฟลเดอร์บนโวลุ่มอื่นหรือโวลุ่มเครือข่าย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diğer veya ağ birimlerindeki klasörlere izin verilmez."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Папки на інших або мережевих томах не допускаються."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không cho phép thư mục trên ổ đĩa khác hoặc ổ đĩa mạng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不允许使用其他卷或网络卷上的文件夹。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不允許使用其他卷宗或網路卷宗上的資料夾。"
+          }
+        }
+      }
+    },
+    "settings.chats.root.symlink": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This folder has too many symbolic links."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحتوي هذا المجلد على روابط رمزية كثيرة جدًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ova fascikla ima previše simboličkih veza."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne mappe har for mange symbolske links."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Ordner hat zu viele symbolische Verknüpfungen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta carpeta tiene demasiados enlaces simbólicos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce dossier comporte trop de liens symboliques."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa cartella contiene troppi collegamenti simbolici."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このフォルダにはシンボリックリンクが多すぎます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ថតនេះមានតំណនិមិត្តសញ្ញាច្រើនពេក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 폴더에 심볼릭 링크가 너무 많습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne mappen har for mange symbolske lenker."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten folder zawiera zbyt wiele dowiązań symbolicznych."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta pasta tem muitos links simbólicos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В этой папке слишком много символических ссылок."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โฟลเดอร์นี้มีลิงก์สัญลักษณ์มากเกินไป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu klasörde çok fazla sembolik bağlantı var."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У цій папці забагато символічних посилань."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thư mục này có quá nhiều liên kết tượng trưng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此文件夹的符号链接过多。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此資料夾的符號連結過多。"
+          }
+        }
+      }
+    },
+    "settings.statusIndicator.showAgentWorkingOnTabs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Show Agent Working on Tabs" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "タブにエージェントの作業中を表示" } },
+        "ar": { "stringUnit": { "state": "needs_review", "value": "إظهار عمل الوكيل على علامات التبويب" } },
+        "bs": { "stringUnit": { "state": "needs_review", "value": "Prikaži rad agenta na karticama" } },
+        "da": { "stringUnit": { "state": "needs_review", "value": "Vis agentarbejde på faner" } },
+        "de": { "stringUnit": { "state": "needs_review", "value": "Agentenarbeit auf Tabs anzeigen" } },
+        "es": { "stringUnit": { "state": "needs_review", "value": "Mostrar agente trabajando en pestañas" } },
+        "fr": { "stringUnit": { "state": "needs_review", "value": "Afficher l'agent au travail sur les onglets" } },
+        "it": { "stringUnit": { "state": "needs_review", "value": "Mostra agente al lavoro nelle schede" } },
+        "km": { "stringUnit": { "state": "needs_review", "value": "បង្ហាញភ្នាក់ងារកំពុងធ្វើការលើផ្ទាំង" } },
+        "ko": { "stringUnit": { "state": "needs_review", "value": "탭에 에이전트 작업 중 표시" } },
+        "nb": { "stringUnit": { "state": "needs_review", "value": "Vis agentarbeid på faner" } },
+        "pl": { "stringUnit": { "state": "needs_review", "value": "Pokazuj pracę agenta na kartach" } },
+        "pt-BR": { "stringUnit": { "state": "needs_review", "value": "Mostrar agente trabalhando nas abas" } },
+        "ru": { "stringUnit": { "state": "needs_review", "value": "Показывать работу агента на вкладках" } },
+        "th": { "stringUnit": { "state": "needs_review", "value": "แสดงเอเจนต์กำลังทำงานบนแท็บ" } },
+        "tr": { "stringUnit": { "state": "needs_review", "value": "Sekmelerde ajan çalışmasını göster" } },
+        "uk": { "stringUnit": { "state": "needs_review", "value": "Показувати роботу агента на вкладках" } },
+        "vi": { "stringUnit": { "state": "needs_review", "value": "Hiện tác tử đang làm việc trên thẻ" } },
+        "zh-Hans": { "stringUnit": { "state": "needs_review", "value": "在标签页上显示代理工作中" } },
+        "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "在分頁上顯示代理工作中" } }
+      }
+    },
+    "settings.statusIndicator.showAgentWorkingOnTabs.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Three dots take the tab's icon place while an agent works." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エージェントが作業している間、タブのアイコンの位置に3つの点を表示します。" } },
+        "ar": { "stringUnit": { "state": "needs_review", "value": "تظهر ثلاث نقاط مكان أيقونة علامة التبويب أثناء عمل الوكيل." } },
+        "bs": { "stringUnit": { "state": "needs_review", "value": "Tri tačke zauzimaju mjesto ikone kartice dok agent radi." } },
+        "da": { "stringUnit": { "state": "needs_review", "value": "Tre prikker står i fanens ikon, mens en agent arbejder." } },
+        "de": { "stringUnit": { "state": "needs_review", "value": "Drei Punkte ersetzen das Tab-Symbol, solange ein Agent arbeitet." } },
+        "es": { "stringUnit": { "state": "needs_review", "value": "Tres puntos ocupan el lugar del icono de la pestaña mientras un agente trabaja." } },
+        "fr": { "stringUnit": { "state": "needs_review", "value": "Trois points remplacent l'icône de l'onglet pendant qu'un agent travaille." } },
+        "it": { "stringUnit": { "state": "needs_review", "value": "Tre punti prendono il posto dell'icona della scheda mentre un agente lavora." } },
+        "km": { "stringUnit": { "state": "needs_review", "value": "ចំណុចបីជំនួសរូបតំណាងផ្ទាំង ពេលភ្នាក់ងារកំពុងធ្វើការ។" } },
+        "ko": { "stringUnit": { "state": "needs_review", "value": "에이전트가 작업하는 동안 탭 아이콘 자리에 점 세 개가 표시됩니다." } },
+        "nb": { "stringUnit": { "state": "needs_review", "value": "Tre prikker står i fanens ikon mens en agent jobber." } },
+        "pl": { "stringUnit": { "state": "needs_review", "value": "Trzy kropki zastępują ikonę karty, gdy agent pracuje." } },
+        "pt-BR": { "stringUnit": { "state": "needs_review", "value": "Três pontos ocupam o lugar do ícone da aba enquanto um agente trabalha." } },
+        "ru": { "stringUnit": { "state": "needs_review", "value": "Пока агент работает, вместо значка вкладки показываются три точки." } },
+        "th": { "stringUnit": { "state": "needs_review", "value": "จุดสามจุดแสดงแทนไอคอนของแท็บขณะที่เอเจนต์ทำงาน" } },
+        "tr": { "stringUnit": { "state": "needs_review", "value": "Bir ajan çalışırken sekme simgesinin yerinde üç nokta görünür." } },
+        "uk": { "stringUnit": { "state": "needs_review", "value": "Поки агент працює, замість значка вкладки показуються три крапки." } },
+        "vi": { "stringUnit": { "state": "needs_review", "value": "Ba chấm thay chỗ biểu tượng của thẻ khi tác tử đang làm việc." } },
+        "zh-Hans": { "stringUnit": { "state": "needs_review", "value": "代理工作时，标签页图标位置显示三个点。" } },
+        "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "代理工作時，分頁圖示位置顯示三個點。" } }
+      }
+    },
+    "settings.statusIndicator.showPageLoading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Show Page Loading on Tabs" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "タブにページの読み込みを表示" } },
+        "ar": { "stringUnit": { "state": "needs_review", "value": "إظهار تحميل الصفحة على علامات التبويب" } },
+        "bs": { "stringUnit": { "state": "needs_review", "value": "Prikaži učitavanje stranice na karticama" } },
+        "da": { "stringUnit": { "state": "needs_review", "value": "Vis sideindlæsning på faner" } },
+        "de": { "stringUnit": { "state": "needs_review", "value": "Seitenladen auf Tabs anzeigen" } },
+        "es": { "stringUnit": { "state": "needs_review", "value": "Mostrar carga de página en pestañas" } },
+        "fr": { "stringUnit": { "state": "needs_review", "value": "Afficher le chargement de la page sur les onglets" } },
+        "it": { "stringUnit": { "state": "needs_review", "value": "Mostra caricamento pagina nelle schede" } },
+        "km": { "stringUnit": { "state": "needs_review", "value": "បង្ហាញការផ្ទុកទំព័រលើផ្ទាំង" } },
+        "ko": { "stringUnit": { "state": "needs_review", "value": "탭에 페이지 로딩 표시" } },
+        "nb": { "stringUnit": { "state": "needs_review", "value": "Vis sidelasting på faner" } },
+        "pl": { "stringUnit": { "state": "needs_review", "value": "Pokazuj ładowanie strony na kartach" } },
+        "pt-BR": { "stringUnit": { "state": "needs_review", "value": "Mostrar carregamento da página nas abas" } },
+        "ru": { "stringUnit": { "state": "needs_review", "value": "Показывать загрузку страницы на вкладках" } },
+        "th": { "stringUnit": { "state": "needs_review", "value": "แสดงการโหลดหน้าบนแท็บ" } },
+        "tr": { "stringUnit": { "state": "needs_review", "value": "Sekmelerde sayfa yüklenmesini göster" } },
+        "uk": { "stringUnit": { "state": "needs_review", "value": "Показувати завантаження сторінки на вкладках" } },
+        "vi": { "stringUnit": { "state": "needs_review", "value": "Hiện tải trang trên thẻ" } },
+        "zh-Hans": { "stringUnit": { "state": "needs_review", "value": "在标签页上显示页面加载" } },
+        "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "在分頁上顯示頁面載入" } }
+      }
+    },
+    "settings.statusIndicator.showPageLoading.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "A spinner takes a browser tab's icon place while its page loads." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ページの読み込み中、ブラウザタブのアイコンの位置にスピナーを表示します。" } },
+        "ar": { "stringUnit": { "state": "needs_review", "value": "يظهر مؤشر دوار مكان أيقونة علامة تبويب المتصفح أثناء تحميل صفحتها." } },
+        "bs": { "stringUnit": { "state": "needs_review", "value": "Indikator zauzima mjesto ikone kartice preglednika dok se stranica učitava." } },
+        "da": { "stringUnit": { "state": "needs_review", "value": "En spinner står i browserfanens ikon, mens siden indlæses." } },
+        "de": { "stringUnit": { "state": "needs_review", "value": "Ein Ladekreis ersetzt das Symbol eines Browser-Tabs, solange die Seite lädt." } },
+        "es": { "stringUnit": { "state": "needs_review", "value": "Un indicador giratorio ocupa el lugar del icono de la pestaña mientras carga la página." } },
+        "fr": { "stringUnit": { "state": "needs_review", "value": "Un indicateur remplace l'icône de l'onglet pendant le chargement de la page." } },
+        "it": { "stringUnit": { "state": "needs_review", "value": "Un indicatore prende il posto dell'icona della scheda mentre la pagina si carica." } },
+        "km": { "stringUnit": { "state": "needs_review", "value": "សញ្ញាវិលជំនួសរូបតំណាងផ្ទាំងកម្មវិធីរុករក ពេលទំព័រកំពុងផ្ទុក។" } },
+        "ko": { "stringUnit": { "state": "needs_review", "value": "페이지가 로드되는 동안 브라우저 탭 아이콘 자리에 스피너가 표시됩니다." } },
+        "nb": { "stringUnit": { "state": "needs_review", "value": "En spinner står i nettleserfanens ikon mens siden lastes." } },
+        "pl": { "stringUnit": { "state": "needs_review", "value": "Wskaźnik zastępuje ikonę karty przeglądarki podczas ładowania strony." } },
+        "pt-BR": { "stringUnit": { "state": "needs_review", "value": "Um indicador ocupa o lugar do ícone da aba enquanto a página carrega." } },
+        "ru": { "stringUnit": { "state": "needs_review", "value": "Пока страница загружается, вместо значка вкладки браузера показывается индикатор." } },
+        "th": { "stringUnit": { "state": "needs_review", "value": "ตัวหมุนแสดงแทนไอคอนของแท็บเบราว์เซอร์ขณะโหลดหน้า" } },
+        "tr": { "stringUnit": { "state": "needs_review", "value": "Sayfa yüklenirken tarayıcı sekmesinin simgesinin yerinde bir gösterge döner." } },
+        "uk": { "stringUnit": { "state": "needs_review", "value": "Поки сторінка завантажується, замість значка вкладки браузера показується індикатор." } },
+        "vi": { "stringUnit": { "state": "needs_review", "value": "Biểu tượng xoay thay chỗ biểu tượng của thẻ trình duyệt khi trang đang tải." } },
+        "zh-Hans": { "stringUnit": { "state": "needs_review", "value": "页面加载时，浏览器标签页图标位置显示旋转指示器。" } },
+        "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "頁面載入時，瀏覽器分頁圖示位置顯示旋轉指示器。" } }
+      }
     }
   },
   "version": "1.0"

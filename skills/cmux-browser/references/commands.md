@@ -67,7 +67,7 @@ cmux browser browser_… close
 These run the same action as the menu or palette and return no page data:
 `browser screenshot-page`, `browser screenshot-section`,
 `browser toggle-developer-tools`, `browser show-javascript-console`,
-`browser delete-site-data`, `browser import-data`, `browser new-profile`,
+`browser delete-site-data`, `browser new-profile`,
 `browser toggle-design-mode`, `browser toggle-focus-mode`,
 `browser toggle-react-grab`. Page zoom is `cmux tab <tab_…> zoom in|out|reset`
 (the app's Zoom In, Zoom Out and Actual Size on the tab's pane).

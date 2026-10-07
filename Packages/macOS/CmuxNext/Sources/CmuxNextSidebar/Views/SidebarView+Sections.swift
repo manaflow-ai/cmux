@@ -2,8 +2,15 @@ import AppKit
 import CmuxNextDesign
 
 // Pinned item sections above and below the workspace list
-// (plans/cmux-next/sidebar-sections.md).
+// (plans/cmux-next/sidebar-sections.md). The footer section
+// (`SidebarLayoutDocument.bottomSectionID`: the profile control, with the
+// space dots in its row) is outside the capped, scrolling band below the
+// list: it is pinned at the sidebar's bottom, so a tall bottom section (the
+// Chats section) scrolls above it and never pushes it out of view.
 extension SidebarView {
+    /// Every region that draws layout items, the footer first.
+    var bandRegions: [SidebarRegionView] { [footerRegion, belowRegion, list.trailer.region, aboveRegion] }
+
     func buildBands() {
         for (scroll, region) in [(aboveScroll, aboveRegion), (belowScroll, belowRegion)] {
             scroll.drawsBackground = false
@@ -14,10 +21,11 @@ extension SidebarView {
             scroll.verticalScrollElasticity = .none
             scroll.documentView = region
         }
-        list.trailer.view = trailRegion
-        for region in regions {
+        for region in bandRegions {
             region.liftHost = self
-            region.onActivateWithModifiers = { [weak self] id, flags in
+            region.onActivateWithModifiers = { [weak self, weak region] id, flags in
+                // The profile control opens its menu over itself.
+                if let view = region?.itemView(id), view.showsAvatar, self?.showProfileMenu(from: view) == true { return }
                 self?.model.send(.activateItem(id, opensWorkspace: flags.contains(.option)))
             }
             region.onToggleSection = { [weak self] id in self?.model.send(.toggleLayoutSection(id)) }
@@ -27,58 +35,70 @@ extension SidebarView {
                 self.model.send(.layout(op))
             }
         }
+        SidebarPinDrops.install(self)
+        // The footer row (the profile control and the spaces dots) takes no
+        // drag and drop for now (SIDEBAR-FOOTER-AND-SPACE-MENU amendment 3).
+        // The band below keeps the same rule it had while it held the footer.
+        footerRegion.allowsDrag = false
+        belowRegion.allowsDrag = false
         aboveFade = ScrollEdgeFadeView(scrollView: aboveScroll)
         belowFade = ScrollEdgeFadeView(scrollView: belowScroll)
         addSubview(aboveFade)
         addSubview(belowFade)
+        addSubview(footerRegion)
         wantsLayer = true
         aboveLine.actions = ["backgroundColor": NSNull(), "bounds": NSNull(), "position": NSNull(), "hidden": NSNull()]
         layer?.addSublayer(aboveLine)
         installCardStack()
     }
 
-    /// Lays out both bands between `top` and the footer; returns the
-    /// list's frame between them.
-    func layoutBands(top y: CGFloat, footerHeight: CGFloat) -> NSRect {
-        let b = bounds
-        // Pinned item sections above and below the list, each capped at
-        // its share of the height (then it scrolls inside).
-        let available = max(0, b.height - y - footerHeight)
-        let hidden = Set(model.itemInfo.filter(\.value.isHidden).keys)
-        let room = model.activeProfileID?.rawValue
-        let (above, below) = model.layout.bands(room: room)
-        // Recents' header menu hides it (`sidebar.showRecents`); a hidden section draws nowhere.
-        let hiddenSections: Set<LayoutSectionID> = DesignSettings.shared.sidebarSections.showRecents ? [] : [SidebarLayoutDocument.recentsSectionID]
-        let trail = model.layout.listTrail(room: room).filter { !hiddenSections.contains($0.id) }
-        let trailIDs = Set(trail.map(\.id))
+    /// Gives the regions their sections: the band above the list, the list's trail (Recents, under
+    /// its last row), the band below without the footer section, and the footer section alone.
+    func updateBands() {
+        let width = bounds.width
+        let hidden = Set(model.resolvedItemInfo.filter(\.value.isHidden).keys)
+        let (above, trail, below) = model.layout.bandsAroundList(room: model.activeProfileID?.rawValue, hiding: .hiddenByHeaders())
         let apps = model.suppressedApps
-        let bands = (above: (model.transientTopSection.map { [$0] } ?? []) + above.presenting(hidingItems: hidden, apps: apps),
-                     trail: trail.presenting(hidingItems: hidden, apps: apps),
-                     below: below.filter { !trailIDs.contains($0.id) && !hiddenSections.contains($0.id) }.presenting(hidingItems: hidden, apps: apps))
+        let shownAbove = (model.transientTopSection.map { [$0] } ?? []) + above.presenting(hidingItems: hidden, apps: apps)
+        let shownBelow = below.presenting(hidingItems: hidden, apps: apps)
+        let isFooter = { (section: LayoutSection) in section.id == SidebarLayoutDocument.bottomSectionID }
         let look = SidebarSectionTunables.currentLook
         let metrics = SidebarRegionMetrics.standard
         // The one selection marks its top item active (its glyph, accessibility).
-        var selectedInfos = model.itemInfo
+        var selectedInfos = model.resolvedItemInfo
         for transient in model.transientTopItems { selectedInfos[transient.item.id] = transient.info }
         for id in selectedInfos.keys { selectedInfos[id]?.isActive = model.selectedItem == .topItem(id) }
         func content(_ sections: [LayoutSection]) -> SidebarRegionView.Content {
             SidebarRegionView.Content(sections: sections.map(titled), infos: selectedInfos, collapsed: model.collapsedLayoutSections,
-                                      look: look, metrics: metrics, drawsLines: Borders.drawsLines, appHeights: appHeights(sections, width: b.width))
+                                      look: look, metrics: metrics, drawsLines: Borders.drawsLines, appHeights: appHeights(sections, width: width))
         }
-        aboveRegion.update(content(bands.above), width: b.width)
-        trailRegion.update(content(bands.trail), width: b.width)
-        // Recents under the list's last row (no gap); it scrolls with the list.
-        list.trailer.height = trailRegion.layoutResult.height
-        list.updateDocumentHeight()
-        belowRegion.update(content(bands.below), width: b.width)
+        aboveRegion.update(content(shownAbove), width: width)
+        list.trailer.show(content(trail.presenting(hidingItems: hidden, apps: apps)), width: width, in: list)
+        belowRegion.update(content(shownBelow.filter { !isFooter($0) }), width: width)
+        footerRegion.update(content(shownBelow.filter(isFooter)), width: width)
+    }
+
+    /// Lays out the bands between `top` and the bottom: the pinned footer
+    /// section at the bottom, `footerHeight` (dots, cards) above the band
+    /// below the list; returns the list's frame between the bands. Call
+    /// `updateBands()` first.
+    func layoutBands(top y: CGFloat, footerHeight: CGFloat) -> NSRect {
+        let b = bounds
+        // The footer section takes its full height, never capped or scrolled.
+        let pinned = footerRegion.layoutResult.height
+        footerRegion.frame = NSRect(x: 0, y: b.height - pinned, width: b.width, height: pinned)
+        // Pinned item sections above and below the list, each capped at
+        // its share of the height (then it scrolls inside).
+        let available = max(0, b.height - y - footerHeight - pinned)
+        let look = SidebarSectionTunables.currentLook
         let (aboveHeight, belowHeight) = SidebarBandHeights.resolve(
             above: aboveRegion.layoutResult, below: belowRegion.layoutResult, available: available,
             preferences: DesignSettings.shared.sidebarSections, minimumList: Metrics.sidebarRowHeight * 3,
             bandFloor: Metrics.sidebarRowHeight + Metrics.space2)
         aboveFade.frame = NSRect(x: 0, y: y, width: b.width, height: aboveHeight)
         size(aboveRegion, in: aboveScroll, width: b.width)
-        // The Settings band sits at the bottom; the dots and cards go above it.
-        belowFade.frame = NSRect(x: 0, y: b.height - belowHeight, width: b.width, height: belowHeight)
+        // The band below sits on the footer section; the dots and cards go above it.
+        belowFade.frame = NSRect(x: 0, y: footerRegion.frame.minY - belowHeight, width: b.width, height: belowHeight)
         size(belowRegion, in: belowScroll, width: b.width)
         let listY = y + aboveHeight
         layoutBandLine(aboveY: listY, look: look, showsAbove: aboveHeight > 0)

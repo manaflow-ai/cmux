@@ -35,9 +35,43 @@ extension AgentPaneTransport {
         return batch
     }
 
+    /// What the rules that need no main-actor state make of one frame: refused (a ticket in it, if
+    /// any, is to be spent), or the checked frame and its facts. No socket and no request ids, so the
+    /// shared parity cases run it (cmux-agent-pane-policy `check_frame`, AgentPanePolicyParityTests).
+    nonisolated enum Checked: Sendable {
+        case refuse(AcpmuxPaneMethods.Decision, spend: String?)
+        case frame(Facts, FrameBox)
+    }
+
     /// One frame of a pass (see ``drain()``).
     nonisolated static func analyzeOne(_ text: String, _ snapshot: Snapshot, socket: AcpmuxPaneSocket,
                                        ids: AcpmuxRequestIds) -> Analysis {
+        let facts: Facts
+        let box: FrameBox
+        switch checkOne(text, snapshot) {
+        case .refuse(let decision, let spend): return .refuse(decision, spend: spend)
+        case .frame(let checked, let frame):
+            facts = checked
+            box = frame
+        }
+        let method = facts.method
+        let pageID = facts.pageID
+        guard facts.free else { return .decide(facts, box) }
+        // Free: nothing on the main actor decides it, so it goes out from here, in the same order.
+        var relayID: Int?
+        if let pageID {
+            guard let next = ids.begin(pageID: pageID, method: method ?? "") else { return .refuse(.refuse(.requestIdInFlight, method: nil, requestID: nil), spend: nil) }
+            relayID = next
+        }
+        if !snapshot.isFirst, let method { snapshot.sessions.sent(method: method, id: pageID) }
+        let error = sendNow(box, relayID: relayID, socket: socket)
+        if error != nil, let relayID { ids.cancel(relayID) }
+        if error == .outboundOverflow { socket.close(code: 1008, reason: "outbound overflow", error: error) }
+        return .sent(error)
+    }
+
+    /// The off-main rules on one frame, in order (see ``Checked``).
+    nonisolated static func checkOne(_ text: String, _ snapshot: Snapshot) -> Checked {
         let object: [String: Any]
         switch AcpmuxPaneMethods.decideFrame(text, isFirst: snapshot.isFirst) {
         case .failure(let refusal): return .refuse(refusal.decision, spend: nil)
@@ -76,6 +110,7 @@ extension AgentPaneTransport {
                 facts.foreignSource = true
                 facts.handoffId = params["handoffId"] as? String
             }
+            facts.harnessEnable = method == "_acpmux/harness_enable"
         }
         if let requested = AcpmuxPaneMethods.requestedSetting(frame) {
             let value = requested.value ?? configValueText(frame)
@@ -84,19 +119,7 @@ extension AgentPaneTransport {
         }
         // The LocalApp token goes into the first frame after every rule read the page's own frame.
         if snapshot.isFirst, let token = snapshot.localAppToken { frame = AcpmuxPaneMethods.withLocalAppToken(frame, token) }
-        let box = FrameBox(frame)
-        guard facts.free else { return .decide(facts, box) }
-        // Free: nothing on the main actor decides it, so it goes out from here, in the same order.
-        var relayID: Int?
-        if let pageID {
-            guard let next = ids.begin(pageID: pageID, method: method ?? "") else { return .refuse(.refuse(.requestIdInFlight, method: nil, requestID: nil), spend: nil) }
-            relayID = next
-        }
-        if !snapshot.isFirst, let method { snapshot.sessions.sent(method: method, id: pageID) }
-        let error = sendNow(box, relayID: relayID, socket: socket)
-        if error != nil, let relayID { ids.cancel(relayID) }
-        if error == .outboundOverflow { socket.close(code: 1008, reason: "outbound overflow", error: error) }
-        return .sent(error)
+        return .frame(facts, FrameBox(frame))
     }
 
     /// The folder rule on the decided frame (the disk is read here, off the main thread). The
@@ -164,8 +187,13 @@ extension AgentPaneTransport {
 
     /// The refusal of a session-scoped frame for a session that is not this pane's.
     nonisolated static func sessionRefusal(_ object: [String: Any], sessions: AcpmuxPaneSessions) -> AcpmuxPaneMethods.Decision? {
-        guard let method = object["method"] as? String, AcpmuxPaneMethods.sessionScoped.contains(method) else { return nil }
-        let session = (object["params"] as? [String: Any])?["sessionId"] as? String
+        guard let method = object["method"] as? String else { return nil }
+        let named = (object["params"] as? [String: Any])?["sessionId"]
+        // A frame that may name a session and names none is not session-scoped.
+        if AcpmuxPaneMethods.optionallySessionScoped.contains(method), named == nil { return nil }
+        guard AcpmuxPaneMethods.sessionScoped.contains(method) || AcpmuxPaneMethods.optionallySessionScoped.contains(method)
+        else { return nil }
+        let session = named as? String
         guard let session, sessions.contains(session) else {
             return .refuse(.sessionNotInPane, method: method, requestID: object["id"].flatMap(AcpmuxPaneMethods.rawID))
         }

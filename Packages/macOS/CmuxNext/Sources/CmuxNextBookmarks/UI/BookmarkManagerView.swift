@@ -43,6 +43,7 @@ struct BookmarkManagerView: View {
                 Button(BookmarkStrings.addBookmark) { model.startAddBookmark() }
                 Button(BookmarkStrings.addFolder) { model.startAddFolder() }
                 Divider()
+                Button(BookmarkStrings.importFromBrowser) { model.source?.importFromBrowser() }
                 Button(BookmarkStrings.importHTML) { model.source?.importHTML() }
                 Button(BookmarkStrings.exportHTML) { model.source?.exportHTML() }
             } label: {

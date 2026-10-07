@@ -31,6 +31,43 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
 
 [[package]]
+name = "cmux-encode"
+version = "0.1.0"
+
+[[package]]
+name = "cmux-rd-core"
+version = "0.1.0"
+dependencies = [
+ "cmux-rd-proto",
+]
+
+[[package]]
+name = "cmux-rd-engine"
+version = "0.1.0"
+dependencies = [
+ "cmux-rd-core",
+ "cmux-rd-proto",
+]
+
+[[package]]
+name = "cmux-rd-ffi"
+version = "0.1.0"
+dependencies = [
+ "cmux-rd-core",
+ "cmux-rd-proto",
+ "cmux-remote-browser",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-rd-proto"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-remote-browser"
 version = "0.1.0"
 dependencies = [
@@ -43,8 +80,15 @@ name = "cmux-remote-browser-host"
 version = "0.1.0"
 dependencies = [
  "cc",
+ "cmux-encode",
+ "cmux-rd-core",
+ "cmux-rd-engine",
+ "cmux-rd-ffi",
+ "cmux-rd-proto",
  "cmux-remote-browser",
  "png",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
