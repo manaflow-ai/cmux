@@ -72,7 +72,8 @@ pub fn keychain_lookup(service: &str, account: Option<&str>) -> Result<String, S
         if let Some(a) = account {
             c.args(["-a", a]);
         }
-        c.arg("-w");
+        // -g (password on stderr, `0x` hex for non-ASCII), not -w (bare hex).
+        c.arg("-g");
         c
     } else {
         let mut c = std::process::Command::new("secret-tool");
@@ -82,9 +83,13 @@ pub fn keychain_lookup(service: &str, account: Option<&str>) -> Result<String, S
         }
         c
     };
-    cmd.stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null());
+    let macos = std::env::consts::OS == "macos";
+    cmd.stdin(std::process::Stdio::null());
+    if macos {
+        cmd.stdout(std::process::Stdio::null()).stderr(std::process::Stdio::piped());
+    } else {
+        cmd.stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::null());
+    }
     let mut child = cmd.spawn().map_err(|e| format!("cannot run the secret store: {e}"))?;
     match child.wait_timeout(std::time::Duration::from_secs(30)) {
         Ok(Some(status)) if status.success() => {}
@@ -99,6 +104,11 @@ pub fn keychain_lookup(service: &str, account: Option<&str>) -> Result<String, S
         Err(e) => return Err(e.to_string()),
     }
     let out = child.wait_with_output().map_err(|e| e.to_string())?;
+    if macos {
+        let text = String::from_utf8_lossy(&out.stderr);
+        return parse_security_password(&text)
+            .ok_or_else(|| "the Keychain item is not UTF-8 text".to_owned());
+    }
     let mut value = String::from_utf8(out.stdout).map_err(|_| "not UTF-8".to_owned())?;
     while value.ends_with('\n') || value.ends_with('\r') {
         value.pop();
@@ -112,8 +122,26 @@ pub fn keychain_lookup(service: &str, account: Option<&str>) -> Result<String, S
 /// `0x` form is the only one decoded, so an ASCII secret that looks like hex
 /// stays as it is. (`-w` prints bare hex for non-ASCII and cannot be told
 /// apart from such a secret.)
-pub fn parse_security_password(_stderr: &str) -> Option<String> {
-    None
+pub fn parse_security_password(stderr: &str) -> Option<String> {
+    let line = stderr
+        .lines()
+        .find_map(|l| l.strip_prefix("password: ").or_else(|| (l == "password:").then_some("")))?;
+    if let Some(hex) = line.strip_prefix("0x") {
+        let hex = hex.split_whitespace().next().unwrap_or_default();
+        if hex.len() % 2 != 0 {
+            return None;
+        }
+        let bytes: Option<Vec<u8>> = (0..hex.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).ok())
+            .collect();
+        return String::from_utf8(bytes?).ok();
+    }
+    if line.is_empty() {
+        return Some(String::new());
+    }
+    let inner = line.strip_prefix('"')?.strip_suffix('"')?;
+    Some(inner.to_owned())
 }
 
 #[cfg(test)]
