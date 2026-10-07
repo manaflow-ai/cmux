@@ -89,6 +89,15 @@ struct BrowserViewportRuntimeTests {
 
         #expect(page.superview === slot)
         #expect(inspector.superview === slot)
+
+        // A layout pass after mouse-up must not immediately promote the inline
+        // split back into the side dock after WebKit reported a bottom dock.
+        host.layoutSubtreeIfNeeded()
+        for _ in 0..<3 {
+            await Task.yield()
+        }
+        #expect(page.superview === slot)
+        #expect(inspector.superview === slot)
     }
 
     private final class DockConfigurationProbeWebView: WKWebView {
