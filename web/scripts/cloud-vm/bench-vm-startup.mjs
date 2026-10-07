@@ -15,13 +15,14 @@ import { pathToFileURL } from "node:url";
 import { elapsedMs, formatSummary, ownerNetworkSlug, parseServerTiming, pollBoundedFetch, providerCredentialsFromEnv, summarizeFields, summarizeStages } from "./benchStats.mjs";
 import { loadTargetEnv, optionValue, parseWebDirAndTarget, requireEnvKeys, runVercel } from "./projects.mjs";
 
-const usage = "Usage: bench-vm-startup.mjs [web-dir] <staging|production> [--trials N] [--concurrency K] [--url https://preview.example] [--allow-preview] [--allow-any-url] [--skip-pause] [--skip-exec] [--edge-check] [--edge-alias <host>] [--label <text>] [--out <file.json>]";
+const usage = "Usage: bench-vm-startup.mjs [web-dir] <staging|production> [--trials N] [--concurrency K] [--url https://preview.example] [--allow-preview] [--allow-any-url] [--skip-initial-list] [--skip-pause] [--skip-exec] [--edge-check] [--edge-alias <host>] [--label <text>] [--out <file.json>]";
 const { webDir, target, project, rest } = parseWebDirAndTarget(process.argv.slice(2), usage);
 const trials = positiveInteger(optionValue(rest, "--trials") ?? "3", "--trials");
 const concurrency = Math.min(positiveInteger(optionValue(rest, "--concurrency") ?? "1", "--concurrency"), trials);
 const targetUrl = resolveTargetUrl(project, rest);
 const skipPause = rest.includes("--skip-pause");
 const skipExec = rest.includes("--skip-exec");
+const skipInitialList = rest.includes("--skip-initial-list");
 // Full-feature readiness: poll the model-plane edge alias from inside the
 // guest until the coderouter reflection route answers, so the report can
 // separate "terminal usable" from "agents can reach their credentials". The
@@ -48,6 +49,10 @@ const REQUEST_TIMEOUT_MS = 330_000;
 const CREATE_TIMEOUT_MS = 630_000;
 // Bounds when a new attach attempt may start; it never cuts a request short.
 const ATTACH_BUDGET_MS = 180_000;
+// The durable row should become visible immediately after the create response;
+// keep this separate from provider/daemon readiness so a lagging list index is
+// visible instead of being folded into attach time.
+const ROW_READY_BUDGET_MS = 60_000;
 
 const requireFromWeb = createRequire(path.join(webDir, "package.json"));
 const { StackServerApp } = await import(pathToFileURL(requireFromWeb.resolve("@hexclave/js")).href);
@@ -223,7 +228,7 @@ function json(text) {
 
 const vmUrl = (vmId, tail = "") => `${targetUrl}/api/vm/${encodeURIComponent(vmId)}${tail}`;
 
-/** Attach until the daemon answers; a 502 with `retryable` is the documented not-ready contract. */
+/** Request endpoint metadata until the attach contract is issued; this does not dial the daemon. */
 async function attachUntilReady(vmId, stage) {
   const startedAt = performance.now();
   const attempts = [];
@@ -266,6 +271,34 @@ async function attachUntilReady(vmId, stage) {
   }
 }
 
+/** Reads the authoritative VM row after create; the detail endpoint is the completion signal. */
+async function readAuthoritativeRow(vmId) {
+  const startedAt = performance.now();
+  if (interrupted) throw new Error(`VM row for ${vmId} was interrupted before readiness`);
+  const response = await fetchTimed(
+    vmUrl(vmId),
+    { headers: authHeaders },
+    Math.min(REQUEST_TIMEOUT_MS, ROW_READY_BUDGET_MS),
+  );
+  const body = json(response.text);
+  const attempt = { status: response.status, ms: response.ms };
+  if (response.status !== 200) {
+    throw new Error(`VM row for ${vmId} was not readable after create: ${response.status} ${response.text.slice(0, 300)}`);
+  }
+  if (body.status === "failed") {
+    throw new Error(`VM row for ${vmId} became failed while waiting for readiness`);
+  }
+  if (body.id !== vmId || body.status !== "running") {
+    throw new Error(`VM row for ${vmId} was not running after create: ${response.text.slice(0, 300)}`);
+  }
+  return {
+    rowReadyMs: elapsedMs(startedAt),
+    rowReadyStatus: body.status,
+    rowReadyAttempts: [attempt],
+    rowReadySource: "detail",
+  };
+}
+
 /** Time from the first probe until the edge alias answers with an HTTP status (any status proves injection). */
 async function edgeReady(vmId) {
   const startedAt = performance.now();
@@ -297,6 +330,7 @@ async function runTrial(trial) {
   const { index } = trial;
   const idempotencyKey = `bench-${suffix}-${index}`;
   const createRequestedAt = Date.now();
+  const createStartedAt = performance.now();
   let create;
   try {
     create = await fetchTimed(`${targetUrl}/api/vm`, {
@@ -313,6 +347,7 @@ async function runTrial(trial) {
   trial.createMs = create.ms;
   trial.createStatus = create.status;
   trial.createTraceId = create.headers.get("x-cmux-trace-id");
+  trial.createVercelId = create.headers.get("x-vercel-id");
   trial.createStages = parseServerTiming(create.headers.get("server-timing"));
   if (create.status >= 500) {
     // A 5xx (a gateway or function timeout above all) can end the invocation
@@ -328,12 +363,13 @@ async function runTrial(trial) {
   trial.vmId = vmId;
   trial.imageVersion = created.imageVersion ?? null;
   trial.size = created.size?.name ?? null;
-  Object.assign(trial, await attachUntilReady(vmId, "attach"));
-  // Create plus the attach-endpoint's own time: the route and lease exist,
-  // but the link, the terminal and the shell prompt come after this point
-  // (bench-private-link.ts measures those), so this is attach readiness,
-  // not a usable terminal.
-  trial.createToAttachReadyMs = trial.createMs + trial.attachMs;
+  Object.assign(trial, await readAuthoritativeRow(vmId));
+  trial.createToRowReadyMs = elapsedMs(createStartedAt);
+  Object.assign(trial, await attachUntilReady(vmId, "attachEndpoint"));
+  // The authoritative row read is serialized before endpoint issuance. Use
+  // one monotonic origin so totals include both phases; endpoint issuance is
+  // not a terminal-ready claim (bench-private-link.ts measures the prompt).
+  trial.createToAttachEndpointMs = elapsedMs(createStartedAt);
   Object.assign(trial, await attachUntilReady(vmId, "warmAttach"));
   if (!skipExec) {
     const exec = await fetchTimed(vmUrl(vmId, "/exec"), {
@@ -739,7 +775,17 @@ async function mintSessionHeaders(expiresInMillis) {
   const session = await withTimeout(user.createSession({ expiresInMillis, isImpersonation: true }), STACK_TIMEOUT_MS, "Stack createSession");
   const tokens = await withTimeout(session.getTokens(), STACK_TIMEOUT_MS, "Stack getTokens");
   if (!tokens.accessToken || !tokens.refreshToken) throw new Error("Stack did not return bench session tokens");
-  return { authorization: `Bearer ${tokens.accessToken}`, "x-stack-refresh-token": tokens.refreshToken };
+  // Vercel SSO-protected unaliased deployments accept this header when the
+  // operator supplies the project-scoped automation bypass secret. Keep it
+  // scoped to a non-canonical target and never include it in reports/logs.
+  const canonicalHost = new URL(project.url).host;
+  const targetHost = new URL(targetUrl).host;
+  const bypassSecret = targetHost !== canonicalHost ? process.env.VERCEL_AUTOMATION_BYPASS_SECRET?.trim() : undefined;
+  return {
+    authorization: `Bearer ${tokens.accessToken}`,
+    "x-stack-refresh-token": tokens.refreshToken,
+    ...(bypassSecret ? { "x-vercel-protection-bypass": bypassSecret } : {}),
+  };
 }
 
 /** Everything teardown learned, so the report can say what really happened. */
@@ -878,8 +924,8 @@ function emitReport({ results, listMs, startedAt, runError, cleanup }) {
     totalMs: startedAt === null ? null : elapsedMs(startedAt),
     succeeded: ok.length,
     failed: results.length - ok.length,
-    stages: summarizeFields(measured, ["createMs", "attachMs", "createToAttachReadyMs", "warmAttachMs", "execMs", "edgeReadyMs", "pauseMs", "resumeAttachMs", "destroyMs"]),
-    attachAttempts: summarizeFields(measured.map((trial) => ({ attempts: trial.attachAttempts?.length })), ["attempts"]).attempts,
+    stages: summarizeFields(measured, ["createMs", "rowReadyMs", "createToRowReadyMs", "attachEndpointMs", "createToAttachEndpointMs", "warmAttachMs", "execMs", "edgeReadyMs", "pauseMs", "resumeAttachMs", "destroyMs"]),
+    attachAttempts: summarizeFields(measured.map((trial) => ({ attempts: trial.attachEndpointAttempts?.length })), ["attempts"]).attempts,
     createServerTiming: summarizeStages(measured.map((trial) => trial.createStages)),
     results,
   };
@@ -911,13 +957,15 @@ try {
   // request), exec, pause and destroy requests and the edge probe, in
   // ceil(trials / concurrency) rounds; capped at a day. Cleanup mints its
   // own fresh session, so it does not depend on this one.
-  const trialWorstMs = CREATE_TIMEOUT_MS + 3 * (ATTACH_BUDGET_MS + REQUEST_TIMEOUT_MS) + 3 * REQUEST_TIMEOUT_MS + EDGE_BUDGET_MS + REQUEST_TIMEOUT_MS;
+  const trialWorstMs = CREATE_TIMEOUT_MS + ROW_READY_BUDGET_MS + 3 * (ATTACH_BUDGET_MS + REQUEST_TIMEOUT_MS) + 3 * REQUEST_TIMEOUT_MS + EDGE_BUDGET_MS + REQUEST_TIMEOUT_MS;
   const sessionMs = Math.min(24 * 60 * 60 * 1000, 30 * 60 * 1000 + Math.ceil(trials / concurrency) * trialWorstMs);
   authHeaders = await mintSessionHeaders(sessionMs);
 
-  const list = await fetchTimed(`${targetUrl}/api/vm`, { headers: authHeaders });
-  if (list.status !== 200) throw new Error(`authenticated GET /api/vm expected 200, got ${list.status}: ${list.text.slice(0, 200)}`);
-  listMs = list.ms;
+  if (!skipInitialList) {
+    const list = await fetchTimed(`${targetUrl}/api/vm`, { headers: authHeaders });
+    if (list.status !== 200) throw new Error(`authenticated GET /api/vm expected 200, got ${list.status}: ${list.text.slice(0, 200)}`);
+    listMs = list.ms;
+  }
 
   startedAt = performance.now();
   results = await runBatches();
