@@ -20570,6 +20570,137 @@
           }
         }
       }
+    },
+    "handlers.refusal.pinnedTabKept": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pinned tabs stay open. Right-click the tab and choose Close Tab to close it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ピン留めしたタブは開いたままになります。閉じるには、タブを右クリックして「タブを閉じる」を選択してください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تبقى علامات التبويب المثبتة مفتوحة. انقر بزر الماوس الأيمن على علامة التبويب واختر إغلاق علامة التبويب لإغلاقها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikačene kartice ostaju otvorene. Desnom tipkom kliknite karticu i odaberite Zatvori karticu da je zatvorite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fastgjorte faner forbliver åbne. Højreklik på fanen, og vælg Luk fane for at lukke den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Angeheftete Tabs bleiben offen. Klicke mit der rechten Maustaste auf den Tab und wähle „Tab schließen“, um ihn zu schließen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Las pestañas fijadas permanecen abiertas. Haz clic derecho en la pestaña y elige Cerrar pestaña para cerrarla."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les onglets épinglés restent ouverts. Cliquez avec le bouton droit sur l’onglet et choisissez Fermer l’onglet pour le fermer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le schede fissate restano aperte. Fai clic con il tasto destro sulla scheda e scegli Chiudi scheda per chiuderla."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទាំងដែលបានខ្ទាស់នៅតែបើក។ ចុចខាងស្តាំលើផ្ទាំង ហើយជ្រើសរើស បិទផ្ទាំង ដើម្បីបិទវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "고정된 탭은 열린 상태로 유지됩니다. 닫으려면 탭을 마우스 오른쪽 버튼으로 클릭하고 탭 닫기를 선택하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Festede faner forblir åpne. Høyreklikk på fanen og velg Lukk fane for å lukke den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przypięte karty pozostają otwarte. Kliknij kartę prawym przyciskiem i wybierz Zamknij kartę, aby ją zamknąć."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abas fixadas permanecem abertas. Clique com o botão direito na aba e escolha Fechar aba para fechá-la."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Закреплённые вкладки остаются открытыми. Чтобы закрыть вкладку, щёлкните её правой кнопкой и выберите «Закрыть вкладку»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แท็บที่ปักหมุดจะยังคงเปิดอยู่ คลิกขวาที่แท็บแล้วเลือก ปิดแท็บ เพื่อปิด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sabitlenmiş sekmeler açık kalır. Kapatmak için sekmeye sağ tıklayıp Sekmeyi Kapat'ı seçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Закріплені вкладки залишаються відкритими. Щоб закрити вкладку, клацніть її правою кнопкою і виберіть «Закрити вкладку»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thẻ đã ghim vẫn mở. Nhấp chuột phải vào thẻ và chọn Đóng thẻ để đóng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "固定的标签页会保持打开。要关闭它，请右键点按标签页并选择“关闭标签页”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已固定的分頁會保持開啟。若要關閉，請在分頁上按右鍵並選擇「關閉分頁」。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
