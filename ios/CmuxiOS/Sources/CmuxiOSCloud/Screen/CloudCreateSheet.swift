@@ -29,9 +29,9 @@ struct CloudCreateSheet: View {
                                     .foregroundStyle(option.isLocked ? .secondary : .primary)
                                 Spacer()
                                 if option.isLocked {
-                                    Image(systemName: "lock.fill").foregroundStyle(.secondary)
+                                    Image(systemName: "lock.fill").foregroundStyle(.secondary).accessibilityHidden(true)
                                 } else if selected?.memoryMB == option.memoryMB {
-                                    Image(systemName: "checkmark").foregroundStyle(.tint)
+                                    Image(systemName: "checkmark").foregroundStyle(.tint).accessibilityHidden(true)
                                 }
                             }
                         }
