@@ -31,6 +31,9 @@ pub const EXAMPLES: &[(&str, &str)] = &[
     ("aider", include_str!("../../harnesses/aider.toml")),
 ];
 
+/// The guide an agent follows to integrate a harness (`cmux harness guide`).
+pub const GUIDE: &str = include_str!("../../skills/integrate-harness/SKILL.md");
+
 /// The prompt doctor sends.
 pub const DOCTOR_PROMPT: &str = "Reply with the single word OK.";
 
@@ -86,6 +89,10 @@ pub async fn run(cmd: HarnessCmd, json_out: bool) -> Result<()> {
             if failed > 0 {
                 bail!("doctor: {failed} step(s) failed for {id}");
             }
+            Ok(())
+        }
+        HarnessCmd::Guide => {
+            print!("{GUIDE}");
             Ok(())
         }
         HarnessCmd::Reload => {

@@ -198,3 +198,25 @@ fn list_rows_name_the_source_of_each_profile() {
     );
     assert!(acme.path.as_deref().unwrap().ends_with("acme.toml"));
 }
+
+#[test]
+fn the_guide_schema_example_is_a_valid_profile() {
+    use std::os::unix::fs::PermissionsExt;
+    let start = GUIDE.find("```toml\nschema = 1").unwrap() + "```toml\n".len();
+    let end = start + GUIDE[start..].find("```").unwrap();
+    let dir = temp("guide");
+    let path = dir.join("acme.toml");
+    std::fs::write(&path, &GUIDE[start..end]).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    std::fs::write(dir.join("acme.svg"), "<svg/>").unwrap();
+    let parsed = profiles::parse_profile_toml(
+        &GUIDE[start..end],
+        &path,
+        Some("acme"),
+        ProfileSource::UserFile,
+    );
+    let (_, profile, meta, warnings) = parsed.unwrap();
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert_eq!(profile.env["ACME_API_KEY"], "${keychain:cmux-harness/acme/ACME_API_KEY}");
+    assert!(meta.sessions.is_some() && meta.auth.is_some());
+}

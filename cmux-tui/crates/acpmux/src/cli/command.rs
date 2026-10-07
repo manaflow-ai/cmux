@@ -358,6 +358,9 @@ pub enum HarnessCmd {
     },
     /// Tell the running daemon to read the profile files again.
     Reload,
+    /// Print the guide an agent follows to integrate a harness (schema,
+    /// doctor loop, examples, security rules).
+    Guide,
 }
 
 #[derive(Subcommand)]
