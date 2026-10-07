@@ -9,18 +9,15 @@ import re
 import subprocess
 import sys
 import time
+from datetime import datetime, timedelta
 from urllib.parse import quote
 from xml.dom import minidom
 
 MARKER = re.compile(r"<!--\s*cmux-published-sha:\s*([0-9a-f]{40})\s*-->", re.I)
 SPARKLE = "http://www.andymatuschak.org/xml-namespaces/sparkle"
 REPAIR = "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/REPAIR.md"
-# Pages of 100 associated PRs read for one commit before giving up.
-ASSOCIATION_PAGES = 20
-# Association queries read only these membership fields; titles, labels and
-# files are read afterwards for the kept PRs only. Reading them for every PR a
-# main commit is associated with timed out (HTTP 504, run 37593192286).
-MEMBERSHIP_FIELDS = "number mergedAt baseRefName mergeCommit { oid }"
+# Pages of 25 merged PRs read before giving up (newest update first).
+MERGED_PR_PAGES = 80
 PR_FIELDS = """number title url mergedAt baseRefName mergeCommit { oid }
                 labels(first: 100) { nodes { name } }
                 files(first: 100) { totalCount nodes { path } }"""
@@ -91,72 +88,35 @@ def collect_prs(github: GitHub, base: str, head: str, branch: str) -> list[dict]
     owner, name = github.repo.split("/")
     repository = "repository(owner: " + json.dumps(owner) + ", name: " + json.dumps(name) + ")"
     members = set(commits)
+    base_date = ((comparison.get("base_commit") or {}).get("commit") or {}).get("committer", {}).get("date")
+    if not base_date:
+        raise RuntimeError("GitHub compare returned no base commit date; retry metadata generation")
+    # A PR merged into the range was updated at or after its merge, which is
+    # after the base commit; a day of slack covers clock skew between the two.
+    cutoff = datetime.fromisoformat(base_date.replace("Z", "+00:00")) - timedelta(days=1)
     prs = {}
-
-    def keep(nodes: list[dict]) -> None:
-        for pr in nodes:
+    cursor = None
+    for _ in range(MERGED_PR_PAGES):
+        after = f", after: {json.dumps(cursor)}" if cursor else ""
+        result = github.graphql(
+            "query { " + repository + f" {{ pullRequests(baseRefName: {json.dumps(branch)}, states: MERGED, "
+            f"first: 25, orderBy: {{field: UPDATED_AT, direction: DESC}}{after}) {{ "
+            f"pageInfo {{ hasNextPage endCursor }} nodes {{ updatedAt {PR_FIELDS} }} }} }} }}")
+        page = result["pullRequests"]
+        for pr in page["nodes"]:
             merged = pr.get("mergeCommit") or {}
             if pr["mergedAt"] and pr["baseRefName"] == branch and merged.get("oid") in members:
                 prs[pr["number"]] = pr
-
-    overflow = []
-
-    def associations(batch: list[str]) -> list[tuple[str, dict | None]]:
-        """Query a batch; a persistent 5xx (an expensive batch timing out) splits it."""
-        objects = [f'c{index}: object(oid: "{sha}") {{ ... on Commit {{ associatedPullRequests(first: 10) {{ '
-                   f'pageInfo {{ hasNextPage }} nodes {{ {MEMBERSHIP_FIELDS} }} }} }} }}' for index, sha in enumerate(batch)]
-        try:
-            result = github.graphql("query { " + repository + " { " + " ".join(objects) + " } }")
-        except TransientGitHubError:
-            if len(batch) == 1:
-                raise RuntimeError("GitHub kept timing out on one commit's associated PRs; retry the publish job") from None
-            middle = len(batch) // 2
-            return associations(batch[:middle]) + associations(batch[middle:])
-        return [(sha, result.get(f"c{index}")) for index, sha in enumerate(batch)]
-
-    for offset in range(0, len(commits), 25):
-        for sha, obj in associations(commits[offset:offset + 25]):
-            if obj is None:
-                raise RuntimeError("GitHub could not resolve a compared commit; retry metadata generation")
-            associated = obj["associatedPullRequests"]
-            if associated["pageInfo"]["hasNextPage"]:
-                # A base-branch commit merged into a long-lived branch is
-                # associated with every open PR that contains it; page it.
-                overflow.append(sha)
-                continue
-            keep(associated["nodes"])
-    for sha in overflow:
-        cursor = None
-        for _ in range(ASSOCIATION_PAGES):
-            after = f", after: {json.dumps(cursor)}" if cursor else ""
-            result = github.graphql(
-                "query { " + repository + f' {{ c0: object(oid: "{sha}") {{ ... on Commit {{ '
-                f"associatedPullRequests(first: 100{after}) {{ pageInfo {{ hasNextPage endCursor }} "
-                f"nodes {{ {MEMBERSHIP_FIELDS} }} }} }} }} }} }}")
-            obj = result.get("c0")
-            if obj is None:
-                raise RuntimeError("GitHub could not resolve a compared commit; retry metadata generation")
-            associated = obj["associatedPullRequests"]
-            keep(associated["nodes"])
-            cursor = associated["pageInfo"].get("endCursor")
-            if not associated["pageInfo"]["hasNextPage"]:
-                break
-            if not cursor:
-                raise RuntimeError("GitHub associated PRs pagination returned no cursor; retry metadata generation")
-        else:
-            raise RuntimeError(f"A commit has more than {ASSOCIATION_PAGES * 100} associated PRs; inspect its associations before retrying")
-    numbers = sorted(prs)
-    details = {}
-    for offset in range(0, len(numbers), 25):
-        batch = numbers[offset:offset + 25]
-        objects = [f"p{index}: pullRequest(number: {number}) {{ {PR_FIELDS} }}" for index, number in enumerate(batch)]
-        result = github.graphql("query { " + repository + " { " + " ".join(objects) + " } }")
-        for index, number in enumerate(batch):
-            pr = result.get(f"p{index}")
-            if pr is None or pr.get("number") != number:
-                raise RuntimeError("GitHub could not resolve a merged PR; retry metadata generation")
-            details[number] = pr
-    return [details[number] for number in numbers]
+        nodes = page["nodes"]
+        oldest = min((datetime.fromisoformat(pr["updatedAt"].replace("Z", "+00:00")) for pr in nodes), default=None)
+        if not page["pageInfo"]["hasNextPage"] or oldest is None or oldest < cutoff:
+            break
+        cursor = page["pageInfo"].get("endCursor")
+        if not cursor:
+            raise RuntimeError("GitHub merged PRs pagination returned no cursor; retry metadata generation")
+    else:
+        raise RuntimeError(f"More than {MERGED_PR_PAGES * 25} merged PRs since the published build; inspect the channel marker")
+    return list(prs.values())
 
 
 def infrastructure(pr: dict) -> bool:

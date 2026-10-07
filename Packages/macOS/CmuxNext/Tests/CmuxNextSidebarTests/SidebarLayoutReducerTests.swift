@@ -5,7 +5,15 @@ import Testing
 /// The section layout reducer (plans/cmux-next/sidebar-sections.md 4):
 /// defaults, every op, invariants L1-L6, idempotency and the wire format.
 @Suite struct SidebarLayoutReducerTests {
-    private let defaults = SidebarLayoutDocument.defaults
+    /// The default layout with a Settings item in the footer after the
+    /// account (the gear left the default with SIDEBAR-FOOTER-AND-SPACE-MENU
+    /// amendment 2; the ops below still need a second footer item).
+    private let defaults: SidebarLayoutDocument = {
+        var doc = SidebarLayoutDocument.defaults
+        let bottom = doc.sections.firstIndex { $0.id == SidebarLayoutDocument.bottomSectionID }!
+        doc.sections[bottom].items.append(LayoutItem(id: LayoutItemID("itm_settings"), ref: .builtIn(.settings), showsLabel: false))
+        return doc
+    }()
     private let home = LayoutItemID("itm_home")
     private let settings = LayoutItemID("itm_settings")
 
@@ -22,11 +30,12 @@ import Testing
 
     @Test func defaultsAreHomeWorkspacesSettingsCustomizeAccount() {
         #expect(defaults.sections(in: .top, room: nil).flatMap(\.items).map(\.ref) == [.app("cmux/home"), .app("cmux/app-store")])
-        #expect(defaults.sections(in: .middle, room: nil).map(\.content) == [.workspaces, .app])
-        #expect(defaults.sections(in: .bottom, room: nil).flatMap(\.items).map(\.ref) == [.builtIn(.account), .builtIn(.settings)])
+        #expect(defaults.sections(in: .middle, room: nil).map(\.content) == [.workspaces])
+        // The footer is the profile control alone (amendment 2).
+        #expect(SidebarLayoutDocument.defaults.sections(in: .bottom, room: nil).flatMap(\.items).map(\.ref) == [.builtIn(.account)])
         #expect(defaults.sections.filter { $0.region != .middle && $0.content == .items }.allSatisfy { $0.look == .builtIn && $0.title == nil })
-        // The one app section is Recents, which the App draws natively.
-        #expect(defaults.sections.filter { $0.content == .app }.map(\.id) == [SidebarLayoutDocument.recentsSectionID])
+        // No Recents by default (SIDEBAR-NO-RECENTS): Chats joins only with sidebar.showChats.
+        #expect(defaults.sections.filter { $0.content == .app }.isEmpty)
         #expect(defaults.firstTopItem(room: nil)?.ref == .app("cmux/home"))
     }
 
@@ -127,7 +136,7 @@ import Testing
     @Test func moveSectionBetweenRegions() throws {
         let doc = try reduce(defaults, .sectionMove(SidebarLayoutDocument.workspacesSectionID, region: .top, index: 1))
         #expect(doc.sections(in: .top, room: nil).map(\.id) == [SidebarLayoutDocument.topSectionID, SidebarLayoutDocument.workspacesSectionID])
-        #expect(doc.sections(in: .middle, room: nil).map(\.id) == [SidebarLayoutDocument.recentsSectionID])
+        #expect(doc.sections(in: .middle, room: nil).isEmpty)
         let bottomFirst = try reduce(defaults, .sectionMove(SidebarLayoutDocument.topSectionID, region: .bottom, index: 0))
         #expect(bottomFirst.sections(in: .bottom, room: nil).map(\.id)
             == [SidebarLayoutDocument.topSectionID, SidebarLayoutDocument.bottomSectionID])
@@ -157,7 +166,7 @@ import Testing
     }
 
     @Test func resetOfTheDefaultsIsANoOp() throws {
-        #expect(try reduce(defaults, .reset) == defaults)
+        #expect(try reduce(SidebarLayoutDocument.defaults, .reset) == SidebarLayoutDocument.defaults)
     }
 
     @Test func showsTitleRoundTripsAndDefaultsToTrue() throws {
@@ -226,7 +235,7 @@ import Testing
     @Test func resetRestoresDefaultsWithANewRevision() throws {
         let edited = try reduce(defaults, .itemRemove(home))
         let reset = try reduce(edited, .reset)
-        #expect(reset.sections == defaults.sections)
+        #expect(reset.sections == SidebarLayoutDocument.defaults.sections)
         #expect(reset.revision == edited.revision + 1)
     }
 
@@ -264,8 +273,9 @@ import Testing
         let replay = owner.apply(.itemRemove(home), key: "k1")
         #expect(first == replay)
         #expect(owner.document.revision == 1)
-        #expect(owner.apply(.itemRemove(settings), key: "k1") == .failure(.idempotencyConflict))
-        #expect(owner.document.item(settings) != nil)
+        let store = LayoutItemID("itm_app_store")
+        #expect(owner.apply(.itemRemove(store), key: "k1") == .failure(.idempotencyConflict))
+        #expect(owner.document.item(store) != nil)
         let label = SidebarLayoutOp.itemUpdate(LayoutItemID("itm_account"), showsLabel: true)
         #expect(owner.apply(label, key: "k2") == owner.apply(label, key: "k2"))
         #expect(owner.document.revision == 2)
