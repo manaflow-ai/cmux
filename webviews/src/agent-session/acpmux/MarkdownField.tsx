@@ -1,5 +1,6 @@
 import React, { useCallback, useImperativeHandle, useLayoutEffect, useRef } from "react";
 import { COMPOSER_READY_EVENT } from "./composerFocus";
+import "./markdownField.css";
 import {
   Editor,
   defaultValueCtx,
