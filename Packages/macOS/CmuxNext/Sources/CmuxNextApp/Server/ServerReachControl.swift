@@ -78,6 +78,7 @@ enum ServerReachControl {
             let route: String = switch server.reach.route {
             case .ssh(let host): "ssh \(host.destination.description)"
             case .unix(let path): "unix \(path)"
+            case .overlay(let socket): "overlay \(socket)"
             }
             return .object([
                 "machine": .string(server.machineID), "host": .string(server.reach.hostID), "name": .string(server.name),
