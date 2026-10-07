@@ -20,20 +20,6 @@ nonisolated enum PasswordCSVStepAnswer: Equatable, Sendable {
     case chooseFile
 }
 
-/// The native steps of the guided CSV import. The live presenter shows cmux
-/// dialogs and the open panel; tests answer with a script.
-@MainActor
-protocol PasswordCSVGuidePresenting {
-    /// The source picker; nil when the person cancels.
-    func chooseSource() async -> PasswordCSVSource?
-    /// The export steps of `source`.
-    func showSteps(_ source: PasswordCSVSource) async -> PasswordCSVStepAnswer
-    /// Opens the app that exports `source` (Passwords, or Safari before macOS 15).
-    func openApp(_ source: PasswordCSVSource)
-    /// The open panel; nil when the person cancels.
-    func chooseFile(_ source: PasswordCSVSource) async -> URL?
-}
-
 /// Guided CSV import, up to the file the person picked. Every step is the
 /// person's own answer in a native sheet; nothing here reads a file.
 @MainActor
@@ -42,6 +28,16 @@ struct PasswordCSVGuide {
 
     /// The CSV the person picked, or nil when they cancelled at any step.
     func run() async -> URL? {
-        nil
+        guard let source = await presenter.chooseSource() else { return nil }
+        if source != .other {
+            // Each pass waits for the person's answer on the steps sheet; Open Passwords shows it again.
+            var answer = await presenter.showSteps(source)
+            while answer == .openApp {
+                presenter.openApp(source)
+                answer = await presenter.showSteps(source)
+            }
+            guard answer == .chooseFile else { return nil }
+        }
+        return await presenter.chooseFile(source)
     }
 }
