@@ -1,268 +1,6 @@
 {
   "sourceLanguage": "en",
   "strings": {
-    "settings.app.globalHotKey": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "اختصار عام"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Globalna prečica"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Global genvejstast"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Globaler Kurzbefehl"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Global Hot Key"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Atajo global"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Raccourci global"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Scorciatoia globale"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "グローバルホットキー"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "គ្រាប់ចុចកាត់សកល"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "전역 단축키"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Global hurtigtast"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Globalny skrót"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Atalho global"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Глобальная горячая клавиша"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ปุ่มลัดส่วนกลาง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Genel kısayol tuşu"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Глобальна гаряча клавіша"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Phím tắt toàn cục"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "全局快捷键"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "全域快速鍵"
-          }
-        }
-      }
-    },
-    "settings.app.globalHotKey.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يعمل إظهار/إخفاء كل النوافذ (⌃⌥⌘.) أثناء وجود تطبيق آخر في المقدمة."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prikaži/sakrij sve prozore (⌃⌥⌘.) radi dok je druga aplikacija u prvom planu."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vis/skjul alle vinduer (⌃⌥⌘.) virker, mens en anden app er forrest."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "„Alle Fenster ein-/ausblenden“ (⌃⌥⌘.) funktioniert, während eine andere App im Vordergrund ist."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show/Hide All Windows (⌃⌥⌘.) works while another app is in front."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar/ocultar todas las ventanas (⌃⌥⌘.) funciona mientras otra app está en primer plano."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Afficher/masquer toutes les fenêtres (⌃⌥⌘.) fonctionne lorsqu’une autre app est au premier plan."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostra/nascondi tutte le finestre (⌃⌥⌘.) funziona mentre un’altra app è in primo piano."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "別のアプリが前面にあっても「すべてのウインドウを表示/非表示」(⌃⌥⌘.)が使えます。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "បង្ហាញ/លាក់បង្អួចទាំងអស់ (⌃⌥⌘.) ដំណើរការ ពេលកម្មវិធីផ្សេងនៅខាងមុខ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "다른 앱이 앞에 있을 때도 모든 윈도우 보기/가리기(⌃⌥⌘.)가 작동합니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vis/skjul alle vinduer (⌃⌥⌘.) virker mens en annen app er foran."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pokaż/ukryj wszystkie okna (⌃⌥⌘.) działa, gdy na pierwszym planie jest inna aplikacja."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar/ocultar todas as janelas (⌃⌥⌘.) funciona enquanto outro app está em primeiro plano."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "«Показать/скрыть все окна» (⌃⌥⌘.) работает, когда впереди другое приложение."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "แสดง/ซ่อนหน้าต่างทั้งหมด (⌃⌥⌘.) ใช้ได้ขณะที่แอปอื่นอยู่ด้านหน้า"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tüm pencereleri göster/gizle (⌃⌥⌘.), başka bir uygulama öndeyken de çalışır."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "«Показати/сховати всі вікна» (⌃⌥⌘.) працює, коли попереду інша програма."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hiện/ẩn tất cả cửa sổ (⌃⌥⌘.) hoạt động khi một ứng dụng khác ở phía trước."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "其他应用位于前台时，“显示/隐藏所有窗口”(⌃⌥⌘.)也可使用。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "其他 App 位於前景時，「顯示/隱藏所有視窗」(⌃⌥⌘.) 也能使用。"
-          }
-        }
-      }
-    },
     "settings.app.warnBeforeClosingTab": {
       "extractionState": "manual",
       "localizations": {
@@ -60998,6 +60736,372 @@
         "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "通知靜音的工作區 ID。可在側邊欄的工作區列選單中靜音。" } }
       }
     },
+    "settings.statusIndicator.showAgentWorkingOnTabs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Show Agent Working on Tabs" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "タブにエージェントの作業中を表示" } },
+        "ar": { "stringUnit": { "state": "needs_review", "value": "إظهار عمل الوكيل على علامات التبويب" } },
+        "bs": { "stringUnit": { "state": "needs_review", "value": "Prikaži rad agenta na karticama" } },
+        "da": { "stringUnit": { "state": "needs_review", "value": "Vis agentarbejde på faner" } },
+        "de": { "stringUnit": { "state": "needs_review", "value": "Agentenarbeit auf Tabs anzeigen" } },
+        "es": { "stringUnit": { "state": "needs_review", "value": "Mostrar agente trabajando en pestañas" } },
+        "fr": { "stringUnit": { "state": "needs_review", "value": "Afficher l'agent au travail sur les onglets" } },
+        "it": { "stringUnit": { "state": "needs_review", "value": "Mostra agente al lavoro nelle schede" } },
+        "km": { "stringUnit": { "state": "needs_review", "value": "បង្ហាញភ្នាក់ងារកំពុងធ្វើការលើផ្ទាំង" } },
+        "ko": { "stringUnit": { "state": "needs_review", "value": "탭에 에이전트 작업 중 표시" } },
+        "nb": { "stringUnit": { "state": "needs_review", "value": "Vis agentarbeid på faner" } },
+        "pl": { "stringUnit": { "state": "needs_review", "value": "Pokazuj pracę agenta na kartach" } },
+        "pt-BR": { "stringUnit": { "state": "needs_review", "value": "Mostrar agente trabalhando nas abas" } },
+        "ru": { "stringUnit": { "state": "needs_review", "value": "Показывать работу агента на вкладках" } },
+        "th": { "stringUnit": { "state": "needs_review", "value": "แสดงเอเจนต์กำลังทำงานบนแท็บ" } },
+        "tr": { "stringUnit": { "state": "needs_review", "value": "Sekmelerde ajan çalışmasını göster" } },
+        "uk": { "stringUnit": { "state": "needs_review", "value": "Показувати роботу агента на вкладках" } },
+        "vi": { "stringUnit": { "state": "needs_review", "value": "Hiện tác tử đang làm việc trên thẻ" } },
+        "zh-Hans": { "stringUnit": { "state": "needs_review", "value": "在标签页上显示代理工作中" } },
+        "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "在分頁上顯示代理工作中" } }
+      }
+    },
+    "settings.statusIndicator.showAgentWorkingOnTabs.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Three dots take the tab's icon place while an agent works." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エージェントが作業している間、タブのアイコンの位置に3つの点を表示します。" } },
+        "ar": { "stringUnit": { "state": "needs_review", "value": "تظهر ثلاث نقاط مكان أيقونة علامة التبويب أثناء عمل الوكيل." } },
+        "bs": { "stringUnit": { "state": "needs_review", "value": "Tri tačke zauzimaju mjesto ikone kartice dok agent radi." } },
+        "da": { "stringUnit": { "state": "needs_review", "value": "Tre prikker står i fanens ikon, mens en agent arbejder." } },
+        "de": { "stringUnit": { "state": "needs_review", "value": "Drei Punkte ersetzen das Tab-Symbol, solange ein Agent arbeitet." } },
+        "es": { "stringUnit": { "state": "needs_review", "value": "Tres puntos ocupan el lugar del icono de la pestaña mientras un agente trabaja." } },
+        "fr": { "stringUnit": { "state": "needs_review", "value": "Trois points remplacent l'icône de l'onglet pendant qu'un agent travaille." } },
+        "it": { "stringUnit": { "state": "needs_review", "value": "Tre punti prendono il posto dell'icona della scheda mentre un agente lavora." } },
+        "km": { "stringUnit": { "state": "needs_review", "value": "ចំណុចបីជំនួសរូបតំណាងផ្ទាំង ពេលភ្នាក់ងារកំពុងធ្វើការ។" } },
+        "ko": { "stringUnit": { "state": "needs_review", "value": "에이전트가 작업하는 동안 탭 아이콘 자리에 점 세 개가 표시됩니다." } },
+        "nb": { "stringUnit": { "state": "needs_review", "value": "Tre prikker står i fanens ikon mens en agent jobber." } },
+        "pl": { "stringUnit": { "state": "needs_review", "value": "Trzy kropki zastępują ikonę karty, gdy agent pracuje." } },
+        "pt-BR": { "stringUnit": { "state": "needs_review", "value": "Três pontos ocupam o lugar do ícone da aba enquanto um agente trabalha." } },
+        "ru": { "stringUnit": { "state": "needs_review", "value": "Пока агент работает, вместо значка вкладки показываются три точки." } },
+        "th": { "stringUnit": { "state": "needs_review", "value": "จุดสามจุดแสดงแทนไอคอนของแท็บขณะที่เอเจนต์ทำงาน" } },
+        "tr": { "stringUnit": { "state": "needs_review", "value": "Bir ajan çalışırken sekme simgesinin yerinde üç nokta görünür." } },
+        "uk": { "stringUnit": { "state": "needs_review", "value": "Поки агент працює, замість значка вкладки показуються три крапки." } },
+        "vi": { "stringUnit": { "state": "needs_review", "value": "Ba chấm thay chỗ biểu tượng của thẻ khi tác tử đang làm việc." } },
+        "zh-Hans": { "stringUnit": { "state": "needs_review", "value": "代理工作时，标签页图标位置显示三个点。" } },
+        "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "代理工作時，分頁圖示位置顯示三個點。" } }
+      }
+    },
+    "settings.statusIndicator.showPageLoading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Show Page Loading on Tabs" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "タブにページの読み込みを表示" } },
+        "ar": { "stringUnit": { "state": "needs_review", "value": "إظهار تحميل الصفحة على علامات التبويب" } },
+        "bs": { "stringUnit": { "state": "needs_review", "value": "Prikaži učitavanje stranice na karticama" } },
+        "da": { "stringUnit": { "state": "needs_review", "value": "Vis sideindlæsning på faner" } },
+        "de": { "stringUnit": { "state": "needs_review", "value": "Seitenladen auf Tabs anzeigen" } },
+        "es": { "stringUnit": { "state": "needs_review", "value": "Mostrar carga de página en pestañas" } },
+        "fr": { "stringUnit": { "state": "needs_review", "value": "Afficher le chargement de la page sur les onglets" } },
+        "it": { "stringUnit": { "state": "needs_review", "value": "Mostra caricamento pagina nelle schede" } },
+        "km": { "stringUnit": { "state": "needs_review", "value": "បង្ហាញការផ្ទុកទំព័រលើផ្ទាំង" } },
+        "ko": { "stringUnit": { "state": "needs_review", "value": "탭에 페이지 로딩 표시" } },
+        "nb": { "stringUnit": { "state": "needs_review", "value": "Vis sidelasting på faner" } },
+        "pl": { "stringUnit": { "state": "needs_review", "value": "Pokazuj ładowanie strony na kartach" } },
+        "pt-BR": { "stringUnit": { "state": "needs_review", "value": "Mostrar carregamento da página nas abas" } },
+        "ru": { "stringUnit": { "state": "needs_review", "value": "Показывать загрузку страницы на вкладках" } },
+        "th": { "stringUnit": { "state": "needs_review", "value": "แสดงการโหลดหน้าบนแท็บ" } },
+        "tr": { "stringUnit": { "state": "needs_review", "value": "Sekmelerde sayfa yüklenmesini göster" } },
+        "uk": { "stringUnit": { "state": "needs_review", "value": "Показувати завантаження сторінки на вкладках" } },
+        "vi": { "stringUnit": { "state": "needs_review", "value": "Hiện tải trang trên thẻ" } },
+        "zh-Hans": { "stringUnit": { "state": "needs_review", "value": "在标签页上显示页面加载" } },
+        "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "在分頁上顯示頁面載入" } }
+      }
+    },
+    "settings.statusIndicator.showPageLoading.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "A spinner takes a browser tab's icon place while its page loads." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ページの読み込み中、ブラウザタブのアイコンの位置にスピナーを表示します。" } },
+        "ar": { "stringUnit": { "state": "needs_review", "value": "يظهر مؤشر دوار مكان أيقونة علامة تبويب المتصفح أثناء تحميل صفحتها." } },
+        "bs": { "stringUnit": { "state": "needs_review", "value": "Indikator zauzima mjesto ikone kartice preglednika dok se stranica učitava." } },
+        "da": { "stringUnit": { "state": "needs_review", "value": "En spinner står i browserfanens ikon, mens siden indlæses." } },
+        "de": { "stringUnit": { "state": "needs_review", "value": "Ein Ladekreis ersetzt das Symbol eines Browser-Tabs, solange die Seite lädt." } },
+        "es": { "stringUnit": { "state": "needs_review", "value": "Un indicador giratorio ocupa el lugar del icono de la pestaña mientras carga la página." } },
+        "fr": { "stringUnit": { "state": "needs_review", "value": "Un indicateur remplace l'icône de l'onglet pendant le chargement de la page." } },
+        "it": { "stringUnit": { "state": "needs_review", "value": "Un indicatore prende il posto dell'icona della scheda mentre la pagina si carica." } },
+        "km": { "stringUnit": { "state": "needs_review", "value": "សញ្ញាវិលជំនួសរូបតំណាងផ្ទាំងកម្មវិធីរុករក ពេលទំព័រកំពុងផ្ទុក។" } },
+        "ko": { "stringUnit": { "state": "needs_review", "value": "페이지가 로드되는 동안 브라우저 탭 아이콘 자리에 스피너가 표시됩니다." } },
+        "nb": { "stringUnit": { "state": "needs_review", "value": "En spinner står i nettleserfanens ikon mens siden lastes." } },
+        "pl": { "stringUnit": { "state": "needs_review", "value": "Wskaźnik zastępuje ikonę karty przeglądarki podczas ładowania strony." } },
+        "pt-BR": { "stringUnit": { "state": "needs_review", "value": "Um indicador ocupa o lugar do ícone da aba enquanto a página carrega." } },
+        "ru": { "stringUnit": { "state": "needs_review", "value": "Пока страница загружается, вместо значка вкладки браузера показывается индикатор." } },
+        "th": { "stringUnit": { "state": "needs_review", "value": "ตัวหมุนแสดงแทนไอคอนของแท็บเบราว์เซอร์ขณะโหลดหน้า" } },
+        "tr": { "stringUnit": { "state": "needs_review", "value": "Sayfa yüklenirken tarayıcı sekmesinin simgesinin yerinde bir gösterge döner." } },
+        "uk": { "stringUnit": { "state": "needs_review", "value": "Поки сторінка завантажується, замість значка вкладки браузера показується індикатор." } },
+        "vi": { "stringUnit": { "state": "needs_review", "value": "Biểu tượng xoay thay chỗ biểu tượng của thẻ trình duyệt khi trang đang tải." } },
+        "zh-Hans": { "stringUnit": { "state": "needs_review", "value": "页面加载时，浏览器标签页图标位置显示旋转指示器。" } },
+        "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "頁面載入時，瀏覽器分頁圖示位置顯示旋轉指示器。" } }
+      }
+    },
+    "settings.app.globalHotKey": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اختصار عام"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Globalna prečica"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Global genvejstast"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Globaler Kurzbefehl"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Global Hot Key"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atajo global"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Raccourci global"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scorciatoia globale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グローバルホットキー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គ្រាប់ចុចកាត់សកល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전역 단축키"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Global hurtigtast"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Globalny skrót"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atalho global"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Глобальная горячая клавиша"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปุ่มลัดส่วนกลาง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Genel kısayol tuşu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Глобальна гаряча клавіша"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phím tắt toàn cục"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全局快捷键"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全域快速鍵"
+          }
+        }
+      }
+    },
+    "settings.app.globalHotKey.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعمل إظهار/إخفاء كل النوافذ (⌃⌥⌘.) أثناء وجود تطبيق آخر في المقدمة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži/sakrij sve prozore (⌃⌥⌘.) radi dok je druga aplikacija u prvom planu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis/skjul alle vinduer (⌃⌥⌘.) virker, mens en anden app er forrest."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„Alle Fenster ein-/ausblenden“ (⌃⌥⌘.) funktioniert, während eine andere App im Vordergrund ist."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show/Hide All Windows (⌃⌥⌘.) works while another app is in front."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar/ocultar todas las ventanas (⌃⌥⌘.) funciona mientras otra app está en primer plano."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher/masquer toutes les fenêtres (⌃⌥⌘.) fonctionne lorsqu’une autre app est au premier plan."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra/nascondi tutte le finestre (⌃⌥⌘.) funziona mentre un’altra app è in primo piano."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別のアプリが前面にあっても「すべてのウインドウを表示/非表示」(⌃⌥⌘.)が使えます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញ/លាក់បង្អួចទាំងអស់ (⌃⌥⌘.) ដំណើរការ ពេលកម្មវិធីផ្សេងនៅខាងមុខ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 앱이 앞에 있을 때도 모든 윈도우 보기/가리기(⌃⌥⌘.)가 작동합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis/skjul alle vinduer (⌃⌥⌘.) virker mens en annen app er foran."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokaż/ukryj wszystkie okna (⌃⌥⌘.) działa, gdy na pierwszym planie jest inna aplikacja."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar/ocultar todas as janelas (⌃⌥⌘.) funciona enquanto outro app está em primeiro plano."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«Показать/скрыть все окна» (⌃⌥⌘.) работает, когда впереди другое приложение."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดง/ซ่อนหน้าต่างทั้งหมด (⌃⌥⌘.) ใช้ได้ขณะที่แอปอื่นอยู่ด้านหน้า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tüm pencereleri göster/gizle (⌃⌥⌘.), başka bir uygulama öndeyken de çalışır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«Показати/сховати всі вікна» (⌃⌥⌘.) працює, коли попереду інша програма."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiện/ẩn tất cả cửa sổ (⌃⌥⌘.) hoạt động khi một ứng dụng khác ở phía trước."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "其他应用位于前台时，“显示/隐藏所有窗口”(⌃⌥⌘.)也可使用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "其他 App 位於前景時，「顯示/隱藏所有視窗」(⌃⌥⌘.) 也能使用。"
+          }
+        }
+      }
+    },
     "settings.group.agentChat" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -64294,6 +64398,792 @@
         }
       }
     },
+    "settings.layout.newPanePlacement": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Terminals and Browsers"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الطرفيات والمتصفحات الجديدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Novi terminali i preglednici"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nye terminaler og browsere"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Neue Terminals und Browser"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminales y navegadores nuevos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nouveaux terminaux et navigateurs"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nuovi terminali e browser"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいターミナルとブラウザ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទែមីណល់ និងកម្មវិធីរុករកថ្មី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "새 터미널 및 브라우저"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nye terminaler og nettlesere"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nowe terminale i przeglądarki"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Novos terminais e navegadores"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Новые терминалы и браузеры"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เทอร์มินัลและเบราว์เซอร์ใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yeni terminaller ve tarayıcılar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нові термінали та браузери"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal và trình duyệt mới"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新终端和浏览器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新終端機和瀏覽器"
+          }
+        }
+      }
+    },
+    "settings.layout.newPanePlacement.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open a Tab adds a tab to the focused pane. Split Automatically splits the largest pane, like New Pane (Auto Layout)."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يضيف خيار فتح علامة تبويب علامة تبويب إلى الجزء المحدد. ويقسم خيار التقسيم تلقائيًا أكبر جزء، مثل جزء جديد (تخطيط تلقائي)."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otvori karticu dodaje karticu u fokusirano okno. Automatski podijeli dijeli najveće okno, kao Novo okno (automatski raspored)."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åbn en fane tilføjer en fane i den fokuserede rude. Opdel automatisk opdeler den største rude, som Ny rude (automatisk layout)."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„Tab öffnen“ fügt dem fokussierten Bereich einen Tab hinzu. „Automatisch teilen“ teilt den größten Bereich, wie „Neuer Bereich (automatisches Layout)“."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir una pestaña añade una pestaña al panel enfocado. Dividir automáticamente divide el panel más grande, como Nuevo panel (diseño automático)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir un onglet ajoute un onglet au volet actif. Diviser automatiquement divise le plus grand volet, comme Nouveau volet (disposition automatique)."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apri una scheda aggiunge una scheda al riquadro attivo. Dividi automaticamente divide il riquadro più grande, come Nuovo riquadro (layout automatico)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「タブを開く」はフォーカス中のペインにタブを追加します。「自動で分割」は「新規ペイン（自動レイアウト）」と同じく、最も大きいペインを分割します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បើកផ្ទាំង បន្ថែមផ្ទាំងមួយទៅផ្ទាំងដែលកំពុងផ្តោត។ បំបែកដោយស្វ័យប្រវត្តិ បំបែកផ្ទាំងធំបំផុត ដូចជា ផ្ទាំងថ្មី (ប្លង់ស្វ័យប្រវត្តិ)។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "탭 열기는 포커스된 패널에 탭을 추가합니다. 자동으로 분할은 새 패널(자동 레이아웃)처럼 가장 큰 패널을 분할합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åpne en fane legger til en fane i ruten med fokus. Del automatisk deler den største ruten, som Ny rute (automatisk oppsett)."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otwórz kartę dodaje kartę do aktywnego panelu. Dziel automatycznie dzieli największy panel, jak Nowy panel (układ automatyczny)."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir uma aba adiciona uma aba ao painel em foco. Dividir automaticamente divide o maior painel, como Novo painel (layout automático)."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«Открыть вкладку» добавляет вкладку в активную панель. «Разделять автоматически» делит самую большую панель, как «Новая панель (автомакет)»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปิดแท็บจะเพิ่มแท็บในบานที่โฟกัสอยู่ แยกโดยอัตโนมัติจะแยกบานที่ใหญ่ที่สุด เหมือนบานใหม่ (เลย์เอาต์อัตโนมัติ)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sekme aç, odaktaki bölmeye bir sekme ekler. Otomatik böl, Yeni Bölme (Otomatik Düzen) gibi en büyük bölmeyi böler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«Відкрити вкладку» додає вкладку до активної панелі. «Ділити автоматично» ділить найбільшу панель, як «Нова панель (автомакет)»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mở một tab thêm một tab vào ngăn đang được chọn. Tự động chia sẽ chia ngăn lớn nhất, giống Ngăn mới (Bố cục tự động)."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“打开标签页”会在当前聚焦的窗格中添加标签页。“自动拆分”会拆分最大的窗格，与“新建窗格（自动布局）”相同。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「開啟分頁」會在目前聚焦的窗格中新增分頁。「自動分割」會分割最大的窗格，與「新增窗格（自動版面配置）」相同。"
+          }
+        }
+      }
+    },
+    "settings.choice.newPaneTab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open a Tab"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "فتح علامة تبويب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otvori karticu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åbn en fane"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab öffnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abrir una pestaña"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ouvrir un onglet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apri una scheda"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブを開く"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បើកផ្ទាំង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "탭 열기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åpne en fane"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otwórz kartę"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abrir uma aba"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Открыть вкладку"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เปิดแท็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sekme aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відкрити вкладку"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mở một tab"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "打开标签页"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "開啟分頁"
+          }
+        }
+      }
+    },
+    "settings.choice.newPaneSplit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Split Automatically"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "التقسيم تلقائيًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automatski podijeli"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opdel automatisk"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automatisch teilen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dividir automáticamente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diviser automatiquement"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dividi automaticamente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動で分割"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បំបែកដោយស្វ័យប្រវត្តិ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "자동으로 분할"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Del automatisk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dziel automatycznie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dividir automaticamente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Разделять автоматически"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แยกโดยอัตโนมัติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otomatik böl"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ділити автоматично"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tự động chia"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自动拆分"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自動分割"
+          }
+        }
+      }
+    },
+    "settings.layout.tileBrowsers": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Split for Browsers Too"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "التقسيم للمتصفحات أيضًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Podijeli i za preglednike"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opdel også for browsere"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Auch für Browser teilen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dividir también para navegadores"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diviser aussi pour les navigateurs"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dividi anche per i browser"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザも分割"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បំបែកសម្រាប់កម្មវិធីរុករកផងដែរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "브라우저도 분할"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Del også for nettlesere"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dziel także dla przeglądarek"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dividir também para navegadores"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Разделять и для браузеров"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แยกสำหรับเบราว์เซอร์ด้วย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tarayıcılar için de böl"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ділити й для браузерів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chia cả cho trình duyệt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "浏览器也拆分"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "瀏覽器也分割"
+          }
+        }
+      }
+    },
+    "settings.layout.tileBrowsers.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "With Split Automatically, new browsers also get their own pane instead of a tab."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مع خيار التقسيم تلقائيًا، تحصل المتصفحات الجديدة أيضًا على جزء خاص بها بدلًا من علامة تبويب."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uz Automatski podijeli, novi preglednici također dobivaju vlastito okno umjesto kartice."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Med Opdel automatisk får nye browsere også deres egen rude i stedet for en fane."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mit „Automatisch teilen“ erhalten neue Browser ebenfalls einen eigenen Bereich statt eines Tabs."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Con Dividir automáticamente, los navegadores nuevos también tienen su propio panel en lugar de una pestaña."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Avec Diviser automatiquement, les nouveaux navigateurs ont aussi leur propre volet au lieu d’un onglet."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Con Dividi automaticamente, anche i nuovi browser hanno un riquadro proprio invece di una scheda."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「自動で分割」のとき、新しいブラウザもタブではなく専用のペインで開きます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ជាមួយ បំបែកដោយស្វ័យប្រវត្តិ កម្មវិធីរុករកថ្មីក៏ទទួលបានផ្ទាំងផ្ទាល់ខ្លួនជំនួសឱ្យផ្ទាំងទំព័រ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "자동으로 분할을 사용하면 새 브라우저도 탭 대신 자체 패널을 갖습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Med Del automatisk får nye nettlesere også sin egen rute i stedet for en fane."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przy opcji Dziel automatycznie nowe przeglądarki także dostają własny panel zamiast karty."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Com Dividir automaticamente, novos navegadores também ganham um painel próprio em vez de uma aba."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "При «Разделять автоматически» новые браузеры тоже получают свою панель вместо вкладки."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เมื่อใช้แยกโดยอัตโนมัติ เบราว์เซอร์ใหม่จะได้บานของตัวเองแทนแท็บด้วย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otomatik böl ile yeni tarayıcılar da sekme yerine kendi bölmelerini alır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "З «Ділити автоматично» нові браузери теж отримують власну панель замість вкладки."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Với Tự động chia, trình duyệt mới cũng có ngăn riêng thay vì một tab."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "使用“自动拆分”时，新浏览器也会获得自己的窗格，而不是标签页。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "使用「自動分割」時，新瀏覽器也會取得自己的窗格，而不是分頁。"
+          }
+        }
+      }
+    },
     "settings.sidebar.showChats": {
         "extractionState": "manual",
         "localizations": {
@@ -66045,792 +66935,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "此資料夾的符號連結過多。"
-          }
-        }
-      }
-    },
-    "settings.layout.newPanePlacement": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "New Terminals and Browsers"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "الطرفيات والمتصفحات الجديدة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Novi terminali i preglednici"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nye terminaler og browsere"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Neue Terminals und Browser"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Terminales y navegadores nuevos"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nouveaux terminaux et navigateurs"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nuovi terminali e browser"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "新しいターミナルとブラウザ"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ទែមីណល់ និងកម្មវិធីរុករកថ្មី"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "새 터미널 및 브라우저"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nye terminaler og nettlesere"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nowe terminale i przeglądarki"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Novos terminais e navegadores"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Новые терминалы и браузеры"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เทอร์มินัลและเบราว์เซอร์ใหม่"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Yeni terminaller ve tarayıcılar"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Нові термінали та браузери"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Terminal và trình duyệt mới"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "新终端和浏览器"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "新終端機和瀏覽器"
-          }
-        }
-      }
-    },
-    "settings.layout.newPanePlacement.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open a Tab adds a tab to the focused pane. Split Automatically splits the largest pane, like New Pane (Auto Layout)."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يضيف خيار فتح علامة تبويب علامة تبويب إلى الجزء المحدد. ويقسم خيار التقسيم تلقائيًا أكبر جزء، مثل جزء جديد (تخطيط تلقائي)."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Otvori karticu dodaje karticu u fokusirano okno. Automatski podijeli dijeli najveće okno, kao Novo okno (automatski raspored)."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Åbn en fane tilføjer en fane i den fokuserede rude. Opdel automatisk opdeler den største rude, som Ny rude (automatisk layout)."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "„Tab öffnen“ fügt dem fokussierten Bereich einen Tab hinzu. „Automatisch teilen“ teilt den größten Bereich, wie „Neuer Bereich (automatisches Layout)“."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Abrir una pestaña añade una pestaña al panel enfocado. Dividir automáticamente divide el panel más grande, como Nuevo panel (diseño automático)."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ouvrir un onglet ajoute un onglet au volet actif. Diviser automatiquement divise le plus grand volet, comme Nouveau volet (disposition automatique)."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Apri una scheda aggiunge una scheda al riquadro attivo. Dividi automaticamente divide il riquadro più grande, come Nuovo riquadro (layout automatico)."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "「タブを開く」はフォーカス中のペインにタブを追加します。「自動で分割」は「新規ペイン（自動レイアウト）」と同じく、最も大きいペインを分割します。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "បើកផ្ទាំង បន្ថែមផ្ទាំងមួយទៅផ្ទាំងដែលកំពុងផ្តោត។ បំបែកដោយស្វ័យប្រវត្តិ បំបែកផ្ទាំងធំបំផុត ដូចជា ផ្ទាំងថ្មី (ប្លង់ស្វ័យប្រវត្តិ)។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "탭 열기는 포커스된 패널에 탭을 추가합니다. 자동으로 분할은 새 패널(자동 레이아웃)처럼 가장 큰 패널을 분할합니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Åpne en fane legger til en fane i ruten med fokus. Del automatisk deler den største ruten, som Ny rute (automatisk oppsett)."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Otwórz kartę dodaje kartę do aktywnego panelu. Dziel automatycznie dzieli największy panel, jak Nowy panel (układ automatyczny)."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Abrir uma aba adiciona uma aba ao painel em foco. Dividir automaticamente divide o maior painel, como Novo painel (layout automático)."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "«Открыть вкладку» добавляет вкладку в активную панель. «Разделять автоматически» делит самую большую панель, как «Новая панель (автомакет)»."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เปิดแท็บจะเพิ่มแท็บในบานที่โฟกัสอยู่ แยกโดยอัตโนมัติจะแยกบานที่ใหญ่ที่สุด เหมือนบานใหม่ (เลย์เอาต์อัตโนมัติ)"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sekme aç, odaktaki bölmeye bir sekme ekler. Otomatik böl, Yeni Bölme (Otomatik Düzen) gibi en büyük bölmeyi böler."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "«Відкрити вкладку» додає вкладку до активної панелі. «Ділити автоматично» ділить найбільшу панель, як «Нова панель (автомакет)»."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mở một tab thêm một tab vào ngăn đang được chọn. Tự động chia sẽ chia ngăn lớn nhất, giống Ngăn mới (Bố cục tự động)."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "“打开标签页”会在当前聚焦的窗格中添加标签页。“自动拆分”会拆分最大的窗格，与“新建窗格（自动布局）”相同。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "「開啟分頁」會在目前聚焦的窗格中新增分頁。「自動分割」會分割最大的窗格，與「新增窗格（自動版面配置）」相同。"
-          }
-        }
-      }
-    },
-    "settings.choice.newPaneTab": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open a Tab"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "فتح علامة تبويب"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Otvori karticu"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Åbn en fane"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tab öffnen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Abrir una pestaña"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ouvrir un onglet"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Apri una scheda"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "タブを開く"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "បើកផ្ទាំង"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "탭 열기"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Åpne en fane"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Otwórz kartę"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Abrir uma aba"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Открыть вкладку"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เปิดแท็บ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sekme aç"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Відкрити вкладку"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mở một tab"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "打开标签页"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "開啟分頁"
-          }
-        }
-      }
-    },
-    "settings.choice.newPaneSplit": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Split Automatically"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "التقسيم تلقائيًا"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Automatski podijeli"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Opdel automatisk"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Automatisch teilen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dividir automáticamente"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Diviser automatiquement"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dividi automaticamente"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "自動で分割"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "បំបែកដោយស្វ័យប្រវត្តិ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "자동으로 분할"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Del automatisk"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dziel automatycznie"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dividir automaticamente"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Разделять автоматически"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "แยกโดยอัตโนมัติ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Otomatik böl"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ділити автоматично"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tự động chia"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "自动拆分"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "自動分割"
-          }
-        }
-      }
-    },
-    "settings.layout.tileBrowsers": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Split for Browsers Too"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "التقسيم للمتصفحات أيضًا"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Podijeli i za preglednike"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Opdel også for browsere"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Auch für Browser teilen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dividir también para navegadores"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Diviser aussi pour les navigateurs"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dividi anche per i browser"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ブラウザも分割"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "បំបែកសម្រាប់កម្មវិធីរុករកផងដែរ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "브라우저도 분할"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Del også for nettlesere"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dziel także dla przeglądarek"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dividir também para navegadores"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Разделять и для браузеров"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "แยกสำหรับเบราว์เซอร์ด้วย"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tarayıcılar için de böl"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ділити й для браузерів"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chia cả cho trình duyệt"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "浏览器也拆分"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "瀏覽器也分割"
-          }
-        }
-      }
-    },
-    "settings.layout.tileBrowsers.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "With Split Automatically, new browsers also get their own pane instead of a tab."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "مع خيار التقسيم تلقائيًا، تحصل المتصفحات الجديدة أيضًا على جزء خاص بها بدلًا من علامة تبويب."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Uz Automatski podijeli, novi preglednici također dobivaju vlastito okno umjesto kartice."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Med Opdel automatisk får nye browsere også deres egen rude i stedet for en fane."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mit „Automatisch teilen“ erhalten neue Browser ebenfalls einen eigenen Bereich statt eines Tabs."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Con Dividir automáticamente, los navegadores nuevos también tienen su propio panel en lugar de una pestaña."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Avec Diviser automatiquement, les nouveaux navigateurs ont aussi leur propre volet au lieu d’un onglet."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Con Dividi automaticamente, anche i nuovi browser hanno un riquadro proprio invece di una scheda."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "「自動で分割」のとき、新しいブラウザもタブではなく専用のペインで開きます。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ជាមួយ បំបែកដោយស្វ័យប្រវត្តិ កម្មវិធីរុករកថ្មីក៏ទទួលបានផ្ទាំងផ្ទាល់ខ្លួនជំនួសឱ្យផ្ទាំងទំព័រ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "자동으로 분할을 사용하면 새 브라우저도 탭 대신 자체 패널을 갖습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Med Del automatisk får nye nettlesere også sin egen rute i stedet for en fane."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Przy opcji Dziel automatycznie nowe przeglądarki także dostają własny panel zamiast karty."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Com Dividir automaticamente, novos navegadores também ganham um painel próprio em vez de uma aba."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "При «Разделять автоматически» новые браузеры тоже получают свою панель вместо вкладки."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เมื่อใช้แยกโดยอัตโนมัติ เบราว์เซอร์ใหม่จะได้บานของตัวเองแทนแท็บด้วย"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Otomatik böl ile yeni tarayıcılar da sekme yerine kendi bölmelerini alır."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "З «Ділити автоматично» нові браузери теж отримують власну панель замість вкладки."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Với Tự động chia, trình duyệt mới cũng có ngăn riêng thay vì một tab."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "使用“自动拆分”时，新浏览器也会获得自己的窗格，而不是标签页。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "使用「自動分割」時，新瀏覽器也會取得自己的窗格，而不是分頁。"
           }
         }
       }

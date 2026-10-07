@@ -168,3 +168,26 @@ Open: `none` hides loading but keeps waiting/error/done marks (current); alterna
   as `terminal <term> process wait` and `terminal <term> screen wait --pattern`).
 - Swift: renders agent states today; reading `workspace_status` loading fields and `extra.busy` / `extra.progress`
   waits for the cmux-tui pin cut that carries the Rust PR.
+
+## 10. Agent working vs loading (WORKING-AND-LOADING-INDICATORS, 2026-10-07)
+
+Supersedes "one indicator for every tab loading state" (section 8) for agent work.
+
+- `StatusIndicatorState.working(progress:)`: agent work (acpmux turn `running`, hook `working`, OSC 7501
+  `working`). Drawn as three dots in the neutral accent (theme foreground) that dim one after another
+  (`Glyph.dots`, `Animation.wave`: one `CAReplicatorLayer`, render-server animation); with progress, a still
+  accent ring. No loading style changes it (also `none`). Reduce Motion: three still dots.
+- Page and command loading keep the loading style (thin ring by default). Needs input (`waiting`) is a still
+  attention dot everywhere.
+- Sources: acpmux turn state through the app's single `_acpmux/watch` feed (`AgentTurnStateStore`, local
+  host only); OSC 7501 records from `extra.program_status` on the terminal resource (source `program`, ranked
+  under `agent`). Done (success badge) and error (failure badge, error mark on the row) show until seen:
+  `ProgramStatusSeenStore` keeps this client's seen keys (terminal, record id, `updated_seq`; at most 1024, in the
+  user defaults). Focus, typing, a click or an open of the tab sees them; so does a record that arrives while the
+  tab shows in the key window.
+- acpmux `disconnected` (or `unreachable`) alone looks idle: the next prompt respawns the agent. The error
+  mark shows only when `lastTurn.status` is `failed` (coordinator, 2026-10-07).
+- Settings: `appearance.statusIndicator.showAgentWorkingOnTabs`, `.showPageLoading`. The row's working
+  element is a row-content setting (`sidebar.workspaceRow.working`). Browser loading never reaches the row.
+- Gaps: remote acpmux sessions (another machine's chat tab) have no state; OSC 7501 notifications for
+  blocked/error belong to the daemon notification ledger (owner), not the client.
