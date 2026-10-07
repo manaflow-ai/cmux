@@ -26,7 +26,7 @@ silently queue.
 
 ## Current evidence and selected work
 
-The refreshed D3 matrix at HEAD `0b67aecc0e` reports 85 of 98 parity rows done, with one
+The refreshed D3 matrix at HEAD `f538410565` reports 85 of 98 parity rows done, with one
 implementation gap (the remaining tmux workspace parity), four seam-only rows, four mocked
 platform rows, and four intentional drops. B1 now isolates Stack sessions, binds HostDO placement,
 rejects cross-host reads, enforces strict stream epochs, and rate-limits TURN and pending-snapshot
@@ -78,6 +78,11 @@ The active wave is intentionally independent:
 - `0b67aecc0e` bounds CmuxMobileSSH session output at 256 oldest-first events and closes a stalled
   channel on overflow; the package build and mobile concurrency guard pass. The local TestingMacros
   plugin prevents executing the new focused Swift Testing target.
+- `a6ef9156c0` account-keys remote-config cache entries and only restores them after sign-in; SSH
+  command collection caps each transcript at 4 MiB, closes on overflow, and rejects a stream that
+  ends without its normal close marker. Swift parsing and package build pass.
+- `f538410565` resets account-scoped flags to that account's cache (or empty defaults) before a
+  switched account's remote-config refresh can publish, closing the in-memory account-switch gap.
 
 The dedicated build host was unavailable during the implementation wave (`cmux-lawrence-2` did not
 resolve), so native iOS package targets, tagged pair installs, visual evidence, and live SSH/browser

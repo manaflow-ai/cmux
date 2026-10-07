@@ -1,6 +1,6 @@
 # D3 `dogfood`: parity, device checklist, UI tests, runbook
 
-Status: parity refresh 2026-10-07 on `feat-cmux-next-ios` at `0b67aecc0e` (B1 session/epoch hardening,
+Status: parity refresh 2026-10-07 on `feat-cmux-next-ios` at `f538410565` (B1 session/epoch hardening,
 B2, C3, C12, C14, C16 remote config, D1b, E1 SSH ingress, E3, E4, E5 and F1 are in this ancestry).
 Plan: [PLAN.md](PLAN.md) D3. No tagged build,
 simulator or device run is recorded: the dedicated build host and fleet slot were unavailable, so
@@ -340,7 +340,7 @@ macOS package over CmuxiOSSFTPCore + CmuxiOSTerminalComposeCore 47; scratch pack
 
 The table below is the **historical first-pass** package run from the pre-E3/E4/E5/D1b integration
 state (`b3cffeafeda`, identical to `afbc8c69b3b` after C12). It is useful coverage evidence, but is
-not a test result for current HEAD `0b67aecc0e`.
+not a test result for current HEAD `f538410565`.
 
 | Package | Tests | Result |
 | --- | --- | --- |
@@ -365,7 +365,7 @@ not a test result for current HEAD `0b67aecc0e`.
 Not run here: the `ios/CmuxiOS` test targets (iOS-only package; lanes ran them on macOS through
 scratch packages), native CmuxMobileTunnel tests (the local CLT lacks TestingMacros), and Rust
 (no cargo on this Mac). The current-head backend slice has `35` focused Vitest tests and a clean
-TypeScript typecheck at `0b67aecc0e`.
+TypeScript typecheck at `f538410565`.
 
 Current-head evidence is static plus the focused backend checks above: Swift syntax parsing, scoped iOS package-convention lint,
 `git diff --check`, `check-concurrency.sh`, `check-crash-safety.sh`, and `check-theme-scope.sh`
