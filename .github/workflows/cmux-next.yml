@@ -701,6 +701,15 @@ jobs:
         continue-on-error: true
         run: scripts/cmux-next/check-app-ffi-pin.sh --verify-release
 
+      # plans/cmux-next/daemon-capabilities.json against the lists in
+      # DaemonEndpoint.swift, without a build: check-daemon-capabilities.sh
+      # reads the JSON only inside an app build, so a Swift-only change to the
+      # lists (67b13e24e84d) broke every tagged build first.
+      - name: Daemon capabilities export is fresh
+        id: daemon-capabilities-fresh
+        continue-on-error: true
+        run: python3 scripts/cmux-next/check-daemon-capabilities-fresh.py
+
       # `outcome`, not `conclusion`: continue-on-error makes every conclusion success.
       - name: Fail on any red check
         if: always()
@@ -722,6 +731,7 @@ jobs:
             ${{ steps.checks-structure.outcome }}|Checks job structure
             ${{ steps.tier-routing.outcome }}|Tier routing
             ${{ steps.app-ffi-pin.outcome }}|Check the app FFI pin
+            ${{ steps.daemon-capabilities-fresh.outcome }}|Daemon capabilities export is fresh
         run: |
           failed=()
           # `outcome|name`: an empty outcome (a check that never ran) still names its step.
