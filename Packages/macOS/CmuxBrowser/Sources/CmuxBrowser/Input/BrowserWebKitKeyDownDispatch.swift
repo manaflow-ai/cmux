@@ -205,11 +205,20 @@ extension WKWebView {
 
     /// Starts watching `event`, an automated key-down this web view was just
     /// given, for whether a page handled it. Call it in the same main-actor
-    /// turn as the delivery: WebKit reports the key's outcome only on a
-    /// later turn. ``BrowserAutomationKeyDownOutcome/wasUnhandled(within:)``
+    /// turn as the delivery. ``BrowserAutomationKeyDownOutcome/wasUnhandled(within:)``
     /// then says whether WebKit sent the key back to the app (no page
-    /// handled it), which it does before it runs its callback for the end
-    /// of the pending key events (`_doAfterProcessingAllPendingKeyEvents:`).
+    /// handled it).
+    ///
+    /// WebKit sends an unhandled key back before it runs its callback for
+    /// the end of the pending key events (`_doAfterProcessingAllPendingKeyEvents:`),
+    /// and the app's drop of that resend resolves the outcome at once. But
+    /// in editable content of a web view in a window (the app's case) WebKit
+    /// first gives the key to the window's input method and queues it for
+    /// the page only on a later turn: a callback asked for before that runs
+    /// at once, with no key pending, and says nothing about this key. So the
+    /// callback is asked for again each time the main run loop is about to
+    /// wait, until it no longer runs at once, which means WebKit has queued
+    /// the key; its run then ends the key's processing.
     public func observeAutomationKeyDownOutcome(_ event: NSEvent) -> BrowserAutomationKeyDownOutcome {
         let outcome = BrowserAutomationKeyDownOutcome(event: event)
         let selector = NSSelectorFromString("_doAfterProcessingAllPendingKeyEvents:")
@@ -218,17 +227,10 @@ extension WKWebView {
             outcome.resolve(unhandled: false)
             return outcome
         }
-        BrowserAutomationKeyResends.shared.watch(event)
-        let block: @convention(block) () -> Void = {
-            MainActor.assumeIsolated {
-                let reported = BrowserAutomationKeyResends.shared.finish(event)
-                // WebKit makes the key the app's current event before it sends
-                // it back; the app's drop (`reported`) names it exactly.
-                let current = (NSApp as NSApplication?)?.currentEvent === event
-                outcome.resolve(unhandled: reported || current)
-            }
+        BrowserAutomationKeyResends.shared.watch(event, outcome: outcome)
+        if !outcome.armPendingKeyEventsCallback(on: self, selector: selector) {
+            outcome.armWhenTheRunLoopWaits(on: self, selector: selector)
         }
-        _ = perform(selector, with: block)
         return outcome
     }
 
@@ -466,15 +468,77 @@ public final class BrowserAutomationKeyDownOutcome {
     private let event: NSEvent
     private let reported = BrowserReplLatch()
     private var unhandled = false
+    private var waitObserver: CFRunLoopObserver?
 
     init(event: NSEvent) {
         self.event = event
     }
 
     func resolve(unhandled: Bool) {
+        stopWaitingForTheQueue()
         guard !reported.isSignaled else { return }
         self.unhandled = unhandled
         reported.signal()
+    }
+
+    /// Asks WebKit for its callback after the pending key events. Returns
+    /// false when the callback ran at once (no key was pending, so this key
+    /// is not queued yet) and resolved nothing.
+    func armPendingKeyEventsCallback(on webView: WKWebView, selector: Selector) -> Bool {
+        guard !reported.isSignaled else { return true }
+        var arming = true
+        var ranAtOnce = false
+        let event = self.event
+        let block: @convention(block) () -> Void = { [weak self] in
+            MainActor.assumeIsolated {
+                if arming {
+                    ranAtOnce = true
+                    return
+                }
+                let resent = BrowserAutomationKeyResends.shared.finish(event)
+                // WebKit makes the key the app's current event before it
+                // sends it back; the app's drop (`resent`) names it exactly.
+                let current = (NSApp as NSApplication?)?.currentEvent === event
+                self?.resolve(unhandled: resent || current)
+            }
+        }
+        _ = webView.perform(selector, with: block)
+        arming = false
+        return !ranAtOnce
+    }
+
+    /// Asks for the callback again each time the main run loop is about to
+    /// wait (the input method's answer comes in between), until WebKit has
+    /// queued the key or the outcome is resolved.
+    func armWhenTheRunLoopWaits(on webView: WKWebView, selector: Selector) {
+        guard waitObserver == nil, !reported.isSignaled else { return }
+        let observer = CFRunLoopObserverCreateWithHandler(
+            kCFAllocatorDefault, CFRunLoopActivity.beforeWaiting.rawValue, true, 0
+        ) { [weak self, weak webView] observer, _ in
+            MainActor.assumeIsolated {
+                guard let self else {
+                    // An outcome nobody kept: stop asking for it.
+                    if let observer { CFRunLoopObserverInvalidate(observer) }
+                    return
+                }
+                guard let webView else {
+                    self.stopWaitingForTheQueue()
+                    return
+                }
+                if self.armPendingKeyEventsCallback(on: webView, selector: selector) {
+                    self.stopWaitingForTheQueue()
+                }
+            }
+        }
+        guard let observer else { return }
+        waitObserver = observer
+        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+    }
+
+    private func stopWaitingForTheQueue() {
+        guard let observer = waitObserver else { return }
+        waitObserver = nil
+        CFRunLoopObserverInvalidate(observer)
     }
 
     /// `true` once WebKit reported that no page handled the key; `false`
@@ -485,6 +549,7 @@ public final class BrowserAutomationKeyDownOutcome {
         let clock = ContinuousClock()
         guard await reported.wait(until: clock.now.advanced(by: timeout), clock: clock, honoringCancellation: false) else {
             BrowserAutomationKeyResends.shared.finish(event)
+            stopWaitingForTheQueue()
             return false
         }
         return unhandled
@@ -497,15 +562,23 @@ public final class BrowserAutomationKeyDownOutcome {
 final class BrowserAutomationKeyResends {
     static let shared = BrowserAutomationKeyResends()
 
-    private var watched: [ObjectIdentifier: (event: NSEvent, resent: Bool)] = [:]
+    private var watched: [ObjectIdentifier: (event: NSEvent, outcome: BrowserAutomationKeyDownOutcome?, resent: Bool)] = [:]
 
-    func watch(_ event: NSEvent) {
-        watched[ObjectIdentifier(event)] = (event, false)
+    func watch(_ event: NSEvent, outcome: BrowserAutomationKeyDownOutcome? = nil) {
+        watched[ObjectIdentifier(event)] = (event, outcome, false)
     }
 
+    /// WebKit sent `event` back to the app: no page handled it. Its outcome
+    /// is resolved now, whenever WebKit's pending-keys callback comes.
     func noteResent(_ event: NSEvent) {
         let id = ObjectIdentifier(event)
-        if let entry = watched[id], entry.event === event { watched[id] = (event, true) }
+        guard let entry = watched[id], entry.event === event else { return }
+        if let outcome = entry.outcome {
+            watched.removeValue(forKey: id)
+            outcome.resolve(unhandled: true)
+        } else {
+            watched[id] = (event, nil, true)
+        }
     }
 
     /// Stops watching `event`; returns whether its resend was dropped.

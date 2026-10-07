@@ -211,6 +211,10 @@ session's virtual one, `cmux browser press` carries no session, and as
 agent input it never reaches the system pasteboard (the press has already
 returned). In any other tab they run the
 web view's own Copy, Cut and Paste. A key whose outcome WebKit has not reported within 5 s runs nothing.
+The outcome is judged only once WebKit has queued the key for the page: in
+editable content of a web view in a window, WebKit first gives the key to the
+window's input method, and a judgment before that would call every shortcut
+handled. WebKit's resend of an unhandled key decides the outcome at once.
 
 ## Hibernated and crashed tabs
 
