@@ -217,6 +217,9 @@ pub enum Command {
     /// The daemon: run, status, shutdown, config, harnesses, reload, models, schema.
     #[command(subcommand, alias = "d")]
     Daemon(DaemonCmd),
+    /// Serve the local CodeRouter in a separate process.
+    #[command(subcommand)]
+    Router(RouterCmd),
     // Old spellings, kept working but hidden from help.
     #[command(hide = true)]
     Tail {
@@ -694,6 +697,13 @@ pub fn flatten(c: Command) -> Command {
             DaemonCmd::Models { refresh } => Command::Models { refresh },
         },
         Command::Host(pc) => Command::Peer(pc),
+        Command::Router(RouterCmd::Serve) => Command::Router(RouterCmd::Serve),
         other => other,
     }
+}
+
+#[derive(Subcommand)]
+pub enum RouterCmd {
+    /// Start the phase-one local router listeners.
+    Serve,
 }

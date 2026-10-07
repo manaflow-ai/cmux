@@ -2,12 +2,13 @@
 // A small GFM-subset Markdown renderer for assistant messages. It produces the same
 // DOM shape for every transcript: headings, paragraphs (single newlines are line
 // breaks), nested ordered/bullet/task lists, blockquotes, rules, aligned tables, fenced
-// code blocks rendered by @pierre/diffs (see CodeBlock.tsx), and `$…$`, `$$…$$`, `\(…\)`
+// code blocks rendered by @pierre/diffs (see CodeBlock.tsx), vega-lite charts (DiagramBlock.tsx), and `$…$`, `$$…$$`, `\(…\)`
 // and `\[…\]` math typeset by KaTeX (see Math.tsx).
-import { Fragment, memo, useContext, useId, useMemo, useRef, type ReactNode } from "react";
+import { Fragment, memo, useId, useMemo, useRef, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { safeHref } from "../model";
 import { CodeBlock } from "./CodeBlock";
+import { DiagramBlock, isChart } from "./DiagramBlock";
 import { CodeHandoff, PlainCode } from "./StreamingCode";
 import type { Reveal } from "./RevealedMarkdown";
 import { ArxivMark, FileDoc, GitHubMark, Globe, ImageIcon } from "./icons";
@@ -16,10 +17,10 @@ import { normalizeMath } from "./mathDelimiters";
 import { IncrementalMarkdown, type KeyedBlock } from "./incrementalMarkdown";
 import { linkedText, PathChip, UrlChip } from "../chips/LinkChips";
 import { codePath, linkPath } from "../chips/paths";
-import { ReplyImage } from "../chips/ReplyImage";
+import { OpenableImage, ReplyImage } from "../chips/ReplyImage";
 import "../../../markdown-task-checkbox.css";
 import { TaskCheckbox } from "../../../ui/TaskCheckbox";
-import { ImageViewerContext } from "./imageViewerContext";
+import { githubReferences } from "../../../githubReferences";
 
 export type Align = "left" | "center" | "right" | null;
 
@@ -247,6 +248,10 @@ export type InlineOptions = {
   dataRefs?: string[];
   /** Data URLs past the reply's total budget (MAX_REPLY_DATA_URLS): drawn as their name. */
   overBudget?: Set<string>;
+  /** The workspace's GitHub `owner/repo`, used for bare issue references. */
+  githubRepository?: string;
+  /** Link GitHub references in prose; labels of an outer link disable this. */
+  linkGithubReferences?: boolean;
 };
 
 export type FootnoteNumbers = { numbers: Map<string, number>; anchor: (id: string) => string };
@@ -340,6 +345,29 @@ export const linkIcon = (href: string) => {
   return <Globe size={16} strokeWidth={1.1} className="cv-link__icon" />;
 };
 
+function linkedGithubText(text: string, key: string, repository?: string, enabled = true): ReactNode[] {
+  if (!enabled) return linkedText(text, key);
+  const refs = githubReferences(text, repository);
+  if (!refs.length) return linkedText(text, key);
+  const out: ReactNode[] = [];
+  let at = 0;
+  refs.forEach((reference, index) => {
+    if (reference.start > at) out.push(...linkedText(text.slice(at, reference.start), `${key}-${index}-before`));
+    out.push(
+      <UrlChip
+        key={`${key}-${index}`}
+        href={reference.href}
+        icon={<GitHubMark size={13} className="cv-link__icon cv-link__icon--gh" />}
+      >
+        {reference.text}
+      </UrlChip>,
+    );
+    at = reference.end;
+  });
+  if (at < text.length) out.push(...linkedText(text.slice(at), `${key}-after`));
+  return out;
+}
+
 // Groups: code, bold, strikethrough, italic, image or link, line break, `$$…$$` inside a paragraph,
 // `$…$` (Pandoc's rule: no space inside either dollar and no digit after the closer, so
 // "$5 and $10" stays text; no backtick inside, so "$5 or `$PATH`" does too), and a backslash
@@ -356,7 +384,15 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
   let last = 0;
   let k = 0;
   for (const m of text.matchAll(INLINE_RE)) {
-    if (m.index! > last) out.push(...linkedText(text.slice(last, m.index), `t${k++}`));
+    if (m.index! > last)
+      out.push(
+        ...linkedGithubText(
+          text.slice(last, m.index),
+          `t${k++}`,
+          opts.githubRepository,
+          opts.linkGithubReferences !== false,
+        ),
+      );
     const t = m[0];
     if (m[1]) {
       const path = codePath(t.slice(1, -1));
@@ -379,15 +415,16 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
       // A local path is a path chip; a link the pane will not open draws as its text; a web
       // link is a chip with its site's mark (chips/LinkChips.tsx).
       const path = linkPath(lm[2]);
-      if (path) out.push(<PathChip key={k++} path={path} label={renderInline(lm[1], opts)} />);
+      const labelOpts = { ...opts, githubRepository: undefined, linkGithubReferences: false };
+      if (path) out.push(<PathChip key={k++} path={path} label={renderInline(lm[1], labelOpts)} />);
       else if (linkKind(lm[2]) === "file")
         out.push(
           <span key={k++} className="cv-link is-file" title={lm[2]}>
             {(opts.linkIcon ?? linkIcon)(lm[2])}
-            {renderInline(lm[1], opts)}
+            {renderInline(lm[1], labelOpts)}
           </span>,
         );
-      else if (!href) out.push(<Fragment key={k++}>{renderInline(lm[1], opts)}</Fragment>);
+      else if (!href) out.push(<Fragment key={k++}>{renderInline(lm[1], labelOpts)}</Fragment>);
       else
         out.push(
           <UrlChip
@@ -395,7 +432,7 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
             href={href}
             icon={linkKind(href) === "web" ? undefined : (opts.linkIcon ?? linkIcon)(href)}
           >
-            {renderInline(lm[1], opts)}
+            {renderInline(lm[1], labelOpts)}
           </UrlChip>,
         );
     } else if (m[6]) out.push(<br key={k++} />);
@@ -423,7 +460,10 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
     }
     last = m.index! + t.length;
   }
-  if (last < text.length) out.push(...linkedText(text.slice(last), `t${k++}`));
+  if (last < text.length)
+    out.push(
+      ...linkedGithubText(text.slice(last), `t${k++}`, opts.githubRepository, opts.linkGithubReferences !== false),
+    );
   return out;
 }
 
@@ -456,33 +496,24 @@ export function inlineImages(
 /// `![alt](src)`: a data URL image draws inline, and a click opens it in the image viewer; a web
 /// image the pane cannot load draws as a link to it, named by its alt text or file name.
 function InlineImage({ source, opts }: { source: string; opts: InlineOptions }) {
-  const t = useT();
-  const openImage = useContext(ImageViewerContext);
   const [, alt = "", written = ""] = source.match(/^!\[([^\]]*)\]\((.+)\)$/) ?? [];
   const src = written.startsWith(DATA_REF) ? (opts.dataRefs?.[Number(written.slice(DATA_REF.length))] ?? "") : written;
   if (opts.overBudget?.has(src)) return <OversizedImage alt={alt} opts={opts} />;
   if (src === OVERSIZED_DATA_URL || (INLINE_IMAGE.test(src) && src.length > MAX_DATA_URL_LENGTH))
     return <OversizedImage alt={alt} opts={opts} />;
-  if (INLINE_IMAGE.test(src)) {
-    const image = <img className="cv-img" src={src} alt={alt} />;
-    if (!openImage) return image;
-    return (
-      <button type="button" className="cv-img-open" title={alt || t("image.view")} onClick={() => openImage(src, alt)}>
-        {image}
-      </button>
-    );
-  }
+  if (INLINE_IMAGE.test(src)) return <OpenableImage src={src} alt={alt} />;
   const name = alt || src.split(/[?#]/)[0]!.split("/").filter(Boolean).at(-1) || src;
+  const labelOpts = { ...opts, githubRepository: undefined, linkGithubReferences: false };
   const href = safeHref(src);
   const fallback = !href ? (
     <span className="cv-link is-image" title={src}>
       <ImageIcon size={16} className="cv-link__icon" />
-      {renderInline(name, opts)}
+      {renderInline(name, labelOpts)}
     </span>
   ) : (
     <a className="cv-link is-image" href={href} rel="noreferrer" title={src}>
       <ImageIcon size={16} className="cv-link__icon" />
-      {renderInline(name, opts)}
+      {renderInline(name, labelOpts)}
     </a>
   );
   // A file inside the session's folders, or a web image, loads through the host (D5).
@@ -496,7 +527,9 @@ function OversizedImage({ alt, opts }: { alt: string; opts: InlineOptions }) {
   return (
     <span className="cv-link is-image" title={t("markdown.imageTooLarge")}>
       <ImageIcon size={16} className="cv-link__icon" />
-      {alt ? renderInline(alt, opts) : t("markdown.imageTooLarge")}
+      {alt
+        ? renderInline(alt, { ...opts, githubRepository: undefined, linkGithubReferences: false })
+        : t("markdown.imageTooLarge")}
     </span>
   );
 }
@@ -596,6 +629,7 @@ function Block({
     }
     case "code":
       if (code === "open") return <PlainCode code={block.code} lang={block.lang} open />;
+      if (isChart(block.lang, block.code)) return <DiagramBlock lang={block.lang} code={block.code} />;
       if (code === "handoff") return <CodeHandoff code={block.code} lang={block.lang} />;
       return <CodeBlock code={block.code} lang={block.lang} />;
     case "math":
@@ -682,6 +716,7 @@ export function Markdown({
   fresh,
   now = 0,
   waiting = false,
+  githubRepository,
 }: MarkdownProps) {
   const parser = useRef<IncrementalMarkdown | null>(null);
   parser.current ??= new IncrementalMarkdown();
@@ -699,8 +734,13 @@ export function Markdown({
   const opts = useMemo<InlineOptions>(() => {
     const ids = noteIds ? noteIds.split(" ") : [];
     const numbers = new Map(ids.map((id, index) => [id, index + 1]));
-    return { linkIcon, notes: { numbers, anchor: (id) => `${notePrefix}fn-${id}` }, overBudget };
-  }, [linkIcon, noteIds, notePrefix, overBudget]);
+    return {
+      linkIcon,
+      githubRepository,
+      notes: { numbers, anchor: (id) => `${notePrefix}fn-${id}` },
+      overBudget,
+    };
+  }, [githubRepository, linkIcon, noteIds, notePrefix, overBudget]);
   // Fences this reply drew open: they hand over to the highlighted card once, when they close.
   const streamedFences = useRef(new Set<string>());
   const freshChars = fresh?.reduce((sum, step) => sum + step.count, 0) ?? 0;
