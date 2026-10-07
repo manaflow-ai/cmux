@@ -33,7 +33,7 @@ public final class PageHostPool {
     var claimed: [ObjectIdentifier: WeakHost] = [:]
     var building = false
     var activityMark: UInt64 = 0
-    var memoryPressure: DispatchSourceMemoryPressure?
+    var memoryPressure: (any DispatchSourceMemoryPressure)?
     var windowObservers: [any NSObjectProtocol] = []
     public internal(set) var isLikely = false
     public internal(set) weak var target: NSWindow?
