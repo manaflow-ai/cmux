@@ -772,3 +772,114 @@ fn move_tab_to_column_pins_the_new_column_with_its_role() {
     assert_eq!(columns.len(), 2);
     assert_eq!(columns[1]["dock"], json!({"edge": "left", "mode": "docked", "role": "agent_chat"}));
 }
+
+// `permanent-dock-v1` (Home's conversation list, 2026-10-06): a docked
+// column marked permanent stays docked on its edge for every client, CLI
+// included. Its mode may change; undocking, moving it to another edge,
+// replacing it with another column, or a close or move that would remove it
+// (closing its pane, or the last scrolling column beside it) is refused
+// with `dock-column-permanent`.
+
+fn permanent(edge: &str, mode: &str) -> Option<Value> {
+    Some(json!({"edge": edge, "mode": mode, "permanent": true}))
+}
+
+fn refused_permanent(response: &Value) {
+    assert_eq!(response["ok"], false, "{response}");
+    assert!(response.to_string().contains("dock-column-permanent"), "{response}");
+}
+
+impl Wire {
+    fn set_permanent(&mut self, pane: PaneId) -> Value {
+        self.ok(json!({
+            "cmd": "set-column-dock", "pane": pane, "dock": true, "edge": "left", "mode": "docked", "permanent": true,
+        }))
+    }
+}
+
+#[test]
+fn permanent_dock_capability_is_advertised() {
+    let mut wire = Wire::new();
+    let identity = wire.ok(json!({"cmd": "identify"}));
+    assert!(
+        identity["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|capability| capability == "permanent-dock-v1")
+    );
+}
+
+#[test]
+fn permanent_dock_column_cannot_be_undocked_moved_or_replaced() {
+    let (mut wire, panes) = Wire::with_columns(3);
+    let data = wire.set_permanent(panes[0]);
+    assert_eq!(data["dock"], json!({"edge": "left", "mode": "docked", "permanent": true}));
+    assert_eq!(wire.dock(), vec![permanent("left", "docked"), None, None]);
+
+    refused_permanent(
+        &wire.send(json!({"cmd": "set-column-dock", "pane": panes[0], "dock": false})),
+    );
+    refused_permanent(
+        &wire.send(
+            json!({"cmd": "set-column-dock", "pane": panes[0], "dock": true, "edge": "right"}),
+        ),
+    );
+    refused_permanent(
+        &wire.send(
+            json!({"cmd": "set-column-dock", "pane": panes[1], "dock": true, "edge": "left"}),
+        ),
+    );
+    assert_eq!(wire.dock(), vec![permanent("left", "docked"), None, None]);
+
+    // The mode may change; an omitted `permanent` keeps the column permanent.
+    wire.set_dock(panes[0], "left", "overlay");
+    assert_eq!(wire.dock(), vec![permanent("left", "overlay"), None, None]);
+    // Another edge stays free for other columns.
+    wire.set_dock(panes[2], "right", "docked");
+    assert_eq!(wire.dock(), vec![permanent("left", "overlay"), None, dock("right", "docked")]);
+}
+
+#[test]
+fn permanent_dock_column_refuses_closes_that_would_remove_it() {
+    let (mut wire, panes) = Wire::with_columns(3);
+    wire.set_permanent(panes[0]);
+    refused_permanent(&wire.send(json!({"cmd": "close-pane", "pane": panes[0]})));
+    assert_eq!(wire.columns().len(), 3);
+    wire.ok(json!({"cmd": "close-pane", "pane": panes[2]}));
+    // The last scrolling column beside it: closing it would collapse the screen to one column.
+    refused_permanent(&wire.send(json!({"cmd": "close-pane", "pane": panes[1]})));
+    assert_eq!(wire.dock(), vec![permanent("left", "docked"), None]);
+}
+
+#[test]
+fn permanent_dock_column_refuses_a_tab_move_that_empties_it() {
+    let (mut wire, panes) = Wire::with_columns(2);
+    wire.set_permanent(panes[0]);
+    let tab = wire.mux.with_state(|state| state.panes[&panes[0]].tabs[0]);
+    let data = wire.ok(json!({"cmd": "move-tab", "surface": tab, "pane": panes[1], "index": 0}));
+    assert_eq!(data["moved"], false, "the move would remove the permanent column: {data}");
+    assert_eq!(wire.dock(), vec![permanent("left", "docked"), None]);
+}
+
+#[test]
+fn permanent_flag_is_stored_only_when_set() {
+    use crate::model::{ColumnDock, DockEdge, DockMode};
+    let pinned = ColumnDock {
+        edge: DockEdge::Left,
+        mode: DockMode::Docked,
+        role: None,
+        permanent: true,
+    };
+    let text = serde_json::to_string(&pinned).unwrap();
+    assert!(text.contains("\"permanent\":true"), "{text}");
+    let plain = ColumnDock {
+        edge: DockEdge::Left,
+        mode: DockMode::Docked,
+        role: None,
+        permanent: false,
+    };
+    assert!(!serde_json::to_string(&plain).unwrap().contains("permanent"), "omitted when false");
+    let old: ColumnDock = serde_json::from_str(r#"{"edge":"left","mode":"docked"}"#).unwrap();
+    assert!(!old.permanent, "a record written before the flag reads as not permanent");
+}

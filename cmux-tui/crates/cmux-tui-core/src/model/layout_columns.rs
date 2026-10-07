@@ -199,9 +199,10 @@ where
 }
 
 /// The dock flag of one viewport column, as stored and as sent on the wire
-/// (`{"edge":"left"|"right","mode":"docked"|"overlay","role":"agent_chat"}`,
-/// `role` omitted when unset). Unknown members are ignored so a later build
-/// may add one without making this build unable to read the record.
+/// (`{"edge":"left"|"right","mode":"docked"|"overlay","role":"agent_chat","permanent":true}`,
+/// `role` omitted when unset and `permanent` when false). Unknown members are
+/// ignored so a later build may add one without making this build unable to
+/// read the record.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ColumnDock {
     pub edge: DockEdge,
@@ -212,12 +213,22 @@ pub struct ColumnDock {
         deserialize_with = "lenient_dock_role"
     )]
     pub role: Option<DockRole>,
+    /// `permanent-dock-v1`: the column stays docked on `edge` for every
+    /// client (no undock, other edge, replacement, or a close or move that
+    /// would remove it; see `mux::dock_columns`). Omitted when false, so
+    /// records and clients without the capability read it as before.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub permanent: bool,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 impl ColumnDock {
-    /// A dock with no role.
+    /// A dock with no role that is not permanent.
     pub fn new(edge: DockEdge, mode: DockMode) -> Self {
-        Self { edge, mode, role: None }
+        Self { edge, mode, role: None, permanent: false }
     }
 }
 
