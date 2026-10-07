@@ -14,6 +14,9 @@ public nonisolated enum RemoteRdControl: Sendable, Equatable {
     case refused(reason: String)
     case ended(reason: String)
     case stats(RemoteRdHostStats)
+    /// A message of the session's service (an rb/1 body), passed through
+    /// untouched (rd change B3.2). Red-commit placeholder: never parsed yet.
+    case service(service: String, body: RemoteRdJSON)
     /// A message type this viewer does not know (a newer host); ignored.
     case unknown(String)
 }
@@ -67,6 +70,9 @@ nonisolated extension RemoteRdControl: Codable {
         case let .stats(stats):
             try tag.encode("stats", forKey: .t)
             try stats.encode(to: encoder)
+        case let .service(service, body):
+            try tag.encode("service", forKey: .t)
+            _ = (service, body)
         case let .unknown(name):
             try tag.encode(name, forKey: .t)
         }
