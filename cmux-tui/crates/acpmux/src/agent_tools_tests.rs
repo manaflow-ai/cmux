@@ -79,6 +79,29 @@ fn the_cmux_server_needs_mcp_enabled_and_a_missing_binary_is_left_out() {
 }
 
 #[test]
+fn the_render_server_comes_with_cmux_and_needs_no_mcp_switch() {
+    // `cmux mcp serve --render-only` reaches nothing, so it is on wherever the app ships cmux,
+    // and Claude Code may call its one tool without a permission card.
+    let state = Temp::new();
+    let bin = bin_with(&["cmux"]);
+    let tools = resolve(&inputs(bin.path(), None, state.path()));
+    let names: Vec<&str> = tools.servers.iter().map(|s| s.name.as_str()).collect();
+    assert_eq!(names, [crate::render_mcp::SERVER_NAME]);
+    assert_eq!(tools.servers[0].args, ["mcp", "serve", "--render-only"]);
+    assert_eq!(tools.acp_servers()[0]["name"], crate::render_mcp::SERVER_NAME);
+    let args = tools.claude_args();
+    let allowed = args.iter().position(|a| a == "--allowedTools").expect("the render tool is allowed");
+    assert_eq!(args[allowed + 1], crate::render_mcp::CLAUDE_TOOL);
+    let config = args.iter().position(|a| a == "--mcp-config").unwrap();
+    let config: Value = serde_json::from_str(&args[config + 1]).unwrap();
+    assert_eq!(config["mcpServers"]["cmux-render"]["args"], json!(["mcp", "serve", "--render-only"]));
+    // With MCP on, the full cmux server comes too, each once.
+    let on = resolve(&inputs(bin.path(), Some("{\"mcp\": {\"enabled\": true}}"), state.path()));
+    let names: Vec<&str> = on.servers.iter().map(|s| s.name.as_str()).collect();
+    assert_eq!(names, ["cmux", crate::render_mcp::SERVER_NAME]);
+}
+
+#[test]
 fn the_switch_turns_everything_off() {
     let bin = bin_with(&["cmux-cua", "cmux"]);
     let state = Temp::new();
