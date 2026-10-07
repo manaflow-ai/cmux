@@ -11,6 +11,7 @@ mod adoption;
 mod handoff;
 mod harness_view;
 mod idle;
+mod launch_roots;
 mod launchers;
 pub use handoff::{HANDOFF_OPERATIONS, MAX_CAPSULE_BYTES};
 mod hosts;
