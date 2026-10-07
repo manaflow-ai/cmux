@@ -17,9 +17,10 @@
 #
 # Repository secrets: CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID.
 # Environment secrets (each environment): CMUX_VM_UPSTREAM_API_KEY,
-# CMUX_VM_STACK_PROJECT_ID, CMUX_VM_STACK_SECRET_SERVER_KEY, and
-# CMUX_VM_DATABASE_URL (read only by the hyperdrive ensure job). No Hyperdrive
-# id is committed: deploys resolve the config named after the environment.
+# CMUX_VM_STACK_PROJECT_ID, CMUX_VM_STACK_SECRET_SERVER_KEY and
+# CMUX_VM_DATABASE_URL. No Hyperdrive id is committed: each deploy first
+# creates or updates the Hyperdrive config named after the environment from
+# CMUX_VM_DATABASE_URL (idempotent), then resolves its id by that name.
 #
 # Manual runs (workflow_dispatch) choose one read-only or setup action:
 #   cloudflare-preflight  token, Workers scripts and Hyperdrive list checks
@@ -235,6 +236,7 @@ jobs:
           CMUX_VM_UPSTREAM_API_KEY: ${{ secrets.CMUX_VM_UPSTREAM_API_KEY }}
           CMUX_VM_STACK_PROJECT_ID: ${{ secrets.CMUX_VM_STACK_PROJECT_ID }}
           CMUX_VM_STACK_SECRET_SERVER_KEY: ${{ secrets.CMUX_VM_STACK_SECRET_SERVER_KEY }}
+          CMUX_VM_DATABASE_URL: ${{ secrets.CMUX_VM_DATABASE_URL }}
         run: bash scripts/deploy.sh
 
   deploy-staging:
@@ -286,4 +288,5 @@ jobs:
           CMUX_VM_UPSTREAM_API_KEY: ${{ secrets.CMUX_VM_UPSTREAM_API_KEY }}
           CMUX_VM_STACK_PROJECT_ID: ${{ secrets.CMUX_VM_STACK_PROJECT_ID }}
           CMUX_VM_STACK_SECRET_SERVER_KEY: ${{ secrets.CMUX_VM_STACK_SECRET_SERVER_KEY }}
+          CMUX_VM_DATABASE_URL: ${{ secrets.CMUX_VM_DATABASE_URL }}
         run: bash scripts/deploy.sh

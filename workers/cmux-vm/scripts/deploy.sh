@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Deploys the Worker to $TARGET (preview or staging) and installs its secrets.
-# CI only. The Hyperdrive id is resolved by name (cmux-vm-$TARGET) at deploy
-# time, and secret values travel to wrangler in a 0600 file that is removed
-# afterwards; they never appear in argv or logs.
+# CI only. First it ensures the Hyperdrive config cmux-vm-$TARGET from
+# CMUX_VM_DATABASE_URL (create if missing, else rewrite its origin: idempotent),
+# then resolves its id by name, so no id is committed. Secret values travel to
+# wrangler in a 0600 file that is removed afterwards; they never appear in
+# argv or logs.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -12,7 +14,7 @@ case "${TARGET:-}" in
 esac
 
 missing=()
-for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID CMUX_VM_UPSTREAM_API_KEY CMUX_VM_STACK_PROJECT_ID CMUX_VM_STACK_SECRET_SERVER_KEY; do
+for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID CMUX_VM_DATABASE_URL CMUX_VM_UPSTREAM_API_KEY CMUX_VM_STACK_PROJECT_ID CMUX_VM_STACK_SECRET_SERVER_KEY; do
   [ -n "${!name:-}" ] || missing+=("$name")
 done
 if [ "${#missing[@]}" -gt 0 ]; then
@@ -20,6 +22,7 @@ if [ "${#missing[@]}" -gt 0 ]; then
   exit 1
 fi
 
+bash scripts/hyperdrive.sh ensure "cmux-vm-$TARGET"
 hyperdrive_id="$(bash scripts/hyperdrive.sh resolve "cmux-vm-$TARGET")"
 node scripts/wrangler-config.mjs "$TARGET" "$hyperdrive_id"
 
