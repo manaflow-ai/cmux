@@ -106,7 +106,22 @@ fn a_named_pane_wins_over_the_callers_terminal() {
         .iter()
         .find(|request| request["operation"] == "tab.get" && request["params"]["pane"] == PANE)
         .unwrap_or_else(|| panic!("no tab.get of the named pane: {:?}", run.daemon));
+    // The daemon refuses `tab: current` without every parent: the CLI reads
+    // the named pane's own screen and workspace first.
     assert_eq!(lookup["params"]["tab"], "current", "{lookup}");
+    assert_eq!(lookup["params"]["screen"], SCREEN, "{lookup}");
+    assert_eq!(lookup["params"]["workspace"], WORKSPACE, "{lookup}");
+}
+
+#[test]
+fn a_named_screen_opens_in_its_shown_pane() {
+    let run = Run::new(true).cli(
+        &["--json", "tab", "create", "browser", "--url", URL, "--screen", SCREEN],
+        Some(CALLER_TERMINAL),
+    );
+    assert!(run.output.status.success(), "{}", run.stderr());
+    let [call] = run.app.as_slice() else { panic!("one app call expected: {:?}", run.app) };
+    assert_eq!(call["params"]["target"], format!("tab:{SHOWN_TAB}"), "{call}");
 }
 
 #[test]
@@ -335,12 +350,15 @@ fn fake_daemon(socket: &Path) -> JoinHandle<Vec<Value>> {
         while reader.read_line(&mut line).unwrap_or(0) > 0 {
             let request: Value = serde_json::from_str(&line).expect("CLI sent invalid JSON");
             line.clear();
-            let result = daemon_result(&request);
+            let result = match incomplete_chain(&request["params"]) {
+                Some(message) => Err(("selector.invalid", message)),
+                None => daemon_result(&request).map_err(|message| ("resource.not_found", message)),
+            };
             let response = match result {
                 Ok(result) => json!({"protocol": "cmux.protocol/2", "type": "response",
                     "id": request["id"], "ok": true, "result": result}),
-                Err(message) => json!({"protocol": "cmux.protocol/2", "type": "response",
-                    "id": request["id"], "ok": false, "error": {"code": "resource.not_found",
+                Err((code, message)) => json!({"protocol": "cmux.protocol/2", "type": "response",
+                    "id": request["id"], "ok": false, "error": {"code": code,
                     "message": message, "details": {}, "retryable": false}}),
             };
             requests.push(request);
@@ -350,6 +368,25 @@ fn fake_daemon(socket: &Path) -> JoinHandle<Vec<Value>> {
         }
         requests
     })
+}
+
+/// The real daemon's chain rule (resource_selector.rs): a `current` or
+/// name selector needs every structural parent above it; an exact id
+/// stands alone.
+fn incomplete_chain(params: &Value) -> Option<String> {
+    let levels = ["workspace", "screen", "pane", "tab"];
+    for (index, kind) in levels.iter().enumerate() {
+        let Some(raw) = params[*kind].as_str() else { continue };
+        if raw.starts_with(&format!("{}_", if *kind == "workspace" { "ws" } else { kind })) {
+            continue;
+        }
+        if let Some(missing) =
+            levels[..index].iter().rev().find(|parent| params[**parent].is_null())
+        {
+            return Some(format!("{kind} current/name selector requires a {missing} selector"));
+        }
+    }
+    None
 }
 
 fn daemon_result(request: &Value) -> Result<Value, String> {
@@ -392,7 +429,13 @@ fn app_response(mode: AppMode, request: &Value) -> Value {
             "message": HOME_REFUSAL,
             "data": {"action": "openBrowser", "reason": "This page has no tabs."}}});
     }
-    let created = if params["action"] == "openBrowser" { json!([NEW_TAB]) } else { json!([]) };
+    // The real app maps created ids only after a waited run settles; a run
+    // that does not wait answers `created: []` at once.
+    let created = if params["action"] == "openBrowser" && params["wait"] == true {
+        json!([NEW_TAB])
+    } else {
+        json!([])
+    };
     json!({"id": request["id"], "ok": true, "result": {"action": params["action"], "ran": true,
         "waited": true, "created": created, "replayed": false}})
 }
