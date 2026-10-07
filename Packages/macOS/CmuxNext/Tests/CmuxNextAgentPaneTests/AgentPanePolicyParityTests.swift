@@ -79,47 +79,67 @@ import Testing
         for (method, shape) in AcpmuxPaneMethods.replyShapes { #expect(Self.same(shapes[method], encode(shape)), "\(method)") }
     }
 
-    @Test func frames() throws {
-        for c in try Self.cases("frames.json") {
-            let name = c["name"] as? String ?? "?"
-            let text = try #require(c["text"] as? String)
-            let got = AcpmuxPaneMethods.decide(text, isFirst: c["first"] as? Bool ?? false, localAppToken: c["token"] as? String)
-            let expect = try #require(c["expect"] as? [String: Any])
-            switch got {
-            case .send(let sent):
-                if expect["send"] as? String == "unchanged" {
-                    #expect(sent == text, "\(name)")
-                } else {
-                    let parsed = try? JSONSerialization.jsonObject(with: Data(sent.utf8))
-                    #expect(expect["send"] != nil && Self.same(parsed, expect["send"]), "\(name): sent \(sent)")
-                }
-            case .refuse(let error, let method, let requestID):
-                #expect(error.rawValue == expect["refuse"] as? String, "\(name): \(error.rawValue)")
-                #expect(method == expect["method"] as? String, "\(name) method \(method ?? "nil")")
-                #expect(requestID == expect["id"] as? String, "\(name) id \(requestID ?? "nil")")
+    static func checkFrame(_ c: [String: Any]) throws {
+        let name = c["name"] as? String ?? "?"
+        let text = try #require(c["text"] as? String)
+        let got = AcpmuxPaneMethods.decide(text, isFirst: c["first"] as? Bool ?? false, localAppToken: c["token"] as? String)
+        let expect = try #require(c["expect"] as? [String: Any])
+        switch got {
+        case .send(let sent):
+            if expect["send"] as? String == "unchanged" {
+                #expect(sent == text, "\(name)")
+            } else {
+                let parsed = try? JSONSerialization.jsonObject(with: Data(sent.utf8))
+                #expect(expect["send"] != nil && same(parsed, expect["send"]), "\(name): sent \(sent)")
             }
+        case .refuse(let error, let method, let requestID):
+            #expect(error.rawValue == expect["refuse"] as? String, "\(name): \(error.rawValue)")
+            #expect(method == expect["method"] as? String, "\(name) method \(method ?? "nil")")
+            #expect(requestID == expect["id"] as? String, "\(name) id \(requestID ?? "nil")")
         }
+    }
+
+    static func checkParams(_ c: [String: Any]) {
+        let modes = (c["mode_fields"] as? [String]).map(Set.init)
+        #expect(AcpmuxPaneMethods.breaksParamsRule(c["frame"] as? [String: Any], modeFields: modes) == c["breaks"] as? Bool,
+                "\(c["name"] ?? "?")")
+    }
+
+    static func checkGesture(_ c: [String: Any]) {
+        let options = AcpmuxPermissionOptions()
+        for case let deny as [String] in c["denies"] as? [Any] ?? [] {
+            options.observe(["method": "_acpmux/permission_pending",
+                             "params": ["permissionId": deny[0], "request": ["options": [["optionId": deny[1], "kind": "reject_once"]]]]],
+                            replyTo: nil)
+        }
+        #expect(AcpmuxPaneMethods.needsGesture(c["frame"] as? [String: Any], options: options) == c["needs"] as? Bool,
+                "\(c["name"] ?? "?")")
+    }
+
+    @Test func frames() throws {
+        for c in try Self.cases("frames.json") { try Self.checkFrame(c) }
     }
 
     @Test func paramsRule() throws {
-        for c in try Self.cases("params.json") {
-            let modes = (c["mode_fields"] as? [String]).map(Set.init)
-            #expect(AcpmuxPaneMethods.breaksParamsRule(c["frame"] as? [String: Any], modeFields: modes) == c["breaks"] as? Bool,
-                    "\(c["name"] ?? "?")")
-        }
+        for c in try Self.cases("params.json") { Self.checkParams(c) }
     }
 
     @Test func gestures() throws {
-        for c in try Self.cases("gestures.json") {
-            let options = AcpmuxPermissionOptions()
-            for case let deny as [String] in c["denies"] as? [Any] ?? [] {
-                options.observe(["method": "_acpmux/permission_pending",
-                                 "params": ["permissionId": deny[0], "request": ["options": [["optionId": deny[1], "kind": "reject_once"]]]]],
-                                replyTo: nil)
-            }
-            #expect(AcpmuxPaneMethods.needsGesture(c["frame"] as? [String: Any], options: options) == c["needs"] as? Bool,
-                    "\(c["name"] ?? "?")")
-        }
+        for c in try Self.cases("gestures.json") { Self.checkGesture(c) }
+    }
+
+    /// AGENT-TRUST-GATE (`tests/cases/trust_gate.json`; its description cites the sources): the pane is
+    /// LocalApp-origin only through this host's token, the page writes neither the token nor a forward
+    /// mark, Trust needs a gesture and Don't trust does not, and the gate's refusals reach the page as
+    /// acpmux wrote them (no ``AcpmuxPaneMethods/replyShapes`` entry rebuilds them).
+    @Test func trustGate() throws {
+        let all = try #require(try Self.json("tests/cases/trust_gate.json") as? [String: Any])
+        for case let c as [String: Any] in all["frames"] as? [Any] ?? [] { try Self.checkFrame(c) }
+        for case let c as [String: Any] in all["params"] as? [Any] ?? [] { Self.checkParams(c) }
+        for case let c as [String: Any] in all["gestures"] as? [Any] ?? [] { Self.checkGesture(c) }
+        let unfiltered = try #require(all["unfiltered"] as? [String])
+        #expect(!unfiltered.isEmpty)
+        for method in unfiltered { #expect(AcpmuxPaneMethods.replyShapes[method] == nil, "\(method)") }
     }
 
     @Test func permissionOptions() throws {

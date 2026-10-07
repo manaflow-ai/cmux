@@ -100,3 +100,74 @@ fn non_trusting_levels_are_the_page_levels_but_trusted() {
     assert!(levels.remove("trusted"), "{levels:?}");
     assert_eq!(levels, policy().non_trusting_levels);
 }
+
+fn trust_cases() -> serde_json::Value {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/cases/trust_gate.json");
+    serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+}
+
+/// AGENT-TRUST-GATE: the refusal reasons the page reads (direct.ts
+/// `isTrustRefusal`) are the ones acpmux's gate writes (trust_gate.rs
+/// `folder_answered`), and trust_gate.json's `page_reasons` lists them, so a
+/// host that passes the reply through (`unfiltered`) keeps what the page needs.
+#[test]
+fn trust_refusal_reasons_are_the_daemons() {
+    let Some(dir) = pane() else {
+        eprintln!(
+            "skipped: webviews/src/agent-session/acpmux is not next to this crate (a sparse checkout)"
+        );
+        return;
+    };
+    let direct = read(&dir, "direct.ts");
+    let start =
+        direct.find("export function isTrustRefusal(").expect("isTrustRefusal in direct.ts");
+    let body = &direct[start..];
+    let body = &body[..body.find("\n}").unwrap()];
+    let page: BTreeSet<String> = quoted_after(body, "reason ===").into_iter().collect();
+    let want: BTreeSet<String> = trust_cases()["page_reasons"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r.as_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(page, want, "direct.ts isTrustRefusal vs trust_gate.json page_reasons");
+    let gate = std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../acpmux/src/server/trust_gate.rs"),
+    )
+    .expect("acpmux trust_gate.rs next to this crate");
+    for reason in &want {
+        assert!(gate.contains(&format!("(\"{reason}\",")), "acpmux trust_gate.rs writes {reason}");
+    }
+}
+
+/// AGENT-TRUST-GATE gap, kept visible: the page sends `sessionId` on
+/// `acp.trust.get` and `acp.trust.set` when a chat is selected (direct.ts
+/// `trustGet`, `trustSet`; acpmux routes a remote session's answer to its
+/// peer, peer_forward.rs), but neither host's known params allow it
+/// (AcpmuxPaneMethods.swift `knownParams` "acp.trust.get"/"acp.trust.set"),
+/// so P1 refuses those frames. When either side changes, this test fails:
+/// update policy.json with the Swift host and drop the GAP cases in
+/// trust_gate.json.
+#[test]
+fn trust_session_id_gap_is_still_open() {
+    let Some(dir) = pane() else {
+        eprintln!(
+            "skipped: webviews/src/agent-session/acpmux is not next to this crate (a sparse checkout)"
+        );
+        return;
+    };
+    let direct = read(&dir, "direct.ts");
+    for (function, method) in [("trustGet(", "acp.trust.get"), ("trustSet(", "acp.trust.set")] {
+        let start = direct.find(function).unwrap_or_else(|| panic!("{function} in direct.ts"));
+        let body = &direct[start..];
+        let body = &body[..body.find("\n  }").unwrap()];
+        assert!(
+            body.contains("sessionId: this.selectedSessionId"),
+            "{method}: the page no longer sends sessionId"
+        );
+        assert!(
+            !policy().known_params[method].params.contains("sessionId"),
+            "{method}: the host now allows sessionId"
+        );
+    }
+}

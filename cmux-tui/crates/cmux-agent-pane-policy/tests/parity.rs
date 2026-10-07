@@ -28,54 +28,74 @@ fn name(c: &Value) -> &str {
     c["name"].as_str().unwrap()
 }
 
+fn check_frame(c: &Value) {
+    let text = c["text"].as_str().unwrap();
+    let got = decide(text, c["first"].as_bool().unwrap(), c["token"].as_str());
+    let expect = &c["expect"];
+    match (&got, expect.get("send"), expect.get("refuse")) {
+        (Decision::Send(sent), Some(Value::String(s)), _) if s == "unchanged" => {
+            assert_eq!(sent, text, "{}", name(c));
+        }
+        (Decision::Send(sent), Some(want), _) => {
+            assert_eq!(&serde_json::from_str::<Value>(sent).unwrap(), want, "{}", name(c));
+        }
+        (Decision::Refuse { refusal, method, request_id }, None, Some(code)) => {
+            assert_eq!(refusal.code(), code.as_str().unwrap(), "{}", name(c));
+            assert_eq!(method.as_deref(), expect["method"].as_str(), "{} method", name(c));
+            assert_eq!(request_id.as_deref(), expect["id"].as_str(), "{} id", name(c));
+        }
+        _ => panic!("{}: got {got:?}, expected {expect}", name(c)),
+    }
+}
+
+fn check_params(c: &Value) {
+    let modes: Option<BTreeSet<String>> = c["mode_fields"]
+        .as_array()
+        .map(|a| a.iter().map(|v| v.as_str().unwrap().to_owned()).collect());
+    let got = breaks_params_rule(&object(&c["frame"]), modes.as_ref());
+    assert_eq!(got, c["breaks"].as_bool().unwrap(), "{}", name(c));
+}
+
+fn check_gesture(c: &Value) {
+    let denies: BTreeSet<(String, String)> = c["denies"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|d| (d[0].as_str().unwrap().to_owned(), d[1].as_str().unwrap().to_owned()))
+        .collect();
+    let got =
+        needs_gesture(&object(&c["frame"]), |p, o| denies.contains(&(p.to_owned(), o.to_owned())));
+    assert_eq!(got, c["needs"].as_bool().unwrap(), "{}", name(c));
+}
+
 #[test]
 fn frames() {
-    let all = cases("frames.json");
-    for c in all.as_array().unwrap() {
-        let text = c["text"].as_str().unwrap();
-        let got = decide(text, c["first"].as_bool().unwrap(), c["token"].as_str());
-        let expect = &c["expect"];
-        match (&got, expect.get("send"), expect.get("refuse")) {
-            (Decision::Send(sent), Some(Value::String(s)), _) if s == "unchanged" => {
-                assert_eq!(sent, text, "{}", name(c));
-            }
-            (Decision::Send(sent), Some(want), _) => {
-                assert_eq!(&serde_json::from_str::<Value>(sent).unwrap(), want, "{}", name(c));
-            }
-            (Decision::Refuse { refusal, method, request_id }, None, Some(code)) => {
-                assert_eq!(refusal.code(), code.as_str().unwrap(), "{}", name(c));
-                assert_eq!(method.as_deref(), expect["method"].as_str(), "{} method", name(c));
-                assert_eq!(request_id.as_deref(), expect["id"].as_str(), "{} id", name(c));
-            }
-            _ => panic!("{}: got {got:?}, expected {expect}", name(c)),
-        }
-    }
+    cases("frames.json").as_array().unwrap().iter().for_each(check_frame);
 }
 
 #[test]
 fn params_rule() {
-    for c in cases("params.json").as_array().unwrap() {
-        let modes: Option<BTreeSet<String>> = c["mode_fields"]
-            .as_array()
-            .map(|a| a.iter().map(|v| v.as_str().unwrap().to_owned()).collect());
-        let got = breaks_params_rule(&object(&c["frame"]), modes.as_ref());
-        assert_eq!(got, c["breaks"].as_bool().unwrap(), "{}", name(c));
-    }
+    cases("params.json").as_array().unwrap().iter().for_each(check_params);
 }
 
 #[test]
 fn gestures() {
-    for c in cases("gestures.json").as_array().unwrap() {
-        let denies: BTreeSet<(String, String)> = c["denies"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|d| (d[0].as_str().unwrap().to_owned(), d[1].as_str().unwrap().to_owned()))
-            .collect();
-        let got = needs_gesture(&object(&c["frame"]), |p, o| {
-            denies.contains(&(p.to_owned(), o.to_owned()))
-        });
-        assert_eq!(got, c["needs"].as_bool().unwrap(), "{}", name(c));
+    cases("gestures.json").as_array().unwrap().iter().for_each(check_gesture);
+}
+
+/// AGENT-TRUST-GATE (tests/cases/trust_gate.json, its description cites the
+/// sources): the pane is LocalApp-origin through the host's token only, the
+/// page writes neither the token nor a forward mark, Trust needs a gesture
+/// and Don't trust does not, and the gate's refusals pass unfiltered.
+#[test]
+fn trust_gate() {
+    let all = cases("trust_gate.json");
+    all["frames"].as_array().unwrap().iter().for_each(check_frame);
+    all["params"].as_array().unwrap().iter().for_each(check_params);
+    all["gestures"].as_array().unwrap().iter().for_each(check_gesture);
+    for m in all["unfiltered"].as_array().unwrap() {
+        let m = m.as_str().unwrap();
+        assert!(!policy().reply_shapes.contains_key(m), "{m}: its reply would lose data.reason");
     }
 }
 
