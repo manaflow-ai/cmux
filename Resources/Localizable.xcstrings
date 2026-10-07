@@ -642372,55 +642372,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Let one pane fill the workspace. Use the same shortcut to go back to the split."
+            "value": "Let one pane fill the workspace for a while, then switch back to the split the same way."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "اجعل لوحة واحدة تملأ مساحة العمل. استخدم الاختصار نفسه للعودة إلى التقسيم."
+            "value": "اجعل لوحة واحدة تملأ مساحة العمل لبعض الوقت، ثم عد إلى التقسيم بالطريقة نفسها."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lass einen Bereich den ganzen Arbeitsbereich füllen. Mit demselben Kürzel kehrst du zur Teilung zurück."
+            "value": "Lass einen Bereich eine Weile den ganzen Arbeitsbereich füllen und kehre dann auf dieselbe Weise zur Teilung zurück."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Deja que un panel ocupe todo el espacio de trabajo. Usa el mismo atajo para volver a la división."
+            "value": "Deja que un panel ocupe todo el espacio de trabajo un rato y vuelve a la división de la misma forma."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Laissez un panneau occuper tout l'espace de travail. Le même raccourci vous ramène à la division."
+            "value": "Laissez un panneau occuper tout l'espace de travail un moment, puis revenez à la division de la même façon."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 つのペインをワークスペース全体に広げます。同じショートカットで分割表示に戻ります。"
+            "value": "1 つのペインをしばらくワークスペース全体に広げ、同じ操作で分割表示に戻せます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "패널 하나로 작업 공간을 가득 채우세요. 같은 단축키를 다시 누르면 분할 화면으로 돌아갑니다."
+            "value": "잠시 패널 하나로 작업 공간을 가득 채운 뒤, 같은 방법으로 분할 화면으로 돌아오세요."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "让一个窗格填满工作区。再按一次相同的快捷键即可回到拆分视图。"
+            "value": "让一个窗格暂时填满工作区，再用同样的方式回到拆分视图。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "讓單一窗格填滿工作區。再按一次相同的快速鍵即可回到分割畫面。"
+            "value": "讓單一窗格暫時填滿工作區，再用相同方式回到分割畫面。"
           }
         }
       }

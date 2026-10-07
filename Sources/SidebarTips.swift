@@ -64,7 +64,7 @@ enum SidebarTipsCatalog {
                 title: String(localized: "sidebar.tips.zoomPane.title", defaultValue: "Zoom a pane"),
                 message: String(
                     localized: "sidebar.tips.zoomPane.message",
-                    defaultValue: "Let one pane fill the workspace. Use the same shortcut to go back to the split."
+                    defaultValue: "Let one pane fill the workspace for a while, then switch back to the split the same way."
                 ),
                 shortcutAction: .toggleSplitZoom
             ),
