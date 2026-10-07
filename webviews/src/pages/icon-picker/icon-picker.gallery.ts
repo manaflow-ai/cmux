@@ -1,64 +1,49 @@
-// l10n-allow-file: gallery fixtures, not shipped UI.
-import { bridgePageEntry, type BridgePageVariant } from "../../gallery/format";
-import type { PickerSession } from "./host";
-function fixture(tab: PickerSession["tab"] = "emoji"): BridgePageVariant {
-  const session: PickerSession = { id: "gallery-picker", tab, assets: true, canClear: true, symbols: [] };
-  return {
-    initialEvents: { "cmux.iconPicker.session": session },
-    replies: {
-      "cmux.iconPicker.prefs.load": null,
-      "cmux.iconPicker.prefs.save": null,
-      "cmux.iconPicker.finish": null,
-    },
-  };
-}
-const assetPlay =
-  (failed: boolean): BridgePageVariant["play"] =>
-  async (ctx) => {
-    await ctx.waitFor(() => ctx.document.querySelector(".icon-asset-url input"));
-    await ctx.type("https://example.org/sample-icon.png", { selector: ".icon-asset-url input" });
-    await ctx.click({ selector: ".icon-asset-url button" });
-    await ctx.waitFor(() =>
-      ctx.document.querySelector(failed ? ".icon-asset-error" : ".icon-asset-url button:disabled"),
-    );
-  };
-export default bridgePageEntry({
+// l10n-allow-file: gallery fixtures (public-safe icon picker sessions), not shipped UI.
+import { iconPickerPageEntry } from "../../gallery/format";
+
+const symbols = [
+  "star",
+  "star.fill",
+  "heart",
+  "heart.fill",
+  "folder",
+  "folder.fill",
+  "terminal",
+  "terminal.fill",
+  "globe",
+  "house",
+  "gearshape",
+  "bolt",
+  "flame",
+  "leaf",
+  "hammer",
+  "wrench.and.screwdriver",
+  "person.crop.circle",
+  "bubble.left.and.bubble.right",
+  "cloud",
+  "server.rack",
+] as const;
+
+const session = { id: "gallery-session", tab: "emoji", canClear: true, assets: true, symbols } as const;
+
+export default iconPickerPageEntry({
   id: "pages.icon-picker",
   title: "Icon picker",
   area: "Pages",
-  page: "icon-picker",
+  height: 560,
+  widths: { narrow: 420, normal: 640, wide: 820 },
   covers: [
     "page:cmux.icon-picker",
     "icon-picker/IconPicker.tsx",
-    "icon-picker/VirtualGrid.tsx",
     "icon-picker/AssetTab.tsx",
+    "icon-picker/VirtualGrid.tsx",
   ],
   variants: {
-    loaded: fixture(),
-    empty: {
-      ...fixture(),
-      play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelector(".icon-picker-search"));
-        await ctx.type("no-such-emoji-gallery", { selector: ".icon-picker-search" });
-      },
-    },
-    "long-content": {
-      ...fixture(),
-      note: "The full shipped emoji catalog; search has a long query.",
-      play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelector(".icon-picker-search"));
-        await ctx.type("face with a very long descriptive search query that exceeds the search field", {
-          selector: ".icon-picker-search",
-        });
-      },
-    },
-    error: {
-      ...fixture("image"),
-      failures: {
-        "cmux.iconPicker.asset.fromURL": { code: "cmux.iconPicker.failed", message: "Sample asset download refused" },
-      },
-      play: assetPlay(true),
-    },
-    loading: { ...fixture("image"), pending: ["cmux.iconPicker.asset.fromURL"], play: assetPlay(false) },
+    emoji: { note: "Emoji search with a focused field and selected cell.", session, active: 12 },
+    symbols: { note: "The SF Symbols tab with a selected symbol.", session: { ...session, tab: "symbol" }, active: 8 },
+    image: { note: "The image asset sheet with paste, file and URL actions.", session: { ...session, tab: "image" } },
+    svg: { note: "The SVG asset sheet.", session: { ...session, tab: "svg" } },
+    empty: { note: "A search with no matching icons.", mode: "empty", session },
+    "no-clear": { note: "A picker session without a remove action.", session: { ...session, canClear: false } },
   },
 });

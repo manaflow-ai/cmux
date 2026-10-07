@@ -1,66 +1,85 @@
-// l10n-allow-file: gallery fixtures, not shipped UI.
-import { bridgePageEntry, type BridgePageVariant } from "../../gallery/format";
-import type { CloudMachine, CloudPlan } from "./ops";
-import { minutesAgo } from "../../gallery/clock";
-function fixture(count: number): BridgePageVariant {
-  const machines: CloudMachine[] = Array.from({ length: count }, (_, i) => ({
-    id: `vm_sample${i}`,
-    name:
-      count > 4
-        ? `integration-environment-${i + 1}-with-a-long-project-and-branch-name`
-        : ["api-dev", "build-cache", "test-runner", "docs-preview"][i]!,
-    status: (["running", "paused", "provisioning", "failed"] as const)[i % 4]!,
-    revision: "1",
-    classic: false,
-    size: { cpu: 4, memory_mb: 8192, disk_mb: 65536 },
-    created_at: minutesAgo(120),
-    last_active_at: minutesAgo(5),
-    idle_policy: { idle_seconds: 300 },
-    error: i % 4 === 3 ? { code: "upstream_error", message: "Sample provisioning failure" } : null,
-  }));
-  const plan: CloudPlan = {
-    plan_id: "pro",
-    limits: {
-      max_active: 10,
-      max_saved: 100,
-      memory_options_mb: [4096, 8192],
-      locked_memory_options_mb: [],
-      vm_hours_included: 100,
-    },
-    usage: { active: count, saved: count, vm_hours_used: 12 },
-  };
-  return {
-    streams: ["cmux.cloud.machine.watch", "cmux.cloud.file.transfer.changed"],
-    replies: {
-      "cmux.cloud.auth.status": { signedIn: true, team: "sample-team" },
-      "cmux.cloud.machine.list": { machines, revision: 1 },
-      "cmux.cloud.plan.get": plan,
-      "cmux.cloud.team.list": [],
-      "cmux.cloud.migration.status": { state: "none", classic_count: 0, imported: [] },
-    },
-  };
-}
-export default bridgePageEntry({
+// l10n-allow-file: gallery fixtures (public-safe sample Cloud data), not shipped UI.
+import { cloudPageEntry } from "../../gallery/format";
+import { sampleMachines, sampleSnapshots } from "./mockData";
+import type { CloudMachine } from "./ops";
+
+const machines = sampleMachines();
+const snapshots = sampleSnapshots();
+const manyMachines: CloudMachine[] = Array.from({ length: 24 }, (_, index) => ({
+  ...structuredClone(machines[index % machines.length]!),
+  id: `vm_gallery_${String(index + 1).padStart(2, "0")}`,
+  name: `long-running-build-machine-${String(index + 1).padStart(2, "0")}`,
+  status: index % 3 === 0 ? "running" : index % 3 === 1 ? "paused" : "provisioning",
+  revision: String(index + 1),
+})) as CloudMachine[];
+
+export default cloudPageEntry({
   id: "pages.cloud",
   title: "Cloud",
   area: "Pages",
-  page: "cloud",
+  height: 680,
+  widths: { narrow: 560, normal: 1000, wide: 1400 },
   covers: [
     "page:cmux.cloud",
     "pages/cloud/CloudPage.tsx",
     "pages/cloud/MachineList.tsx",
+    "pages/cloud/MachineDetail.tsx",
+    "pages/cloud/CreateSheet.tsx",
     "pages/cloud/AccountPanel.tsx",
+    "pages/cloud/DetailSections.tsx",
+    "pages/cloud/FilesSection.tsx",
+    "pages/cloud/PortsSection.tsx",
+    "pages/cloud/Notices.tsx",
+    "pages/cloud/sectionParts.tsx",
   ],
   variants: {
-    empty: fixture(0),
-    loaded: fixture(4),
-    "long-content": fixture(40),
-    error: {
-      ...fixture(0),
-      failures: {
-        "cmux.cloud.machine.list": { code: "cmux.page.failed", message: "Sample owner is unavailable. Try again." },
-      },
+    machines: {
+      note: "Machines, snapshots, ports and account usage in the rows layout.",
+      action: "select-machine",
+      machines,
+      snapshots,
     },
-    loading: { ...fixture(0), pending: ["cmux.cloud.machine.list"] },
+    creating: {
+      note: "The create machine sheet with plan sizes and snapshot choices.",
+      action: "create",
+      machines,
+      snapshots,
+    },
+    "many-machines": {
+      note: "Twenty-four machines with long names for scrolling.",
+      layout: "cards",
+      machines: manyMachines,
+      snapshots,
+    },
+    "read-only": {
+      note: "A classic machine: overview and snapshots remain read-only.",
+      action: "select-machine",
+      machines: [machines[3]!],
+      snapshots: [snapshots[2]!],
+    },
+    empty: {
+      note: "A signed-in team with no machines yet.",
+      machines: [],
+      snapshots: [],
+    },
+    "signed-out": {
+      note: "Cloud signed out, with the sign-in action.",
+      signedIn: false,
+      machines: [],
+      snapshots: [],
+    },
+    error: {
+      note: "The Cloud owner returns a network error during startup.",
+      mode: "error",
+      error: { code: "cmux.cloud.upstream_error", message: "The Cloud service did not answer." },
+      machines,
+      snapshots,
+    },
+    loading: {
+      note: "Cloud is still loading the account and machine projection.",
+      mode: "loading",
+      machines,
+      snapshots,
+    },
   },
 });
