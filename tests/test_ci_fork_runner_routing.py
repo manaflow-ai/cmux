@@ -38,6 +38,12 @@ HOSTED_MACOS_LABELS = {"macos-15", "macos-26"}
 # Any Blacksmith runner label. Script names such as
 # scripts/blacksmith-bounded-command.sh have no `-Nvcpu-` part.
 BLACKSMITH_LABEL = re.compile(r"blacksmith-\d+vcpu-[a-z0-9]+(?:[.-][a-z0-9]+)*")
+# A runner identity guard compares runner.name with a Blacksmith scale set's
+# VM-name prefix ('<label>-Runner-'). It selects no runner, so it is not a
+# label a fork could queue on.
+BLACKSMITH_RUNNER_NAME_CHECK = re.compile(
+    r"startsWith\(runner\.name, '" + BLACKSMITH_LABEL.pattern + r"-Runner-'\)"
+)
 FORK_BRANCHES = (FORK_LINUX_BRANCH, FORK_MACOS_BRANCH, FORK_MACOS_15_BRANCH, FORK_MACOS_MATRIX_BRANCH)
 OWNER_ONLY_JOB_IF = "if: github.repository_owner == 'manaflow-ai'"
 EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}")
@@ -593,7 +599,7 @@ def ungated_blacksmith_labels(name: str, text: str) -> list[str]:
             continue
         if in_options and not stripped.startswith("- "):
             in_options = False
-        if stripped.startswith("#") or not BLACKSMITH_LABEL.search(raw):
+        if stripped.startswith("#") or not BLACKSMITH_LABEL.search(BLACKSMITH_RUNNER_NAME_CHECK.sub("", raw)):
             continue
         if job in owner_only_jobs or (name, stripped) in UNGATED_BLACKSMITH_ALLOWED:
             continue
@@ -1029,6 +1035,24 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         # a, b, c, and the dispatch default and option that d reads before
         # the fork branch. d itself passes: an explicitly chosen input wins.
         self.assertEqual(len(ungated_blacksmith_labels("x.yml", text)), 5)
+
+    def test_runner_name_guards_are_not_selectable_labels(self) -> None:
+        guard = (
+            "        if: (runner.environment != 'github-hosted'"
+            " && !startsWith(runner.name, 'blacksmith-2vcpu-ubuntu-2404-Runner-')"
+            " && !startsWith(runner.name, 'blacksmith-4vcpu-ubuntu-2404-Runner-'))"
+            " || contains(runner.name, 'glaeda')\n"
+        )
+        text = "jobs:\n  a:\n    runs-on: ubuntu-24.04\n    steps:\n      - name: guard\n" + guard
+        self.assertEqual(ungated_blacksmith_labels("x.yml", text), [])
+        # The same label outside a runner.name prefix check is still selectable.
+        for line in (
+            "        if: startsWith(runner.name, 'x') && 'blacksmith-4vcpu-ubuntu-2404'\n",
+            "    runs-on: blacksmith-4vcpu-ubuntu-2404\n",
+            "        if: startsWith(runner.name, 'blacksmith-4vcpu-ubuntu-2404')\n",
+        ):
+            with self.subTest(line=line):
+                self.assertEqual(len(ungated_blacksmith_labels("x.yml", "jobs:\n  a:\n" + line)), 1)
 
     def test_owner_gated_blacksmith_fallbacks_pass(self) -> None:
         text = (
