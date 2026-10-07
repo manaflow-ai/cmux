@@ -770,7 +770,7 @@ function DefaultComposerChips({ snapshot }: { snapshot: AcpmuxSnapshot }) {
       setRefreshStatus("error");
       throw new Error("models.catalog refresh failed");
     }
-  }, [picker.refresh]);
+  }, [picker]);
   return (
     <ComposerPickers
       snapshot={snapshot}
