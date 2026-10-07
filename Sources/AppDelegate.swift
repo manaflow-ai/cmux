@@ -8294,8 +8294,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return result
     }
 
+    /// The visibility the window's sidebar is heading to. An animated hide
+    /// keeps `isVisible` true until its sweep lands; this reports it hidden
+    /// from the moment the toggle is accepted.
     func sidebarVisibility(windowId: UUID) -> Bool? {
-        mainWindowContexts.values.first(where: { $0.windowId == windowId })?.sidebarState.isVisible
+        mainWindowContexts.values.first(where: { $0.windowId == windowId })?.sidebarState.requestedVisibility
     }
 
     func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {

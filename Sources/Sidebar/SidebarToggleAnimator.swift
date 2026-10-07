@@ -23,8 +23,11 @@ final class SidebarToggleAnimator: ObservableObject {
     /// The width the pane rests at when open, captured at hide time and
     /// restored after, so the sweep never corrupts the persisted width.
     private var restingWidth: CGFloat = 0
-    /// A hide sweep is running: `isVisible` stays true until it lands.
-    private var isHiding = false
+    /// A hide sweep is running: `isVisible` stays true until it lands. Mirrored
+    /// onto the state so a toggle mid-sweep sees the hide as requested.
+    private var isHiding = false {
+        didSet { sidebarState?.isHidePending = isHiding }
+    }
     /// The width a running show sweep is heading to. A hide that interrupts
     /// it rests at this, not at the half-open live width.
     private var showTarget: CGFloat?
@@ -58,6 +61,7 @@ final class SidebarToggleAnimator: ObservableObject {
         // until it lands) is the same request; restarting it would capture
         // the half-collapsed width as the resting width.
         if isHiding && !targetVisible { return true }
+        let reversesHide = isHiding && targetVisible
         SidebarNavigationTimings.begin(targetVisible ? "toggle.show" : "toggle.hide")
         cancelSweep()
         isHiding = false
@@ -66,20 +70,23 @@ final class SidebarToggleAnimator: ObservableObject {
         if targetVisible {
             // Docking over an already-revealed peek card swaps in place: the
             // card is where the pane belongs, so any sweep would be a ghost.
-            if isPeekPresenting() {
+            if !reversesHide, isPeekPresenting() {
                 return false
             }
             let target = restingWidth > 1
                 ? restingWidth
                 : max(layout.width, CGFloat(SessionPersistencePolicy.defaultSidebarWidth))
+            // A show that reverses a hide mid-sweep glides back from where the
+            // pane is now (it is still mounted) instead of snapping shut first.
+            let start = reversesHide ? layout.width : 1
             sidebarState.setVisible(true)
-            layout.width = 1
+            layout.width = start
             // The width snap above IS the first visual feedback for show (the
             // terminal steps aside in this very turn); the sweep that follows
             // is the pane gliding in.
             SidebarNavigationTimings.end("toggle.show")
             showTarget = target
-            sweep(from: 1, to: target) { [weak self] in self?.showTarget = nil }
+            sweep(from: start, to: target) { [weak self] in self?.showTarget = nil }
             return true
         } else {
             restingWidth = interruptedShowTarget ?? layout.width

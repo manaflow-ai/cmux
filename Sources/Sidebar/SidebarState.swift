@@ -35,6 +35,17 @@ final class SidebarState: ObservableObject {
     /// auto-collapse, session restore) never animate, so their callers can
     /// read `isVisible` right after.
     var animatedVisibilityOrchestrator: ((Bool) -> Bool)?
+    /// A hide sweep is running. `isVisible` stays true until it lands so the
+    /// pane stays mounted, but the hide was already requested. Set by the
+    /// toggle animator; any committed ``setVisible(_:)`` clears it.
+    var isHidePending = false
+
+    /// The visibility the sidebar is heading to: false as soon as a hide is
+    /// requested, even while its sweep runs. Toggles read this, so a second
+    /// toggle mid-sweep reverses the hide instead of being dropped.
+    var requestedVisibility: Bool {
+        isVisible && !isHidePending
+    }
 
     init(
         isVisible: Bool = true,
@@ -48,7 +59,7 @@ final class SidebarState: ObservableObject {
     }
 
     func toggle() {
-        let nextValue = !isVisible
+        let nextValue = !requestedVisibility
         if let animatedVisibilityOrchestrator, animatedVisibilityOrchestrator(nextValue) {
             return
         }
@@ -61,6 +72,7 @@ final class SidebarState: ObservableObject {
     }
 
     func setVisible(_ nextValue: Bool) {
+        isHidePending = false
         guard nextValue != isVisible else { return }
         visibilityWillChange?(nextValue)
         isVisible = nextValue

@@ -60,3 +60,31 @@ struct SidebarFocusBoundaryLifecycleTests {
         return host
     }
 }
+
+@Suite
+@MainActor
+struct SidebarStateAnimatedToggleTests {
+    /// An animated hide keeps `isVisible` true until its sweep lands. The
+    /// request is hidden at once, and a second toggle mid-sweep asks to show
+    /// again instead of repeating the hide.
+    @Test
+    func toggleDuringAHideSweepReversesIt() {
+        let state = SidebarState(isVisible: true)
+        var requests: [Bool] = []
+        state.animatedVisibilityOrchestrator = { targetVisible in
+            requests.append(targetVisible)
+            if !targetVisible { state.isHidePending = true }
+            return true
+        }
+
+        state.toggle()
+        #expect(state.isVisible)
+        #expect(!state.requestedVisibility)
+
+        state.toggle()
+        #expect(requests == [false, true])
+
+        state.setVisible(true)
+        #expect(state.requestedVisibility)
+    }
+}
