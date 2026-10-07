@@ -108,7 +108,10 @@ final class MacConversationDetailsViewController: NSViewController {
 
     override func loadView() {
         let root = MacFlippedView(frame: NSRect(x: 0, y: 0, width: 300, height: 600))
-        scrollView.drawsBackground = false
+        // The transcript's own background, so the panel reads as part of
+        // the conversation pane in light and dark.
+        scrollView.drawsBackground = true
+        scrollView.backgroundColor = MacConversationTheme.background
         scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
         scrollView.autoresizingMask = [.width, .height]
