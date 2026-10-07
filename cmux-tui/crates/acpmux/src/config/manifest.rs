@@ -480,7 +480,7 @@ const BUNDLED: &[(&str, &str, &str)] = &[];
 
 pub fn bundled() -> BTreeMap<String, Loaded> {
     let mut out = BTreeMap::new();
-    for (folder, text, icon) in BUNDLED {
+    for &(folder, text, icon) in BUNDLED {
         match parse(text, Some(folder)) {
             Ok(manifest) => {
                 let icon_svg =
