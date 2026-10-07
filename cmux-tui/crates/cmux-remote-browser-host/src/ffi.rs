@@ -79,6 +79,12 @@ pub struct RbCallbacks {
         unsafe extern "C" fn(*mut c_void, c_int, c_int, c_int, c_int, c_int, c_int, c_int, c_int),
     >,
     pub on_surface_frame: Option<unsafe extern "C" fn(*mut c_void, c_int, *const RbFrame)>,
+    /// browser, loading, can_go_back, can_go_forward.
+    pub on_loading_state: Option<unsafe extern "C" fn(*mut c_void, c_int, c_int, c_int, c_int)>,
+    /// browser, `cef_cursor_type_t`.
+    pub on_cursor: Option<unsafe extern "C" fn(*mut c_void, c_int, c_int)>,
+    /// browser, target URL, `cef_window_open_disposition_t`, user gesture.
+    pub on_open_tab: Option<unsafe extern "C" fn(*mut c_void, c_int, *const c_char, c_int, c_int)>,
 }
 
 unsafe extern "C" {
@@ -167,6 +173,11 @@ unsafe extern "C" {
     pub fn rb_shim_context_menu_result(token: i64, command_id: c_int) -> c_int;
     pub fn rb_shim_popup_menu_result(token: i64, indices: *const c_int, count: c_int) -> c_int;
     pub fn rb_shim_dialog_result(token: i64, accept: c_int, text: *const c_char) -> c_int;
+    pub fn rb_shim_load_url(browser: c_int, url: *const c_char) -> c_int;
+    pub fn rb_shim_go_back(browser: c_int) -> c_int;
+    pub fn rb_shim_go_forward(browser: c_int) -> c_int;
+    pub fn rb_shim_reload(browser: c_int, ignore_cache: c_int) -> c_int;
+    pub fn rb_shim_stop_load(browser: c_int) -> c_int;
 }
 
 fn cstr(s: &str) -> CString {
@@ -330,12 +341,24 @@ impl Presentation for ShimPresentation {
         }
     }
 
-    fn load_url(&mut self, _browser: i32, _url: &str) -> bool {
-        false
+    fn load_url(&mut self, browser: i32, url: &str) -> bool {
+        let url = cstr(url);
+        // SAFETY: `url` outlives the call; UI thread.
+        unsafe { rb_shim_load_url(browser, url.as_ptr()) == 1 }
     }
 
-    fn history(&mut self, _browser: i32, _op: HistoryOp) -> bool {
-        false
+    fn history(&mut self, browser: i32, op: HistoryOp) -> bool {
+        // SAFETY: plain values; UI thread.
+        let done = unsafe {
+            match op {
+                HistoryOp::Back => rb_shim_go_back(browser),
+                HistoryOp::Forward => rb_shim_go_forward(browser),
+                HistoryOp::Reload => rb_shim_reload(browser, 0),
+                HistoryOp::ReloadNoCache => rb_shim_reload(browser, 1),
+                HistoryOp::Stop => rb_shim_stop_load(browser),
+            }
+        };
+        done == 1
     }
 
     fn popup_menu_result(&mut self, fork_token: i64, indices: Option<&[u32]>) -> bool {

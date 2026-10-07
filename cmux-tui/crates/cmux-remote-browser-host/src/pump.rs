@@ -16,7 +16,7 @@ use cmux_rd_core::flow::Rect;
 use cmux_rd_engine::{
     EncodeRequest, Encoded, EngineConfig, EngineStats, MediaEngine, Output, StreamError,
 };
-use cmux_rd_proto::InputEvent as RdInput;
+use cmux_rd_proto::{DatagramHeader, DatagramKind, InputEvent as RdInput};
 use cmux_remote_browser::proto::InputEvent;
 
 /// The source's encoder behind a trait (VideoToolbox on macOS).
@@ -229,12 +229,13 @@ impl<E: FrameEncoder> Pump<E> {
             release_all: engine_out.release_all,
             ..PumpOut::default()
         };
-        for event in engine_out.inject {
+        let seqs = injected_seqs(&out.datagrams, engine_out.inject.len(), out.release_all);
+        for (event, seq) in engine_out.inject.into_iter().zip(seqs) {
             match event {
                 RdInput::Service { bytes, .. } => match serde_json::from_slice(&bytes) {
                     Ok(event) => {
                         out.input.push(event);
-                        out.input_seqs.push(None);
+                        out.input_seqs.push(seq);
                     }
                     Err(_) => self.stats.bad_input += 1,
                 },
@@ -306,4 +307,29 @@ impl<E: FrameEncoder> Pump<E> {
 fn halve<E: FrameEncoder>(encoder: &mut E) {
     let kbps = encoder.kbps() / 2;
     encoder.set_kbps(kbps.max(1));
+}
+
+/// The rd seq of each of `count` injected events. The engine applies input
+/// in sequence order, so without a skipped gap the events end at the seq its
+/// input ack names (the ack goes out with every input datagram). Unknown
+/// (`None`) after a skipped gap or without an ack (a tick).
+fn injected_seqs(datagrams: &[Vec<u8>], count: usize, skipped_gap: bool) -> Vec<Option<u32>> {
+    let applied = (!skipped_gap)
+        .then(|| datagrams.iter().rev().find_map(|d| input_ack(d.as_slice())))
+        .flatten();
+    (0..count)
+        .map(|i| {
+            let back = u32::try_from(count - 1 - i).ok()?;
+            applied.map(|last| last.wrapping_sub(back))
+        })
+        .collect()
+}
+
+/// The applied seq of an input ack datagram.
+fn input_ack(datagram: &[u8]) -> Option<u32> {
+    let (header, payload) = DatagramHeader::decode(datagram).ok()?;
+    if header.kind != DatagramKind::InputAck {
+        return None;
+    }
+    Some(u32::from_le_bytes(payload.get(..4)?.try_into().ok()?))
 }

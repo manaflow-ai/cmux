@@ -12,6 +12,9 @@ use cmux_remote_browser::proto::{
 use cmux_remote_browser::rp_input::{InputReject, RpCall, map_input};
 use cmux_remote_browser::session::{ScreenSize, Session, SessionEffect, SessionInput};
 
+pub use crate::page::PageChange;
+use crate::page::{PageState, css_cursor, cursor_message, disposition};
+
 /// The CEF shim (csrc/rb_shim.h) behind a trait. Every call returns false
 /// when the shim refused it.
 pub trait Presentation {
@@ -37,14 +40,6 @@ pub trait Presentation {
     fn load_url(&mut self, browser: i32, url: &str) -> bool;
     /// Back, forward, reload or stop (`rb.history`).
     fn history(&mut self, browser: i32, op: HistoryOp) -> bool;
-}
-
-/// A page fact the shim reported (`rb.page` carries all of them).
-#[derive(Debug, Clone, PartialEq)]
-pub enum PageChange {
-    Url(String),
-    Title(String),
-    Loading { loading: bool, can_go_back: bool, can_go_forward: bool },
 }
 
 /// What the host does for a popup surface (RP7) besides the shim calls.
@@ -89,6 +84,19 @@ pub struct HostTab {
     /// The token the next JS dialog gets (tokens start at 1, never repeat).
     next_dialog: u64,
     fork_dialog: Option<ForkDialog>,
+    /// The rd input seq of the last key-down applied, until the page
+    /// reports a key unhandled.
+    last_key_down: Option<u32>,
+    /// `rb.page` facts as last sent.
+    page: PageState,
+    /// The CSS cursor last sent (`rb.cursor`).
+    cursor: Option<&'static str>,
+    /// A URL a viewer navigated to before the browser existed.
+    pending_url: Option<String>,
+    /// The request the next `rb.open_tab` gets (from 1).
+    next_open_tab: u64,
+    /// `rb.open_tab` requests the App has not answered.
+    open_tabs: BTreeSet<u64>,
     /// Keys a viewer holds down (DOM code to DOM key), from its input.
     held_keys: BTreeMap<String, String>,
     /// Mouse buttons a viewer holds down, per surface (0 = page).
@@ -134,6 +142,12 @@ impl HostTab {
             viewer_seqs: BTreeMap::new(),
             next_dialog: 1,
             fork_dialog: None,
+            last_key_down: None,
+            page: PageState::default(),
+            cursor: None,
+            pending_url: None,
+            next_open_tab: 1,
+            open_tabs: BTreeSet::new(),
             held_keys: BTreeMap::new(),
             held_buttons: BTreeSet::new(),
             pointer_at: BTreeMap::new(),
@@ -201,6 +215,9 @@ impl HostTab {
     /// The shim created the tab's browser.
     pub fn tab_created(&mut self, browser: i32, p: &mut dyn Presentation) {
         self.browser = Some(browser);
+        if let Some(url) = self.pending_url.take() {
+            p.load_url(browser, &url);
+        }
         if self.capture_wanted {
             self.start_capture(browser, p);
         }
@@ -240,19 +257,50 @@ impl HostTab {
     ) -> Vec<Control> {
         match msg {
             Control::Open { screen, .. } => {
+                // A viewer that is open already (the stream carrier opens
+                // its viewer on join) re-opens: its screen applies and its
+                // screen seq restarts at 0, with no second `rb.opened`.
+                let reopen = self.viewer_seqs.contains_key(viewer);
                 let input =
                     SessionInput::Open { viewer: viewer.to_string(), screen: screen.into() };
                 match self.session.apply(input) {
                     Ok(effects) => {
                         self.viewer_seqs.insert(viewer.to_string(), 0);
-                        let mut out =
-                            vec![Control::Opened { session: self.session_id, main_stream: 0 }];
+                        let mut out = Vec::new();
+                        if !reopen {
+                            out.push(Control::Opened { session: self.session_id, main_stream: 0 });
+                        }
                         out.extend(self.run_effects(effects, p));
                         out.extend(self.screen_applied(viewer));
+                        out.extend(self.page.snapshot());
+                        if let Some(kind) = self.cursor {
+                            out.push(cursor_message(kind));
+                        }
                         out
                     }
                     Err(_) => vec![Control::Refused { reason: RefuseReason::Busy }],
                 }
+            }
+            Control::Navigate { url } => {
+                match self.browser {
+                    Some(browser) => {
+                        p.load_url(browser, url);
+                    }
+                    None => self.pending_url = Some(url.clone()),
+                }
+                Vec::new()
+            }
+            Control::History { op } => {
+                if let Some(browser) = self.browser {
+                    p.history(browser, *op);
+                }
+                Vec::new()
+            }
+            Control::OpenTabResult { request, .. } => {
+                // The App opened the tab on a host of its own (or refused);
+                // nothing waits for it here.
+                self.open_tabs.remove(request);
+                Vec::new()
             }
             Control::Visibility { visible } => {
                 let input =
@@ -431,38 +479,51 @@ impl HostTab {
     pub fn input_seq(
         &mut self,
         event: &InputEvent,
-        _seq: Option<u32>,
+        seq: Option<u32>,
         p: &mut dyn Presentation,
     ) -> Result<bool, InputReject> {
-        self.input(event, p)
+        let sent = self.input(event, p)?;
+        if sent && let InputEvent::Key { down: true, .. } = event {
+            self.last_key_down = seq;
+        }
+        Ok(sent)
     }
 
     /// The page did not handle the last key-down: `rb.key_unhandled`
     /// naming its seq (once).
     pub fn key_unhandled(&mut self) -> Option<Control> {
-        None
+        self.last_key_down.take().map(|input_seq| Control::KeyUnhandled { input_seq })
     }
 
     /// A page fact changed: `rb.page` with every fact, when one moved.
-    pub fn page_changed(&mut self, _change: PageChange) -> Option<Control> {
-        None
+    pub fn page_changed(&mut self, change: PageChange) -> Option<Control> {
+        self.page.apply(change)
     }
 
     /// The page's cursor changed (`cef_cursor_type_t`): `rb.cursor` when
     /// the shape moved.
-    pub fn cursor_changed(&mut self, _cef_type: i32) -> Option<Control> {
-        None
+    pub fn cursor_changed(&mut self, cef_type: i32) -> Option<Control> {
+        let kind = css_cursor(cef_type)?;
+        if self.cursor == Some(kind) {
+            return None;
+        }
+        self.cursor = Some(kind);
+        Some(cursor_message(kind))
     }
 
     /// The page asked for a new tab or window (`cef_window_open_disposition_t`):
     /// `rb.open_tab` for the App, or `None` for a disposition that opens nothing.
     pub fn popup_requested(
         &mut self,
-        _url: &str,
-        _cef_disposition: i32,
-        _user_gesture: bool,
+        url: &str,
+        cef_disposition: i32,
+        user_gesture: bool,
     ) -> Option<Control> {
-        None
+        let disposition = disposition(cef_disposition)?;
+        let request = self.next_open_tab;
+        self.next_open_tab = self.next_open_tab.wrapping_add(1).max(1);
+        self.open_tabs.insert(request);
+        Some(Control::OpenTab { request, url: url.to_string(), disposition, user_gesture })
     }
 
     /// Records which keys and buttons the viewer holds after `event`.

@@ -11,6 +11,7 @@
 
 pub mod handshake;
 pub mod launch;
+pub mod page;
 pub mod probe;
 pub mod pump;
 pub mod shim_ui;

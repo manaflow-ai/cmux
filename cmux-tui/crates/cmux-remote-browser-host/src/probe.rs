@@ -17,6 +17,7 @@ use std::path::Path;
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
+use cmux_rd_core::service::caps::INPUT_SERVICE;
 use cmux_rd_ffi::{Carrier, InputChannel, Session};
 use cmux_rd_proto::control::Control;
 use cmux_rd_proto::{
@@ -290,14 +291,17 @@ pub fn hello_control() -> Control {
         max_datagram: 1332,
         token: None,
         service: SERVICE_REMOTE_BROWSER.into(),
-        caps: vec![],
+        caps: vec![INPUT_SERVICE.into()],
     }
 }
 
 /// True when the host's welcome in `controls` grants service input (the
 /// Mac client sends no input otherwise).
-pub fn input_granted(_controls: &[serde_json::Value]) -> bool {
-    true
+pub fn input_granted(controls: &[serde_json::Value]) -> bool {
+    controls.iter().any(|c| {
+        c["t"] == "welcome"
+            && c["caps"].as_array().is_some_and(|caps| caps.iter().any(|cap| cap == INPUT_SERVICE))
+    })
 }
 
 fn hello() -> Vec<u8> {
@@ -404,6 +408,10 @@ fn probe(addr: SocketAddr, out: &Path, plan: Plan, r: &mut Report) -> Result<(),
             },
             Phase::Idle { until, start_frames } if at >= until => {
                 r.idle_frames = Some(r.frames - start_frames);
+                // The Mac client sends no input unless the welcome grants it.
+                if !input_granted(&r.controls) {
+                    return Err(format!("the welcome does not grant {INPUT_SERVICE}"));
+                }
                 Phase::Keys { next: at }
             }
             Phase::Keys { next } if at >= next => {

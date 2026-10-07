@@ -36,7 +36,7 @@ use crate::ffi::{
 };
 use crate::pump::{FrameEncoder, Pump, PumpOut};
 use crate::shim_ui;
-use crate::tab::{DEFAULT_SCREEN, HostTab, SurfaceOut};
+use crate::tab::{DEFAULT_SCREEN, HostTab, PageChange, SurfaceOut};
 
 const FPS: u32 = 60;
 const START_KBPS: u32 = 8000;
@@ -200,9 +200,10 @@ impl Host {
             eprintln!("serve: release_all: {keys} keys, {buttons} buttons");
             self.tab.release_all(&mut p);
         }
-        for event in &out.input {
+        for (i, event) in out.input.iter().enumerate() {
+            let seq = out.input_seqs.get(i).copied().flatten();
             // A refused event (Blink would drop it) is not an error here.
-            let _ = self.tab.input(event, &mut p);
+            let _ = self.tab.input_seq(event, seq, &mut p);
         }
         if out.refresh {
             self.refresh_wanted = true;
@@ -410,17 +411,75 @@ unsafe extern "C" fn on_tab_created(_: *mut c_void, _request: c_int, browser: c_
     });
 }
 
-/// Title and URL changes come once the tab has its view: a capture the shim
-/// refused before starts now.
-unsafe extern "C" fn on_page_text(_: *mut c_void, _browser: c_int, text: *const c_char) {
-    if !text.is_null() {
-        // SAFETY: NUL-terminated for the call.
-        let text = unsafe { CStr::from_ptr(text) }.to_string_lossy();
-        eprintln!("serve: page {text}");
-    }
-    dispatch(|h| {
+/// A page fact for the viewer (`rb.page`). Title and URL changes come once
+/// the tab has its view: a capture the shim refused before starts now.
+fn page_changed(change: PageChange) {
+    dispatch(move |h| {
         h.tab.retry_capture(&mut ShimPresentation);
         h.refresh();
+        let out = h.tab.page_changed(change);
+        h.send_rb(out.into_iter().collect());
+    });
+}
+
+unsafe extern "C" fn on_title(_: *mut c_void, _browser: c_int, title: *const c_char) {
+    page_changed(PageChange::Title(text(title).unwrap_or_default()));
+}
+
+unsafe extern "C" fn on_url(_: *mut c_void, _browser: c_int, url: *const c_char) {
+    let url = text(url).unwrap_or_default();
+    eprintln!("serve: page {url}");
+    page_changed(PageChange::Url(url));
+}
+
+unsafe extern "C" fn on_loading_state(
+    _: *mut c_void,
+    _browser: c_int,
+    loading: c_int,
+    can_go_back: c_int,
+    can_go_forward: c_int,
+) {
+    page_changed(PageChange::Loading {
+        loading: loading != 0,
+        can_go_back: can_go_back != 0,
+        can_go_forward: can_go_forward != 0,
+    });
+}
+
+unsafe extern "C" fn on_cursor(_: *mut c_void, _browser: c_int, cef_type: c_int) {
+    dispatch(move |h| {
+        let out = h.tab.cursor_changed(cef_type);
+        h.send_rb(out.into_iter().collect());
+    });
+}
+
+/// A key the page did not handle: the viewer runs its own action for it
+/// (`rb.key_unhandled` names the last key-down's input seq).
+unsafe extern "C" fn on_key_unhandled(
+    _: *mut c_void,
+    _browser: c_int,
+    _code: *const c_char,
+    _modifiers: c_int,
+) {
+    dispatch(|h| {
+        let out = h.tab.key_unhandled();
+        h.send_rb(out.into_iter().collect());
+    });
+}
+
+/// The page asked for a new tab or window (the shim cancelled the native
+/// popup): the App opens it as a remote tab of its own (`rb.open_tab`).
+unsafe extern "C" fn on_open_tab(
+    _: *mut c_void,
+    _browser: c_int,
+    url: *const c_char,
+    disposition: c_int,
+    user_gesture: c_int,
+) {
+    let url = text(url).unwrap_or_default();
+    dispatch(move |h| {
+        let out = h.tab.popup_requested(&url, disposition, user_gesture != 0);
+        h.send_rb(out.into_iter().collect());
     });
 }
 
@@ -743,10 +802,10 @@ pub fn run(argv: &mut [*mut c_char], opts: Options) -> i32 {
         on_ready: Some(on_ready),
         on_tab_created: Some(on_tab_created),
         on_tab_closed: None,
-        on_title: Some(on_page_text),
-        on_url: Some(on_page_text),
+        on_title: Some(on_title),
+        on_url: Some(on_url),
         on_frame: Some(on_frame),
-        on_key_unhandled: None,
+        on_key_unhandled: Some(on_key_unhandled),
         on_context_menu: Some(on_context_menu),
         on_popup_menu: Some(on_popup_menu),
         on_needs_begin_frames: None,
@@ -754,6 +813,9 @@ pub fn run(argv: &mut [*mut c_char], opts: Options) -> i32 {
         on_dialog_reset: Some(on_dialog_reset),
         on_surface: Some(on_surface),
         on_surface_frame: Some(on_surface_frame),
+        on_loading_state: Some(on_loading_state),
+        on_cursor: Some(on_cursor),
+        on_open_tab: Some(on_open_tab),
     };
     // SAFETY: argv, the strings and the callbacks outlive the call.
     unsafe {
