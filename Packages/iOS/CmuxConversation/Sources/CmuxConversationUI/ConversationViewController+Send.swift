@@ -131,7 +131,8 @@ extension ConversationViewController: ConversationComposerViewDelegate {
                 bodyFrom: CGRect(x: from.minX - to.minX, y: (to.height - from.height) / 2, width: from.width, height: from.height),
                 bodyTo: CGRect(origin: .zero, size: to.size),
                 labelFrom: textFrom.offsetBy(dx: -from.minX, dy: -from.minY),
-                labelTo: textTo.offsetBy(dx: -to.minX, dy: -to.minY)
+                labelTo: textTo.offsetBy(dx: -to.minX, dy: -to.minY),
+                fieldHeight: flight.fieldFrame.height
             )
         } else if let emojiFrame = cellLayout.emojiFrame {
             // Emoji-only sends fly bare, growing from the composer's text
@@ -154,7 +155,8 @@ extension ConversationViewController: ConversationComposerViewDelegate {
                 startCenterY: from.midY, endCenterY: to.midY,
                 bodyFrom: CGRect(x: from.minX - to.minX, y: (to.height - from.height) / 2, width: from.width, height: from.height),
                 bodyTo: CGRect(origin: .zero, size: to.size),
-                labelFrom: .zero, labelTo: .zero
+                labelFrom: .zero, labelTo: .zero,
+                fieldHeight: flight.fieldFrame.height
             )
         }
 
@@ -226,6 +228,8 @@ struct SendFlightMotion {
     let bodyTo: CGRect
     let labelFrom: CGRect
     let labelTo: CGRect
+    /// The composer field's height at send, which sets the dip depth.
+    let fieldHeight: CGFloat
 
     func applyStart() {
         mover.center.y = startCenterY
@@ -262,13 +266,40 @@ struct SendFlightMotion {
         UIView.animate(withDuration: 0.14, delay: 0, options: options.union(.curveEaseOut)) {
             mover.alpha = 1
         }
-        // Scale dip: 0.85 at 0.075 s, 0.77 through ~0.19 s, back by ~0.4 s.
-        let dip = CAKeyframeAnimation(keyPath: "transform")
-        let scales: [CGFloat] = [1, 0.85, 0.77, 0.87, 0.97, 1]
-        dip.values = scales.map { NSValue(caTransform3D: CATransform3DMakeAffineTransform(trailingScale($0))) }
-        dip.keyTimes = [0, 0.19, 0.45, 0.62, 0.82, 1]
-        dip.duration = 0.4
-        mover.layer.add(dip, forKey: "sendDip")
+        // Scale dip: ChatKit's glass send (CASpringAnimation(SendAnimation)),
+        // an additive spring down to a factor set by the field's height and
+        // one back up from 0.185 s. Messages runs them ~1.15x faster than
+        // their nominal time (measured), settling the dip by ~0.4 s.
+        let factor = Self.scaleDownFactor(fieldHeight: fieldHeight)
+        let now = mover.layer.convertTime(CACurrentMediaTime(), from: nil)
+        for (target, stiffness, delay, key) in [(factor, 310.0, 0.0, "sendDipDown"), (1 / factor, 320.0, 0.185, "sendDipUp")] {
+            let spring = CASpringAnimation(keyPath: "transform")
+            spring.mass = 2
+            spring.stiffness = stiffness
+            spring.damping = 38
+            spring.isAdditive = true
+            spring.fromValue = NSValue(caTransform3D: CATransform3DIdentity)
+            spring.toValue = NSValue(caTransform3D: CATransform3DMakeAffineTransform(trailingScale(target)))
+            spring.duration = spring.settlingDuration
+            spring.speed = 1.15
+            spring.beginTime = now + delay / 1.15
+            spring.fillMode = .both
+            // Both stay until the flight lands; dropping one early would
+            // leave the other's scale applied.
+            spring.isRemovedOnCompletion = false
+            mover.layer.add(spring, forKey: key)
+        }
+    }
+
+    /// ChatKit's `_ck_scaleDownFactorForEntryViewSize:` (iOS 26), sampled:
+    /// 0.70 for a one-line field rising to 0.90 for a 300 pt draft.
+    static func scaleDownFactor(fieldHeight: CGFloat) -> CGFloat {
+        let samples: [(CGFloat, CGFloat)] = [(36, 0.7), (50, 0.708), (60, 0.7163), (80, 0.7329), (100, 0.7494), (120, 0.766), (150, 0.7908), (200, 0.8321), (250, 0.8735), (300, 0.9)]
+        guard fieldHeight > samples[0].0 else { return samples[0].1 }
+        for (lower, upper) in zip(samples, samples.dropFirst()) where fieldHeight <= upper.0 {
+            return lower.1 + (upper.1 - lower.1) * (fieldHeight - lower.0) / (upper.0 - lower.0)
+        }
+        return 0.9
     }
 }
 
