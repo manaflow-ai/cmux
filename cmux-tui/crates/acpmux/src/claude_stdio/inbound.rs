@@ -7,7 +7,15 @@ impl Translator {
     pub async fn inbound(&self, line: &Value) -> Vec<Message> {
         let kind = line.get("type").and_then(Value::as_str).unwrap_or("");
         let sub = line.get("subtype").and_then(Value::as_str).unwrap_or("");
-        let sid = self.acp_session_id.clone();
+        // A subagent's lines carry its Agent tool call's id and stream under
+        // its own session (ACP draft #1992).
+        let parent = line.get("parent_tool_use_id").and_then(Value::as_str);
+        let mut sid = self.acp_session_id.clone();
+        if let Some(p) = parent
+            && let Some(child) = self.subagents.lock().await.get(p)
+        {
+            sid = child.clone();
+        }
         let upd = |u: Value| {
             Message::notification(method::SESSION_UPDATE, json!({"sessionId": sid, "update": u}))
         };
@@ -100,6 +108,11 @@ impl Translator {
                             "rawInput": input,
                             "_meta": {"claude": {"tool": name}}
                         })));
+                        if let ("Task" | "Agent", Some(id)) =
+                            (name, c.get("id").and_then(Value::as_str))
+                        {
+                            out.push(upd(self.spawn_subagent(id, &input).await));
+                        }
                     }
                 }
             }
@@ -127,6 +140,14 @@ impl Translator {
                             "status": if is_err { "failed" } else { "completed" },
                             "content": [{"type": "content", "content": {"type": "text", "text": text}}],
                         })));
+                        let tool = c.get("tool_use_id").and_then(Value::as_str).unwrap_or("");
+                        if let Some(child) = self.subagents.lock().await.remove(tool) {
+                            out.push(upd(json!({
+                                "sessionUpdate": "subagent_state_update",
+                                "subagentSessionId": child,
+                                "state": if is_err { "failed" } else { "completed" },
+                            })));
+                        }
                     }
                 }
             }
@@ -281,6 +302,20 @@ impl Translator {
                 } else {
                     "end_turn"
                 };
+                // An interrupted turn stops its subagents; background ones
+                // outlive a turn that ends normally.
+                if stop == "cancelled" {
+                    let mut ended: Vec<String> =
+                        self.subagents.lock().await.drain().map(|(_, child)| child).collect();
+                    ended.sort();
+                    for child in ended {
+                        out.push(upd(json!({
+                            "sessionUpdate": "subagent_state_update",
+                            "subagentSessionId": child,
+                            "state": "cancelled",
+                        })));
+                    }
+                }
                 for k in waiting {
                     self.pending.lock().await.remove(&k);
                     let id: Id = serde_json::from_str(&k).unwrap_or(Value::String(k.clone()));
@@ -304,5 +339,23 @@ impl Translator {
             _ => {}
         }
         out
+    }
+
+    /// Records a new Agent tool call as a subagent session and returns its
+    /// `subagent_spawned` update. Claude's short `description` names it.
+    async fn spawn_subagent(&self, tool_use_id: &str, input: &Value) -> Value {
+        let child = format!("{}/{tool_use_id}", self.acp_session_id);
+        self.subagents.lock().await.insert(tool_use_id.to_owned(), child.clone());
+        let s = |k: &str| input.get(k).and_then(Value::as_str).filter(|v| !v.is_empty());
+        let task = s("description").or(s("name")).or(s("subagent_type")).unwrap_or("Agent");
+        json!({
+            "sessionUpdate": "subagent_spawned",
+            "subagentSessionId": child,
+            "name": s("name").unwrap_or(task),
+            "task": task,
+            "prompt": input.get("prompt"),
+            "capabilities": {},
+            "_meta": {"claude": {"subagentType": input.get("subagent_type"), "toolUseId": tool_use_id}}
+        })
     }
 }

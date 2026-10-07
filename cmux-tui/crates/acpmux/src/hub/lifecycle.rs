@@ -472,6 +472,9 @@ impl Hub {
                         // permission policy and rules gate every harness's
                         // edits, not only the ones it chooses to ask about.
                         "fs": {"readTextFile": true, "writeTextFile": true},
+                        // Subagents arrive as their own sessions (ACP draft #1992),
+                        // attributed by `crate::subagents`.
+                        "subagents": {},
                         "terminal": false
                     },
                     "clientInfo": {"name": "acpmux", "version": VERSION}

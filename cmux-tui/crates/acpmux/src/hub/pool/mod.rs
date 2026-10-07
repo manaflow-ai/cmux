@@ -170,6 +170,9 @@ fn initialize_params() -> Value {
         "protocolVersion": 1,
         "clientCapabilities": {
             "fs": {"readTextFile": true, "writeTextFile": true},
+            // Subagents arrive as their own sessions (ACP draft #1992),
+            // attributed by `crate::subagents`.
+            "subagents": {},
             "terminal": false
         },
         "clientInfo": {"name": "acpmux", "version": VERSION}

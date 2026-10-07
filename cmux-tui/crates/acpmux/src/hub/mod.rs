@@ -210,6 +210,8 @@ pub struct Session {
     pub(super) last_active: AtomicU64,
     /// Web control ended: the mode left the asking table (`web_control.rs`).
     pub(super) web_control_ended: AtomicBool,
+    /// The subagents the agent reported, for attributing their updates.
+    pub(super) subagents: StdMutex<crate::subagents::SubagentTree>,
 }
 
 impl Session {
@@ -537,6 +539,7 @@ impl Hub {
             append_errors: AtomicU64::new(0),
             last_active: AtomicU64::new(self.clock_now()),
             web_control_ended: AtomicBool::new(false),
+            subagents: StdMutex::new(Default::default()),
         })
     }
 
