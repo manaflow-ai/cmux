@@ -32,7 +32,10 @@ pub type NameResolver = Arc<dyn Fn(&str, u16) -> Vec<IpAddr> + Send + Sync>;
 /// This machine's resolver.
 pub(super) fn system_resolver() -> NameResolver {
     Arc::new(|host, port| {
-        (host, port).to_socket_addrs().map(|addrs| addrs.map(|a| a.ip()).collect()).unwrap_or_default()
+        (host, port)
+            .to_socket_addrs()
+            .map(|addrs| addrs.map(|a| a.ip()).collect())
+            .unwrap_or_default()
     })
 }
 
@@ -72,11 +75,16 @@ impl Gate {
         }
         let server = proxy.get("server").and_then(Value::as_str).unwrap_or("");
         let Some(urls) = proxy_urls(server) else {
-            return Some(format!("session.configure: proxy server {server:?} is not a proxy address"));
+            return Some(format!(
+                "session.configure: proxy server {server:?} is not a proxy address"
+            ));
         };
         urls.iter().find_map(|url| {
             self.range_refusal_here(url).map(|reason| {
-                format!("session.configure: proxy {} is blocked: {reason}", url.host_str().unwrap_or(""))
+                format!(
+                    "session.configure: proxy {} is blocked: {reason}",
+                    url.host_str().unwrap_or("")
+                )
             })
         })
     }
@@ -132,8 +140,9 @@ mod tests {
     #[test]
     fn proxy_server_values_name_their_proxies() {
         let hosts = |server: &str| {
-            proxy_urls(server)
-                .map(|urls| urls.iter().map(|u| u.host_str().unwrap().to_owned()).collect::<Vec<_>>())
+            proxy_urls(server).map(|urls| {
+                urls.iter().map(|u| u.host_str().unwrap().to_owned()).collect::<Vec<_>>()
+            })
         };
         assert_eq!(hosts("127.0.0.1:8080"), Some(vec!["127.0.0.1".into()]));
         assert_eq!(hosts("socks5://p.test:1080"), Some(vec!["p.test".into()]));

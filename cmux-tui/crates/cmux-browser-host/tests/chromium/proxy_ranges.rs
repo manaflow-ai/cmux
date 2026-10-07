@@ -35,7 +35,8 @@ fn forward_proxy(upstream: u16) -> (u16, Arc<Mutex<Vec<String>>>) {
                 let (method, target) = (parts.next().unwrap_or("GET"), parts.next().unwrap_or("/"));
                 let mut client = client;
                 if method == "CONNECT" {
-                    let _ = client.write_all(b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n");
+                    let _ =
+                        client.write_all(b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n");
                     return;
                 }
                 let path = target
@@ -56,7 +57,8 @@ fn forward_proxy(upstream: u16) -> (u16, Arc<Mutex<Vec<String>>>) {
                 let Ok(mut server) = std::net::TcpStream::connect(("127.0.0.1", upstream)) else {
                     return;
                 };
-                let request = format!("{method} {path} HTTP/1.1\r\n{headers}Connection: close\r\n\r\n");
+                let request =
+                    format!("{method} {path} HTTP/1.1\r\n{headers}Connection: close\r\n\r\n");
                 if server.write_all(request.as_bytes()).is_err() {
                     return;
                 }

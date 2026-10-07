@@ -1397,7 +1397,7 @@ fn a_redirect_hop_without_its_address_is_logged() {
 #[test]
 fn a_proxy_meets_the_range_rule_and_remote_sessions_set_none() {
     let (_, driver) = make_gate(Value::Null, false);
-    let remote = Gate::new(driver.clone(), Grants { remote: true, ..Grants::default() });
+    let remote = Gate::new(driver, Grants { remote: true, ..Grants::default() });
     for server in ["http://203.0.113.7:3128", "127.0.0.1:8080", "socks5://10.0.0.2:1080"] {
         let refused = remote
             .driver_call("session.configure", json!({"proxy": {"server": server}}))
