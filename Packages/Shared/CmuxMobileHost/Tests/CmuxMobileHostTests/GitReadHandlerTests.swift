@@ -32,7 +32,7 @@ struct GitReadHandlerTests {
             return String(cString: resolved)
         }
 
-        func git(_ reader: FakeGitReader, configuration git: MobileGitConfiguration = .standard) -> MobileChannelHandlers {
+        func git(_ reader: FakeGitReader, configuration git: MobileGitConfiguration = MobileGitConfiguration()) -> MobileChannelHandlers {
             let root = MobileFileRoot(id: "ws_a1", name: "app", url: workspace, writable: true)
             return MobileGit(files: configuration, configuration: git, roots: StaticFileRoots([root]), reader: reader).registering()
         }

@@ -4,6 +4,7 @@ import CmuxiOSFeed
 import CmuxiOSSettingsCore
 import CmuxiOSShell
 import CmuxiOSSSH
+import CmuxiOSViewers
 import CmuxiOSWorkspaces
 import UIKit
 
@@ -52,6 +53,9 @@ enum ShellComposition {
         let workspaces = WorkspacesFeature(
             source: sources.workspaces, terminalSources: terminalSources ?? MockWorkspaceTerminalSourceFactory(),
             isMock: !workspacesAreReal)
+        // Lane C13: Changes and Files in the workspace detail, and the viewer
+        // for finished downloads.
+        workspaces.viewers = WorkspaceViewersAdapter(feature: container.viewersFeature(for: sources, real: workspacesAreReal))
         let content = ShellContent(sources: sources, home: home, settings: settings, screens: [
             .hosts: { ssh.makeHostsScreen() },
             .workspaces: { workspaces.makeWorkspacesScreen() },

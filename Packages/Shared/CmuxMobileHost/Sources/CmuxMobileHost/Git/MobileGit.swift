@@ -11,7 +11,7 @@ public struct MobileGit: Sendable {
     public let roots: any MobileFileRootsProvider
     public let reader: any MobileGitReader
 
-    public init(files: MobileFilesConfiguration = .standard, configuration: MobileGitConfiguration = .standard,
+    public init(files: MobileFilesConfiguration = .standard, configuration: MobileGitConfiguration = MobileGitConfiguration(),
                 roots: any MobileFileRootsProvider, reader: any MobileGitReader) {
         self.files = files
         self.configuration = configuration

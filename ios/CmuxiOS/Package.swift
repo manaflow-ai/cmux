@@ -61,6 +61,8 @@ let package = Package(
                 "CmuxiOSShell",
                 "CmuxiOSFeatureKit",
                 "CmuxiOSFiles",
+                "CmuxiOSViewers",
+                "CmuxiOSViewersCore",
                 "CmuxiOSFilesCore",
                 "CmuxiOSFeed",
                 "CmuxiOSFeedCloud",
@@ -255,6 +257,37 @@ let package = Package(
         .target(
             name: "CmuxiOSFiles",
             dependencies: ["CmuxiOSFilesCore", "CmuxiOSFeatureKit"],
+            resources: [.process("Resources")],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // Lane C13 (plans/cmux-next/ios-next/c13-viewers.md): diff parsing
+        // and layout, the changed-file tree, syntax highlighting, Markdown
+        // blocks, file kinds, the `ViewerContentSource` seam (real over C4's
+        // `FileHostConnector`, mock, unavailable) and the screen models. No
+        // UIKit, so its tests run on macOS.
+        .target(
+            name: "CmuxiOSViewersCore",
+            dependencies: [
+                "CmuxiOSFeatureKit", "CmuxiOSFilesCore",
+                .product(name: "CmuxMobileLink", package: "CmuxMobileLink"),
+                .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
+            ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .testTarget(
+            name: "CmuxiOSViewersCoreTests",
+            dependencies: [
+                "CmuxiOSViewersCore", "CmuxiOSFeatureKit",
+                .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
+            ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // The changes and diff screens, the text/Markdown/image/PDF viewers
+        // (the `FileViewerHook` that replaces C4's QuickLook default) and
+        // the workspace file browser.
+        .target(
+            name: "CmuxiOSViewers",
+            dependencies: ["CmuxiOSViewersCore", "CmuxiOSFiles", "CmuxiOSFeatureKit", "CmuxiOSDesign"],
             resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),

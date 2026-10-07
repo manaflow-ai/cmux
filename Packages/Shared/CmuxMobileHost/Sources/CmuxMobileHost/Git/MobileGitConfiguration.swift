@@ -19,6 +19,4 @@ public struct MobileGitConfiguration: Hashable, Sendable {
         self.maxReplyBytes = maxReplyBytes
         self.maxPaths = maxPaths
     }
-
-    public static let standard = MobileGitConfiguration()
 }

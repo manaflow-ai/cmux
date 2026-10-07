@@ -20,6 +20,8 @@ import CmuxiOSSettingsCore
 import CmuxiOSShell
 import CmuxiOSSSHCore
 import CmuxiOSTerminalLink
+import CmuxiOSViewers
+import CmuxiOSViewersCore
 import CmuxiOSWorkspaces
 import CmuxiOSWorkspacesCore
 import Foundation
@@ -96,6 +98,8 @@ final class AppContainer {
     /// Lane C4: pickers, uploads and the transfer list over the account's
     /// files seam; one per seam set so its background handling lives as long.
     private var files: FilesFeature?
+    /// Lane C13: changes, file browser and viewers over the account's seams.
+    private var viewers: ViewersFeature?
     /// C1/D1 fill this with the terminal channel's paste; nil skips the paste.
     var terminalPathPasterFactory: (@Sendable () -> any TerminalPathPaster)?
     /// C8 fills this with the composer's attachment intake; nil keeps uploads in the inbox.
@@ -308,6 +312,26 @@ final class AppContainer {
         return made
     }
 
+    /// The account's viewers (c13-viewers.md): real Macs read over the
+    /// files connector once a carrier fills it (until then "No connection to
+    /// this Mac"), mock workspaces read the canned repository. Downloads
+    /// finished in the transfer list open in its router instead of QuickLook.
+    func viewersFeature(for sources: FeatureSources, real: Bool) -> ViewersFeature {
+        if let viewers { return viewers }
+        let source: any ViewerContentSource
+        if !real {
+            source = MockViewerContentSource()
+        } else if let connector = Self.fileHostConnector() {
+            source = LinkViewerContentSource(connector: connector, transfer: sources.files)
+        } else {
+            source = UnavailableViewerContentSource()
+        }
+        let made = ViewersFeature(source: source)
+        filesFeature(for: sources).viewer = made.router
+        viewers = made
+        return made
+    }
+
     /// DEV: the files feature of the signed-in seams, or one over the mock.
     var currentFilesFeature: FilesFeature {
         filesFeature(for: features ?? FeatureSources.mock())
@@ -420,6 +444,7 @@ final class AppContainer {
         let made = realFactories.resolve(isDemo ? [:] : sourceModes.modes)
         features = made
         files = nil
+        viewers = nil
         if mockOffline { Task { await made.setMockConnection(.offline(reason: nil)) } }
         return made
     }
@@ -429,6 +454,7 @@ final class AppContainer {
         features = nil
         featuresAccount = nil
         files = nil
+        viewers = nil
     }
 
     func setMockOffline(_ offline: Bool) async {
