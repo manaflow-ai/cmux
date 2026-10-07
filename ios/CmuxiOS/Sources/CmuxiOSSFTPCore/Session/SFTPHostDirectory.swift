@@ -1,5 +1,6 @@
 public import CmuxiOSFeatureKit
 import CmuxMobileSSH
+public import Foundation
 
 /// The SFTP session per SSH host, shared by the host's file browser,
 /// viewers and transfers. The Hosts tab registers a host's opener when its

@@ -69,4 +69,9 @@ public struct SFTPTransferProgress: Sendable, Equatable {
     public var bytesTransferred: UInt64
     /// Expected total, when known up front.
     public var totalBytes: UInt64?
+
+    public init(bytesTransferred: UInt64, totalBytes: UInt64?) {
+        self.bytesTransferred = bytesTransferred
+        self.totalBytes = totalBytes
+    }
 }
