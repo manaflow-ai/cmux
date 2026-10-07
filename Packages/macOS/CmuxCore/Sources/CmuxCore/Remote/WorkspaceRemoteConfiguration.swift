@@ -48,6 +48,9 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
     public let foregroundAuthToken: String?
     /// SSH agent socket injected as `SSH_AUTH_SOCK`, when usable.
     public let agentSocketPath: String?
+    /// Whether the agent socket was explicitly supplied, including an empty
+    /// value that disables inherited agent forwarding.
+    public let agentSocketPathOverrideIsSet: Bool
     /// Brokered WebSocket daemon endpoint for Cloud VM transports.
     public let daemonWebSocketEndpoint: WorkspaceRemoteWebSocketDaemonEndpoint?
     /// Whether remote PTY sessions outlive their local terminal surface.
@@ -65,8 +68,11 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
     /// identifies one broker lease, not a user-visible connection setting.
     public let sshControlMasterLeaseGeneration: UUID?
 
-    /// Creates a configuration, normalizing the agent socket path and allowing
-    /// persistent daemon state only for SSH-backed interactive terminals.
+    /// Creates a normalized configuration, allowing persistent daemon state
+    /// only for SSH-backed interactive terminals.
+    ///
+    /// - Parameter agentSocketPathOverrideIsSet: Preserves an explicit empty
+    ///   agent value so children can remove an inherited `SSH_AUTH_SOCK`.
     public init(
         transport: WorkspaceRemoteTransport = .ssh,
         terminalTransport: WorkspaceRemoteTerminalTransport = .ssh,
@@ -86,6 +92,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
         configuredRemoteCommand: String? = nil,
         foregroundAuthToken: String? = nil,
         agentSocketPath: String? = nil,
+        agentSocketPathOverrideIsSet: Bool = false,
         daemonWebSocketEndpoint: WorkspaceRemoteWebSocketDaemonEndpoint? = nil,
         preserveAfterTerminalExit: Bool = false,
         persistentDaemonSlot: String? = nil,
@@ -110,6 +117,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
         self.configuredRemoteCommand = Self.normalizedOptionalValue(configuredRemoteCommand)
         self.foregroundAuthToken = foregroundAuthToken
         self.agentSocketPath = Self.normalizedAgentSocketPath(agentSocketPath)
+        self.agentSocketPathOverrideIsSet = agentSocketPathOverrideIsSet || agentSocketPath != nil
         self.daemonWebSocketEndpoint = daemonWebSocketEndpoint
         let preservesPersistentPTY = terminalTransport == .ssh && preserveAfterTerminalExit
         self.preserveAfterTerminalExit = preservesPersistentPTY
@@ -120,6 +128,10 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
         self.sshControlMasterLeaseGeneration = sshControlMasterLeaseGeneration
     }
 
+    /// Creates a configuration using the legacy initializer shape.
+    ///
+    /// - Parameter agentSocketPathOverrideIsSet: Preserves an explicit empty
+    ///   agent value so children can remove an inherited `SSH_AUTH_SOCK`.
     public init(
         transport: WorkspaceRemoteTransport = .ssh,
         terminalTransport: WorkspaceRemoteTerminalTransport = .ssh,
@@ -138,6 +150,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
         configuredRemoteCommand: String? = nil,
         foregroundAuthToken: String? = nil,
         agentSocketPath: String? = nil,
+        agentSocketPathOverrideIsSet: Bool = false,
         daemonWebSocketEndpoint: WorkspaceRemoteWebSocketDaemonEndpoint? = nil,
         preserveAfterTerminalExit: Bool = false,
         persistentDaemonSlot: String? = nil,
@@ -163,6 +176,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
             configuredRemoteCommand: configuredRemoteCommand,
             foregroundAuthToken: foregroundAuthToken,
             agentSocketPath: agentSocketPath,
+            agentSocketPathOverrideIsSet: agentSocketPathOverrideIsSet,
             daemonWebSocketEndpoint: daemonWebSocketEndpoint,
             preserveAfterTerminalExit: preserveAfterTerminalExit,
             persistentDaemonSlot: persistentDaemonSlot,
@@ -192,6 +206,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
             lhs.terminalStartupCommand == rhs.terminalStartupCommand &&
             lhs.foregroundAuthToken == rhs.foregroundAuthToken &&
             lhs.agentSocketPath == rhs.agentSocketPath &&
+            lhs.agentSocketPathOverrideIsSet == rhs.agentSocketPathOverrideIsSet &&
             lhs.daemonWebSocketEndpoint == rhs.daemonWebSocketEndpoint &&
             lhs.preserveAfterTerminalExit == rhs.preserveAfterTerminalExit &&
             lhs.persistentDaemonSlot == rhs.persistentDaemonSlot &&
@@ -387,6 +402,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
             configuredRemoteCommand: configuredRemoteCommand,
             foregroundAuthToken: foregroundAuthToken,
             agentSocketPath: agentSocketPath,
+            agentSocketPathOverrideIsSet: agentSocketPathOverrideIsSet,
             daemonWebSocketEndpoint: daemonWebSocketEndpoint,
             preserveAfterTerminalExit: preserveAfterTerminalExit,
             persistentDaemonSlot: persistentDaemonSlot,
@@ -422,6 +438,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
             configuredRemoteCommand: configuredRemoteCommand,
             foregroundAuthToken: foregroundAuthToken,
             agentSocketPath: agentSocketPath,
+            agentSocketPathOverrideIsSet: agentSocketPathOverrideIsSet,
             daemonWebSocketEndpoint: endpoint,
             preserveAfterTerminalExit: preserveAfterTerminalExit,
             persistentDaemonSlot: persistentDaemonSlot,
@@ -452,6 +469,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
             configuredRemoteCommand: configuredRemoteCommand,
             foregroundAuthToken: foregroundAuthToken,
             agentSocketPath: agentSocketPath,
+            agentSocketPathOverrideIsSet: agentSocketPathOverrideIsSet,
             daemonWebSocketEndpoint: daemonWebSocketEndpoint,
             preserveAfterTerminalExit: preserveAfterTerminalExit,
             persistentDaemonSlot: persistentDaemonSlot,
@@ -473,18 +491,24 @@ extension WorkspaceRemoteConfiguration {
         return ["SSH_AUTH_SOCK": agentSocketPath]
     }
 
-    /// Full local environment for SSH/SCP children, with a configured agent override.
+    /// Full local environment for SSH/SCP children, with an optional agent override.
     ///
     /// Assigning `nil` to Foundation's `Process.environment` clears the child
     /// environment on macOS, unlike leaving the property unset. Always supply
     /// the inherited environment so local `ProxyCommand` helpers can find the
-    /// user's home directory, credentials, and executables without restoring an
-    /// unconfigured `SSH_AUTH_SOCK`.
+    /// user's home directory, credentials, and executables. An explicitly
+    /// disabled override removes that inherited key; an absent override leaves
+    /// it intact.
     public var sshProcessEnvironment: [String: String]? {
-        var environment = ProcessInfo.processInfo.environment
+        sshProcessEnvironment(inheriting: ProcessInfo.processInfo.environment)
+    }
+
+    /// Applies the agent override to a complete local child environment.
+    func sshProcessEnvironment(inheriting inherited: [String: String]) -> [String: String] {
+        var environment = inherited
         if let agentSocketPath {
             environment["SSH_AUTH_SOCK"] = agentSocketPath
-        } else {
+        } else if agentSocketPathOverrideIsSet {
             // Keep ForwardAgent=no and an explicit empty socket from falling
             // back to the app's own agent socket.
             environment.removeValue(forKey: "SSH_AUTH_SOCK")
@@ -535,6 +559,7 @@ extension WorkspaceRemoteConfiguration {
             identityFile: Self.normalizedIdentityPath(identityFile),
             sshOptions: sshOptionsOverride ?? Self.durableSSHOptions(sshOptions),
             agentSocketPath: agentSocketPath,
+            agentSocketPathOverrideIsSet: agentSocketPathOverrideIsSet ? true : nil,
             preserveAfterTerminalExit: preserveAfterTerminalExit ? true : nil,
             skipDaemonBootstrap: skipDaemonBootstrap,
             relayPort: retainsRelayNamespace ? relayPort : nil,

@@ -104,7 +104,8 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
     func adopt(_ replacement: SSHTuiConnection) async {
         guard replacement.id == connection.id,
               (replacement.configuration.sshOptions != connection.configuration.sshOptions
-               || replacement.configuration.agentSocketPath != connection.configuration.agentSocketPath),
+               || replacement.configuration.agentSocketPath != connection.configuration.agentSocketPath
+               || replacement.configuration.agentSocketPathOverrideIsSet != connection.configuration.agentSocketPathOverrideIsSet),
               connecting == nil else { return }
         let observed = current
         if let observed, await observed.isConnected { return }

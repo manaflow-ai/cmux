@@ -18,6 +18,7 @@ public struct SSHTuiPreflight: Sendable {
     private let commands: any CommandRunning
     private let timeout: TimeInterval
 
+    /// Runs the prompt-free route check and reports OpenSSH's typed outcome.
     public func run() async throws {
         var arguments = connection.preflightArguments
         var executable = arguments.removeFirst()
@@ -25,6 +26,9 @@ public struct SSHTuiPreflight: Sendable {
         // passed the same way the carrier receives it.
         if let agent = connection.configuration.agentSocketPath {
             arguments = ["SSH_AUTH_SOCK=" + agent, executable] + arguments
+            executable = "/usr/bin/env"
+        } else if connection.configuration.agentSocketPathOverrideIsSet {
+            arguments = ["-u", "SSH_AUTH_SOCK", executable] + arguments
             executable = "/usr/bin/env"
         }
         let result = await commands.run(

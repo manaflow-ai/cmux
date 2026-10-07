@@ -270,6 +270,23 @@ struct SSHTuiMigrationTests {
         #expect(snapshot.restorableAgentSocketPath(environment: [:], isLiveAgent: live.contains) == nil)
     }
 
+    @Test("A restore carries the live fallback agent into SSH child environments")
+    func restoredConfigurationUsesLiveFallbackAgent() throws {
+        let saved = "/tmp/cmux-test-saved-agent.sock"
+        let current = "/tmp/cmux-test-current-agent.sock"
+        let snapshot = SessionRemoteWorkspaceSnapshot(
+            transport: .ssh,
+            destination: "alice@example.invalid",
+            agentSocketPath: saved
+        )
+        let configuration = try #require(snapshot.workspaceConfiguration(
+            environment: ["SSH_AUTH_SOCK": current],
+            isLiveAgent: { [current].contains($0) }
+        ))
+        #expect(configuration.agentSocketPath == current)
+        #expect(configuration.sshProcessEnvironment?["SSH_AUTH_SOCK"] == current)
+    }
+
     @Test("A saved agent path that no longer serves never beats a live agent")
     func staleAgentPathLosesToALiveAgent() throws {
         let listener = try AgentSocketListener()

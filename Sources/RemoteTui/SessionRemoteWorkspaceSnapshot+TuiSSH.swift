@@ -41,7 +41,9 @@ extension SessionRemoteWorkspaceSnapshot {
                 : WorkspaceRemoteConfiguration.durableSSHOptions(sshOptions),
             localProxyPort: nil, relayPort: nil, relayID: nil, relayToken: nil, localSocketPath: nil,
             terminalStartupCommand: nil, configuredRemoteCommand: configuredRemoteCommand,
-            agentSocketPath: agentSocketPath, preserveAfterTerminalExit: true
+            agentSocketPath: agentSocketPath,
+            agentSocketPathOverrideIsSet: agentSocketPath != nil || self.agentSocketPathOverrideIsSet == true,
+            preserveAfterTerminalExit: true
         )
     }
 }

@@ -53,6 +53,23 @@ struct SSHTuiPreflightTests {
         #expect(firstPath != secondPath)
     }
 
+    /// Explicit disable must not reuse an inherited-agent control master.
+    @Test("An explicitly disabled agent uses a separate route from an inherited agent")
+    func disabledAgentDoesNotShareInheritedRoute() throws {
+        let inherited = SSHTuiConnection(configuration: configuration(agent: nil, identityFile: nil))
+        let disabled = SSHTuiConnection(configuration: WorkspaceRemoteConfiguration(
+            destination: "alice@example.invalid", port: 2222, identityFile: nil, sshOptions: [],
+            localProxyPort: nil, relayPort: nil, relayID: nil, relayToken: nil, localSocketPath: nil,
+            terminalStartupCommand: nil, agentSocketPath: "", agentSocketPathOverrideIsSet: true
+        ))
+
+        let inheritedPath = inherited.authenticationArguments.first { $0.hasPrefix("ControlPath=") }
+        let disabledPath = disabled.authenticationArguments.first { $0.hasPrefix("ControlPath=") }
+
+        #expect(inheritedPath != disabledPath)
+        #expect(disabled.authenticationArguments.contains("IdentityAgent=none"))
+    }
+
     @Test("Passes the configured agent socket like the carrier")
     func passesTheAgentSocket() async throws {
         let commands = ScriptedPreflightCommands(exitStatus: 0)
@@ -61,6 +78,21 @@ struct SSHTuiPreflightTests {
         let call = try #require(await commands.calls.first)
         #expect(call.executable == "/usr/bin/env")
         #expect(call.arguments == ["SSH_AUTH_SOCK=/tmp/agent.sock"] + connection.preflightArguments)
+    }
+
+    /// Explicit disable removes the inherited socket before OpenSSH starts.
+    @Test("Removes an explicitly disabled agent socket from the preflight child")
+    func removesDisabledAgentSocket() async throws {
+        let commands = ScriptedPreflightCommands(exitStatus: 0)
+        let connection = SSHTuiConnection(configuration: WorkspaceRemoteConfiguration(
+            destination: "alice@example.invalid", port: 2222, identityFile: nil, sshOptions: [],
+            localProxyPort: nil, relayPort: nil, relayID: nil, relayToken: nil, localSocketPath: nil,
+            terminalStartupCommand: nil, agentSocketPath: "", agentSocketPathOverrideIsSet: true
+        ))
+        try await SSHTuiPreflight(connection: connection, commands: commands).run()
+        let call = try #require(await commands.calls.first)
+        #expect(call.executable == "/usr/bin/env")
+        #expect(call.arguments == ["-u", "SSH_AUTH_SOCK"] + connection.preflightArguments)
     }
 
     @Test("Reports OpenSSH's own failure with its diagnostic")

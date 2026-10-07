@@ -118,7 +118,7 @@ struct BrowserAutomationWatchdogTests {
         var probeStartsIterator = probeStarts.makeAsyncIterator()
         let (followerJoins, followerJoinsContinuation) = AsyncStream.makeStream(of: Void.self)
         var followerJoinsIterator = followerJoins.makeAsyncIterator()
-        let watchdog = BrowserAutomationWatchdog()
+        let watchdog = BrowserAutomationWatchdog(sleep: Self.cancellationOnlySleep)
         let observedInstanceID = UUID()
         let probe: BrowserAutomationWatchdog.Probe = { finish in
             probeCount += 1
@@ -225,7 +225,7 @@ struct BrowserAutomationWatchdogTests {
         var probeStartsIterator = probeStarts.makeAsyncIterator()
         let (followerJoins, followerJoinsContinuation) = AsyncStream.makeStream(of: Void.self)
         var followerJoinsIterator = followerJoins.makeAsyncIterator()
-        let watchdog = BrowserAutomationWatchdog()
+        let watchdog = BrowserAutomationWatchdog(sleep: Self.cancellationOnlySleep)
         let observedInstanceID = UUID()
         let probe: BrowserAutomationWatchdog.Probe = { finish in
             probeCompletion = finish
@@ -259,6 +259,13 @@ struct BrowserAutomationWatchdogTests {
         #expect(await leader.value == .responsive)
         probeStartsContinuation.finish()
         followerJoinsContinuation.finish()
+    }
+
+    /// Holds the watchdog deadline open until the liveness probe completes.
+    /// These tests assert joining and cancellation ordering, so a real one-second
+    /// deadline makes them depend on package-wide MainActor scheduling.
+    private static let cancellationOnlySleep: BrowserAutomationWatchdog.Sleep = { _ in
+        try await ContinuousClock().sleep(for: .seconds(3_600))
     }
 
     @Test("Owner invalidation cancels joined checks without recovering the stale instance")

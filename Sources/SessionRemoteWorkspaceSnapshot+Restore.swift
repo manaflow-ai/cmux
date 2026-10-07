@@ -6,11 +6,16 @@ import Security
 #endif
 
 extension SessionRemoteWorkspaceSnapshot {
+    /// Reconstructs a remote configuration from a persisted session descriptor.
+    /// The optional environment and liveness seam lets restore tests model a
+    /// moved agent without touching the process-wide environment.
     func workspaceConfiguration(
         localSocketPath: String? = nil,
         allowPersistentPTYRestore: Bool = true,
         preserveSSHOptions: Bool = false,
-        agentSocketPath overrideAgentSocketPath: String? = nil
+        agentSocketPath overrideAgentSocketPath: String? = nil,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        isLiveAgent: @escaping (String) -> Bool = Self.acceptsAgentConnections(atPath:)
     ) -> WorkspaceRemoteConfiguration? {
         let normalizedDestination = destination.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedDestination.isEmpty,
@@ -44,7 +49,11 @@ extension SessionRemoteWorkspaceSnapshot {
             (1...65535).contains(port) ? port : nil
         }
 
-        let agentSocketPath = overrideAgentSocketPath ?? restorableAgentSocketPath()
+        let agentSocketPath = overrideAgentSocketPath
+            ?? restorableAgentSocketPath(environment: environment, isLiveAgent: isLiveAgent)
+        let agentSocketPathOverrideIsSet = overrideAgentSocketPath != nil
+            || agentSocketPath != nil
+            || self.agentSocketPathOverrideIsSet == true
         if let configuration = tuiSSHConfiguration(agentSocketPath: agentSocketPath) { return configuration }
         if let configuration = legacyTmuxSSHConfiguration(agentSocketPath: agentSocketPath) { return configuration }
         if skipDaemonBootstrap != true, (terminalTransport ?? .ssh) == .ssh,
@@ -54,7 +63,10 @@ extension SessionRemoteWorkspaceSnapshot {
             var configuration = WorkspaceRemoteConfiguration(destination: normalizedDestination,
                 port: normalizedPort, identityFile: identityFile, sshOptions: sshOptions,
                 localProxyPort: nil, relayPort: nil, relayID: nil, relayToken: nil,
-                localSocketPath: nil, terminalStartupCommand: nil, preserveAfterTerminalExit: true)
+                localSocketPath: nil, terminalStartupCommand: nil,
+                agentSocketPath: agentSocketPath,
+                agentSocketPathOverrideIsSet: agentSocketPathOverrideIsSet,
+                preserveAfterTerminalExit: true)
             configuration.restoredSSHSession = self
             return configuration
         }
@@ -217,8 +229,10 @@ extension SessionRemoteWorkspaceSnapshot {
                 sshOptions: restoredSSHOptions,
                 // The agent the connection authenticated with wins over a
                 // `ForwardAgent` path, as it does for cmux-tui carriers.
-                explicitAgentSocketPath: overrideAgentSocketPath ?? self.agentSocketPath
+                explicitAgentSocketPath: agentSocketPath,
+                explicitAgentSocketPathIsSet: agentSocketPathOverrideIsSet
             ),
+            agentSocketPathOverrideIsSet: agentSocketPathOverrideIsSet,
             daemonWebSocketEndpoint: nil,
             preserveAfterTerminalExit: preservePTYSession || restoreDefaultFreestyleSSHD,
             persistentDaemonSlot: (preservePTYSession || restoreDefaultFreestyleSSHD) ? effectivePersistentDaemonSlot : nil,
@@ -599,6 +613,9 @@ extension SessionRemoteWorkspaceSnapshot {
         isLiveAgent: (String) -> Bool = Self.acceptsAgentConnections(atPath:)
     ) -> String? {
         let resolver = SSHAgentSocketResolver(environment: [:])
+        if agentSocketPathOverrideIsSet == true, resolver.normalizedAgentSocketPath(agentSocketPath) == nil {
+            return nil
+        }
         return [agentSocketPath, environment["SSH_AUTH_SOCK"]]
             .lazy
             .compactMap { resolver.normalizedAgentSocketPath($0) }

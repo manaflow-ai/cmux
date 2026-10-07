@@ -415,6 +415,7 @@ struct WorkspaceRemoteConfigurationValueTests {
         #expect(snapshot?.persistentDaemonSlot == nil)
     }
 
+    /// Terminal overlays stay narrow while standalone SSH children receive a complete environment.
     @Test("sshTerminalStartupEnvironment carries SSH_AUTH_SOCK only when an agent socket exists")
     func startupEnvironment() {
         #expect(makeConfiguration().sshTerminalStartupEnvironment == nil)

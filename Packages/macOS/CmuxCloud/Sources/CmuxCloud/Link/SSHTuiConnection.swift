@@ -36,6 +36,7 @@ public struct SSHTuiConnection: Sendable {
         digest(includeAgentSocket: true)
     }
 
+    /// Hashes the route inputs that must share, or avoid sharing, an SSH master.
     private func digest(includeAgentSocket: Bool) -> String {
         let resolver = SSHAgentSocketResolver(environment: [:])
         let persistentOptions = configuration.sshOptions.filter {
@@ -44,7 +45,12 @@ public struct SSHTuiConnection: Sendable {
         var components = [configuration.destination, configuration.port.map(String.init) ?? "",
                           configuration.identityFile ?? ""] + persistentOptions
         if includeAgentSocket {
-            components.append(configuration.agentSocketPath?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "")
+            if configuration.agentSocketPathOverrideIsSet {
+                components.append(configuration.agentSocketPath?.trimmingCharacters(in: .whitespacesAndNewlines)
+                    .flatMap { $0.isEmpty ? nil : $0 } ?? "<disabled-agent>")
+            } else {
+                components.append("<inherited-agent>")
+            }
         }
         return SHA256.hash(data: Data(components.joined(separator: "\0").utf8))
             .map { String(format: "%02x", $0) }.joined()
@@ -79,6 +85,11 @@ public struct SSHTuiConnection: Sendable {
         var routeSensitiveOptions = configuration.identityFile.map { ["IdentityFile=\($0)"] } ?? []
         if let agent = configuration.agentSocketPath?.trimmingCharacters(in: .whitespacesAndNewlines), !agent.isEmpty {
             routeSensitiveOptions.append("IdentityAgent=\(agent)")
+        } else if configuration.agentSocketPathOverrideIsSet {
+            // Keep an explicitly disabled agent from sharing a master opened
+            // with the caller's inherited agent, and make the route identity
+            // reflect that OpenSSH behavior.
+            routeSensitiveOptions.append("IdentityAgent=none")
         }
         return SSHConnectionSharingOptions().mergingDefaults(
             into: configuration.sshOptions,
