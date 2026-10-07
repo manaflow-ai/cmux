@@ -7949,80 +7949,6 @@
     },
     {
       "accepts" : [
-        "off",
-        "reserved",
-        "overlay"
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.off",
-            "text" : "Off"
-          },
-          "value" : "off"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.launcherReserved",
-            "text" : "Reserved Strip"
-          },
-          "value" : "reserved"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.launcherOverlay",
-            "text" : "Hover Overlay"
-          },
-          "value" : "overlay"
-        }
-      ],
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : "off",
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.sidebar",
-        "text" : "Sidebar"
-      },
-      "help" : {
-        "key" : "settings.sidebar.launcherMode.help",
-        "text" : "Shows destinations, agent state and pinned workspaces in a launcher strip at the bottom of the window."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "sidebar.launcherMode",
-      "keywords" : [
-        "sidebar",
-        "launcher",
-        "strip",
-        "destinations",
-        "agents",
-        "workspaces",
-        "bottom",
-        "hover"
-      ],
-      "kind" : "choice",
-      "page_hidden" : false,
-      "path" : [
-        "sidebar",
-        "launcherMode"
-      ],
-      "refuses" : [
-        "__not_a_choice__",
-        1,
-        true
-      ],
-      "section" : "appearance",
-      "title" : {
-        "key" : "settings.sidebar.launcherMode",
-        "text" : "Launcher Strip"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
         "left",
         "right"
       ],
@@ -14455,6 +14381,191 @@
     },
     {
       "accepts" : [
+        "always",
+        "collapsed",
+        "never"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.editedFilesAlways",
+            "text" : "Always"
+          },
+          "value" : "always"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editedFilesCollapsed",
+            "text" : "Collapsed"
+          },
+          "value" : "collapsed"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editedFilesNever",
+            "text" : "Never"
+          },
+          "value" : "never"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "always",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.editedFiles.show.help",
+        "text" : "The card that lists a turn's edited files, with Undo and View changes."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.editedFiles.show",
+      "keywords" : [
+        "edited",
+        "files",
+        "undo",
+        "changes",
+        "agent"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "editedFiles",
+        "show"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.agentPane.editedFiles.show",
+        "text" : "Edited Files Card"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        1,
+        50,
+        25.5
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 5,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.editedFiles.maxRows",
+      "keywords" : [
+        "edited",
+        "files",
+        "rows",
+        "agent"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "editedFiles",
+        "maxRows"
+      ],
+      "range" : {
+        "max" : 50,
+        "min" : 1,
+        "placeholder" : 1,
+        "step" : 1,
+        "unit" : "count"
+      },
+      "refuses" : [
+        -48,
+        99,
+        "1"
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.agentPane.editedFiles.maxRows",
+        "text" : "Edited Files Shown"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "turn",
+        "session"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.editedFilesTurn",
+            "text" : "Each Turn"
+          },
+          "value" : "turn"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editedFilesSession",
+            "text" : "The Whole Chat"
+          },
+          "value" : "session"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "turn",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.editedFiles.scope",
+      "keywords" : [
+        "edited",
+        "files",
+        "session",
+        "turn",
+        "agent"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "editedFiles",
+        "scope"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.agentPane.editedFiles.scope",
+        "text" : "Edited Files Card Covers"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -15229,7 +15340,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "52b40fec04ef30cda8a22b4968647351f445a3548c70fbba5f721aa9d66a48d8",
+  "schema_hash" : "cd1b12f3e9fbf002aee49c0a33857c6a74f0dd82e833d93f85629845d8c282c6",
   "sections" : [
     {
       "id" : "general",

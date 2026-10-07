@@ -12,6 +12,12 @@ public struct PasswordImportReport: Sendable, Equatable, Codable {
     public var imported: Int { store.added }
     /// Everything that did not become a new saved password.
     public var notImported: Int { skipped.total + store.duplicate + store.conflict + store.rejected }
+    /// Sign-ins cmux already has for that site and username with another
+    /// password: the saved one was kept. Summaries show this count on its own
+    /// so a differing password is never dropped silently.
+    public var conflicts: Int { store.conflict }
+    /// What did not become a new saved password, other than `conflicts`.
+    public var notImportedOtherThanConflicts: Int { notImported - conflicts }
 }
 
 /// Imports one Chromium source profile's saved passwords into one cmux
