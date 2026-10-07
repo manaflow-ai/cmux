@@ -175,11 +175,6 @@
 .acpmux-empty-glyph{color:var(--acpmux-composer-placeholder)}
 .acpmux-empty-title{margin:0;max-width:560px;font-size:20px;line-height:28px;font-weight:400;color:var(--agent-text);overflow-wrap:anywhere}
 .acpmux-empty-project{text-decoration:underline;text-decoration-color:var(--acpmux-composer-placeholder);text-underline-offset:4px;text-decoration-thickness:1px}
-.acpmux-empty-actions{display:flex;align-items:center;gap:8px;margin-top:4px}
-.acpmux-empty-actions button{height:30px;padding:0 13px;border:0;border-radius:6px;font:inherit;font-size:13px;cursor:pointer}
-.acpmux-empty-new{background:var(--agent-accent);color:var(--agent-accent-text,#fff)}
-.acpmux-empty-import{background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text)}
-.acpmux-empty-actions button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
 /* A remote connection showing a chat acpmux will not let it drive (remoteEditing.ts). */
 .acpmux-composer-remote-note {
   margin: 0 18px 4px;

@@ -34,8 +34,9 @@ export function isNewChat(snapshot: AcpmuxSnapshot, newSession = false): boolean
 }
 
 /// A new chat's hero, centered in place of the empty transcript and kept quiet:
-/// a small prompt glyph and one line naming the session's project.
-export function EmptyState({ project, onNew, onImport }: { project?: string; onNew?(): void; onImport?(): void }) {
+/// a small prompt glyph and one line naming the session's project. No buttons:
+/// the composer starts the chat (Lawrence 2026-10-06, "remove what doesn't need to be there").
+export function EmptyState({ project }: { project?: string }) {
   const t = useT();
   const [before, after] = t(EMPTY_STATE_LABELS.promptIn).split("{project}");
   return (
@@ -67,14 +68,6 @@ export function EmptyState({ project, onNew, onImport }: { project?: string; onN
           t(EMPTY_STATE_LABELS.prompt)
         )}
       </h2>
-      <div className="acpmux-empty-actions">
-        <button type="button" className="acpmux-empty-new" data-action="new" onClick={onNew}>
-          {t("empty.new")}
-        </button>
-        <button type="button" className="acpmux-empty-import" data-action="import" onClick={onImport}>
-          {t("empty.import")}
-        </button>
-      </div>
     </div>
   );
 }
