@@ -43,6 +43,26 @@ import Testing
         #expect(!CuaHelperIdentity.satisfiesRequirement(directory.appending(path: "missing.app")))
     }
 
+    /// Fixture helpers in tests/fixtures/cua-helper-signatures: bundle id
+    /// com.cmuxterm.cua, signed with an Apple Development and an Apple
+    /// Distribution certificate of team 7WLXT3NR37. Both pass a team-only
+    /// requirement, but their designated requirement is not the release
+    /// helper's, so a grant to either replaces the release TCC row.
+    static func signatureFixture(_ kind: String) -> URL {
+        var root = URL(fileURLWithPath: #filePath)
+        for _ in 0..<6 { root.deleteLastPathComponent() }
+        return root.appending(path: "tests/fixtures/cua-helper-signatures/\(kind)/\(CuaHelperIdentity.appName)")
+    }
+
+    @Test(arguments: ["apple-development", "apple-distribution"])
+    func aSameTeamSignatureThatIsNotDeveloperIDIsRefused(_ kind: String) throws {
+        let helper = Self.signatureFixture(kind)
+        try #require(FileManager.default.fileExists(atPath: helper.appending(path: "Contents/MacOS/cmux-cua").path),
+                     "missing fixture \(helper.path)")
+        #expect(!CuaHelperIdentity.satisfiesRequirement(helper))
+        #expect(CuaHelperIdentity().resolve(running: nil, installed: [helper]) == .unavailable(.noSignedHelperInstalled))
+    }
+
     /// The real check, end to end: a dev build whose only helper is an
     /// ad-hoc copy gets no helper, whether the copy runs or is only installed.
     @Test func anAdHocCandidateIsRefused() throws {

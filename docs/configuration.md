@@ -613,3 +613,29 @@ shows the same keys.
 
 Agents (MCP `settings_set`) may change `inlineAutocomplete`, `maxRows` and `calculator`; the search
 engine and remote suggestions decide what leaves the Mac, so only you change them.
+
+## `agentPane.editedFiles.*`
+
+The card in an agent chat that lists the files a turn edited, with Undo and View changes.
+Settings > General > Agent Chat shows the same keys.
+
+```jsonc
+{
+  "agentPane": {
+    "editedFiles": {
+      "show": "always",
+      "maxRows": 5,
+      "scope": "turn"
+    }
+  }
+}
+```
+
+- `show`: `always` (default) shows the card with its file rows, `collapsed` shows only the
+  header (its chevron shows the rows), and `never` shows no card (the turn keeps its plain
+  tool rows).
+- `maxRows`: file rows shown before "Show N more", `1` to `50`. Default: `5`.
+- `scope`: `turn` (default) gives each turn its own card; `session` shows one card for the
+  whole chat, at its latest edit.
+
+A value cmux does not know keeps that key's default and is reported as a diagnostic.

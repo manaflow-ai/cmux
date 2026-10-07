@@ -156,3 +156,49 @@ fn peers_resolve_vm_ids_and_addresses() {
     assert_eq!(api::resolve_peer("10.128.16.9", None).unwrap(), Ipv4Addr::new(10, 128, 16, 9));
     assert!(api::resolve_peer("vm_missing", Some(&map)).is_err());
 }
+
+/// The Worker returns the mesh's IPv6 /64 in allowedIps too (the provider requires it on
+/// the tunnel); this IPv4-only agent keeps the IPv4 ranges and ignores the IPv6 ones.
+#[test]
+fn ipv6_allowed_ips_are_ignored() {
+    let json = format!(
+        r#"{{"id":"tun_1","meshId":"mesh_1","deviceId":"dev_1",
+            "endpointHost":"203.0.113.30","endpointPort":51820,"interfaceAddress":"100.64.0.1/32",
+            "serverPublicKey":"{SERVER_KEY}","allowedIps":["10.128.16.0/20","fd3b:5c80:74b4::/64"]}}"#
+    );
+    let tunnel = config::parse_tunnel(&json).unwrap();
+    assert!(tunnel.routes_contain(Ipv4Addr::new(10, 128, 16, 5)));
+}
+
+#[test]
+fn enroll_codes_are_mec_and_26_lowercase_crockford_characters() {
+    assert!(api::check_enroll_code("mec_0123456789abcdefghjkmnpqrs").is_ok());
+    assert!(api::check_enroll_code("mec_tvwxyz0123456789abcdefghjk").is_ok());
+    for bad in [
+        "",
+        "mec_",
+        "mec_0123456789abcdefghjkmnpqr",
+        "mec_0123456789abcdefghjkmnpqrst",
+        "mec_0123456789ABCDEFGHJKMNPQRS",
+        "mec_0123456789abcdefghjkmnpqri",
+        "mec_0123456789abcdefghjkmnpqrl",
+        "mec_0123456789abcdefghjkmnpqro",
+        "mec_0123456789abcdefghjkmnpqru",
+        "MEC_0123456789abcdefghjkmnpqrs",
+        " mec_0123456789abcdefghjkmnpqrs",
+    ] {
+        let error = api::check_enroll_code(bad).expect_err(bad);
+        assert_eq!(error.tag, "InvalidEnrollCode");
+        if bad.len() > 4 {
+            assert!(!error.message.contains(bad), "the error echoes the code");
+        }
+    }
+}
+
+#[test]
+fn device_names_are_one_nonempty_line() {
+    assert!(api::check_device_name("laptop 2").is_ok());
+    for bad in ["", "lap\ntop", "lap\rtop"] {
+        assert_eq!(api::check_device_name(bad).unwrap_err().tag, "InvalidName");
+    }
+}
