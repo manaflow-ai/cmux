@@ -10,6 +10,10 @@ import SwiftUI
 /// row edited under a filter (unbound, rebound) stays put with its Restore button.
 @MainActor
 struct ShortcutListStableLazyView: View {
+    /// Keep a burst of keystrokes from rebuilding the virtualized row tree for
+    /// every character. Matching is still immediate when the query is cleared.
+    private static let searchDebounce: Duration = .milliseconds(80)
+
     @Environment(\.controlActiveState) private var controlActiveState
 
     let model: ShortcutListModel
@@ -18,61 +22,33 @@ struct ShortcutListStableLazyView: View {
     @State private var lastReportedHeight: CGFloat = 0
     /// Actions matching `query` when it last changed, or `nil` when unfiltered.
     @State private var matchedActions: [ShortcutAction]?
+    @State private var matchedActionsQuery: ShortcutListSearchQuery?
+    @State private var searchIndex: ShortcutListSearchIndex?
+    @State private var searchIndexRevision = 0
+    @State private var preserveShownOnIndexRefresh = false
+    @State private var shownActionsForIndexRefresh: [ShortcutAction] = []
 
     var body: some View {
         let actions = matchedActions ?? ShortcutAction.settingsVisibleActions
-        LazyVStack(spacing: 0) {
-            if actions.isEmpty {
-                Text(String(localized: "settings.shortcuts.search.noResults", defaultValue: "No shortcuts match"))
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 18)
-                    .accessibilityIdentifier("SettingsShortcutSearchNoResults")
-            }
-            ForEach(Array(actions.enumerated()), id: \.element) { index, action in
-                let effective = model.effective(for: action)
-                let snapshot = ShortcutListRowSnapshot(
-                    action: action,
-                    isLast: index == actions.count - 1,
-                    title: action.displayName,
-                    subtitle: model.scopeCaption(for: action),
-                    placeholder: model.formatPlaceholder(effective: effective, numbered: action.usesNumberedDigitMatching),
-                    chordsEnabled: model.chordModeActions.contains(action.rawValue),
-                    hasPendingRejection: model.hasPendingRejection(for: action),
-                    firstStrokeRequiresModifier: !action.allowsBareFirstStroke,
-                    isUnbound: effective?.isUnbound ?? true,
-                    canRestore: model.canRestore(for: action),
-                    validationMessage: model.validationMessage(for: action),
-                    recorderAccessibilityIdentifier: "ShortcutRecorder.\(action.rawValue)"
-                )
-                ShortcutListRowView(
-                    snapshot: snapshot,
-                    actions: ShortcutListRowActions(
-                        onStroke: { stroke in Task { await model.assign(stroke: stroke, to: action) } },
-                        onChord: { chord in Task { await model.assignChord(chord, to: action) } },
-                        onBareKeyRejected: { model.markBareKeyRejected(action) },
-                        onClearOrRestore: { Task { await model.clearOrRestore(for: action) } },
-                        onClearRejections: { model.clearRejections(for: action) }
-                    )
-                )
-                .equatable()
-            }
-        }
+        ShortcutListRows(model: model, actions: actions, revision: searchIndexRevision)
+            .equatable()
         .background {
             ShortcutListHeightReader { height in
                 updateMeasuredHeight(to: height)
             }
         }
         .frame(minHeight: measuredHeight, alignment: .top)
-        .onChange(of: query, initial: true) { _, query in
-            matchedActions = query.isEmpty ? nil : model.actions(matching: query)
+        .onChange(of: query) { _, _ in
+            // A new text query must replace the prior result set. Binding
+            // refreshes set this flag back to true after rebuilding the index.
+            preserveShownOnIndexRefresh = false
         }
         // A binding edit can give another action the searched keys (a legacy
         // conflict lifting, say), so add new matches without dropping shown rows.
-        .onChange(of: model.latestBindings) { refreshMatchesAfterBindingChange() }
-        .onChange(of: model.legacyBindings) { refreshMatchesAfterBindingChange() }
-        .onChange(of: model.managedBindingActionIDs) { refreshMatchesAfterBindingChange() }
-        .onChange(of: model.whenOverrideRawStrings) { refreshMatchesAfterBindingChange() }
+        .onChange(of: model.latestBindings) { refreshSearchIndexAfterBindingChange() }
+        .onChange(of: model.legacyBindings) { refreshSearchIndexAfterBindingChange() }
+        .onChange(of: model.managedBindingActionIDs) { refreshSearchIndexAfterBindingChange() }
+        .onChange(of: model.whenOverrideRawStrings) { refreshSearchIndexAfterBindingChange() }
         .onChange(of: controlActiveState) { _, state in
             // A filter can shrink the list while inactive; drop the held
             // height once the window is active again.
@@ -80,11 +56,101 @@ struct ShortcutListStableLazyView: View {
                 updateMeasuredHeight(to: lastReportedHeight)
             }
         }
+        .task(id: SearchTaskID(query: query, revision: searchIndexRevision)) {
+            if query.isEmpty {
+                matchedActions = nil
+                matchedActionsQuery = nil
+                preserveShownOnIndexRefresh = false
+                return
+            }
+            let index = searchIndex ?? model.shortcutSearchIndex()
+            searchIndex = index
+            let shown = preserveShownOnIndexRefresh ? shownActionsForIndexRefresh : nil
+            do {
+                try await Task.sleep(for: Self.searchDebounce)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            let results = await Task.detached(priority: .userInitiated) {
+                index.actions(matching: query, keeping: shown)
+            }.value
+            guard !Task.isCancelled else { return }
+            matchedActions = results
+            matchedActionsQuery = query
+            preserveShownOnIndexRefresh = false
+        }
     }
 
-    private func refreshMatchesAfterBindingChange() {
-        guard let shown = matchedActions else { return }
-        matchedActions = model.actions(matching: query, keeping: shown)
+    /// Isolates the row tree from query state. A query change now updates this
+    /// child only when matching produces a different action array, instead of
+    /// diffing every visible row for each keystroke during the debounce.
+    private struct ShortcutListRows: View, Equatable {
+        let model: ShortcutListModel
+        let actions: [ShortcutAction]
+        let revision: Int
+
+        nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+            lhs.actions == rhs.actions && lhs.revision == rhs.revision
+        }
+
+        @MainActor
+        var body: some View {
+            LazyVStack(spacing: 0) {
+                if actions.isEmpty {
+                    Text(String(localized: "settings.shortcuts.search.noResults", defaultValue: "No shortcuts match"))
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 18)
+                        .accessibilityIdentifier("SettingsShortcutSearchNoResults")
+                }
+                ForEach(Array(actions.enumerated()), id: \.element) { index, action in
+                    let effective = model.effective(for: action)
+                    let snapshot = ShortcutListRowSnapshot(
+                        action: action,
+                        isLast: index == actions.count - 1,
+                        title: action.displayName,
+                        subtitle: model.scopeCaption(for: action),
+                        placeholder: model.formatPlaceholder(effective: effective, numbered: action.usesNumberedDigitMatching),
+                        chordsEnabled: model.chordModeActions.contains(action.rawValue),
+                        hasPendingRejection: model.hasPendingRejection(for: action),
+                        firstStrokeRequiresModifier: !action.allowsBareFirstStroke,
+                        isUnbound: effective?.isUnbound ?? true,
+                        canRestore: model.canRestore(for: action),
+                        validationMessage: model.validationMessage(for: action),
+                        recorderAccessibilityIdentifier: "ShortcutRecorder.\(action.rawValue)"
+                    )
+                    ShortcutListRowView(
+                        snapshot: snapshot,
+                        actions: ShortcutListRowActions(
+                            onStroke: { stroke in Task { await model.assign(stroke: stroke, to: action) } },
+                            onChord: { chord in Task { await model.assignChord(chord, to: action) } },
+                            onBareKeyRejected: { model.markBareKeyRejected(action) },
+                            onClearOrRestore: { Task { await model.clearOrRestore(for: action) } },
+                            onClearRejections: { model.clearRejections(for: action) }
+                        )
+                    )
+                    .equatable()
+                }
+            }
+        }
+    }
+
+    private func refreshSearchIndexAfterBindingChange() {
+        searchIndex = model.shortcutSearchIndex()
+        searchIndexRevision &+= 1
+        guard !query.isEmpty else { return }
+        guard matchedActionsQuery == query else {
+            preserveShownOnIndexRefresh = false
+            return
+        }
+        shownActionsForIndexRefresh = matchedActions ?? []
+        preserveShownOnIndexRefresh = true
+    }
+
+    private struct SearchTaskID: Hashable {
+        let query: ShortcutListSearchQuery
+        let revision: Int
     }
 
     private func updateMeasuredHeight(to height: CGFloat) {

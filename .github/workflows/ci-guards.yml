@@ -154,6 +154,10 @@ jobs:
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_ci_classify_failures.py
 
+      - name: Validate the workflow_run handlers' API budget
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: python3 tests/test_ci_workflow_run_api_budget.py
+
       - name: Validate the report-only reverse test impact selector
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_ci_reverse_test_impact.py
@@ -245,6 +249,10 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: ./tests/test_reload_resolves_cmux_tui_client_before_build.sh
 
+      - name: Validate reload --release builds the Release configuration
+        if: ${{ matrix.group == 'preflight' }}
+        run: ./tests/test_reload_release_configuration.sh
+
       - name: Validate docs deployment authentication guard
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_docs_deploy_auth_guard.py
@@ -277,6 +285,10 @@ jobs:
       - name: Validate reload shared DerivedData default
         if: ${{ matrix.group == 'preflight' }}
         run: ./tests/test_reload_shared_derived_data.sh
+
+      - name: Validate reload emits the app module on Xcode versions that fail the module merge
+        if: ${{ matrix.group == 'preflight' }}
+        run: ./tests/test_reload_app_module_emission.sh
 
       - name: Validate sidebar extension point generation
         if: ${{ matrix.group == 'preflight' }}
@@ -1091,6 +1103,10 @@ jobs:
       - name: Validate universal nightly workflow
         if: ${{ matrix.group == 'release-notary' }}
         run: bash ./tests/test_nightly_universal_build.sh
+
+      - name: Validate the nightly dSYM upload retries and never fails the nightly
+        if: ${{ matrix.group == 'release-notary' }}
+        run: bash ./tests/test_upload_sentry_dsyms.sh
 
       - name: Validate nightly release notes and appcast summaries
         if: ${{ matrix.group == 'release-notary' }}
