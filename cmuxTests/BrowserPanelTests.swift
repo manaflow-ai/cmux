@@ -823,6 +823,24 @@ final class BrowserPanelInitialNavigationTests: XCTestCase {
         XCTAssertFalse(panel.hasPendingRemoteNavigation)
     }
 
+    func testRemoteTuiRoutePreservesRequestWhenRewritingItsURL() throws {
+        let sourceURL = try XCTUnwrap(URL(string: "http://127.0.0.1:49210/submit"))
+        let routedURL = try XCTUnwrap(URL(string: "http://127.0.0.1:49210/forwarded"))
+        var request = URLRequest(url: sourceURL)
+        request.httpMethod = "POST"
+        request.httpBody = Data("payload".utf8)
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("browser-test", forHTTPHeaderField: "X-Cmux-Test")
+
+        let routed = CmuxTuiSurfaceProvider.routedBrowserRequest(request, to: routedURL)
+
+        XCTAssertEqual(routed.url, routedURL)
+        XCTAssertEqual(routed.httpMethod, "POST")
+        XCTAssertEqual(routed.httpBody, Data("payload".utf8))
+        XCTAssertEqual(routed.value(forHTTPHeaderField: "Content-Type"), "application/json")
+        XCTAssertEqual(routed.value(forHTTPHeaderField: "X-Cmux-Test"), "browser-test")
+    }
+
     func testInitialURLCanBePreservedWithoutRenderingWebView() throws {
         let url = try XCTUnwrap(URL(string: "https://example.com/custom-layout"))
         let panel = BrowserPanel(
