@@ -19,6 +19,8 @@ mod command;
 mod docs;
 mod extra_help;
 mod federation;
+#[cfg(unix)]
+mod frontend_browser;
 mod lifecycle;
 mod machine_server;
 #[cfg(test)]
