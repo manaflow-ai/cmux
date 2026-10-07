@@ -3,6 +3,12 @@ import CmuxSurfaceCatalogModel
 import Foundation
 
 extension CmuxTuiSurfaceProvider {
+    static func routedBrowserRequest(_ request: URLRequest, to url: URL) -> URLRequest {
+        var routed = request
+        routed.url = url
+        return routed
+    }
+
     /// Rebind active browser panes when the VM private address changes.
     func refreshCloudBrowserRoutes() {
         for resource in catalog.snapshot.resources(on: machine) where resource.kind != .terminal {
@@ -55,7 +61,8 @@ extension CmuxTuiSurfaceProvider {
 
     /// Bind the page to its machine proxy without activating a system VPN.
     @discardableResult
-    func configureBrowser(_ browser: BrowserPanel, url: URL, resourceID: SurfaceResourceID? = nil,
+    func configureBrowser(_ browser: BrowserPanel, url: URL, request: URLRequest? = nil,
+                          resourceID: SurfaceResourceID? = nil,
                           preserveCurrentNavigation: Bool = false) -> Bool {
         let requestedPort = url.port ?? (url.scheme?.lowercased() == "https" ? 443 : 80)
         let fallbackID: SurfaceResourceID = if info.hasDesktop, (CmuxTuiSnapshotParser.desktopPort...6916).contains(requestedPort) {
@@ -101,8 +108,18 @@ extension CmuxTuiSurfaceProvider {
             browser.cloudAccess.showUnavailable(SurfaceTransferRejection.cloudMachineMismatch.message)
             return false
         }
-        guard let address = info.privateAddress,
-              let privateURL = CloudPortRoutePolicy().privateURL(url.absoluteString, address: address, allowLoopback: machine.isSSH) else {
+        guard let address = info.privateAddress else {
+            browser.cloudAccess.showUnavailable(String(localized: "cloud.portAccess.invalidURL", defaultValue: "This port does not have a valid HTTP or HTTPS address."))
+            return false
+        }
+        // SSH loopback aliases are distinct destinations: preserve an explicit
+        // IPv6 loopback URL instead of rewriting it to the advertised IPv4 alias.
+        let routeAddress = machine.isSSH && url.host?.lowercased() == "::1" ? "::1" : address
+        guard let privateURL = CloudPortRoutePolicy().privateURL(
+            url.absoluteString,
+            address: routeAddress,
+            allowLoopback: machine.isSSH
+        ) else {
             browser.cloudAccess.showUnavailable(String(localized: "cloud.portAccess.invalidURL", defaultValue: "This port does not have a valid HTTP or HTTPS address."))
             return false
         }
@@ -117,7 +134,7 @@ extension CmuxTuiSurfaceProvider {
             catalog.restore([SurfaceProjectionRecord(panelID: browser.id, resource: resourceID)], workspaceID: browser.workspaceId)
         }
         let port = privateURL.port ?? (privateURL.scheme?.lowercased() == "https" ? 443 : 80)
-        let model = accessModel(port: port, address: address, scheme: privateURL.scheme ?? "http")
+        let model = accessModel(port: port, address: routeAddress, scheme: privateURL.scheme ?? "http")
         browser.retainTransferredSurfaceMachine(machine)
         if preserveCurrentNavigation {
             browser.prepareCloudBrowserStore(machineID: machineID)
@@ -125,7 +142,9 @@ extension CmuxTuiSurfaceProvider {
             browser.cloudAccess.adoptCommittedRoute(model: model, url: privateURL, resourceID: resourceID)
             model.connect()
         } else {
-            browser.configureCloudBrowser(model: model, url: privateURL, resourceID: resourceID)
+            let routedRequest = request.map { Self.routedBrowserRequest($0, to: privateURL) }
+            browser.configureCloudBrowser(model: model, url: privateURL, resourceID: resourceID,
+                                          request: routedRequest)
         }
         materializedPanels.insert(browser.id)
         return true

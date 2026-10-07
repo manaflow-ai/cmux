@@ -16,9 +16,11 @@ extension BrowserPanel {
 
     /// Activates an admitted Cloud route independently of the SwiftUI host.
     /// Callers validate resource ownership before reaching this boundary.
-    func configureCloudBrowser(model: CloudPortAccessModel, url: URL, resourceID: SurfaceResourceID? = nil) {
+    func configureCloudBrowser(model: CloudPortAccessModel, url: URL, resourceID: SurfaceResourceID? = nil,
+                               request: URLRequest? = nil) {
         guard !isClosingWebViewLifecycle else { return }
         webView.stopLoading()
+        pendingCloudNavigationRequest = request
         if let machineID = (resourceID ?? cloudAccess.resourceID)?.machine.rawValue ?? cloudBrowserMachineID {
             prepareCloudBrowserStore(machineID: machineID)
         }
