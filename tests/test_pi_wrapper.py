@@ -75,9 +75,22 @@ def run_case(
 
 
 def main() -> int:
-    for command in ("install", "remove", "uninstall", "update", "list", "config", "auth", "mcp"):
+    passthrough_args = (
+        ("install", "--help"),
+        ("remove", "--help"),
+        ("uninstall", "--help"),
+        ("update", "--extensions"),
+        ("list", "--help"),
+        ("config", "--help"),
+        ("auth", "check", "--help"),
+        ("mcp", "list", "--help"),
+        ("--help",),
+        ("-h",),
+        ("--version",),
+        ("-v",),
+    )
+    for args in passthrough_args:
         with tempfile.TemporaryDirectory(prefix="cmux-pi-wrapper-command-") as directory:
-            args = (command, "--help")
             result = run_case(Path(directory), args=args)
             if result["args"] != list(args) or result["extension_exists"]:
                 raise AssertionError(f"Pi subcommand was changed by extension injection: {result}")
