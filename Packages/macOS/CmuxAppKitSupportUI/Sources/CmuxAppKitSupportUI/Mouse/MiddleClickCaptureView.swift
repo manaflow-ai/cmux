@@ -61,7 +61,8 @@ public final class MiddleClickCaptureView: NSView {
     }
 
     /// Fires ``onMiddleClick`` when a middle press at `locationInWindow` lands on the visible
-    /// part of this view. Returns whether the press was consumed.
+    /// part of this view. `visibleRect` alone is not clipped to the
+    /// view's own bounds until its window is on screen, so it is intersected with `bounds`. Returns whether the press was consumed.
     func handleMiddleMouseDown(
         buttonNumber: Int,
         window eventWindow: NSWindow?,
@@ -71,7 +72,7 @@ public final class MiddleClickCaptureView: NSView {
               let window,
               eventWindow === window,
               !isHiddenOrHasHiddenAncestor,
-              visibleRect.contains(convert(locationInWindow, from: nil)) else {
+              visibleRect.intersection(bounds).contains(convert(locationInWindow, from: nil)) else {
             return false
         }
         onMiddleClick?()
