@@ -50,6 +50,7 @@ import { keyHasScope, type KeyHasScope } from "../proofs/key-has-scope.ts";
 import { tenantMayCreateDevice, tenantMayCreateMesh } from "../proofs/mesh-may-create.ts";
 import { ownedMeshRules, sameMeshDevice, sameMeshVm } from "../proofs/same-mesh.ts";
 import type { TenantMayCreate } from "../proofs/tenant-may-create.ts";
+import { callerActsOnDevice, callerActsOnTunnel, enrolledBy, isTenantAdmin, type CallerActsOnDevice } from "../proofs/device-owner.ts";
 import { tenantOwnsDevice, tenantOwnsMesh, tenantOwnsTunnel, tenantOwnsVm, type TenantOwnsResource } from "../proofs/tenant-owns-resource.ts";
 import { UpstreamMesh, type TunnelInfo } from "../upstream/mesh.ts";
 import { audited, dependencyDown, rateLimit } from "./common.ts";
@@ -120,7 +121,7 @@ const withOwnedDevice = <const S extends Scope, A, E, R>(
   k: <C, D>(
     caller: Named<C, Principal>,
     device: Named<D, DeviceId>,
-    proofs: { readonly owns: TenantOwnsResource<C, D>; readonly scope: KeyHasScope<C, S> },
+    proofs: { readonly owns: TenantOwnsResource<C, D>; readonly scope: KeyHasScope<C, S>; readonly acts: CallerActsOnDevice<C, D> },
     row: MeshDeviceRow,
   ) => Effect.Effect<A, E, R>,
 ) =>
@@ -135,7 +136,10 @@ const withOwnedDevice = <const S extends Scope, A, E, R>(
           if (owns === null) return yield* Effect.fail(deviceNotFound());
           const row = yield* store.getDevice(caller.value.tenantId, device.value).pipe(Effect.catchAll(dependencyDown("mesh.getDevice")));
           if (Option.isNone(row)) return yield* Effect.fail(deviceNotFound());
-          return yield* k(caller, device, { owns, scope: granted }, row.value);
+          // Inside the tenant, only the enrolling principal or a tenant admin sees the device (cx-0op.4).
+          const acts = yield* callerActsOnDevice(caller, device, owns, row.value).pipe(Effect.mapError(() => unavailable()));
+          if (acts === null) return yield* Effect.fail(deviceNotFound());
+          return yield* k(caller, device, { owns, scope: granted, acts }, row.value);
         }),
       );
     }),
@@ -538,7 +542,10 @@ export const meshHandlers = HttpApiBuilder.group(CmuxVmApi, "mesh", (handlers) =
         Effect.gen(function* () {
           const store = yield* MeshStore;
           const rows = yield* store.listDevices(caller.value.tenantId, mesh.value).pipe(Effect.catchAll(dependencyDown("mesh.listDevices")));
-          return new DeviceList({ items: rows.map(toDevice) });
+          // A tenant admin sees every device; any other principal only the devices it enrolled (cx-0op.4).
+          const own = rows.filter((row) => enrolledBy(caller.value, row));
+          const all = own.length === rows.length || (yield* isTenantAdmin(caller.value).pipe(Effect.mapError(() => unavailable())));
+          return new DeviceList({ items: (all ? rows : own).map(toDevice) });
         }),
       ),
     )
@@ -614,8 +621,10 @@ export const meshHandlers = HttpApiBuilder.group(CmuxVmApi, "mesh", (handlers) =
               if (owns === null) return yield* Effect.fail(tunnelNotFound());
               const row = yield* store.getDeviceByTunnel(caller.value.tenantId, tunnel.value).pipe(Effect.catchAll(dependencyDown("mesh.getDeviceByTunnel")));
               if (Option.isNone(row)) return yield* Effect.fail(tunnelNotFound());
+              const acts = yield* callerActsOnTunnel(caller, tunnel, owns, row.value).pipe(Effect.mapError(() => unavailable()));
+              if (acts === null) return yield* Effect.fail(tunnelNotFound());
               const info = yield* upstream
-                .getTunnel(tunnel, { owns, scope })
+                .getTunnel(tunnel, { owns, scope, acts })
                 .pipe(Effect.mapError((error) => (error.status === 404 ? tunnelNotFound() : unavailable())));
               return toTunnel(row.value, info);
             }),
