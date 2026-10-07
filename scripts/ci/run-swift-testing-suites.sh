@@ -47,6 +47,13 @@ esac
 swift test list --package-path "$package_path" > "$evidence_dir/discovered-tests.txt"
 python3 "$script_dir/require_swift_test_execution.py" \
   --list-filters "$evidence_dir/discovered-tests.txt" > "$evidence_dir/filters.txt"
+# swift build copies String Catalogs into the resource bundles uncompiled; without
+# the compiled <lang>.lproj tables, localization suites fail (cmux-next.yml and
+# package-test-lane.sh run the same step after their build).
+if [ -n "$(find "$package_path/Sources" -name '*.xcstrings' -print -quit 2>/dev/null)" ]; then
+  compile_catalogs="${CMUX_COMPILE_STRING_CATALOGS:-$script_dir/../cmux-next/compile-string-catalogs.sh}"
+  (cd "$package_path" && "$compile_catalogs")
+fi
 
 # Run every suite, so one early failure or hang does not hide the rest, then
 # list each suite's result and exit with the first failure's status.
