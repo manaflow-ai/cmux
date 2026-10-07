@@ -87,6 +87,27 @@ mod tests {
         assert_eq!(within_on(&*clock, "test", Duration::ZERO, async { 7 }).await, Ok(7));
         assert_eq!(within_on(&*clock, "test", Duration::MAX, async { 8 }).await, Ok(8));
     }
+
+    /// A child that another thread spawns inherits every descriptor until it
+    /// execs, so the watch's descriptor can have a duplicate when the watch
+    /// ends. The lock belongs to the open file description, not the
+    /// descriptor: the watch must release it, or a probe of a dead host sees
+    /// it held.
+    #[test]
+    fn a_death_watch_releases_the_lock_while_a_duplicate_of_its_descriptor_is_open() {
+        let dir = std::env::temp_dir().join(format!("acpmux-wait-dup-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = live_path(&dir, "s1", "00ff");
+        std::fs::write(&path, "").unwrap();
+        let file = std::fs::OpenOptions::new().read(true).write(true).open(&path).unwrap();
+        // What a concurrent fork gives its child: the same open file description.
+        let inherited = file.try_clone().unwrap();
+        assert!(take_death_lock(file) == Watch::Dead);
+        assert_eq!(liveness(&dir, "s1", "00ff"), Liveness::Dead, "the watch left the lock held");
+        drop(inherited);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -100,6 +121,8 @@ enum Watch {
 struct DeathWatch {
     state: StdMutex<Watch>,
     changed: Condvar,
+    /// The same end for async waiters ([`dead`]).
+    ended: tokio::sync::watch::Sender<Watch>,
 }
 
 fn watches() -> &'static StdMutex<HashMap<PathBuf, Arc<DeathWatch>>> {
@@ -116,32 +139,50 @@ pub fn death_watches() -> usize {
 /// is dead). Its thread takes a blocking lock, which returns when the host's
 /// descriptor closes at its death, then ends.
 fn watch(path: &Path) -> Option<Arc<DeathWatch>> {
-    use std::os::fd::AsRawFd;
     let mut map = watches().lock().unwrap();
     if let Some(w) = map.get(path) {
         return Some(w.clone());
     }
     let file = std::fs::OpenOptions::new().read(true).write(true).open(path).ok()?;
-    let w = Arc::new(DeathWatch { state: StdMutex::new(Watch::Waiting), changed: Condvar::new() });
+    let w = Arc::new(DeathWatch {
+        state: StdMutex::new(Watch::Waiting),
+        changed: Condvar::new(),
+        ended: tokio::sync::watch::channel(Watch::Waiting).0,
+    });
     map.insert(path.to_owned(), w.clone());
     let (key, watch) = (path.to_owned(), w.clone());
     std::thread::spawn(move || {
-        let end = loop {
-            // SAFETY: a blocking lock on a descriptor this thread owns.
-            if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } == 0 {
-                break Watch::Dead;
-            }
-            if std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted {
-                break Watch::Failed;
-            }
-        };
-        // Release the lock at once: a liveness probe must not see it held.
-        drop(file);
+        let end = take_death_lock(file);
         watches().lock().unwrap().remove(&key);
         *watch.state.lock().unwrap() = end;
         watch.changed.notify_all();
+        watch.ended.send_replace(end);
     });
     Some(w)
+}
+
+/// Block until the host's lock on `file` is free (the host died), then
+/// release it at once: a liveness probe must not see it held. The release
+/// is an explicit unlock, not the close: the lock belongs to the open file
+/// description, and a child that another thread spawns holds a copy of this
+/// descriptor until it execs, so a close alone can leave the lock held.
+fn take_death_lock(file: std::fs::File) -> Watch {
+    use std::os::fd::AsRawFd;
+    let end = loop {
+        // SAFETY: a blocking lock on a descriptor this thread owns.
+        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } == 0 {
+            break Watch::Dead;
+        }
+        if std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted {
+            break Watch::Failed;
+        }
+    };
+    if end == Watch::Dead {
+        // SAFETY: same descriptor; unlocks the description for every copy.
+        unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_UN) };
+    }
+    drop(file);
+    end
 }
 
 /// Whether this incarnation's host is dead within `budget`. Blocks up to
@@ -151,6 +192,19 @@ pub fn wait_dead_within(dir: &Path, session_id: &str, start_nonce: &str, budget:
     let state = w.state.lock().unwrap();
     let (state, _) = w.changed.wait_timeout_while(state, budget, |s| *s == Watch::Waiting).unwrap();
     *state == Watch::Dead
+}
+
+/// Resolves once this incarnation's host is dead (true) or its watch failed
+/// (false). It has no deadline and holds no runtime thread: race it with one
+/// ([`within_on`]). The shared watch thread ends only with the host.
+pub async fn dead(dir: &Path, session_id: &str, start_nonce: &str) -> bool {
+    let Some(w) = watch(&live_path(dir, session_id, start_nonce)) else { return true };
+    let mut ended = w.ended.subscribe();
+    let end = match ended.wait_for(|s| *s != Watch::Waiting).await {
+        Ok(end) => *end,
+        Err(_) => Watch::Failed,
+    };
+    end == Watch::Dead
 }
 
 /// [`wait_dead_within`] off the async runtime.

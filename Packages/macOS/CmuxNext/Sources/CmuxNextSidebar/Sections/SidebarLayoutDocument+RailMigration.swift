@@ -117,7 +117,8 @@ extension SidebarLayoutDocument {
     /// top (Lawrence 2026-10-05: rows); a user can still choose it.
     public nonisolated static let tilesArrangement = SectionArrangement(layout: .tiles, columns: 4)
 
-    /// Every migration in order (sections, then app refs, then Recents), as
+    /// Every migration in order (sections, then app refs, then Recents, then
+    /// retired items), as
     /// one op list that applies to this layout. No migration turns a
     /// plain-row top section into tiles; the tiles default was never stored
     /// (the store did not serve `sidebar-layout-v1` yet), so none moves back either.
@@ -128,8 +129,8 @@ extension SidebarLayoutDocument {
     public nonisolated func layoutMigrationOps(offeringRecents: Bool) -> [SidebarLayoutOp] {
         let sections = sectionsMigrationOps
         let appRefs = sectionsMigration.appRefMigrationOps
-        guard offeringRecents else { return sections + appRefs }
-        return sections + appRefs + applying(sections + appRefs).recentsMigrationOps
+        let earlier = offeringRecents ? sections + appRefs + applying(sections + appRefs).recentsMigrationOps : sections + appRefs
+        return earlier + applying(earlier).retiredItemOps
     }
 
     /// This layout with `layoutMigrationOps` applied.

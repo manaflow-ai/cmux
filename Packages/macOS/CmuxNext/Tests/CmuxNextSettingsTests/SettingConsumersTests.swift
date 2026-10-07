@@ -47,7 +47,10 @@ import Testing
         let row = try #require(rows.first { $0["key"] as? String == muted.id })
         #expect(row["kind"] as? String == "string_list")
         #expect(row["page_hidden"] as? Bool == true)
-        #expect(rows.filter { $0["page_hidden"] as? Bool == true }.count == 1, "only mutedWorkspaces is page-hidden")
+        // Besides mutedWorkspaces only the per-kind row overrides (cmux.json only) are page-hidden.
+        let hidden = rows.filter { $0["page_hidden"] as? Bool == true }.compactMap { $0["key"] as? String }
+        let overrides = Set(WorkspaceRowKind.allCases.map { "sidebar.workspaceRow.\($0.rawValue)." })
+        #expect(hidden.filter { key in !overrides.contains { key.hasPrefix($0) } } == [muted.id])
     }
 
     /// The export carries `consumers` and the two new kinds with their ranges.

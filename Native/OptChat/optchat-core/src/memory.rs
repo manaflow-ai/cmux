@@ -25,6 +25,19 @@ pub trait Store {
     }
 }
 
+/// `complete` for a node that has no model call running (never handed out
+/// by `pump`, already completed, or failed): nothing changes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct NotRunning(pub NodeId);
+
+impl std::fmt::Display for NotRunning {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "node {} has no model call running", self.0.name())
+    }
+}
+
+impl std::error::Error for NotRunning {}
+
 /// A node the compactor should build now (section 4.1).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Work {
@@ -343,15 +356,26 @@ impl Memory {
 
     /// A model call for `node` produced `text` (the host stored and fsynced it).
     /// Call `pump` afterwards. Not for a lazy memory (`complete_in`).
-    pub fn complete(&mut self, node: NodeId, text: &str) {
+    pub fn complete(&mut self, node: NodeId, text: &str) -> Result<(), NotRunning> {
         debug_assert!(!self.lazy, "a lazy memory completes with complete_in");
-        self.complete_in(node, text, &NoStore);
+        self.complete_in(node, text, &NoStore)
     }
 
     /// `complete` for any memory: sizes it does not hold come from `store`.
-    pub fn complete_in(&mut self, node: NodeId, text: &str, store: &dyn Store) {
-        self.busy.remove(&node);
+    pub fn complete_in(
+        &mut self,
+        node: NodeId,
+        text: &str,
+        store: &dyn Store,
+    ) -> Result<(), NotRunning> {
+        // Only a call `pump` started and that is still running may build its
+        // node: a second complete, or one for a node nobody asked for, would
+        // count an unrelated text as that node's summary.
+        if !self.busy.remove(&node) {
+            return Err(NotRunning(node));
+        }
         self.build(node, text.len(), store);
+        Ok(())
     }
 
     /// A model call for `node` failed: it can be started again (after the host's

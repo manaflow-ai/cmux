@@ -6,7 +6,10 @@ name: cmux-browser-host release
 # cmux-browser-host-vX.Y.Z tag also publishes them: a GitHub release with the
 # two archives, SHA256SUMS and the channel-manifest package entries, each
 # covered by a build-provenance attestation. The entries are unsigned: the
-# channel manifest is signed where the channel is assembled.
+# channel manifest is signed where the channel is assembled. Each archive holds
+# the binary, LICENSE (GPL-3.0-or-later) and THIRD_PARTY_LICENSES.md, the
+# committed Linux notices that the version job checks; the release notes link
+# the source commit.
 on:
   push:
     branches: [feat-cmux-next]
@@ -17,6 +20,12 @@ on:
       - ".github/workflows/cmux-browser-host-release.yml"
       - "scripts/cmux-next/smoke-browser-host.sh"
       - "scripts/cmux-next/browser-host-release.py"
+      - "tests/test_browser_host_release_package.py"
+      - "tests/test_browser_host_release_smoke.py"
+      - "cmux-tui/build-support/notices/**"
+      - "cmux-tui/dist/notices/**"
+      - "cmux-tui/dist/npm/cmux/LICENSE"
+      - "LICENSE"
     tags:
       - "cmux-browser-host-v*"
 
@@ -60,6 +69,24 @@ jobs:
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
+      - name: Release script tests
+        run: |
+          python3 tests/test_browser_host_release_package.py
+          python3 tests/test_browser_host_release_smoke.py
+          python3 cmux-tui/build-support/notices/browser-host/test_linux_release_notices.py
+
+      - name: Restore the crate source cache
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.cache/cmux-notices
+          key: cmux-browser-host-notices-v1-${{ hashFiles('cmux-tui/Cargo.lock') }}
+          restore-keys: cmux-browser-host-notices-v1-
+
+      # The archives ship this file as THIRD_PARTY_LICENSES.md: a stale one fails
+      # the release before anything is built.
+      - name: Linux notices are current
+        run: python3 cmux-tui/build-support/notices/browser-host/linux_release_notices.py --check
+
   build:
     name: build ${{ matrix.target }}
     needs: version
@@ -70,7 +97,7 @@ jobs:
           - target: x86_64-unknown-linux-gnu
             runs_on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
           - target: aarch64-unknown-linux-gnu
-            runs_on: ${{ vars.LINUX_ARM64_RUNNER || 'ubuntu-24.04-arm' }}
+            runs_on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04-arm' || vars.LINUX_ARM64_RUNNER || 'blacksmith-4vcpu-ubuntu-2404-arm' }}
     runs-on: ${{ matrix.runs_on }}
     timeout-minutes: 60
     permissions:
@@ -182,6 +209,7 @@ jobs:
           VERSION: ${{ needs.version.outputs.version }}
         run: |
           set -euo pipefail
+          python3 scripts/cmux-next/browser-host-release.py notes "$VERSION" "$GITHUB_SHA" "$GITHUB_REPOSITORY" "$GLIBC_FLOOR" > "$RUNNER_TEMP/notes.md"
           # A re-run after a partial upload replaces the assets of the release it made.
           if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --clobber \
@@ -190,5 +218,5 @@ jobs:
           fi
           gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag --prerelease \
             --title "cmux-browser-host $VERSION" \
-            --notes "cmux-browser-host $VERSION for Linux (x86_64, aarch64; glibc >= $GLIBC_FLOOR), commit $GITHUB_SHA. Channel-manifest entries: manifest-entries.json (unsigned; verify with gh attestation verify)." \
+            --notes-file "$RUNNER_TEMP/notes.md" \
             dist/*.tar.gz dist/manifest-entries.json dist/SHA256SUMS
