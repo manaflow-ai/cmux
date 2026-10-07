@@ -95,7 +95,7 @@ struct CloudActivationPolicyTests {
         #expect(await off.resolvedTunnelStartRefusal() == .cloudMachinesOff)
     }
 
-    @Test("prior Cloud use cannot bypass the remote Cloud gate")
+    @Test("prior Cloud use cannot bypass the Cloud activation policy")
     func priorUseWithoutToggle() async {
         let policy = policy(enabled: false, usedCloud: true, machine: nil, configured: true, resolved: true)
         #expect(policy.allowsBackgroundCloudWork == false)
@@ -240,7 +240,7 @@ struct CloudActivationPolicyTests {
         #expect(policy.hasCloudMachine() == nil)
 
         // The user-space hub enrolled the terminal role (a link to a machine):
-        // this Mac used Cloud, but the remote gate still stops fleet polling
+        // this Mac used Cloud, but the activation policy still stops fleet polling
         // when the integration is disabled.
         _ = try harness.terminal.deviceFingerprint()
         #expect(policy.hasUsedCloud())

@@ -329,13 +329,21 @@ final class NewCloudWorkspaceShortcutTests {
         #expect(presenter.presentCount == 1)
     }
 
-    @Test func testSharedActionDoesNotPresentSheetWhenFeatureIsOff() {
+    @Test func testSharedActionRoutesToActivationBeforePresentingSheet() {
         defer { restoreState() }
         setCloudMachinesEnabled(false)
         let presenter = RecordingSheetPresenter()
         let appDelegate = AppDelegate()
         installDependencies(on: appDelegate, presenter: presenter)
-        #expect(!appDelegate.performNewCloudMachineAction(debugSource: "test.featureOff"))
+        defer {
+            NSApp.windows.first {
+                $0.identifier?.rawValue == SettingsWindowPresenter.windowIdentifier
+            }?.close()
+        }
+        #expect(appDelegate.performNewCloudMachineAction(debugSource: "test.activationOff"))
+        #expect(NSApp.windows.contains {
+            $0.identifier?.rawValue == SettingsWindowPresenter.windowIdentifier
+        })
         #expect(presenter.presentCount == 0)
     }
 

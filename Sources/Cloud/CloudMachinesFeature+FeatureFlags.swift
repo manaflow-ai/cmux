@@ -27,18 +27,4 @@ extension CloudMachinesFeature {
     nonisolated static func offMainIsEnabled(defaults: UserDefaults = .standard) -> Bool {
         isEnabled(defaults: defaults, policy: ManagedDevicePolicy(defaults: defaults))
     }
-
-    /// Compatibility seam for tagged debug tooling and tests that still model
-    /// the retired rollout input. Production entry points use the local-only
-    /// overload from ``CmuxCloud``.
-    nonisolated static func isEnabled(
-        defaults: UserDefaults,
-        policy: ManagedDevicePolicy,
-        remoteEnabled: Bool
-    ) -> Bool {
-        !policy.isEnforced(.disableCloud)
-            && remoteEnabled
-            && localOptIn(defaults: defaults)
-    }
-
 }

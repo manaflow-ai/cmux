@@ -1,4 +1,5 @@
 import CmuxCloud
+import CmuxCommandPalette
 import CmuxSettings
 import Foundation
 import Testing
@@ -66,7 +67,8 @@ struct CloudFeatureFlagTests {
             remoteFlagValueProvider: { key in
                 requestedKeys.append(key)
                 return remoteValue
-            }
+            },
+            pinsFlagsToLocalValues: false
         )
         flags.applyLoadedFlags()
         for key in retiredKeys {
@@ -83,6 +85,43 @@ struct CloudFeatureFlagTests {
         }
         #expect(!CloudMachinesFeature.isAvailable(policy: managedOff))
         #expect(!CloudMachinesFeature.isEnabled(defaults: defaults, policy: managedOff))
+    }
+
+    @Test("Remaining flag accessors keep their own keys after rollout retirement")
+    func remainingFlagAccessorsDoNotShift() throws {
+        let suite = "cmux.remaining.flags.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let accessors: [(String, KeyPath<CmuxFeatureFlags, Bool>)] = [
+            ("mobile-connect-button-enabled-release", \.isMobileConnectButtonEnabled),
+            ("sidebar-account-button-enabled-release", \.isSidebarAccountButtonEnabled),
+            ("agent-chat-ui-enabled-release", \.isAgentChatUIEnabled),
+            ("sidebar-workspace-agent-spinner-experiment", \.isSidebarWorkspaceAgentSpinnerEnabled),
+            ("computer-use-ux-enabled-release", \.isComputerUseUXEnabled),
+            ("workspace-todo-controls-enabled-release", \.isWorkspaceTodoControlsEnabled)
+        ]
+        for (enabledKey, _) in accessors {
+            let flags = CmuxFeatureFlags(
+                defaults: defaults,
+                remoteFlagValueProvider: { $0 == enabledKey },
+                pinsFlagsToLocalValues: false
+            )
+            flags.applyLoadedFlags()
+            for (key, accessor) in accessors {
+                #expect(flags[keyPath: accessor] == (key == enabledKey))
+            }
+        }
+    }
+
+    @Test("Upgrade and welcome palette commands are available before any flags load")
+    func upgradeCommandsDoNotNeedRolloutContext() {
+        let context = CommandPaletteContextSnapshot()
+        let commands = ContentView.commandPaletteProCommandContributions()
+        #expect(commands.count == 2)
+        for command in commands {
+            #expect(command.when(context))
+            #expect(command.enablement(context))
+        }
     }
 
     @Test("A cancelled keyed operation cannot erase its replacement after re-enable")

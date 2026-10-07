@@ -13,7 +13,7 @@ import Testing
 @MainActor
 @Suite("Cloud Cmd-Y activation routing", .serialized, .exclusiveAppContext)
 struct CloudCmdYActivationRoutingTests {
-    @Test("rollout-on activation-off opens Cloud Settings")
+    @Test("Cloud activation-off opens Cloud Settings")
     func commandYOpensCloudSettingsBeforeProvisioning() {
         let key = RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey
         let previousMarker = UserDefaults.standard.object(forKey: key)

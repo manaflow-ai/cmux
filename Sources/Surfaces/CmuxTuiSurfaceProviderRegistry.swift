@@ -690,7 +690,7 @@ final class CmuxTuiSurfaceProviderRegistry {
         return candidates.first { $0.caseInsensitiveCompare(rawID) == .orderedSame } ?? rawID
     }
 
-    /// Cancels Cloud-only transport work when the remote gate closes while
+    /// Cancels Cloud-only transport work when the activation policy closes while
     /// retaining providers, catalog resources, and persisted pane identities.
     /// Re-enabling the gate reuses those providers on the next discovery pass.
     private func suspendCloudTransportsIfNeeded() {

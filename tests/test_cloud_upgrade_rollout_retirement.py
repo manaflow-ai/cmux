@@ -23,6 +23,14 @@ class RolloutRetirementTests(unittest.TestCase):
                     with self.subTest(path=str(path.relative_to(ROOT)), token=token):
                         self.assertFalse(token in source, f"{path.relative_to(ROOT)} still reads the retired gate: {token}")
 
+    def test_upgrade_badge_keeps_local_dismissal_and_shared_presenter(self):
+        source = (ROOT / "Sources/ProBadgeStyle.swift").read_text()
+        badge = source.split("struct ProBadgeView: View {", 1)[1].split("final class ProBadgeDebugWindowController", 1)[0]
+        self.assertIn("if !ProBadgeStyleStore.shared.isDismissed", badge)
+        self.assertIn("ProBadgeStyleStore.shared.isDismissed = true", badge)
+        self.assertIn("ProUpgradePresenter.present(source: .sidebarBadge)", badge)
+        self.assertNotIn("CmuxFeatureFlags", badge)
+
     def test_cloud_entrypoints_use_policy_and_local_activation(self):
         for relative in (
             "Sources/Cloud/CloudMachinesFeature+FeatureFlags.swift",
