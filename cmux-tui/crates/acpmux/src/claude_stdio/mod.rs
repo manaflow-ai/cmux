@@ -152,7 +152,7 @@ pub fn spawn_plan(
         args.push("--allowedTools".into());
         args.push(crate::render_mcp::CLAUDE_TOOL.into());
         args.push("--mcp-config".into());
-        args.push(config);
+        args.push(config.into());
     }
     SpawnPlan { program, args }
 }
