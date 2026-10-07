@@ -102,7 +102,11 @@ impl Hub {
                 && msg.method() == Some(crate::rpc::method::SESSION_UPDATE)
                 && let Some(params) = value.get_mut("params")
             {
-                subagent = tap_session.subagents.lock().unwrap().annotate(params);
+                subagent = tap_session
+                    .subagents
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .annotate(params);
             }
             // Live agent updates (not a session/load replay) also feed the
             // stream watcher, which may record `message_superseded` first.
