@@ -6,7 +6,11 @@
   "$defs": {
     "workspace:state": {
       "type": "object", "additionalProperties": false, "required": ["host", "workspaces"],
-      "properties": { "host": { "$ref": "../common.schema.json#/$defs/HostId" }, "workspaces": { "type": "array", "items": { "$ref": "../common.schema.json#/$defs/Workspace" } } }
+      "properties": {
+        "host": { "$ref": "../common.schema.json#/$defs/HostId" },
+        "workspaces": { "type": "array", "items": { "$ref": "../common.schema.json#/$defs/Workspace" } },
+        "groups": { "type": "array", "items": { "$ref": "../common.schema.json#/$defs/WorkspaceGroup" } }
+      }
     },
     "workspace.upsert": { "type": "object", "additionalProperties": false, "required": ["workspace"], "properties": { "workspace": { "$ref": "../common.schema.json#/$defs/Workspace" } } },
     "workspace.remove": { "type": "object", "additionalProperties": false, "required": ["workspace"], "properties": { "workspace": { "$ref": "../common.schema.json#/$defs/WorkspaceId" } } },
@@ -50,6 +54,32 @@
       "properties": { "tab": { "$ref": "../common.schema.json#/$defs/TabId" }, "preview": { "type": "string", "maxLength": 400 } }
     },
     "workspace.close": { "type": "object", "additionalProperties": false, "required": ["workspace"], "properties": { "workspace": { "$ref": "../common.schema.json#/$defs/WorkspaceId" } } },
-    "workspace.read": { "type": "object", "additionalProperties": false, "required": ["workspace"], "properties": { "workspace": { "$ref": "../common.schema.json#/$defs/WorkspaceId" } } }
+    "workspace.read": { "type": "object", "additionalProperties": false, "required": ["workspace"], "properties": { "workspace": { "$ref": "../common.schema.json#/$defs/WorkspaceId" } } },
+    "workspace.groups.set": {
+      "type": "object", "additionalProperties": false, "required": ["groups"],
+      "properties": { "groups": { "type": "array", "items": { "$ref": "../common.schema.json#/$defs/WorkspaceGroup" } } }
+    },
+    "workspace.move": {
+      "type": "object", "additionalProperties": false, "required": ["workspace", "index"],
+      "description": "group absent keeps the workspace's group, null ungroups; index is the final position among the destination section's other members (clamped)",
+      "properties": {
+        "workspace": { "$ref": "../common.schema.json#/$defs/WorkspaceId" },
+        "group": { "oneOf": [{ "$ref": "../common.schema.json#/$defs/WorkspaceGroupId" }, { "type": "null" }] },
+        "index": { "type": "integer", "minimum": 0, "maximum": 100000 }
+      }
+    },
+    "workspace.group.rename": {
+      "type": "object", "additionalProperties": false, "required": ["group", "name"],
+      "properties": { "group": { "$ref": "../common.schema.json#/$defs/WorkspaceGroupId" }, "name": { "$ref": "../common.schema.json#/$defs/Name" } }
+    },
+    "workspace.customize": {
+      "type": "object", "additionalProperties": false, "required": ["workspace"],
+      "description": "absent leaves a field unchanged, null clears it; names change through workspace.rename",
+      "properties": {
+        "workspace": { "$ref": "../common.schema.json#/$defs/WorkspaceId" },
+        "color": { "oneOf": [{ "$ref": "../common.schema.json#/$defs/WorkspaceColor" }, { "type": "null" }] },
+        "icon": { "oneOf": [{ "$ref": "../common.schema.json#/$defs/WorkspaceIcon" }, { "type": "null" }] }
+      }
+    }
   }
 }

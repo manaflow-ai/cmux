@@ -197,7 +197,10 @@ Owner events: `workspace.upsert`, `workspace.remove`, `workspace.tab.upsert`, `w
 `workspace.preview.set` (C5: a tab's preview line, sent only while the host has viewers). Client ops:
 `workspace.create`, `workspace.rename`, `workspace.tab.create`, `workspace.tab.close`, and from C5
 `workspace.close` and `workspace.read` (caps `workspace.close`, `workspace.read`, `workspace.preview`;
-c5-workspaces.md section 2). Selection and
+c5-workspaces.md section 2), and from E3 `workspace.move`, `workspace.group.rename`,
+`workspace.customize` with owner event `workspace.groups.set`, `Workspace.icon`, `Workspace.group.order`
+and `workspace:state.groups` (caps `workspace.move`, `workspace.group.rename`, `workspace.customize`;
+e3-workspaces.md section 3). Selection and
 focus are client view state and never on the wire (OWNERSHIP-PRINCIPLES).
 
 ### 5.3 terminal (stream; owner the Mac session host)

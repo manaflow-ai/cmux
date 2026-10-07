@@ -23,6 +23,13 @@
     "SignalSessionId": { "type": "string", "pattern": "^sess_[A-Za-z0-9]{2,64}$" },
     "Sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
     "Name": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "WorkspaceGroupId": { "type": "string", "pattern": "^[A-Za-z0-9_.:-]{1,64}$" },
+    "WorkspaceColor": { "type": "string", "pattern": "^(#[0-9a-fA-F]{6}|[a-z][a-z0-9-]{0,31})$", "description": "#RRGGBB or a palette token (grey, blue, red, yellow, green, pink, purple, cyan, orange)" },
+    "WorkspaceIcon": { "type": "string", "pattern": "^[a-z0-9.]{1,128}$", "description": "An SF Symbol name" },
+    "WorkspaceGroup": {
+      "type": "object", "additionalProperties": false, "required": ["id", "name"],
+      "properties": { "id": { "$ref": "#/$defs/WorkspaceGroupId" }, "name": { "type": "string", "maxLength": 200 }, "order": { "type": "integer", "minimum": 0 } }
+    },
     "Timestamp": { "type": "integer", "minimum": 0, "description": "Unix milliseconds" },
     "ChannelId": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
     "ChannelClass": { "enum": ["interactive", "bulk", "datagram"] },
@@ -71,14 +78,12 @@
       "properties": {
         "id": { "$ref": "#/$defs/WorkspaceId" },
         "name": { "type": "string", "maxLength": 200 },
-        "color": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" },
+        "color": { "$ref": "#/$defs/WorkspaceColor" },
+        "icon": { "$ref": "#/$defs/WorkspaceIcon" },
         "pinned": { "type": "boolean" },
         "order": { "type": "integer" },
         "panes": { "type": "array", "items": { "$ref": "#/$defs/Pane" } },
-        "group": {
-          "type": "object", "additionalProperties": false, "required": ["id", "name"],
-          "properties": { "id": { "type": "string", "minLength": 1, "maxLength": 128 }, "name": { "type": "string", "maxLength": 200 } }
-        },
+        "group": { "$ref": "#/$defs/WorkspaceGroup" },
         "activity_at": { "$ref": "#/$defs/Timestamp" }
       }
     },
