@@ -6,7 +6,7 @@
 //! `systemctl stop` or `restart` of the unit therefore ended every terminal.
 //! With `CMUX_TUI_HOST_SCOPES=systemd` (set by the Cloud supervisor, never a
 //! default) the daemon moves each new host into its own transient scope
-//! `cmux-terminal-host-<pid>.scope` in `cmux-terminal-hosts.slice`, right
+//! `cmux-terminal-host-<pid>.scope` in `cmuxhosts.slice`, right
 //! after it starts the host process and before the host gets a terminal. A
 //! unit stop then leaves the hosts running for the next daemon to adopt; a
 //! machine shutdown still stops every scope (systemd, PID 1, sends `SIGTERM`,
@@ -27,7 +27,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 pub(crate) const HOST_SCOPES_ENV: &str = "CMUX_TUI_HOST_SCOPES";
 const HOST_SCOPES_SYSTEMD: &str = "systemd";
 /// The slice every host scope joins.
-pub(crate) const HOST_SLICE: &str = "cmux-terminal-hosts.slice";
+/// Dash-free: systemd reads dashes in a slice name as nesting.
+pub(crate) const HOST_SLICE: &str = "cmuxhosts.slice";
+/// How long `place_host` waits for the move to show in the host's cgroup.
+const PLACEMENT_WAIT: std::time::Duration = std::time::Duration::from_secs(2);
 
 static REPORTED_FAILURE: AtomicBool = AtomicBool::new(false);
 
@@ -98,7 +101,15 @@ pub(crate) fn place_host(pid: u32) {
     command.args(busctl_args(pid)).stdin(Stdio::null()).stdout(Stdio::null());
     let result = command.stderr(Stdio::piped()).output();
     let failure = match result {
-        Ok(output) if output.status.success() => return,
+        Ok(output) if output.status.success() => {
+            // StartTransientUnit only queues the job. The host must not get
+            // Launch (and fork its shell) before the move is done, or the
+            // shell stays in the daemon unit. Bounded; fail open.
+            if wait_until_placed(pid) {
+                return;
+            }
+            format!("the scope did not take the host within {PLACEMENT_WAIT:?}")
+        }
         Ok(output) => {
             format!("{}: {}", output.status, String::from_utf8_lossy(&output.stderr).trim())
         }
@@ -110,6 +121,27 @@ pub(crate) fn place_host(pid: u32) {
              hosts stay in the daemon unit and a unit stop ends them",
             scope_unit(pid)
         );
+    }
+}
+
+/// Whether `/proc/<pid>/cgroup` text places `pid` in its own scope.
+fn cgroup_names_scope(cgroup: &str, pid: u32) -> bool {
+    let scope = format!("/{}", scope_unit(pid));
+    cgroup.lines().any(|line| line.trim_end().ends_with(&scope))
+}
+
+/// Wait until the host's cgroup names its scope, at most PLACEMENT_WAIT.
+fn wait_until_placed(pid: u32) -> bool {
+    let deadline = std::time::Instant::now() + PLACEMENT_WAIT;
+    loop {
+        let cgroup = std::fs::read_to_string(format!("/proc/{pid}/cgroup")).unwrap_or_default();
+        if cgroup_names_scope(&cgroup, pid) {
+            return true;
+        }
+        if std::time::Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(2));
     }
 }
 
