@@ -179,8 +179,10 @@ async fn a_revoke_closes_the_owner_session_on_the_dialing_side() {
         let mut first = String::new();
         session.read_line(&mut first).await.unwrap();
         session.get_mut().write_all(first.as_bytes()).await.unwrap();
-        let mut rest = String::new();
-        let _ = session.read_line(&mut rest).await;
+        // Everything the brain receives after the first line: must be nothing.
+        let mut rest = Vec::new();
+        let _ = tokio::io::AsyncReadExt::read_to_end(&mut session, &mut rest).await;
+        rest
     });
     let owner = cmux_link::owner_session::OwnerSession {
         owner_user: "42".into(),
@@ -219,8 +221,16 @@ async fn a_revoke_closes_the_owner_session_on_the_dialing_side() {
         matches!(closed, Ok(Ok(0))),
         "the dialing side must see the session end, got {closed:?} {tail:?}"
     );
+    // No access leak: bytes the revoked dialer still writes never reach the
+    // brain socket (its session there has ended, and the peer is gone).
+    let _ = caller.get_mut().write_all(b"after-revoke\n").await;
+    let leaked = within(brain_task).await.unwrap();
+    assert!(
+        leaked.is_empty(),
+        "the brain received {:?} after the revoke",
+        String::from_utf8_lossy(&leaked)
+    );
     drop(caller);
     let _ = within(dial).await;
-    brain_task.abort();
     server.abort();
 }
