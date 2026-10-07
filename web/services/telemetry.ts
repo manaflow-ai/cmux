@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+
 import { runWithCloudDbQueryTags } from "../db/queryTags";
 import {
   context as otelContext,
@@ -118,18 +120,58 @@ export async function withApiRouteSpan<T extends Response>(
       const source = route.startsWith("/api/cron/") || route.startsWith("/api/internal/")
         ? "cron"
         : "app";
-      const response = await runWithCloudDbQueryTags({ source, route }, () => fn(span));
+      const handled: HandledRouteError = {};
+      const response = await handledRouteErrors.run(handled, () =>
+        runWithCloudDbQueryTags({ source, route }, () => fn(span)));
       span.setAttribute("http.response.status_code", response.status);
       span.setAttribute("cmux.http.response_error", response.status >= 400);
-      if (response.status >= 500) {
-        span.setStatus({ code: SpanStatusCode.ERROR, message: `HTTP ${response.status}` });
-      }
+      if (response.status >= 500) recordServerErrorResponse(span, response, handled);
       return withTraceIdHeaders(response, span);
     },
     // deleteSpan, not ROOT_CONTEXT: only the dropped parent span leaves the
     // context; baggage and other context values stay with the request.
     { context: reRoot ? trace.deleteSpan(otelContext.active()) : undefined, links },
   );
+}
+
+type HandledRouteError = { error?: unknown; noted?: boolean };
+
+const handledRouteErrors = new AsyncLocalStorage<HandledRouteError>();
+
+/**
+ * Remember an error a route handler caught and reported, so the route span
+ * can record it if the handler then answers 5xx. Handlers that catch an error
+ * and return a response never throw through `withSpan`, so without this the
+ * span carried only `HTTP 500`. Called by `reportError` and the
+ * `capture*Error` helpers; the first error of a request wins because later
+ * ones are usually fallout (a failed Slack alert about the first).
+ */
+export function noteHandledRouteError(error: unknown): void {
+  const slot = handledRouteErrors.getStore();
+  if (!slot || slot.noted) return;
+  slot.error = error;
+  slot.noted = true;
+}
+
+/**
+ * Response header carrying the machine-readable VM error code. Set by
+ * `vmErrorResponse` on every error so response finalizers (analytics,
+ * timing, the route span) can classify an outcome without re-parsing the body.
+ */
+export const VM_ERROR_CODE_HEADER = "x-cmux-vm-error";
+
+function recordServerErrorResponse(span: Span, response: Response, handled: HandledRouteError): void {
+  if (handled.noted) {
+    recordSpanError(span, handled.error);
+    return;
+  }
+  // No reported error: keep the status, with the machine-readable VM error
+  // code when the route set one, so the span still says why.
+  const code = response.headers.get(VM_ERROR_CODE_HEADER);
+  span.setStatus({
+    code: SpanStatusCode.ERROR,
+    message: code ? `HTTP ${response.status} ${code}` : `HTTP ${response.status}`,
+  });
 }
 
 export function setSpanAttributes(span: Span, attributes: MaybeAttributes): void {
