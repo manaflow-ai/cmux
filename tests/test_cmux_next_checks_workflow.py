@@ -11,6 +11,7 @@ so it can never mask the Swift god-type check.
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
@@ -317,6 +318,37 @@ class GodfilePullRequestScope(unittest.TestCase):
         self.assertIn("compare/feat-cmux-next...", rust["run"])
         self.assertIn("merge_base_commit.sha", rust["run"])
         self.assertIn('--base "$merge_base"', rust["run"])
+
+
+class NoSwiftCliSharedCatalog(unittest.TestCase):
+    """Resources/Localizable.xcstrings is the webviews' shared diff label catalog since d69da1e49f2
+    (cx-64k), which made check-no-swift-cli.sh red on feat-cmux-next itself (2026-10-07). The
+    guard still fails when the Swift CLI's strings come back in it."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.repo = Path(self.tmp.name)
+        (self.repo / "Resources").mkdir()
+        (self.repo / "cmux.xcodeproj").mkdir()
+        (self.repo / "cmux.xcodeproj/project.pbxproj").write_text("// no cli target\n")
+        subprocess.run(["git", "init", "-q", str(self.repo)], check=True)
+
+    def check(self, keys):
+        catalog = {"sourceLanguage": "en", "version": "1.0", "strings": {key: {} for key in keys}}
+        (self.repo / "Resources/Localizable.xcstrings").write_text(json.dumps(catalog))
+        subprocess.run(["git", "-C", str(self.repo), "add", "-A"], check=True)
+        return subprocess.run(["bash", str(ROOT / "scripts/cmux-next/check-no-swift-cli.sh"), str(self.repo)],
+                              capture_output=True, text=True)
+
+    def test_the_diff_viewer_catalog_passes(self):
+        result = self.check(["diffViewer.additions", "diffViewer.findClose"])
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_cli_strings_in_the_catalog_still_fail(self):
+        result = self.check(["diffViewer.additions", "cli.usage.header"])
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("cli.usage.header", result.stderr)
 
 
 class PathRoutingStructure(unittest.TestCase):
