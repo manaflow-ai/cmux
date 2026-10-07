@@ -62,3 +62,17 @@ describe("Japanese labels", () => {
     expect(createDiffViewerLabelResolver(undefined, { language: "en" })("loadFullFiles")).toBe("Load full files");
   });
 });
+
+// Host-free labels must use the same locale catalog as the other webview pages.
+test("Japanese and German labels render without host labels", async () => {
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const { createElement } = await import("react");
+  for (const [tag, expected] of [
+    ["ja-JP", "ファイルを隠す"],
+    ["de-DE", "Dateien ausblenden"],
+  ]) {
+    const label = createDiffViewerLabelResolver(undefined, { language: diffViewerLanguage([tag!]) });
+    const html = renderToStaticMarkup(createElement("button", null, label("hideFiles")));
+    expect(html).toContain(expected!);
+  }
+});
