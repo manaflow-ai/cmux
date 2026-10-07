@@ -301,6 +301,7 @@ describe("cloud_vm_request capture", () => {
         ["vm_access_grant_busy", 409, "enroll_tunnel"],
         ["vm_requires_pro", 402, "create"],
         ["vm_command_too_large", 413, "exec"],
+        ["vm_resource_pool_exceeded", 402, "create"],
       ] as const) {
         const ctx = context({ operation, route: "/api/vm/[id]" });
         const response = runWithVmRequestContext(ctx, () => vmErrorResponse({
