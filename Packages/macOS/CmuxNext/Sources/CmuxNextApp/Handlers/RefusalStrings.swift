@@ -42,8 +42,16 @@ nonisolated enum RefusalStrings {
         text("handlers.refusal.homeNeedsFocus",
              "Opening Home needs focus: run it with focus, or give its arguments to run it in the background.")
     }
+    /// A page asked for a person-only action (import, file picker) without a click or key in it.
+    static var personOnlyFromPage: String {
+        text("handlers.refusal.personOnlyFromPage", "Only you can start this, with a click or key in the page.")
+    }
     /// A tab action (Cmd-W) while a top page shows: pages have no tabs and do not close.
     static var topPageHasNoTabs: String { text("handlers.refusal.topPageHasNoTabs", "This page has no tabs.") }
+    /// Close Workspace with no target while a top page shows (HomeRules).
+    static var topPageIsNotAWorkspace: String { text("handlers.refusal.topPageIsNotAWorkspace", "This page is not a workspace.") }
+    /// A close of the store's home workspace (`home_not_closable`).
+    static var homeNotClosable: String { text("handlers.refusal.homeNotClosable", "Home can't be closed.") }
     static var homeAttachNoHome: String {
         text("handlers.refusal.homeAttachNoHome", "Open a Home conversation to attach files.")
     }
@@ -54,6 +62,10 @@ nonisolated enum RefusalStrings {
         String(format: text("handlers.refusal.homeAttachNoFile", "No file at “%@”."), path)
     }
     static var notABrowserTab: String { text("handlers.refusal.notABrowserTab", "This tab is not a web page.") }
+    /// Open in WebKit on a Cloud proxied tab: WebKit would load this Mac's localhost.
+    static var proxiedTabStaysInChromium: String {
+        text("handlers.refusal.proxiedTabStaysInChromium", "This tab shows a cloud machine's localhost through its proxy, so it stays in Chromium.")
+    }
     static var directionLeft: String { text("handlers.refusal.directionLeft", "left") }
     static var directionRight: String { text("handlers.refusal.directionRight", "right") }
     static var directionUp: String { text("handlers.refusal.directionUp", "up") }

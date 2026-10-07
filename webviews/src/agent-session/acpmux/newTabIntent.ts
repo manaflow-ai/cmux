@@ -96,8 +96,9 @@ export function classifyNewTabInput(input: string, options: NewTabIntentOptions 
   return { kind: "prompt", text: trimmed };
 }
 
-/// The address to load for `text`, or undefined for text. BrowserURLResolver's rules (WebKit
-/// tabs: no `chrome://`), then the file-name filter.
+/// The address to load for `text`, or undefined for text. BrowserURLResolver's rules, plus
+/// Chromium internal pages (`chrome://`, `chrome-extension://`, `about:` aliases) in canonical
+/// form, which the app opens in a Chromium tab; then the file-name filter.
 export function newTabURL(input: string, home?: string): string | undefined {
   const trimmed = input.trim();
   if (!trimmed) return undefined;
@@ -161,10 +162,34 @@ function explicitURL(text: string, scheme: string): string | undefined {
     case "file":
       return /^file:\/\/\//i.test(text) ? text : undefined;
     case "about":
-      return text.toLowerCase() === "about:blank" ? "about:blank" : undefined;
+      return text.toLowerCase() === "about:blank" ? "about:blank" : chromiumInternalURL(text, scheme);
+    case "chrome":
+    case "chrome-extension":
+      return chromiumInternalURL(text, scheme);
     default:
       return undefined;
   }
+}
+
+/// A Chromium internal page in Chromium's canonical form (ChromiumInternalURL.swift, the same
+/// rule): lowercase scheme and host, optional slashes after the colon, an empty path is `/`,
+/// and `about:<page>` is `chrome://<page>` (not about:blank or about:srcdoc). Userinfo, a port
+/// or other host characters than letters, digits, `-`, `_` and `.` are not a page. The app
+/// opens these in a Chromium tab.
+function chromiumInternalURL(text: string, scheme: string): string | undefined {
+  let rest = text.slice(text.indexOf(":") + 1);
+  if (scheme === "about") {
+    const page = rest.split(/[?#]/u, 1)[0]!.toLowerCase();
+    if (page === "blank" || page === "srcdoc") return undefined;
+  }
+  const canonicalScheme = scheme === "about" ? "chrome" : scheme;
+  rest = rest.replace(/^\/+/u, "");
+  const end = rest.search(/[/?#]/u);
+  const host = (end < 0 ? rest : rest.slice(0, end)).toLowerCase();
+  if (!host || !/^[a-z0-9._-]+$/u.test(host)) return undefined;
+  let tail = end < 0 ? "" : rest.slice(end);
+  if (!tail.startsWith("/")) tail = "/" + tail;
+  return `${canonicalScheme}://${host}${tail}`;
 }
 
 /// The host of `scheme://host...`, or "" when there is none.

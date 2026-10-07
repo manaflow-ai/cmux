@@ -44,7 +44,7 @@ import Testing
     }
 
     @Test func layoutPassesDoNotFightWebKitsAttachedInspector() {
-        let tab = WebKitEngine().makeWebKitTab(BrowserTabConfiguration(profile: .default))
+        let tab = WebKitEngine().makeWebKitTab(profile: .default)
         defer { tab.close() }
         let chrome = BrowserChromeView(tab: tab)
         chrome.frame = CGRect(x: 0, y: 0, width: 800, height: 600)

@@ -11,6 +11,8 @@
 #   scripts/cmux-next/build-web-bundles.sh --verify      # exit 1 if not current
 #   scripts/cmux-next/build-web-bundles.sh --out-root D  # build into D (same
 #                                                        # relative paths), no stamp
+#   scripts/cmux-next/build-web-bundles.sh --from D      # install bundles built into D
+#                                                        # for this source key, and stamp
 #
 # A build records the source key (web-bundle-key.py: every input file, bun's
 # version) and the output digest in .web-bundles.key at the repository root
@@ -33,8 +35,13 @@ while [ $# -gt 0 ]; do
       [ $# -ge 2 ] || { echo "error: --out-root needs a directory" >&2; exit 2; }
       case "$2" in /*) OUT_ROOT="$2" ;; *) OUT_ROOT="$PWD/$2" ;; esac
       shift ;;
-    -h|--help) sed -n '2,23p' "$0"; exit 0 ;;
-    *) echo "usage: $0 [--force | --verify] [--out-root DIR]" >&2; exit 2 ;;
+    --from)
+      [ $# -ge 2 ] || { echo "error: --from needs a directory" >&2; exit 2; }
+      MODE=from
+      case "$2" in /*) FROM_ROOT="$2" ;; *) FROM_ROOT="$PWD/$2" ;; esac
+      shift ;;
+    -h|--help) sed -n '2,25p' "$0"; exit 0 ;;
+    *) echo "usage: $0 [--force | --verify] [--out-root DIR] [--from DIR]" >&2; exit 2 ;;
   esac
   shift
 done
@@ -48,11 +55,26 @@ APP="Resources/markdown-viewer/webviews-app"
 STAMP="$ROOT/.web-bundles.key"
 KEY="$ROOT/scripts/cmux-next/web-bundle-key.py"
 
+# CMUX_WEB_BUNDLES_TOOLS_OPTIONAL=1 (scripts/reload.sh while the bundles are
+# still committed): a missing or wrong bun or node is a warning and exit 0, so
+# a build log does not show an "error:" line for a build that ships the
+# committed bundles. Any other failure still fails.
+missing_tool() {
+  if [ "${CMUX_WEB_BUNDLES_TOOLS_OPTIONAL:-0}" = 1 ]; then
+    echo "warning: $1 (this build ships the committed bundles)" >&2
+    exit 0
+  fi
+  echo "error: $1" >&2
+  exit 1
+}
+
 need_bun() {
+  want="$(python3 -c 'import json, sys; m = (json.load(open(sys.argv[1])).get("devEngines") or {}).get("packageManager") or {}; print(m.get("version", "") if m.get("name") == "bun" else "")' "$ROOT/webviews/package.json" 2>/dev/null || true)"
   if ! command -v bun >/dev/null 2>&1; then
-    want="$(sed -n 's/.*"name": *"bun", *"version": *"\([0-9.]*\)".*/\1/p' "$ROOT/webviews/package.json" | head -1)"
-    echo "error: the cmux-next web bundles need bun ${want:-(see webviews/package.json devEngines)}; install it: curl -fsSL https://bun.sh/install | bash -s bun-v${want:-<version>}" >&2
-    exit 1
+    missing_tool "the cmux-next web bundles need bun ${want:-(see webviews/package.json devEngines)}; install it: curl -fsSL https://bun.sh/install | bash -s bun-v${want:-<version>}"
+  fi
+  if [ "${CMUX_WEB_BUNDLES_TOOLS_OPTIONAL:-0}" = 1 ] && [ -n "$want" ] && [ "$(bun --version)" != "$want" ]; then
+    missing_tool "the cmux-next web bundles need bun $want; $(command -v bun) is bun $(bun --version)"
   fi
   "$ROOT/scripts/check-webviews-bun-version.sh"
   # `vp build` (the webviews app) runs on node when node is on PATH and on bun
@@ -61,8 +83,7 @@ need_bun() {
   # every host builds the same app; Vite+ needs node 22.18 or newer.
   if ! command -v node >/dev/null 2>&1 \
     || ! node -e 'const [a, b] = process.versions.node.split(".").map(Number); process.exit(a > 22 || (a === 22 && b >= 18) ? 0 : 1)'; then
-    echo "error: the webviews app build needs node 22.18 or newer on PATH (found: $(command -v node >/dev/null 2>&1 && node --version || echo none))" >&2
-    exit 1
+    missing_tool "the webviews app build needs node 22.18 or newer on PATH (found: $(command -v node >/dev/null 2>&1 && node --version || echo none))"
   fi
 }
 
@@ -78,6 +99,26 @@ if [ "$MODE" = verify ]; then
   fi
   echo "error: the cmux-next web bundles are missing or stale; run scripts/cmux-next/build-web-bundles.sh" >&2
   exit 1
+fi
+
+# A tree built elsewhere for this source key (cmux-next.yml's Linux web-bundles job caches
+# `--out-root` builds by `web-bundle-key.py --source`): check it is complete, install it
+# and stamp it, so the build below and every later build path skip. The caller restores
+# it under that key, so the stamp's source key is the key it was built from.
+if [ "$MODE" = from ]; then
+  for path in "$PANE" "$PAGES" "$ACTIVITY" "$APP" "$PALETTE/palette-ranker.js"; do
+    [ -e "$FROM_ROOT/$path" ] || { echo "error: $FROM_ROOT has no $path; build the web bundles instead" >&2; exit 1; }
+  done
+  rm -f "$STAMP"
+  for path in "$PANE" "$PAGES" "$ACTIVITY" "$APP"; do
+    rm -rf "${ROOT:?}/$path"
+    cp -R "$FROM_ROOT/$path" "$ROOT/$path"
+  done
+  cp "$FROM_ROOT/$PALETTE/palette-ranker.js" "$ROOT/$PALETTE/palette-ranker.js"
+  python3 "$KEY" "$ROOT" --stamp > "$STAMP.tmp"
+  mv "$STAMP.tmp" "$STAMP"
+  echo "web bundles restored ($(cut -c1-12 "$STAMP"))"
+  exit 0
 fi
 
 need_bun
