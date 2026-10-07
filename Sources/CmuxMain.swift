@@ -21,6 +21,7 @@ enum CmuxMain {
         // First: nothing may read preferences before an app-host test process
         // switches to its own domain.
         TestProcessDefaults.installIfHostingTests()
+        crashOnExceptionsEscapingToTheRunLoop()
         FileDescriptorLimitController().raiseSoftLimitIfNeeded()
         AppHostProcessReceipt.writeIfRequired()
 #if DEBUG
@@ -34,5 +35,25 @@ enum CmuxMain {
         CmuxWorkerEntrypoint(arguments: CommandLine.arguments).runIfRequested()
         SurfaceResumeApprovalStore.preloadSigningSecret()
         cmuxApp.main()
+    }
+
+    /// Makes an Objective-C exception that reaches `-[NSApplication run]`
+    /// terminate the process at the throw instead of being logged and swallowed.
+    ///
+    /// AppKit's run loop catches such exceptions by default and keeps running.
+    /// When the exception unwinds through a Swift concurrency job (a
+    /// `@MainActor` `Task` body, for example), the runtime skips restoring its thread-local
+    /// executor tracking, which is left pointing at the dead job's stack frame.
+    /// The next main-actor isolation check on that thread (`assumeIsolated`,
+    /// SwiftUI, or WebKit's own Swift code during a layer-tree commit) reads
+    /// that garbage and crashes far from the cause, which is how
+    /// CMUXTERM-MACOS-1C1Z and CMUXTERM-MACOS-3YQ6 present. Failing at the
+    /// throw gives a report with the real exception, and with Sentry's
+    /// `enableUncaughtNSExceptionReporting` the reason and throw stack too.
+    ///
+    /// `register(defaults:)` only seeds the registration domain, so a user or
+    /// test override of `NSApplicationCrashOnExceptions` still wins.
+    private static func crashOnExceptionsEscapingToTheRunLoop() {
+        UserDefaults.standard.register(defaults: ["NSApplicationCrashOnExceptions": true])
     }
 }
