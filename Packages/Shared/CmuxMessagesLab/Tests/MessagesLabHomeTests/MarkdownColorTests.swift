@@ -37,3 +37,17 @@ import Testing
         }
     }
 }
+
+/// The luminance used for the Markdown palette takes any colour without throwing.
+@MainActor @Suite struct MarkdownLuminanceTests {
+    @Test func anyColourHasALuminance() {
+        let hdr = NSColor(colorSpace: .extendedSRGB, components: [1.5, 1.5, 1.5, 1], count: 4)
+        #expect(MDPalette.luminance(hdr) == 1)
+        #expect(MDPalette.luminance(NSColor(srgbRed: 0, green: 0, blue: 0, alpha: 1)) < 0.01)
+        #expect(MDPalette.luminance(NSColor(displayP3Red: 1, green: 1, blue: 1, alpha: 1)) > 0.99)
+        #expect(MDPalette.luminance(NSColor(white: 0.25, alpha: 1)) < 0.5)
+        _ = MDPalette.luminance(NSColor.labelColor)                         // catalog colour
+        let image = NSImage(size: NSSize(width: 2, height: 2), flipped: false) { _ in NSColor.red.setFill(); NSRect(x: 0, y: 0, width: 2, height: 2).fill(); return true }
+        #expect(MDPalette.luminance(NSColor(patternImage: image)) == 0.9)   // pattern: the default
+    }
+}
