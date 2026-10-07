@@ -58,9 +58,9 @@ enum CoderouterCLIAccountReader {
             payload = try await readAccounts(for: organizationID, run: invoke)
             supportsTeamOption = true
         } catch {
-            // Bundled CodeRouter 0.3.15 predates `accounts --team`. Keep the
-            // old path as a compatibility fallback until that binary is
-            // released and included in cmux.
+            // CodeRouter 0.3.15 and earlier predate `accounts --team`. The app
+            // bundles 0.3.16, but `resolvedExecutable` can still pick an older
+            // CLI from PATH or the installer, so keep this fallback.
             guard isUnsupportedTeamOption(error, command: "accounts") else { throw error }
             logger.info("Using an isolated CodeRouter configuration for the legacy CLI")
             payload = try await withLegacyCLI(run: run) { legacyRun in
