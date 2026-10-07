@@ -198,11 +198,12 @@ describe("MCP OAuth tokens", () => {
   });
 
   test("a wrong verifier, redirect URI or client fails", async () => {
-    for (const extra of [
+    const variants: Record<string, string>[] = [
       { code_verifier: pkce().verifier },
       { redirect_uri: "https://chatgpt.com/other" },
       { client_id: "cmux_mcp_client_other" },
-    ]) {
+    ];
+    for (const extra of variants) {
       const { store } = memoryStore();
       const { code, verifier } = await authorize(store);
       await expectOauthError(exchangeToken(store, codeForm(code, verifier, extra), ORIGIN), "invalid_grant");

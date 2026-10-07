@@ -477,6 +477,14 @@ function rpcError(id: JsonRpcId, code: number, message: string): JsonRpcResponse
   return { jsonrpc: "2.0", id, error: { code, message } };
 }
 
+/** The one resource this server has: the cmux Cloud MCP App. */
+function resourceReply(id: string | number, method: string, params: JsonObject): JsonRpcResponse {
+  if (method === "resources/list") return { jsonrpc: "2.0", id, result: { resources: [cloudMcpAppResource().listing] } };
+  if (method === "resources/templates/list") return { jsonrpc: "2.0", id, result: { resourceTemplates: [] } };
+  if (params.uri !== CLOUD_MCP_APP_URI) return rpcError(id, -32002, `Resource not found: ${String(params.uri)}`);
+  return { jsonrpc: "2.0", id, result: { contents: [cloudMcpAppResource().content] } };
+}
+
 /**
  * Handles one JSON-RPC message from the streamable HTTP transport. Returns null
  * for a notification or a client response, which the transport answers with 202.
@@ -522,13 +530,9 @@ export async function handleCloudMcpMessage(gateway: CloudMcpGateway, message: u
     case "tools/list":
       return { jsonrpc: "2.0", id, result: { tools: listedTools(gateway) } };
     case "resources/list":
-      return { jsonrpc: "2.0", id, result: { resources: [cloudMcpAppResource().listing] } };
     case "resources/templates/list":
-      return { jsonrpc: "2.0", id, result: { resourceTemplates: [] } };
-    case "resources/read": {
-      if (params.uri !== CLOUD_MCP_APP_URI) return rpcError(id, -32002, `Resource not found: ${String(params.uri)}`);
-      return { jsonrpc: "2.0", id, result: { contents: [cloudMcpAppResource().content] } };
-    }
+    case "resources/read":
+      return resourceReply(id, request.method, params);
     case "tools/call": {
       if (typeof params.name !== "string") return rpcError(id, -32602, "tools/call needs a tool name.");
       if (!CLOUD_MCP_TOOLS.some((tool) => tool.name === params.name)) {
