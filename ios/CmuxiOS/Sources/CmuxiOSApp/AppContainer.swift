@@ -132,6 +132,8 @@ final class AppContainer {
         let localHosts = LocalHostsStore(url: sshDirectory.appendingPathComponent("hosts.json"))
         var factories = RealFeatureFactories()
         factories.hosts = { localHosts }
+        // Lane C2: nil until D1/B6 hand out admitted sessions and C5 mirrors tab records.
+        factories.browser = BrowserComposition.realSource(links: nil, directory: nil)
         sourceModes = FeatureSourceModeStore(environment: environment, isDebug: isDebug)
         demo = DemoModePolicy(environment: environment, isDebug: isDebug)
         onboardingPolicy = OnboardingLaunchPolicy(environment: environment, isDebug: isDebug)

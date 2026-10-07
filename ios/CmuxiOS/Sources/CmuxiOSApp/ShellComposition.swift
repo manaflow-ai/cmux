@@ -1,4 +1,5 @@
 import CmuxiOSAuth
+import CmuxiOSBrowser
 import CmuxiOSFeatureKit
 import CmuxiOSFeed
 import CmuxiOSSettingsCore
@@ -40,6 +41,8 @@ enum ShellComposition {
         let feedIsMock = sources.resolved[.feed] != .real
         let feedNavigator = container.feedNavigator
         let deviceName = UIDevice.current.name
+        // Lane C2: Mac browser tabs open from workspace surfaces over the browser seam.
+        let browser = BrowserFeature(source: sources.browser, isMock: sources.resolved[.browser] != .real)
         let content = ShellContent(sources: sources, home: home, settings: settings, screens: [
             .hosts: { ssh.makeHostsScreen() },
             .feed: {
@@ -48,7 +51,7 @@ enum ShellComposition {
                 navigation.navigationBar.prefersLargeTitles = true
                 return navigation
             },
-        ])
+        ], surfaces: browser.surfaceFactories)
         return ShellRootController(
             tabs: container.flags.visibleTabs,
             sidebar: container.flags.isEnabled(.iPadSidebar),
