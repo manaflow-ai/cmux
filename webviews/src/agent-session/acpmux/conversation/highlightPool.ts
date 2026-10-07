@@ -30,6 +30,12 @@ export function highlightWorkerFactory(base: string, WorkerConstructor: typeof W
 }
 
 const pools = new Map<HighlightLineDiffType, WorkerPoolManager | null>();
+type PoolEnvironment = {
+  pageHref: string;
+  document: unknown;
+  worker: typeof Worker | undefined;
+};
+let poolEnvironment: PoolEnvironment | undefined;
 let warned = false;
 const timeoutListeners = new Map<string, () => void>();
 
@@ -67,8 +73,23 @@ export function paneHighlightPool(
   lineDiffType: HighlightLineDiffType = "word-alt",
   language: string = "text",
 ): WorkerPoolManager | undefined {
+  const page = typeof location === "undefined" ? undefined : location;
+  const environment: PoolEnvironment = {
+    pageHref: page?.href ?? "",
+    document: typeof document === "undefined" ? undefined : document,
+    worker: typeof Worker === "undefined" ? undefined : Worker,
+  };
+  if (
+    poolEnvironment != null &&
+    (poolEnvironment.pageHref !== environment.pageHref ||
+      poolEnvironment.document !== environment.document ||
+      poolEnvironment.worker !== environment.worker)
+  ) {
+    for (const existing of pools.values()) existing?.terminate();
+    pools.clear();
+  }
+  poolEnvironment = environment;
   if (!pools.has(lineDiffType)) {
-    const page = typeof location === "undefined" ? undefined : location;
     if (!page || typeof Worker === "undefined" || !usesHighlightWorker(page.protocol)) pools.set(lineDiffType, null);
     else {
       registerAgentDiffTheme();
