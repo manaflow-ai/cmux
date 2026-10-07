@@ -11,6 +11,8 @@
 #   scripts/cmux-next/build-web-bundles.sh --verify      # exit 1 if not current
 #   scripts/cmux-next/build-web-bundles.sh --out-root D  # build into D (same
 #                                                        # relative paths), no stamp
+#   scripts/cmux-next/build-web-bundles.sh --from D      # install bundles built into D
+#                                                        # for this source key, and stamp
 #
 # A build records the source key (web-bundle-key.py: every input file, bun's
 # version) and the output digest in .web-bundles.key at the repository root
@@ -33,8 +35,13 @@ while [ $# -gt 0 ]; do
       [ $# -ge 2 ] || { echo "error: --out-root needs a directory" >&2; exit 2; }
       case "$2" in /*) OUT_ROOT="$2" ;; *) OUT_ROOT="$PWD/$2" ;; esac
       shift ;;
-    -h|--help) sed -n '2,23p' "$0"; exit 0 ;;
-    *) echo "usage: $0 [--force | --verify] [--out-root DIR]" >&2; exit 2 ;;
+    --from)
+      [ $# -ge 2 ] || { echo "error: --from needs a directory" >&2; exit 2; }
+      MODE=from
+      case "$2" in /*) FROM_ROOT="$2" ;; *) FROM_ROOT="$PWD/$2" ;; esac
+      shift ;;
+    -h|--help) sed -n '2,25p' "$0"; exit 0 ;;
+    *) echo "usage: $0 [--force | --verify] [--out-root DIR] [--from DIR]" >&2; exit 2 ;;
   esac
   shift
 done
@@ -92,6 +99,26 @@ if [ "$MODE" = verify ]; then
   fi
   echo "error: the cmux-next web bundles are missing or stale; run scripts/cmux-next/build-web-bundles.sh" >&2
   exit 1
+fi
+
+# A tree built elsewhere for this source key (cmux-next.yml's Linux web-bundles job caches
+# `--out-root` builds by `web-bundle-key.py --source`): check it is complete, install it
+# and stamp it, so the build below and every later build path skip. The caller restores
+# it under that key, so the stamp's source key is the key it was built from.
+if [ "$MODE" = from ]; then
+  for path in "$PANE" "$PAGES" "$ACTIVITY" "$APP" "$PALETTE/palette-ranker.js"; do
+    [ -e "$FROM_ROOT/$path" ] || { echo "error: $FROM_ROOT has no $path; build the web bundles instead" >&2; exit 1; }
+  done
+  rm -f "$STAMP"
+  for path in "$PANE" "$PAGES" "$ACTIVITY" "$APP"; do
+    rm -rf "${ROOT:?}/$path"
+    cp -R "$FROM_ROOT/$path" "$ROOT/$path"
+  done
+  cp "$FROM_ROOT/$PALETTE/palette-ranker.js" "$ROOT/$PALETTE/palette-ranker.js"
+  python3 "$KEY" "$ROOT" --stamp > "$STAMP.tmp"
+  mv "$STAMP.tmp" "$STAMP"
+  echo "web bundles restored ($(cut -c1-12 "$STAMP"))"
+  exit 0
 fi
 
 need_bun
