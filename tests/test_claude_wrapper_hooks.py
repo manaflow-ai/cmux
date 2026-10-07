@@ -1567,6 +1567,31 @@ def test_settings_artifact_survives_tmpdir_purge(failures: list[str]) -> None:
             )
 
 
+def test_settings_cache_rejects_symlinked_directory(failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-settings-link-") as td:
+        root = Path(td)
+        home = root / "home"
+        target = root / "target"
+        home.mkdir()
+        target.mkdir()
+        (home / ".cmuxterm").symlink_to(target, target_is_directory=True)
+
+        def setup(_tmp: Path, env: dict[str, str]) -> None:
+            env["HOME"] = str(home)
+
+        code, real_argv, _cmux_log, stderr, *_ = run_wrapper(
+            socket_state="live",
+            argv=["hello"],
+            setup_sandbox=setup,
+        )
+    expect(code == 0, f"symlinked settings cache: wrapper exited {code}: {stderr}", failures)
+    expect(
+        "--settings" not in real_argv,
+        f"symlinked settings cache: expected hooks to fail closed, got {real_argv}",
+        failures,
+    )
+
+
 def test_plain_claude_launch_argv_has_no_empty_argument(failures: list[str]) -> None:
     code, _, _, stderr, _, _, _, _, _, launch_argv_b64 = run_wrapper(
         socket_state="live",
@@ -3659,6 +3684,7 @@ def main() -> int:
     test_multibyte_settings_argument_uses_byte_limit(failures)
     test_large_settings_file_is_merged_without_argv_growth(failures)
     test_settings_artifact_survives_tmpdir_purge(failures)
+    test_settings_cache_rejects_symlinked_directory(failures)
     test_plain_claude_launch_argv_has_no_empty_argument(failures)
     test_command_like_invocations_bypass_hook_injection(failures)
     test_hidden_attach_subcommand_bypasses_hook_injection(failures)
