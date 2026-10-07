@@ -17,7 +17,7 @@ extension AppControl {
             .mainActor("updates.rollback") { call in
                 let build = call.params["build"]?.stringValue
                 let check = call.params["check"]?.boolValue == true
-                let stateDirectories = appServices.daemonStateDirectories
+                let stateDirectories = appServices.environment.daemonStateDirectories
                 return .followUp {
                     let inputs = await updater.rollbackInputs(stateDirectories: stateDirectories)
                     return try await MainActor.run { () throws -> JSONValue in
