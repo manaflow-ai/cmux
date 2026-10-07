@@ -71,7 +71,7 @@ extension AgentTabStore {
             guard let services, let (tab, _) = services.locateTab(key), let session = tab.agentSession?.session else { return nil }
             let daemon = services.machines.daemon(forTab: tab)
             guard !daemon.isLocal, daemon.supports(DaemonCapabilities.shared.agentSessionAttach),
-                  let endpoint = daemon.endpointProvider else { return nil }
+                  let endpoint = daemon.remoteEndpoint else { return nil }
             return AgentTabRemoteHost(surface: tab.surface.rawValue, session: session,
                                       machine: tab.agentSession?.hostName ?? daemon.machineID, endpoint: endpoint)
         }
