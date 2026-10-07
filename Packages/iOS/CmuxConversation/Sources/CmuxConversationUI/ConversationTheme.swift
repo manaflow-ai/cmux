@@ -97,6 +97,46 @@ enum ConversationTheme {
             : UIColor(red: 233 / 255, green: 233 / 255, blue: 235 / 255, alpha: 1)
     }
 
+    /// Messages fills outgoing bubbles from a gradient fixed to the screen:
+    /// lighter near the top, the plain service color at the bottom. Stops
+    /// sampled from ChatKit's iMessage balloon on iOS 26.3 (sRGB).
+    struct ScreenGradient: Sendable {
+        var light: [(CGFloat, CGFloat, CGFloat)]
+        var dark: [(CGFloat, CGFloat, CGFloat)]
+
+        /// Colors and locations covering window fractions `top...bottom`.
+        func samples(from top: CGFloat, to bottom: CGFloat, traits: UITraitCollection) -> (colors: [CGColor], locations: [CGFloat]) {
+            let stops = traits.userInterfaceStyle == .dark ? dark : light
+            func color(at fraction: CGFloat) -> CGColor {
+                let f = max(0, min(1, fraction)) * CGFloat(stops.count - 1)
+                let i = min(Int(f), stops.count - 2)
+                let t = f - CGFloat(i)
+                let a = stops[i], b = stops[i + 1]
+                return UIColor(
+                    red: (a.0 + (b.0 - a.0) * t) / 255,
+                    green: (a.1 + (b.1 - a.1) * t) / 255,
+                    blue: (a.2 + (b.2 - a.2) * t) / 255,
+                    alpha: 1
+                ).cgColor
+            }
+            guard bottom > top else { return ([color(at: top), color(at: top)], [0, 1]) }
+            var fractions = [top]
+            let step = 1 / CGFloat(stops.count - 1)
+            var stop = (top / step).rounded(.down) * step + step
+            while stop < bottom {
+                fractions.append(stop)
+                stop += step
+            }
+            fractions.append(bottom)
+            return (fractions.map(color(at:)), fractions.map { ($0 - top) / (bottom - top) })
+        }
+    }
+
+    static let iMessageGradient = ScreenGradient(
+        light: [(90, 200, 250), (72, 184, 251), (52, 168, 252), (30, 152, 254), (0, 136, 255)],
+        dark: [(64, 156, 255), (52, 153, 255), (37, 150, 255), (22, 148, 255), (0, 145, 255)]
+    )
+
     static let failedBubble = UIColor.systemBlue
 
     static let outgoingText = UIColor.white

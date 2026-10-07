@@ -698,6 +698,7 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
             isPinnedToBottom = isNearBottom(tolerance: 44)
         }
         maybeLoadOlder()
+        for case let cell as MessageCell in collectionView.visibleCells { cell.updateScreenGradients() }
         if store.hasLoadedNewest, isNearBottom(tolerance: 60) {
             store.markNewestRead()
         }

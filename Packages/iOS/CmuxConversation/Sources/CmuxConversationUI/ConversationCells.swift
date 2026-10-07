@@ -159,6 +159,7 @@ final class MessageCell: UICollectionViewCell {
             bubble.fillColor = model.isOutgoing
                 ? (message.delivery?.isFailed == true ? ConversationTheme.failedBubble : ConversationTheme.outgoingBubble)
                 : ConversationTheme.incomingBubble
+            bubble.screenGradient = model.isOutgoing ? ConversationTheme.iMessageGradient : nil
             bubble.frame = bubbleFrame
             textLabel.attributedText = text
             textLabel.frame = textFrame
@@ -276,6 +277,11 @@ final class MessageCell: UICollectionViewCell {
             footerLabel.isHidden ? nil : footerLabel.text,
         ].compactMap { $0 }.joined(separator: ", ")
         isAccessibilityElement = true
+    }
+
+    /// Keeps outgoing bubbles' screen-anchored gradient in step with scrolling.
+    func updateScreenGradients() {
+        bubble.updateScreenGradient()
     }
 
     override func layoutSubviews() {
