@@ -13,6 +13,13 @@ import { SqlClient, StoreError } from "./sql.ts";
 /** How long a completed key replays its response. */
 export const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * How long a pending claim blocks retries. A request that died without
+ * completing or releasing its claim (Worker evicted, store write failed)
+ * frees the key after this; it is well above the slowest create.
+ */
+export const IDEMPOTENCY_PENDING_LEASE_MS = 10 * 60 * 1000;
+
 export type IdempotencyClaim =
   | { readonly _tag: "Started" }
   | { readonly _tag: "Replay"; readonly body: string }
@@ -20,7 +27,7 @@ export type IdempotencyClaim =
   | { readonly _tag: "Mismatch" };
 
 export interface IdempotencyStoreService {
-  /** Claims `key` for this request, or reports what an earlier request with it did. Expired keys are replaced. */
+  /** Claims `key` for this request, or reports what an earlier request with it did. Expired keys and stale pending claims are replaced. */
   readonly claim: (
     tenantId: TenantId,
     key: string,
@@ -76,7 +83,8 @@ export const idempotent = <A, I, E, R>(options: {
     );
     const body = yield* Schema.encode(Schema.parseJson(options.schema))(result).pipe(Effect.option);
     if (Option.isSome(body)) {
-      // The create succeeded; a failure to store its replay only costs a later retry its replay.
+      // The create succeeded. If storing the replay fails, the claim stays
+      // pending: retries get 409 until the pending lease runs out, then run again.
       yield* store.complete(options.tenantId, key, fingerprint, body.value).pipe(Effect.ignore);
     }
     return result;
@@ -95,8 +103,10 @@ export const sqlIdempotencyStoreLayer: Layer.Layer<IdempotencyStore, never, SqlC
       Effect.gen(function* () {
         yield* sql.query(
           "idempotency.expire",
-          "DELETE FROM cmux_vm.idempotency_keys WHERE tenant_id = $1 AND key = $2 AND expires_at <= $3::timestamptz",
-          [tenantId, key, now.toISOString()],
+          `DELETE FROM cmux_vm.idempotency_keys
+            WHERE tenant_id = $1 AND key = $2
+              AND (expires_at <= $3::timestamptz OR (state = 'pending' AND created_at <= $4::timestamptz))`,
+          [tenantId, key, now.toISOString(), new Date(now.getTime() - IDEMPOTENCY_PENDING_LEASE_MS).toISOString()],
         );
         const inserted = yield* sql.query(
           "idempotency.claim",

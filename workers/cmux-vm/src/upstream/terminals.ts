@@ -61,8 +61,6 @@ export interface UpstreamTerminalsService {
     session: TerminalSelector,
     user: string | undefined,
   ) => Effect.Effect<UpstreamClosedPtySession, UpstreamError>;
-  /** The provider id behind an owned VM, so the terminal bridge can scrub it from frames. Never sent to a client. */
-  readonly scrubTarget: <C, V>(proofs: TerminalProofs<C, V>) => string;
 }
 
 export class UpstreamTerminals extends Context.Tag("cmux-vm/UpstreamTerminals")<UpstreamTerminals, UpstreamTerminalsService>() {}

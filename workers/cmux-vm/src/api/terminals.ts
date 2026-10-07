@@ -128,5 +128,6 @@ export class TerminalsGroupDefinition extends HttpApiGroup.make("terminals")
       .setHeaders(GroupTeamHeaders)
       .addSuccess(ClosedTerminal)
       .addError(NotFound)
+      .addError(Conflict)
       .annotateContext(describe("Kill a terminal session and remove it", "vm:terminal")),
   ) {}

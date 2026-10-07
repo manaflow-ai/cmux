@@ -130,6 +130,13 @@ describe("idempotency store", () => {
     expect(await claim(TENANT_A, "k", other)).toEqual({ _tag: "Started" });
     expect(await claim(TENANT_A, "k", fingerprint, new Date(Date.UTC(2026, 9, 3)))).toEqual({ _tag: "Started" });
   });
+
+  it("frees a pending claim whose request never finished once its lease runs out", async () => {
+    const start = Date.UTC(2026, 9, 1);
+    expect(await claim(TENANT_A, "lease", fingerprint, new Date(start))).toEqual({ _tag: "Started" });
+    expect(await claim(TENANT_A, "lease", fingerprint, new Date(start + 60_000))).toEqual({ _tag: "InProgress" });
+    expect(await claim(TENANT_A, "lease", fingerprint, new Date(start + 11 * 60_000))).toEqual({ _tag: "Started" });
+  });
 });
 
 describe("audit log", () => {

@@ -136,7 +136,7 @@ describe("terminal proxy", () => {
     expect(frames).toEqual([
       { text: JSON.stringify({ type: "sessionInfo", sessionId: 7, name: "main", created: true }) },
       ...Array.from({ length: OUTPUT_FRAMES }, (_, index) => ({ bytes: [index, 255 - index] })),
-      { text: JSON.stringify({ type: "error", message: `vm ${vmId} on cmux VM host lagged` }) },
+      { text: JSON.stringify({ type: "error", message: "The terminal reported an error" }) },
       { text: JSON.stringify({ type: "exited", exitCode: 3 }) },
     ]);
     expect(receivedUpstream).toEqual([

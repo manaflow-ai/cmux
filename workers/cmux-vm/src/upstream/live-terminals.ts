@@ -55,7 +55,6 @@ export function makeUpstreamTerminals(config: UpstreamConfig): UpstreamTerminals
           `/v5/vms/${proofSegment(owns)}/pty/sessions/${encodeURIComponent(session)}${query([["linuxUser", user]])}`,
         )
         .pipe(Effect.flatMap(decodeAs(ClosedPtySession, "closeTerminal"))),
-    scrubTarget: ({ owns }) => decodeURIComponent(proofSegment(owns)),
   };
 }
 

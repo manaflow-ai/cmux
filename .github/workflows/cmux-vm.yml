@@ -31,6 +31,8 @@ name: cmux VM
 
 on:
   pull_request:
+    # labeled/unlabeled: re-run when cmux-vm-breaking-change-ok is added or removed.
+    types: [opened, synchronize, reopened, labeled, unlabeled]
     paths:
       - workers/cmux-vm/**
       - .github/workflows/cmux-vm.yml

@@ -20,6 +20,7 @@ export interface UpstreamHttp {
     method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE",
     path: string,
     body?: unknown,
+    options?: { readonly timeoutMs?: number },
   ) => Effect.Effect<unknown, UpstreamError>;
   /** A WebSocket upgrade. Resolves with the provider's end of the socket, not yet accepted. */
   readonly upgrade: (operation: string, path: string) => Effect.Effect<WebSocket, UpstreamError>;
@@ -34,7 +35,7 @@ export function makeUpstreamHttp(config: UpstreamConfig): UpstreamHttp {
   const timeoutMs = config.timeoutMs ?? 10_000;
   const authorization = () => `Bearer ${Redacted.value(config.apiKey)}`;
 
-  const json: UpstreamHttp["json"] = (operation, method, path, body) =>
+  const json: UpstreamHttp["json"] = (operation, method, path, body, options) =>
     Effect.tryPromise({
       try: async () => {
         const headers: Record<string, string> = {
@@ -48,7 +49,7 @@ export function makeUpstreamHttp(config: UpstreamConfig): UpstreamHttp {
             headers,
             ...(body === undefined ? {} : { body: JSON.stringify(body) }),
             redirect: "manual",
-            signal: AbortSignal.timeout(timeoutMs),
+            signal: AbortSignal.timeout(options?.timeoutMs ?? timeoutMs),
           }),
         );
         if (!response.ok) {
@@ -71,14 +72,34 @@ export function makeUpstreamHttp(config: UpstreamConfig): UpstreamHttp {
   const upgrade: UpstreamHttp["upgrade"] = (operation, path) =>
     Effect.tryPromise({
       try: async () => {
-        // No timeout signal: it would cut the live socket, not just the handshake.
-        const response = await send(
+        // No abort signal: it would cut the live socket, not just the handshake.
+        // A handshake slower than the timeout fails, and a socket that arrives
+        // after that is closed at once.
+        let timedOut = false;
+        const handshake = send(
           new Request(new URL(path, base), {
             method: "GET",
             headers: { authorization: authorization(), upgrade: "websocket" },
             redirect: "manual",
           }),
         );
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const deadline = new Promise<"timeout">((resolve) => {
+          timer = setTimeout(() => resolve("timeout"), timeoutMs);
+        });
+        const first = await Promise.race([handshake, deadline]);
+        clearTimeout(timer);
+        if (first === "timeout") {
+          timedOut = true;
+          void handshake.then(
+            (late) => {
+              if (timedOut) late.webSocket?.close(1000, "");
+            },
+            () => undefined,
+          );
+          return { ok: false as const, status: null };
+        }
+        const response = first;
         const socket = response.webSocket;
         if (response.status !== 101 || socket === null) {
           await response.body?.cancel();

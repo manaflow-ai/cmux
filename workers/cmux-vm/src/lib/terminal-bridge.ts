@@ -6,7 +6,7 @@
  *
  * Binary frames (terminal bytes) pass through unchanged. Text frames are
  * control messages: the bridge re-serializes the known ones with an allowlist
- * of fields, rewrites provider wording out of error messages, and drops
+ * of fields, replaces provider error prose with a fixed message, and drops
  * anything else, so the client never sees a provider id or field it did not
  * ask for, and the provider never receives a control message the cmux
  * protocol does not define.
@@ -36,19 +36,10 @@ const ClientFrame = Schema.Union(
 const decodeServer = Schema.decodeUnknownOption(Schema.parseJson(ServerFrame));
 const decodeClient = Schema.decodeUnknownOption(Schema.parseJson(ClientFrame));
 
-export interface BridgeContext {
-  /** The provider's id for the VM; replaced by `publicId` wherever a frame mentions it. */
-  readonly scrub: string;
-  readonly publicId: string;
-}
-
-const PROVIDER_WORD = /freestyle/gi;
-
-const scrubText = (text: string, context: BridgeContext): string =>
-  text.split(context.scrub).join(context.publicId).replace(PROVIDER_WORD, "cmux VM");
+export const TERMINAL_ERROR_MESSAGE = "The terminal reported an error";
 
 /** The cmux form of a provider text frame, or null to drop it. */
-export function serverTextFrame(data: string, context: BridgeContext): string | null {
+export function serverTextFrame(data: string): string | null {
   const frame = decodeServer(data);
   if (frame._tag === "None") return null;
   const value = frame.value;
@@ -63,7 +54,8 @@ export function serverTextFrame(data: string, context: BridgeContext): string | 
     case "exited":
       return JSON.stringify({ type: "exited", exitCode: value.exitCode });
     case "error":
-      return JSON.stringify({ type: "error", message: scrubText(value.message, context) });
+      // Provider prose can name hosts, ids or accounts: never forward it.
+      return JSON.stringify({ type: "error", message: TERMINAL_ERROR_MESSAGE });
   }
 }
 
@@ -77,8 +69,12 @@ export function clientTextFrame(data: string): string | null {
     : JSON.stringify({ type: "signal", signal: value.signal });
 }
 
-/** Close codes a peer may send: 1000, or an application code. Anything else becomes 1011. */
-const sendableCode = (code: number): number => (code === 1000 || (code >= 3000 && code <= 4999) ? code : 1011);
+/**
+ * Close codes a peer may send are 1000 and 3000-4999. A normal end (1000,
+ * 1001 going away, 1005 no status) stays normal; an abnormal one becomes 1011.
+ */
+const sendableCode = (code: number): number =>
+  code === 1000 || code === 1001 || code === 1005 ? 1000 : code >= 3000 && code <= 4999 ? code : 1011;
 
 const closeQuietly = (socket: WebSocket, code: number, reason: string) => {
   try {
@@ -100,7 +96,7 @@ const sendQuietly = (socket: WebSocket, data: string | ArrayBuffer, onFailure: (
  * Accepts `upstream`, pairs it with a new socket for the client, and returns
  * the client's end, to be handed back in the 101 response.
  */
-export function bridgeTerminal(upstream: WebSocket, context: BridgeContext): WebSocket {
+export function bridgeTerminal(upstream: WebSocket): WebSocket {
   const pair = new WebSocketPair();
   const client = pair[0];
   const server = pair[1];
@@ -119,7 +115,7 @@ export function bridgeTerminal(upstream: WebSocket, context: BridgeContext): Web
 
   upstream.addEventListener("message", (event) => {
     if (typeof event.data === "string") {
-      const frame = serverTextFrame(event.data, context);
+      const frame = serverTextFrame(event.data);
       if (frame !== null) sendQuietly(server, frame, fail);
     } else if (event.data instanceof ArrayBuffer) {
       sendQuietly(server, event.data, fail);
@@ -134,8 +130,16 @@ export function bridgeTerminal(upstream: WebSocket, context: BridgeContext): Web
     }
   });
   // Provider close reasons are not forwarded: they are provider prose.
-  upstream.addEventListener("close", (event) => closeQuietly(server, event.code, ""));
-  server.addEventListener("close", (event) => closeQuietly(upstream, event.code, ""));
+  // Each close is answered on the socket that started it (finishing its closing
+  // handshake) and passed on to the other side.
+  upstream.addEventListener("close", (event) => {
+    closeQuietly(upstream, event.code, "");
+    closeQuietly(server, event.code, "");
+  });
+  server.addEventListener("close", (event) => {
+    closeQuietly(server, event.code, "");
+    closeQuietly(upstream, event.code, "");
+  });
   upstream.addEventListener("error", fail);
   server.addEventListener("error", fail);
   return client;

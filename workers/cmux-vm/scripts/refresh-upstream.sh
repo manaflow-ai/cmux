@@ -22,6 +22,11 @@ jq -e '.openapi and .paths' "$work/openapi.json" >/dev/null
 
 curl -fsSL --retry 3 --max-time 60 -o "$work/meta.json" "https://registry.npmjs.org/${package}/latest"
 version="$(jq -r .version "$work/meta.json")"
+# The version names the PR branch; accept plain semver only.
+if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+  echo "unexpected ${package} version: ${version}" >&2
+  exit 1
+fi
 tarball="$(jq -r .dist.tarball "$work/meta.json")"
 integrity="$(jq -r .dist.integrity "$work/meta.json")"
 license="$(jq -r .license "$work/meta.json")"
@@ -35,10 +40,16 @@ if [ "$expected" != "$actual" ]; then
   exit 1
 fi
 
+# Only regular files and directories: a symlink or hard link in the archive
+# could point the copy below at files outside it (for example .git/config).
+if tar -tvzf "$work/package.tgz" | grep -qv '^[-d]'; then
+  echo "${package}@${version} tarball contains links or special files; refusing it" >&2
+  exit 1
+fi
 mkdir -p "$work/extract" "$work/sdk"
 tar -xzf "$work/package.tgz" -C "$work/extract" --no-same-owner --no-same-permissions
 # Type declarations under dist/ and package.json, byte for byte; nothing executable.
-(cd "$work/extract/package/dist" && find . -name '*.d.ts' -type f -print0 | while IFS= read -r -d '' file; do
+(cd "$work/extract/package/dist" && find . -name '*.d.ts' -type f ! -type l -print0 | while IFS= read -r -d '' file; do
   mkdir -p "$work/sdk/$(dirname "$file")"
   cp "$file" "$work/sdk/$file"
 done)

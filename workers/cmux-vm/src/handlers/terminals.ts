@@ -76,7 +76,7 @@ export const terminalsHandlers = HttpApiBuilder.group(CmuxVmApi, "terminals", (h
                 Effect.mapError(mapUpstream(vmNotFound)),
               );
             yield* audit(principal, "terminal.open", vm.value, "succeeded");
-            return switchingProtocols(bridgeTerminal(socket, { scrub: upstream.scrubTarget(proofs), publicId: vm.value }));
+            return switchingProtocols(bridgeTerminal(socket));
           }),
         );
       }),
@@ -96,7 +96,7 @@ export const terminalsHandlers = HttpApiBuilder.group(CmuxVmApi, "terminals", (h
               Effect.mapError(mapUpstream(terminalNotFound)),
             );
             yield* audit(principal, "terminal.attach", vm.value, "succeeded");
-            return switchingProtocols(bridgeTerminal(socket, { scrub: upstream.scrubTarget(proofs), publicId: vm.value }));
+            return switchingProtocols(bridgeTerminal(socket));
           }),
         );
       }),
@@ -122,7 +122,7 @@ export const terminalsHandlers = HttpApiBuilder.group(CmuxVmApi, "terminals", (h
             const principal = caller.value;
             const closed = yield* upstream.closeTerminal(vm, proofs, selector, urlParams.user).pipe(
               Effect.tapError(() => audit(principal, "terminal.close", vm.value, "failed")),
-              Effect.mapError((error) => (error.status === 404 ? terminalNotFound() : unavailable())),
+              Effect.mapError(mapUpstream(terminalNotFound)),
             );
             yield* audit(principal, "terminal.close", vm.value, "succeeded");
             return new ClosedTerminal({ sessionId: closed.sessionId, exitCode: closed.exitCode ?? null });

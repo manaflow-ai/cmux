@@ -78,6 +78,10 @@ const parseLabelFilter = (raw: string): Option.Option<Record<string, string>> =>
   return Option.some(labels);
 };
 
+/** A structured Worker log line naming only the public snapshot id. */
+const logEvent = (event: string, snapshotId: string) =>
+  Effect.sync(() => console.error(JSON.stringify({ event, snapshotId })));
+
 const invalidCursor = () => new InvalidRequest({ message: "The cursor is not valid; start again without it" });
 
 export const snapshotsHandlers = HttpApiBuilder.group(CmuxVmApi, "snapshots", (handlers) =>
@@ -99,7 +103,9 @@ export const snapshotsHandlers = HttpApiBuilder.group(CmuxVmApi, "snapshots", (h
               autoDeleteSeconds: payload.autoDeleteSeconds ?? null,
             },
             schema: Snapshot,
-            create: Effect.gen(function* () {
+            // Uninterruptible: a client disconnect between the provider create and
+            // the ownership row would otherwise orphan a snapshot nobody can reach.
+            create: Effect.uninterruptible(Effect.gen(function* () {
               const principal = caller.value;
               const mayCreate = yield* tenantMayCreate(caller, "snapshot").pipe(Effect.mapError(() => unavailable()));
               if (mayCreate === null) {
@@ -118,6 +124,10 @@ export const snapshotsHandlers = HttpApiBuilder.group(CmuxVmApi, "snapshots", (h
                   },
                 )
                 .pipe(
+                  Effect.tapError((error) =>
+                    // No response: the provider may still finish. Its display name carries this id for reconciliation.
+                    error.status === null ? logEvent("snapshot_create_unknown_outcome", snapshotId) : Effect.void,
+                  ),
                   Effect.tapError(() => audit(principal, "snapshot.create", vm.value, "failed")),
                   Effect.mapError((error) =>
                     error.status === 404
@@ -143,13 +153,17 @@ export const snapshotsHandlers = HttpApiBuilder.group(CmuxVmApi, "snapshots", (h
                 })
                 .pipe(
                   // Without its ownership row nobody could reach or delete the snapshot: undo the create.
-                  Effect.tapError(() => upstream.discardCreatedSnapshot(created).pipe(Effect.ignore)),
+                  Effect.tapError(() =>
+                    upstream
+                      .discardCreatedSnapshot(created)
+                      .pipe(Effect.catchAll(() => logEvent("snapshot_discard_failed", snapshotId))),
+                  ),
                   Effect.tapError(() => audit(principal, "snapshot.create", vm.value, "failed")),
                   Effect.mapError(() => unavailable()),
                 );
               yield* audit(principal, "snapshot.create", snapshotId, "succeeded");
               return toSnapshot(row, created.snapshot);
-            }),
+            })),
           }),
         );
       }),
@@ -225,7 +239,10 @@ export const snapshotsHandlers = HttpApiBuilder.group(CmuxVmApi, "snapshots", (h
               ),
             );
             const now = new Date(yield* Clock.currentTimeMillis);
-            yield* store.markDeleted(principal.tenantId, snapshot.value, now).pipe(Effect.mapError(() => unavailable()));
+            yield* store.markDeleted(principal.tenantId, snapshot.value, now).pipe(
+              Effect.tapError(() => audit(principal, "snapshot.delete", snapshot.value, "failed")),
+              Effect.mapError(() => unavailable()),
+            );
             yield* audit(principal, "snapshot.delete", snapshot.value, "succeeded");
           }),
         );

@@ -40,6 +40,8 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: main
+          # The token is passed to the one push below, never stored in .git/config.
+          persist-credentials: false
       - name: Fetch the public surface
         id: refresh
         run: |
@@ -65,7 +67,8 @@ jobs:
           git switch -c "$branch"
           git add upstream
           git commit -m "cmux VM: refresh the pinned upstream surface (sdk ${version})"
-          git push origin "$branch"
+          auth="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          git -c http.https://github.com/.extraheader="AUTHORIZATION: basic ${auth}" push origin "$branch"
           gh pr create --base main --head "$branch" \
             --title "cmux VM: refresh the pinned upstream surface (sdk ${version})" \
             --body "The scheduled refresh found a change in the public upstream OpenAPI document or SDK declarations. Classify every new operation, SDK method and CLI command in \`workers/cmux-vm/upstream/coverage.json\` (wrapped, planned or denied) until the coverage test passes.

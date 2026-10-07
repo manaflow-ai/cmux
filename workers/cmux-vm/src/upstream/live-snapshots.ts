@@ -9,6 +9,8 @@ import { makeUpstreamHttp, proofSegment } from "./live-http.ts";
 import type { UpstreamConfig } from "./live.ts";
 import { type CreatedSnapshot, UpstreamSnapshot, UpstreamSnapshots, type UpstreamSnapshotsService } from "./snapshots.ts";
 
+const CREATE_TIMEOUT_MS = 120_000;
+
 const SnapshotCreated = Schema.Struct({ snapshotId: UpstreamId, snapshot: UpstreamSnapshot });
 
 const decodeAs =
@@ -23,11 +25,18 @@ export function makeUpstreamSnapshots(config: UpstreamConfig): UpstreamSnapshots
   return {
     createSnapshot: (_vm, { owns }, options) =>
       http
-        .json("createSnapshot", "POST", `/v5/vms/${proofSegment(owns)}/snapshot`, {
-          displayName: `cmux ${options.tenantId} ${options.snapshotId}`,
-          ...(options.ttlSeconds === undefined ? {} : { ttlSeconds: options.ttlSeconds }),
-          ...(options.autoDeleteSeconds === undefined ? {} : { autoDeleteSeconds: options.autoDeleteSeconds }),
-        })
+        .json(
+          "createSnapshot",
+          "POST",
+          `/v5/vms/${proofSegment(owns)}/snapshot`,
+          {
+            displayName: `cmux ${options.tenantId} ${options.snapshotId}`,
+            ...(options.ttlSeconds === undefined ? {} : { ttlSeconds: options.ttlSeconds }),
+            ...(options.autoDeleteSeconds === undefined ? {} : { autoDeleteSeconds: options.autoDeleteSeconds }),
+          },
+          // Capturing memory and disk can take far longer than a read.
+          { timeoutMs: CREATE_TIMEOUT_MS },
+        )
         .pipe(
           Effect.flatMap(decodeAs(SnapshotCreated, "createSnapshot")),
           Effect.map((body) => {
