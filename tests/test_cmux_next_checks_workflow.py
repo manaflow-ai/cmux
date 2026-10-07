@@ -202,6 +202,30 @@ class GodfileScopes(unittest.TestCase):
         self.assertIn("Wide.swift", result.stdout)
         self.assertIn("long.rs", result.stdout)
 
+    def test_file_scope_measures_only_the_named_rust_files(self):
+        # safe-push passes the files a merge changed (a whole scan takes about
+        # a minute on the laptop and holds the push queue).
+        result = self.run_check("--only", "rust", "--file", "cmux-tui/crates/fixture/src/at_budget.rs")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("long.rs", result.stdout)
+        result = self.run_check("--only", "rust", "--file", "cmux-tui/crates/fixture/src/long.rs")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("long.rs has 1001 lines, 0 fns (limit 1000 lines, 60 fns", result.stdout)
+        self.assertNotIn("many_fns.rs", result.stdout)
+        self.assertNotIn("is gone", result.stdout)
+
+    def test_file_scope_sums_a_swift_type_over_its_module(self):
+        # A type spans every extension in its module, so an extension file
+        # alone still reports the whole type; an unnamed long file is skipped.
+        result = self.run_check("--only", "swift", "--file", "Packages/macOS/CmuxNext/Sources/Fixture/HugeMore.swift")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("type Fixture/Huge spans 1001 lines", result.stdout)
+        self.assertNotIn("Wide.swift", result.stdout)
+
+    def test_file_scope_cannot_rewrite_the_baseline(self):
+        result = self.run_check("--update-baseline", "--file", "cmux-tui/crates/fixture/src/long.rs")
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+
     def test_scope_cannot_rewrite_the_baseline(self):
         # A scoped baseline rewrite would drop the other half's entries.
         result = self.run_check("--update-baseline", "--only", "rust")
