@@ -211,16 +211,16 @@ start_vite "agent-pane" env CMUX_AGENT_PANE_DEV_PORT="$agent_port" bun run dev:a
 start_vite "preview" env CMUX_PREVIEW_DEV_PORT="$preview_port" bun run preview:dev
 start_vite "settings" env CMUX_SETTINGS_DEV_PORT="$settings_port" bun run dev:settings
 gallery_enabled=0
-if [[ -f "$webviews_root/vite.config.gallery.ts" ]]; then
+# The live gallery dev server (vite.config.gallery-dev.ts) serves /gallery/ on loopback.
+if [[ -f "$webviews_root/vite.config.gallery-dev.ts" ]]; then
   gallery_enabled=1
-  start_vite "gallery" env CMUX_GALLERY_DEV_PORT="$gallery_port" bunx vp dev \
-    --config vite.config.gallery.ts --host 127.0.0.1 --port "$gallery_port"
+  start_vite "gallery" env CMUX_GALLERY_DEV_PORT="$gallery_port" bun run gallery:dev
 fi
 wait_http "$base_origin/"
 wait_http "$agent_origin/"
 wait_http "$preview_origin/"
 wait_http "$settings_origin/"
-if [[ "$gallery_enabled" -eq 1 ]]; then wait_http "$gallery_origin/"; fi
+if [[ "$gallery_enabled" -eq 1 ]]; then wait_http "$gallery_origin/gallery/"; fi
 measure_hmr
 
 start_daemon
@@ -240,7 +240,7 @@ cat >"$index_dir/index.html" <<EOF
   <li><a href="$base_origin/markdown?pick">Markdown editor</a></li>
   <li><a href="$base_origin/editor?pick">Code editor</a></li>
   <li><a href="$settings_origin/">Settings</a></li>
-$(if [[ "$gallery_enabled" -eq 1 ]]; then printf '  <li><a href="%s/">Gallery</a> (manual inspection; matrix captures run remotely)</li>\n' "$gallery_origin"; fi)
+$(if [[ "$gallery_enabled" -eq 1 ]]; then printf '  <li><a href="%s/gallery/">Gallery</a> (manual inspection; matrix captures run remotely)</li>\n' "$gallery_origin"; fi)
   <li><a href="$base_origin/history/?mock">History</a> · <a href="$base_origin/apps/?mock">Apps</a> · <a href="$base_origin/cloud/?mock">Cloud</a> · <a href="$base_origin/keybindings/?mock">Keyboard shortcuts</a></li>
 </ul>
 <p><small>Measured React edit → Vite HMR update: <strong>$hmr_seconds</strong>. ACPMUX iteration: fleet build + artifact fetch <strong>$fleet_seconds</strong>, daemon readiness <strong>$daemon_seconds</strong>.</small></p>

@@ -124,7 +124,10 @@ export function devHostReply(host: DevHostParams, request: Request): DevHostRepl
       return { ok: true, value: null };
     case "browser.open": {
       const url = String(request.params?.url ?? "");
-      if (URL.canParse(url) && typeof window.open === "function") window.open(url, "_blank", "noopener");
+      // Only web links: never javascript:, data: or file: from agent output.
+      const parsed = URL.canParse(url) ? new URL(url) : undefined;
+      if (parsed && ["http:", "https:"].includes(parsed.protocol) && typeof window.open === "function")
+        window.open(parsed.toString(), "_blank", "noopener");
       return { ok: true, value: null };
     }
     case "file.open":

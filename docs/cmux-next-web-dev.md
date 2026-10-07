@@ -9,7 +9,7 @@ scripts/cmux-next/web-dev.sh
 Open the `INDEX_URL` printed by the command. It links to the real agent pane, the pane preview,
 diff, Markdown, editor, Settings, and the other React pages. Vite+ watches `webviews/`, so an
 edit normally appears in the open tab in about one second. When the checkout contains
-`webviews/vite.config.gallery.ts`, the script also starts the gallery on port 4178 and adds it to
+`webviews/vite.config.gallery-dev.ts`, the script also starts the live gallery (`bun run gallery:dev`) at `/gallery/` on port 4178 and adds it to
 the index.
 
 The gallery matrix is the capture path. Run `scripts/gallery-matrix` on Freestyle, a Testbox, or

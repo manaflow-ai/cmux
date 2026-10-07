@@ -72,3 +72,11 @@ test("installs the page host and only grants a gesture after a DOM event", async
     value: { transport: "acpmux-websocket" },
   });
 });
+
+test("browser.open opens only http and https links", () => {
+  const opened: string[] = [];
+  (globalThis as Record<string, unknown>).window = { open: (url: string) => opened.push(url) };
+  for (const url of ["javascript:alert(1)", "data:text/html,x", "file:///etc/passwd", "https://example.test/a"])
+    expect(devHostReply(host, { id: "1", method: "browser.open", params: { url } })).toMatchObject({ ok: true });
+  expect(opened).toEqual(["https://example.test/a"]);
+});
