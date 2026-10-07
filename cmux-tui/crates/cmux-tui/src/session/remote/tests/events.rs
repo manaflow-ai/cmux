@@ -516,3 +516,50 @@ fn indexed_title_update_changes_only_the_addressed_surface() {
     assert_eq!(cache.view.workspaces()[1].screens[0].panes[0].tabs[0].title, "other title");
     assert!(!cache.update_title(99, "missing".to_string()));
 }
+
+/// A relayed `notification` event keeps the OSC 7501 `program_status`
+/// (`notification-program-status-v1`), so a remote TUI and the app can word
+/// the notification in their own language; an event without it decodes as
+/// before.
+#[cfg(unix)]
+#[test]
+fn relayed_notifications_keep_their_program_status() {
+    let (client, _server) = UnixStream::pair().unwrap();
+    let session = socket_test_session(client);
+    let events = session.subscribe();
+
+    session.handle_line(json!({
+        "event": "notification",
+        "notification": 21,
+        "title": "terraform",
+        "body": "Needs approval: Apply?",
+        "level": "warning",
+        "source": "terminal",
+        "program_status": {"state": "blocked", "kind": "permission", "msg": "Apply?"},
+    }));
+    session.handle_line(json!({
+        "event": "notification",
+        "notification": 22,
+        "title": "hook",
+        "body": "done",
+        "source": "agent",
+    }));
+
+    let Ok(MuxEvent::Notification(first)) = events.recv_timeout(Duration::from_secs(1)) else {
+        panic!("no relayed notification");
+    };
+    assert_eq!(first.notification, 21);
+    assert_eq!(
+        first.program_status,
+        Some(cmux_tui_core::NotificationProgramStatus {
+            state: cmux_tui_core::ProgramStatusNoticeState::Blocked,
+            kind: Some(cmux_tui_core::ProgramStatusNoticeKind::Permission),
+            msg: Some("Apply?".to_owned()),
+        })
+    );
+    let Ok(MuxEvent::Notification(second)) = events.recv_timeout(Duration::from_secs(1)) else {
+        panic!("no second relayed notification");
+    };
+    assert_eq!(second.notification, 22);
+    assert_eq!(second.program_status, None);
+}
