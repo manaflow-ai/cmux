@@ -86,12 +86,13 @@
       "plane": "stream",
       "owner": "mac-host",
       "messages": [
-        { "name": "files.upload", "kind": "channel", "plane": "stream", "dir": "c2s", "owner": "mac-host", "class": "bulk", "errors": ["files.too_large", "files.dest_invalid"] },
-        { "name": "files.download", "kind": "channel", "plane": "stream", "dir": "c2s", "owner": "mac-host", "class": "bulk", "errors": ["files.not_found"] },
+        { "name": "files.upload", "kind": "channel", "plane": "stream", "dir": "c2s", "owner": "mac-host", "class": "bulk", "errors": ["files.too_large", "files.dest_invalid", "files.forbidden"] },
+        { "name": "files.download", "kind": "channel", "plane": "stream", "dir": "c2s", "owner": "mac-host", "class": "bulk", "errors": ["files.not_found", "files.forbidden", "files.too_large"] },
         { "name": "files.chunk", "kind": "record", "plane": "stream", "dir": "both", "owner": "mac-host" },
         { "name": "files.upload.end", "kind": "message", "plane": "stream", "dir": "c2s", "owner": "mac-host" },
         { "name": "files.upload.done", "kind": "message", "plane": "stream", "dir": "s2c", "owner": "mac-host", "errors": ["files.digest_mismatch"] },
-        { "name": "files.list", "kind": "read", "plane": "stream", "dir": "c2s", "owner": "mac-host", "errors": ["files.not_found"] }
+        { "name": "files.list", "kind": "read", "plane": "stream", "dir": "c2s", "owner": "mac-host", "errors": ["files.not_found", "files.forbidden"] },
+        { "name": "files.roots", "kind": "read", "plane": "stream", "dir": "c2s", "owner": "mac-host" }
       ]
     },
     {
