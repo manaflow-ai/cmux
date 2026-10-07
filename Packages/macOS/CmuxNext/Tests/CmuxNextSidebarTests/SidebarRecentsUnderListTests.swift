@@ -4,23 +4,30 @@ import Testing
 @testable import CmuxNextSidebar
 
 /// Leo (2026-10-06): Recents sat pinned at the bottom with an empty gap under
-/// Projects. Recents sits right under the last workspace row and scrolls with
-/// the list, as one sidebar; the footer band (Settings, account) stays pinned.
+/// Projects. Its successor, the optional Chats section (`sidebar.showChats`,
+/// SIDEBAR-NO-RECENTS), sits right under the last workspace row and scrolls
+/// with the list, as one sidebar; the footer band (Settings, account) stays
+/// pinned.
 @MainActor @Suite struct SidebarRecentsUnderListTests {
     final class Recents: SidebarAppSectionProvider {
         let view = NSView()
         var onContentChange: (() -> Void)?
         func title(for contribution: String) -> String? { "Recents" }
-        func makeView(for contribution: String) -> NSView? { contribution == SidebarRecentsView.contribution ? view : nil }
+        func makeView(for contribution: String) -> NSView? { contribution == SidebarLayoutDocument.recentsContribution ? view : nil }
         func preferredHeight(for contribution: String, width: CGFloat) -> CGFloat { 3 * Metrics.sidebarRowHeight }
     }
 
     @Test func theListIsTrailedByTheMiddleSectionsAfterTheWorkspaces() {
-        #expect(SidebarLayoutDocument.defaults.listTrail(room: nil).map(\.id) == [SidebarLayoutDocument.recentsSectionID])
+        #expect(Self.layout.listTrail(room: nil).map(\.id) == [SidebarLayoutDocument.recentsSectionID])
+        #expect(SidebarLayoutDocument.defaults.listTrail(room: nil).isEmpty, "Chats is off by default")
     }
 
+    static let layout = SidebarLayoutDocument.defaults.chatsLayout(enabled: true)
+
     private func sidebar(height: CGFloat) -> (SidebarView, Recents) {
-        let view = SidebarView(model: SidebarModel(sections: SidebarDemoMock.makeSections()))
+        let model = SidebarModel(sections: SidebarDemoMock.makeSections())
+        model.layout = Self.layout
+        let view = SidebarView(model: model)
         let recents = Recents()
         view.appSections = recents
         view.frame = NSRect(x: 0, y: 0, width: 260, height: height)
