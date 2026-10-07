@@ -1037,7 +1037,7 @@ final class MobileHostService {
                 authorization: .stackBearer,
                 hostDeviceID: MobileHostIdentity.deviceID(),
                 isCurrent: { [weak self] in
-                    await MainActor.run {
+                    await MainActor.run { [weak self] in
                         guard let self else { return false }
                         return self.tailscaleListenerGeneration == generation
                             && self.tailscaleIsRunning
