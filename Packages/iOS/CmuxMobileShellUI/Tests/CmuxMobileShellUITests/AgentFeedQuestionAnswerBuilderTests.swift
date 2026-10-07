@@ -63,6 +63,74 @@ import Testing
         ]) == nil)
     }
 
+    @Test func selectingEmptyCustomAnswerClearsChoicesAndBlocksSubmission() {
+        let question = question(id: "q", options: [.init(id: "a", label: "Alpha")])
+        var draft = AgentFeedQuestionAnswerBuilder.Draft(selectedOptionIDs: ["a"])
+
+        draft.selectCustomAnswer()
+
+        #expect(draft.isCustomAnswerSelected)
+        #expect(draft.selectedOptionIDs.isEmpty)
+        #expect(!draft.hasAnswer)
+        #expect(builder.answers(for: [question], drafts: [question.id: draft]) == nil)
+    }
+
+    @Test func switchingToAnOptionPreservesCustomTextWithoutSubmittingIt() {
+        let question = question(id: "q", options: [.init(id: "a", label: "Alpha")])
+        var draft = AgentFeedQuestionAnswerBuilder.Draft(customText: "My draft")
+
+        draft.toggleOption("a", multiSelect: false)
+
+        #expect(!draft.isCustomAnswerSelected)
+        #expect(draft.customText == "My draft")
+        #expect(builder.answer(for: question, draft: draft) == "Alpha")
+
+        draft.selectCustomAnswer()
+
+        #expect(draft.selectedOptionIDs.isEmpty)
+        #expect(builder.answer(for: question, draft: draft) == "My draft")
+    }
+
+    @Test func editingCustomTextSelectsItAndRejectsWhitespaceOnlyAnswers() {
+        let question = question(id: "q", options: [.init(id: "a", label: "Alpha")])
+        var draft = AgentFeedQuestionAnswerBuilder.Draft(selectedOptionIDs: ["a"])
+
+        draft.customText = "  Typed answer  "
+
+        #expect(draft.isCustomAnswerSelected)
+        #expect(draft.selectedOptionIDs.isEmpty)
+        #expect(draft.hasAnswer)
+        #expect(builder.answer(for: question, draft: draft) == "Typed answer")
+
+        draft.customText = " \n "
+
+        #expect(draft.isCustomAnswerSelected)
+        #expect(!draft.hasAnswer)
+        #expect(builder.answer(for: question, draft: draft) == nil)
+    }
+
+    @Test func multiSelectAfterCustomAnswerCanToggleEveryChoiceOff() {
+        let question = question(
+            id: "q",
+            options: [.init(id: "a", label: "Alpha"), .init(id: "b", label: "Beta")],
+            multiSelect: true
+        )
+        var draft = AgentFeedQuestionAnswerBuilder.Draft(customText: "Saved draft")
+
+        draft.toggleOption("b", multiSelect: true)
+        draft.toggleOption("a", multiSelect: true)
+
+        #expect(builder.answer(for: question, draft: draft) == "Alpha, Beta")
+
+        draft.toggleOption("b", multiSelect: true)
+        draft.toggleOption("a", multiSelect: true)
+
+        #expect(!draft.hasAnswer)
+        #expect(!draft.isCustomAnswerSelected)
+        #expect(draft.customText == "Saved draft")
+        #expect(builder.answer(for: question, draft: draft) == nil)
+    }
+
     private func question(
         id: String,
         options: [MobileAgentFeedQuestionOption],

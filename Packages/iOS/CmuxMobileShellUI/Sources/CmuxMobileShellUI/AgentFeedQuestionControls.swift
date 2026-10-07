@@ -30,52 +30,24 @@ struct AgentFeedQuestionControls: View {
     }
 
     private var header: some View {
-        HStack(spacing: 10) {
-            ZStack {
-                Circle()
-                    .fill(Color.accentColor.opacity(0.16))
-                    .frame(width: 30, height: 30)
-                Image(systemName: "questionmark")
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(Color.accentColor)
-            }
-            .accessibilityHidden(true)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(String(
-                    localized: "mobile.agentFeed.question.pendingTitle",
-                    defaultValue: "Needs your input",
+        VStack(alignment: .leading, spacing: 2) {
+            Text(String(
+                localized: "mobile.agentFeed.question.pendingTitle",
+                defaultValue: "Needs your input",
+                bundle: .module
+            ))
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.primary)
+            Text(String(
+                format: String(
+                    localized: "mobile.agentFeed.question.count",
+                    defaultValue: "%lld questions",
                     bundle: .module
-                ))
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.primary)
-                Text(String(
-                    format: String(
-                        localized: "mobile.agentFeed.question.count",
-                        defaultValue: "%lld questions",
-                        bundle: .module
-                    ),
-                    Int64(item.questions.count)
-                ))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            }
-
-            Spacer(minLength: 0)
-            Text(verbatim: "\(item.questions.count)")
-                .font(.caption.weight(.bold))
-                .foregroundStyle(Color.accentColor)
-                .frame(width: 26, height: 26)
-                .background(Color.accentColor.opacity(0.12), in: Circle())
-                .accessibilityLabel(Text(String(
-                    format: String(
-                        localized: "mobile.agentFeed.question.progress",
-                        defaultValue: "Question %lld of %lld",
-                        bundle: .module
-                    ),
-                    Int64(1),
-                    Int64(item.questions.count)
-                )))
+                ),
+                Int64(item.questions.count)
+            ))
+            .font(.caption)
+            .foregroundStyle(.secondary)
         }
     }
 

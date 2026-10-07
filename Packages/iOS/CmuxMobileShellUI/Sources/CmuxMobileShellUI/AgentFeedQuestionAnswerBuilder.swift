@@ -6,12 +6,42 @@ import Foundation
 struct AgentFeedQuestionAnswerBuilder: Sendable {
     /// The editable answer state for one question.
     struct Draft: Equatable, Sendable {
-        let selectedOptionIDs: Set<String>
-        let customText: String
+        private(set) var selectedOptionIDs: Set<String>
+        private(set) var isCustomAnswerSelected: Bool
+        private var storedCustomText: String
 
         init(selectedOptionIDs: Set<String> = [], customText: String = "") {
-            self.selectedOptionIDs = selectedOptionIDs
-            self.customText = customText
+            let usesCustomAnswer = !customText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            self.selectedOptionIDs = usesCustomAnswer ? [] : selectedOptionIDs
+            self.isCustomAnswerSelected = usesCustomAnswer
+            self.storedCustomText = customText
+        }
+
+        var customText: String {
+            get { storedCustomText }
+            set {
+                storedCustomText = newValue
+                selectCustomAnswer()
+            }
+        }
+
+        /// Focus and the selection button choose the same answer mode, even before typing.
+        mutating func selectCustomAnswer() {
+            isCustomAnswerSelected = true
+            selectedOptionIDs.removeAll()
+        }
+
+        mutating func toggleOption(_ optionID: String, multiSelect: Bool) {
+            isCustomAnswerSelected = false
+            if multiSelect {
+                if selectedOptionIDs.contains(optionID) {
+                    selectedOptionIDs.remove(optionID)
+                } else {
+                    selectedOptionIDs.insert(optionID)
+                }
+            } else {
+                selectedOptionIDs = [optionID]
+            }
         }
 
         var trimmedCustomText: String {
@@ -19,7 +49,7 @@ struct AgentFeedQuestionAnswerBuilder: Sendable {
         }
 
         var hasAnswer: Bool {
-            !trimmedCustomText.isEmpty || !selectedOptionIDs.isEmpty
+            isCustomAnswerSelected ? !trimmedCustomText.isEmpty : !selectedOptionIDs.isEmpty
         }
     }
 
@@ -36,8 +66,8 @@ struct AgentFeedQuestionAnswerBuilder: Sendable {
 
     /// Converts one draft to the labels the Mac-side agent expects.
     func answer(for question: MobileAgentFeedQuestion, draft: Draft) -> String? {
-        if !draft.trimmedCustomText.isEmpty {
-            return draft.trimmedCustomText
+        if draft.isCustomAnswerSelected {
+            return draft.trimmedCustomText.isEmpty ? nil : draft.trimmedCustomText
         }
 
         let selectedLabels = question.options.compactMap { option in
