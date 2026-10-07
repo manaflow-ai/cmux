@@ -3,13 +3,13 @@
 <plist version="1.0">
 <dict>
 	<key>pfm_description</key>
-	<string>Managed settings for cmux (every channel). Keys are cmux.json key paths; capitalized keys are policy keys. Forced values lock the setting; non-forced values replace its default.</string>
+	<string>Managed settings for cmux (every channel). Keys are cmux.json key paths; capitalized keys are policy keys. Forced values lock the setting; non-forced values replace its default. Exception: agents.chats.roots adds locked roots to the user list; agents.chats.enabled and agents.chats.discovery can only be forced off.</string>
 	<key>pfm_domain</key>
 	<string>com.manaflow.cmux</string>
 	<key>pfm_format_version</key>
 	<integer>1</integer>
 	<key>pfm_last_modified</key>
-	<date>2026-10-03T04:00:00Z</date>
+	<date>2026-10-06T00:00:00Z</date>
 	<key>pfm_platforms</key>
 	<array>
 		<string>macOS</string>
@@ -767,6 +767,51 @@
 			<string>Scope List Prefix</string>
 			<key>pfm_type</key>
 			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Show chats stored on this device. Nothing is uploaded.</string>
+			<key>pfm_name</key>
+			<string>agents.chats.enabled</string>
+			<key>pfm_title</key>
+			<string>Enable Chats</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Find harness chat folders automatically. When off, only the listed folders are used.</string>
+			<key>pfm_name</key>
+			<string>agents.chats.discovery</string>
+			<key>pfm_title</key>
+			<string>Discover Chat Folders</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<array/>
+			<key>pfm_description</key>
+			<string>Add absolute paths to harness data folders. Protected folders are refused. Your organization can add locked folders.</string>
+			<key>pfm_name</key>
+			<string>agents.chats.roots</string>
+			<key>pfm_subkeys</key>
+			<array>
+				<dict>
+					<key>pfm_name</key>
+					<string>Item</string>
+					<key>pfm_type</key>
+					<string>string</string>
+				</dict>
+			</array>
+			<key>pfm_title</key>
+			<string>Chat Folders</string>
+			<key>pfm_type</key>
+			<string>array</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -1825,6 +1870,18 @@
 			<string>sidebar.showWorkspaceTabs</string>
 			<key>pfm_title</key>
 			<string>Show Workspace Tabs</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Shows the device-wide Chats section in the sidebar.</string>
+			<key>pfm_name</key>
+			<string>sidebar.showChats</string>
+			<key>pfm_title</key>
+			<string>Show Chats</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -3462,6 +3519,6 @@
 	<key>pfm_unique</key>
 	<true/>
 	<key>pfm_version</key>
-	<integer>1</integer>
+	<integer>2</integer>
 </dict>
 </plist>

@@ -74,7 +74,14 @@
 
       ],
       "default_chord" : null,
-      "default_shortcut" : null,
+      "default_shortcut" : {
+        "key" : "n",
+        "modifiers" : [
+          "opt",
+          "shift",
+          "cmd"
+        ]
+      },
       "id" : "newIncognitoWindow",
       "mcp" : "offered",
       "palette" : "offered",
@@ -18988,6 +18995,32 @@
       },
       "title" : "Onboarding…",
       "title_key" : "action.palette.onboarding",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "settings continue-setup",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "onboarding.continueSetup",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "title" : "Continue Setup…",
+      "title_key" : "action.onboarding.continueSetup",
       "title_table" : "ActionCatalog"
     },
     {
