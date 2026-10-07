@@ -128,24 +128,6 @@ enum TitlebarControlsStyle: Int, CaseIterable, Identifiable {
     }
 }
 
-struct TitlebarControlsStyleConfig {
-    let spacing: CGFloat
-    let iconSize: CGFloat
-    let buttonSize: CGFloat
-    let badgeSize: CGFloat
-    let badgeOffset: CGSize
-    let groupBackground: Bool
-    let groupPadding: EdgeInsets
-    let buttonBackground: Bool
-    let buttonCornerRadius: CGFloat
-    let hoverBackground: Bool
-}
-
-struct TitlebarControlsLayoutModelSnapshot: Equatable {
-    let style: TitlebarControlsStyle
-    let contentSize: NSSize
-}
-
 /// Owns the expensive shortcut/font-derived titlebar size once for every
 /// titlebar surface. Unrelated defaults and notification activity must not
 /// invalidate titlebar geometry.

@@ -6,7 +6,7 @@ public struct SidebarSection: View {
     private let catalog: SettingCatalog
     let hostActions: SettingsHostActions
     @State var rightSidebarTabs: [RightSidebarTabSettingsItem]
-    private let rightSidebarWidthSettings = RightSidebarWidthSettings()
+    let rightSidebarWidthSettings = RightSidebarWidthSettings()
     @State private var sidebarFont: SettingsFontSize
     @State private var fontSaveFailed = false
     // Not `private`: the customization rows debounce their slider writes
@@ -38,8 +38,8 @@ public struct SidebarSection: View {
     @State var notificationBadgePosition: DefaultsValueModel<SidebarIndicatorPosition>
     @State var showMetadata: DefaultsValueModel<Bool>
     @State private var compactAgentStatus: DefaultsValueModel<Bool>
-    @State private var rightMaxWidth: DefaultsValueModel<Double>
-    @State private var rememberedRightMaxWidth: DefaultsValueModel<Double>
+    @State var rightMaxWidth: DefaultsValueModel<Double>
+    @State var rememberedRightMaxWidth: DefaultsValueModel<Double>
     @State var glassTint: DefaultsValueModel<Double>
     @State var glassBlur: DefaultsValueModel<Double>
     @State var liquidGlass: DefaultsValueModel<Bool>
@@ -152,58 +152,6 @@ public struct SidebarSection: View {
             if !Task.isCancelled { fontSaveFailed = !saved }
         }
     }
-    private var rightMaxWidthOverrideEnabled: Bool {
-        rightMaxWidth.current.isFinite && rightMaxWidth.current > 0
-    }
-    private var rightMaxWidthOverrideBinding: Binding<Bool> {
-        Binding(
-            get: { rightMaxWidthOverrideEnabled },
-            set: { enabled in
-                if enabled {
-                    let restored = rightSidebarWidthSettings.storedMaximumWidthWhenEnabling(
-                        rememberedStoredValue: rememberedRightMaxWidth.current
-                    )
-                    rememberedRightMaxWidth.set(restored)
-                    rightMaxWidth.set(restored)
-                } else {
-                    rememberedRightMaxWidth.set(
-                        rightSidebarWidthSettings.storedRememberedMaximumWidth(
-                            activeStoredValue: rightMaxWidth.current,
-                            rememberedStoredValue: rememberedRightMaxWidth.current
-                        )
-                    )
-                    rightMaxWidth.set(RightSidebarWidthSettings.noOverrideValue)
-                }
-            }
-        )
-    }
-
-    private var rightMaxWidthEditorBinding: Binding<Double> {
-        Binding(
-            get: {
-                rightSidebarWidthSettings.editorMaximumWidth(
-                    activeStoredValue: rightMaxWidth.current,
-                    rememberedStoredValue: rememberedRightMaxWidth.current
-                )
-            },
-            set: {
-                let clamped = clampedRightMaxWidth($0)
-                rememberedRightMaxWidth.set(clamped)
-                if rightMaxWidthOverrideEnabled {
-                    rightMaxWidth.set(clamped)
-                }
-            }
-        )
-    }
-
-    private var rightMaxWidthSubtitle: String {
-        String(localized: "settings.sidebar.rightMaxWidth.subtitle", defaultValue: "Lets the Dock in the right sidebar grow up to this width while leaving room for terminals.")
-    }
-
-    private func clampedRightMaxWidth(_ value: Double) -> Double {
-        rightSidebarWidthSettings.clampedSettingsEditorMaximumWidth(value)
-    }
-
     @ViewBuilder
     private var mainCard: some View {
         SettingsCard {

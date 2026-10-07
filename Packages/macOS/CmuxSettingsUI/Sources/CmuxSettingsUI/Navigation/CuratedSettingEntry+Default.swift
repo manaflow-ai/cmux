@@ -17,7 +17,7 @@ extension Array where Element == CuratedSettingEntry {
     /// a different set of entries pass their own array via
     /// ``SettingsSearchIndex/init(catalog:curatedEntries:)``.
     public static func cmuxDefault(catalog: SettingCatalog) -> [CuratedSettingEntry] {
-        appendingDevicesEntries(to: insertingBrowserMemorySaverEntries(between: [
+        appendingDevicesEntries(to: insertingSidebarCustomizationEntries(into: insertingBrowserMemorySaverEntries(between: [
             // Account / integrations
             .init(section: .account, id: "account", title: String(localized: "settings.section.account", defaultValue: "Account"), synonyms: "Account auth authentication login logout signin sign-in signout sign-out email user profile stack team"),
             .init(section: .automation, id: "claude-code", title: String(localized: "settings.automation.claudeCode", defaultValue: "Claude Code Integration"), synonyms: "Claude Code Integration automation.claudeCodeIntegration claude code hooks agent integration status notifications"),
@@ -324,14 +324,6 @@ extension Array where Element == CuratedSettingEntry {
 
             // Sidebar appearance + sidebar workspace row details
             .init(section: .sidebarAppearance, id: "match-terminal", title: String(localized: "settings.sidebarAppearance.matchTerminalBackground", defaultValue: "Match Terminal Background"), synonyms: "Match Terminal Background sidebarAppearance.matchTerminalBackground transparent background material terminal background sync"),
-            .init(section: .sidebarAppearance, id: "sidebar-glass-tint", title: String(localized: "settings.sidebar.tintOpacity", defaultValue: "Tint Opacity"), synonyms: "sidebarAppearance.tintOpacity sidebarTintOpacity glass glassmorphism tint opacity transparency blur floating docked panel peek clear frosted opaque"),
-            .init(section: .sidebarAppearance, id: "sidebar-liquid-glass", title: String(localized: "settings.sidebar.liquidGlass", defaultValue: "Liquid Glass"), synonyms: "sidebarAppearance.compositorGlass sidebarCompositorGlass liquid glass blur compositor frosted transparency see-through backdrop"),
-            .init(section: .sidebarAppearance, id: "sidebar-tint-color", title: String(localized: "settings.sidebar.tintColor", defaultValue: "Tint Color"), synonyms: "sidebarAppearance.tintColor sidebarTintHex tint colour color glass hex grey gray"),
-            .init(section: .sidebarAppearance, id: "sidebar-glass-blur", title: String(localized: "settings.sidebar.blurOpacity", defaultValue: "Blur Opacity"), synonyms: "blur opacity sidebarAppearance.glassBlurRadius sidebarGlassBlurRadius blur radius glass frosted clear see-through transparency backdrop compositor"),
-            .init(section: .sidebarAppearance, id: "sidebar-peek-reveal", title: String(localized: "settings.sidebar.peekReveal", defaultValue: "Sidebar Peek Reveal Speed"), synonyms: "sidebar.peekReveal peek hover reveal edge dwell instant quick relaxed sensitivity floating sidebar"),
-            .init(section: .sidebarAppearance, id: "sidebar-peek-disabled", title: String(localized: "settings.sidebar.peekDisabled", defaultValue: "Disable Sidebar Peek"), synonyms: "sidebar.peekDisabled peek hover reveal disable never auto hide floating sidebar edge"),
-            .init(section: .sidebarAppearance, id: "sidebar-row-density", title: String(localized: "settings.sidebar.rowDensity", defaultValue: "Row Density"), synonyms: "sidebar.rowDensity density compact cozy spacious row height padding workspace list"),
-            .init(section: .sidebarAppearance, id: "sidebar-drag-switch", title: String(localized: "settings.sidebar.dragSwitchDisabled", defaultValue: "Disable Switch on Drag"), synonyms: "sidebar.dragSwitchDisabled drag reorder switch selection workspace pick up"),
             .init(section: .sidebarAppearance, id: "hide-sidebar-details", title: String(localized: "settings.app.hideAllSidebarDetails", defaultValue: "Hide All Sidebar Details"), synonyms: "Hide All Sidebar Details sidebar.hideAllDetails compact sidebar hide details only title minimal left rail"),
             .init(section: .sidebarAppearance, id: "wrap-workspace-titles", title: String(localized: "settings.app.wrapWorkspaceTitles", defaultValue: "Wrap Workspace Titles in Sidebar"), synonyms: "Wrap Workspace Titles in Sidebar sidebar.wrapWorkspaceTitles workspace title wrap multiline pr pull request"),
             .init(section: .sidebarAppearance, id: "show-workspace-description", title: String(localized: "settings.app.showWorkspaceDescription", defaultValue: "Show Workspace Description in Sidebar"), synonyms: "Show Workspace Description in Sidebar sidebar.showWorkspaceDescription workspace description notes markdown sidebar"),
@@ -609,7 +601,7 @@ extension Array where Element == CuratedSettingEntry {
 
             // Reset
             .init(section: .reset, id: "reset-all", title: String(localized: "settings.reset.resetAll", defaultValue: "Reset All Settings"), synonyms: "Reset All Settings factory reset restore defaults clear preferences"),
-        ])) + terminalGhosttyOptionEntries + sidebarAgentUsageEntries
+        ]))) + terminalGhosttyOptionEntries + sidebarAgentUsageEntries
     }
 
     private static var keyboardShortcutActionSynonyms: String {

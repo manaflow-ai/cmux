@@ -49,12 +49,6 @@ private enum CmuxThemeNotifications {
     static let reloadConfig = Notification.Name("com.cmuxterm.themes.reload-config")
 }
 
-struct WorkspaceGroupNewWorkspaceTarget {
-    let groupId: UUID
-    let referenceWorkspaceId: UUID
-    let placement: WorkspaceGroupNewPlacement
-}
-
 /// Owns debug-window coordinators at the application composition root.
 @MainActor
 final class CmuxDebugWindowsCoordinator {
