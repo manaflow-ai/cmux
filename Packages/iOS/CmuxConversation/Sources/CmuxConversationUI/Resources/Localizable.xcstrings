@@ -1870,6 +1870,40 @@
           }
         }
       }
+    },
+    "conversation.tapback.customEmoji": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add custom emoji reaction"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カスタム絵文字でリアクション"
+          }
+        }
+      }
+    },
+    "conversation.tapback.closeCustomEmoji": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close custom emoji picker"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カスタム絵文字ピッカーを閉じる"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

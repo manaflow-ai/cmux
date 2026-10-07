@@ -14,10 +14,25 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
         press.delegate = self
         collectionView.addGestureRecognizer(press)
 
+        // Double-tap on a bubble: the tapback bar alone (Messages, iOS 26).
+        let doubleTap = UITapGestureRecognizer(target: self, action: #selector(handleDoubleTap(_:)))
+        doubleTap.numberOfTapsRequired = 2
+        doubleTap.delegate = self
+        doubleTap.name = "conversation.doubleTap"
+        collectionView.addGestureRecognizer(doubleTap)
+
         let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
         tap.delegate = self
         tap.cancelsTouchesInView = false
+        // A tap on a bubble waits out a possible second tap; taps elsewhere
+        // never reach the double-tap recognizer, so they are not delayed.
+        tap.require(toFail: doubleTap)
         collectionView.addGestureRecognizer(tap)
+    }
+
+    public func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        guard gestureRecognizer.name == "conversation.doubleTap" else { return true }
+        return !isSelecting && messageCell(at: touch.location(in: collectionView), requireContentHit: true)?.model?.message.seq != nil
     }
 
     public func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
@@ -161,6 +176,13 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
               let model = cell.model else { return }
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         presentActions(for: model, cell: cell, mode: .menu)
+    }
+
+    @objc private func handleDoubleTap(_ tap: UITapGestureRecognizer) {
+        guard tap.state == .ended,
+              let cell = messageCell(at: tap.location(in: collectionView), requireContentHit: true),
+              let model = cell.model else { return }
+        presentActions(for: model, cell: cell, mode: .tapbacks)
     }
 
     // MARK: Taps
