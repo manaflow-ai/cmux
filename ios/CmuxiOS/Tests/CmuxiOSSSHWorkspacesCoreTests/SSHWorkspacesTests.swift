@@ -14,7 +14,7 @@ actor ScriptedRunner: SSHCommandRunning {
 
     init(_ results: [Result<String, SSHSessionFailure>]) { self.results = results }
 
-    func run(_ command: String) async throws -> String {
+    func run(_ command: String, input: String?) async throws -> String {
         commands.append(command)
         let next = results.isEmpty ? .success("") : results.removeFirst()
         return try next.get()
@@ -85,7 +85,7 @@ actor TargetLog {
         #expect(mirror.confirmedGroups.map(\.id) == ["ssh-tmux", "ssh-screen"])
         #expect(await catalog.target(host: host, surfaceID: "ssh:tmux:work:1")?.attachCommand
             == "exec '/usr/bin/tmux' attach-session -t '=work:1'")
-        #expect(await runner.commands == [SSHSessionDiscovery().command])
+        #expect(await runner.commands == ["/bin/sh -s"])
     }
 
     @Test func opsAreRefusedAndFailuresShowAReason() async throws {
@@ -105,6 +105,18 @@ actor TargetLog {
         #expect(await states.next() == .live(path: "ssh", caps: []))
         await channel.requestSnapshot()
         #expect(await states.next() == .offline(reason: "down"))
+        await channel.close()
+    }
+
+    @Test func aFailedDiscoveryLeavesNothingAttachable() async {
+        let catalog = SSHSessionCatalog()
+        await catalog.record(SSHSessionDiscovery().parse(Self.listing), for: host)
+        let channel = channel(ScriptedRunner([.failure(.network)]), catalog: catalog)
+        var states = await channel.states().makeAsyncIterator()
+        _ = await states.next()
+        _ = await channel.updates()
+        #expect(await states.next() == .offline(reason: "down"))
+        #expect(await catalog.target(host: host, surfaceID: "ssh:tmux:work") == nil)
         await channel.close()
     }
 

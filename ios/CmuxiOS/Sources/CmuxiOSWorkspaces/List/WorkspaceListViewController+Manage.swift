@@ -56,8 +56,9 @@ extension WorkspaceListViewController {
                         targetIndexPathForMoveOfItemFromOriginalIndexPath originalIndexPath: IndexPath,
                         atCurrentIndexPath currentIndexPath: IndexPath,
                         toProposedIndexPath proposedIndexPath: IndexPath) -> IndexPath {
-        guard let row = row(at: originalIndexPath),
-              let id = dataSource.sectionIdentifier(for: proposedIndexPath.section),
+        guard let row = row(at: originalIndexPath) else { return currentIndexPath }
+        draggedRowID = row.id
+        guard let id = dataSource.sectionIdentifier(for: proposedIndexPath.section),
               let section = sectionsByID[id], section.hostID == row.hostID,
               section.kind.dropPlacement != nil, !section.isCollapsed || section.rows.isEmpty else {
             return currentIndexPath
@@ -67,11 +68,17 @@ extension WorkspaceListViewController {
 
     func didReorder(_ transaction: NSDiffableDataSourceTransaction<String, String>) {
         let final = transaction.finalSnapshot
-        let moved = transaction.difference.insertions.compactMap { change -> String? in
+        let initial = transaction.initialSnapshot
+        defer { draggedRowID = nil }
+        // The dragged row; else the row whose section changed; else the diff's insertion.
+        let changedSection = final.itemIdentifiers.first {
+            initial.sectionIdentifier(containingItem: $0) != final.sectionIdentifier(containingItem: $0)
+        }
+        let inserted = transaction.difference.insertions.lazy.compactMap { change -> String? in
             if case .insert(_, let item, _) = change { return item }
             return nil
-        }
-        guard let id = moved.first, let row = rowsByID[id], let host = host(row.hostID),
+        }.first
+        guard let id = draggedRowID ?? changedSection ?? inserted, let row = rowsByID[id], let host = host(row.hostID),
               let sectionID = final.sectionIdentifier(containingItem: id), let section = sectionsByID[sectionID],
               let drop = section.kind.dropPlacement else {
             render(animated: true)

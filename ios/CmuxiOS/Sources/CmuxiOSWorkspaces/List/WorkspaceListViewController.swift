@@ -17,6 +17,9 @@ final class WorkspaceListViewController: UIViewController, UICollectionViewDeleg
     private(set) var rowsByID: [String: WorkspaceListRow] = [:]
     private(set) var sectionsByID: [String: WorkspaceListSection] = [:]
     private var subscription: Task<Void, Never>?
+    /// The row being dragged in reorder mode, recorded when the drag starts
+    /// moving (the flattened diff cannot tell a cross-section move apart).
+    var draggedRowID: String?
     private lazy var coalescer = FrameCoalescer<SourceSnapshot<[HostWorkspaces]>> { [weak self] snapshot in
         self?.receive(snapshot)
     }

@@ -91,13 +91,15 @@ public actor SSHWorkspaceChannel: WorkspaceControlChannel {
         let outcome: Result<[SSHDiscoveredSession], SSHSessionFailure>
         do {
             let runner = try await makeRunner()
-            let output = try await runner.run(discovery.command)
+            let output = try await runner.run(discovery.command, input: discovery.input)
             outcome = .success(discovery.parse(output))
         } catch {
             outcome = .failure(SSHSessionFailure(error))
         }
-        running = nil
-        guard !closed, !Task.isCancelled else { return }
+        guard !closed, !Task.isCancelled else {
+            running = nil
+            return
+        }
         switch outcome {
         case .success(let sessions):
             await catalog.record(sessions, for: hostID)
@@ -107,8 +109,13 @@ public actor SSHWorkspaceChannel: WorkspaceControlChannel {
             set(.live(path: "ssh", caps: []))
             updateSinks.values.forEach { $0.yield(.snapshot(frame)) }
         case .failure(let failure):
+            // What the host lists is unknown now: nothing stays attachable.
+            await catalog.forget(hostID)
             set(.offline(reason: reasons.text(for: failure)))
         }
+        // Cleared only now, so a refresh during the awaits above reruns
+        // after this run instead of overlapping it.
+        running = nil
         if rerun {
             rerun = false
             refresh()

@@ -59,24 +59,30 @@ struct MobileTreeProjectionTests {
         func row(_ session: String, _ key: String, _ index: Int, _ group: WorkspaceGroupID? = nil) -> PersonalWorkspace {
             PersonalWorkspace(sessionID: session, workspaceKey: WorkspaceKey(rawValue: key), index: index, group: group)
         }
-        // Personal order: a(app) x(other session, app) b(app) c d
+        // Personal order: home a(app) x(other session, app) b(app) gone c d. Home and
+        // gone (no live workspace) are not listed on the phone.
         let personal = PersonalState(workspaces: [
-            row(s, "a", 0, app), row(other, "x", 1, app), row(s, "b", 2, app), row(s, "c", 3), row(s, "d", 4),
+            row(s, "home", 0), row(s, "a", 1, app), row(other, "x", 2, app), row(s, "b", 3, app), row(s, "gone", 4),
+            row(s, "c", 5), row(s, "d", 6),
         ])
+        let visible: Set<WorkspaceKey> = Set(["a", "b", "c", "d"].map { WorkspaceKey(rawValue: $0) })
         let projection = MobileTreeProjection(hostID: "h_mac1")
         func place(_ key: String, _ group: WorkspaceGroupID?, _ index: Int) -> Int? {
-            projection.personalPlacementIndex(of: WorkspaceKey(rawValue: key), group: group, index: index, personal: personal, sessionID: s)
+            projection.personalPlacementIndex(of: WorkspaceKey(rawValue: key), group: group, index: index, personal: personal,
+                                              sessionID: s, visible: visible)
         }
-        // d to the top of app: before a.
-        #expect(place("d", app, 0) == 0)
+        // d to the top of app: before a, after home.
+        #expect(place("d", app, 0) == 1)
         // d to the second slot of app (after a, before b; x is not this host's).
-        #expect(place("d", app, 1) == 2)
+        #expect(place("d", app, 1) == 3)
         // d to the end of app: right after b.
-        #expect(place("d", app, 9) == 3)
-        // a down to the end of the ungrouped section: after d (rest is x b c d).
-        #expect(place("a", nil, 2) == 4)
+        #expect(place("d", app, 9) == 4)
+        // d to the top of the ungrouped section: before c, never before home.
+        #expect(place("d", nil, 0) == 5)
+        // a down to the end of the ungrouped section: after d (rest is home x b gone c d).
+        #expect(place("a", nil, 2) == 6)
         // c to an empty group keeps its place.
-        #expect(place("c", WorkspaceGroupID(rawValue: "grp_empty"), 0) == 3)
+        #expect(place("c", WorkspaceGroupID(rawValue: "grp_empty"), 0) == 5)
         #expect(place("zz", nil, 0) == nil)
     }
 

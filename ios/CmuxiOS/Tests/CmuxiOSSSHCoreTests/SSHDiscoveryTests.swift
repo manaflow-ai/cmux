@@ -81,7 +81,8 @@ import Testing
     }
 
     @Test func theScriptTakesNoInputAndRunsUnderSh() {
-        #expect(discovery.command.hasPrefix("/bin/sh -c '"))
+        #expect(discovery.command == "/bin/sh -s")
+        #expect(discovery.input.hasSuffix("exit 0\n"))
         #expect(SSHSessionDiscovery.script.contains("list-sessions -F 'S\t#{session_name}"))
         #expect(SSHSessionDiscovery.script.contains("screen -ls"))
     }

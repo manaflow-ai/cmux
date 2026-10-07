@@ -9,8 +9,12 @@ import Foundation
 public struct SSHSessionDiscovery: Sendable {
     public init() {}
 
-    /// The exec command (run under `/bin/sh`, whatever the login shell).
-    public var command: String { "/bin/sh -c " + Self.script.posixShellSingleQuoted }
+    /// The exec command: `/bin/sh` reads the script from stdin, so it runs
+    /// the same under any login shell (csh rejects newlines in quotes).
+    public var command: String { "/bin/sh -s" }
+
+    /// The script, sent on the command's stdin.
+    public var input: String { Self.script + "\n" }
 
     static let script = """
     T=""

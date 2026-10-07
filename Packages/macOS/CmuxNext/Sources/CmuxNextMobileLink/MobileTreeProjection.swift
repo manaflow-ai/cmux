@@ -82,17 +82,21 @@ public struct MobileTreeProjection: Sendable {
     }
 
     /// The personal order index for a workspace that should land at `index`
-    /// among the other members of section `group` (nil: ungrouped) of this
-    /// session: `workspace.place` removes the row and inserts it at the
-    /// returned position of the full personal order (every session's rows).
-    /// nil when the workspace has no personal row.
+    /// among the other members of section `group` (nil: ungrouped) that the
+    /// phone sees (`visible`: this session's live workspaces, Home excluded):
+    /// `workspace.place` removes the row and inserts it at the returned
+    /// position of the full personal order (every session's rows, Home
+    /// first). nil when the workspace has no personal row.
     public func personalPlacementIndex(of key: WorkspaceKey, group: WorkspaceGroupID?, index: Int,
-                                       personal: PersonalState, sessionID: String) -> Int? {
+                                       personal: PersonalState, sessionID: String,
+                                       visible: Set<WorkspaceKey>) -> Int? {
         let rows = personal.workspaces.sorted { $0.index < $1.index }
         guard let old = rows.firstIndex(where: { $0.sessionID == sessionID && $0.workspaceKey == key }) else { return nil }
         var rest = rows
         rest.remove(at: old)
-        let members = rest.indices.filter { rest[$0].sessionID == sessionID && rest[$0].group == group }
+        let members = rest.indices.filter {
+            rest[$0].sessionID == sessionID && visible.contains(rest[$0].workspaceKey) && rest[$0].group == group
+        }
         if members.isEmpty { return min(old, rest.count) }
         if index < members.count { return members[index] }
         return members[members.count - 1] + 1
@@ -134,6 +138,22 @@ public struct MobileTreeProjection: Sendable {
             }
         }
         return nil
+    }
+
+    /// Keys of the workspaces the phone lists (live, with a public id, not Home).
+    public func visibleKeys(in tree: DaemonTree) -> Set<WorkspaceKey> {
+        Set(tree.workspaces.filter { !$0.isHome && $0.resourceID != nil }.compactMap(\.key))
+    }
+
+    /// The `move-workspace` insertion index (in the full tree order, before
+    /// removing the source) that lands `id` at `index` among the other
+    /// listed workspaces.
+    public func treeInsertionIndex(of id: String, index: Int, in tree: DaemonTree) -> Int? {
+        let listed = tree.workspaces.enumerated().filter { !$0.element.isHome && $0.element.resourceID != nil }
+        guard listed.contains(where: { $0.element.resourceID?.rawValue == id }) else { return nil }
+        let others = listed.filter { $0.element.resourceID?.rawValue != id }
+        if index < others.count { return others[max(0, index)].offset }
+        return (others.last?.offset).map { $0 + 1 } ?? 0
     }
 
     public func workspaceKey(_ id: String, in tree: DaemonTree) -> WorkspaceKey? {

@@ -139,7 +139,8 @@ public final class DaemonMobileDaemon: MobileDaemon {
             case .group(let id): group = WorkspaceGroupID(rawValue: id); update = .set(id)
             }
             let position = projection.personalPlacementIndex(of: key, group: group, index: index,
-                                                             personal: personal.state, sessionID: personal.session)
+                                                             personal: personal.state, sessionID: personal.session,
+                                                             visible: projection.visibleKeys(in: tree))
             try await mapped {
                 try await self.connection.state.placeWorkspace(ResourceID(rawValue: workspace), group: update, index: position)
             }
@@ -148,9 +149,9 @@ public final class DaemonMobileDaemon: MobileDaemon {
         guard placement == .keep else {
             throw MobileDaemonError(code: "proto.unsupported", message: "moving workspaces between groups is not supported by this Mac")
         }
-        let state = projection.state(tree)
-        let others = state.workspaces.filter { $0.id != workspace }
-        let target = min(index, others.count)
+        guard let target = projection.treeInsertionIndex(of: workspace, index: index, in: tree) else {
+            throw MobileDaemonError(code: "workspace.not_found", message: "\(workspace) is not on this Mac")
+        }
         _ = try await mapped { try await self.connection.moveWorkspace(key, to: target) }
     }
 
