@@ -422,6 +422,23 @@ impl Hub {
         *self.remote_sandbox_exec.lock().unwrap_or_else(|e| e.into_inner()) = path;
     }
 
+    /// `plan` for this spawn: a remote chain's (remote-origin) Claude Code
+    /// runs inside the Seatbelt sandbox, canary-checked at this spawn; any
+    /// other session's plan is unchanged.
+    pub(super) async fn remote_chain_plan(
+        &self,
+        session: &Session,
+        profile: &HarnessProfile,
+        plan: crate::claude_stdio::SpawnPlan,
+    ) -> Result<crate::claude_stdio::SpawnPlan, RpcError> {
+        if !session.meta().remote_origin {
+            return Ok(plan);
+        }
+        let (program, args) =
+            self.sandboxed_claude_plan(session, profile, plan.program, plan.args).await?;
+        Ok(crate::claude_stdio::SpawnPlan { program, args })
+    }
+
     /// A remote chain's Claude spawn plan inside the sandbox, after the
     /// canary passed; the refusal is recorded on the session.
     pub(super) async fn sandboxed_claude_plan(
