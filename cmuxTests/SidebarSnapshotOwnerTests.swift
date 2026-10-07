@@ -78,6 +78,7 @@ struct SidebarSnapshotOwnerTests {
             titlebarControlsLayoutModel: TitlebarControlsLayoutModel(),
             windowId: UUID(),
             onSendFeedback: {}, onToggleSidebar: {}, onNewTab: {},
+            onTogglePresentationMode: {},
             observedWindowReference: WeakWindowReference(),
             chromeBackgroundColor: .black,
             selection: .constant(.tabs),

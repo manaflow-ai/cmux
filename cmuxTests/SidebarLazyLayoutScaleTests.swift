@@ -172,6 +172,7 @@ final class SidebarLazyLayoutScaleTests {
             onSendFeedback: {},
             onToggleSidebar: {},
             onNewTab: {},
+            onTogglePresentationMode: {},
             observedWindowReference: WeakWindowReference(),
             chromeBackgroundColor: .black,
             selection: .constant(.tabs),
