@@ -62,16 +62,6 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 arguments: [CatalogArgument.queryString], mainMenu: .file,
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .focusMove)
             ),
-            ActionDescriptor(
-                id: "agentPane.searchChats",
-                title: String(localized: "action.agentPane.searchChats", defaultValue: "Search Agent Chats", bundle: .module),
-                keywords: ["agent", "chat", "search", "find", "sessions", "acpmux"],
-                // Cmd-K searches chats only while an agent chat has the keyboard,
-                // so the simulator's Cmd-K keeps its meaning.
-                defaultShortcut: Shortcut("k", modifiers: [.command]),
-                category: .agents, symbol: "magnifyingglass", surfaces: [.palette, .keyboard],
-                requires: [.agentPaneFocused], targets: [.pane]
-            ),
             permissionAction("allowOnce", title: String(localized: "action.agentPane.permission.allowOnce", defaultValue: "Allow once", bundle: .module), symbol: "checkmark", shortcut: Shortcut("1", modifiers: [.command, .option])),
             permissionAction("allowChat", title: String(localized: "action.agentPane.permission.allowChat", defaultValue: "Allow for this chat", bundle: .module), symbol: "checkmark.circle", shortcut: Shortcut("2", modifiers: [.command, .option])),
             permissionAction("deny", title: String(localized: "action.agentPane.permission.deny", defaultValue: "Deny", bundle: .module), symbol: "xmark", shortcut: Shortcut("3", modifiers: [.command, .option])),

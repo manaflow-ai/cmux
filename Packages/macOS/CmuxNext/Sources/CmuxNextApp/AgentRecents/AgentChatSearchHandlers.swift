@@ -6,9 +6,9 @@ import Foundation
 
 /// Search Chats (`agentChats.search`, the sidebar's Search Chats): a palette
 /// page over every acpmux chat, newest first, from the Recents feed. A row
-/// opens its chat as a session link does. Unlike Cmd-K in a chat
-/// (`agentPane.searchChats`) it needs no focused agent pane. A CLI or MCP
-/// run opens it only with `focus: true`, because it takes the keyboard.
+/// opens its chat as a session link does; it is the only chat search (one
+/// palette, Cmd-Shift-P). A CLI or MCP run opens it only with `focus: true`,
+/// because it takes the keyboard.
 enum AgentChatSearchHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let services = context.services

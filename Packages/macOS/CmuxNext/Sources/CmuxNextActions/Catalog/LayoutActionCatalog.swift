@@ -93,8 +93,14 @@ nonisolated enum LayoutActionCatalog: ActionCatalogGroup {
         [
             row("terminal.selectAll", String(localized: "action.terminal.selectAll", defaultValue: "Select All", table: "LayoutActions", bundle: .module),
                 .terminal, "selection.pin.in.out", cli: "terminal select-all", keywords: ["select", "copy"], targets: [.tab]),
-            row("terminal.clear", String(localized: "action.terminal.clear", defaultValue: "Clear Screen and Scrollback", table: "LayoutActions", bundle: .module),
-                .terminal, "clear", cli: "terminal clear", keywords: ["clear", "scrollback", "reset"], targets: [.tab]),
+            // Cmd-K clears the terminal and means nothing else (one palette: Cmd-Shift-P).
+            ActionDescriptor(
+                id: "terminal.clear",
+                title: String(localized: "action.terminal.clear", defaultValue: "Clear Screen and Scrollback", table: "LayoutActions", bundle: .module),
+                keywords: ["clear", "scrollback", "reset"], defaultShortcut: Shortcut("k", modifiers: [.command]),
+                category: .terminal, symbol: "clear", surfaces: [.palette, .keyboard], requires: [.terminalFocused],
+                targets: [.tab], cliName: "terminal clear"
+            ),
             row("terminal.increaseFontSize", String(localized: "action.terminal.increaseFontSize", defaultValue: "Increase Font Size", table: "LayoutActions", bundle: .module),
                 .terminal, "textformat.size.larger", cli: "terminal increase-font-size", keywords: ["font", "zoom", "bigger"], targets: [.tab]),
             row("terminal.decreaseFontSize", String(localized: "action.terminal.decreaseFontSize", defaultValue: "Decrease Font Size", table: "LayoutActions", bundle: .module),

@@ -61,7 +61,7 @@ public nonisolated struct AgentPageEvent: Equatable, Sendable {
         AgentPageEvent(kind: "revealTurn", value: .string(turnId))
     }
 
-    /// A dispatcher command (`searchChats`, `continueIn`, `createCheckpoint`, `permissionAllowOnce`, ...).
+    /// A dispatcher command (`continueIn`, `createCheckpoint`, `permissionAllowOnce`, ...).
     public static func command(_ name: String) -> AgentPageEvent { AgentPageEvent(kind: "command", value: .string(name)) }
 
     /// A batch of the host socket's frames, or its close (``AgentPaneTransport``, bridgeSocket.ts).

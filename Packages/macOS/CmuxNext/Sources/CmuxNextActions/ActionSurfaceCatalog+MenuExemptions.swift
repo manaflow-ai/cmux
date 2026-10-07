@@ -67,7 +67,7 @@ nonisolated extension ActionSurfaceCatalog {
             "canvasAlignLeft", "canvasAlignRight", "canvasAlignTop", "canvasAlignBottom", "canvasEqualizeWidths",
             "canvasEqualizeHeights", "canvasDistributeHorizontally", "canvasDistributeVertically", "simulatorHome",
             "simulatorRotateLeft", "simulatorRotateRight", "simulatorToggleAppearance",
-            "simulatorToggleSoftwareKeyboard", "agentPane.searchChats", "screenGroup.reopenSaved", "screenGroup.deleteSaved",
+            "simulatorToggleSoftwareKeyboard", "screenGroup.reopenSaved", "screenGroup.deleteSaved",
             "resumeCommandSet", "resumeCommandEdit", "resumeCommandClear", "saveFilePreview", "markdownSave",
             "markdownLink", "markdownBack", "markdownForward",
             "toggleFileEditorWordWrap", "filePreviewOpenWith", "filePreviewOpenExternally",

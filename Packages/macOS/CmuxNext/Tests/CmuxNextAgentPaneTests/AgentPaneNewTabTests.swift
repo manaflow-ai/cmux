@@ -216,15 +216,17 @@ import Testing
         #expect(actions == ["palette.welcomeChecklist"])
     }
 
-    /// A blank chat's generic New opens the New Tab page; a chat runs no other app action.
-    @Test func aChatCanOpenTheNewTabPageAndNothingElse() async {
+    /// A blank chat's generic New opens the New Tab page and Show all chats opens the command
+    /// palette's Search Chats; a chat runs no other app action.
+    @Test func aChatCanOpenTheNewTabPageOrSearchChatsAndNothingElse() async {
         let model = AgentPaneModel(host: MockAgentPaneHost())
         var actions: [String] = []
         model.onRunAction = { actions.append($0) }
         #expect(await model.respond(to: .runAction("newTab.page"))["ok"] as? Bool == true)
+        #expect(await model.respond(to: .runAction("agentChats.search"))["ok"] as? Bool == true)
         #expect(await model.respond(to: .runAction("palette.welcomeChecklist"))["ok"] as? Bool == false)
         #expect(await model.respond(to: .runAction("closeWindow"))["ok"] as? Bool == false)
-        #expect(actions == ["newTab.page"])
+        #expect(actions == ["newTab.page", "agentChats.search"])
     }
 
     /// The "default: X" toggle: the handshake says what Cmd-T opens, and a

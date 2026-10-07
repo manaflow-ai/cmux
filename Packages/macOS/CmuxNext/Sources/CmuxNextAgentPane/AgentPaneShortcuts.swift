@@ -8,7 +8,7 @@ public nonisolated struct AgentPaneShortcuts: Equatable, Sendable {
     /// The actions the page names. Copy Tab Link on an agent tab copies its
     /// chat's link, so the page's Copy chat link shows that shortcut.
     static let actions: [ActionID] = [
-        "agentPane.searchChats", "palette.newAgentChat", "palette.toggleDictation",
+        "palette.newAgentChat", "palette.toggleDictation",
         "agentPane.permission.allowOnce", "agentPane.permission.allowChat", "agentPane.permission.deny",
         "agentPane.permission.expand", "agentPane.permission.retry", "agentPane.permission.revoke",
         "agentPane.permission.refresh", "palette.copySurfaceLink",

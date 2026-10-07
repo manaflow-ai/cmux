@@ -304,8 +304,8 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "simulatorToggleSoftwareKeyboard",
                 title: String(localized: "action.simulatorToggleSoftwareKeyboard", defaultValue: "Simulator: Toggle Software Keyboard", bundle: .module),
-                keywords: ["ios", "simulator"], defaultShortcut: Shortcut("k", modifiers: [.command]), category: .pane,
-                symbol: "keyboard", surfaces: [.keyboard], requires: [.simulatorFocused], targets: [.pane],
+                keywords: ["ios", "simulator", "keyboard"], category: .pane,
+                symbol: "keyboard", surfaces: [.palette, .keyboard], requires: [.simulatorFocused], targets: [.pane],
                 cliName: "pane simulator-toggle-software-keyboard"
             ),
             ActionDescriptor(
