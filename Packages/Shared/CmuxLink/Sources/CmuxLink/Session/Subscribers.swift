@@ -11,6 +11,7 @@ struct Subscribers<Value: Sendable>: Sendable {
     }
 
     var isEmpty: Bool { continuations.isEmpty }
+    var count: Int { continuations.count }
 
     /// A new stream. `initial` values are delivered first. The caller must
     /// remove the id on termination through `onTermination`.
@@ -34,8 +35,21 @@ struct Subscribers<Value: Sendable>: Sendable {
         continuations[id] = nil
     }
 
-    func yield(_ value: Value) {
-        for continuation in continuations.values { continuation.yield(value) }
+    /// Publishes a value and returns values rejected by a bounded subscriber.
+    /// Callers that own a resource represented by `Value` can close those
+    /// dropped resources instead of leaving an unreachable handle alive.
+    @discardableResult
+    func yield(_ value: Value) -> [Value] {
+        var dropped: [Value] = []
+        for continuation in continuations.values {
+            switch continuation.yield(value) {
+            case let .dropped(old): dropped.append(old)
+            case .terminated: dropped.append(value)
+            case .enqueued: break
+            @unknown default: dropped.append(value)
+            }
+        }
+        return dropped
     }
 
     mutating func finish() {

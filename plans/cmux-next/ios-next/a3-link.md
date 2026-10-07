@@ -73,6 +73,10 @@ Semantics:
   semantics, transport.md 12a). Not resumed.
 - partial and unreliable sends made while the channel is not declared on a live transport (before
   the open handshake, while reconnecting) are dropped; they still consume a revision.
+- resource safety: `LinkConfiguration` caps channels at 256 by default, bounds incoming channel
+  and media handles at 64 and 16 before subscription, and bounds pending host sessions at 64.
+  Incoming handles rejected by a full queue are closed or stopped immediately; a local open past
+  the channel cap throws `LinkError.capacityExceeded`.
 
 Priority: one send pump per session drains its queues strictly by priority, so an input frame
 queued behind 4 MiB of bulk leaves next. Payloads above the path's `maxFrameBytes` are refused

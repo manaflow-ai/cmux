@@ -66,9 +66,12 @@ public actor LinkSession: CmuxLink {
     // Subscribers.
     var stateSubscribers = Subscribers<LinkState>()
     var badgeSubscribers = Subscribers<PathBadge>(policy: .bufferingNewest(1))
-    var channelSubscribers = Subscribers<LinkChannel>()
+    // Channel and media publications represent resources. Keep their fan-out
+    // queues bounded; `deliverIncoming` closes any value rejected by a full
+    // subscriber so a slow feature cannot strand a live channel or track.
+    var channelSubscribers = Subscribers<LinkChannel>(policy: .bufferingOldest(64))
     var pendingIncomingChannels: [LinkChannel] = []
-    var mediaSubscribers = Subscribers<MediaTrackHandle>()
+    var mediaSubscribers = Subscribers<MediaTrackHandle>(policy: .bufferingOldest(16))
     var pendingIncomingTracks: [MediaTrackHandle] = []
 
     /// A dialer that reaches `peer` through the carriers of `selector`.
@@ -82,6 +85,8 @@ public actor LinkSession: CmuxLink {
         self.role = .dialer(peer: peer, selector: selector)
         self.configuration = configuration
         self.clock = clock
+        self.channelSubscribers = Subscribers(policy: .bufferingOldest(configuration.maxPendingIncomingChannels))
+        self.mediaSubscribers = Subscribers(policy: .bufferingOldest(configuration.maxPendingIncomingMediaTracks))
         self.epoch = 0
         self.nextChannelID = 1
     }
@@ -98,6 +103,8 @@ public actor LinkSession: CmuxLink {
         self.role = .accepted(onClose: onClose)
         self.configuration = configuration
         self.clock = clock
+        self.channelSubscribers = Subscribers(policy: .bufferingOldest(configuration.maxPendingIncomingChannels))
+        self.mediaSubscribers = Subscribers(policy: .bufferingOldest(configuration.maxPendingIncomingMediaTracks))
         self.epoch = epoch
         self.nextChannelID = 2
     }
@@ -207,17 +214,30 @@ public actor LinkSession: CmuxLink {
 
     func deliverIncoming(_ channel: LinkChannel) {
         if channelSubscribers.isEmpty {
+            guard pendingIncomingChannels.count < configuration.maxPendingIncomingChannels else {
+                rejectIncomingChannel(channel)
+                return
+            }
             pendingIncomingChannels.append(channel)
         } else {
-            channelSubscribers.yield(channel)
+            let dropped = channelSubscribers.yield(channel)
+            // `.bufferingOldest` drops the newly published handle. Refuse it
+            // only when every subscriber was full; another subscriber may
+            // still own the same handle and continue consuming it.
+            if dropped.count == channelSubscribers.count { rejectIncomingChannel(channel) }
         }
     }
 
     func deliverIncoming(_ track: MediaTrackHandle) {
         if mediaSubscribers.isEmpty {
+            guard pendingIncomingTracks.count < configuration.maxPendingIncomingMediaTracks else {
+                Task { await track.stop() }
+                return
+            }
             pendingIncomingTracks.append(track)
         } else {
-            mediaSubscribers.yield(track)
+            let dropped = mediaSubscribers.yield(track)
+            if dropped.count == mediaSubscribers.count { Task { await track.stop() } }
         }
     }
 

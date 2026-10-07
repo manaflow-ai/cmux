@@ -9,7 +9,7 @@ public actor LinkHost {
     private let configuration: LinkConfiguration
     private let clock: LinkClock
     private var sessionsByID: [UUID: LinkSession] = [:]
-    private var subscribers = Subscribers<LinkSession>()
+    private var subscribers = Subscribers<LinkSession>(policy: .bufferingOldest(64))
     private var pendingSessions: [LinkSession] = []
     private var acceptTask: Task<Void, Never>?
     private var nextEpoch: UInt64
@@ -23,6 +23,7 @@ public actor LinkHost {
         self.acceptor = acceptor
         self.configuration = configuration
         self.clock = clock
+        self.subscribers = Subscribers(policy: .bufferingOldest(configuration.maxPendingSessions))
         // Epochs differ across host restarts without persisted state.
         self.nextEpoch = UInt64.random(in: 1...(UInt64.max >> 2))
     }
@@ -122,6 +123,9 @@ public actor LinkHost {
             sessionsByID[id] = nil
             if !closed { await existing.close() }
         }
+        // Do not retain accepted sessions indefinitely when app startup has
+        // not installed a consumer for `sessions()` yet.
+        if subscribers.isEmpty, pendingSessions.count >= configuration.maxPendingSessions { return nil }
         let session = LinkSession(
             acceptedID: id,
             epoch: nextEpoch,
@@ -134,7 +138,11 @@ public actor LinkHost {
         if subscribers.isEmpty {
             pendingSessions.append(session)
         } else {
-            subscribers.yield(session)
+            let dropped = subscribers.yield(session)
+            // `.bufferingOldest` drops the newly accepted session. If every
+            // subscriber is full, close it immediately; a subscriber that did
+            // receive it remains the owner of the live session.
+            if dropped.count == subscribers.count { Task { await session.close() } }
         }
         return (session, false)
     }

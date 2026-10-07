@@ -3,6 +3,8 @@ public enum LinkError: Error, Sendable, Hashable {
     /// The session is closed.
     case closed(LinkCloseReason)
     case channelClosed
+    /// The session has reached a configured resource limit.
+    case capacityExceeded(resource: String, limit: Int)
     /// The payload exceeds the path's or the configuration's frame limit.
     case messageTooLarge(size: Int, limit: Int)
     /// The current path cannot carry this class (bulk or media on the

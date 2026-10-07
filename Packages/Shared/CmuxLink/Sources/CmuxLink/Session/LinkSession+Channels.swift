@@ -6,6 +6,9 @@ extension LinkSession {
 
     public func openChannel(_ descriptor: ChannelDescriptor, resumeFrom cursor: StreamCursor?) throws -> LinkChannel {
         if case let .closed(reason) = machine.state { throw LinkError.closed(reason) }
+        guard channels.count < configuration.maxChannels else {
+            throw LinkError.capacityExceeded(resource: "channels", limit: configuration.maxChannels)
+        }
         let id = nextChannelID
         nextChannelID &+= 2
         let record = makeRecord(
@@ -104,6 +107,11 @@ extension LinkSession {
                 enqueueChannelControl(id, frame: .close(channel: id))
                 return
             }
+            guard channels.count < configuration.maxChannels else {
+                highestPeerChannelID = id
+                enqueueChannelControl(id, frame: .close(channel: id))
+                return
+            }
             highestPeerChannelID = id
             let record = makeRecord(
                 id: id, descriptor: descriptor, openedLocally: false, cursorEpoch: epoch, lastReceived: 0
@@ -121,6 +129,14 @@ extension LinkSession {
         channels[id] = record
         enqueueChannelControl(id, frame: .openAck(channel: id, epoch: epoch, revision: record.lastConsumed))
         channelBecameOpen(id, peerEpoch: cursorEpoch, peerRevision: cursorRevision)
+    }
+
+    /// Refuses an incoming channel whose handle could not be delivered to the
+    /// feature consumer. The record is removed immediately, so repeated opens
+    /// cannot accumulate retired handles while the peer is slow or malicious.
+    func rejectIncomingChannel(_ channel: LinkChannel) {
+        guard let record = channels.removeValue(forKey: channel.id), record.incarnation == channel.incarnation else { return }
+        enqueueChannelControl(channel.id, frame: .close(channel: channel.id))
     }
 
     func peerAcknowledgedOpen(_ id: UInt32, revision: UInt64) {

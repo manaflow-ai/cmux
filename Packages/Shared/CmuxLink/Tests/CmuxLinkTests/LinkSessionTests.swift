@@ -257,6 +257,70 @@ struct LinkSessionTests {
         #expect(await early.cursor() == StreamCursor(stream: "early", epoch: epoch, revision: 1))
         await pair.shutdown()
     }
+
+    @Test("channel creation is bounded by the session configuration")
+    func channelCapacity() async throws {
+        var configuration = SessionTestPair.fast
+        configuration.maxChannels = 1
+        let pair = try await SessionTestPair(configuration: configuration)
+        _ = try await pair.dialer.openChannel(
+            ChannelDescriptor(stream: "first", reliability: .reliableOrdered, priority: .control)
+        )
+        await #expect(throws: LinkError.capacityExceeded(resource: "channels", limit: 1)) {
+            _ = try await pair.dialer.openChannel(
+                ChannelDescriptor(stream: "second", reliability: .reliableOrdered, priority: .control)
+            )
+        }
+        await pair.shutdown()
+    }
+
+    @Test("incoming channels and media tracks do not accumulate before subscription")
+    func pendingIncomingResourcesAreBounded() async throws {
+        var configuration = SessionTestPair.fast
+        configuration.maxPendingIncomingChannels = 1
+        configuration.maxPendingIncomingMediaTracks = 1
+        let pair = try await SessionTestPair(configuration: configuration)
+        let hostSession = try await pair.nextHostSession()
+
+        _ = try await pair.dialer.openChannel(
+            ChannelDescriptor(stream: "first", reliability: .reliableOrdered, priority: .control)
+        )
+        _ = try await pair.dialer.openChannel(
+            ChannelDescriptor(stream: "second", reliability: .reliableOrdered, priority: .control)
+        )
+        let channels = await hostSession.incomingChannels()
+        let first = try await SessionTestPair.within(.seconds(5)) { () -> LinkChannel in
+            for await channel in channels { return channel }
+            throw CancellationError()
+        }
+        #expect(first.stream == "first")
+        await #expect(throws: TimeoutError.self) {
+            _ = try await SessionTestPair.within(.milliseconds(100)) { () -> LinkChannel in
+                for await channel in channels { return channel }
+                throw CancellationError()
+            }
+        }
+
+        _ = try await hostSession.publishMediaTrack(
+            MediaTrackDescriptor(id: "track-1", kind: .video, label: "one")
+        )
+        _ = try await hostSession.publishMediaTrack(
+            MediaTrackDescriptor(id: "track-2", kind: .video, label: "two")
+        )
+        let tracks = await pair.dialer.incomingMediaTracks()
+        let firstTrack = try await SessionTestPair.within(.seconds(5)) { () -> MediaTrackHandle in
+            for await track in tracks { return track }
+            throw CancellationError()
+        }
+        #expect(firstTrack.id == "track-1")
+        await #expect(throws: TimeoutError.self) {
+            _ = try await SessionTestPair.within(.milliseconds(100)) { () -> MediaTrackHandle in
+                for await track in tracks { return track }
+                throw CancellationError()
+            }
+        }
+        await pair.shutdown()
+    }
 }
 
 final class CollectingSink: MediaFrameSink, @unchecked Sendable {
