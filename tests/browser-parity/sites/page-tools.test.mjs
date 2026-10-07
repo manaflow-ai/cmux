@@ -145,7 +145,7 @@ test("embeddedJSON reads page data given as an object or as an escaped string (Y
 
 test("the tools load and parse without Node's URL (JavaScriptCore has none)", () => {
   const here = path.dirname(fileURLToPath(import.meta.url));
-  const dir = path.join(here, "../../../Resources/browser-repl");
+  const dir = path.join(here, "../../../cmux-tui/crates/cmux-browser-host/js");
   const manifest = JSON.parse(fs.readFileSync(path.join(dir, "manifest.json"), "utf8"));
   const ctx = vm.createContext({ console });
   for (const f of manifest.repl) vm.runInContext(fs.readFileSync(path.join(dir, f), "utf8"), ctx, { filename: f });

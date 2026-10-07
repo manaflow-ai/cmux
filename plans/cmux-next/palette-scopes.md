@@ -1,0 +1,422 @@
+# Palette scopes and palette extensions
+
+Status: proposal 1, lane 11 lead (scoped palette and palette extensions), 2026-10-02. Spec proposal: palette-scopes (decisions PA2, PA3). Binding inputs: OWNERSHIP-PRINCIPLES.md, architecture.md section 5a, actions.md, app-platform.md, skills/cmux-next-feature, cmux-next-spec `spec/app-platform.md`, `spec/operation-catalog.md`, `spec/identity-and-permissions.md`, decisions PA1 to PA3, D40 to D52, N13, and the coordinator's app `server` block (first-party-apps.md section 10). Only the coordinator writes the spec; this file is the lane 11 proposal.
+
+State (2026-10-03): steps 1 to 6 landed on feat-cmux-next (the PR 16849 commits landed directly under the new no-PR rule). Next: step 7 (Platform v2 form, section 6.9), user prefix assignment in cmux.json (D-PS4), `palette.run` with typed ActionRefs, and re-captured screenshots of the fixed chip width.
+
+## 1. Summary for agents
+
+- One abstraction, the **scope**: a typed, searchable list in the palette (tabs, workspaces, browser history, commands, files, apps, feed items, settings, an item's actions, an app's notes). Every palette page becomes a scope. Search Tabs (PA1) is the first ported scope.
+- The scope is always visible as a **chip** at the start of the search field (icon and title). Backspace on an empty query removes the chip and returns to the parent scope with its query and selection as they were. Cmd-Shift-A, then Backspace, shows the full palette.
+- Enter a scope four ways: its shortcut or menu item (Cmd-Shift-A), a one-character **prefix** typed into an empty query (`@` tabs), its **keyword** plus Tab (`tabs` Tab), or its row in the **scope list** (empty root query, and `?`). Tab on a result row **drills** into that item's scope (its actions, a workspace's tabs).
+- Scopes nest up to 8 levels. A pure reducer (`PaletteNavReducer`) owns the stack, the query per level, the selection memory and the result generations; property tests prove its invariants (section 4).
+- Every scope is a catalog entry: an action opens it (shortcut, menu, palette, `cmux palette open <scope>`), and a read op queries it without UI (`cmux palette query <scope> <text> --json`, MCP `palette_query`). Agents get every scope, including app scopes.
+- Apps contribute scopes, commands and views in `contributes.paletteScopes` and `contributes.commands` (section 6). Items carry typed catalog actions, never closures. Snapshot scopes are ranked by the host with no app code per keystroke; query scopes stream batches. The host paints from the last snapshot in the first frame, so a scope opens in under 16 ms even when the app VM is cold or offline.
+
+## 2. Terms
+
+| Term | Meaning |
+| --- | --- |
+| scope | a descriptor (`PaletteScopeDescriptor`) plus a source of items; a catalog entry |
+| root scope | the full palette: commands, then workspaces, tabs, directories, settings and federated scope results once the user types |
+| level | one entry on the palette's stack: a scope with its own query, rows, selection and generation |
+| chip | the visible token for the top level at the start of the search field; a breadcrumb of the levels below it |
+| entry | how a level was entered: `root`, `opened` (shortcut, menu, CLI), `prefix`, `keyword`, `row` (scope list row), `drill` (Tab on an item) |
+| source | where items come from: `snapshot` (whole candidate set once, host ranks), `query` (per query, streamed), `op` (a catalog read op, zero app code) |
+| federation | a scope's top matches also appear in root search under the scope's section title |
+
+Name note: the app platform already uses "scope" for permissions (`workspace:read`). Code and docs say **palette scope**; the manifest key is `contributes.paletteScopes`. DECISION D-PS1 below.
+
+## 3. The scope protocol
+
+### 3.1 Descriptor (pure data, the catalog entry)
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `id` | `PaletteScopeID` | stable public id: `tabs`, `workspaces`, `history`, `commands`; app scopes `app:<appId>#<scope>`; drill scopes `actions` |
+| `title` | localized string | chip text ("Tabs") and scope row title |
+| `symbol` | SF Symbol | chip icon and scope row icon |
+| `placeholder` | localized string | field placeholder ("Search tabs…") |
+| `prefix` | one punctuation character or nil | `@`; unique among the scopes that can be entered from the same parent; letters, digits and spaces are refused so typing a word never enters a scope |
+| `keywords` | localized strings | `tabs`, `tab`: an exact keyword plus Tab enters the scope |
+| `parents` | `root`, `anywhere`, or a set of scope ids | where the prefix, keyword and scope row work |
+| `openAction` | `ActionID` or nil | the catalog action that opens it (`tab.search`, Cmd-Shift-A) |
+| `layout` | `list`, `listWithDetail`, `grid(columns)` | how rows render |
+| `ranking` | `fuzzy` (palette ranker plus frecency), `recency`, `source` | `source` keeps the source order (server relevance) |
+| `emptyQuery` | `all`, `recent(n)`, `hint` | what an empty query shows |
+| `emptyQuerySelection` | row index, clamped | 1 makes Return switch back (Search Tabs) |
+| `federates` | bool | top results join root search |
+| `owner` | `client` or `app:<id>` | who supplies items; app scopes are checked against the app's grants |
+
+### 3.2 Source (behavior)
+
+```swift
+public protocol PaletteScopeSource: AnyObject {
+    /// Items for the first frame: the last snapshot (cache) or nil.
+    var cachedSnapshot: [PaletteItem]? { get }
+    /// Streams batches for `query` until final. A new query cancels the
+    /// previous stream (generation). Snapshot sources ignore `query` and
+    /// yield the whole candidate set once, then again on change.
+    func batches(query: String, context: PaletteScopeContext) -> AsyncStream<PaletteScopeBatch>
+    /// Detail for the highlighted row (listWithDetail), loaded lazily.
+    func detail(for itemID: String) async -> PaletteDetail?
+}
+```
+
+`PaletteScopeBatch {items, replace: Bool, isFinal: Bool}`. The model tags each batch with the level and generation and sends it to the reducer as `.results`; a batch of an older generation is dropped there.
+
+### 3.3 Items, actions and detail
+
+Items stay `PaletteItem` with three additions: `drill: PaletteScopeID?` (Tab enters that scope with this item as context; the default drill is `actions`), `enters: PaletteScopeID?` (a scope row: Return or Tab enters the scope), and `actionRefs: [ActionRef]` (typed catalog actions with arguments: `ActionRef(id: "tab.close", args: ["tab": "tab_…"])`). The palette renders an `ActionRef`'s title, symbol, shortcut and destructive style from the catalog. Return runs the first, Cmd-Return the second, Cmd-K lists all; each keeps its own shortcut. Built-in items may still carry closures while they migrate; app items carry only `ActionRef`s.
+
+The `actions` scope is the drill target for any item: its rows are the item's commands, so "drill into an item's actions" is the same mechanism as every other scope (chip "Actions · Tab title", Backspace returns to the row). Cmd-K keeps the floating Actions menu (prototype switch `palette.itemActions` = `menu | scope`).
+
+Detail: `PaletteDetail {markdown subset, metadata rows (label, value, symbol), actions}`. It renders natively at the right of the list in `listWithDetail` and loads only for the highlighted row.
+
+### 3.4 Empty state
+
+`PaletteEmptyState {title, message, symbol, action: ActionRef?}`, per scope and per reason (`noResults`, `notConnected`, `needsSetup`, `offline`). Example: an app scope that needs a GitHub connection shows "Connect GitHub" with the integration connect action.
+
+### 3.5 Built-in scopes
+
+| id | Title | Prefix | Keywords | Open action (shortcut) | Source | Wave |
+| --- | --- | --- | --- | --- | --- | --- |
+| `commands` | Commands | `>` | commands, actions | `palette.commands` | catalog | 1 |
+| `tabs` | Tabs | `@` | tabs, tab | `tab.search` (Cmd-Shift-A); "Go to Tab…" opens it (PA1) | Search Tabs (lane 2) | 1 |
+| `workspaces` | Workspaces | `#` | workspaces | `goToWorkspace` | mirror | 1 |
+| `settings` | Settings | `,` | settings | `palette.toggleSetting` | config layer | 1 |
+| `shortcuts` | Keyboard Shortcuts | none | shortcuts, keys | `palette.searchShortcuts` | registry | 1 |
+| `scopes` | Scopes | `?` | none | none | the scope graph | 1 |
+| `actions` | Actions | none (drill only) | none | Tab on a row | the row's commands | 1 |
+| `history` | Browser History | `;` | history | history page action | CmuxNextHistory | 2 |
+| `files` | Files | `/` | files | `palette.files` | daemon file index (roots the user opened) | 3 |
+| `feed` | Feed | `!` | feed, inbox | `feed.search` | feed owner (N10) | 3 |
+| `apps` | Apps | none | apps | `appStore.show` | installed apps and their commands | 2 |
+| `app:<id>#<scope>` | from the manifest | none by default (user may assign) | from the manifest | generated `app:<id>#scope.<scope>` | the app | 3 |
+
+Single-character prefixes are scarce; only built-in scopes get one by default. Users assign or change any prefix and keyword in `cmux.json` (`palette.scopes."<id>".prefix`, `.keywords`, `.hidden`, `.federates`) and in Settings > Palette. A collision is refused at load with a notice; the user's assignment wins over a default.
+
+## 4. State machine
+
+### 4.1 State
+
+`PaletteNavState {isOpen, levels: [PaletteNavLevel], nextLevelID}`. `PaletteNavLevel {id, scope, entry, query, generation, rows: [PaletteNavRow], rowsGeneration, isLoading, selection, pendingReset, pendingSubmit}`. `PaletteNavRow {id, enters, drills, isEnabled}` is only what navigation needs; titles stay in the model.
+
+This is client view state (OWNERSHIP-PRINCIPLES: the client owns the view). It never leaves the client and needs no op or idempotency key. Selection memory lives per level and dies with the palette; per-scope frecency stays in `FrecencyStore`.
+
+### 4.2 Events and effects
+
+Events: `open(scope?, query)`, `close`, `setQuery(text)`, `backspaceOnEmpty`, `tab`, `shiftTab`, `escape`, `popTo(index)`, `activate(rowID?)` (Return or click), `push(page, row, query)`, `move(delta)`, `select(rowID)`, `results(levelID, generation, rows, replace, isFinal, emptyQuerySelection?)`, `refresh` (the owner reported a change).
+
+Effects: `load(levelID, scope, query, generation, context)`, `cancel(levelID)`, `run(levelID, rowID)`, `openActions(rowID)`, `dismiss`, `announce(entered | left)`, `refused(reason)`.
+
+### 4.3 Rules
+
+1. **Open.** `open(nil)` makes `[root]`. `open(scope)` makes `[root, scope(entry: opened)]`, so Backspace on its empty query shows the root (Cmd-Shift-A, Backspace, full palette). Any page id opens this way (an argument picker from a shortcut); `palette.open` checks ids from outside against the graph. A command that pushes its own page (rename, picker) sends `push(page, row, query)` (entry `command`). Each new level emits `load`.
+2. **Typing.** `setQuery` changes only the top level: new generation, `pendingReset`, `load`. Exception, **prefix entry**: when the top query was empty and the new text starts with a prefix that the graph allows from the top scope, push that scope with the rest of the text as its query; the parent's query stays empty.
+3. **Backspace on an empty query** pops one level (cancel the child, refresh the parent, announce). At the root it does nothing and is consumed (no beep). Backspace with text is plain editing.
+4. **Tab.** In order: the top query equals a child keyword → push that scope with an empty query and clear the parent query; the selected row has `enters` → push it; the selected row has `drills` → push it with the row as context (the parent keeps query and selection); otherwise `openActions` (today's Tab). Shift-Tab pops one level whatever the query.
+5. **Escape** pops a level the user pushed inside this palette session (prefix, keyword, row, drill); at an `opened` level or the root it clears the query, then closes. Cmd-Shift-A then Esc closes, which is what a user who summoned Search Tabs expects; Backspace is the way to the root. Exception, **text steps**: a text-input level (a rename, an argument) holds an answer, not a search, so Escape there closes without clearing first; a step that opens on initial text (a rename's current name) selects it, and Return on that untouched text runs nothing (#16906).
+6. **Return** on a scope row enters the scope; on any other row it runs the primary command. While the top level waits for its current generation, Return is held (`pendingSubmit`) and runs on the first batch, so it never runs a stale row.
+7. **Results.** A batch is accepted only for the level's current generation. The first batch of a generation replaces the rows; later batches append (deduplicated by id). After a query change the selection goes to the default row (the first, or for an empty query the scope's `emptyQuerySelection` index, clamped). Otherwise the selection is kept by id, else the row at the same index, else the default.
+8. **Pop restores.** The parent shows its query and cached rows at once, refreshes (data may have changed in the child), and keeps its selection by id.
+9. **Breadcrumb click** (`popTo(i)`) pops every level above `i`.
+10. **Depth** is at most 8; a push beyond it is refused with a notice.
+
+### 4.4 Invariants (property-tested, `PaletteNavPropertyTests`)
+
+- I1 Open means levels is not empty, level 0 is the root scope with entry `root`, and no other level has entry `root`; closed means no levels.
+- I2 Depth is at most `maxDepth`; level ids are unique and increase.
+- I3 A selection is nil or the id of a row of its level; a level whose rows are current and not empty has a selection.
+- I4 `rowsGeneration <= generation` on every level.
+- I5 Every level above the root is reachable: entry `opened` only at index 1; `prefix` and `keyword` scopes are allowed children of the level below; `row` and `drill` scopes exist in the graph (a scope row is an explicit link, so the scope list can enter any scope).
+- I6 Every `load` effect names a live level and its current generation.
+- P1 Round trip: from any open state with an empty top query, typing a child's prefix and then Backspace gives the same visible state (scopes, queries, selections) as before.
+- P2 Drill round trip: Tab into a row's drill scope and Backspace restores the parent query and selection.
+- P3 A batch of an older generation changes nothing and emits nothing.
+- P4 From any state, at most depth + 2 Escapes close the palette; Backspace on empty never closes it.
+- P5 Close, then open, gives the same state as a fresh open.
+- P6 An edit changes only the top level.
+
+The reducer is a pure value function with no AppKit, clock or I/O, so a TLA+ model adds nothing here; the seeded property tests run 500 random sequences of 60 events over a graph of 8 scopes with nesting and drill cycles.
+
+### 4.5 Keyboard, focus and accessibility
+
+| Key | Effect |
+| --- | --- |
+| type a prefix into an empty query | enter that scope |
+| Tab | keyword entry, scope row, drill, else Actions menu |
+| Shift-Tab | leave the scope (pop) |
+| Backspace (empty query) | leave the scope |
+| Esc | pop a pushed level, else clear, else close (a text step closes without clearing) |
+| Return / Cmd-Return | enter a scope row / run primary / run alternate |
+| Cmd-K | Actions menu (Cmd-K on an action edits its shortcut) |
+| Up/Down, Page Up/Down, Cmd-Up/Down | move (selection memory per level) |
+| Cmd-1 … Cmd-9 (prototype) | jump to the scope row with that number in the scope list |
+
+- The search field keeps first responder for the palette's whole life; chips are not in the key loop (Tab is a palette command). A click on a chip pops to it; a click on the top chip's close mark pops one level.
+- Automation never moves focus: `palette.open` from CLI or MCP needs `focus: true` and user consent like `tab.search` today; `palette.query` is read-only and never shows UI.
+- Accessibility: the field's label is the scope ("Search Tabs"); each chip is a button ("Tabs scope, press Delete to leave"); entering and leaving post an announcement ("Tabs", "Commands"); rows keep their labels; the scope list rows name their prefix and keyword ("Tabs, prefix at sign, keyword tabs").
+- Reduce Motion: the chip appears and leaves with a crossfade only; otherwise a short slide from the prefix's caret position (`Motion` tokens). No color carries meaning alone: the chip has an icon and a title, grays only (no blue).
+
+## 5. Surfaces
+
+| Action / op | Palette | CLI | Right-click | MCP | Notes |
+| --- | --- | --- | --- | --- | --- |
+| `palette.open {scope?, query?}` | "Open Palette Scope…" (asks for the scope) and the scope rows | `cmux palette open --arg scope=<id> [--arg query=<q>] --focus` | exempt `noObject` | `palette_open`, refused without `focus: true` (it takes the keyboard), like `tab.search` | generic opener; each scope's `openAction` is an alias with its own shortcut |
+| `palette.scopes` (read) | the `?` scope | `cmux palette scopes [--json]` | — | `palette_scopes` | every scope with id, title, prefix, keywords, owner, open action |
+| `palette.query {scope, query, limit?, context?}` (read) | — | `cmux palette query <scope> [<query>] [--limit N] [--json]` | — | `palette_query` | headless results for any scope, ranked like the UI; app scopes need the app's `mcp:expose` and the caller's grant |
+| `palette.run {scope, item, action?, args?}` | — | `cmux palette run <scope> <item> [--action <id>]` | — | follows the action's own MCP decision | runs a typed `ActionRef` of a result row; the same as `action.run` with the ref's args. Not built yet: it needs rows with typed `ActionRef`s (built-in rows still carry closures, which must not run from automation without the origin check) |
+| `tab.search` | Search Tabs… | `cmux tab search` | — | `tab_search` | lane 2; becomes `openAction` of scope `tabs` |
+
+CLI requests: `.cmux-scratch/nx-worker/cli-requests/palette-scopes.md` (Swift CLI freeze). The app side adds `palette.scopes`, `palette.query` and `palette.open` to the control socket (read-only methods answer off-main from `ControlSnapshot`, architecture.md 5a).
+
+## 6. Palette extensions (apps)
+
+Goal (PA3): apps contribute palette scopes, commands and views through the manifest, with a model better than the leading launcher-extension ecosystem (studied privately). Fits the app platform spec (D40 to D52) and the coordinator's `server` block.
+
+### 6.1 Requirements and how the model meets them
+
+| Requirement | How |
+| --- | --- |
+| Declarative native views | rows, grids, detail and forms are data rendered by the host (`PaletteItem`, `PaletteDetail`, scene nodes for custom detail); apps never draw |
+| Typed actions | every action on an item is an `ActionRef` to a catalog entry (built-in op or the app's own `app:<id>#<cmd>`); no closures, so the palette, menus, shortcuts, CLI, MCP and the agent see the same action with the same argument schema |
+| Async streaming results | query sources are async generators; each `yield` is a batch; a new query aborts the old generator (`AbortSignal`) |
+| Offline-first | the app supervisor caches the last snapshot per scope (content-addressed, per machine); the host paints it first; `op` sources read the client mirror's last value |
+| Sandboxed, scopes enforced | the app's permission scopes and grants apply to every op its source calls and to every `ActionRef` it returns (the owner checks on run); an item can only reference actions the app could call |
+| Instant (<16 ms first paint) | the chip, the cached snapshot and the host ranker are on the first-paint path; app code never is; budget measured in the harness and in DEV `debug.timings` |
+| Keyboard-first | the host owns every key (section 4.5); apps declare shortcuts per command (rebindable) |
+| Agent-callable | every command is a CLI verb and MCP tool (`cmux apps run <id>#<cmd>`); every scope is queryable by `palette.query`; one declaration, no separate tool list |
+| Testable | `@cmux/app-test` harness (6.6) |
+
+### 6.2 Manifest
+
+```jsonc
+"contributes": {
+  "paletteScopes": [{
+    "id": "notes",
+    "title": "Notes",                       // localizedText
+    "symbol": "note.text",
+    "placeholder": "Search notes…",
+    "keywords": ["notes", "note"],
+    "layout": "listWithDetail",             // list | listWithDetail | grid
+    "ranking": "fuzzy",                     // fuzzy | recency | source
+    "federates": true,                      // top 3 matches in root search
+    "source": { "kind": "snapshot", "export": "noteCorpus", "invalidatedBy": ["note.changed"] },
+    //   or { "kind": "query", "export": "searchNotes", "minQueryLength": 1 }
+    //   or { "kind": "op", "op": "note.search", "item": { "id": "$.id", "title": "$.title", "subtitle": "$.folder" } }
+    "primary": "note.open",                 // default ActionRef id for rows without actions
+    "detail": { "export": "noteDetail" },   // optional
+    "emptyState": { "title": "No notes yet", "action": "app:cmux/notes#new" },
+    "filters": [{ "id": "pinned", "title": "Pinned" }]
+  }],
+  "commands": [{
+    "id": "new", "title": "New Note", "run": "newNote",
+    "mode": "run",                          // run | form | view
+    "arguments": { "type": "object", "properties": { "title": { "type": "string" } } },
+    "keywords": ["create"], "contexts": ["palette"]
+  }]
+}
+```
+
+- `kind: op` needs no app code at all: the palette calls a read op (owned by `app:<id>` on its server host, or any catalog read) and maps fields. It works with the VM stopped and with the `server` block's single host per team.
+- `mode: form` renders the command's `arguments` schema as a native form inside the palette (one level, chip "New Note"); Return submits the typed args to the command. Forms come from the schema, so the CLI flags, the MCP input and the form never disagree.
+- `mode: view` pushes a scope that the command returns (`return scope.list(...)`), for flows that build lists from arguments.
+- `filters` render as a menu at the right of the field (the scope's facets); the chosen filter is part of the query sent to the source.
+- Scopes and commands appear as rows in the root and in the `apps` scope under the app's name; the app's scopes join the scope graph with `parents: root`.
+- `prefix` is first-party only (`cmux/` apps). The host and the registry enforce it when they load a manifest (a third-party prefix is dropped with a notice), not only `cmux apps validate`. Keywords are lowercase and contain a letter or digit, so a symbol-only keyword cannot imitate a built-in prefix.
+
+### 6.3 Runtime API (in the `cmux` global, `@cmux/app-types`)
+
+```ts
+import { palette, act } from "cmux"
+
+export const noteCorpus = palette.snapshot(async (ctx) =>
+  (await cmux.note.list({ limit: 5000 })).map(n => ({
+    id: n.id, title: n.title, subtitle: n.folder, symbol: "note.text",
+    keywords: n.tags, accessory: { date: n.updatedAt },
+    actions: [act("note.open", { id: n.id }), act("note.pin", { id: n.id }), act("clipboard.write", { text: n.body }, { title: "Copy Body" })],
+  })))
+
+export const searchNotes = palette.query(async function* (q, { signal, filter }) {
+  yield palette.cached()                               // offline: the last result for this query prefix
+  for await (const page of cmux.note.search.stream({ q, filter }, { signal })) yield page.items.map(toItem)
+})
+
+export const noteDetail = palette.detail(async (id) => ({ markdown: (await cmux.note.get({ id })).body }))
+```
+
+- `act(op, args, overrides?)` builds an `ActionRef`; the runtime validates `args` against the op's schema at build time in development (`cmux apps dev`) and the host validates on run.
+- Items are plain data (at most 2 KiB each, 10 000 per snapshot, 200 per batch); scene nodes are allowed only in `detail`.
+- A snapshot export runs at most once per invalidation and never on keystrokes; the supervisor marks it dirty on an `invalidatedBy` event and reruns it on the next open, so an idle app costs nothing (no polling, idle-wakeups.md).
+
+### 6.4 Capability map
+
+| Launcher-extension feature | cmux mechanism |
+| --- | --- |
+| commands (view, no-view, menu bar) | `commands` (`mode: run | form | view`), `statusItems` (menu bar) |
+| list, grid, detail views | scope `layout` + items + `detail` |
+| forms | `mode: form` from the command's argument schema; drafts kept per level |
+| action panel, per-action shortcuts | `ActionRef`s; Cmd-K; shortcuts from the catalog, rebindable |
+| preferences | `contributes.settings` (Settings > Apps, `cmux.json`); a required setting pushes its form the first time the scope opens |
+| OAuth | integration gateway (D39), scope `integration:<provider>`; the app never holds tokens; empty state `needsSetup` offers Connect |
+| AI | every command and scope is an MCP tool for agents; apps call models through `cmux.ai` (coderouter, scope `ai:complete`), streamed |
+| menu-bar items | `statusItems` with the same scene graph |
+| background refresh | events (`invalidatedBy`, `cmux.live`) and the app server (N13) pushing `<family>.changed`; no intervals; external polling only on the app server, with backoff |
+| deeplinks | `cmux://palette/<scope>?q=` opens a scope (`palette.open`, user origin); `cmux://app/<id>/<cmd>?args=` runs a command after the same consent as a third-party caller |
+| quicklinks | built-in `quicklinks` scope over `cmux.json` templates (`{query}`, `{clipboard}`); apps contribute static templates (`contributes.quicklinks`, zero code) |
+| snippets | built-in `snippets` scope over config data; inserting is the typed op `terminal.send` |
+| store review | tiers D45/D51; the registry adds palette checks: prefix requests (only first-party), keyword collisions, item budgets, localized titles, a11y labels, `ActionRef` ops within the requested scopes |
+
+### 6.5 Fit with the app manifest server block
+
+- A scope whose items live in the app's server uses `source.kind = op` with an op owned by `app:<id>`; `owner_for` routes it to the one host per team that runs the server (single writer). The palette never talks to the server directly.
+- `contributes.paneKinds[].renderer = native` stays first-party and Verified only; palette scopes never need it. A row may offer "Open in Pane" as an `ActionRef` to the app's pane kind.
+- Origin: a row run from the palette is a user gesture; the action runs with origin `user` through `ActionRegistry.perform` (lane 3 gap B2 asks the same for app command chains).
+
+### 6.6 Test harness (`@cmux/app-test`)
+
+```ts
+import { harness } from "@cmux/app-test"
+const h = await harness.load(".", { grants: ["note:read"], fixtures: { "note.list": notes } })
+const s = await h.palette.open("notes")              // first paint from the cached snapshot
+expect(s.firstPaintMs).toBeLessThan(16)
+await s.type("rea"); expect(s.rows.map(r => r.title)).toEqual(["Reading list"])
+await s.tab(); expect(s.chips).toEqual(["Notes", "Actions"])
+await s.press("Return"); expect(h.ops.calls).toContainEqual({ op: "note.open", args: { id: "n1" } })
+await s.backspace(); expect(s.chips).toEqual(["Notes"])
+```
+
+The harness runs the same navigation rules from a shared JSON vector file (`palette-nav-vectors.json`, event sequence to expected chips, queries and selection) that the Swift reducer tests also run, so the two implementations cannot drift. It reports scope and grant violations (`scope.missing`) the way the host does, and an op that no owner implements as `operation.unsupported` (lane 3 found the runtime reports both as `scope.missing`; the harness keeps them apart so authors see which one they hit).
+
+### 6.7 Lane 3 gaps this design closes
+
+Lane 3 (first-party-apps.md section 3, PR 16786; search app PR 16792) found these palette-related gaps. This design closes them as follows.
+
+| Gap | Closed by |
+| --- | --- |
+| S4: no search-provider contribution | `contributes.paletteScopes` with `federates: true`: one declaration feeds the root search (top matches under the app's section), the scope chip and `palette.query`. The host fans out to federating scopes with a per-scope deadline (first frame from snapshots; query scopes join when their first batch lands) and merges by the palette ranker. Apps never call each other. |
+| No MCP or CLI tools for app commands | every `contributes.commands` entry registers catalog action `app:<id>#<cmd>` with CLI `cmux apps run <id>#<cmd>` and, when the app holds `mcp:expose` and the user granted it, MCP tool `app_<id>_<cmd>` with the command's `arguments` schema as input; every scope is queryable by `palette.query`. check-action-surfaces exempts the dynamic family with `appContribution`. |
+| User origin ends at the first `await` (B2) | two parts. (1) A palette row's actions are `ActionRef`s that the host runs itself through `ActionRegistry.perform` with origin `user`; no app code runs, so nothing is lost across `await`. Before it runs a ref, the host checks the ref id against the app's grants or the app's own commands (`app:<this id>#<cmd>`), the inner action id of `action.run` the same way, and `args` against the op schema; `primary` and `emptyState.action` get the same check; a ref to another app's command is refused. (2) For `run` commands, the host passes a gesture capability in the invocation: `ctx.gesture`. The host mints it only when the invocation comes from a user gesture in that client (palette Return or click, menu, shortcut), never for `cmux apps run`, MCP, deeplinks or `action.run` from app code, even when that call carries a live token (no self-renewing chains). It is bound to the app id and the invocation, revoked at `commandDone` or after 2 s, and checked by the host on every call (the VM is untrusted). Calls through `ctx.cmux` (a per-invocation proxy of the global) carry it explicitly, so it survives any `await` without async-context support in the engine. One rule for use (OWNERSHIP-PRINCIPLES): a gesture allows one change of view state; the first mutation that changes view state spends it; reads and app-private writes do not. The host decides only from the token it sees. Contract: cmux-tui/crates/cmux-app-host/js/ABI.md, Gesture tokens and Palette actions run by the host. |
+| No list keyboard navigation in scene nodes | app lists in the palette are host rows, so they get the palette's keyboard model (section 4.5) for free. For sidebar sections and panes, a `List` scene node with host-owned selection (the same selection-memory rules as `PaletteNavReducer`: keep by id, else by index, else first) is proposed to the platform lead. |
+| The search app's variants | become palette scope layouts: `palette` = federation into the root; `grouped` = scope `app:cmux/search#search` with sections per source; `preview` = the same scope with `layout: listWithDetail`. The app keeps its sidebar section and pane; the palette path needs no scene tree. |
+| App localization API | scope titles, placeholders, keywords and empty states use the manifest's `localizedText`; runtime strings (item titles from data stay as data) need the platform's `cmux.l10n` (lane 3 gap, platform lead). |
+
+Not closed here (platform lead): popovers, menu-bar status items (palette scopes do not need them), `x-cmux-devOnly`, and the scene node count bug in `materialize.ts`.
+
+### 6.8 Documents, buffers and app composition
+
+Lawrence wants a documents/buffers primitive and app composition (embedding) in the app platform (lane 3 critique, 2026-10-02). Palette scopes fit both by reference, never by shared code.
+
+- **Documents are a scope source.** When the documents primitive lands (one owner per document, typed ops such as `document.search`, `document.open`), a built-in `documents` scope uses `source.kind = op` over `document.search`, and the `files` scope becomes one federating provider of it. Notes, buffers and files then share one chip, one ranker and one `palette.query`. A row's primary `ActionRef` is `document.open {id}`; the documents owner picks the pane kind (an app's editor or the built-in one), so the palette does not know which app edits what.
+- **Drill into a document.** The default drill of a document row is a scope over its parts (buffers, headings, symbols) served by the document's owner op, with the row as context: Tab on a note, then type to jump to a heading.
+- **Scopes compose across apps.** A scope may list another app's scope as a child (`contributes.paletteScopes[].children: ["app:cmux/notes#notes"]`), and a row may `enters` or `drills` into any registered scope with itself as context (a task row drills into the notes linked to it). The host composes: each scope runs with its own app's grants; the parent app never sees the child's items. Composition is by scope id and `ActionRef` through the catalog, so an agent can do the same with `palette.query`.
+- **Embedding in detail.** A scope's detail may embed another app's view by reference (`{embed: {app, view, args}}` scene node, mounted by the host in its own sandbox with its own grants). Proposed to the platform lead as the general embedding node; the palette only reserves the slot.
+
+### 6.9 Fit with Platform v2 (app-platform.md section 12)
+
+Platform v2 (V1 to V12) changes how apps declare things; palette scopes follow it without a second mechanism.
+
+| v2 decision | Palette scopes |
+| --- | --- |
+| V1 catalog fragment | an item's `ActionRef` names an op of the app's catalog fragment (owner `app:<id>`) or a cmux op; `contributes.commands` becomes fragment ops with palette surfaces. `palette.query` and the CLI/MCP generators read the same fragment, so agent-callable stays one declaration |
+| V2 typed interfaces, places as interfaces | a palette scope is the interface `cmux.palette.scope/1` (static part: id, title, symbol, keywords, layout, ranking, federates, filters, children; methods: `snapshot`, `query`, `detail`). `cmux.search.provider/1` is the federation part (a scope with `federates: true` implements both). Proposed schema: section 3.1 plus the v1 manifest fields of PR 16844; `contributes.paletteScopes` maps one to one to `implements: ["cmux.palette.scope/1"]` entries when manifest v2 lands |
+| V3 documents | the `documents` scope of section 6.8 is `document.search` over the document host; drill = the document's parts |
+| V4 embeds | `detail` may embed another app's `cmux.viewer/1` through `cmux.ui.embed` (own mount, own grant) |
+| V6 handles | rows of files, hosts and credentials carry handles, never paths or secrets; ActionRef args take handles |
+| V7 semantic components | the palette is the host renderer of `List`, `Section`, `Row`, `Detail`, `Form`, `ActionPanel` for scopes; scene pages in the palette use the same components |
+| V8 Rust supervisor | scope sources run in the per-app QuickJS host; the supervisor caches the last snapshot per scope (offline first paint) and streams batches to the client with the generation; the Mac app keeps only the palette rendering |
+| V11 gesture tokens | palette Return or click mints the gesture for a row's own-command ActionRef; the host enforces mint, spend and revoke (PR 16844 ABI.md) |
+
+### 6.10 `palette.run` (built)
+
+A row can be acted on without the UI only through typed actions, never through the closures some built-in rows still carry (a closure has no origin check and no schema).
+
+- **Row field.** `PaletteItem.actionRefs: [PaletteActionRef]`, `PaletteActionRef {action: ActionID, target: ActionTargetRef?, arguments: [String: ActionValue], title?, isDestructive}`; the first ref is the row's primary command. A ref names a catalog action, so its title, symbol, shortcut, CLI name and MCP decision come from the catalog.
+- **Built-in rows that get refs first.** Registry action rows: `{action: <id>}`. Search Tabs open rows: `tab.focus` (target the tab), then `closeTab`; closed rows: `history.reopen {id}`. Workspace rows: `goToWorkspace` with the workspace target. Settings rows: `palette.toggleSetting` with the key. Rows without refs stay UI-only and say so in `palette.query`.
+- **`palette.query` rows** gain `actions: [{action, title, target?, arguments, destructive}]` (empty for untyped rows) and `typed: bool`.
+- **`palette.run {scope, item, action?, arguments?, focus?}`** (control socket, `.async`): builds the scope's page headless (like `palette.query`), finds the row by id among all its items (not only the top N), picks the ref whose `action` matches (else the first), merges `arguments` over the ref's arguments, and runs `ActionRegistry.perform` with the caller's origin and `focus` flag. The registry's execution context decides focus and selection changes (OWNERSHIP-PRINCIPLES), so a CLI or MCP run never moves focus unless the caller passes `focus: true` or the action's purpose is focus. A destructive action asks for confirmation exactly as `action.run` does.
+- **Errors:** unknown scope `palette.scope_unknown` (exit 4); no such row `palette.item_unknown` (exit 4); untyped row `palette.row_untyped` (exit 3, with the row's title); unknown action on the row `palette.action_unknown` (exit 4); the action's own refusal is passed through (`unavailable: …`).
+- **As built.** `PaletteActionRef {action, target?, arguments, title?, isDestructive}` on `PaletteItem.actionRefs`. Registry rows: `{action: <id>}`. Tabs and Search Tabs open rows: `tab.focus` (tab target), then `closeTab`. Search Tabs closed rows: `history.reopen {id}` (`history.reopen` gained an optional `id` argument; none reopens the last closed item). Workspace rows: `goToWorkspace {workspace: workspace:<id>}` (its handler now switches to the named workspace; without one it opens the workspace page). Settings rows: `palette.toggleSetting {setting, on}`. `palette.run` forwards to `action.run` in process with the row's action, target and arguments (the caller's `args` merge over them; a caller's `target` never replaces the row's) and the caller's `origin`, `focus`, `wait` and `idempotency_key`, so focus, confirmation and idempotency follow `action.run` exactly. `palette.query` rows carry `actions` and `typed`.
+- **Surfaces:** the CLI verb `cmux palette run <scope> <item> [--action <id>] [--arg k=v] [--focus]` and MCP tool `palette_run` follow `action.run`'s MCP decision per action (a ref to an MCP-exempt action is refused). Tests: a headless run of each built-in ref kind, origin and focus rules, the untyped refusal, and an argument merge.
+
+### 6.11 Proposal: `cmux.palette.scope/1` (for the app platform lead; not built until agreed)
+
+Platform v2 (app-platform.md section 12) makes places typed interfaces. This is the palette scope as one.
+
+```jsonc
+// cmux-tui/crates/cmux-app-host/interfaces/cmux.palette.scope/1.json (proposed)
+{
+  "interface": "cmux.palette.scope", "major": 1,
+  "static": {                         // the manifest entry; the host reads it without running app code
+    "id": "string", "title": "localizedText", "symbol": "symbol", "placeholder": "localizedText",
+    "keywords": ["string"], "layout": "list|listWithDetail|grid", "ranking": "fuzzy|recency|source",
+    "federates": "bool", "filters": [{"id": "string", "title": "localizedText"}], "children": ["scopeRef"],
+    "emptyState": {"title": "localizedText", "message": "localizedText?", "action": "actionRef?"},
+    "prefix": "char?"                 // first-party only (D-PS4); the host refuses it for other publishers
+  },
+  "methods": {
+    "snapshot": {"in": {"context": "rowRef?"}, "out": "stream<batch>"},                 // whole candidate set; host ranks
+    "query":    {"in": {"text": "string", "filter": "string?", "context": "rowRef?"}, "out": "stream<batch>"},
+    "detail":   {"in": {"item": "string"}, "out": "detail"}
+  },
+  "events": {"invalidated": {}},      // the supervisor reruns snapshot on next open
+  "types": {
+    "batch": {"items": ["item"], "replace": "bool", "isFinal": "bool"},
+    "item": {"id": "string", "title": "string", "subtitle": "string?", "symbol": "string?", "keywords": ["string"],
+             "accessory": "string?", "actions": ["actionRef"], "drill": "scopeRef?", "enters": "scopeRef?"},
+    "actionRef": {"action": "catalogOpId", "arguments": "object", "title": "string?"},
+    "detail": {"markdown": "string?", "metadata": [{"label": "string", "value": "string"}], "embed": "embedRef?"}
+  }
+}
+```
+
+- An app declares `implements: [{"interface": "cmux.palette.scope/1", "id": "notes", ...static}]` with `exports` for the methods; `kind: op` sources become `implements` with a fragment op as the `query` method (no app code). `cmux.search.provider/1` is the federation subset (`query` only, `federates: true`); a scope may implement both.
+- The Rust supervisor owns the snapshot cache (per scope, per machine), the generation stamps, the batch re-validation and the ActionRef grant check (ABI.md, PR 16844); the Mac palette consumes batches through the scene/stream channel, so the JSC prototype path goes away.
+- Versioning: additive fields stay `/1`; changing a method's input or batch shape is `/2`, and the host may load both during migration.
+- Questions for the app platform lead: (1) does the interface registry carry `static` blocks for host-only metadata, or must every field be in the manifest entry? (2) is `stream<batch>` the generic stream type of V11 typed streams? (3) where do drill scopes of other apps resolve, through `consumes`?
+
+## 7. Prototypes (DEV and NIGHTLY, Debug Settings > Palette)
+
+| Tunable | Variants | What changes |
+| --- | --- | --- |
+| `palette.scopeChip` | `token` (default), `breadcrumb`, `header` | `token`: a gray capsule with icon and title at the start of the field; the level below shows as a dimmer capsule; `breadcrumb`: a small path above the field ("Commands › Actions"), the magnifier stays; `header`: the scope icon and semibold title before the field with a hairline after it |
+| `palette.scopeEntry` | `all` (default), `prefix`, `keyword`, `list` | `all`: prefixes, keyword plus Tab ("Search Tabs ⇥" at the right of the field), prefix hints in the footer of the empty root, scope rows when typing; `prefix`: prefixes and footer hints only; `keyword`: keyword plus Tab only; `list`: a Search In section at the top of the empty root, no prefix or keyword |
+| `palette.itemActions` | `menu` (default), `scope` | Tab on a row with commands opens the floating Actions menu, or pushes its `actions` scope with a chip |
+
+Evidence: a tagged fleet build (job f1de6fe5…, then 2b0945ed…), launched with no activation; `debug.key` drives the palette and DEBUG `debug.palette.capture` writes the panel's own window image (no Screen Recording grant). Twelve captures, one per variant and state, are kept outside the repo for the coordinator.
+
+What the captures and the live run show:
+- `token` reads as "you are inside Tabs" at the place the eye already is (the caret), and it is the only style where Backspace visibly removes something. It takes horizontal space from the query.
+- `breadcrumb` shows the whole path, which helps at depth 3 and more, but it is small and above the field, so the scope is easy to miss at depth 2 (the common case).
+- `header` is the quietest and keeps the field wide, but a semibold title before the field looks like the page title and does not suggest that Backspace leaves it.
+- Footer prefix hints (`@ Tabs  # Workspaces  > Commands  ? All Scopes`) make prefixes discoverable without a row; the `list` section costs four rows of the empty root.
+- The keyword hint ("Search Tabs ⇥") appears exactly when Tab will enter, so it teaches the gesture.
+
+Recommendation: `token` + `all` + `menu` (the defaults). `token` is the most visible scope and makes Backspace's effect obvious, which is what PA2 asks; `all` keeps every entry gesture and teaches them through the footer and the keyword hint without spending rows; Tab on a row keeps the floating menu until a drill exists that users want more than the menu (the `actions` scope works and stays one switch away).
+
+## 8. Steps
+
+| # | Step | State |
+| --- | --- | --- |
+| 1 | This proposal, the private research note | PR 16824 |
+| 2 | `CmuxNextPalette/Scopes/`: descriptor, graph, `PaletteNavReducer`, example and property tests | PR 16824 |
+| 3 | Palette UI on the reducer: `PaletteModel` runs the reducer's effects (one page per level, the root built only when shown), chip styles, entry styles, keyword hint, footer prefix hints, scope list (`?`), item actions as a scope, Debug Settings tunables | PR 16849 |
+| 4 | Search Tabs is scope `tabs` (`@`, `tabs` Tab); Cmd-Shift-A opens it above the root, so Backspace shows the full palette | PR 16849, after lane 2's follow-up PR 16839 |
+| 5 | Catalog `palette.open` (CLI, MCP, keyboard, palette); socket `palette.scopes` and `palette.query`; CLI request `palette-scopes.md`; `palette.run` waits for typed ActionRefs | PR 16849 |
+| 6 | Extension contribution v1: schema `contributes.paletteScopes` and command `mode`, runtime `palette.*`/`act`, gesture capability, `@cmux/app-test` harness, 64 shared navigation vectors (Swift and TypeScript), sample `palette-notes` | PR 16844 (merged a835b277bd6) |
+| 7 | Platform v2 form (section 6.9): `cmux.palette.scope/1` interface, ActionRefs to the catalog fragment, Rust supervisor serving scope sources, Swift bridge from scene streams to palette pages, host-side checks of ABI.md | with the app platform lead, after v2 steps 2 and 3 |
+
+## 9. Decisions
+
+Accepted by the coordinator, 2026-10-02 (recorded with PR 16849):
+
+| # | Decision | Status |
+| --- | --- | --- |
+| D-PS1 | Manifest key `contributes.paletteScopes` (not `scopes`, the permission list) until manifest v2, then the interface `cmux.palette.scope/1` (section 6.9); lane 3's `searchProviders` (gap S4) folds in as `federates: true` | accepted |
+| D-PS2 | Esc on a scope opened by its shortcut clears the query, then closes; Backspace on the empty query is the way to the root. A text prompt opened by a shortcut or menu closes on the first Esc | accepted, built |
+| D-PS3 | Tab enters a scope first (keyword, scope row, drill), else opens the Actions menu; Shift-Tab leaves a scope; Cmd-K keeps the Actions menu | accepted, built |
+| D-PS4 | App scopes get a keyword only; single-character prefixes stay with built-in scopes; users may assign a prefix to any scope in `cmux.json` | accepted (user assignment: not built yet) |
+| D-PS5 | App items carry typed `ActionRef`s only, never closures | accepted, built in PR 16844 |
+| D-PS6 | Remove the duplicate command `view` field in favor of `mode` in a later manifest PR (app platform lead) | accepted, open |
+| D-PS7 | Defaults: the `token` chip, `all` entry gestures, the Actions menu on Tab (section 7) | accepted, built (Debug Settings keep the other variants) |

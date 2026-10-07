@@ -10,7 +10,10 @@ afterAll(() => {
   dom.window.close();
 });
 
-function sanitize(html: string, profile = CmuxMarkdownSanitizer.markdownProfile({ url: ({ value }) => value })): HTMLElement {
+function sanitize(
+  html: string,
+  profile = CmuxMarkdownSanitizer.markdownProfile({ url: ({ value }) => value }),
+): HTMLElement {
   const root = doc.getElementById("root") as HTMLElement;
   root.replaceChildren(CmuxMarkdownSanitizer.sanitizeToFragment(html, { document: doc, profile }));
   return root;
@@ -35,21 +38,25 @@ describe("shared markdown sanitizer", () => {
   });
 
   test("never copies event handlers or host-owned attributes", () => {
-    const root = sanitize('<p onclick="x" data-cmux-file="y" title="t" style="color:red" class="hljs-keyword cmux-remote-image-placeholder evil">x</p>');
+    const root = sanitize(
+      '<p onclick="x" data-cmux-file="y" title="t" style="color:red" class="hljs-keyword cmux-remote-image-placeholder evil">x</p>',
+    );
     expect(root.innerHTML).toBe('<p title="t" class="hljs-keyword">x</p>');
   });
 
   test("markdown profile drops all SVG and MathML", () => {
-    const root = sanitize('<svg><a href="#"><animate attributeName="href" to="javascript:alert(1)"/></a></svg><math><mi>x</mi></math>');
+    const root = sanitize(
+      '<svg><a href="#"><animate attributeName="href" to="javascript:alert(1)"/></a></svg><math><mi>x</mi></math>',
+    );
     expect(root.innerHTML).toBe("");
   });
 
   test("diagram profile keeps static SVG and drops animation, links, images, and remote references", () => {
     const root = sanitize(
-      '<svg viewBox="0 0 1 1"><defs><linearGradient id="g"><stop offset="0" stop-color="red"/></linearGradient></defs>'
-        + '<a href="javascript:alert(1)"><text>t</text></a><set attributeName="fill" to="red"/>'
-        + '<animateTransform attributeName="transform"/><image href="https://x/y.png"/>'
-        + '<use href="#g"/><use xlink:href="https://x/s.svg#a"/><rect fill="url(#g)" stroke="url(https://x/y)"/></svg>',
+      '<svg viewBox="0 0 1 1"><defs><linearGradient id="g"><stop offset="0" stop-color="red"/></linearGradient></defs>' +
+        '<a href="javascript:alert(1)"><text>t</text></a><set attributeName="fill" to="red"/>' +
+        '<animateTransform attributeName="transform"/><image href="https://x/y.png"/>' +
+        '<use href="#g"/><use xlink:href="https://x/s.svg#a"/><rect fill="url(#g)" stroke="url(https://x/y)"/></svg>',
       CmuxMarkdownSanitizer.diagramProfile(),
     );
     expect(unsafeNodes(root)).toEqual([]);
@@ -90,7 +97,12 @@ describe("shared markdown sanitizer", () => {
     const profile = CmuxMarkdownSanitizer.markdownProfile({
       url: ({ tag, name, value }) => (tag === "a" && name === "href" && value.startsWith("https:") ? value : null),
     });
-    const root = sanitize('<a href="https://ok">a</a><a href="javascript:alert(1)">b</a><img src="https://x/y.png">', profile);
-    expect(root.innerHTML).toBe('<a href="https://ok" rel="noopener noreferrer">a</a><a rel="noopener noreferrer">b</a><img>');
+    const root = sanitize(
+      '<a href="https://ok">a</a><a href="javascript:alert(1)">b</a><img src="https://x/y.png">',
+      profile,
+    );
+    expect(root.innerHTML).toBe(
+      '<a href="https://ok" rel="noopener noreferrer">a</a><a rel="noopener noreferrer">b</a><img>',
+    );
   });
 });

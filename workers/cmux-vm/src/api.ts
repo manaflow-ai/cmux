@@ -445,6 +445,6 @@ export class CmuxVmApi extends HttpApi.make("cmux-vm")
       title: "cmux VM API",
       version: "0.1.0",
       description: "Tenant-scoped virtual machines for cmux.",
-      servers: [{ url: "https://vm.cmux.com", description: "Production" }, { url: "https://vm-staging.cmux.com", description: "Staging" }],
+      servers: [{ url: "https://vm.cmux.dev", description: "Production" }, { url: "https://vm-staging.cmux.dev", description: "Staging" }],
     }),
   ) {}

@@ -16,12 +16,6 @@
     "Sources/WorkspaceContentView.swift"
   ],
   "job_seconds": {
-    "app-host-unit-tests": {
-      "mean": 248.0,
-      "n": 537,
-      "p50": 191.1,
-      "p90": 410.1
-    },
     "auth-refresh-tests": {
       "mean": 119.8,
       "n": 44,
@@ -111,12 +105,6 @@
       "n": 18,
       "p50": 152.2,
       "p90": 271.2
-    },
-    "tests-build-and-lag": {
-      "mean": 152.5,
-      "n": 42,
-      "p50": 133.2,
-      "p90": 253.2
     }
   },
   "misclassified": {

@@ -218,7 +218,10 @@ describe("VM defaults and pricing copy", () => {
     }
   });
 
-  test("no native pricing string in any locale sells the retired limits or a free trial", () => {
+  // On feat-cmux-next the legacy Resources/Localizable.xcstrings no longer carries the
+  // pricing.native.* keys, and cmux-next has no native pricing strings yet. Re-enable
+  // against cmux-next's catalog when it gets a native pricing screen.
+  test.skip("no native pricing string in any locale sells the retired limits or a free trial", () => {
     const catalog = JSON.parse(readFileSync(new URL("../../Resources/Localizable.xcstrings", import.meta.url), "utf8"));
     const stale: string[] = [];
     for (const [key, entry] of Object.entries(catalog.strings as Record<string, { localizations?: Record<string, { stringUnit?: { value?: string } }> }>)) {
@@ -236,7 +239,10 @@ describe("VM defaults and pricing copy", () => {
     expect(stale).toEqual([]);
   });
 
-  test("native pricing translations preserve the plan quantities", () => {
+  // On feat-cmux-next the legacy Resources/Localizable.xcstrings no longer carries the
+  // pricing.native.* keys, and cmux-next has no native pricing strings yet. Re-enable
+  // against cmux-next's catalog when it gets a native pricing screen.
+  test.skip("native pricing translations preserve the plan quantities", () => {
     const catalog = JSON.parse(readFileSync(new URL("../../Resources/Localizable.xcstrings", import.meta.url), "utf8"));
     for (const key of ["pricing.native.pro.feature.hours", "pricing.native.team.feature.compute", "pricing.native.sizes.body"]) {
       const localizations = catalog.strings[key].localizations as Record<string, { stringUnit: { value: string } }>;

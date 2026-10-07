@@ -2,7 +2,7 @@ name: Seed DerivedData
 
 # Keeps a warm DerivedData for every main commit that changes the app-host
 # build, so pull-request compile admission starts from its base commit's build,
-# and main's full-suite run (ci-main-full-suite.yml) from its own commit's or
+# and main's full-suite ci.yml dispatch from its own commit's or
 # the newest earlier one, instead of a cold compile (ci-macos.yml "Adopt the
 # nightly DerivedData seed").
 #
@@ -20,9 +20,8 @@ name: Seed DerivedData
 # A push to main also publishes the app-host test product this build compiled,
 # under the artifact name compile admission publishes it under. A pull request
 # whose product inputs equal main's then adopts it in "Reuse exact compatible
-# compiled products" instead of compiling, and so does an E2E dispatch of that
-# commit (scripts/ci/reuse_app_host_products.py trusts only this workflow, on a
-# main push, in this repository).
+# compiled products" instead of compiling (scripts/ci/reuse_app_host_products.py
+# trusts only this workflow, on a main push, in this repository).
 
 on:
   push:
@@ -501,39 +500,19 @@ jobs:
           key: ${{ steps.key.outputs.scoped }}${{ github.sha }}
 
       # Publish the product exactly as ci-macos.yml compile admission does
-      # (tests/test_seed_derived_data.py pins the copy). Staging and relocation
-      # rewrite Build/Products, so these follow "Save seed". Only a main push
-      # is a producer pull requests and E2E dispatches trust; a dispatch of
-      # this workflow publishes no product: staging, packaging and upload run
+      # (tests/test_seed_derived_data.py pins the copy). Relocation rewrites
+      # Build/Products, so these follow "Save seed". Only a main push
+      # is a producer pull requests trust; a dispatch of
+      # this workflow publishes no product: packaging and upload run
       # on a main push only. A failure here
       # costs pull requests the adoption, never the seed. The product does not
       # depend on the width, so only the first
       # pool (decide's publisher) publishes it, under the one artifact name
       # admission looks up. When that pool skips, its seed's commit has these
       # build inputs, and so the product pull requests already adopt.
-      - name: Stage compiled package frameworks
-        id: stage-products
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && matrix.pool == needs.decide.outputs.publisher
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          products="$CMUX_COMPILE_ADMISSION_DERIVED_DATA/Build/Products/Debug"
-          stable="/private/tmp/cmux-app-host-package-frameworks"
-          mkdir -p "$stable"
-          framework_source="$(find "$products" -type d -name 'CmuxAgentJournal*_PackageProduct.framework' -print -quit 2>/dev/null || true)"
-          test -n "$framework_source"
-          framework_root="$(dirname "$framework_source")"
-          rsync -aL "$framework_root/" "$stable/"
-          if [ -L "$products/PackageFrameworks" ]; then
-            rm "$products/PackageFrameworks"
-          fi
-          mkdir -p "$products/PackageFrameworks"
-          rsync -aL "$framework_root/" "$products/PackageFrameworks/"
-          test -f "$products/PackageFrameworks/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct.framework/Versions/A/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct"
-
       - name: Package compiled app-host test product
         id: package-products
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.stage-products.outcome == 'success'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && matrix.pool == needs.decide.outputs.publisher
         continue-on-error: true
         run: |
           set -euo pipefail

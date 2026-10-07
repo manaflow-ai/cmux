@@ -76,29 +76,12 @@ watches them like attempt 1, and a job stuck or refused there gets the bot's
 next re-run, which every runs-on sends to retry_runner (Blacksmith) from
 attempt 3 on, so a refusal costs two re-runs at most.
 
-E2E runs (test-e2e.yml) are watched the same way. Its `runner` job runs
-e2e_runner_pool.py, which may pick an owned pool, and uploads the same marker
-(with 1 job). An E2E run is a workflow_dispatch, not a pull request, so there
-is no head to re-check, and its build and test jobs are not a split that can
-break. A stuck or refused E2E job gets its failed and cancelled jobs re-run,
-keeping a build that passed; those jobs keep attempt 1's pick, so they take
-the runner job's retry_label, a macOS 26 Blacksmith pool on the same Xcode
-build, and the follow-on watch of attempt 2 finds no owned job and stops.
-A UI run's retry_label stays on its owned pool, since Blacksmith cannot run UI
-tests (e2e_runner_pool.py), so the watch of attempt 2 may re-run it once more;
-no attempt past 2 is watched, so it still never loops. A queued UI run moved
-that way only rejoins the same owned queue, costing its place in it; the watch
-stays for the refusals, which a re-run does clear. When the build itself did
-not succeed, every job is re-run instead, so the `sibling` job looks again for
-another run compiling the same revision (e2e_build_unfinished), and the runner
-job picks again: attempt 2 takes that live pick, which may be an owned Mac,
-because a Blacksmith re-run cannot adopt a product an owned Mac compiled (their
-Rust toolchains differ) and so compiled it again. That attempt is followed like
-a full re-run, by its picker and its own marker, and attempt 3 and later always
-take retry_label. A stuck E2E run that finished some other way (a newer dispatch
-in its concurrency group cancelled it) is not re-run, since that would cancel
-the newer one. Its watch lasts E2E_WATCH_LIMIT_SECONDS, since its test job
-queues only after a sibling wait and a build.
+Dispatch runs (DISPATCH_WORKFLOW_PATHS) are watched the same way; see below
+for the iOS and Iroh release gate workflows. A stuck dispatch run that
+finished some other way (a newer dispatch in its concurrency group cancelled
+it) is not re-run, since that would cancel the newer one. Its watch lasts
+E2E_WATCH_LIMIT_SECONDS, since its test job queues only after a sibling wait
+and a build.
 
 Main's full-suite dispatch of ci.yml (ci-main-full-suite.yml, a
 workflow_dispatch on main) is watched exactly like a pull request run:
@@ -123,10 +106,8 @@ the same budget.
 Dispatches of iroh-release-gate.yml are watched the same way. Its `runner`
 job runs e2e_runner_pool.py for the Tailscale version-skew job alone, and
 only takes an owned pool with a machine free now (no queue rounds), so that
-job rarely waits. Its simulator-e2e jobs stay on Blacksmith, but they run in
-the same run: a stuck owned job's rescue cancels them with it, and a refused
-one's waits for them until the watch ends. The re-run of failed and
-cancelled jobs keeps the modes that passed and puts everything on Blacksmith.
+job rarely waits. The re-run of failed and cancelled jobs puts everything on
+Blacksmith.
 
 Side-lane workflows (SIDE_WORKFLOW_PATHS) have no picker. On attempt 1 of a
 trusted run (a same-repository pull request, or a push, schedule or
@@ -221,7 +202,7 @@ CI_OWNED_POOL_RESCUE_SECONDS plus QUEUE_ROUND_SECONDS per round
 (queue_seconds(), 900 seconds by default, so 990 in all), under the watch limit so a stuck
 job is still moved. With the rounds at 0 the picker takes an owned pool
 only with machines free now, and the budget is the configured one. A
-test-ios.yml or test-e2e.yml run's picker queues by the same rounds, so it
+test-ios.yml run's picker queues by the same rounds, so it
 gets the same allowance, on every attempt: a re-run of failed jobs queues on
 the owned labels like attempt 1's jobs. The configured budget alone is an iOS
 screenshots or side-lane run's (#14391: no picker; the side lanes share the
@@ -247,21 +228,17 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pr_runner_pool import MAX_QUEUE_ROUNDS, QUEUE_ROUND_MINUTES, parse_queue_rounds, persistent  # noqa: E402
-import ui_tests_dispatch  # noqa: E402
 
 CI_WORKFLOW_PATH = ".github/workflows/ci.yml"
-E2E_WORKFLOW_PATH = ".github/workflows/test-e2e.yml"
 IOS_TEST_WORKFLOW_PATH = ".github/workflows/test-ios.yml"
 IOS_SCREENSHOTS_WORKFLOW_PATH = ".github/workflows/ios-screenshots.yml"
 IROH_RELEASE_GATE_WORKFLOW_PATH = ".github/workflows/iroh-release-gate.yml"
-# workflow_dispatch runs watched like an E2E run: each has a `runner` job that
+# workflow_dispatch runs watched as dispatch runs: each has a `runner` job that
 # picks the pool and uploads the marker.
-DISPATCH_WORKFLOW_PATHS = (E2E_WORKFLOW_PATH, IOS_TEST_WORKFLOW_PATH, IOS_SCREENSHOTS_WORKFLOW_PATH,
-                           IROH_RELEASE_GATE_WORKFLOW_PATH)
+DISPATCH_WORKFLOW_PATHS = (IOS_TEST_WORKFLOW_PATH, IOS_SCREENSHOTS_WORKFLOW_PATH, IROH_RELEASE_GATE_WORKFLOW_PATH)
 # Workflows whose picker may queue a run's jobs on an owned pool within
-# CI_PR_POOL_QUEUE_ROUNDS (ios_runner_pool.py and e2e_runner_pool.py read it
-# since run 36136190497).
-QUEUEING_WORKFLOW_PATHS = (CI_WORKFLOW_PATH, IOS_TEST_WORKFLOW_PATH, E2E_WORKFLOW_PATH)
+# CI_PR_POOL_QUEUE_ROUNDS (ios_runner_pool.py reads it since run 36136190497).
+QUEUEING_WORKFLOW_PATHS = (CI_WORKFLOW_PATH, IOS_TEST_WORKFLOW_PATH)
 # Side-lane workflows: no picker job. Their small macOS jobs take
 # vars.CI_LIGHT_LANE_RUNNER or vars.CI_SIDE_LANE_RUNNER (glaeda-side-* labels)
 # on attempt 1 of a trusted run, and their Blacksmith default from attempt 2 on.
@@ -275,12 +252,9 @@ NIGHTLY_EVENTS = frozenset({"push", "schedule"})
 # app build asks for one through this watch.
 TRUSTED_LABEL = re.compile(r"glaeda-(?:root-)?trusted-(?:xl|std|light)-xcode-[0-9]+(?:\.[0-9]+)*")
 SIDE_WORKFLOW_PATHS = frozenset({
-    ".github/workflows/app-host-test-rerun.yml",
     ".github/workflows/auth-refresh-tests.yml",
-    ".github/workflows/cloud-command-deadlines.yml",
-    ".github/workflows/cloud-machine-tests.yml",
-    ".github/workflows/cloud-task-local-tests.yml",
-    # feat-cmux-next only; uploads the owned-pool-watch marker on attempt 1.
+    # feat-cmux-next only; on attempt 1 its placement job (side_lane_placement.py) puts a Mac job on the
+    # side label only while a side runner is idle, and uploads the owned-pool-watch marker when one is.
     ".github/workflows/cmux-next.yml",
     ".github/workflows/cmux-tui.yml",
     ".github/workflows/iroh-v2.yml",
@@ -297,8 +271,8 @@ CMUX_NEXT_WORKFLOW_PATH = ".github/workflows/cmux-next.yml"
 # these is owned-eligible like a same-repository pull request. merge_group,
 # workflow_run and pull_request_target are not: they can carry fork code.
 TRUSTED_SIDE_EVENTS = frozenset({"push", "schedule", "workflow_dispatch"})
-# test-e2e.yml's job that runs e2e_runner_pool.py (and the iOS workflows' job
-# that runs ios_runner_pool.py).
+# The dispatch workflows' job that runs ios_runner_pool.py (or, in
+# iroh-release-gate.yml, e2e_runner_pool.py).
 E2E_PICKER_JOB = "runner"
 # ci.yml's job that runs the pool picker; its jobs-API name (no `name:` override).
 PICKER_JOB = "changes"
@@ -322,8 +296,7 @@ IDLE_POLL_SECONDS = 120
 WATCH_LIMIT_SECONDS = 60 * 60
 # An E2E test job queues after a sibling wait (up to 35 min) and a build.
 E2E_WATCH_LIMIT_SECONDS = 150 * 60
-# A side lane's macOS job is created at once, or after a Linux gate
-# (cloud-machine-tests), which can wait in a busy Linux queue; a watch that
+# A side lane's macOS job is created at once, or after a Linux gate, which can wait in a busy Linux queue; a watch that
 # ended before the job existed would leave it on the fleet unwatched.
 SIDE_WATCH_LIMIT_SECONDS = WATCH_LIMIT_SECONDS
 READ_ATTEMPTS = 3
@@ -779,29 +752,9 @@ class GitHub:
 
     def rerun(self, run_id: int, next_attempt: int) -> None:
         self.request("POST", f"/actions/runs/{run_id}/rerun")
-        self.request_ui_tests(run_id, next_attempt)
 
     def rerun_failed(self, run_id: int, next_attempt: int) -> None:
         self.request("POST", f"/actions/runs/{run_id}/rerun-failed-jobs")
-        self.request_ui_tests(run_id, next_attempt)
-
-    def request_ui_tests(self, run_id: int, attempt: int) -> None:
-        """Start ci-ui-tests.yml for the attempt a re-run of a pull request's CI began.
-
-        This token's re-run may emit no workflow_run event, and that attempt's
-        ui-tests job waits for ci-ui-tests.yml (ui_tests_dispatch.rerun_dispatch()).
-        Best effort: a failure here never stops the rescue.
-        """
-        try:
-            run = self.request("GET", f"/actions/runs/{run_id}") or {}
-            if run.get("path") != CI_WORKFLOW_PATH or run.get("event") != "pull_request":
-                return
-            # The caller's attempt: a read right after the re-run may still show the old one.
-            path, body = ui_tests_dispatch.rerun_dispatch(run_id, attempt)
-            self.request("POST", f"/{path}", body=body)
-        except (urllib.error.URLError, OSError, ValueError) as error:
-            print(f"::warning::could not start {ui_tests_dispatch.DISPATCH_WORKFLOW_FILE} for run {run_id}: {error}",
-                  flush=True)
 
 
 @dataclasses.dataclass
@@ -952,7 +905,7 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
         jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
         if not on_persistent and target.side:
             # No picker: a job that asks for an owned label is the choice. A
-            # gated job (cloud-machine-tests) appears once its Linux gate ends.
+            # gated job appears once its Linux gate ends.
             if any(job_pool(job) for job in jobs):
                 on_persistent = True
                 log("a side-lane job asked for a persistent pool")
@@ -1061,24 +1014,6 @@ def next_attempt(target: Target) -> str:
     return f"attempt {following} takes retry_runner on Blacksmith"
 
 
-def e2e_build_unfinished(api: GitHub, target: Target, sleep: Callable[[float], None],
-                         log: Callable[[str], None]) -> bool:
-    """An E2E run whose build job did not succeed, so its re-run compiles.
-
-    A re-run of failed jobs keeps the `sibling` job's attempt-1 answer, taken
-    before the refusal, so it never waits for a sibling that started compiling
-    the same revision since: run 36168890047's attempt 2 compiled product
-    8c48a10e beside run 36168944875. Re-running every job runs the Linux
-    jobs and that wait again, which costs seconds. A build that passed is
-    kept, as always.
-    """
-    if target.path != E2E_WORKFLOW_PATH:
-        return False
-    jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
-    build = next((job for job in jobs if job.get("name") == "build"), None)
-    return build is None or build.get("conclusion") != "success"
-
-
 def pull_moved(api: GitHub, target: Target, sleep: Callable[[float], None],
                log: Callable[[str], None]) -> str:
     """Why the pull request (or main) no longer wants this run, or "" when it still does."""
@@ -1164,9 +1099,6 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
     if run.get("status") == "completed":
         if not (failed_only if refused is None else refused):
             return "not rescued: the run already finished"
-        if e2e_build_unfinished(api, target, sleep, log):
-            api.rerun(target.run_id, target.attempt + 1)
-            return f"re-ran every job of run {target.run_id}, so its sibling wait runs again; {next_attempt(target)}"
         api.rerun_failed(target.run_id, target.attempt + 1)
         return f"re-ran the failed jobs of run {target.run_id}; {next_attempt(target)}"
     api.cancel(target.run_id)
@@ -1199,9 +1131,6 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
     if moved:
         return f"cancelled but not re-run: {moved}"
     if failed_only:
-        if e2e_build_unfinished(api, target, sleep, log):
-            api.rerun(target.run_id, target.attempt + 1)
-            return f"re-ran every job of run {target.run_id}, so its sibling wait runs again; {next_attempt(target)}"
         api.rerun_failed(target.run_id, target.attempt + 1)
         return f"re-ran the failed jobs of run {target.run_id}; {next_attempt(target)}"
     api.rerun(target.run_id, target.attempt + 1)
@@ -1298,13 +1227,13 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
         return min(deadline, latest) if latest is not None else deadline
 
     subject = (f"pull request #{target.pr_number}'s {target.path}" if target.pr_number else
-               "an E2E dispatch" if target.path == E2E_WORKFLOW_PATH else f"a dispatch of {target.path}") \
+               f"a dispatch of {target.path}") \
         if target.e2e else f"main's full-suite dispatch at {target.head_sha[:12]}" if target.main \
         else f"main's nightly build at {target.head_sha[:12]}" if target.nightly \
         else f"pull request #{target.pr_number}" if target.pr_number else f"a run of {target.path}"
     if target.side and not target.nightly:
         subject += " (side lane)"
-    # ci.yml's, test-ios.yml's and test-e2e.yml's pickers queue on purpose, within the queue
+    # ci.yml's and test-ios.yml's pickers queue on purpose, within the queue
     # rounds: their owned jobs may wait up to the pool's expected wait (see the docstring).
     queue_extra = queue_seconds(queue_rounds) if target.path in QUEUEING_WORKFLOW_PATHS else 0
     if target.nightly:
@@ -1350,7 +1279,7 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
         log(f"attempt {target.attempt}: {'rescue' if outcome == 'rescue' else 'refused'}: {reason}")
 
 
-# The sweeper (SWEEP=1). The pickers of ci.yml, test-e2e.yml and test-ios.yml
+# The sweeper (SWEEP=1). The pickers of ci.yml, the dispatch workflows and test-ios.yml
 # upload an artifact named WATCH_MARKER when they place attempt 1 on an owned
 # pool, and ci-macos.yml's late-placement uploads LATE_WATCH_MARKER when it
 # moves jobs onto one. Listing each name repository-wide is one request that

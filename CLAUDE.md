@@ -26,8 +26,26 @@ Read the matching skill before changing an area, then only the references needed
   user may. Reproduce in a tagged build and attach profiling to its PID.
 - Dogfood through `CMUX_TAG=<tag> scripts/cmux-debug-cli.sh`, never `/tmp/cmux-cli`.
   Never report raw `.app` paths or `file://` URLs.
-- App-linked code (`Sources/`, `CLI/`, `TunnelExtension/` and their packages) must
+- App-linked code (`App/`, `CLI/` and their packages) must
   remain [Swift 6.0 compatible](skills/cmux-architecture/references/swift-6-0-compatibility.md).
+
+## Swift namespace convention
+
+Public and package types in package source must expose an instance surface or
+be scoped onto the owning type; caseless namespace enums and all-static public
+or package types are lint violations. Run
+`./scripts/lint-ios-package-conventions.sh --namespace-fix` before committing.
+When installed with `scripts/install-git-hooks.sh --namespace-fix`, the
+pre-push hook runs the fixer and stops so changed files can be reviewed,
+staged, and committed. CI keeps the non-mutating lint as the backstop.
+
+Claude Code and Codex also have repo-local post-edit hooks in
+`.claude/settings.json` and `.codex/hooks.json`. They pass only edited
+`Packages/**/*.swift` files to `scripts/ci/lint-swift-post-edit.sh`, which runs
+the same fixer without blocking the edit. A clean scoped check is silent; a
+repair is printed, and a fixer failure is an advisory warning. The hook is
+best-effort so an unavailable Python interpreter or an incomplete edit never
+turns an agent edit into a failed tool call.
 
 ## Area instructions
 
@@ -48,7 +66,7 @@ close it; never close an outside PR without a human-written explanation.
 
 The server directories listed in [LICENSE](LICENSE) (`web/`, `workers/ci-artifacts/`,
 `workers/iroh-v2/`, `workers/presence/`, `services/iroh-relay-minter/`,
-`cmux-tui/relays/cloudflare-do/`) use the Business Source License, which needs
+`cmux-tui/relays/cloudflare-do/`, `backend/`) use the Business Source License, which needs
 every outside author's CLA grant. Do not merge a PR that changes those
 directories while CLA Assistant is red, and do not copy an outside
 contributor's work there under a `Co-authored-by` trailer unless that person
@@ -91,15 +109,16 @@ Use these existing owners instead of duplicating their checklists here:
 | Submodules or GhosttyKit | [cmux-ghostty](skills/cmux-ghostty/SKILL.md) |
 | User-facing strings, docs or help | [cmux-localization](skills/cmux-localization/SKILL.md); report the localization audit |
 | New cmux shortcuts | [cmux-keyboard-shortcuts](skills/cmux-keyboard-shortcuts/SKILL.md) |
-| Tests or target wiring | [cmux-testing](skills/cmux-testing/SKILL.md); run `scripts/sync-test-wiring` after adding, renaming or deleting a `cmuxTests/` file |
+| Tests or target wiring | [cmux-testing](skills/cmux-testing/SKILL.md); CmuxNext tests need no wiring; the `cmux` CLI is cmux-tui Rust (tests run with cargo on a Testbox or CI) |
 | Multiple entrypoints or a bug that tests previously missed | [cmux-shared-behavior](skills/cmux-shared-behavior/SKILL.md); share action/mutation paths, verify every entrypoint, and cover the missed repro |
 
 ## Remote CLI relay
 
 For v2 socket methods and remote CLI changes, read [relay authorization](skills/cmux-socket-policy/references/remote-relay-authorization.md).
-`RemoteRelayCommandPolicy` defaults to deny. Allowlist only for a needed remote
+The legacy `RemoteRelayCommandPolicy` was deleted with `CmuxRemoteWorkspace`; any
+remote relay cmux-next adds must default to deny the same way. Allowlist only for a needed remote
 flow, scoped to the session's objects; command-bearing params stay denied on
-every method. The PR must analyze local command/content
+every method, with no exceptions. The PR must analyze local command/content
 execution, access to unowned objects and local-state exposure, and include the
 required policy tests and ID scoping. Unsafe local effects must be redesigned.
 Never allowlist terminal spawn/respawn without live verification that it executes

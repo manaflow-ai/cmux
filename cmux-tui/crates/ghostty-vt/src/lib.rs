@@ -1,13 +1,15 @@
 //! Safe Rust wrapper around libghostty-vt.
 //!
 //! The terminal engine is the exact same VT parser and state machine used
-//! by the Ghostty app (built from the `ghostty/` submodule), so anything
+//! by the Ghostty app (libghostty-vt built from the `ghostty-next/` submodule), so anything
 //! rendered from this crate matches what a real Ghostty surface would show.
 
 mod key;
 mod kitty;
+mod kitty_replay;
 mod mouse;
 mod render;
+mod snapshot;
 mod terminal;
 
 /// Raw bindings, re-exported for key/mode constants.
@@ -20,6 +22,7 @@ pub use kitty::{
     MAX_KITTY_IMAGE_BYTES, MAX_KITTY_IMAGES, MAX_KITTY_PLACEMENTS,
     kitty_inflight_replay_limit_for_image_bytes,
 };
+pub use kitty_replay::KittyReplayStats;
 pub use mouse::{
     MouseAction, MouseButton, MouseEncoder, MouseEncoders, MouseInput, MouseWireFormat,
 };
@@ -28,9 +31,18 @@ pub use render::{
     ATTR_STRIKETHROUGH, Cell, CellWidth, ColorSpec, CursorInfo, CursorShape, Dirty,
     KittyGraphicsFrameDelta, RenderFrame, RenderState, StyledRun, UnderlineStyle, rows_to_runs,
 };
+pub use snapshot::{
+    HISTORY_DIGEST_VERSION, HistoryDigest, SNAPSHOT_ENVELOPE_LEN, SNAPSHOT_RECORD_HEADER_LEN,
+    SnapshotHistoryPage, SnapshotPhase, SnapshotRecord, primary_history_pages, reencode_ready,
+    snapshot_digest_input, snapshot_envelope_version, snapshot_ready_len, snapshot_records,
+    snapshot_version, tag as snapshot_tag,
+};
 pub use terminal::{
-    Callbacks, ClearHistoryOutcome, KittyGraphicsLimits, KittyImageIdCursors, KittyReplayState,
-    NotifyFn, PtyWriteFn, Rgb, Screen, Scrollbar, SelectionPoint, SelectionRange, Terminal,
+    Callbacks, ClearHistoryOutcome, ClipboardLocation, ClipboardReadFn, ClipboardReadRequest,
+    HistoryPage, HistoryPages, HistorySnapshot, KittyGraphicsLimits, KittyImageIdCursors,
+    KittyReplayState, MAX_CLIPBOARD_READ_BYTES, MarkerError, NotifyFn, ProgramStatusEvent,
+    ProgramStatusFn, ProgramStatusKind, ProgramStatusReport, ProgramStatusState, PtyWriteFn, Rgb,
+    SNAPSHOT_CONTINUATION_MAX_BYTES, Screen, Scrollbar, SelectionPoint, SelectionRange, Terminal,
     TerminalColorOverrides, TerminalPointerSemanticSnapshot, TrackedScreenPoint, VtReplay,
     parse_color, parse_palette_entry,
 };

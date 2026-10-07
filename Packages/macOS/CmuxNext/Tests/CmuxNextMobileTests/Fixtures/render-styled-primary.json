@@ -1,0 +1,165 @@
+{
+ "cmux_tui_version": "0.1.0",
+ "program": "printf '\\033[1;31mred bold\\033[0m plain \\033[38;2;10;200;30mrgb\\033[0m\\n\\033[4munder\\033[0m \u65e5\u672c \\033[7minv\\033[0m\\n$ '; exec cat",
+ "protocol": 12,
+ "render_state": {
+  "cursor": {
+   "blink": true,
+   "color": "#c0c1b5",
+   "style": "bar",
+   "visible": true,
+   "x": 2,
+   "y": 2
+  },
+  "default_bg": "#272822",
+  "default_fg": "#fdfff1",
+  "event": "render-state",
+  "graphics": {
+   "generation": 0,
+   "images": [],
+   "placements": []
+  },
+  "history_epoch": 2,
+  "rows": [
+   {
+    "row": 0,
+    "runs": [
+     {
+      "attrs": 1,
+      "bg": null,
+      "fg": "#f92672",
+      "text": "red bold"
+     },
+     {
+      "attrs": 0,
+      "bg": null,
+      "fg": null,
+      "text": " plain "
+     },
+     {
+      "attrs": 0,
+      "bg": null,
+      "fg": "#0ac81e",
+      "text": "rgb"
+     },
+     {
+      "attrs": 0,
+      "bg": null,
+      "fg": null,
+      "text": "                      "
+     }
+    ]
+   },
+   {
+    "row": 1,
+    "runs": [
+     {
+      "attrs": 0,
+      "bg": null,
+      "fg": null,
+      "text": "under",
+      "underline": "single"
+     },
+     {
+      "attrs": 0,
+      "bg": null,
+      "fg": null,
+      "text": " \u65e5\u672c ",
+      "width_hint": 6
+     },
+     {
+      "attrs": 8,
+      "bg": null,
+      "fg": null,
+      "text": "inv"
+     },
+     {
+      "attrs": 0,
+      "bg": null,
+      "fg": null,
+      "text": "                          "
+     }
+    ]
+   },
+   {
+    "row": 2,
+    "runs": [
+     {
+      "attrs": 0,
+      "bg": null,
+      "fg": null,
+      "text": "$                                       "
+     }
+    ]
+   },
+   {
+    "row": 3,
+    "runs": [
+     {
+      "attrs": 0,
+      "bg": null,
+      "fg": null,
+      "text": "                                        "
+     }
+    ]
+   },
+   {
+    "row": 4,
+    "runs": [
+     {
+      "attrs": 0,
+      "bg": null,
+      "fg": null,
+      "text": "                                        "
+     }
+    ]
+   },
+   {
+    "row": 5,
+    "runs": [
+     {
+      "attrs": 0,
+      "bg": null,
+      "fg": null,
+      "text": "                                        "
+     }
+    ]
+   }
+  ],
+  "scrollback_rows": 0,
+  "size": {
+   "cols": 40,
+   "rows": 6
+  },
+  "surface": 2
+ },
+ "vt_state": {
+  "colors": {
+   "bg": "#272822",
+   "cursor": "#c0c1b5",
+   "cursor_blink": true,
+   "cursor_style": "bar",
+   "fg": "#fdfff1",
+   "palette": {},
+   "selection_bg": "#57584f",
+   "selection_fg": "#fdfff1"
+  },
+  "cols": 40,
+  "data": "G1s/MTJoG1swbRtbMW0bWzM4OzU7MW1yZWQgYm9sZBtbMG0gcGxhaW4gG1swbRtbMzg7MjsxMDsyMDA7MzBtcmdiG1swbQ0KG1swbRtbNG11bmRlchtbMG0g5pel5pysIBtbMG0bWzdtaW52G1swbQ0KJCANCg0KDQobWzBtG1szOzNIG1szZxtbOUcbSBtbMTdHG0gbWzI1RxtIG1szM0cbSBtbMzszSBtbMzszSA==",
+  "event": "vt-state",
+  "kitty_graphics_state": {
+   "alternate_next_image_id": 2147483647,
+   "alternate_replay_next_image_id": 2147483647,
+   "image_bytes": 10000000,
+   "images": 2048,
+   "inflight_bytes": 13595480,
+   "placements": 8192,
+   "primary_next_image_id": 2147483647,
+   "primary_replay_next_image_id": 2147483647,
+   "replay_cursor_offset": 175
+  },
+  "kitty_image_aliases": [],
+  "rows": 6,
+  "surface": 2
+ }
+}

@@ -7,6 +7,8 @@ RELOAD_ORIGINAL_ARGS=("$@")
 source "$SCRIPT_DIR/lib/mobile-attach.sh"
 # shellcheck source=scripts/lib/dev-secrets.sh
 source "$SCRIPT_DIR/lib/dev-secrets.sh"
+# shellcheck source=scripts/lib/stop-app-instances.sh
+source "$SCRIPT_DIR/lib/stop-app-instances.sh"
 
 APP_NAME="cmux DEV"
 BUNDLE_ID="com.cmuxterm.app.debug"
@@ -37,7 +39,6 @@ PROD_AUTH=0
 AUTH_CREDENTIALS_FILE=""
 AUTH_PROFILE=""
 AUTH_EXPECTED_ACCOUNT=""
-CMUX_TUI_CLIENT_MANIFEST_URL_VALUE=""
 CLI_PATH=""
 NO_GLOBAL_CLI_LINKS="${CMUX_RELOAD_NO_GLOBAL_CLI_LINKS:-0}"
 # Matches CmuxStateDirectory (non-TCC ~/.local/state/cmux) where the app/CLI now
@@ -908,6 +909,9 @@ Options:
   --build-only           Build and validate a tagged app without replacing or
                          stopping the running tagged app, daemon, or tag state.
                          Cannot be combined with --launch.
+  --direct-backend       Use the tag's shared GCP dev web stack (scripts/dev-backend.sh,
+                         direct Tailscale transport). cmux-next builds default to local
+                         backend mode without it, and Cloud is then unavailable.
   --prod-auth            Point this tagged Debug build at production Stack auth,
                          cmux APIs, and the production Iroh broker.
                          Without it, tagged builds use the shared dev backend, which
@@ -927,8 +931,6 @@ Options:
   --expected-account <email>
                          Fail before building unless the selected profile/file
                          resolves to this normalized account.
-  --cmux-tui-manifest-url <url>
-                         Install the cmux-tui client from this immutable manifest.
   --name <app name>      Override app display/bundle name.
   --bundle-id <id>       Override bundle identifier.
   --derived-data <path>  Override derived data path.
@@ -1049,30 +1051,6 @@ tagged_derived_data_path() {
   echo "$HOME/Library/Developer/Xcode/DerivedData/cmux-${slug}"
 }
 
-# Print the cmux-tui commit whose published client the bundle will carry. A branch
-# that changes cmux-tui has no published client for its own commits, so explain
-# the existing overrides next to the resolver's error.
-resolve_cmux_tui_client_commit() {
-  local commit
-  local -a resolver_args=()
-  if [[ -n "${CMUX_TUI_CLIENT_MAX_FALLBACK:-}" ]]; then
-    resolver_args+=(--max-fallback "$CMUX_TUI_CLIENT_MAX_FALLBACK")
-  fi
-  if ! commit="$("$PWD/scripts/ci/resolve-cmux-tui-client-commit.sh" ${resolver_args[@]+"${resolver_args[@]}"})"; then
-    cat >&2 <<'EOF'
-error: no published cmux-tui client for this checkout, so the app bundle cannot get one.
-       A branch that changes cmux-tui has no published client for its own commits
-       until they land on main. Point reload at a cmux-tui binary built off this Mac
-       (Blacksmith Testbox, or this branch's CI artifact):
-         CMUX_TUI_CLIENT_LOCAL=/path/to/cmux-tui ./scripts/reload.sh --tag <tag>
-       or install a published manifest with --cmux-tui-manifest-url <url>
-       (or CMUX_TUI_CLIENT_MANIFEST_URL=<url>).
-EOF
-    return 1
-  fi
-  printf '%s\n' "$commit"
-}
-
 # A tag only changes the bundle id, names, socket and state files. None of those
 # are compiler inputs, so a new tag built into a DerivedData that is already warm
 # for this checkout recompiles nothing, while a fresh per-tag DerivedData is a full
@@ -1173,7 +1151,30 @@ tag_build_cleanup_paths() {
 # argument is escaped with %q instead of being wrapped in quotes.
 print_tag_cleanup_commands() {
   local tag="$1" derived="${2:-}"
-  printf '  pkill -f %q\n' "cmux DEV ${tag}.app/Contents/MacOS/cmux DEV"
+  local own="" link="/tmp/cmux-${tag}" root="" config="" bin=""
+  # Quit the app through its own quit path (scripts/lib/stop-app-instances.sh): exact
+  # PIDs from LaunchServices and the tag's executable, SIGTERM as a requested quit, never a
+  # pattern kill (no pkill or killall, coordinator rule c).
+  printf '  bash -c %q _ %q %q %q\n' 'source "$1" && cmux_stop_app_instances "$2" "$3"' \
+    "$SCRIPT_DIR/lib/stop-app-instances.sh" "com.cmuxterm.app.debug.$(sanitize_bundle "$tag")" \
+    "cmux DEV ${tag}.app/Contents/MacOS/cmux DEV"
+  # The app's detached cmux-tui owner (session cmux-app-<tag>) outlives the app and would
+  # keep running from the deleted bundle: stop the owner through the bundle's own binary
+  # before the rm. Never --end-terminals here: a pasted command cannot check that no
+  # terminal runs a job, so the terminal hosts keep running.
+  own="$(tagged_derived_data_path "$tag")"
+  if [[ -z "$derived" && -L "$link" ]]; then
+    derived="$(readlink "$link" 2>/dev/null || true)"
+  fi
+  local -a roots=()
+  [[ -z "$derived" || "$derived" == "$link" || "${derived%/}" == "$own" ]] || roots+=("${derived%/}")
+  roots+=("$own")
+  for root in "${roots[@]}"; do
+    for config in Debug Release; do
+      bin="${root}/Build/Products/${config}/cmux DEV ${tag}.app/Contents/Resources/bin/cmux-tui"
+      printf '  [ -x %q ] && %q --session %q server stop\n' "$bin" "$bin" "cmux-app-${tag}"
+    done
+  done
   printf '  rm -rf %s%q %q\n' "$(tag_build_cleanup_paths "$tag" "$derived")" "/tmp/cmux-${tag}" "/tmp/cmux-debug-${tag}.sock"
   printf '  rm -f %q\n' "/tmp/cmux-debug-${tag}.log"
   printf '  rm -f %q\n' "$HOME/Library/Application Support/cmux/cmuxd-dev-${tag}.sock"
@@ -1282,6 +1283,18 @@ while [[ $# -gt 0 ]]; do
       PROD_AUTH=1
       shift
       ;;
+    --direct-backend)
+      # Cloud dogfood: bake the tag's shared GCP dev web stack (direct
+      # Tailscale transport) into the app. cmux-next builds otherwise
+      # default to local backend mode, where Cloud actions report that the
+      # build has no Cloud backend.
+      if [[ "${CMUX_DEV_BACKEND_MODE:-remote}" == "local" ]]; then
+        echo "error: --direct-backend cannot be combined with CMUX_DEV_BACKEND_MODE=local" >&2
+        exit 1
+      fi
+      export CMUX_DEV_BACKEND_MODE=remote
+      shift
+      ;;
     --release)
       BUILD_CONFIGURATION="Release"
       shift
@@ -1305,12 +1318,8 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     --cmux-tui-manifest-url)
-      CMUX_TUI_CLIENT_MANIFEST_URL_VALUE="${2:-}"
-      [[ -n "$CMUX_TUI_CLIENT_MANIFEST_URL_VALUE" ]] \
-        || { echo "error: --cmux-tui-manifest-url requires a URL" >&2; exit 1; }
-      [[ "$CMUX_TUI_CLIENT_MANIFEST_URL_VALUE" == https://* ]] \
-        || { echo "error: --cmux-tui-manifest-url requires HTTPS" >&2; exit 1; }
-      shift 2
+      echo "error: --cmux-tui-manifest-url was removed with the legacy app; the cmux scheme bundles the cmux-tui built from this checkout's cmux-tui tree (scripts/cmux-next/pin-cmux-tui.sh --help; CMUX_NEXT_TUI_BIN=<path> bundles a local build)" >&2
+      exit 1
       ;;
     --derived-data)
       DERIVED_DATA="${2:-}"
@@ -1445,30 +1454,79 @@ if [[ -n "$TAG" ]]; then
   fi
 fi
 
-# Resolve the published cmux-tui client before the dev backend, GhosttyKit and
-# xcodebuild, so a checkout without one fails in seconds rather than after a full
-# build. The install step after the build reuses this commit. The same overrides
-# skip it: --cmux-tui-manifest-url, CMUX_TUI_CLIENT_MANIFEST_URL, and
-# CMUX_TUI_CLIENT_LOCAL. CMUX_SKIP_CMUX_TUI_CLIENT=1 defers to the install step,
-# which keeps an existing bundled copy and resolves only when there is none. The
-# resolver's progress lines go to the reload log; they print here only on failure.
-CMUX_TUI_CLIENT_COMMIT=""
-CMUX_TUI_CLIENT_RESOLVE_LOG=""
-if [[ "${CMUX_SKIP_CMUX_TUI_CLIENT:-}" != "1" \
-      && -z "$CMUX_TUI_CLIENT_MANIFEST_URL_VALUE" \
-      && -z "${CMUX_TUI_CLIENT_MANIFEST_URL:-}" \
-      && -z "${CMUX_TUI_CLIENT_LOCAL:-}" ]]; then
-  cmux_tui_resolve_stderr="$(mktemp "${TMPDIR:-/tmp}/cmux-reload-tui-resolve.XXXXXX")"
-  cmux_tui_resolve_rc=0
-  CMUX_TUI_CLIENT_COMMIT="$(resolve_cmux_tui_client_commit 2>"$cmux_tui_resolve_stderr")" \
-    || cmux_tui_resolve_rc=$?
-  CMUX_TUI_CLIENT_RESOLVE_LOG="$(cat "$cmux_tui_resolve_stderr")"
-  rm -f "$cmux_tui_resolve_stderr"
-  if [[ "$cmux_tui_resolve_rc" -ne 0 ]]; then
-    printf '%s\n' "$CMUX_TUI_CLIENT_RESOLVE_LOG" >&2
+# feat-cmux-next: the cmux scheme builds cmux-next.app, whose "Bundle cmux-tui"
+# phase (scripts/cmux-next/bundle-cmux-tui.sh) bundles the hosted cmux-tui
+# built from this checkout's own cmux-tui tree (pin-cmux-tui.sh --help). It
+# is fetched (public URL, sha256-verified, no GitHub credentials) before the
+# build, waiting while the artifacts workflow publishes a new tree, and the
+# bundle phase fails when it does not serve a capability the app relies on.
+# CMUX_NEXT_TUI_BIN=<path> bundles a local build instead.
+# cmux-next reads no web API origin, so a local reload provisions no shared
+# GCP backend stack. An explicit mode or CMUX_DEV_BACKEND_URL (the fleet's
+# cmux-ci passes one) still wins.
+if [[ -z "${CMUX_DEV_BACKEND_MODE:-}" && -z "${CMUX_DEV_BACKEND_URL:-}" ]]; then
+  export CMUX_DEV_BACKEND_MODE=local
+fi
+# The cmuxterm-hq local build guard refuses xcodebuild/cargo below 500 GiB
+# free on the home volume unless CMUX_ALLOW_LOW_SPACE_BUILD=1. That floor is
+# sized for the legacy app and many agents at once. A cold cmux-next tagged
+# build (2026-09-29, tag nxpipe) left 5.8 GiB of DerivedData and lowered
+# free space by at most 10.6 GiB while it ran, so cmux-next reloads use their
+# own floor, CMUX_NEXT_MIN_FREE_GIB (default 40 GiB, about 4x that peak), and
+# lift the guard's floor only for this build.
+cmux_next_min_free_gib="${CMUX_NEXT_MIN_FREE_GIB:-40}"
+[[ "$cmux_next_min_free_gib" =~ ^[0-9]+$ ]] \
+  || { echo "error: CMUX_NEXT_MIN_FREE_GIB must be a whole number of GiB" >&2; exit 1; }
+cmux_next_free_gib="$(df -Pk "$HOME" | awk 'NR==2{print int($4/1048576)}')"
+if (( cmux_next_free_gib < cmux_next_min_free_gib )); then
+  echo "error: cmux-next build needs ${cmux_next_min_free_gib} GiB free on the home volume; ${cmux_next_free_gib} GiB free." >&2
+  echo "       Free space (skills/build-release/cleanup-dev-builds in cmuxterm-hq) or build on the fleet with cmux-ci." >&2
+  exit 1
+fi
+if [[ "${CMUX_ALLOW_LOW_SPACE_BUILD:-}" != "1" ]]; then
+  echo "==> cmux-next floor: ${cmux_next_free_gib} GiB free >= ${cmux_next_min_free_gib} GiB; lifting the local build guard's 500 GiB floor for this build"
+  export CMUX_ALLOW_LOW_SPACE_BUILD=1
+fi
+if [[ -n "${CMUX_NEXT_TUI_BIN:-}" ]]; then
+  echo "==> cmux-next: bundling cmux-tui from CMUX_NEXT_TUI_BIN=$CMUX_NEXT_TUI_BIN"
+else
+  "$PWD/scripts/cmux-next/pin-cmux-tui.sh" fetch || exit 1
+fi
+
+# cmux-next's agent pane starts the acpmux daemon from Resources/bin. CI and
+# reload-build provision CMUX_NEXT_ACPMUX_BIN from the in-tree source; a
+# tagged reload outside CI may reuse that commit-addressed cache, but never runs
+# Cargo on the developer machine.
+if [[ -n "${CMUX_NEXT_ACPMUX_BIN:-}" ]]; then
+  echo "==> cmux-next: bundling acpmux from CMUX_NEXT_ACPMUX_BIN=$CMUX_NEXT_ACPMUX_BIN"
+elif [[ -x "$PWD/scripts/cmux-next/build-acpmux.sh" ]]; then
+  if acpmux_cached="$("$PWD/scripts/cmux-next/build-acpmux.sh" --cached-only --print-path 2>/dev/null)"; then
+    export CMUX_NEXT_ACPMUX_BIN="$acpmux_cached"
+    echo "==> cmux-next: bundling cached acpmux from $CMUX_NEXT_ACPMUX_BIN"
+  elif [[ "${GITHUB_ACTIONS:-false}" == "true" || "${CI:-}" == "true" || -n "${CMUX_FLEET_BUILD_TAG:-}" ]]; then
+    "$PWD/scripts/cmux-next/build-acpmux.sh"
+    export CMUX_NEXT_ACPMUX_BIN="$("$PWD/scripts/cmux-next/build-acpmux.sh" --cached-only --print-path)"
+    echo "==> cmux-next: bundling fleet-built acpmux from $CMUX_NEXT_ACPMUX_BIN"
+  else
+    echo "error: no cached acpmux for this checkout; provision it on CI/fleet or set CMUX_NEXT_ACPMUX_BIN" >&2
     exit 1
   fi
 fi
+
+# The Home Chief's brain host (Native/OptChat/optchat-chief, see
+# HomeBrainHost.swift). Fleet and CI builds compile it and require it in the
+# bundle; a local reload bundles a cached build when one exists and otherwise
+# builds an app whose Chief does not answer (never Cargo on the developer Mac).
+if [[ -z "${CMUX_NEXT_OPTCHAT_CHIEF_BIN:-}" && -x "$PWD/scripts/cmux-next/build-optchat-chief.sh" ]]; then
+  if optchat_cached="$("$PWD/scripts/cmux-next/build-optchat-chief.sh" --cached-only --print-path 2>/dev/null)"; then
+    export CMUX_NEXT_OPTCHAT_CHIEF_BIN="$optchat_cached"
+  elif [[ "${GITHUB_ACTIONS:-false}" == "true" || "${CI:-}" == "true" || -n "${CMUX_FLEET_BUILD_TAG:-}" ]]; then
+    "$PWD/scripts/cmux-next/build-optchat-chief.sh"
+    export CMUX_NEXT_OPTCHAT_CHIEF_BIN="$("$PWD/scripts/cmux-next/build-optchat-chief.sh" --cached-only --print-path)"
+    export CMUX_NEXT_REQUIRE_OPTCHAT_CHIEF=1
+  fi
+fi
+[[ -n "${CMUX_NEXT_OPTCHAT_CHIEF_BIN:-}" ]] && echo "==> cmux-next: bundling optchat-chief from $CMUX_NEXT_OPTCHAT_CHIEF_BIN"
 
 CMUX_DEV_PORT="$(choose_cmux_dev_port)"
 CMUX_DEV_PORT_RANGE="$(choose_cmux_dev_port_range)"
@@ -1532,9 +1590,6 @@ fi
 # summary after the body redirect, then redirect bulk output into the log.
 exec 3>&1 4>&2
 exec >>"$RELOAD_LOG" 2>&1
-if [[ -n "$CMUX_TUI_CLIENT_RESOLVE_LOG" ]]; then
-  printf '%s\n' "$CMUX_TUI_CLIENT_RESOLVE_LOG"
-fi
 
 reload_finalize() {
   local rc=$?
@@ -2065,11 +2120,7 @@ fi
 
 CLI_PATH="$(dirname "$APP_PATH")/cmux"
 
-# Build cmuxd and ensure helper binaries are present (needed for both launch and no-launch).
-CMUXD_SRC="$PWD/cmuxd/zig-out/bin/cmuxd"
-if [[ -d "$PWD/cmuxd" ]]; then
-  (cd "$PWD/cmuxd" && zig build -Doptimize=ReleaseFast)
-fi
+# Ensure helper binaries are present (needed for both launch and no-launch).
 if [[ -d "$PWD/ghostty" ]]; then
   BIN_DIR="$APP_PATH/Contents/Resources/bin"
   GHOSTTY_HELPER_DEST="$BIN_DIR/ghostty"
@@ -2090,50 +2141,22 @@ else
   mkdir -p "$BIN_DIR"
   "$PWD/scripts/build-cmux-cua.sh" --output "$CMUX_CUA_DEST"
 fi
-if [[ -x "$CMUXD_SRC" ]]; then
-  BIN_DIR="$APP_PATH/Contents/Resources/bin"
-  mkdir -p "$BIN_DIR"
-  cp "$CMUXD_SRC" "$BIN_DIR/cmuxd"
-  chmod +x "$BIN_DIR/cmuxd"
-fi
-# The cmux-tui client the Machines panel uses for cloud sessions ships inside the
-# bundle like the Ghostty helper. Resolve its published inputs from this source
-# history unless CMUX_TUI_CLIENT_MANIFEST_URL / CMUX_TUI_CLIENT_LOCAL overrides it.
-# CMUX_SKIP_CMUX_TUI_CLIENT=1 preserves an existing copy for offline reloads.
-if [[ "${CMUX_SKIP_CMUX_TUI_CLIENT:-}" == "1" && -x "$APP_PATH/Contents/Resources/bin/cmux-tui" ]]; then
-  echo "Preserving bundled cmux-tui client (CMUX_SKIP_CMUX_TUI_CLIENT=1)"
-else
-  # Local Debug builds run on this Mac; fetch only its client slice. The
-  # installer's universal default remains available to distribution workflows.
-  cmux_tui_install_args=(
-    "$APP_PATH"
-    --arch native
-    --require-capability wireguard-hub
-    --require-capability browser-proxy
-  )
-  if [[ -n "$CMUX_TUI_CLIENT_MANIFEST_URL_VALUE" ]]; then
-    cmux_tui_install_args+=(
-      --manifest-url "$CMUX_TUI_CLIENT_MANIFEST_URL_VALUE"
-    )
-  elif [[ -z "${CMUX_TUI_CLIENT_MANIFEST_URL:-}" && -z "${CMUX_TUI_CLIENT_LOCAL:-}" ]]; then
-    # Resolved before the build unless CMUX_SKIP_CMUX_TUI_CLIENT=1 deferred it.
-    if [[ -z "$CMUX_TUI_CLIENT_COMMIT" ]]; then
-      CMUX_TUI_CLIENT_COMMIT="$(resolve_cmux_tui_client_commit)" || exit 1
-    fi
-    cmux_tui_manifest_base="${CMUX_TUI_CLIENT_MANIFEST_BASE:-https://files.cmux.com/cmux-tui}"
-    cmux_tui_install_args+=(
-      --manifest-url "${cmux_tui_manifest_base%/}/$CMUX_TUI_CLIENT_COMMIT/manifest.json"
-      --expected-commit "$CMUX_TUI_CLIENT_COMMIT"
-    )
-  fi
-  # The installer verifies the published manifest's build-provenance attestation
-  # through gh. A dev Mac without an authenticated gh is the one explicit
-  # exception; the installer prints the unattested warning in that case.
-  if ! command -v gh >/dev/null 2>&1 || ! gh auth token >/dev/null 2>&1; then
-    cmux_tui_install_args+=(--allow-unattested)
-  fi
-  "$PWD/scripts/install-cmux-tui-client.sh" "${cmux_tui_install_args[@]}"
-fi
+# A dev build uses a Developer ID helper from an installed release, NIGHTLY or
+# RC, or none. Drop an ad-hoc helper an older build left in this app.
+"$PWD/scripts/cmux-cua-helper-trust.sh" drop-unsigned "$APP_PATH"
+# The Bundle cmux-tui phase already placed the same-tree cmux-tui (or the pin
+# with CMUX_NEXT_TUI_MODE=pin, or CMUX_NEXT_TUI_BIN); refuse anything else.
+cmux_next_tui_version="$APP_PATH/Contents/Resources/bin/cmux-tui.version"
+cmux_next_tui_source="$(awk -F= '$1=="source"{print $2}' "$cmux_next_tui_version" 2>/dev/null || true)"
+case "$cmux_next_tui_source" in
+  tree-hosted|tree-local-build|pinned-hosted|override)
+    echo "Bundled cmux-tui: $(tr '\n' ' ' < "$cmux_next_tui_version")"
+    ;;
+  *)
+    echo "error: cmux-next bundle carries cmux-tui source '${cmux_next_tui_source:-none}', not the same-tree hosted build; see $cmux_next_tui_version" >&2
+    exit 1
+    ;;
+esac
 "$PWD/scripts/install-coderouter-client.sh" "$APP_PATH"
 if command -v xattr >/dev/null 2>&1; then
   xattr -cr "$APP_PATH" || true
@@ -2146,6 +2169,9 @@ if ! /usr/bin/codesign --force --sign - --timestamp=none --generate-entitlement-
     exit 1
   fi
 fi
+# The browser host the bundle phase placed beside bin/cmux (the daemon runs its
+# sibling): present, signed like the daemon, and `version` runs.
+"$PWD/scripts/cmux-next/check-bundled-browser-host.sh" "$APP_PATH" || exit 1
 
 TAG_LAUNCHD_LABEL=""
 TAG_LAUNCHD_DOMAIN=""
@@ -2159,20 +2185,12 @@ fi
 # that path first can make Bundle.module trap during startup while the old
 # process is still initializing.
 if [[ -n "$TAG" && "$BUILD_ONLY" -ne 1 ]]; then
-  /usr/bin/osascript -e "tell application id \"${BUNDLE_ID}\" to quit" >/dev/null 2>&1 || true
-  sleep 0.3
   TAG_PROCESS_PATTERN="${APP_NAME}.app/Contents/MacOS/${PRODUCT_APP_NAME}"
-  pkill -f "$TAG_PROCESS_PATTERN" || true
-  for _ in {1..20}; do
-    if ! pgrep -f "$TAG_PROCESS_PATTERN" >/dev/null 2>&1; then
-      break
-    fi
-    sleep 0.1
-  done
-  # A startup process may not service its quit event yet. Do not replace the
-  # resource-bearing bundle while it is still mapped; force only this tagged
-  # executable after the bounded graceful window.
-  pkill -KILL -f "$TAG_PROCESS_PATTERN" >/dev/null 2>&1 || true
+  # A startup process may not service its quit request yet. Do not replace the
+  # resource-bearing bundle while it is still mapped; the helper forces only
+  # this tag's executables after a bounded graceful window.
+  cmux_stop_app_instances "$BUNDLE_ID" "$TAG_PROCESS_PATTERN" \
+    "${XCODEBUILD_SOURCE_APP_PATH:+$XCODEBUILD_SOURCE_APP_PATH/Contents/MacOS/${PRODUCT_APP_NAME}}"
   # Tagged --launch runs are handed off to launchd so they survive the terminal
   # or automation process that invoked reload.sh. Remove a still-registered
   # prior job before publishing the replacement bundle.
@@ -2187,6 +2205,13 @@ if [[ "$BUILD_ONLY" -eq 1 && -n "${TAG_APP_STAGING_PATH:-}" ]]; then
 elif [[ -n "${TAG_APP_FINAL_PATH:-}" && -n "${TAG_APP_STAGING_PATH:-}" ]]; then
   rm -rf "$TAG_APP_FINAL_PATH"
   mv "$TAG_APP_STAGING_PATH" "$TAG_APP_FINAL_PATH"
+  # xcodebuild registered its raw product under the tag's bundle id. Leave the
+  # tagged bundle as the only one, so a launch by bundle id (notification
+  # click, URL, Dock) never starts the raw copy without the tagged environment.
+  if [[ -n "${XCODEBUILD_SOURCE_APP_PATH:-}" && -d "$XCODEBUILD_SOURCE_APP_PATH" ]]; then
+    /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
+      -u "$XCODEBUILD_SOURCE_APP_PATH" >/dev/null 2>&1 || true
+  fi
   APP_PATH="$TAG_APP_FINAL_PATH"
 fi
 CLI_PATH="$APP_PATH/Contents/Resources/bin/cmux"
@@ -2231,10 +2256,7 @@ fi
 if [[ "$LAUNCH" -eq 1 ]]; then
   if [[ -z "$TAG" ]]; then
     # Non-tag mode: kill any running instance (across any DerivedData path) to avoid socket conflicts.
-    /usr/bin/osascript -e "tell application id \"${BUNDLE_ID}\" to quit" >/dev/null 2>&1 || true
-    sleep 0.3
-    pkill -f "/${BASE_APP_NAME}.app/Contents/MacOS/${BASE_APP_NAME}" || true
-    sleep 0.3
+    cmux_stop_app_instances "$BUNDLE_ID" "/${BASE_APP_NAME}.app/Contents/MacOS/${BASE_APP_NAME}"
   fi
 
   # Avoid inheriting cmux/ghostty environment variables from the terminal that
@@ -2316,6 +2338,11 @@ if [[ "$LAUNCH" -eq 1 ]]; then
   )
   if [[ "$PROD_AUTH" -eq 1 ]]; then
     TAG_LAUNCH_ENV+=(CMUX_AUTH_ENVIRONMENT=production)
+  fi
+  # cmux-next Debug builds load the agent pane from this loopback Vite dev
+  # server instead of the bundled page (webviews/src/agent-session/acpmux/README.md).
+  if [[ -n "${CMUX_NEXT_AGENT_PANE_DEV_URL:-}" ]]; then
+    TAG_LAUNCH_ENV+=(CMUX_NEXT_AGENT_PANE_DEV_URL="$CMUX_NEXT_AGENT_PANE_DEV_URL")
   fi
   if [[ -n "$AUTH_CREDENTIALS_FILE" ]]; then
     TAG_LAUNCH_ENV+=(CMUX_AUTH_CREDENTIALS_FILE="$AUTH_CREDENTIALS_FILE")

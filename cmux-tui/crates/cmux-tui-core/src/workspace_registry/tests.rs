@@ -605,22 +605,21 @@ fn terminal_host_reset_holds_structured_live_marker_lock() {
     fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
     let uid = fs::metadata(&root).unwrap().uid();
     let terminal_id = TERMINAL_ONE;
-    let incarnation = INCARNATION_ONE;
-    let host_start_nonce = "02".repeat(32);
     let record = crate::terminal_host_runtime::TerminalHostRecord {
         record_version: 2,
         terminal_id: terminal_id.to_string(),
-        incarnation: incarnation.to_string(),
+        incarnation: INCARNATION_ONE.to_string(),
         endpoint: format!("/tmp/cmux-th-{uid}/{terminal_id}.sock"),
         owner_token: "01".repeat(32),
         host_pid: std::process::id(),
-        host_start_nonce,
+        host_start_nonce: "02".repeat(32),
         workspace_key: String::new(),
         supports_set_defaults: true,
         supports_clear_history: true,
         supports_terminate_ack: false,
         supports_input_ack: false,
         supports_terminal_metadata: false,
+        supports_clipboard_read: false,
         supports_viewer_size_priority: false,
     };
     let record_path = record.record_path(&root);
@@ -717,6 +716,7 @@ fn terminal_host_reset_checks_legacy_live_marker_as_orphan() {
         supports_terminate_ack: false,
         supports_input_ack: false,
         supports_terminal_metadata: false,
+        supports_clipboard_read: false,
         supports_viewer_size_priority: false,
     };
     let record_path = record.record_path(&root);
@@ -812,12 +812,11 @@ fn reset_accepts_dead_v2_terminal_host_without_creating_live_marker() {
     fs::set_permissions(&host_root, fs::Permissions::from_mode(0o700)).unwrap();
     crate::terminal_host_runtime::prepare_terminal_host_publication_lock(&host_root).unwrap();
     let uid = fs::metadata(&host_root).unwrap().uid();
-    let terminal_id = TERMINAL_ONE;
     let record = crate::terminal_host_runtime::TerminalHostRecord {
         record_version: 2,
-        terminal_id: terminal_id.to_string(),
+        terminal_id: TERMINAL_ONE.to_string(),
         incarnation: INCARNATION_ONE.to_string(),
-        endpoint: format!("/tmp/cmux-th-{uid}/{terminal_id}.sock"),
+        endpoint: format!("/tmp/cmux-th-{uid}/{TERMINAL_ONE}.sock"),
         owner_token: "01".repeat(32),
         host_pid: u32::MAX,
         host_start_nonce: "02".repeat(32),
@@ -827,6 +826,7 @@ fn reset_accepts_dead_v2_terminal_host_without_creating_live_marker() {
         supports_terminate_ack: false,
         supports_input_ack: false,
         supports_terminal_metadata: false,
+        supports_clipboard_read: false,
         supports_viewer_size_priority: false,
     };
     let record_path = record.record_path(&host_root);
@@ -1125,10 +1125,10 @@ fn workspace_commit_publishes_one_normalized_resource_event() {
     assert_eq!(events.batches.len(), 1);
     assert_eq!(events.batches[0].previous_revision, 0);
     assert_eq!(events.batches[0].revision, 1);
-    assert_eq!(events.batches[0].changes.as_array().unwrap().len(), 1);
-    assert_eq!(events.batches[0].changes[0]["kind"], "upsert");
-    assert_eq!(events.batches[0].changes[0]["resource"], "workspace");
-    assert!(events.batches[0].changes[0].get("event").is_none());
+    let c = events.batches[0].changes.as_array().unwrap();
+    assert_eq!([&c[0]["kind"], &c[1]["kind"]], ["upsert", "state_upsert"], "{c:?}");
+    assert_eq!([&c[0]["resource"], &c[1]["resource"]], ["workspace", "workspace_placement"]);
+    assert!(c[0].get("event").is_none() && c.len() == 2);
     assert_eq!(
         registry
             .connection
@@ -1478,18 +1478,14 @@ fn viewport_screen() -> RegistryScreen {
         viewport: RegistryViewport {
             base_width: Some(1.0),
             columns: vec![
-                RegistryViewportColumn {
-                    id: base_column,
-                    width: 1.0,
-                    layout: first_column,
-                    auto_layout: None,
-                },
-                RegistryViewportColumn {
-                    id: boundary,
-                    width: 0.5,
-                    layout: RegistryLayoutNode::Leaf { pane: third },
-                    auto_layout: Some(vec![pane_id(3)]),
-                },
+                RegistryViewportColumn::new(base_column, 1.0, first_column, None, None),
+                RegistryViewportColumn::new(
+                    boundary,
+                    0.5,
+                    RegistryLayoutNode::Leaf { pane: third },
+                    Some(vec![pane_id(3)]),
+                    None,
+                ),
             ],
         },
     }
@@ -2195,6 +2191,7 @@ fn completed_creation_counts_in_the_boundary_replay_window() {
             &json!({"kind":"test","id":"boundary"}),
             &json!([]),
             None,
+            None,
         )
         .unwrap();
     assert_eq!(
@@ -2300,6 +2297,7 @@ fn startup_mutation_compaction_preserves_recovery_authorities_and_recent_replay(
                 &json!({"created":true}),
                 &created_path,
                 &json!([]),
+                None,
                 None,
             )
             .unwrap();
@@ -3834,6 +3832,121 @@ fn registries_created_before_on_exit_gain_the_column_with_close_default() {
     fs::remove_dir_all(root).unwrap();
 }
 
+/// Registries created before the workspace pin existed gain the column on
+/// open; every pre-existing presentation row stays unpinned.
+#[test]
+fn registries_created_before_workspace_pin_gain_the_column_unpinned() {
+    let root = temp_root("workspace-pin-column-migration");
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        seed_workspace(&mut registry, "one");
+    }
+
+    // Recreate the pre-pin table shape with one titled workspace.
+    let session_dir = root.join(session_storage_component("session"));
+    let connection = Connection::open(session_dir.join("workspace-registry.sqlite3")).unwrap();
+    connection
+        .execute_batch(
+            "DROP TABLE workspace_presentation;
+             CREATE TABLE workspace_presentation (
+               workspace_key TEXT PRIMARY KEY NOT NULL,
+               group_id TEXT,
+               color TEXT,
+               icon TEXT,
+               title TEXT
+             );
+             INSERT INTO workspace_presentation(workspace_key, title) VALUES('one', 'Build');",
+        )
+        .unwrap();
+    drop(connection);
+
+    let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+    let record = registry.presentation_snapshot().unwrap().workspace("one").cloned().unwrap();
+    assert_eq!(record.title.as_deref(), Some("Build"));
+    assert!(!record.pinned);
+
+    // The migrated column stores and reloads a pin.
+    let update = WorkspacePresentationUpdate { pinned: Some(true), ..Default::default() };
+    registry
+        .commit_workspace_presentation(
+            &WorkspaceMutation::new("pin-one", "test").unwrap(),
+            &json!({"op":"set-workspace-metadata","key":"one","pinned":true}),
+            None,
+            None,
+            "workspace-changed",
+            "one",
+            &[workspace(1, "one", "Workspace")],
+            Some(&workspace(1, "one", "Workspace").public_id),
+            &update,
+            &json!({"key":"one"}),
+        )
+        .unwrap();
+    drop(registry);
+    let registry = WorkspaceRegistry::open(&root, "session").unwrap();
+    let record = registry.presentation_snapshot().unwrap().workspace("one").cloned().unwrap();
+    assert_eq!(record.title.as_deref(), Some("Build"));
+    assert!(record.pinned);
+    drop(registry);
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// Registries created with the pin but before the manual unread mark gain
+/// that column on open; existing rows keep their pin and stay unmarked.
+#[test]
+fn registries_created_before_marked_unread_gain_the_column_unmarked() {
+    let root = temp_root("workspace-marked-unread-column-migration");
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        seed_workspace(&mut registry, "one");
+    }
+
+    let session_dir = root.join(session_storage_component("session"));
+    let connection = Connection::open(session_dir.join("workspace-registry.sqlite3")).unwrap();
+    connection
+        .execute_batch(
+            "DROP TABLE workspace_presentation;
+             CREATE TABLE workspace_presentation (
+               workspace_key TEXT PRIMARY KEY NOT NULL,
+               group_id TEXT,
+               color TEXT,
+               icon TEXT,
+               title TEXT,
+               pinned INTEGER NOT NULL DEFAULT 0 CHECK(pinned IN (0,1))
+             );
+             INSERT INTO workspace_presentation(workspace_key, pinned) VALUES('one', 1);",
+        )
+        .unwrap();
+    drop(connection);
+
+    let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+    let record = registry.presentation_snapshot().unwrap().workspace("one").cloned().unwrap();
+    assert!(record.pinned);
+    assert!(!record.marked_unread);
+
+    let update = WorkspacePresentationUpdate { marked_unread: Some(true), ..Default::default() };
+    registry
+        .commit_workspace_presentation(
+            &WorkspaceMutation::new("mark-one", "test").unwrap(),
+            &json!({"op":"set-workspace-metadata","key":"one","marked_unread":true}),
+            None,
+            None,
+            "workspace-changed",
+            "one",
+            &[workspace(1, "one", "Workspace")],
+            Some(&workspace(1, "one", "Workspace").public_id),
+            &update,
+            &json!({"key":"one"}),
+        )
+        .unwrap();
+    drop(registry);
+    let registry = WorkspaceRegistry::open(&root, "session").unwrap();
+    let record = registry.presentation_snapshot().unwrap().workspace("one").cloned().unwrap();
+    assert!(record.pinned);
+    assert!(record.marked_unread);
+    drop(registry);
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn schema_14_legacy_terminal_exit_metadata_migrates_to_exact_receipt() {
     let root = temp_root("legacy-terminal-exit-migration");
@@ -3974,6 +4087,13 @@ fn startup_repairs_legacy_terminal_close_dangling_resource_rows() {
     assert_eq!(events.batches.len(), 1);
     assert_eq!(events.batches[0].revision, 2);
     assert_eq!(events.batches[0].changes[0]["resource"], "terminal");
+    // The tab that still showed the closed terminal is retired with it, so the
+    // registry satisfies the live-content invariant and opens.
+    assert_eq!(events.batches[0].changes[1]["kind"], "delete");
+    assert_eq!(events.batches[0].changes[1]["resource"], "tab");
+    assert_eq!(events.batches[0].changes[1]["id"], tab_id(1).as_str());
+    assert!(topology.tabs.is_empty(), "tab of the closed terminal remained live: {topology:?}");
+    assert!(topology.panes.iter().all(|pane| pane.active_tab.is_none()));
     let live_terminals: i64 = reopened
         .connection
         .query_row(
@@ -3997,6 +4117,90 @@ fn startup_repairs_legacy_terminal_close_dangling_resource_rows() {
         .unwrap();
     assert!(resource_deleted.is_some());
     assert_eq!(identity_deleted, resource_deleted);
+    drop(reopened);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn startup_repair_retires_a_dangling_terminal_tab_and_selects_its_sibling() {
+    let root = temp_root("terminal-close-dangling-sibling");
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        let pane = pane_id(1);
+        let second_terminal = terminal_resource(TERMINAL_TWO);
+        let mut patch = terminal_topology_patch();
+        patch.changes.retain(|change| !matches!(change, ResourceChange::SetTabOrder { .. }));
+        patch.changes.push(ResourceChange::UpsertTerminal {
+            public_id: second_terminal.clone(),
+            terminal: terminal(TERMINAL_TWO, "one"),
+        });
+        patch.changes.push(ResourceChange::UpsertTab(RegistryTab {
+            name_source: Default::default(),
+            name_revision: 0,
+            public_id: tab_id(2),
+            pane_id: pane.clone(),
+            position: 1,
+            content_id: ContentPublicId::Terminal(second_terminal),
+            name: Some("zsh".into()),
+            browser_url: None,
+            terminal_id: Some(TERMINAL_TWO.into()),
+        }));
+        patch.changes.push(ResourceChange::SetTabOrder {
+            pane_id: pane,
+            tab_ids: vec![tab_id(1), tab_id(2)],
+        });
+        registry
+            .commit_resource_patch(
+                &WorkspaceMutation::new("seed-two-tabs", "test").unwrap(),
+                "workspace.create",
+                &json!({"operation":"workspace.create","name":"One"}),
+                None,
+                Some(0),
+                &patch,
+                &json!({"workspace_id":workspace(1, "one", "One").public_id}),
+                &json!([{"kind":"workspace.created"}]),
+            )
+            .unwrap();
+        let mutation = WorkspaceMutation::new("legacy-host-only-close", "legacy-client").unwrap();
+        registry.close_terminal(&mutation, None, Some(0), TERMINAL_ONE, None).unwrap();
+    }
+
+    let reopened = WorkspaceRegistry::open(&root, "session").unwrap();
+    let topology = reopened.resource_topology_snapshot().unwrap();
+    assert_eq!(topology.tabs.len(), 1, "{topology:?}");
+    assert_eq!(topology.tabs[0].public_id, tab_id(2));
+    assert_eq!(topology.tabs[0].position, 0);
+    assert_eq!(topology.panes[0].active_tab, Some(tab_id(2)));
+    let changes = &reopened.resource_events_after(1).unwrap().batches[0].changes;
+    assert_eq!(changes[0]["resource"], "terminal");
+    assert_eq!(changes[1]["resource"], "tab");
+    assert_eq!(changes[1]["id"], tab_id(1).as_str());
+    // Event-feed clients hold the pre-restart graph. The repair batch must
+    // restate the surviving sibling (its index and focus moved) and the
+    // screen whose layout lists the pane's tabs, or they stay stale until the
+    // next full projection.
+    let changes = changes.as_array().unwrap();
+    let upsert = |resource: &str, id: &str| {
+        changes
+            .iter()
+            .find(|change| {
+                change["kind"] == "upsert" && change["resource"] == resource && change["id"] == id
+            })
+            .unwrap_or_else(|| panic!("repair batch restates {resource} {id}: {changes:?}"))
+    };
+    let sibling = upsert("tab", tab_id(2).as_str());
+    assert_eq!(sibling["value"]["index"], 0);
+    assert_eq!(sibling["value"]["focused"], true);
+    assert_eq!(sibling["value"]["pane_id"], pane_id(1).as_str());
+    let screen_id = topology.panes[0].screen_id.as_str();
+    let screen = upsert("screen", screen_id);
+    let leaf = &screen["value"]["layout"]["root"];
+    assert_eq!(leaf["kind"], "leaf");
+    assert_eq!(leaf["tab_ids"], json!([tab_id(2).as_str()]));
+    assert_eq!(leaf["active_tab_id"], tab_id(2).as_str());
+    for (sequence, change) in changes.iter().enumerate() {
+        assert_eq!(change["sequence"], sequence);
+    }
     drop(reopened);
     fs::remove_dir_all(root).unwrap();
 }
@@ -6071,3 +6275,45 @@ fn long_database_descendant_is_normalized_even_when_root_is_short() {
         assert!(path.to_string_lossy().starts_with(r"\\?\C:\"), "{}", path.display());
     }
 }
+
+const TERMINAL_THREE: &str = "00000000000040008000000000000003";
+
+fn forget_terminal_keep_classification(registry: &WorkspaceRegistry) {
+    registry
+        .connection
+        .execute_batch(
+            "DELETE FROM meta WHERE key = 'terminal_keep_classified';
+             DELETE FROM terminal_keep;",
+        )
+        .unwrap();
+}
+
+#[test]
+fn terminal_keep_legacy_classification_keeps_only_unplaced_terminals() {
+    let root = temp_root("terminal-keep-classify");
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "terminal-keep").unwrap();
+        // TERMINAL_ONE has a live tab; TERMINAL_TWO is registered without one.
+        commit_terminal_topology(&mut registry, "create-placed-terminal");
+        let revision = registry.terminal_revision().unwrap();
+        reserve_terminal(&mut registry, TERMINAL_TWO, revision);
+        // Simulate a registry written before terminal-reap-v1.
+        forget_terminal_keep_classification(&registry);
+    }
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "terminal-keep").unwrap();
+        assert!(!registry.terminal_keep(TERMINAL_ONE).unwrap(), "a placed terminal stays reapable");
+        assert!(registry.terminal_keep(TERMINAL_TWO).unwrap(), "detached work survives upgrade");
+        // Terminals created after classification default to reapable, and a
+        // later open never classifies again.
+        let revision = registry.terminal_revision().unwrap();
+        reserve_terminal(&mut registry, TERMINAL_THREE, revision);
+    }
+    let registry = WorkspaceRegistry::open(&root, "terminal-keep").unwrap();
+    assert!(!registry.terminal_keep(TERMINAL_THREE).unwrap());
+    assert!(registry.terminal_keep(TERMINAL_TWO).unwrap());
+    drop(registry);
+    fs::remove_dir_all(root).unwrap();
+}
+
+mod terminal_keep_tests;

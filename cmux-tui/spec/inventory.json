@@ -27,14 +27,27 @@
     "client.metadata.update",
     "client.sizing.release",
     "client.sizing.set",
+    "closed.list",
+    "closed.reopen",
+    "column.update",
     "frontend_projection.get",
     "frontend_projection.put",
+    "git.checkpoint.create",
+    "git.checkpoint.diff",
+    "git.checkpoint.get",
+    "git.checkpoint.list",
+    "git.checkpoint.pin",
+    "git.checkpoint.unpin",
+    "git.diff",
+    "git.files.search",
+    "git.status",
     "machine.get",
     "machine.list",
     "notification.ack",
     "notification.clear",
     "notification.create",
     "notification.list",
+    "origin.confirmation.issue",
     "pairing_request.list",
     "pairing_request.resolve",
     "pane.close",
@@ -52,6 +65,18 @@
     "pane.viewport_width.set",
     "pane.zoom",
     "request.cancel",
+    "room.create",
+    "room.delete",
+    "room.follow",
+    "room.list",
+    "room.move",
+    "room.pin",
+    "room.unpin",
+    "room.update",
+    "saved_tab_group.delete",
+    "saved_tab_group.list",
+    "saved_tab_group.reopen",
+    "saved_tab_group.save",
     "screen.close",
     "screen.create",
     "screen.focus",
@@ -59,7 +84,16 @@
     "screen.layout.export",
     "screen.layout.undo",
     "screen.list",
+    "screen.move",
     "screen.rename",
+    "screen.update",
+    "screen_group.add_screens",
+    "screen_group.create",
+    "screen_group.get",
+    "screen_group.list",
+    "screen_group.remove_screens",
+    "screen_group.ungroup",
+    "screen_group.update",
     "session.creation.resolve",
     "session.events",
     "session.get",
@@ -83,6 +117,8 @@
     "session.terminal_defaults.update",
     "session.window.title.clear",
     "session.window.title.set",
+    "sidebar_layout.get",
+    "sidebar_layout.update",
     "sidebar_view.attach",
     "sidebar_view.ensure",
     "sidebar_view.get",
@@ -97,7 +133,19 @@
     "tab.get",
     "tab.list",
     "tab.move",
+    "tab.pin",
     "tab.rename",
+    "tab.unpin",
+    "tab.update",
+    "tab_group.add_tabs",
+    "tab_group.close",
+    "tab_group.create",
+    "tab_group.get",
+    "tab_group.list",
+    "tab_group.move",
+    "tab_group.remove_tabs",
+    "tab_group.ungroup",
+    "tab_group.update",
     "terminal.attach",
     "terminal.close",
     "terminal.copy",
@@ -121,15 +169,36 @@
     "terminal.viewport.scroll",
     "terminal.wait",
     "terminal.wait_exit",
+    "window_record.delete",
+    "window_record.list",
+    "window_record.put",
+    "workspace.agent_folder.set",
     "workspace.close",
     "workspace.create",
+    "workspace.ensure_home",
     "workspace.focus",
     "workspace.get",
     "workspace.layout.apply",
     "workspace.list",
     "workspace.move",
+    "workspace.place",
+    "workspace.placement.list",
     "workspace.rename",
-    "workspace.run"
+    "workspace.run",
+    "workspace.update",
+    "workspace_group.create",
+    "workspace_group.delete",
+    "workspace_group.list",
+    "workspace_group.move",
+    "workspace_group.update",
+    "workspace_log.append",
+    "workspace_log.clear",
+    "workspace_log.list",
+    "workspace_progress.clear",
+    "workspace_progress.set",
+    "workspace_status.clear",
+    "workspace_status.list",
+    "workspace_status.set"
   ],
   "profiles": {
     "control": "Base authenticated session-control commands available to ordinary SDK clients.",
@@ -139,41 +208,91 @@
   },
   "commands": {
     "control": [
+      "ack-tab-notifications",
+      "add-screens-to-screen-group",
+      "add-tabs-to-tab-group",
       "apply-layout",
+      "bind-conversation-tab-session",
       "clear-history",
       "clear-window-title",
       "client-focus",
       "close-pane",
       "close-screen",
+      "close-screen-group",
       "close-surface",
+      "close-tab-group",
+      "close-tabs",
       "close-terminal",
       "close-workspace",
       "copy",
+      "create-bookmark",
+      "create-browser-profile",
+      "create-personal-group",
+      "create-profile",
+      "create-screen-group",
       "create-surface-with-receipt",
+      "create-tab-group",
       "create-terminal",
       "create-workspace",
+      "create-workspace-group",
+      "delete-bookmark",
+      "delete-browser-profile",
+      "delete-personal-group",
+      "delete-profile",
+      "delete-saved-screen-group",
+      "delete-saved-tab-group",
+      "delete-workspace-group",
       "detach-client",
       "export-layout",
       "focus-direction",
       "focus-pane",
+      "forget-session",
+      "get-frontend-browser-history",
       "get-frontend-projection",
       "get-size-state",
       "identify",
       "ids",
+      "import-bookmarks",
+      "import-session-organization",
       "journal-frontend-event",
       "list-agents",
+      "list-bookmarks",
       "list-clients",
+      "list-notifications",
+      "list-personal",
+      "list-saved-screen-groups",
+      "list-saved-tab-groups",
+      "list-tab-groups",
       "list-terminals",
+      "list-workspace-groups",
       "list-workspaces",
       "machine-listening-tcp",
       "machine-usage",
+      "move-bookmark",
+      "move-browser-profile",
+      "move-personal-group",
+      "move-profile",
+      "move-screen",
+      "move-screen-group",
       "move-tab",
+      "move-tab-group",
+      "move-tab-group-to-column",
+      "move-tab-group-to-new-workspace",
+      "move-tab-group-to-split",
+      "move-tab-to-column",
+      "move-tab-to-new-workspace",
+      "move-tab-to-split",
       "move-tab-to-workspace",
       "move-terminal",
       "move-workspace",
+      "move-workspace-group",
+      "move-workspace-to-group",
       "new-browser-tab",
+      "new-conversation-tab",
+      "new-frontend-browser-tab",
       "new-pane",
       "new-pane-right",
+      "new-row",
       "new-screen",
       "new-tab",
       "new-workspace",
@@ -181,23 +300,31 @@
       "notify",
       "pane-neighbor",
       "paste-image",
+      "pin-workspace",
       "ping",
       "process-info",
       "put-frontend-projection",
+      "put-session",
       "read-screen",
       "read-scrollback",
       "reattach-view",
       "release-surface-size",
       "reload-config",
+      "remove-screens-from-screen-group",
+      "remove-tabs-from-tab-group",
       "rename-pane",
       "rename-screen",
       "rename-surface",
       "rename-workspace",
+      "reopen-saved-screen-group",
+      "reopen-saved-tab-group",
       "report-agent",
       "report-focus",
       "resize-surface",
       "resolve-terminal",
       "run",
+      "save-screen-group",
+      "save-tab-group",
       "scroll-surface",
       "select-screen",
       "select-tab",
@@ -206,18 +333,45 @@
       "send-key",
       "set-client-info",
       "set-client-sizing",
+      "set-column-dock",
       "set-default-colors",
+      "set-frontend-browser-history",
+      "set-personal-terminal",
+      "set-personal-workspace",
+      "set-profile-follows",
       "set-ratio",
+      "set-row-heights",
+      "set-screen-metadata",
+      "set-screen-pinned",
       "set-size-counts",
       "set-size-policy",
       "set-split-ratio",
+      "set-tab-pinned",
       "set-terminal-idle-policy",
+      "set-terminal-keep",
       "set-viewport-pane-width",
       "set-window-title",
+      "set-workspace-metadata",
       "split",
       "swap-pane",
       "terminal-events",
+      "terminal-history",
+      "terminal-read-range",
+      "terminal-resources",
       "undo-layout",
+      "ungroup-screen-group",
+      "ungroup-tab-group",
+      "unpin-workspace",
+      "unsave-screen-group",
+      "unsave-tab-group",
+      "update-bookmark",
+      "update-browser-profile",
+      "update-frontend-browser-tab",
+      "update-personal-group",
+      "update-profile",
+      "update-screen-group",
+      "update-tab-group",
+      "update-workspace-group",
       "vt-state",
       "wait-for",
       "zoom-pane"
@@ -248,16 +402,45 @@
       "detach-attached-view",
       "url-open-subscribe",
       "url-open-claim",
-      "url-open-result"
+      "url-open-result",
+      "terminal-clipboard-subscribe",
+      "terminal-clipboard-reply",
+      "snapshot-request"
     ],
     "local-admin": [
       "server-stats",
+      "subscribe-activity",
+      "set-terminal-command-history",
       "register-browser-provider",
       "get-browser-provider",
       "unregister-browser-provider",
       "shutdown-daemon",
       "pairing-response",
-      "url-open"
+      "url-open",
+      "conversation-list",
+      "conversation-create",
+      "conversation-snapshot",
+      "conversation-history",
+      "conversation-search",
+      "conversation-op",
+      "conversation-typing",
+      "conversation-bind",
+      "conversation-agent-token",
+      "conversation-import",
+      "browser-host-provider",
+      "cloud-session-set",
+      "cloud-session-clear",
+      "cloud-session-status",
+      "cloud-inbox-list",
+      "cloud-conversation-snapshot",
+      "cloud-conversation-history",
+      "cloud-conversation-op",
+      "cloud-inbox-subscribe",
+      "cloud-inbox-unsubscribe",
+      "cloud-conversation-subscribe",
+      "cloud-conversation-unsubscribe",
+      "conversation-attachment-upload",
+      "conversation-attachment-read"
     ],
     "provider-authority": [
       "mark-workspaces-provider-managed",
@@ -274,6 +457,12 @@
     },
     {
       "name": "bell",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "bookmarks-changed",
       "streams": [
         "subscribe"
       ]
@@ -317,6 +506,18 @@
     },
     {
       "name": "config-reload-requested",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "conversation-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "conversation-typing",
       "streams": [
         "subscribe"
       ]
@@ -419,6 +620,12 @@
       ]
     },
     {
+      "name": "personal-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
       "name": "render-delta",
       "streams": [
         "attach-render"
@@ -450,6 +657,12 @@
     },
     {
       "name": "screen-renamed",
+      "streams": [
+        "subscribe-deltas"
+      ]
+    },
+    {
+      "name": "screen-changed",
       "streams": [
         "subscribe-deltas"
       ]
@@ -508,6 +721,12 @@
       ]
     },
     {
+      "name": "tab-changed",
+      "streams": [
+        "subscribe-deltas"
+      ]
+    },
+    {
       "name": "tab-closed",
       "streams": [
         "subscribe-deltas"
@@ -517,6 +736,12 @@
       "name": "tab-renamed",
       "streams": [
         "subscribe-deltas"
+      ]
+    },
+    {
+      "name": "terminal-reaped",
+      "streams": [
+        "subscribe"
       ]
     },
     {
@@ -538,6 +763,30 @@
       ]
     },
     {
+      "name": "url-open",
+      "streams": [
+        "control"
+      ]
+    },
+    {
+      "name": "activity-changed",
+      "streams": [
+        "control"
+      ]
+    },
+    {
+      "name": "terminal-clipboard-read",
+      "streams": [
+        "control"
+      ]
+    },
+    {
+      "name": "terminal-clipboard-read-cancelled",
+      "streams": [
+        "control"
+      ]
+    },
+    {
       "name": "vt-state",
       "streams": [
         "attach-byte"
@@ -551,6 +800,12 @@
     },
     {
       "name": "workspace-added",
+      "streams": [
+        "subscribe-deltas"
+      ]
+    },
+    {
+      "name": "workspace-changed",
       "streams": [
         "subscribe-deltas"
       ]
@@ -574,9 +829,39 @@
       ]
     },
     {
-      "name": "url-open",
+      "name": "cloud-conversation-changed",
       "streams": [
-        "control"
+        "subscribe"
+      ]
+    },
+    {
+      "name": "cloud-conversation-resynced",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "cloud-inbox-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "cloud-inbox-reset",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "cloud-subscription-state",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "cloud-session-needed",
+      "streams": [
+        "subscribe"
       ]
     }
   ],
@@ -1367,6 +1652,8 @@
         "TerminateAck": 21,
         "DetachAck": 22,
         "InputAck": 23,
+        "ClipboardReadRequest": 24,
+        "ClipboardReadCancel": 25,
         "Input": 100,
         "Paste": 101,
         "ViewerSize": 102,
@@ -1378,7 +1665,8 @@
         "SetCellPixelSize": 108,
         "SetKittyGraphicsLimits": 109,
         "Activate": 110,
-        "Detach": 111
+        "Detach": 111,
+        "ClipboardReadReply": 112
       }
     },
     "machine_provider_v1": {

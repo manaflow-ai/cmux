@@ -114,6 +114,12 @@ public enum IrxLaneKind: String, Codable, Sendable {
     /// Phone browser tunnel: the Mac's loopback listening ports, answered
     /// with one `IrxListeningPortsReply` and a finished stream.
     case listeningPorts = "listening_ports"
+    /// Raw cmux-tui protocol-12 JSON lines to the Mac's daemon (cmux-next).
+    /// The Mac splices the lane onto the daemon's Unix socket through an
+    /// authority filter; `resource` names the machine (`local` by default).
+    /// Hosts advertise `daemon_lane.v1`; an older host cannot decode this
+    /// descriptor and resets the stream.
+    case daemon
 }
 
 /// The first frame on every stream: which lane this is, plus lane-specific

@@ -78,7 +78,7 @@ without a combinatorial menu.
 
 ## Test Mac
 
-`cmux-lawrence` (Mac mini, Tailscale `100.89.225.106`) will run the dev build
+`<dev-host>` (a Mac mini on the team tailnet) will run the dev build
 signed in as the dev account, so it auto-publishes its route to the backup and
 appears as a second real Mac to aggregate. Provisioned once P3 can consume it.
 

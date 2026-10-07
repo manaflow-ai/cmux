@@ -2,7 +2,7 @@
 name = "cmux-diff-sidecar"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.98"
 publish = false
 
 [features]
@@ -55,8 +55,10 @@ opt-level = "z"
 panic = "abort"
 strip = "symbols"
 
+# Proc-macro dylibs must keep their metadata symbols: the Xcode 27 SDK's strip removes
+# them and rustc then fails with "can't find crate for `thiserror_impl`".
 [profile.release.build-override]
-strip = "none"
+strip = false
 
 [lints.rust]
 unsafe_code = "deny"

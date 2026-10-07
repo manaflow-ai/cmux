@@ -54,9 +54,7 @@ export function runPresentation(run: RenderRun, defaultFg: string, defaultBg: st
       color: inverse ? resolvedBg : resolvedFg,
       backgroundColor: inverse ? resolvedFg : resolvedBg,
       ...(decorations.length > 0 ? { textDecorationLine: decorations.join(" ") } : {}),
-      ...(run.width_hint === undefined
-        ? {}
-        : { width: `calc(var(--render-cell-width) * ${run.width_hint})` }),
+      ...(run.width_hint === undefined ? {} : { width: `calc(var(--render-cell-width) * ${run.width_hint})` }),
     },
   };
 }

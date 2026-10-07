@@ -473,7 +473,9 @@ export const env = createEnv({
   },
   client: {
     NEXT_PUBLIC_STACK_PROJECT_ID: z.string().min(1),
-    NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: z.string().min(1),
+    // Optional: the production project does not require publishable keys,
+    // and Stack rejects a revoked key, so an unset key is sent as no key.
+    NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: z.string().min(1).optional(),
   },
   runtimeEnv: {
     RESEND_API_KEY: trimEnv(process.env.RESEND_API_KEY),

@@ -1,0 +1,10 @@
+{
+  "tools": [
+    { "name": "search_docs", "description": "Search the docs.", "inputSchema": { "type": "object", "properties": { "q": { "type": "string" } } }, "annotations": { "readOnlyHint": true } },
+    { "name": "create-page", "description": "Create a page." },
+    { "name": "create page", "description": "Same id after sanitizing." },
+    { "name": "Delete Page", "annotations": { "title": "Delete a page", "destructiveHint": true } },
+    { "name": "   " },
+    { "description": "no name" }
+  ]
+}

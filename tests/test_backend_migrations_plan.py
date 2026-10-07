@@ -32,7 +32,7 @@ class PlanWithoutTheApi(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp())
         src = self.tmp / "src"
         src.mkdir()
-        git(src, "init", "-q", "-b", "main")
+        git(src, "init", "-q", "-b", "feat-cmux-next")
         git(src, "config", "uploadpack.allowAnySHA1InWant", "true")
         (src / "backend/db/migrations").mkdir(parents=True)
         (src / "backend/db/migrations/0001_init.sql").write_text("create table t (id int);\n")
@@ -55,11 +55,11 @@ class PlanWithoutTheApi(unittest.TestCase):
         if work.exists():
             subprocess.run(["rm", "-rf", str(work)], check=True)
         work.mkdir()
-        subprocess.run(["git", "clone", "-q", "--depth=1", f"file://{self.src}", str(work / "trusted"), "--branch", "main"], check=True)
+        subprocess.run(["git", "clone", "-q", "--depth=1", f"file://{self.src}", str(work / "trusted"), "--branch", "feat-cmux-next"], check=True)
         output = self.tmp / "output"
         output.write_text("")
         env = {**os.environ, "PATH": self.path, "GH_TOKEN": "t", "EVENT": "pull_request_target", "PR": "1",
-               "BASE_SHA": self.base, "HEAD_SHA": head, "REPO": "o/r", "BASE_REF": "main",
+               "BASE_SHA": self.base, "HEAD_SHA": head, "REPO": "o/r", "BASE_REF": "feat-cmux-next",
                "GITHUB_OUTPUT": str(output)}
         result = subprocess.run(["bash", "-e", "-c", step_script()], cwd=work, env=env, capture_output=True, text=True)
         return result.returncode, output.read_text(), result.stdout + result.stderr

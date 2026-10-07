@@ -10,7 +10,7 @@ Debug-menu and debug-window labels are contributor-facing but still deserve loca
 
 ## Keys across locales
 
-A key added only to `web/messages/en.json` is incomplete even though the UI falls back at runtime. Same for a Swift key with a `defaultValue` but no `Resources/Localizable.xcstrings` entry per locale: `defaultValue` is a development convenience, not the English localization.
+A key added only to `web/messages/en.json` is incomplete even though the UI falls back at runtime. Same for a Swift key with a `defaultValue` but no entry per locale in its catalog (`Resources/Localizable.xcstrings` or the module's `.xcstrings`): `defaultValue` is a development convenience, not the English localization.
 
 ## Bare English search
 

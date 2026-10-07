@@ -20,6 +20,11 @@ public struct UpdateManualDownloadRecovery: Sendable {
     private let stableDownloadURLString: String
     private let nightlyDownloadURLString: String
     private let rcDownloadURLString: String
+    private let nightlyNextDownloadURLString: String
+
+    /// The direct stable DMG URL: the `cmux-macos.dmg` asset of the release the stable feed
+    /// (`releases/latest/download/appcast.xml`) points at.
+    public static let stableDownloadURLString = "https://github.com/manaflow-ai/cmux/releases/latest/download/cmux-macos.dmg"
 
     /// Creates a recovery resolver.
     ///
@@ -31,7 +36,7 @@ public struct UpdateManualDownloadRecovery: Sendable {
     ///     `hostArchitecture`, since RC ships one DMG per architecture like nightly.
     ///   - hostArchitecture: The architecture whose nightly and RC DMGs are offered by default.
     public init(
-        stableDownloadURLString: String = "https://github.com/manaflow-ai/cmux/releases/latest/download/cmux-macos.dmg",
+        stableDownloadURLString: String = UpdateManualDownloadRecovery.stableDownloadURLString,
         nightlyDownloadURLString: String? = nil,
         rcDownloadURLString: String? = nil,
         hostArchitecture: UpdateHostArchitecture = .current
@@ -41,6 +46,13 @@ public struct UpdateManualDownloadRecovery: Sendable {
             ?? Self.nightlyDownloadURLString(for: hostArchitecture)
         self.rcDownloadURLString = rcDownloadURLString
             ?? Self.rcDownloadURLString(for: hostArchitecture)
+        self.nightlyNextDownloadURLString = Self.nightlyNextDownloadURLString(for: hostArchitecture)
+    }
+
+    /// The direct cmux-next nightly DMG URL for `architecture`. A cmux-next build recovers to
+    /// its own track, never to main's NIGHTLY DMG.
+    public static func nightlyNextDownloadURLString(for architecture: UpdateHostArchitecture) -> String {
+        "https://github.com/manaflow-ai/cmux/releases/download/nightly-next/cmux-nightly-next-macos-\(architecture.rawValue).dmg"
     }
 
     /// The direct nightly DMG URL for `architecture`.
@@ -96,6 +108,8 @@ public struct UpdateManualDownloadRecovery: Sendable {
             return URL(string: nightlyDownloadURLString)
         case .rc:
             return URL(string: rcDownloadURLString)
+        case .nightlyNext:
+            return URL(string: nightlyNextDownloadURLString)
         case .stable:
             return URL(string: stableDownloadURLString)
         }

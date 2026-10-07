@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 2276a5909634a1bb0c2b453023c77914bcd7b8174fc74ac06a818cf1d7b56298.
+// cmux-tui mux protocol 12, IR af2b63afd5b6fadf0bbf64b43e17101ac3697fe4e74dd7c1dccd8bd2ec32d28a.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -8,6 +8,12 @@ use crate::{EventMetadata, Nullable, Optional};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ActivityChangedEvent {
+    pub activity: T::ActivitySnapshot,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -26,6 +32,13 @@ pub struct AgentChangedEvent {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BellEvent {
     pub surface: T::Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BookmarksChangedEvent {
+    pub bookmarks_revision: u64,
+    pub browser_profile_id: String,
 }
 
 #[rustfmt::skip]
@@ -94,6 +107,69 @@ pub struct ClientListInvalidatedEvent {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudConversationChangedEvent {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
+    pub change: Nullable<T::JsonValue>,
+    pub conversation: String,
+    pub rev: u64,
+    pub seq: u64,
+    pub transaction: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudConversationResyncedEvent {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
+    pub conversation: String,
+    pub messages: Nullable<T::JsonValue>,
+    pub rev: u64,
+    pub seq: u64,
+    pub summary: Nullable<T::JsonValue>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudInboxChangedEvent {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
+    pub entries: Nullable<T::JsonValue>,
+    pub seq: u64,
+    pub transaction: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudInboxResetEvent {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
+    pub seq: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudSessionNeededEvent {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub expires_at: Optional<u64>,
+    pub reason: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudSubscriptionStateEvent {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub conversation: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub reason: Optional<String>,
+    pub scope: String,
+    pub state: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ColorsChangedEvent {
     pub bg: Nullable<T::ColorHex>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -116,6 +192,23 @@ pub struct ColorsChangedEvent {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct ConfigReloadRequestedEvent {
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationChangedEvent {
+    pub change: Nullable<T::JsonValue>,
+    pub conversation: String,
+    pub rev: u64,
+    pub transaction: Nullable<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationTypingEvent {
+    pub conversation: String,
+    pub on: bool,
+    pub participant: String,
 }
 
 #[rustfmt::skip]
@@ -212,6 +305,8 @@ pub struct NotificationEvent {
     pub body: String,
     pub level: T::NotificationLevel,
     pub notification: T::Id,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub source: Option<T::NotificationSource>,
     pub surface: Nullable<T::Id>,
     pub title: String,
 }
@@ -268,6 +363,12 @@ pub struct PaneClosedEvent {
     pub pane: T::Id,
     pub screen: T::Id,
     pub workspace: T::Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PersonalChangedEvent {
+    pub personal_revision: u64,
 }
 
 #[rustfmt::skip]
@@ -330,6 +431,16 @@ pub struct ResizedEvent {
 pub struct ScreenAddedEvent {
     pub entity: T::Screen,
     pub index: u64,
+    pub screen: T::Id,
+    pub workspace: T::Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ScreenChangedEvent {
+    pub entity: T::Screen,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub index: Optional<u64>,
     pub screen: T::Id,
     pub workspace: T::Id,
 }
@@ -419,6 +530,20 @@ pub struct TabAddedEvent {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TabChangedEvent {
+    pub entity: T::Tab,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub index: Optional<u64>,
+    pub pane: T::Id,
+    pub screen: T::Id,
+    pub surface: T::Id,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub transaction: Optional<String>,
+    pub workspace: T::Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TabClosedEvent {
     pub entity: T::Tab,
     pub index: u64,
@@ -436,6 +561,29 @@ pub struct TabRenamedEvent {
     pub screen: T::Id,
     pub surface: T::Id,
     pub workspace: T::Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalClipboardReadEvent {
+    pub host: T::TerminalClipboardHost,
+    pub location: T::TerminalClipboardLocation,
+    pub request_id: String,
+    pub terminal_id: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalClipboardReadCancelledEvent {
+    pub request_id: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalReapedEvent {
+    pub grace_ms: u64,
+    pub terminal: Nullable<String>,
+    pub terminal_id: String,
 }
 
 #[rustfmt::skip]
@@ -506,6 +654,22 @@ pub struct WorkspaceAddedEvent {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WorkspaceChangedEvent {
+    pub entity: T::Workspace,
+    pub generation: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub index: Optional<u64>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub mutation_id: Option<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub origin: Option<String>,
+    pub registry_id: String,
+    pub workspace: T::Id,
+    pub workspace_revision: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WorkspaceClosedEvent {
     pub entity: T::Workspace,
     pub generation: String,
@@ -560,15 +724,25 @@ pub struct UnknownEvent {
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq)]
 pub enum Event {
+    ActivityChanged(ActivityChangedEvent),
     AgentChanged(AgentChangedEvent),
     Bell(BellEvent),
+    BookmarksChanged(BookmarksChangedEvent),
     BrowserState(BrowserStateEvent),
     ClientAttached(ClientAttachedEvent),
     ClientChanged(ClientChangedEvent),
     ClientDetached(ClientDetachedEvent),
     ClientListInvalidated(ClientListInvalidatedEvent),
+    CloudConversationChanged(CloudConversationChangedEvent),
+    CloudConversationResynced(CloudConversationResyncedEvent),
+    CloudInboxChanged(CloudInboxChangedEvent),
+    CloudInboxReset(CloudInboxResetEvent),
+    CloudSessionNeeded(CloudSessionNeededEvent),
+    CloudSubscriptionState(CloudSubscriptionStateEvent),
     ColorsChanged(ColorsChangedEvent),
     ConfigReloadRequested(ConfigReloadRequestedEvent),
+    ConversationChanged(ConversationChangedEvent),
+    ConversationTyping(ConversationTypingEvent),
     DaemonShutdown(DaemonShutdownEvent),
     Detached(DetachedEvent),
     Empty(EmptyEvent),
@@ -584,10 +758,12 @@ pub enum Event {
     PairingResolved(PairingResolvedEvent),
     PaneAdded(PaneAddedEvent),
     PaneClosed(PaneClosedEvent),
+    PersonalChanged(PersonalChangedEvent),
     RenderDelta(RenderDeltaEvent),
     RenderState(RenderStateEvent),
     Resized(ResizedEvent),
     ScreenAdded(ScreenAddedEvent),
+    ScreenChanged(ScreenChangedEvent),
     ScreenClosed(ScreenClosedEvent),
     ScreenRenamed(ScreenRenamedEvent),
     ScrollChanged(ScrollChangedEvent),
@@ -598,8 +774,12 @@ pub enum Event {
     SurfaceResizeFailed(SurfaceResizeFailedEvent),
     SurfaceResized(SurfaceResizedEvent),
     TabAdded(TabAddedEvent),
+    TabChanged(TabChangedEvent),
     TabClosed(TabClosedEvent),
     TabRenamed(TabRenamedEvent),
+    TerminalClipboardRead(TerminalClipboardReadEvent),
+    TerminalClipboardReadCancelled(TerminalClipboardReadCancelledEvent),
+    TerminalReaped(TerminalReapedEvent),
     TerminalRegistryChanged(TerminalRegistryChangedEvent),
     TitleChanged(TitleChangedEvent),
     TreeChanged(TreeChangedEvent),
@@ -607,6 +787,7 @@ pub enum Event {
     VtState(VtStateEvent),
     WindowTitleRequested(WindowTitleRequestedEvent),
     WorkspaceAdded(WorkspaceAddedEvent),
+    WorkspaceChanged(WorkspaceChangedEvent),
     WorkspaceClosed(WorkspaceClosedEvent),
     WorkspaceMoved(WorkspaceMovedEvent),
     WorkspaceRenamed(WorkspaceRenamedEvent),
@@ -617,15 +798,25 @@ pub enum Event {
 impl Event {
     pub fn wire_name(&self) -> Option<&str> {
         match self {
+            Self::ActivityChanged(_) => Some("activity-changed"),
             Self::AgentChanged(_) => Some("agent-changed"),
             Self::Bell(_) => Some("bell"),
+            Self::BookmarksChanged(_) => Some("bookmarks-changed"),
             Self::BrowserState(_) => Some("browser-state"),
             Self::ClientAttached(_) => Some("client-attached"),
             Self::ClientChanged(_) => Some("client-changed"),
             Self::ClientDetached(_) => Some("client-detached"),
             Self::ClientListInvalidated(_) => Some("client-list-invalidated"),
+            Self::CloudConversationChanged(_) => Some("cloud-conversation-changed"),
+            Self::CloudConversationResynced(_) => Some("cloud-conversation-resynced"),
+            Self::CloudInboxChanged(_) => Some("cloud-inbox-changed"),
+            Self::CloudInboxReset(_) => Some("cloud-inbox-reset"),
+            Self::CloudSessionNeeded(_) => Some("cloud-session-needed"),
+            Self::CloudSubscriptionState(_) => Some("cloud-subscription-state"),
             Self::ColorsChanged(_) => Some("colors-changed"),
             Self::ConfigReloadRequested(_) => Some("config-reload-requested"),
+            Self::ConversationChanged(_) => Some("conversation-changed"),
+            Self::ConversationTyping(_) => Some("conversation-typing"),
             Self::DaemonShutdown(_) => Some("daemon-shutdown"),
             Self::Detached(_) => Some("detached"),
             Self::Empty(_) => Some("empty"),
@@ -641,10 +832,12 @@ impl Event {
             Self::PairingResolved(_) => Some("pairing-resolved"),
             Self::PaneAdded(_) => Some("pane-added"),
             Self::PaneClosed(_) => Some("pane-closed"),
+            Self::PersonalChanged(_) => Some("personal-changed"),
             Self::RenderDelta(_) => Some("render-delta"),
             Self::RenderState(_) => Some("render-state"),
             Self::Resized(_) => Some("resized"),
             Self::ScreenAdded(_) => Some("screen-added"),
+            Self::ScreenChanged(_) => Some("screen-changed"),
             Self::ScreenClosed(_) => Some("screen-closed"),
             Self::ScreenRenamed(_) => Some("screen-renamed"),
             Self::ScrollChanged(_) => Some("scroll-changed"),
@@ -655,8 +848,12 @@ impl Event {
             Self::SurfaceResizeFailed(_) => Some("surface-resize-failed"),
             Self::SurfaceResized(_) => Some("surface-resized"),
             Self::TabAdded(_) => Some("tab-added"),
+            Self::TabChanged(_) => Some("tab-changed"),
             Self::TabClosed(_) => Some("tab-closed"),
             Self::TabRenamed(_) => Some("tab-renamed"),
+            Self::TerminalClipboardRead(_) => Some("terminal-clipboard-read"),
+            Self::TerminalClipboardReadCancelled(_) => Some("terminal-clipboard-read-cancelled"),
+            Self::TerminalReaped(_) => Some("terminal-reaped"),
             Self::TerminalRegistryChanged(_) => Some("terminal-registry-changed"),
             Self::TitleChanged(_) => Some("title-changed"),
             Self::TreeChanged(_) => Some("tree-changed"),
@@ -664,6 +861,7 @@ impl Event {
             Self::VtState(_) => Some("vt-state"),
             Self::WindowTitleRequested(_) => Some("window-title-requested"),
             Self::WorkspaceAdded(_) => Some("workspace-added"),
+            Self::WorkspaceChanged(_) => Some("workspace-changed"),
             Self::WorkspaceClosed(_) => Some("workspace-closed"),
             Self::WorkspaceMoved(_) => Some("workspace-moved"),
             Self::WorkspaceRenamed(_) => Some("workspace-renamed"),
@@ -673,15 +871,25 @@ impl Event {
 
     pub fn metadata(&self) -> Option<&'static EventMetadata> {
         match self {
+            Self::ActivityChanged(_) => Some(&ACTIVITY_CHANGED_EVENT_METADATA),
             Self::AgentChanged(_) => Some(&AGENT_CHANGED_EVENT_METADATA),
             Self::Bell(_) => Some(&BELL_EVENT_METADATA),
+            Self::BookmarksChanged(_) => Some(&BOOKMARKS_CHANGED_EVENT_METADATA),
             Self::BrowserState(_) => Some(&BROWSER_STATE_EVENT_METADATA),
             Self::ClientAttached(_) => Some(&CLIENT_ATTACHED_EVENT_METADATA),
             Self::ClientChanged(_) => Some(&CLIENT_CHANGED_EVENT_METADATA),
             Self::ClientDetached(_) => Some(&CLIENT_DETACHED_EVENT_METADATA),
             Self::ClientListInvalidated(_) => Some(&CLIENT_LIST_INVALIDATED_EVENT_METADATA),
+            Self::CloudConversationChanged(_) => Some(&CLOUD_CONVERSATION_CHANGED_EVENT_METADATA),
+            Self::CloudConversationResynced(_) => Some(&CLOUD_CONVERSATION_RESYNCED_EVENT_METADATA),
+            Self::CloudInboxChanged(_) => Some(&CLOUD_INBOX_CHANGED_EVENT_METADATA),
+            Self::CloudInboxReset(_) => Some(&CLOUD_INBOX_RESET_EVENT_METADATA),
+            Self::CloudSessionNeeded(_) => Some(&CLOUD_SESSION_NEEDED_EVENT_METADATA),
+            Self::CloudSubscriptionState(_) => Some(&CLOUD_SUBSCRIPTION_STATE_EVENT_METADATA),
             Self::ColorsChanged(_) => Some(&COLORS_CHANGED_EVENT_METADATA),
             Self::ConfigReloadRequested(_) => Some(&CONFIG_RELOAD_REQUESTED_EVENT_METADATA),
+            Self::ConversationChanged(_) => Some(&CONVERSATION_CHANGED_EVENT_METADATA),
+            Self::ConversationTyping(_) => Some(&CONVERSATION_TYPING_EVENT_METADATA),
             Self::DaemonShutdown(_) => Some(&DAEMON_SHUTDOWN_EVENT_METADATA),
             Self::Detached(_) => Some(&DETACHED_EVENT_METADATA),
             Self::Empty(_) => Some(&EMPTY_EVENT_METADATA),
@@ -697,10 +905,12 @@ impl Event {
             Self::PairingResolved(_) => Some(&PAIRING_RESOLVED_EVENT_METADATA),
             Self::PaneAdded(_) => Some(&PANE_ADDED_EVENT_METADATA),
             Self::PaneClosed(_) => Some(&PANE_CLOSED_EVENT_METADATA),
+            Self::PersonalChanged(_) => Some(&PERSONAL_CHANGED_EVENT_METADATA),
             Self::RenderDelta(_) => Some(&RENDER_DELTA_EVENT_METADATA),
             Self::RenderState(_) => Some(&RENDER_STATE_EVENT_METADATA),
             Self::Resized(_) => Some(&RESIZED_EVENT_METADATA),
             Self::ScreenAdded(_) => Some(&SCREEN_ADDED_EVENT_METADATA),
+            Self::ScreenChanged(_) => Some(&SCREEN_CHANGED_EVENT_METADATA),
             Self::ScreenClosed(_) => Some(&SCREEN_CLOSED_EVENT_METADATA),
             Self::ScreenRenamed(_) => Some(&SCREEN_RENAMED_EVENT_METADATA),
             Self::ScrollChanged(_) => Some(&SCROLL_CHANGED_EVENT_METADATA),
@@ -711,8 +921,12 @@ impl Event {
             Self::SurfaceResizeFailed(_) => Some(&SURFACE_RESIZE_FAILED_EVENT_METADATA),
             Self::SurfaceResized(_) => Some(&SURFACE_RESIZED_EVENT_METADATA),
             Self::TabAdded(_) => Some(&TAB_ADDED_EVENT_METADATA),
+            Self::TabChanged(_) => Some(&TAB_CHANGED_EVENT_METADATA),
             Self::TabClosed(_) => Some(&TAB_CLOSED_EVENT_METADATA),
             Self::TabRenamed(_) => Some(&TAB_RENAMED_EVENT_METADATA),
+            Self::TerminalClipboardRead(_) => Some(&TERMINAL_CLIPBOARD_READ_EVENT_METADATA),
+            Self::TerminalClipboardReadCancelled(_) => Some(&TERMINAL_CLIPBOARD_READ_CANCELLED_EVENT_METADATA),
+            Self::TerminalReaped(_) => Some(&TERMINAL_REAPED_EVENT_METADATA),
             Self::TerminalRegistryChanged(_) => Some(&TERMINAL_REGISTRY_CHANGED_EVENT_METADATA),
             Self::TitleChanged(_) => Some(&TITLE_CHANGED_EVENT_METADATA),
             Self::TreeChanged(_) => Some(&TREE_CHANGED_EVENT_METADATA),
@@ -720,6 +934,7 @@ impl Event {
             Self::VtState(_) => Some(&VT_STATE_EVENT_METADATA),
             Self::WindowTitleRequested(_) => Some(&WINDOW_TITLE_REQUESTED_EVENT_METADATA),
             Self::WorkspaceAdded(_) => Some(&WORKSPACE_ADDED_EVENT_METADATA),
+            Self::WorkspaceChanged(_) => Some(&WORKSPACE_CHANGED_EVENT_METADATA),
             Self::WorkspaceClosed(_) => Some(&WORKSPACE_CLOSED_EVENT_METADATA),
             Self::WorkspaceMoved(_) => Some(&WORKSPACE_MOVED_EVENT_METADATA),
             Self::WorkspaceRenamed(_) => Some(&WORKSPACE_RENAMED_EVENT_METADATA),
@@ -732,6 +947,14 @@ impl Event {
 pub fn decode_event(raw: Value) -> Event {
     let name = raw.get("event").and_then(Value::as_str).map(str::to_owned);
     match name.as_deref() {
+        Some("activity-changed") => match serde_json::from_value::<ActivityChangedEvent>(raw.clone()) {
+            Ok(event) => Event::ActivityChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
         Some("agent-changed") => match serde_json::from_value::<AgentChangedEvent>(raw.clone()) {
             Ok(event) => Event::AgentChanged(event),
             Err(error) => Event::Unknown(UnknownEvent {
@@ -742,6 +965,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("bell") => match serde_json::from_value::<BellEvent>(raw.clone()) {
             Ok(event) => Event::Bell(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("bookmarks-changed") => match serde_json::from_value::<BookmarksChangedEvent>(raw.clone()) {
+            Ok(event) => Event::BookmarksChanged(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,
@@ -788,6 +1019,54 @@ pub fn decode_event(raw: Value) -> Event {
                 decode_error: Some(error.to_string()),
             }),
         },
+        Some("cloud-conversation-changed") => match serde_json::from_value::<CloudConversationChangedEvent>(raw.clone()) {
+            Ok(event) => Event::CloudConversationChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("cloud-conversation-resynced") => match serde_json::from_value::<CloudConversationResyncedEvent>(raw.clone()) {
+            Ok(event) => Event::CloudConversationResynced(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("cloud-inbox-changed") => match serde_json::from_value::<CloudInboxChangedEvent>(raw.clone()) {
+            Ok(event) => Event::CloudInboxChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("cloud-inbox-reset") => match serde_json::from_value::<CloudInboxResetEvent>(raw.clone()) {
+            Ok(event) => Event::CloudInboxReset(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("cloud-session-needed") => match serde_json::from_value::<CloudSessionNeededEvent>(raw.clone()) {
+            Ok(event) => Event::CloudSessionNeeded(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("cloud-subscription-state") => match serde_json::from_value::<CloudSubscriptionStateEvent>(raw.clone()) {
+            Ok(event) => Event::CloudSubscriptionState(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
         Some("colors-changed") => match serde_json::from_value::<ColorsChangedEvent>(raw.clone()) {
             Ok(event) => Event::ColorsChanged(event),
             Err(error) => Event::Unknown(UnknownEvent {
@@ -798,6 +1077,22 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("config-reload-requested") => match serde_json::from_value::<ConfigReloadRequestedEvent>(raw.clone()) {
             Ok(event) => Event::ConfigReloadRequested(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("conversation-changed") => match serde_json::from_value::<ConversationChangedEvent>(raw.clone()) {
+            Ok(event) => Event::ConversationChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("conversation-typing") => match serde_json::from_value::<ConversationTypingEvent>(raw.clone()) {
+            Ok(event) => Event::ConversationTyping(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,
@@ -924,6 +1219,14 @@ pub fn decode_event(raw: Value) -> Event {
                 decode_error: Some(error.to_string()),
             }),
         },
+        Some("personal-changed") => match serde_json::from_value::<PersonalChangedEvent>(raw.clone()) {
+            Ok(event) => Event::PersonalChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
         Some("render-delta") => match serde_json::from_value::<RenderDeltaEvent>(raw.clone()) {
             Ok(event) => Event::RenderDelta(event),
             Err(error) => Event::Unknown(UnknownEvent {
@@ -950,6 +1253,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("screen-added") => match serde_json::from_value::<ScreenAddedEvent>(raw.clone()) {
             Ok(event) => Event::ScreenAdded(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("screen-changed") => match serde_json::from_value::<ScreenChangedEvent>(raw.clone()) {
+            Ok(event) => Event::ScreenChanged(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,
@@ -1036,6 +1347,14 @@ pub fn decode_event(raw: Value) -> Event {
                 decode_error: Some(error.to_string()),
             }),
         },
+        Some("tab-changed") => match serde_json::from_value::<TabChangedEvent>(raw.clone()) {
+            Ok(event) => Event::TabChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
         Some("tab-closed") => match serde_json::from_value::<TabClosedEvent>(raw.clone()) {
             Ok(event) => Event::TabClosed(event),
             Err(error) => Event::Unknown(UnknownEvent {
@@ -1046,6 +1365,30 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("tab-renamed") => match serde_json::from_value::<TabRenamedEvent>(raw.clone()) {
             Ok(event) => Event::TabRenamed(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("terminal-clipboard-read") => match serde_json::from_value::<TerminalClipboardReadEvent>(raw.clone()) {
+            Ok(event) => Event::TerminalClipboardRead(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("terminal-clipboard-read-cancelled") => match serde_json::from_value::<TerminalClipboardReadCancelledEvent>(raw.clone()) {
+            Ok(event) => Event::TerminalClipboardReadCancelled(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("terminal-reaped") => match serde_json::from_value::<TerminalReapedEvent>(raw.clone()) {
+            Ok(event) => Event::TerminalReaped(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,
@@ -1102,6 +1445,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("workspace-added") => match serde_json::from_value::<WorkspaceAddedEvent>(raw.clone()) {
             Ok(event) => Event::WorkspaceAdded(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("workspace-changed") => match serde_json::from_value::<WorkspaceChangedEvent>(raw.clone()) {
+            Ok(event) => Event::WorkspaceChanged(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,

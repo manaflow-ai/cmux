@@ -1,0 +1,350 @@
+import AppKit
+import CmuxNextDesign
+
+/// Renders one screen: a split tree, or a horizontally scrolling strip of
+/// columns. Pane and divider frames are springs in content space; the
+/// displayed frame subtracts the scroll offset.
+final class ScreenContentView: NSView {
+    let screenID: ScreenID
+    let context: LayoutViewContext
+
+    private(set) var layout: ScreenLayout
+    /// Frames before the rows' vertical offsets: what the springs target.
+    private(set) var baseGeometry: ScreenGeometry
+    /// `baseGeometry` at the presented row offsets (`shiftingRows`): what
+    /// hit testing, drops, focus and the strip scroll read.
+    var geometry: ScreenGeometry
+    private var paneFrames: [PaneID: AnimatedFrame] = [:]
+    private var dividerViews: [DividerHandleView.Kind: DividerHandleView] = [:]
+    private var dividerFrames: [DividerHandleView.Kind: AnimatedFrame] = [:]
+
+    /// Column scroll rules and state (`ColumnScrollState.reduce`).
+    var scrollState = ColumnScrollState()
+    /// Each column whose rows overflow scrolls vertically with its own
+    /// instance of the same rules (ScreenContentView+Rows.swift).
+    var rowScrolls: [ColumnID: RowScroll] = [:]
+    /// A row divider drag's heights, shown until the next layout arrives
+    /// (gesture state; the model keeps no copy, rows.md Z1).
+    var rowDragPreview: (column: ColumnID, heights: [RowHeight])?
+    var scroll: SpringValue {
+        get { scrollState.spring }
+        set { scrollState.spring = newValue }
+    }
+    var isUserScrolling: Bool { scrollState.isGestureActive }
+    var reportScrollOnSettle = false
+    /// The focus the scroll last followed; a window resize re-syncs with it.
+    var lastFocused: PaneID?
+
+    var activeDrag: ActiveDrag?
+    /// Overlay docked columns' glass rims, keyed by column.
+    var backdrops: [ColumnID: DockBackdropView] = [:]
+    /// The strip scrollbar; created on first use.
+    var scrollbar: StripScrollbarView?
+    /// The offset the scrollbar last showed, and whether the next change
+    /// came from scrolling (it flashes the scrollbar).
+    var scrollbarOffset: CGFloat?
+    var scrollbarFlash = false
+
+    init(screenID: ScreenID, layout: ScreenLayout, context: LayoutViewContext) {
+        self.screenID = screenID
+        self.layout = layout
+        self.context = context
+        self.baseGeometry = ScreenGeometry.compute(layout, viewport: .zero, style: context.style)
+        self.geometry = baseGeometry
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer?.masksToBounds = true
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not supported")
+    }
+
+    override var isFlipped: Bool { true }
+
+    private var scale: CGFloat { window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2 }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        let changed = newSize != frame.size
+        super.setFrameSize(newSize)
+        if changed { reconcileAndScroll() }
+    }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        reconcileAndScroll()
+    }
+
+    /// A window resize: frames snap, and the scroll keeps the focused column
+    /// in place on screen, then fits it (L7).
+    private func reconcileAndScroll() {
+        reconcile(animated: false)
+        syncScroll(focused: lastFocused, source: .programmatic, mode: context.model.centerFocusedColumn, animated: false)
+    }
+
+    // MARK: Model updates
+
+    /// Applies a new layout. Returns true if springs need frames.
+    ///
+    /// A structural change (split, close, move, new column) lands in one
+    /// frame: panes and dividers snap to their targets and a new pane is
+    /// fully opaque at once, so its content can draw in the same frame.
+    /// Ratio and width changes (equalize, width presets, another client's
+    /// divider drag) keep their spring. The strip scroll (including the
+    /// spring back after the last column closes) is `syncScroll`'s.
+    @discardableResult
+    func update(layout: ScreenLayout, animated: Bool) -> Bool {
+        let structural = !self.layout.hasSameStructure(as: layout)
+        self.layout = layout
+        // The release's intent is in this layout (or was refused).
+        if activeDrag == nil { rowDragPreview = nil }
+        return reconcile(animated: animated, structural: structural)
+    }
+
+    @discardableResult
+    func reconcile(animated: Bool, structural: Bool = false) -> Bool {
+        let shown = rowDragPreview.map { layout.settingRowHeights($0.heights, for: $0.column) } ?? layout
+        baseGeometry = ScreenGeometry.compute(shown, viewport: bounds.size, style: context.style, scale: scale)
+        geometry = baseGeometry.shiftingRows(rowOffsets)
+        let animate = animated && !context.reduceMotion && bounds.width > 0
+        let animateFrames = animate && !structural
+
+        // Panes.
+        let style = context.style
+        for (pane, target) in baseGeometry.panes {
+            if var existing = paneFrames[pane] {
+                existing.setTarget(target, alpha: 1)
+                if !animateFrames { existing.snap() }
+                paneFrames[pane] = existing
+            } else {
+                let host = context.host(for: pane)
+                if host.superview !== self {
+                    addSubview(host, positioned: .below, relativeTo: firstDividerView)
+                }
+                paneFrames[pane] = AnimatedFrame(target)
+            }
+            context.hosts[pane]?.applyShape(padding: style.panePadding, cornerRadius: style.paneCornerRadius)
+        }
+        for pane in paneFrames.keys where baseGeometry.panes[pane] == nil {
+            paneFrames[pane] = nil
+            // A pane that moved to another screen belongs to that screen now.
+            if !context.livePanes.contains(pane) { context.release(pane) }
+        }
+
+        // Dividers and column edges.
+        var targets: [DividerHandleView.Kind: (rect: CGRect, axis: SplitAxis)] = [:]
+        for divider in baseGeometry.dividers { targets[.split(divider.id)] = (divider.hitFrame, divider.axis) }
+        for edge in baseGeometry.columnEdges { targets[.columnEdge(edge.column)] = (edge.hitFrame, edge.axis) }
+        // Row heights are resizable only where the daemon serves rows-v1.
+        if context.model.acceptsRowOps {
+            for edge in baseGeometry.rowEdges { targets[.rowEdge(edge.column, edge.upper)] = (edge.hitFrame, .vertical) }
+        }
+        for (kind, target) in targets {
+            let view: DividerHandleView
+            if let existing = dividerViews[kind] {
+                view = existing
+                view.setAxis(target.axis)
+            } else {
+                view = DividerHandleView(kind: kind, axis: target.axis)
+                view.onDrag = { [weak self] event in self?.handleDrag(kind: kind, event: event) }
+                addSubview(view)
+                dividerViews[kind] = view
+            }
+            view.lineThickness = context.style.dividerThickness
+            view.showsIdleLine = context.style.showsDividerLine
+            view.showsActiveLine = context.style.showsDividerFeedback
+            if var frame = dividerFrames[kind] {
+                frame.setTarget(target.rect, alpha: 1)
+                if !animateFrames { frame.snap() }
+                dividerFrames[kind] = frame
+            } else {
+                dividerFrames[kind] = AnimatedFrame(target.rect)
+            }
+        }
+        for kind in dividerViews.keys where targets[kind] == nil {
+            dividerViews.removeValue(forKey: kind)?.removeFromSuperview()
+            dividerFrames[kind] = nil
+        }
+
+        reconcileDock()
+        // The scroll follows in `syncScroll`, which the root calls with the
+        // focus after every update (ColumnScrollState.reduce).
+        applyPresentation()
+        return animate && hasMotion
+    }
+
+    private var firstDividerView: NSView? {
+        subviews.first { $0 is DividerHandleView }
+    }
+
+    // MARK: Animation
+
+    private var hasMotion: Bool {
+        if !isUserScrolling && (scroll.value != scroll.target || scroll.velocity != 0) { return true }
+        if rowsMoving { return true }
+        return paneFrames.values.contains { $0.rect != $0.targetRect || $0.alpha.value != $0.alpha.target }
+            || dividerFrames.values.contains { $0.rect != $0.targetRect || $0.alpha.value != $0.alpha.target }
+    }
+
+    /// Advances springs by `dt`. Returns true while anything still moves.
+    func step(_ dt: Double) -> Bool {
+        var moving = false
+        for key in Array(paneFrames.keys) {
+            if paneFrames[key]!.advance(dt, parameters: Motion.spring(.move)) { moving = true }
+        }
+        for key in Array(dividerFrames.keys) {
+            if dividerFrames[key]!.advance(dt, parameters: Motion.spring(.move)) { moving = true }
+        }
+        if stepRows(dt) { moving = true }
+        if !isUserScrolling {
+            if scroll.advance(dt, parameters: Motion.spring(.scroll), epsilon: 0.25) {
+                moving = true
+                scrollbarFlash = true
+            } else if reportScrollOnSettle {
+                reportScrollOnSettle = false
+                reportLeadingColumn()
+            }
+        }
+        applyPresentation()
+        return moving
+    }
+
+    func applyPresentation() {
+        let strip = stripShift
+        let uncovered = uncoveredRect
+        for (pane, frame) in paneFrames {
+            guard let host = context.hosts[pane], host.superview === self else { continue }
+            let scrolls = geometry.scrolls(pane: pane)
+            host.frame = frame.rect.offsetBy(dx: scrolls ? strip : 0, dy: -rowOffset(of: pane))
+            host.alphaValue = frame.alpha.value
+            host.isDocked = !scrolls
+            clipToStrip(host, scrolls: scrolls, uncovered: uncovered)
+        }
+        for (kind, frame) in dividerFrames {
+            guard let view = dividerViews[kind] else { continue }
+            let scrolls = self.scrolls(kind)
+            view.frame = frame.rect.offsetBy(dx: scrolls ? strip : 0, dy: -rowOffset(of: kind))
+            view.alphaValue = frame.alpha.value
+            // A strip divider under a docked column must not take its clicks.
+            let hidden = scrolls && !geometry.dock.isEmpty && view.frame.intersection(uncovered).width < 0.5
+            if view.isHidden != hidden { view.isHidden = hidden }
+        }
+        updateScrollbar()
+        context.overlayNeedsSync()
+    }
+
+    /// Hosts this screen displays now.
+    var displayedHosts: [PaneHostView] {
+        paneFrames.keys.compactMap { pane in
+            context.hosts[pane].flatMap { $0.superview === self ? $0 : nil }
+        }
+    }
+
+    /// Divider hit areas that are on screen, in this view's coordinates.
+    /// They take the mouse but draw only their thin line, so content drawn
+    /// above the window (a Chromium page) keeps drawing under them.
+    var dividerMouseAreas: [LayoutMouseArea] {
+        dividerViews.compactMap { kind, view in
+            guard !view.isHidden, view.alphaValue > 0.01 else { return nil }
+            let rect = view.frame.intersection(bounds)
+            guard !rect.isNull, !rect.isEmpty else { return nil }
+            return LayoutMouseArea(id: kind.mouseAreaID, rect: rect, resizesColumns: view.axis == .horizontal)
+        }.sorted { $0.id < $1.id }
+    }
+
+    /// The dividers' drawn lines, in this view's coordinates: native UI that
+    /// Chromium pages leave uncovered (they sit in the gap between panes).
+    /// A divider that never draws (`layout.paneSeparation` none) leaves no
+    /// hole, so neighboring pages meet with no seam.
+    var dividerLineRects: [CGRect] {
+        dividerViews.values.compactMap { view in
+            guard !view.isHidden, view.alphaValue > 0.01, view.showsIdleLine || view.showsActiveLine else { return nil }
+            let rect = view.lineFrameInSuperview.intersection(bounds)
+            return rect.isNull || rect.isEmpty ? nil : rect
+        }.sorted { ($0.minX, $0.minY) < ($1.minX, $1.minY) }
+    }
+
+    /// Hover forwarded from a click-catching panel over a page.
+    func setDividerHovered(_ id: String, _ hovered: Bool) {
+        dividerViews.first { $0.key.mouseAreaID == id }?.value.setForwardedHover(hovered)
+    }
+
+    // MARK: Chrome
+
+    /// Focus ring, inactive dim and attention rings. Overlay-only: no pane
+    /// frame or inset depends on any of it.
+    func updateChrome(focused: PaneID?, dimsInactive: Bool, attention: [PaneID: AttentionMark], animated: Bool) {
+        let multiple = paneFrames.count > 1
+        let style = context.style
+        let ringAllowed = (multiple || style.focusRing.showsForSinglePane) && style.focusIndicator.marksBorder
+        for pane in paneFrames.keys {
+            guard let host = context.hosts[pane] else { continue }
+            let isFocused = pane == focused
+            host.setChrome(
+                showsRing: ringAllowed && isFocused,
+                // With appearance.borders none the ring is off; the dim stands in
+                // for it when the indicator asked for the border and nothing else.
+                dim: multiple && (dimsInactive || (!style.drawsLines && style.focusIndicator == .border)) && !isFocused
+                    ? style.inactivePaneDimming : 0,
+                focusRing: style.focusRing,
+                ringAlphaOverride: style.focusRingAlphaOverride,
+                tabEmphasis: .forPane(isFocused: isFocused, paneCount: paneFrames.count, indicator: style.focusIndicator,
+                                      style: style.inactiveTabStyle, strength: style.inactiveTabStrength),
+                border: PaneOverlayView.Border(shows: style.showsPaneBorder, width: style.paneBorderWidth, color: style.paneBorderColor),
+                attention: attention[pane],
+                attentionSettings: style.attention,
+                animated: animated
+            )
+        }
+    }
+
+    // MARK: Visibility and hit testing
+
+    /// Panes whose displayed frame intersects the viewport.
+    func visiblePanes() -> Set<PaneID> {
+        var result: Set<PaneID> = []
+        let uncovered = uncoveredRect
+        for (pane, frame) in paneFrames {
+            // A strip pane wholly under a docked column is hidden.
+            let scrolls = geometry.scrolls(pane: pane)
+            let displayed = displayedRect(frame.rect, pane: pane)
+            let overlap = displayed.intersection(scrolls ? uncovered : bounds)
+            if !overlap.isNull, overlap.width > 0.5, overlap.height > 0.5, frame.alpha.value > 0.01 {
+                result.insert(pane)
+            }
+        }
+        return result
+    }
+
+    /// Panes whose displayed frame lies within one viewport width of the
+    /// viewport on either side (architecture.md 4): visible panes plus the
+    /// off-screen columns a short scroll brings in. Their content stays
+    /// alive, paused, so scrolling back shows it at once.
+    func keepAlivePanes() -> Set<PaneID> {
+        KeepAliveBand.panes(displayed: paneFrames.reduce(into: [:]) { $0[$1.key] = displayedRect($1.value.rect, pane: $1.key) },
+                            viewport: bounds)
+    }
+
+    /// The pane under `localPoint`: a docked column's pane above the strip.
+    func pane(at localPoint: NSPoint) -> PaneID? {
+        if geometry.dock.contains(where: { $0.cover.contains(localPoint) }) {
+            return geometry.panes.first { !geometry.scrolls(pane: $0.key) && $0.value.contains(localPoint) }?.key
+        }
+        let content = CGPoint(x: localPoint.x - stripShift, y: localPoint.y)
+        return geometry.panes.first { geometry.scrolls(pane: $0.key) && $0.value.contains(content) }?.key
+    }
+
+    /// Displayed frame of `pane` in local coordinates.
+    func displayedFrame(of pane: PaneID) -> CGRect? {
+        paneFrames[pane].map { displayedRect($0.rect, pane: pane) }
+    }
+
+    /// Releases every hosted pane that is not live elsewhere (screen removed).
+    func tearDown() {
+        for pane in paneFrames.keys where !context.livePanes.contains(pane) {
+            context.release(pane)
+        }
+        paneFrames.removeAll()
+    }
+}

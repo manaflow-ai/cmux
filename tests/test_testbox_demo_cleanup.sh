@@ -23,10 +23,10 @@ git_q() { git -c user.name=t -c user.email=t@e -c init.defaultBranch=main "$@" >
 # A cmux-shaped checkout whose branch is pushed, as the demo requires.
 git_q init --bare "$work/origin.git"
 repo="$work/repo"
-mkdir -p "$repo/scripts" "$repo/.github/workflows" "$repo/ghostty"
+mkdir -p "$repo/scripts" "$repo/.github/workflows" "$repo/ghostty-next"
 cp "$bounded" "$repo/scripts/"
 echo "name: stub" >"$repo/.github/workflows/cmux-tui-testbox-warmup.yml"
-echo ".{}" >"$repo/ghostty/build.zig.zon"
+echo ".{}" >"$repo/ghostty-next/build.zig.zon"
 git_q -C "$repo" init -b demo-branch
 git_q -C "$repo" add -A
 git_q -C "$repo" commit -m base

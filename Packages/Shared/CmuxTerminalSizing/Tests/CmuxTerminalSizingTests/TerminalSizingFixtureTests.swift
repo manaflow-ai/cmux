@@ -67,6 +67,7 @@ struct TerminalSizingFixtureTests {
             case "report":
                 engine.report(try #require(step.id), viewport: TerminalGridSize(cols: try #require(step.cols), rows: try #require(step.rows)))
             case "activity": engine.noteActivity(try #require(step.id))
+            case "clear_viewport": engine.clearViewport(try #require(step.id))
             case "set_counts": engine.setCountsOverride(try #require(step.id), try #require(step.countsOverride))
             case "set_policy": engine.setPolicy(try #require(step.policy))
             case "expect":

@@ -4,14 +4,8 @@
       "path": ".github/review-bot-rules/cloud-persistent-session-and-early-input.md",
       "description": "Source-of-truth cmux review rule for one persistent Cloud session, immediate empty Ghostty runtime, and ordered early input.",
       "scope": [
-        "Sources/Cloud/**/*.swift",
-        "Sources/Surfaces/**/*.swift",
-        "Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Surface/**/*.swift",
-        "Sources/AppDelegate*.swift",
-        "Sources/Ghostty*.swift",
-        "cmux-tui/crates/**/src/**/*.rs",
-        "Sources/Workspace*.swift",
-        "Sources/TerminalSurfaceRuntimeWiring.swift"
+        "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/**/*.swift",
+        "cmux-tui/crates/**/src/**/*.rs"
       ]
     },
     {
@@ -37,15 +31,6 @@
       "scope": [
         "**/*.swift",
         "**/Package.swift"
-      ]
-    },
-    {
-      "path": ".github/review-bot-rules/browser-automation-webkit-waits-off-main.md",
-      "description": "Source-of-truth cmux review rule for keeping browser socket automation WebKit waits off the main actor.",
-      "scope": [
-        "Sources/TerminalController.swift",
-        "Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Wire/ControlCommandExecutionPolicy.swift",
-        "Packages/macOS/CmuxControlSocket/Tests/CmuxControlSocketTests/ControlCommandExecutionPolicyTests.swift"
       ]
     },
     {

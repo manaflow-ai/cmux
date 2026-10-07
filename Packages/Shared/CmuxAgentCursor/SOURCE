@@ -1,0 +1,7 @@
+# Vendored verbatim from manaflow-ai/cmux-cua. Do not edit files in this directory:
+# change cmux-cua first, then run scripts/cmux_agent_cursor_vendor.py sync (the pin
+# bump script scripts/bump-cmux-cua-pin.sh does this in the same commit).
+repo: manaflow-ai/cmux-cua
+sha: d3531551501017dc56f22f8390244ca4ba02c31f
+path: libs/cmux-cua/swift/CmuxAgentCursor
+tree: d9f93028738209a3d1d8b7277630bd6fa3fd06a0

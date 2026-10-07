@@ -1,4 +1,4 @@
-// Reference C parity (docs/browser-repl/reference-c-parity.md): Markdown and
+// Agent tools (cmux-tui/crates/cmux-browser-host/js/agent-tools.js): Markdown and
 // selector extraction, page text search, scrolling, drop-down options,
 // highlights, search result parsing, custom tools, downloads, recording,
 // secrets and the domain policy.
@@ -96,11 +96,10 @@ emitCmux("policy-subresources", await page.evaluate(async (peer) => {
   const load = (src) => new Promise((r) => { const s = document.createElement("script"); s.onload = () => r("loaded"); s.onerror = () => r("blocked"); s.src = src; document.head.append(s); });
   return [await load("/log.js?own"), await load(peer + "/log.js?peer")];
 }, PEER));
-// The driver cancels the link's navigation in a tab the session opened: the
-// tab stays on its page and the block is logged (the click fails if the
-// report arrives before it returns, so its outcome is not recorded).
+// The link's navigation is blocked before its request is sent (a document
+// content rule covers the main frame): the page stays and the host logs it.
 await page.click("#peer-link").catch(() => {});
-for (let i = 0; i < 100 && !session.blockedNavigations().some((b) => b.blocked === "cancelled"); i++) await sleep(50);
+for (let i = 0; i < 100 && !session.blockedNavigations().some((b) => b.url.endsWith("?linked")); i++) await sleep(50);
 emitCmux("policy-after-link", [page.url(), [...new Set(session.blockedNavigations().map((b) => `${b.blocked} ${b.url}`))]]);
 session.allowedDomains(null);
 session.prohibitedDomains(["http://127.0.0.1"]);

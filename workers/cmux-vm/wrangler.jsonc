@@ -56,7 +56,7 @@
         "CMUX_VM_MESH_TENANT_IDS": ""
       }
     },
-    // vm-staging.cmux.com is attached when DNS is set up; no route here yet.
+    // vm-staging.cmux.dev is attached when DNS is set up; no route here yet.
     "staging": {
       "name": "cmux-vm-staging",
       "workers_dev": false,
@@ -71,7 +71,7 @@
         "CMUX_VM_MESH_TENANT_IDS": ""
       }
     },
-    // vm.cmux.com is attached when DNS is set up; no route here yet.
+    // vm.cmux.dev is attached when DNS is set up; no route here yet.
     "production": {
       "name": "cmux-vm-production",
       "workers_dev": false,

@@ -49,17 +49,18 @@ export function getRequestScopedStackUser(flow: string): Promise<RequestStackUse
 }
 
 export function isStackConfigured(): boolean {
-  return Boolean(projectId && publishableClientKey && secretServerKey);
+  return Boolean(projectId && secretServerKey);
 }
 
 export function getStackServerApp(): StackServerApp<true> {
-  if (!projectId || !publishableClientKey || !secretServerKey) {
+  if (!projectId || !secretServerKey) {
     throw new Error("Stack Auth is not configured");
   }
 
   stackServerAppCache ??= new StackServerApp({
     projectId,
-    publishableClientKey,
+    // Omitted when unset: Stack then uses its public-client secret.
+    ...(publishableClientKey ? { publishableClientKey } : {}),
     secretServerKey,
     tokenStore: "nextjs-cookie",
     urls: {
@@ -96,13 +97,14 @@ export function createUncachedStackServerApp(): StackServerApp<true> {
 // Stack's normal Next.js redirect mode throws a redirect after sign-out, so
 // keep a separate app instance whose session mutations never redirect.
 export function getNonRedirectingStackServerApp(): StackServerApp<true> {
-  if (!projectId || !publishableClientKey || !secretServerKey) {
+  if (!projectId || !secretServerKey) {
     throw new Error("Stack Auth is not configured");
   }
 
   nonRedirectingStackServerAppCache ??= new StackServerApp({
     projectId,
-    publishableClientKey,
+    // Omitted when unset: Stack then uses its public-client secret.
+    ...(publishableClientKey ? { publishableClientKey } : {}),
     secretServerKey,
     tokenStore: "nextjs-cookie",
     redirectMethod: "none",

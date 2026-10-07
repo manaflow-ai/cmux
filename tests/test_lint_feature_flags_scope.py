@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The flag linter must see every flag declaration, not one hardcoded file.
 
-A FLAG( comment outside Sources/FeatureFlags.swift used to be invisible to
+A FLAG( comment outside the one hardcoded registry file used to be invisible to
 scripts/lint-feature-flags.py, which silently exempted that flag from every
 rule -- including the zombie reviewBy check the flag was relying on.
 """
@@ -33,7 +33,7 @@ class FlagLinterScopeTests(unittest.TestCase):
         discovered = set(self.linter.swift_registry_files())
         declared = {
             str(path.relative_to(REPO_ROOT))
-            for root in ("Sources", "Packages", "CLI", "ios")
+            for root in ("Packages", "CLI", "ios")
             for path in (REPO_ROOT / root).rglob("*.swift")
             if (REPO_ROOT / root).exists() and "FLAG(key:" in path.read_text(errors="ignore")
         }
@@ -45,23 +45,21 @@ class FlagLinterScopeTests(unittest.TestCase):
 
     def test_every_discovered_flag_is_linted(self):
         flags, _ = self.linter.collect_flags()
-        keys = {flag["key"] for flag in flags}
-        self.assertIn(
-            "cloud-machines-enabled-release",
-            keys,
-            "the Cloud flag is declared outside the main registry and must still be linted",
-        )
         for flag in flags:
             self.assertTrue(flag["source"], "each flag must be attributed to its own file")
 
     def test_collect_flags_includes_web_and_swift_registries(self):
-        flags, _ = self.linter.collect_flags()
+        # cmux-next declares no Swift flag registry yet (the legacy app's were
+        # deleted), so only the web registry is required here; the
+        # non-UTF-8 test below covers Swift discovery.
+        flags, registries = self.linter.collect_flags()
         sources = {flag["source"] for flag in flags}
         self.assertIn(self.linter.WEB_REGISTRY_REL, sources)
-        self.assertTrue(
-            sources - {self.linter.WEB_REGISTRY_REL},
-            "the collector must include at least one Swift registry",
+        self.assertEqual(
+            sorted(sources - {self.linter.WEB_REGISTRY_REL}),
+            sorted(set(self.linter.swift_registry_files()) & sources),
         )
+        self.assertIn(self.linter.WEB_REGISTRY_REL, registries)
 
     def test_collect_flags_preserves_declarations_with_non_utf8_bytes(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -88,7 +86,7 @@ class FlagLinterScopeTests(unittest.TestCase):
         """Discovery and parsing must agree on what a declaration is.
 
         Discovery greps the literal `FLAG(key:`; parsing must require the same
-        thing. Sources/ContentView.swift:1771 has long carried
+        thing. The legacy app's ContentView.swift long carried
         `// FLAG(sidebar-appkit-list-experiment): parent-driven`, a prose
         reference with no `key:`. Once any flag is declared in that file -- the
         pattern this linter's file discovery exists to support -- a looser parse

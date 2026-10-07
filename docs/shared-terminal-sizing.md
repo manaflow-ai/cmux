@@ -109,6 +109,27 @@ Policy scope is a workspace default plus an optional per-terminal override. Any
 workspace member with write access can change it. Every host emits the change to
 all participants.
 
+## Phone viewers
+
+Phones and tablets follow three rules so that "Fit everyone" never shrinks
+a Mac user's grid without reason (plans/cmux-next/ghostty-next.md section 6):
+
+- A phone view reports its viewport only while the terminal is on screen in
+  the foreground app. When the app goes to the background, the device locks,
+  or another tab covers the terminal, the phone clears its viewport (engine
+  `clear_viewport`, fixture op `clear_viewport`) and stops counting until its
+  next report.
+- The software keyboard never changes the reported viewport. The phone
+  computes the viewport from its full view height and pans so the cursor
+  row stays visible above the keyboard.
+- A preview (a Home list thumbnail, a tab switcher) attaches with
+  `counts_override: false`.
+
+Rotation, split view and pinch report once, at the end of the transition or
+gesture. The fixtures "phone grid walkthrough", "a preview attach with counts
+off never shrinks the grid" and "a hidden phone stops counting and counts
+again on its next report" check these rules in both engines.
+
 ## Size state (wire format)
 
 Hosts publish one JSON object per change, the same shape on both hosts:

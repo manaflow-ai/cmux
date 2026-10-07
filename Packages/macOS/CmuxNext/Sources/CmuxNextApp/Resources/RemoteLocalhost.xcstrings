@@ -1,0 +1,661 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "remoteLocalhost.badge.thisMac": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "جهاز Mac هذا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ovaj Mac"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "denne Mac"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "dieser Mac"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "this Mac"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "este Mac"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ce Mac"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "questo Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac នេះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 Mac"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "denne Mac-en"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ten Mac"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "este Mac"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "этот Mac"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac เครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "bu Mac"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "цей Mac"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "máy Mac này"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "这台 Mac"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "這台 Mac"
+          }
+        }
+      }
+    },
+    "remoteLocalhost.help.machine": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost هو %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost je %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost er %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost ist %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "localhost is %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost es %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost est %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost è %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "localhost は %@ です"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost គឺ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost는 %@입니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost er %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost to %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost é %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost — это %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost คือ %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost — це %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost là %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost 是 %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost 是 %@"
+          }
+        }
+      }
+    },
+    "remoteLocalhost.help.turnedOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost هو جهاز Mac هذا: browser.remoteLocalhost معطّل لمساحة العمل هذه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost je ovaj Mac: browser.remoteLocalhost je isključen za ovaj radni prostor."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost er denne Mac: browser.remoteLocalhost er slået fra for dette arbejdsområde."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost ist dieser Mac: browser.remoteLocalhost ist für diesen Arbeitsbereich aus."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "localhost is this Mac: browser.remoteLocalhost is off for this workspace."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost es este Mac: browser.remoteLocalhost está desactivado para este espacio de trabajo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost est ce Mac : browser.remoteLocalhost est désactivé pour cet espace de travail."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost è questo Mac: browser.remoteLocalhost è disattivato per questo spazio di lavoro."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "localhost はこの Mac です。このワークスペースでは browser.remoteLocalhost がオフです。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost គឺ Mac នេះ៖ browser.remoteLocalhost ត្រូវបានបិទសម្រាប់កន្លែងធ្វើការនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost는 이 Mac입니다. 이 작업 공간에서는 browser.remoteLocalhost가 꺼져 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost er denne Mac-en: browser.remoteLocalhost er av for dette arbeidsområdet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost to ten Mac: browser.remoteLocalhost jest wyłączone dla tego obszaru roboczego."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost é este Mac: browser.remoteLocalhost está desativado para este espaço de trabalho."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost — это этот Mac: browser.remoteLocalhost отключён для этого рабочего пространства."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost คือ Mac เครื่องนี้: browser.remoteLocalhost ปิดอยู่สำหรับพื้นที่ทำงานนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost bu Mac: browser.remoteLocalhost bu çalışma alanı için kapalı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost — це цей Mac: browser.remoteLocalhost вимкнено для цього робочого простору."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost là máy Mac này: browser.remoteLocalhost đang tắt cho không gian làm việc này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost 是这台 Mac：此工作区已关闭 browser.remoteLocalhost。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost 是這台 Mac：此工作區已關閉 browser.remoteLocalhost。"
+          }
+        }
+      }
+    },
+    "remoteLocalhost.help.update": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost هو جهاز Mac هذا. حدّث %@ لاستخدام localhost الخاص به هنا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost je ovaj Mac. Ažurirajte %@ da biste ovdje koristili njegov localhost."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost er denne Mac. Opdater %@ for at bruge dens localhost her."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost ist dieser Mac. Aktualisieren Sie %@, um hier dessen localhost zu nutzen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "localhost is this Mac. Update %@ to use its localhost here."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost es este Mac. Actualiza %@ para usar su localhost aquí."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost est ce Mac. Mettez %@ à jour pour utiliser son localhost ici."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost è questo Mac. Aggiorna %@ per usare qui il suo localhost."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "localhost はこの Mac です。ここで %@ の localhost を使うには、そのマシンを更新してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost គឺ Mac នេះ។ សូមធ្វើបច្ចុប្បន្នភាព %@ ដើម្បីប្រើ localhost របស់វានៅទីនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost는 이 Mac입니다. 여기서 %@의 localhost를 사용하려면 업데이트하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost er denne Mac-en. Oppdater %@ for å bruke localhost-en dens her."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost to ten Mac. Zaktualizuj %@, aby używać tu jego localhost."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost é este Mac. Atualize %@ para usar o localhost dele aqui."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost — это этот Mac. Обновите %@, чтобы использовать здесь его localhost."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost คือ Mac เครื่องนี้ อัปเดต %@ เพื่อใช้ localhost ของเครื่องนั้นที่นี่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost bu Mac. Buradan %@ localhost'unu kullanmak için onu güncelleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost — це цей Mac. Оновіть %@, щоб використовувати тут його localhost."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost là máy Mac này. Hãy cập nhật %@ để dùng localhost của nó tại đây."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost 是这台 Mac。请更新 %@ 以便在这里使用它的 localhost。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost 是這台 Mac。請更新 %@ 以便在這裡使用它的 localhost。"
+          }
+        }
+      }
+    },
+    "remoteLocalhost.help.webKit": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost هو جهاز Mac هذا: لا يمكن لعلامات تبويب WebKit استخدام localhost الخاص بـ %@ بعد. افتحه في Chromium."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost je ovaj Mac: WebKit kartice još ne mogu koristiti localhost od %@. Otvorite ga u Chromiumu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost er denne Mac: WebKit-faner kan endnu ikke bruge %@s localhost. Åbn den i Chromium."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost ist dieser Mac: WebKit-Tabs können den localhost von %@ noch nicht nutzen. Öffnen Sie ihn in Chromium."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "localhost is this Mac: WebKit tabs cannot use %@’s localhost yet. Open it in Chromium."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost es este Mac: las pestañas WebKit aún no pueden usar el localhost de %@. Ábrelo en Chromium."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost est ce Mac : les onglets WebKit ne peuvent pas encore utiliser le localhost de %@. Ouvrez-le dans Chromium."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost è questo Mac: le schede WebKit non possono ancora usare il localhost di %@. Aprilo in Chromium."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "localhost はこの Mac です。WebKit タブではまだ %@ の localhost を使えません。Chromium で開いてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost គឺ Mac នេះ៖ ផ្ទាំង WebKit មិនទាន់អាចប្រើ localhost របស់ %@ បានទេ។ សូមបើកវានៅក្នុង Chromium។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost는 이 Mac입니다. WebKit 탭은 아직 %@의 localhost를 사용할 수 없습니다. Chromium에서 여세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost er denne Mac-en: WebKit-faner kan ikke bruke localhost-en til %@ ennå. Åpne den i Chromium."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost to ten Mac: karty WebKit nie mogą jeszcze używać localhost %@. Otwórz go w Chromium."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost é este Mac: abas WebKit ainda não podem usar o localhost de %@. Abra no Chromium."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost — это этот Mac: вкладки WebKit пока не могут использовать localhost %@. Откройте её в Chromium."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost คือ Mac เครื่องนี้: แท็บ WebKit ยังใช้ localhost ของ %@ ไม่ได้ เปิดใน Chromium"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost bu Mac: WebKit sekmeleri henüz %@ localhost'unu kullanamıyor. Chromium'da açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost — це цей Mac: вкладки WebKit поки не можуть використовувати localhost %@. Відкрийте її в Chromium."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost là máy Mac này: tab WebKit chưa thể dùng localhost của %@. Hãy mở trong Chromium."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost 是这台 Mac：WebKit 标签页暂时无法使用 %@ 的 localhost。请在 Chromium 中打开。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "localhost 是這台 Mac：WebKit 分頁暫時無法使用 %@ 的 localhost。請在 Chromium 中開啟。"
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

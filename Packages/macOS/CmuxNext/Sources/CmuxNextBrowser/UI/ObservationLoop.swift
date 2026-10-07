@@ -1,0 +1,52 @@
+import AppKit
+import CmuxNextDesign
+import Observation
+
+/// Re-runs `render` whenever any observable property it read changes.
+/// Changes made in one main-actor turn coalesce into one render.
+final class ObservationLoop {
+    private let render: () -> Void
+    private var isActive = true
+
+    init(_ render: @escaping () -> Void) {
+        self.render = render
+        arm()
+    }
+
+    func cancel() {
+        isActive = false
+    }
+
+    private func arm() {
+        guard isActive else { return }
+        withObservationTracking {
+            render()
+        } onChange: { [weak self] in
+            Task { @MainActor in self?.arm() }
+        }
+    }
+}
+
+/// Backing for glass overlays that sit over web content. Glass alone picks
+/// up the page's colors, which leaves text illegible on bright pages in dark
+/// mode, so overlays add a neutral gray veil under their content. The
+/// opaque Reduce Transparency fill needs no veil; it shows unchanged.
+final class OverlayBackingView: NSView {
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override var wantsUpdateLayer: Bool { true }
+
+    override func updateLayer() {
+        performWithTheme {
+            layer?.backgroundColor = enclosingOverlayMaterial == .opaque
+                ? NSColor.clear.cgColor
+                : Palette.elevatedBackground.withAlphaComponent(0.64).cgColor
+        }
+    }
+}

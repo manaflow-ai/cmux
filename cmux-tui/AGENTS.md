@@ -22,7 +22,7 @@ with a cmuxterm-hq checkout can run `HQ_TOOLS=<hq checkout on main> ./scripts/bl
 for a guided tour; it starts the box through the private hq wrapper and stops without it.
 
 Outside contributors cannot dispatch the hosted verification from a fork. Run focused `cargo test`
-inside `cmux-tui/` locally (needs Zig 0.16.0 and `git submodule update --init`; see
+inside `cmux-tui/` locally (needs Zig 0.16.0 and `git submodule update --init ghostty ghostty-next`; see
 `cmux-tui/README.md`) and say so in the PR; a maintainer runs the hosted verification on it.
 
 ## Running Cloud machines

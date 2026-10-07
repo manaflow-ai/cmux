@@ -93,31 +93,6 @@ class LinuxGuardRoutingTests(unittest.TestCase):
             duplicates = sorted({key for key in keys if keys.count(key) > 1})
             self.assertEqual(duplicates, [], (name, duplicates))
 
-    def test_cloud_machine_workflow_skips_macos_for_control_plane_only_prs(self):
-        workflow_path = ROOT / ".github/workflows/cloud-machine-tests.yml"
-        workflow = workflow_path.read_text(encoding="utf-8")
-        changes = workflow_job_block("changes", workflow_path)
-        lifecycle = workflow_job_block("lifecycle", workflow_path)
-
-        self.assertIn("uses: ./.github/workflows/resolve-dispatch-ref.yml", workflow)
-        self.assertIn(
-            "ref: ${{ inputs.ref }}",
-            workflow_job_block("resolve-ref", workflow_path),
-        )
-        self.assertIn("blacksmith-4vcpu-ubuntu-2404", changes)
-        self.assertIn("Detect cloud-machine package changes", changes)
-        self.assertIn("/pulls/{pr_number}/files?per_page=100&page={page}", changes)
-        self.assertIn('startswith("Packages/macOS/CmuxCloudMachines/")', changes)
-        self.assertNotIn("actions/checkout", changes)
-        self.assertIn("pull-requests: read", workflow)
-        self.assertIn("needs: [changes, resolve-ref]", lifecycle)
-        self.assertIn(
-            "if: ${{ needs.changes.outputs.should_run == 'true' }}",
-            lifecycle,
-        )
-        self.assertIn("ref: ${{ needs.resolve-ref.outputs.sha }}", lifecycle)
-        self.assertNotIn("inputs.ref || github.ref", workflow)
-
     def test_ios_shell_ui_test_only_change_skips_macos(self):
         actual = module.classify_files([
             "Packages/iOS/CmuxMobileShellUI/Tests/CmuxMobileShellUITests/WorkspaceListScrollUpdateTests.swift"
@@ -330,7 +305,7 @@ class LinuxGuardRoutingTests(unittest.TestCase):
     def test_linux_preflight_skips_when_macos_route_is_false(self):
         block = workflow_job_block("linux-preflight")
         self.assertIn(
-            "if: ${{ !cancelled() && needs.changes.outputs.macos != 'false' }}",
+            "if: ${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next') && needs.changes.outputs.macos != 'false' }}",
             block,
         )
 
@@ -392,15 +367,8 @@ class LinuxGuardRoutingTests(unittest.TestCase):
         })
         self.assertEqual(groups, ("preflight", "ci", "quality-determinism"))
 
-    def test_host_free_cli_test_sources_reach_the_determinism_lints(self):
-        for path in ("cmuxTests/ProbeTests.swift", "cmuxCLITests/ProbeTests.swift",
-                     "cmuxCLITestSupport/ProbeSupport.swift"):
-            with self.subTest(path=path):
-                _, groups = route_decision([path], macos="true")
-                self.assertIn("quality-determinism", groups)
-
     def test_native_edit_keeps_source_contracts_without_history_or_cli_guards(self):
-        outputs = route(["Sources/Settings.swift", "CLAUDE.md"], macos="true")
+        outputs = route(["Packages/macOS/CmuxNext/Sources/CmuxNextPalette/PaletteContentView.swift", "CLAUDE.md"], macos="true")
         self.assertEqual(outputs, {
             "linux_guard_tests": "true", "linux_guard_history": "false",
             "linux_guard_cli": "false", "linux_guard_source": "true",
@@ -414,7 +382,6 @@ class LinuxGuardRoutingTests(unittest.TestCase):
             "skills/cmux-cloud-vm/references/agent-workflows.md",
             "skills/cmux-cloud-vm/references/commands.md",
             "skills/cmux-cloud-vm/references/guest.md",
-            "tests/test_cloud_vm_skill_coverage.py",
         ]
         expected = {name: "true" if name == "linux_guard_tests" else "false"
                     for name in JOBS}
@@ -441,7 +408,7 @@ class LinuxGuardRoutingTests(unittest.TestCase):
                         "skills/cmux-cloud-vm/scripts/check.py"):
             with self.subTest(unknown=unknown):
                 self.assertEqual(route(paths + [unknown]), dict.fromkeys(JOBS, "true"))
-        self.assertEqual(route(paths + ["Sources/Settings.swift"], macos="true"), {
+        self.assertEqual(route(paths + ["Packages/macOS/CmuxNext/Sources/CmuxNextPalette/PaletteContentView.swift"], macos="true"), {
             "linux_guard_tests": "true", "linux_guard_history": "false",
             "linux_guard_cli": "false", "linux_guard_source": "true",
             "ghosttykit_release": "true",
@@ -499,11 +466,11 @@ class LinuxGuardRoutingTests(unittest.TestCase):
 
     def test_manifest_and_guard_inputs_keep_their_coverage(self):
         for path, selected in (
-            ("Packages/macOS/CmuxSettings/Package.swift", "linux_guard_history"),
+            ("Packages/macOS/CmuxUpdater/Package.swift", "linux_guard_history"),
             ("cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved", "linux_guard_history"),
             ("cmux.xcodeproj/project.pbxproj", "linux_guard_history"),
             ("ios/cmux.xcworkspace/contents.xcworkspacedata", "linux_guard_history"),
-            ("Packages/macOS/CmuxSettings/.gitignore", "linux_guard_history"),
+            ("Packages/macOS/CmuxUpdater/.gitignore", "linux_guard_history"),
             ("tests/test_check_package_resolved_policy.py", "linux_guard_history"),
             ("scripts/check-package-resolved-policy.py", "linux_guard_history"),
             ("Resources/bin/start-cmux-profiling", "linux_guard_cli"),

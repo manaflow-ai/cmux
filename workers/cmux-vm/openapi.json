@@ -6726,11 +6726,11 @@
   ],
   "servers": [
     {
-      "url": "https://vm.cmux.com",
+      "url": "https://vm.cmux.dev",
       "description": "Production"
     },
     {
-      "url": "https://vm-staging.cmux.com",
+      "url": "https://vm-staging.cmux.dev",
       "description": "Staging"
     }
   ]

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { createCoalescedRefresh } from "../src/lib/coalescedRefresh";
 
 const nextTurn = () => new Promise<void>((resolve) => queueMicrotask(resolve));
@@ -6,8 +6,14 @@ const nextTurn = () => new Promise<void>((resolve) => queueMicrotask(resolve));
 describe("createCoalescedRefresh", () => {
   it("keeps one request in flight and reruns once when events arrive during it", async () => {
     let finishFirst: (() => void) | undefined;
-    const operation = vi.fn()
-      .mockImplementationOnce(() => new Promise<void>((resolve) => { finishFirst = resolve; }))
+    const operation = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            finishFirst = resolve;
+          }),
+      )
       .mockResolvedValue(undefined);
     const refresh = createCoalescedRefresh(operation);
 

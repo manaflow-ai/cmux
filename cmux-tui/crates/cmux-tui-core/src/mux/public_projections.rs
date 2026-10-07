@@ -45,7 +45,12 @@ pub(super) fn restore_public_projections(
             if surface.is_some() {
                 terminal_notifications.insert(
                     terminal_id,
-                    SurfaceNotification { notification: numeric_id, level, unread: true },
+                    SurfaceNotification {
+                        notification: numeric_id,
+                        level,
+                        unread: true,
+                        source: notification.source,
+                    },
                 );
             }
         }
@@ -63,6 +68,7 @@ pub(super) fn restore_public_projections(
             level,
             terminal_id: notification.terminal_id,
             created_at_ms: notification.created_at_ms,
+            source: notification.source,
             surface,
         });
     }
@@ -79,6 +85,7 @@ pub(super) fn restore_public_projections(
                 session_id: hook_state.agent_session_id,
                 sequence: hook_state.applied_sequence,
                 ended: hook_state.ended,
+                ended_at_ms: hook_state.ended_at_ms,
             },
         );
     }
@@ -99,6 +106,7 @@ pub(super) fn restore_public_projections(
                     session_id: legacy_hook_session_id(&agent.terminal_id, value),
                     sequence: value,
                     ended: ended.is_some(),
+                    ended_at_ms: None,
                 });
             }
         }
@@ -112,6 +120,7 @@ pub(super) fn restore_public_projections(
                 session_id: legacy_hook_session_id(&agent.terminal_id, 0),
                 sequence: 0,
                 ended: true,
+                ended_at_ms: None,
             });
             continue;
         }
@@ -234,6 +243,7 @@ mod tests {
                 created_at_ms: 1,
                 unread: true,
                 read_by: vec![],
+                source: NotificationSource::Cli,
             }],
             agents: vec![RegistryAgentProjection {
                 id: AgentPublicId::parse("agent_00000000000000000000000000000001").unwrap(),
@@ -275,6 +285,7 @@ mod tests {
                 created_at_ms: 2,
                 unread: true,
                 read_by: vec![],
+                source: NotificationSource::Cli,
             }],
             agents: Vec::new(),
             agent_hook_states: Vec::new(),
@@ -301,6 +312,7 @@ mod tests {
                 created_at_ms: 3,
                 unread: true,
                 read_by: vec![],
+                source: NotificationSource::Cli,
             }],
             agents: Vec::new(),
             agent_hook_states: Vec::new(),

@@ -1,0 +1,46 @@
+public import AppKit
+import CmuxNextDesign
+
+// A strip under the window's traffic lights (minimal titlebar, sidebar
+// hidden, the top-left pane) starts its tabs after them. Only strips whose
+// frame overlaps the traffic lights get the inset, so it follows sidebar
+// show and hide, splits, column scrolling and fullscreen.
+extension TabStripView {
+    /// Re-checks the traffic lights after the strip moved in its window
+    /// without a resize (the App calls it when the pane's window frame
+    /// changes); relays out only when the inset changes.
+    public func updateWindowControlsAvoidance() {
+        guard computeWindowControlsInset() != windowControlsInset else { return }
+        needsLayout = true
+    }
+
+    /// Leading points to keep clear so the first tab starts a little after
+    /// the traffic lights; 0 when the strip is not under them.
+    func computeWindowControlsInset() -> CGFloat {
+        guard let window else { return 0 }
+        let host = window as? TitlebarAccessoryHosting
+        return Self.windowControlsInset(strip: convert(bounds, to: nil), lights: WindowTitlebar.trafficLightsFrame(in: window), accessory: host?.titlebarAccessoryFrame,
+                                        padding: metrics.stripHorizontalPadding, collapsed: host?.windowControlsCollapsed ?? false,
+                                        sidebarHidden: host?.sidebarHidden ?? false)
+    }
+
+    /// Leading points a strip at `strip` (window coordinates) keeps clear of
+    /// the traffic lights and the window's titlebar accessory (pure); 0 while they are collapsed.
+    static func windowControlsInset(strip: CGRect, lights: CGRect?, accessory: CGRect?, padding: CGFloat, collapsed: Bool = false,
+                                     sidebarHidden: Bool = false) -> CGFloat {
+        // The corner reveal makes the traffic lights visible while the sidebar is hidden. Keep
+        // the strip anchored during that hover; the controls' fade must not reflow its tabs.
+        guard !sidebarHidden else { return 0 }
+        let obstacles = (collapsed ? [] : [lights, accessory]).compactMap { $0 }.filter { frame in
+            strip.minY < frame.maxY && strip.maxY > frame.minY && strip.minX < frame.maxX && strip.maxX > frame.minX
+        }
+        guard let right = obstacles.map(\.maxX).max() else { return 0 }
+        let clear = right + Metrics.space3 - strip.minX - padding
+        return max(0, (clear * 2).rounded(.up) / 2)
+    }
+
+    /// Whether empty strip space acts as a titlebar right now.
+    var actsAsTitlebar: Bool {
+        dragsWindowFromEmptySpace && WindowTitlebar.isInTopRow(self)
+    }
+}

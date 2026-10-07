@@ -1,10 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import type { DiffRequest, DiffResponse } from "../src/diff/generated/protocol";
-import {
-  FetchDiffTransport,
-  WebKitDiffTransport,
-  supportsFetchTransport,
-} from "../src/diff/transport";
+import { FetchDiffTransport, WebKitDiffTransport, supportsFetchTransport } from "../src/diff/transport";
 
 const originalWindow = globalThis.window;
 const originalFetch = globalThis.fetch;
@@ -35,12 +31,15 @@ test("fetch and WebKit transports use the same generated request envelope", asyn
   const fetchTransport = new FetchDiffTransport("/__cmux_diff_rpc", 1);
   await fetchTransport.request({ method: "protocolHandshake" });
 
-  const webKitTransport = new WebKitDiffTransport({
-    async postMessage(message) {
-      webKitRequest = message as DiffRequest;
-      return { ...response, id: webKitRequest.id };
+  const webKitTransport = new WebKitDiffTransport(
+    {
+      async postMessage(message) {
+        webKitRequest = message as DiffRequest;
+        return { ...response, id: webKitRequest.id };
+      },
     },
-  }, 1);
+    1,
+  );
   await webKitTransport.request({ method: "protocolHandshake" });
 
   const capturedFetchRequest = fetchRequest as DiffRequest | null;

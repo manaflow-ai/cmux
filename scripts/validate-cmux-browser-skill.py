@@ -1,28 +1,27 @@
 #!/usr/bin/env python3
-"""Validate cmux-browser skill examples against the live CLI contract.
+"""Validate cmux-browser skill examples against the cmux CLI browser grammar.
 
-The guard is intentionally an executable docs check, not a grep for a handful
-of strings. When a cmux binary is available it runs ``cmux browser --help`` and
-checks the advertised grammar. It then tokenizes shell examples in the
-canonical skill (and an optional cmux-cli skill) and requires a surface handle
-for every existing-surface browser verb. This catches an old example such as
-an unscoped tab-list invocation even if its wording or whitespace changes.
+The guard is an executable docs check, not a grep for a handful of strings.
+It tokenizes every shell example in the skill and checks each `cmux browser`
+invocation against the grammar of the Rust cmux CLI (cmux-tui):
 
-On Linux documentation-only CI there may be no macOS cmux binary. In that
-case the structural command parser still runs; pass ``--require-cli`` when a
-live help contract is required (for example, from the macOS CLI test lane).
+* `cmux browser <tab_…|page> VERB …` drives a browser tab of the app
+  (cli/app.rs parse_page); VERB must be one of PAGE_VERBS.
+* `cmux browser <browser_…> VERB …` drives a daemon browser (cli/command.rs
+  parse_browser); VERB must be one of DAEMON_VERBS. `cmux browser list` lists them.
+* `cmux browser ACTION` runs one of the app's browser UI actions (UI_ACTIONS).
+
+Every page or daemon verb needs an explicit target, so an example that relies
+on whatever tab is focused fails, as does the retired `--surface`/`surface:N`
+grammar. A shell variable in the target position is accepted as a target.
 """
 
 from __future__ import annotations
 
 import argparse
-import os
 import re
 import shlex
-import shutil
-import subprocess
 import sys
-import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Iterator, Sequence
@@ -30,97 +29,35 @@ from typing import Iterable, Iterator, Sequence
 
 ROOT = Path(__file__).resolve().parent.parent
 
-# Keep this set aligned with the public ``cmux browser --help`` surface. The
-# validator deliberately rejects an unknown verb so a renamed/removed CLI verb
-# cannot quietly remain in an installed skill.
-SURFACE_REQUIRED_VERBS = frozenset(
+# Verbs of `cmux browser <tab_…|page> VERB` (cmux-tui src/cli/app.rs parse_page).
+PAGE_VERBS = frozenset(
     {
-        "addinitscript",
-        "addscript",
-        "addstyle",
-        "back",
-        "click",
-        "check",
-        "cookies",
-        "console",
-        "dblclick",
-        "dialog",
-        "download",
-        "errors",
-        "eval",
-        "fill",
-        "find",
-        "focus",
-        "focus-webview",
-        "focus_webview",
-        "forward",
-        "frame",
-        "geolocation",
-        "geo",
-        "get",
-        "get-url",
-        "goto",
-        "highlight",
-        "hover",
-        "input",
-        "input_keyboard",
-        "input_mouse",
-        "input_touch",
-        "is",
-        "is-webview-focused",
-        "is_webview_focused",
-        "key",
-        "keydown",
-        "keyup",
-        "navigate",
-        "network",
-        "offline",
-        "press",
-        "reload",
-        "screenshot",
-        "scroll",
-        "scroll-into-view",
-        "scrollinto",
-        "scrollintoview",
-        "select",
-        "screencast",
-        "snapshot",
-        "state",
-        "storage",
-        "tab",
-        "trace",
-        "type",
-        "uncheck",
-        "url",
-        "viewport",
-        "wait",
+        "back", "click", "eval", "fill", "focus", "forward", "goto", "navigate",
+        "open", "reload", "snapshot", "state", "text", "title", "type", "url", "value",
     }
 )
 
-UNSCOPED_VERBS = frozenset(
+# Verbs of `cmux browser <browser_…> VERB` (cmux-tui src/cli/command.rs parse_browser).
+DAEMON_VERBS = frozenset(
     {
-        "disable",
-        "dev-tools",
-        "devtools",
-        "design-mode",
-        "enable",
-        "focus-mode",
-        "history",
-        "identify",
-        "import",
-        "new",
-        "open",
-        "open-split",
-        "profile",
-        "profiles",
-        "react-grab",
-        "reactgrab",
-        "status",
-        "zoom",
+        "activate", "attach", "back", "close", "forward", "key", "mouse",
+        "navigate", "reload", "show", "text", "wheel",
     }
 )
 
-KNOWN_VERBS = SURFACE_REQUIRED_VERBS | UNSCOPED_VERBS
+# `cmux browser ACTION`: the app's browser UI actions. They act on the focused
+# browser and take no target (`cmux action list --noun browser`).
+UI_ACTIONS = frozenset(
+    {
+        "delete-site-data", "import-data", "new-profile", "screenshot-page",
+        "screenshot-section", "show-javascript-console", "split-down", "split-right",
+        "toggle-design-mode", "toggle-developer-tools", "toggle-focus-mode",
+        "toggle-react-grab", "zoom-in", "zoom-out",
+    }
+)
+
+# Global options before the scope word that take a value.
+GLOBAL_OPTIONS_WITH_VALUE = frozenset({"--socket", "--app-socket", "--session"})
 
 SHELL_OPERATORS = frozenset(
     {
@@ -136,18 +73,6 @@ SHELL_OPERATORS = frozenset(
         "{",
         "}",
     }
-)
-
-HELP_MARKERS = (
-    "Usage: cmux browser [--surface <id|ref|index> | <surface>] <subcommand> [args]",
-    "url|get-url",
-    "snapshot [--interactive|-i]",
-    "get <url|title|text|html|value|attr|count|box|styles>",
-    "tab <new|list|switch|close|<index>>",
-    "dialog <accept|dismiss>",
-    "addinitscript|addscript",
-    "addstyle",
-    "screencast <start|stop>",
 )
 
 
@@ -257,23 +182,18 @@ def _split_alternatives(token: str) -> tuple[str, ...]:
     return pieces or (token,)
 
 
-def _looks_like_surface(token: str) -> bool:
-    normalized = token.strip().lower()
-    if normalized in {"<surface>", "<surface-id>", "<surface-ref>", "$surface", "${surface}"}:
-        return True
-    if normalized.startswith(("surface:", "tab:")):
-        return True
-    if normalized.isdigit():
-        return True
-    if re.fullmatch(
-        r"[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
-        normalized,
-    ):
-        return True
-    # Shell variables in examples should name the thing they carry. Accept
-    # ${SURFACE:-...} too, while rejecting arbitrary variables as an implicit
-    # target.
-    return bool(re.fullmatch(r"\$\{?surface(?:[^}]*)\}?", normalized))
+def _is_variable(token: str) -> bool:
+    return token.startswith("$")
+
+
+def _is_tab_target(token: str) -> bool:
+    lowered = token.lower()
+    return lowered == "page" or lowered.startswith(("tab_", "<tab"))
+
+
+def _is_browser_target(token: str) -> bool:
+    lowered = token.lower()
+    return lowered.startswith(("browser_", "<browser"))
 
 
 def _tokenize(line: str) -> list[str]:
@@ -407,6 +327,15 @@ def _nested_browser_commands(
     return commands, errors
 
 
+def _scope_index(tokens: Sequence[str], start: int, end: int) -> int | None:
+    """Index of the scope word after `cmux` and its global options."""
+
+    cursor = start
+    while cursor < end and tokens[cursor].startswith("-"):
+        cursor += 2 if tokens[cursor] in GLOBAL_OPTIONS_WITH_VALUE else 1
+    return cursor if cursor < end else None
+
+
 def _commands_from_tokens(
     example: ShellExample,
     tokens: Sequence[str],
@@ -421,11 +350,8 @@ def _commands_from_tokens(
             if tokens[cursor] in SHELL_OPERATORS:
                 end = cursor
                 break
-        browser_index = next(
-            (cursor for cursor in range(index + 1, end) if tokens[cursor] == "browser"),
-            None,
-        )
-        if browser_index is None:
+        browser_index = _scope_index(tokens, index + 1, end)
+        if browser_index is None or tokens[browser_index] != "browser":
             continue
         commands.append(
             BrowserCommand(
@@ -456,78 +382,43 @@ def browser_commands(examples: Iterable[ShellExample]) -> tuple[list[BrowserComm
     return commands, errors
 
 
-def _surface_flag_value(after_browser: Sequence[str]) -> tuple[bool, list[str]]:
-    has_surface = False
-    remaining = list(after_browser)
-    index = 0
-    while index < len(remaining):
-        token = remaining[index]
-        if token == "--surface":
-            has_surface = True
-            if index + 1 >= len(remaining) or remaining[index + 1] in SHELL_OPERATORS:
-                return has_surface, []
-            del remaining[index : index + 2]
-            continue
-        if token.startswith("--surface="):
-            has_surface = bool(token.split("=", 1)[1])
-            del remaining[index]
-            continue
-        index += 1
-    return has_surface, remaining
-
-
-def _verb_candidates(after_browser: Sequence[str]) -> tuple[bool, tuple[str, ...], str | None]:
-    has_surface, remaining = _surface_flag_value(after_browser)
-    if not remaining:
-        return has_surface, (), "missing subcommand"
-
-    # Help is intentionally allowed without a target.
-    if remaining[0] in {"--help", "-h"}:
-        return has_surface, (), None
-
-    positional_surface = _looks_like_surface(remaining[0])
-    if positional_surface:
-        has_surface = True
-        remaining = remaining[1:]
-    while remaining and remaining[0].startswith("--"):
-        # A global display flag before the verb has no value in the current
-        # docs. Skip it so the command parser remains tolerant of --json.
-        remaining = remaining[1:]
-    if not remaining:
-        return has_surface, (), "missing subcommand"
-    return has_surface, _split_alternatives(remaining[0]), None
-
-
 def validate_command(command: BrowserCommand) -> list[str]:
     tokens = command.tokens
-    browser_index = tokens.index("browser")
-    after_browser = tokens[browser_index + 1 :]
-    has_surface, verbs, parse_error = _verb_candidates(after_browser)
-    if parse_error:
-        return [f"{command.path}:{command.line}: {parse_error}: {command.raw.strip()}"]
-    if not verbs:
+    scope = _scope_index(tokens, 1, len(tokens))
+    after = [token for token in tokens[(scope or 0) + 1 :] if token not in SHELL_OPERATORS]
+    where = f"{command.path}:{command.line}"
+    raw = command.raw.strip()
+    retired = [token for token in after if token == "--surface" or token.startswith(("--surface=", "surface:"))]
+    if retired:
+        return [f"{where}: `--surface`/`surface:N` targets were retired; pass a tab_… or browser_… id: {raw}"]
+    if not after:
+        return [f"{where}: missing browser target or action: {raw}"]
+    first = after[0]
+    if first in {"--help", "-h", "list"} or first in UI_ACTIONS:
         return []
-
-    errors: list[str] = []
-    for verb in verbs:
-        normalized = verb.lower()
-        if normalized not in KNOWN_VERBS:
-            errors.append(
-                f"{command.path}:{command.line}: unsupported browser verb {verb!r}; "
-                f"refresh `cmux browser --help`: {command.raw.strip()}"
-            )
-            continue
-        if normalized in SURFACE_REQUIRED_VERBS and not has_surface:
-            errors.append(
-                f"{command.path}:{command.line}: browser {verb!r} requires an explicit "
-                f"surface handle (`--surface <surface>` or positional): {command.raw.strip()}"
-            )
+    if first.lower() in PAGE_VERBS | DAEMON_VERBS:
+        return [f"{where}: browser {first!r} needs an explicit tab_… or browser_… target: {raw}"]
+    if _is_tab_target(first):
+        allowed, kind = PAGE_VERBS, "app tab"
+    elif _is_browser_target(first):
+        allowed, kind = DAEMON_VERBS, "daemon browser"
+    elif _is_variable(first):
+        allowed, kind = PAGE_VERBS | DAEMON_VERBS, "browser"
+    else:
+        return [f"{where}: unknown browser target or action {first!r}; check `cmux browser --help`: {raw}"]
+    verbs = [token for token in after[1:] if not token.startswith("-")][:1]
+    if not verbs:
+        return [f"{where}: missing {kind} verb: {raw}"]
+    errors = []
+    for verb in _split_alternatives(verbs[0]):
+        if verb.lower() not in allowed:
+            errors.append(f"{where}: unsupported {kind} verb {verb!r}; check `cmux browser --help`: {raw}")
     return errors
 
 
 def _skill_files(root: Path) -> list[Path]:
     paths: list[Path] = []
-    for base in (root / "skills" / "cmux-browser", root / "skills" / "cmux-cli"):
+    for base in (root / "skills" / "cmux-browser",):
         if not base.is_dir():
             continue
         paths.extend(sorted(path for path in base.rglob("*.md") if path.is_file()))
@@ -585,7 +476,7 @@ def _metadata_errors(root: Path) -> list[str]:
         text = metadata.read_text(encoding="utf-8")
     except OSError as exc:
         return errors + [f"{metadata}: unable to read: {exc}"]
-    for marker in ("interface:", "default_prompt:", "--help", "surface"):
+    for marker in ("interface:", "default_prompt:", "--help", "tab_"):
         if marker not in text:
             errors.append(f"{metadata}: registration metadata is missing {marker!r}")
     agents = skill / "AGENTS.md"
@@ -604,12 +495,12 @@ def _template_errors(root: Path) -> list[str]:
         return [f"{template_root}: no shell templates found"]
     for path in templates:
         text = path.read_text(encoding="utf-8")
-        if re.search(r"SURFACE\s*=\s*[\"']?\$\{[^}]*:-\s*surface:", text):
-            errors.append(f"{path}: template must not guess a default surface")
+        if re.search(r"TAB\s*=\s*[\"']?\$\{[^}]*:-\s*(?:page|tab_)", text):
+            errors.append(f"{path}: template must not guess a default tab")
     return errors
 
 
-def validate_repository(root: Path, help_text: str | None = None) -> list[str]:
+def validate_repository(root: Path) -> list[str]:
     errors = _metadata_errors(root) + _mirror_errors(root) + _template_errors(root)
     files = _skill_files(root)
     commands, parse_errors = browser_commands(shell_examples(files))
@@ -617,142 +508,24 @@ def validate_repository(root: Path, help_text: str | None = None) -> list[str]:
     for command in commands:
         errors.extend(validate_command(command))
 
-    if help_text is not None:
-        normalized = " ".join(help_text.split())
-        for marker in HELP_MARKERS:
-            if " ".join(marker.split()) not in normalized:
-                errors.append(f"cmux browser --help: missing contract marker {marker!r}")
-    return errors
-
-
-def resolve_cli(explicit: str | None) -> str | None:
-    candidates = [explicit, os.environ.get("CMUX_CLI_BIN"), os.environ.get("CMUX_CLI")]
-    for candidate in candidates:
-        if candidate and os.path.isfile(candidate) and os.access(candidate, os.X_OK):
-            return candidate
-    return shutil.which("cmux")
-
-
-def live_help(cli: str) -> tuple[str | None, str | None]:
-    try:
-        result = subprocess.run(
-            [cli, "browser", "--help"],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-    except (OSError, subprocess.SubprocessError) as exc:
-        return None, f"unable to run {cli!r}: {exc}"
-    output = f"{result.stdout}\n{result.stderr}".strip()
-    if result.returncode != 0:
-        return None, f"{cli!r} browser --help exited {result.returncode}: {output}"
-    return output, None
-
-
-def live_syntax_errors(cli: str) -> list[str]:
-    """Check representative CLI forms reach the socket parser unambiguously."""
-
-    valid_commands = (
-        ("url", ["browser", "--surface", "surface:1", "url"]),
-        ("get-url", ["browser", "--surface", "surface:1", "get-url"]),
-        ("get url", ["browser", "--surface", "surface:1", "get", "url"]),
-        ("tab list", ["browser", "--surface", "surface:1", "tab", "list"]),
-        ("snapshot", ["browser", "--surface", "surface:1", "snapshot", "--interactive"]),
-        ("click", ["browser", "--surface", "surface:1", "click", "e1"]),
-        ("positional get", ["browser", "surface:1", "get", "title"]),
-    )
-    errors: list[str] = []
-    with tempfile.TemporaryDirectory(prefix="cmux-browser-skill-") as directory:
-        socket_path = str(Path(directory) / "absent.sock")
-        environment = dict(os.environ)
-        for key in (
-            "CMUX_SOCKET",
-            "CMUX_SOCKET_PATH",
-            "CMUX_SOCKET_PASSWORD",
-            "CMUX_WORKSPACE_ID",
-            "CMUX_SURFACE_ID",
-            "CMUX_TAB_ID",
-        ):
-            environment.pop(key, None)
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
-
-        def run(arguments: Sequence[str]) -> str:
-            try:
-                result = subprocess.run(
-                    [cli, "--socket", socket_path, *arguments],
-                    check=False,
-                    capture_output=True,
-                    text=True,
-                    timeout=5,
-                    env=environment,
-                )
-            except (OSError, subprocess.SubprocessError) as exc:
-                errors.append(f"{' '.join(arguments)}: unable to execute: {exc}")
-                return ""
-            return f"{result.stdout}\n{result.stderr}".strip()
-
-        parser_failure_markers = (
-            "Unsupported browser subcommand",
-            "browser requires a subcommand",
-            "requires a surface handle",
-            "Invalid surface handle",
-        )
-        for label, arguments in valid_commands:
-            output = run(arguments)
-            if any(marker in output for marker in parser_failure_markers):
-                errors.append(
-                    f"{label}: surface-scoped form was rejected before socket dispatch: {output!r}"
-                )
     return errors
 
 
 def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=ROOT, help="repository root")
-    parser.add_argument("--cmux-bin", help="cmux executable to use for live help")
-    parser.add_argument("--require-cli", action="store_true", help="fail when no live cmux binary is available")
-    parser.add_argument("--no-cli", action="store_true", help="skip live help even when cmux is on PATH")
     return parser.parse_args(argv)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv or sys.argv[1:])
-    if args.no_cli and args.require_cli:
-        print("FAIL: --no-cli and --require-cli are mutually exclusive")
-        return 2
-    root = args.root.resolve()
-    help_text: str | None = None
-    cli_warning: str | None = None
-    if not args.no_cli:
-        cli = resolve_cli(args.cmux_bin)
-        if cli:
-            help_text, cli_warning = live_help(cli)
-            if help_text is not None:
-                cli_syntax_errors = live_syntax_errors(cli)
-                if cli_syntax_errors:
-                    print("FAIL: cmux-browser CLI syntax contract")
-                    for error in cli_syntax_errors:
-                        print(f"- {error}")
-                    return 1
-        elif args.require_cli:
-            cli_warning = "no executable cmux binary found (set CMUX_CLI_BIN)"
-    if cli_warning and args.require_cli:
-        print(f"FAIL: {cli_warning}")
-        return 1
-    errors = validate_repository(root, help_text=help_text)
+    errors = validate_repository(args.root.resolve())
     if errors:
         print("FAIL: cmux-browser skill contract")
         for error in errors:
             print(f"- {error}")
         return 1
-    if cli_warning:
-        print(f"INFO: {cli_warning}; structural docs contract used")
-    elif help_text is not None:
-        print("PASS: cmux-browser skill and live cmux browser --help contract")
-    else:
-        print("PASS: cmux-browser skill structural contract (no live CLI requested)")
+    print("PASS: cmux-browser skill contract")
     return 0
 
 

@@ -1,5 +1,6 @@
 //! Per-subscriber mux event delivery with bounded coalesced state.
 
+use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::sync::mpsc::{RecvError, RecvTimeoutError, TryRecvError};
 use std::sync::{Arc, Condvar, Mutex, Weak};
@@ -9,6 +10,44 @@ use crate::{MuxEvent, PaneId, ScreenId, SurfaceId, TreeDelta, TreeDeltaKind, Wor
 
 // A subscriber may drain accepted events after crossing this limit, then observes a disconnect.
 const MAX_PENDING_EVENTS: usize = 4_096;
+
+type SessionPathUpdate = (SurfaceId, WorkspaceId, ScreenId, PaneId);
+
+thread_local! {
+    /// Session path updates held back while a resource mutation is staged
+    /// on a candidate state. `None` outside [`defer_session_paths`].
+    static DEFERRED_SESSION_PATHS: RefCell<Option<Vec<SessionPathUpdate>>> =
+        const { RefCell::new(None) };
+}
+
+/// Session path updates recorded by [`defer_session_paths`]. Pass them to
+/// [`MuxEventBroadcaster::publish_deferred_session_paths`] after the change
+/// commits; drop them when it does not.
+#[must_use]
+pub(crate) struct DeferredSessionPaths(Vec<SessionPathUpdate>);
+
+/// Run `f` and hold back every surface session path update it makes on this
+/// thread. A resource mutation prepares and stages its state change before
+/// the durable commit; subscribers must see the new path only after that
+/// commit succeeds.
+pub(crate) fn defer_session_paths<R>(f: impl FnOnce() -> R) -> (R, DeferredSessionPaths) {
+    struct Restore(Option<Option<Vec<SessionPathUpdate>>>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            if let Some(previous) = self.0.take() {
+                DEFERRED_SESSION_PATHS.with(|cell| *cell.borrow_mut() = previous);
+            }
+        }
+    }
+    let previous = DEFERRED_SESSION_PATHS.with(|cell| cell.borrow_mut().replace(Vec::new()));
+    let mut restore = Restore(Some(previous));
+    let output = f();
+    let previous = restore.0.take().expect("deferral scope restores once");
+    let recorded = DEFERRED_SESSION_PATHS
+        .with(|cell| std::mem::replace(&mut *cell.borrow_mut(), previous))
+        .unwrap_or_default();
+    (output, DeferredSessionPaths(recorded))
+}
 
 #[derive(Default)]
 pub struct MuxEventBroadcaster {
@@ -23,6 +62,12 @@ struct MuxEventSubscriber {
 enum MuxEventFilter {
     All,
     ConfigReload,
+    /// Events that can change which terminals have zero placements.
+    TerminalTopology,
+    /// Events that change the launch snapshot's layout or projections. Title
+    /// changes alone are left out: a busy terminal retitles itself many
+    /// times a second, and the live tree corrects a stale title at once.
+    LaunchSnapshot,
     AttachedSurface(SurfaceId),
     SurfaceSession(SurfaceSessionScope),
 }
@@ -73,6 +118,14 @@ impl MuxEventBroadcaster {
         self.subscribe_with_filter(MuxEventFilter::ConfigReload)
     }
 
+    pub(crate) fn subscribe_terminal_topology(&self) -> MuxEventReceiver {
+        self.subscribe_with_filter(MuxEventFilter::TerminalTopology)
+    }
+
+    pub(crate) fn subscribe_launch_snapshot(&self) -> MuxEventReceiver {
+        self.subscribe_with_filter(MuxEventFilter::LaunchSnapshot)
+    }
+
     pub fn subscribe_attached_surface(&self, surface: SurfaceId) -> MuxEventReceiver {
         self.subscribe_with_filter(MuxEventFilter::AttachedSurface(surface))
     }
@@ -99,6 +152,14 @@ impl MuxEventBroadcaster {
         screen: ScreenId,
         pane: PaneId,
     ) {
+        let deferred = DEFERRED_SESSION_PATHS.with(|cell| {
+            cell.borrow_mut()
+                .as_mut()
+                .map(|updates| updates.push((surface, workspace, screen, pane)))
+        });
+        if deferred.is_some() {
+            return;
+        }
         let mut subscribers = self.subscribers.lock().unwrap();
         subscribers.retain_mut(|subscriber| {
             let Some(mailbox) = subscriber.mailbox.upgrade() else { return false };
@@ -112,6 +173,14 @@ impl MuxEventBroadcaster {
             }
             true
         });
+    }
+
+    /// Publish session path updates held back while a committed change was
+    /// staged.
+    pub(crate) fn publish_deferred_session_paths(&self, deferred: DeferredSessionPaths) {
+        for (surface, workspace, screen, pane) in deferred.0 {
+            self.update_surface_session_path(surface, workspace, screen, pane);
+        }
     }
 
     fn subscribe_with_filter(&self, filter: MuxEventFilter) -> MuxEventReceiver {
@@ -137,6 +206,24 @@ impl MuxEventFilter {
         match self {
             Self::All => true,
             Self::ConfigReload => matches!(event, MuxEvent::ConfigReloadRequested),
+            Self::TerminalTopology => matches!(
+                event,
+                MuxEvent::TreeChanged
+                    | MuxEvent::TreeDelta(_)
+                    | MuxEvent::TerminalRegistryChanged { .. }
+                    | MuxEvent::SurfaceExited(_)
+                    | MuxEvent::Empty
+            ),
+            Self::LaunchSnapshot => matches!(
+                event,
+                MuxEvent::TreeChanged
+                    | MuxEvent::TreeSelectionChanged
+                    | MuxEvent::TreeDelta(_)
+                    | MuxEvent::LayoutChanged(_)
+                    | MuxEvent::PersonalChanged { .. }
+                    | MuxEvent::FrontendProjectionChanged { .. }
+                    | MuxEvent::Empty
+            ),
             Self::AttachedSurface(surface) => match event {
                 MuxEvent::Notification(notification) => notification.surface == Some(*surface),
                 MuxEvent::ScrollChanged { surface: event_surface, .. } => {
@@ -180,7 +267,12 @@ impl SurfaceSessionScope {
             | MuxEvent::ConfigReloadRequested
             | MuxEvent::WindowTitleRequested(_)
             | MuxEvent::FrontendProjectionChanged { .. }
+            | MuxEvent::PersonalChanged { .. }
+            | MuxEvent::BookmarksChanged(_)
+            | MuxEvent::Conversation(_)
+            | MuxEvent::CloudConversation(_)
             | MuxEvent::TerminalRegistryChanged { .. }
+            | MuxEvent::TerminalReaped { .. }
             | MuxEvent::PairingRequested(_)
             | MuxEvent::PairingResolved { .. }
             | MuxEvent::MachineUsageChanged(_)
@@ -190,17 +282,20 @@ impl SurfaceSessionScope {
 
     fn accepts_tree_delta(&mut self, delta: &TreeDelta) -> bool {
         let relevant = match delta.kind {
-            TreeDeltaKind::TabAdded | TreeDeltaKind::TabClosed | TreeDeltaKind::TabRenamed => {
-                delta.surface == Some(self.surface)
-            }
+            TreeDeltaKind::TabAdded
+            | TreeDeltaKind::TabClosed
+            | TreeDeltaKind::TabRenamed
+            | TreeDeltaKind::TabChanged => delta.surface == Some(self.surface),
             TreeDeltaKind::PaneClosed => delta.pane == Some(self.pane),
             TreeDeltaKind::ScreenClosed => delta.screen == Some(self.screen),
             TreeDeltaKind::WorkspaceClosed => delta.workspace == self.workspace,
             TreeDeltaKind::WorkspaceAdded
             | TreeDeltaKind::WorkspaceRenamed
             | TreeDeltaKind::WorkspaceMoved
+            | TreeDeltaKind::WorkspaceChanged
             | TreeDeltaKind::ScreenAdded
             | TreeDeltaKind::ScreenRenamed
+            | TreeDeltaKind::ScreenChanged
             | TreeDeltaKind::PaneAdded => false,
         };
         if delta.surface == Some(self.surface) && delta.kind == TreeDeltaKind::TabAdded {
@@ -361,6 +456,12 @@ impl MuxEventMailboxState {
 impl MuxEventReceiver {
     pub fn close(&self) {
         self.mailbox.close();
+    }
+
+    /// Wake this receiver alone with a `TreeChanged` token. Owner-internal
+    /// consumers use it for state changes that no broadcast event carries.
+    pub(crate) fn wake(&self) {
+        self.mailbox.push(MuxEvent::TreeChanged);
     }
 
     pub fn overflowed(&self) -> bool {
@@ -761,6 +862,7 @@ mod tests {
             index: Some(0),
             entity: serde_json::json!({}),
             workspace_revision: None,
+            transaction: None,
         }));
 
         assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
@@ -779,6 +881,7 @@ mod tests {
             index: Some(0),
             entity: serde_json::json!({}),
             workspace_revision: None,
+            transaction: None,
         };
 
         broadcaster.emit(MuxEvent::TreeDelta(moved));

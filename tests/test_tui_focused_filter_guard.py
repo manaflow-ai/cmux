@@ -111,6 +111,7 @@ def test_tui_status_names_remain_stable() -> None:
 def test_lint_is_one_required_job_and_os_matrix_only_runs_behavior_tests() -> None:
     workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     lint = workflow["jobs"]["lint"]
+    macos = workflow["jobs"]["macos"]
     test = workflow["jobs"]["test"]
     gate = workflow["jobs"]["hosted-verification"]
 
@@ -123,21 +124,28 @@ def test_lint_is_one_required_job_and_os_matrix_only_runs_behavior_tests() -> No
     assert lint["strategy"]["fail-fast"] is False
     assert lint["strategy"]["matrix"]["include"] == [
         {
-            "os": "macos",
-            "runner": "blacksmith-6vcpu-macos-15",
-        },
-        {
             "os": "linux",
-            "runner": "blacksmith-4vcpu-ubuntu-2404",
+            "runner": "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}",
         },
     ]
+    assert test["strategy"]["matrix"]["include"] == lint["strategy"]["matrix"]["include"]
     assert "cargo fmt --check" in lint_commands
     assert "cargo clippy --workspace --all-targets --locked -- -D warnings" in lint_commands
-    assert "cargo fmt --check" not in test_commands
+    assert "cargo fmt --check" in test_commands
     assert "cargo clippy --workspace --all-targets --locked -- -D warnings" not in test_commands
+    macos_commands = "\n".join(str(step.get("run", "")) for step in macos["steps"])
+    assert macos["name"] == "macOS lint and tests"
+    assert "cargo fmt --check" in macos_commands
+    assert "cargo clippy --workspace --all-targets --locked -- -D warnings" in macos_commands
+    assert "platform::tests::" in macos_commands
+    assert "mac_process_scope" in macos_commands
+    assert "macos_pty_" in macos_commands
     assert "lint" in gate["needs"]
+    assert "macos" in gate["needs"]
     assert gate["env"]["LINT_RESULT"] == "${{ needs.lint.result }}"
+    assert gate["env"]["MACOS_RESULT"] == "${{ needs.macos.result }}"
     assert 'require_success "lint" "$LINT_RESULT"' in gate_commands
+    assert 'require_success "macOS lint and tests" "$MACOS_RESULT"' in gate_commands
 
 
 def test_lint_matrix_runs_clippy_with_each_host_cfg() -> None:
@@ -147,9 +155,9 @@ def test_lint_matrix_runs_clippy_with_each_host_cfg() -> None:
     steps = lint["steps"]
     matrix = lint["strategy"]["matrix"]["include"]
 
-    assert {entry["os"] for entry in matrix} == {"linux", "macos"}
+    assert {entry["os"] for entry in matrix} == {"linux"}
     for entry in matrix:
-        runner_os = "Linux" if entry["os"] == "linux" else "macOS"
+        runner_os = "Linux"
         linux_dependency_steps = [
             step
             for step in steps
@@ -158,9 +166,7 @@ def test_lint_matrix_runs_clippy_with_each_host_cfg() -> None:
         assert len(linux_dependency_steps) == 1
         assert linux_dependency_steps[0]["if"] == "runner.os == 'Linux'"
         if runner_os == "Linux":
-            assert entry["runner"].endswith("ubuntu-2404")
-        else:
-            assert entry["runner"].endswith("macos-15")
+            assert "ubuntu-2404" in entry["runner"]
 
         clippy_steps = [step for step in steps if step.get("name") == "cargo clippy"]
         assert len(clippy_steps) == 1

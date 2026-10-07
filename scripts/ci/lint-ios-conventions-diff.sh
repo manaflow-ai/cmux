@@ -35,6 +35,13 @@ fingerprints() {
     }' | sort -u
 }
 
+# Lists that hide their entries from the lint; each may only shrink.
+SHRINK_ONLY_LISTS=(
+  scripts/lint-ios-package-conventions-baseline.txt
+  scripts/lint-namespace-types-baseline.txt
+  scripts/lint-namespace-types-ratchet.txt
+)
+
 base_tree=""
 head_list="$(mktemp)"
 base_list="$(mktemp)"
@@ -56,6 +63,7 @@ if ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
   # Without a base to compare against, judging "new" is not possible. Report
   # the current state rather than passing silently on an unknown comparison.
   echo "::warning::base $BASE_SHA unavailable; reporting all current violations"
+  echo "::warning::shrink-only lists (${SHRINK_ONLY_LISTS[*]}) cannot be checked for growth without the base"
   if [ -s "$head_list" ]; then
     cut -f1,2 "$head_list" | sed 's/^/NEW  /'
     exit 1
@@ -76,6 +84,25 @@ git worktree add --detach "$base_tree" "$BASE_SHA" >/dev/null 2>&1 || {
       split(loc, parts, ":")
       print rule "\t" parts[1] "\t" $0
     }' | sort -u ) > "$base_list"
+
+# Shrink-only lists hide their entries from both sides of the comparison
+# above, so an entry added to one would pass as "no new violations". Fail
+# on any entry the base did not have. A list the base lacks is being seeded.
+grown=0
+for list in "${SHRINK_ONLY_LISTS[@]}"; do
+  [ -f "$list" ] || continue
+  git cat-file -e "$BASE_SHA:$list" 2>/dev/null || continue
+  while IFS= read -r entry; do
+    printf 'GREW %s  %s\n' "$list" "$entry"
+    grown=$((grown + 1))
+  done < <(comm -13 <(git show "$BASE_SHA:$list" | grep -v '^#' | grep -v '^[[:space:]]*$' | sort -u) \
+                    <(grep -v '^#' "$list" | grep -v '^[[:space:]]*$' | sort -u))
+done
+if [ "$grown" -gt 0 ]; then
+  echo
+  echo "FAIL: $grown entry/entries added to a shrink-only list. Fix the type instead."
+  exit 1
+fi
 
 new_count=0
 while IFS=$'\t' read -r rule file text; do
