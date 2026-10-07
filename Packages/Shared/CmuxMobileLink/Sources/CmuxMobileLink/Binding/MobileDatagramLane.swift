@@ -12,18 +12,9 @@ public actor MobileDatagramLane {
     private var sendSeq: UInt64 = 0
     private var closed = false
 
-    init(channel: UInt32, link: LinkChannel) {
+    public init(channel: UInt32, link: LinkChannel) {
         self.channel = channel
         self.link = link
-    }
-
-    /// The phone side: opens the lane paired with A0 channel `channel` on
-    /// the session's link (`cmux.mobile/datagram/<channel>`, unreliable,
-    /// media priority). Throws when the path has no unreliable lane.
-    public static func open(on link: any CmuxLink, pairedWith channel: UInt32) async throws -> MobileDatagramLane {
-        let lane = try await link.openChannel(ChannelDescriptor(stream: DatagramLaneName(channel: channel).stream,
-                                                                reliability: .unreliableUnordered, priority: .media))
-        return MobileDatagramLane(channel: channel, link: lane)
     }
 
     /// Sends one binary record; false when the lane is gone.

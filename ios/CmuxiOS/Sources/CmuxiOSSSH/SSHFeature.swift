@@ -38,6 +38,35 @@ public final class SSHFeature {
         return navigation
     }
 
+    // MARK: Entry points from other screens (lane C15 search)
+
+    /// Opens `hostID`'s terminal on the Hosts tab (or its editor when it has
+    /// no usable login). Select the Hosts tab first.
+    public func openHost(_ hostID: HostID) {
+        guard let navigation, let list = navigation.viewControllers.first else { return }
+        navigation.popToRootViewController(animated: false)
+        Task {
+            let records = await currentRecords()
+            guard let host = records.first(where: { $0.id == hostID }) else { return }
+            openTerminal(host, records: records, from: list)
+        }
+    }
+
+    /// Presents the Add Host editor over the Hosts tab. Select the tab first.
+    public func presentAddHost() {
+        guard let navigation else { return }
+        Task {
+            let records = await currentRecords()
+            showEditor(.add(IntentKey()), records: records, from: navigation.topmostPresented)
+        }
+    }
+
+    /// The owner's current records: the store yields its snapshot first.
+    private func currentRecords() async -> [HostRecord] {
+        for await snapshot in await hosts.updates() { return snapshot.value }
+        return []
+    }
+
     // MARK: Routes
 
     func showEditor(_ mode: HostEditorModel.Mode, records: [HostRecord], from presenter: UIViewController) {

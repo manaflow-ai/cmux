@@ -13,4 +13,9 @@ extension MobileLinkClient: RemoteDesktopChannelOpener {
     public func openChannel(_ request: MobileChannelRequest) async throws -> MobileOpenedChannel {
         try await open(request)
     }
+
+    /// C2's lane open: refused when the channel's session generation is gone.
+    public func openDatagramLane(pairedWith channel: MobileOpenedChannel) async throws -> MobileDatagramLane {
+        try await openDatagramLane(for: channel)
+    }
 }

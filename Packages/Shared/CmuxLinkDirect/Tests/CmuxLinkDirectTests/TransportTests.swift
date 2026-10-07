@@ -15,6 +15,10 @@ struct TransportTests {
         #expect(dialer.remoteKey == pair.host.publicKey)
         #expect(host.remoteKey == pair.device.publicKey)
         #expect(await dialer.path == LinkPath(kind: .direct, carrier: .direct))
+        #expect(dialer.peerIdentity == LinkPeerIdentity(carrier: .direct, keyKind: .x25519,
+                                                        publicKey: pair.host.publicKey.rawRepresentation))
+        #expect(host.peerIdentity == LinkPeerIdentity(carrier: .direct, keyKind: .x25519,
+                                                      publicKey: pair.device.publicKey.rawRepresentation))
         await dialer.close()
         await host.close()
         await pair.acceptor.stop()

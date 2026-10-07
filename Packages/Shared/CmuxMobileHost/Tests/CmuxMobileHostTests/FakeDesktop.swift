@@ -205,7 +205,9 @@ struct HarnessDesktopOpener: RemoteDesktopChannelOpener {
     }
 
     func openDatagramLane(pairedWith channel: MobileOpenedChannel) async throws -> MobileDatagramLane {
-        try await MobileDatagramLane.open(on: link, pairedWith: channel.channel.id)
+        let lane = try await link.openChannel(ChannelDescriptor(stream: DatagramLaneName(channel: channel.channel.id).stream,
+                                                                reliability: .unreliableUnordered, priority: .media))
+        return MobileDatagramLane(channel: channel.channel.id, link: lane)
     }
 }
 
@@ -241,4 +243,14 @@ import CmuxLinkTesting
 struct ManualClockBox {
     let clock = ManualClock()
     var link: LinkClock { LinkClock(clock) }
+}
+
+/// Odd A0 channel ids from 1 for the harness phone.
+actor ChannelIDs {
+    private var next: UInt32 = 1
+
+    func take() -> UInt32 {
+        defer { next += 2 }
+        return next
+    }
 }

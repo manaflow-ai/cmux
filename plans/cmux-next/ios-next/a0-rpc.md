@@ -228,6 +228,11 @@ opened returns `{upload, offset}` (resume point); records `files.chunk`; message
 (`sha256`) answered by `files.upload.done` (`path`, `size`). Channel `files.download` params `{path}`,
 opened `{size, mime, sha256}`. `files.list` is a read over the `rpc` channel (stream plane).
 
+### 5.6b git (stream; owner the Mac session host, read only; C13)
+`git.status {path}` and `git.diff {path, scope, paths?, include_patch?, ...}` are reads over the `rpc`
+channel, scoped by the files policy; shapes are the session host's `GitStatusResult` and
+`GitDiffResult` (ios-next/c13-viewers.md section 2).
+
 ### 5.7 feed (control; owner `FeedDO`; existing cloud ops)
 `feed.list` (read), `feed.answer`, `feed.read`, `feed.archive` (ops), `feed.post` (owner event the phone
 mirrors). Shapes are the cloud catalog's (`backend/packages/protocol/src/feed.ts`).

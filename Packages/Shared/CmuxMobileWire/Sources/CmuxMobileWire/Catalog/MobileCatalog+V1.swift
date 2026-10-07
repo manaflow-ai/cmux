@@ -52,12 +52,17 @@ extension MobileCatalog {
             MobileMessage("rd.frame", .record, .stream, .both, owner: "mac-rd-host"),
         ]),
         MobileFamily("files", .stream, owner: "mac-host", messages: [
-            MobileMessage("files.upload", .channel, .stream, .c2s, owner: "mac-host", channelClass: .bulk, errors: ["files.too_large", "files.dest_invalid"]),
-            MobileMessage("files.download", .channel, .stream, .c2s, owner: "mac-host", channelClass: .bulk, errors: ["files.not_found"]),
+            MobileMessage("files.upload", .channel, .stream, .c2s, owner: "mac-host", channelClass: .bulk, errors: ["files.too_large", "files.dest_invalid", "files.forbidden"]),
+            MobileMessage("files.download", .channel, .stream, .c2s, owner: "mac-host", channelClass: .bulk, errors: ["files.not_found", "files.forbidden", "files.too_large"]),
             MobileMessage("files.chunk", .record, .stream, .both, owner: "mac-host"),
             MobileMessage("files.upload.end", .message, .stream, .c2s, owner: "mac-host"),
             MobileMessage("files.upload.done", .message, .stream, .s2c, owner: "mac-host", errors: ["files.digest_mismatch"]),
-            MobileMessage("files.list", .read, .stream, .c2s, owner: "mac-host", errors: ["files.not_found"]),
+            MobileMessage("files.list", .read, .stream, .c2s, owner: "mac-host", errors: ["files.not_found", "files.forbidden"]),
+            MobileMessage("files.roots", .read, .stream, .c2s, owner: "mac-host"),
+        ]),
+        MobileFamily("git", .stream, owner: "mac-host", messages: [
+            MobileMessage("git.status", .read, .stream, .c2s, owner: "mac-host", errors: ["git.not_a_repo", "git.forbidden", "git.failed", "files.not_found"]),
+            MobileMessage("git.diff", .read, .stream, .c2s, owner: "mac-host", errors: ["git.not_a_repo", "git.forbidden", "git.failed", "files.not_found"]),
         ]),
         MobileFamily("feed", .control, owner: "FeedDO", stream: "feed:<user>", messages: [
             MobileMessage("feed.list", .read, .control, .c2s, owner: "FeedDO", existing: true),

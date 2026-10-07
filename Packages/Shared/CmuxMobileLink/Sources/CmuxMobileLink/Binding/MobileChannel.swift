@@ -72,7 +72,7 @@ public actor MobileChannel {
         lanes
     }
 
-    /// Called by the host session server when a lane for this channel arrives.
+    /// Called by the session server when a lane for this channel arrives.
     public func attachDatagramLane(_ link: LinkChannel) async {
         guard !ended else {
             await link.close()

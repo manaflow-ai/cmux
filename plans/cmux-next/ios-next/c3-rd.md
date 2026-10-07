@@ -197,7 +197,7 @@ mode executes nothing. No `rd` param carries a command, path or URL; `target.dis
 | Piece | Where |
 | --- | --- |
 | `desktop/1` messages, `rd` channel params and opened, view math shared by both ends, HID usage to keysym map, phone client (`RemoteDesktopClient` over a `MobileChannel` and its datagram lane) | `Packages/Shared/CmuxRemoteDesktop` (module `CmuxRemoteDesktop`, on `CmuxBrowserStream` for the rd wire) |
-| phone datagram lane open | `MobileLinkClient.openDatagramLane(pairedWith:)` (CmuxMobileLink) |
+| phone datagram lane open | C2's `MobileLinkClient.openDatagramLane(for:)` (CmuxMobileLink), reached through `MobileLinkClientProvider` |
 | Mac handler | `CmuxMobileHost/RemoteDesktop`: `RemoteDesktopChannelHandler` (`MobileChannelHandler` for `.rd`), `RemoteDesktopSession`, seams `RemoteDesktopSources` (targets), `RemoteDesktopTargetSource` (video + input + clipboard), `RemoteDesktopPermissions`, `RemoteDesktopConsent`, `RemoteDesktopIndicator`, policies |
 | Mac sources | `DisplayFrameCapture` (ScreenCaptureKit display), `CGEventDesktopInput`, `ScreenDesktopSources`; VNC: `RfbClient` (3.8, Raw, CopyRect, DesktopSize, None and VNC auth), `RfbFramebuffer`, `RfbDesktopSource`, `NWRfbTransport` |
 | Video | C2's `CapturedVideoSource`, `VideoToolboxH264Encoder`, `RdPacketizer`, `RdReassembler` (shared; names stay `Browser*` until C2 lands, then move to a neutral `MobileVideo*` in one rename) |

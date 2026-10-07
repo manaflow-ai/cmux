@@ -1,6 +1,7 @@
 import CmuxMobileLink
 import CmuxBrowserStream
 public import CmuxLink
+public import CmuxMobileLink
 public import CmuxMobileWire
 
 /// Serves `browser` channels (lane C2, c2-browser-stream.md): attaches to

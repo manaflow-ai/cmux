@@ -104,6 +104,8 @@ struct ScriptedOpener: RemoteDesktopChannelOpener {
     }
 
     func openDatagramLane(pairedWith channel: MobileOpenedChannel) async throws -> MobileDatagramLane {
-        try await MobileDatagramLane.open(on: link, pairedWith: channel.channel.id)
+        let lane = try await link.openChannel(ChannelDescriptor(stream: DatagramLaneName(channel: channel.channel.id).stream,
+                                                                reliability: .unreliableUnordered, priority: .media))
+        return MobileDatagramLane(channel: channel.channel.id, link: lane)
     }
 }

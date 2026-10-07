@@ -13,7 +13,7 @@ public actor HostControlUplink {
     private let signaling: (any SignalingSink)?
     private let appVersion: String
     private let install: String
-    private var forwarder: Task<Void, Never>?
+    private var forwarders: [String: Task<Void, Never>] = [:]
     /// The last forwarded op per device: ops of one device run in order,
     /// different devices concurrently, and none blocks this frame loop.
     private var opChains: [String: Task<Void, Never>] = [:]
@@ -54,8 +54,8 @@ public actor HostControlUplink {
         while let frame = await iterator.next() {
             await handle(frame)
         }
-        forwarder?.cancel()
-        forwarder = nil
+        for forwarder in forwarders.values { forwarder.cancel() }
+        forwarders.removeAll()
         for chain in opChains.values { chain.cancel() }
         opChains.removeAll()
     }
@@ -69,11 +69,11 @@ public actor HostControlUplink {
     private func handle(_ frame: JSONValue) async {
         switch frame["t"]?.stringValue {
         case "snapshot.request":
-            guard frame["stream"]?.stringValue == host.workspaceStream.stream else { return }
+            guard let name = frame["stream"]?.stringValue, let owner = host.streams[name] else { return }
             if let device = frame["to"]?.stringValue {
-                await sendScopedSnapshot(to: device, pending: frame["pending"])
+                await sendScopedSnapshot(owner, to: device, pending: frame["pending"])
             } else {
-                startForwarding()
+                startForwarding(owner)
             }
         case "op":
             let from = frame["from"]?.stringValue ?? ""
@@ -85,6 +85,10 @@ public actor HostControlUplink {
         case "read":
             guard case .int(let id)? = frame["id"] else { return }
             let op = frame["op"]?.stringValue ?? "read"
+            if op == "task.list", let tasks = host.tasks {
+                await answerTaskList(id: Int(id), params: frame["params"] ?? .object([:]), tasks: tasks)
+                return
+            }
             try? await socket.send(MobileFrame.error(ErrorFrame(id: Int(id), code: "proto.unsupported",
                                                                 message: "\(op) is not served by this host",
                                                                 retryable: false)).jsonValue)
@@ -97,13 +101,27 @@ public actor HostControlUplink {
         }
     }
 
+    /// `read task.list` forwarded by `HostDO` (b1-control-do.md 3), answered from the projection.
+    private func answerTaskList(id: Int, params: JSONValue, tasks: MobileTaskService) async {
+        do {
+            let value = try await tasks.list(params)
+            let revision = String(await tasks.owner.headSeq)
+            try? await socket.send(MobileFrame.readResult(ReadResultFrame(id: id, value: value, revision: revision)).jsonValue)
+        } catch let error as MobileDaemonError {
+            try? await socket.send(MobileFrame.error(ErrorFrame(id: id, code: error.code, message: error.message,
+                                                                retryable: error.retryable)).jsonValue)
+        } catch {
+            try? await socket.send(MobileFrame.error(ErrorFrame(id: id, code: "owner.unreachable", message: "the read failed",
+                                                                retryable: true)).jsonValue)
+        }
+    }
+
     /// Sends a fresh snapshot, then every event after it (a new request restarts).
-    private func startForwarding() {
-        forwarder?.cancel()
-        let owner = host.workspaceStream
+    private func startForwarding(_ owner: any MobileStreamOwner) {
+        forwarders[owner.stream]?.cancel()
         let socket = socket
-        forwarder = Task {
-            guard let updates = try? await owner.updates(afterSeq: nil) else { return }
+        forwarders[owner.stream] = Task {
+            guard let updates = try? await owner.updates(afterSeq: nil, epoch: nil) else { return }
             var last: UInt64?
             for await update in updates {
                 if Task.isCancelled { return }
@@ -114,7 +132,7 @@ public actor HostControlUplink {
                     if let seen = last, event.seq <= seen { continue }
                     guard let seen = last, event.seq == seen + 1 else {
                         // Behind the buffer: HostDO would see a gap and ask again; send a snapshot now.
-                        guard let snapshot = try? await owner.snapshotFrame() else { return }
+                        guard let snapshot = try? await owner.snapshotFrame(decided: []) else { return }
                         last = snapshot.seq
                         guard (try? await socket.send(owner.stamped(.snapshot(snapshot)))) != nil else { return }
                         continue
@@ -128,12 +146,12 @@ public actor HostControlUplink {
 
     /// A device's pending-key snapshot (b1-control-do.md section 3): only to
     /// that device, with its decided keys. The broadcast forwarder is untouched.
-    private func sendScopedSnapshot(to device: String, pending: JSONValue?) async {
+    private func sendScopedSnapshot(_ owner: any MobileStreamOwner, to device: String, pending: JSONValue?) async {
         let keys: [String]
         if case .array(let items)? = pending { keys = items.compactMap(\.stringValue) } else { keys = [] }
         let decided = await host.executor.decided(install: device, keys: keys)
-        guard let snapshot = try? await host.workspaceStream.snapshotFrame(decided: decided),
-              case .object(var object)? = try? host.workspaceStream.stamped(.snapshot(snapshot)) else { return }
+        guard let snapshot = try? await owner.snapshotFrame(decided: decided),
+              case .object(var object)? = try? owner.stamped(.snapshot(snapshot)) else { return }
         object["to"] = .string(device)
         try? await socket.send(.object(object))
     }
@@ -158,7 +176,9 @@ public actor HostControlUplink {
         case .success(let principal):
             reply = await host.executor.execute(op, principal: principal)
         case .failure(let failure):
-            reply = MobileOpReply(idempotencyKey: op.idempotencyKey, stream: host.workspaceStream.stream,
+            let stream = op.op.hasPrefix("task.") ? host.taskStream?.stream ?? host.workspaceStream.stream
+                : host.workspaceStream.stream
+            reply = MobileOpReply(idempotencyKey: op.idempotencyKey, stream: stream,
                                   outcome: .reject(tx: "tx_denied", MobileOpRejection(code: failure.code, message: failure.message)),
                                   replayed: false)
         }

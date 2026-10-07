@@ -8,7 +8,9 @@ public struct RealFeatureFactories: Sendable {
     /// Gets the account's resolved device registry (real or mock), whose
     /// paired Macs are the hosts the workspace list mirrors.
     public var workspaces: (@Sendable (any DeviceRegistry) -> any WorkspaceSource)?
-    public var composer: (@Sendable () -> any TaskComposerSink)?
+    /// Gets the account's resolved workspace source (real or mock): the
+    /// composer targets those hosts and workspaces.
+    public var composer: (@Sendable (any WorkspaceSource) -> any TaskComposerSink)?
     public var hosts: (@Sendable () -> any HostsStore)?
     public var devices: (@Sendable () -> any DeviceRegistry)?
     public var files: (@Sendable () -> any FileTransfer)?
@@ -44,7 +46,8 @@ public struct RealFeatureFactories: Sendable {
         let devices = pick(.devices, devices) { MockDeviceRegistry() as any DeviceRegistry }
         let workspacesFactory = workspaces.map { make in { @Sendable in make(devices) } }
         let workspaces = pick(.workspaces, workspacesFactory) { MockWorkspaceSource() as any WorkspaceSource }
-        let composer = pick(.composer, composer) { MockTaskComposerSink() as any TaskComposerSink }
+        let composerFactory = composer.map { make in { @Sendable in make(workspaces) } }
+        let composer = pick(.composer, composerFactory) { MockTaskComposerSink() as any TaskComposerSink }
         let hosts = pick(.hosts, hosts) { MockHostsStore() as any HostsStore }
         let files = pick(.files, files) { MockFileTransfer() as any FileTransfer }
         let browser = pick(.browser, browser) { MockBrowserStreamSource() as any BrowserStreamSource }

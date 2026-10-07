@@ -2,6 +2,7 @@ import CmuxBrowserStream
 import CmuxLink
 import CmuxLinkTesting
 import CmuxMobileHost
+import CmuxMobileLink
 import CmuxMobileWire
 import Foundation
 import Testing
@@ -14,12 +15,14 @@ struct BrowserChannelTests {
         let harness: PhoneHarness
         let pages: FakeBrowserPages
         let client: BrowserStreamClient
+        let link: MobileLinkClient
 
         var attachment: FakeBrowserAttachment { pages.attachment }
         var source: FakeVideoSource { pages.attachment.source }
 
         func shutdown() async {
             await client.close()
+            await link.close()
             await harness.shutdown()
         }
     }
@@ -27,10 +30,9 @@ struct BrowserChannelTests {
     static func fixture(tab: String = "tab_b1", lane: Bool = false) async throws -> Fixture {
         let pages = FakeBrowserPages()
         let harness = try await PhoneHarness(handlers: MobileChannelHandlers(channels: [.browser: BrowserChannelHandler(pages: pages)]))
-        try await harness.hello()
-        let client = BrowserStreamClient(session: HarnessSessionLink(link: harness.phone),
-                                         params: BrowserChannelParams(tab: tab, screen: screen, datagramLane: lane))
-        return Fixture(harness: harness, pages: pages, client: client)
+        let link = harness.linkClient()
+        let client = BrowserStreamClient(client: link, params: BrowserChannelParams(tab: tab, screen: screen, datagramLane: lane))
+        return Fixture(harness: harness, pages: pages, client: client, link: link)
     }
 
     static func nextFrame(_ iterator: inout AsyncStream<BrowserVideoFrame>.Iterator) async throws -> BrowserVideoFrame {

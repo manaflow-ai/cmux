@@ -8,6 +8,7 @@ public actor MockFileTransfer: FileTransfer {
     public static let defaultSize: Int64 = 1 << 20
 
     private var acknowledged: [TransferID: (completed: Int64, total: Int64)] = [:]
+    private var requests: [TransferID: TransferRequest] = [:]
     private var cancelled: Set<TransferID> = []
     private var failAfterChunks: Int?
 
@@ -17,6 +18,7 @@ public actor MockFileTransfer: FileTransfer {
 
     public func start(_ request: TransferRequest) async throws -> AsyncStream<TransferProgress> {
         acknowledged[request.id] = (0, request.byteCount ?? Self.defaultSize)
+        requests[request.id] = request
         cancelled.remove(request.id)
         return run(request.id, failAfter: failAfterChunks.take())
     }
@@ -60,7 +62,10 @@ public actor MockFileTransfer: FileTransfer {
             continuation.yield(TransferProgress(id: id, completedBytes: completed, totalBytes: start.total, state: .running))
             await Task.yield()
         }
-        continuation.yield(TransferProgress(id: id, completedBytes: completed, totalBytes: start.total, state: .finished))
+        let request = requests[id]
+        let remote = request.flatMap { $0.isUpload ? "/Users/mock/Downloads/cmux-phone/\($0.displayName)" : nil }
+        continuation.yield(TransferProgress(id: id, completedBytes: completed, totalBytes: start.total, state: .finished,
+                                            remotePath: remote))
     }
 }
 

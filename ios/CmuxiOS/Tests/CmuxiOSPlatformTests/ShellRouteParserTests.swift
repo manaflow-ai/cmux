@@ -23,6 +23,9 @@ struct ShellRouteParserTests {
         ("cmux://settings", .settings),
         ("cmux://diagnostics", .diagnostics),
         ("cmux://whats-new", .whatsNew),
+        ("cmux://search", .search(query: nil)),
+        ("cmux://search?q=", .search(query: nil)),
+        ("cmux://search?q=api%20deploy", .search(query: "api deploy")),
         ("CMUX://FEED", .feed(item: nil)),
         ("cmux:feed/item_42", .feed(item: "item_42")),
     ])
@@ -54,6 +57,7 @@ struct ShellRouteParserTests {
         "cmux://unknown",
         "cmux://feed/a/b",
         "cmux://home/extra",
+        "cmux://search/extra",
         "cmux://workspace/only-host",
         "cmux://workspace/mac/ws%20space",
         "cmux://feed/" + String(repeating: "a", count: 129),

@@ -32,7 +32,7 @@ public final class WebRTCDatagramDialer: Sendable {
         do {
             webrtcPeer = try WebRTCPeer(
                 factory: WebRTCFactory.shared(for: configuration.network), mode: .datagram, ice: ice,
-                lowWater: configuration.lowWaterBytes, frameSink: sink
+                limits: PeerSendLimits(configuration), frameSink: sink
             )
         } catch {
             await router.unregister(session)

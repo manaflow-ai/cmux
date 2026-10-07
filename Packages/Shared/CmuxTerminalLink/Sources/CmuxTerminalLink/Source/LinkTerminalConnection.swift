@@ -35,6 +35,7 @@ actor LinkTerminalConnection {
     private var monitor = TerminalLatencyMonitor()
     private var telemetrySubscribers: [UUID: AsyncStream<TerminalLatencyReport>.Continuation] = [:]
     private var inputBusy = false
+    private var history = TerminalHistoryTracker()
     private var inputWaiters: [CheckedContinuation<Void, Never>] = []
 
     init(terminal: String, client: MobileLinkClient, options: TerminalLinkOptions, clock: LinkClock,
@@ -75,6 +76,7 @@ actor LinkTerminalConnection {
         queue = nil
         for continuation in telemetrySubscribers.values { continuation.finish() }
         telemetrySubscribers.removeAll()
+        history.finish()
     }
 
     private func stopAttach() {
@@ -207,6 +209,7 @@ actor LinkTerminalConnection {
             return
         }
         guard !awaitingKeyframe else { return }
+        if frame.kind == .snapshotHistory { history.received(offset: frame.offset) }
         if frame.kind == .bytes {
             monitor.output(endingAt: frame.offset, at: now)
             switch predictor.reconcile(generation: frame.generation, offset: frame.offset, payload: frame.payload) {
@@ -256,6 +259,8 @@ actor LinkTerminalConnection {
             if let title = value["title"]?.stringValue { await push(.title(title)) }
         case "terminal.kicked":
             await push(.kicked(byDisplayName: value["by_name"]?.stringValue ?? ""))
+        case "error":
+            history.refused()
         case "channel.closed":
             let code = value["code"]?.stringValue
             if code == "terminal.kicked" {
@@ -331,6 +336,21 @@ actor LinkTerminalConnection {
             "terminal": .string(request.terminal), "reason": .string(request.reason.rawValue), "have": have,
             "request_id": .string(request.requestID),
         ]))
+    }
+
+    /// The page before the oldest history this viewer holds, once at a time.
+    func loadOlderHistory() async {
+        guard history.canRequest, channel != nil else { return }
+        history.requested()
+        await requestHistory(before: history.oldestOffset, maxBytes: TerminalHistoryTracker.pageBytes)
+    }
+
+    func historyStates() -> AsyncStream<TerminalHistoryState> {
+        history.subscribe { [weak self] id in Task { await self?.dropHistorySubscriber(id) } }
+    }
+
+    private func dropHistorySubscriber(_ id: UUID) {
+        history.unsubscribe(id)
     }
 
     func requestHistory(before offset: UInt64?, maxBytes: Int) async {

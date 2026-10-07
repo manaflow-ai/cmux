@@ -1,6 +1,9 @@
 import CmuxBrowserStream
 import CmuxMobileHost
 import CmuxLink
+import CmuxMobileLink
+import CmuxMobileWire
+import CryptoKit
 import Foundation
 
 /// A Mac with one browser tab, a 1440x900 pt page at 2x.
@@ -122,25 +125,27 @@ actor FakeVideoSource: BrowserVideoSource {
     }
 }
 
-/// The phone's admitted session over the harness link.
-final class HarnessSessionLink: MobileSessionLink {
-    let link: any CmuxLink
-    private let ids = ChannelIDs()
+/// The harness's paired key as the phone's hello signer.
+struct HarnessSigner: MobileDeviceSigner {
+    let key: P256.Signing.PrivateKey
+    let install = PhoneHarness.install
+    let keyID = "k1"
 
-    init(link: any CmuxLink) {
-        self.link = link
-    }
-
-    func allocateChannelID() async -> UInt32 {
-        await ids.take()
-    }
+    func sign(_ message: Data) throws -> Data { try key.signature(for: message).rawRepresentation }
 }
 
-actor ChannelIDs {
-    private var next: UInt32 = 1
-
-    func take() -> UInt32 {
-        defer { next += 2 }
-        return next
+extension PhoneHarness {
+    /// The phone's one `MobileLinkClient` for this Mac, over the harness network.
+    func linkClient() -> MobileLinkClient {
+        let carrier = network.carrier(kind: .direct, path: .direct)
+        return MobileLinkClient(
+            hostID: Self.hostID, signer: HarnessSigner(key: key),
+            client: HelloClient(install: Self.install, platform: "ios", appVersion: "1.0"),
+            makeSession: {
+                LinkSession(peer: LinkPeer(hostID: Self.hostID),
+                            selector: PathSelector(carriers: [carrier],
+                                                   policy: PathPolicy(preferenceWindow: .milliseconds(5), upgradeRetry: nil)),
+                            configuration: Self.fast)
+            })
     }
 }

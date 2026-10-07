@@ -21,12 +21,15 @@ public struct TransferProgress: Hashable, Sendable {
     public var completedBytes: Int64
     public var totalBytes: Int64?
     public var state: State
+    /// A finished upload's path on the Mac.
+    public var remotePath: String?
 
-    public init(id: TransferID, completedBytes: Int64, totalBytes: Int64?, state: State) {
+    public init(id: TransferID, completedBytes: Int64, totalBytes: Int64?, state: State, remotePath: String? = nil) {
         self.id = id
         self.completedBytes = completedBytes
         self.totalBytes = totalBytes
         self.state = state
+        self.remotePath = remotePath
     }
 
     public var fraction: Double? {
