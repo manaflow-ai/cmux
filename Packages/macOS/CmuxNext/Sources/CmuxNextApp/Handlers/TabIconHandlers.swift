@@ -15,20 +15,21 @@ enum TabIconHandlers {
             guard let target = target(invocation, ctx) else { return }
             if let icon = invocation["icon"]?.stringValue?.trimmingCharacters(in: .whitespaces), !icon.isEmpty {
                 guard WorkspaceIconValue.isValid(icon) else { return ctx.refuse(WorkspaceVerbStrings.invalidIcon) }
-                return set(.set(icon), on: target)
+                return change(target, to: icon, origin: invocation.origin, ctx)
             }
             guard let anchor = anchor(target, ctx) ?? ctx.refuse(ScreenStrings.iconArgumentRequired) else { return }
+            // A pick in the picker is the person's own gesture, also when automation opened it.
             ctx.services.iconPicker.pick(current: target.tab.userIcon, target: "tab:\(target.resource.rawValue)", at: anchor) { result in
                 switch result {
-                case .set(let icon) where WorkspaceIconValue.isValid(icon): set(.set(icon), on: target)
-                case .clear: set(.clear, on: target)
+                case .set(let icon) where WorkspaceIconValue.isValid(icon): change(target, to: icon, origin: .user, ctx)
+                case .clear: change(target, to: nil, origin: .user, ctx)
                 case .set, .cancel: break
                 }
             }
         })
         registry.bind("tab.clearIcon", invoke: { invocation in
             guard let target = target(invocation, ctx) else { return }
-            set(.clear, on: target)
+            change(target, to: nil, origin: invocation.origin, ctx)
         })
     }
 
@@ -50,9 +51,25 @@ enum TabIconHandlers {
         return Target(tab: tab, pane: pane, resource: resource, daemon: daemon)
     }
 
-    static func set(_ update: FieldUpdate<String>, on target: Target) {
-        let resource = target.resource
-        target.daemon.send("tab.update") { try await $0.state.updateTabRecord(resource, icon: update) }
+    /// Changes the tab's icon (nil removes it); a user's change is an undo step (TabIconHistory).
+    static func change(_ target: Target, to icon: String?, origin: ActionOrigin, _ ctx: AppActionContext) {
+        // The icon the tab shows now (the picker may have been open while it changed).
+        let previous = ctx.services.locateTab(target.tab.id)?.0.userIcon ?? target.tab.userIcon
+        // The window that shows the tab, not the picker panel that is key while it closes.
+        let window = ctx.services.paneController(for: target.pane)?.view.window ?? NSApp.mainWindow
+        let undoManager = window?.undoManager
+        history(ctx).change(target.tab.id, from: previous, to: icon, origin: origin, undoManager: undoManager)
+    }
+
+    /// Icon updates by tab id, so an undo after the tab moved or its window closed still finds it.
+    static func history(_ ctx: AppActionContext) -> TabIconHistory {
+        TabIconHistory { id, update in
+            guard let (tab, pane) = ctx.services.locateTab(id), let resource = tab.resourceID else { return false }
+            let daemon = ctx.services.daemon(for: pane)
+            guard daemon.store.servesStateResources else { return false }
+            daemon.send("tab.update") { try await $0.state.updateTabRecord(resource, icon: update) }
+            return true
+        }
     }
 
     /// The tab's chip in the window that shows it, else the top middle of the active window.
