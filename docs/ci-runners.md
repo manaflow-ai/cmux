@@ -1036,8 +1036,9 @@ inside the `CI_TRUSTED_RUNNER` selector, and an exact exception list in the
 guard: npm provenance publish and verify jobs (npm accepts only GitHub-hosted
 runners), the artifact-attestation job, the cloud overflow probe's `watch` job
 (it detects a Blacksmith outage), the two CLA jobs (pinned by
-`validate-cla-policy.rb` until the CLA migration lands), and the macOS 14 and
-Intel legs of the dispatch-only `ci-macos-compat.yml` (no Blacksmith image).
+`validate-cla-policy.rb` until the CLA migration lands), and the Intel leg of
+the dispatch-only `ci-macos-compat.yml` (no Blacksmith image). GitHub retired
+`macos-14`, so no job may name it.
 The `MACOS_RUNNER_BACKGROUND` fallback (`vars.MACOS_RUNNER_BACKGROUND ||
 'blacksmith-6vcpu-macos-15'`) may appear only in a workflow with no pull
 request, merge-queue or `workflow_call` trigger. It also asserts every paid macOS job references

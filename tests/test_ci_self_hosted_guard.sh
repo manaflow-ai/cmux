@@ -1206,8 +1206,8 @@ check_no_github_hosted_runners() {
     # validate-cla-policy.rb pins these to ubuntu-24.04 until #17453 lands.
     "cla.yml:    runs-on: ubuntu-24.04 # github-hosted-required: write token on fork pull requests"
     "cla-policy-guard.yml:    runs-on: ubuntu-24.04"
-    # Dispatch-only OS-compatibility legs; no Blacksmith image is macOS 14 or Intel.
-    "ci-macos-compat.yml:          - os: macos-14"
+    # Dispatch-only Intel compatibility leg; Blacksmith has no Intel macOS image.
+    # GitHub retired macos-14, so it is no longer an exception (#17068).
     "ci-macos-compat.yml:          - os: macos-15-intel"
   )
   local probe
@@ -1973,10 +1973,9 @@ check_background_macos_lane() {
   # branch and the exact compatibility-leg exceptions below.
   local lane_expr="vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15'"
   local hosted_mac='(^|[^A-Za-z0-9_-])macos-(latest|[0-9]+)(-(intel|large|xlarge|arm64))?([^A-Za-z0-9_-]|$)'
-  # Pre-existing OS-version compatibility legs that need a specific hosted
-  # image (macOS 14, Intel) that no paid provider offers. Exact lines only.
+  # The Intel compatibility leg needs a hosted image that no paid provider
+  # offers. Exact lines only. macos-14 is retired (#17068).
   local -a hosted_exceptions=(
-    "ci-macos-compat.yml:          - os: macos-14"
     "ci-macos-compat.yml:          - os: macos-15-intel"
   )
   local failed=0 probe
