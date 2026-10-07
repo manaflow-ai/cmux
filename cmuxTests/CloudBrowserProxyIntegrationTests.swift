@@ -154,6 +154,12 @@ struct CloudBrowserProxyIntegrationTests {
         while !model.isReady && ContinuousClock.now < readyDeadline {
             try await Task.sleep(for: .milliseconds(10))
         }
+        // Route setup may replace the initial WebView to bind its exact data
+        // store. Keep this test host attached to the current instance, as the
+        // SwiftUI browser host does when its observed WebView changes.
+        if hostWindow.contentView !== panel.webView {
+            hostWindow.contentView = panel.webView
+        }
         #expect(model.isReady, "The managed SSH loopback forward must become ready")
         #expect(panel.webView.window != nil)
         #expect(panel.websiteDataStore.proxyConfigurations.isEmpty,
