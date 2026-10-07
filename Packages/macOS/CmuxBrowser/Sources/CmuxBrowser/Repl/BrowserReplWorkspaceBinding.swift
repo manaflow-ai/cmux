@@ -16,6 +16,12 @@ public struct BrowserReplWorkspaceBinding {
         case explicitWorkspaceInvalid(String)
         /// No window has a selected workspace.
         case noFocusedWorkspace
+        /// The caller runs in a cmux terminal of `caller` and named another
+        /// workspace, `requested`.
+        case otherWorkspaceDenied(requested: UUID, caller: UUID)
+        /// The caller runs in a cmux terminal of `caller` and asked for
+        /// every workspace's sessions.
+        case allWorkspacesDenied(caller: UUID)
     }
 
     private let exists: (UUID) -> Bool
@@ -74,6 +80,34 @@ public struct BrowserReplWorkspaceBinding {
             return .failure(.explicitWorkspaceInvalid(explicitHandle))
         }
         return resolveCaller(explicit: explicit, caller: caller)
+    }
+
+    /// Like ``caller(explicitHandle:caller:)``, with the workspace the
+    /// socket transport traced the calling process to.
+    ///
+    /// - Parameter derived: The workspace of the cmux terminal the calling
+    ///   process runs in (``BrowserReplCallerLocality``), or `nil` when it
+    ///   runs in none. A caller cannot choose it. When it is set it is the
+    ///   caller's workspace: a `workspace_id` that names another one is
+    ///   refused, and the environment's `caller` is ignored.
+    public func caller(explicitHandle: String?, caller: UUID?, derived: UUID?) -> Result<Caller, Failure> {
+        self.caller(explicitHandle: explicitHandle, caller: caller)
+    }
+
+    /// The sessions `list` and `reset` act on.
+    public enum Scope: Equatable {
+        /// Every workspace's (`all_workspaces`).
+        case allWorkspaces
+        /// The caller's.
+        case caller(Caller)
+    }
+
+    /// The sessions a `list` or `reset` call acts on. Only a caller that
+    /// runs in no cmux terminal (`derived` is `nil`) may ask for every
+    /// workspace's; see ``caller(explicitHandle:caller:derived:)``.
+    public func scope(allWorkspaces: Bool, explicitHandle: String?, caller: UUID?, derived: UUID?) -> Result<Scope, Failure> {
+        if allWorkspaces { return .success(.allWorkspaces) }
+        return self.caller(explicitHandle: explicitHandle, caller: caller, derived: derived).map { .caller($0) }
     }
 
     private func resolveCaller(explicit: UUID?, caller: UUID?) -> Result<Caller, Failure> {
