@@ -59,7 +59,7 @@ const liveServices = (env: Env) => {
     // TODO(cx-b4h, owner: Lawrence Chen): the real billing source; see Entitlements.
     entitlementsFromPolicyLayer.pipe(Layer.provide(policy)),
     durableObjectLimitsLayer(env.TENANT_LIMITS),
-    upstreamLayer({ baseUrl: env.UPSTREAM_API_URL, apiKey: env.UPSTREAM_API_KEY }),
+    upstreamLayer({ baseUrl: env.UPSTREAM_API_URL, apiKey: env.UPSTREAM_API_KEY, environment: parseEnvironment(env.ENVIRONMENT) }),
     stackLayers({
       apiUrl: env.STACK_API_URL,
       projectId: env.STACK_PROJECT_ID,
@@ -77,14 +77,14 @@ const liveServices = (env: Env) => {
 
 /** The provider snapshot and terminal clients (slice S3a). */
 const s3aServices = (env: Env) => {
-  const upstream = { baseUrl: env.UPSTREAM_API_URL, apiKey: env.UPSTREAM_API_KEY };
+  const upstream = { baseUrl: env.UPSTREAM_API_URL, apiKey: env.UPSTREAM_API_KEY, environment: parseEnvironment(env.ENVIRONMENT) };
   return Layer.mergeAll(upstreamSnapshotsLayer(upstream), upstreamTerminalsLayer(upstream));
 };
 
 /** The mesh experiment's provider client and its gate (off unless both vars say otherwise). */
 const meshServices = (env: Env) =>
   Layer.mergeAll(
-    upstreamMeshLayer({ baseUrl: env.UPSTREAM_API_URL, apiKey: env.UPSTREAM_API_KEY }),
+    upstreamMeshLayer({ baseUrl: env.UPSTREAM_API_URL, apiKey: env.UPSTREAM_API_KEY, environment: parseEnvironment(env.ENVIRONMENT) }),
     meshConfigLayer({
       experiment: parseMeshExperiment(env.CMUX_VM_MESH_EXPERIMENT),
       tenantIds: parseTenantList(env.CMUX_VM_MESH_TENANT_IDS),

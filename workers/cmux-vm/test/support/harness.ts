@@ -146,6 +146,12 @@ export async function makeHarness(options: HarnessOptions = {}) {
           keys.find((key) => key.hash === hash && !key.revoked && (key.expiresAt === null || key.expiresAt > now)),
         ),
       ),
+    findActiveById: (tenantId, id, now) =>
+      Effect.sync(() =>
+        Option.fromNullable(
+          keys.find((key) => key.tenantId === tenantId && key.id === id && !key.revoked && (key.expiresAt === null || key.expiresAt > now)),
+        ),
+      ),
   });
 
   /** Snapshot reads and terminals (slice S3a) are served by s3a-fakes.ts; everything else by fake-upstream.ts. */
@@ -164,7 +170,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
     memoryLimitsLayer(),
     Layer.succeed(
       UpstreamClient,
-      makeUpstreamClient({ baseUrl: UPSTREAM_URL, apiKey: Redacted.make(UPSTREAM_KEY), fetch: upstream.fetch }),
+      makeUpstreamClient({ baseUrl: UPSTREAM_URL, apiKey: Redacted.make(UPSTREAM_KEY), environment: "local", fetch: upstream.fetch }),
     ),
     Layer.succeed(SessionVerifier, makeStackSessionVerifier({ apiUrl: STACK_API_URL, projectId: STACK_PROJECT_ID, getKey })),
     Layer.succeed(TeamMembership, {
@@ -292,6 +298,14 @@ export async function makeHarness(options: HarnessOptions = {}) {
         expiresAt: options.expiresAt ?? null,
       });
       return secret;
+    },
+    /** Revokes the API key whose secret is `secret`, as the key management endpoint does. */
+    async revokeKey(secret: string) {
+      const hash = await Effect.runPromise(hashApiKey(secret));
+      const index = keys.findIndex((key) => key.hash === hash);
+      const found = keys[index];
+      if (found === undefined) throw new Error("revokeKey: no such key");
+      keys[index] = { ...found, revoked: true, revokedAt: found.revokedAt ?? new Date() };
     },
     /** Makes `user` a team admin of `tenant` (Stack team_admin). */
     addAdmin(tenant: string, user: string) {

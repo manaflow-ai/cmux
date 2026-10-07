@@ -92,6 +92,17 @@ pub struct HealthSettings {
 
 pub const GIB: u64 = 1 << 30;
 
+impl HealthSettings {
+    /// Free bytes under which `disk.low` (warning) raises on a disk of
+    /// `total_bytes`: under the percent AND under the byte threshold, so
+    /// the smaller of the two. The I/O crate sizes its next disk re-check
+    /// from the headroom above this line.
+    pub fn disk_warning_line(&self, total_bytes: u64) -> u64 {
+        let pct = u128::from(total_bytes) * u128::from(self.disk_warning_percent) / 100;
+        (pct as u64).min(self.disk_warning_bytes)
+    }
+}
+
 impl Default for HealthSettings {
     fn default() -> Self {
         HealthSettings {
