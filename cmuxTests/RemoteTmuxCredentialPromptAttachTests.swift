@@ -214,6 +214,26 @@ struct RemoteTmuxCredentialPromptAttachTests {
         )
     }
 
+    @Test func aRetiredLoginDoesNotReclassifyALaterFailureThroughAHeldView() {
+        let host = RemoteTmuxHost(destination: "user@host", transport: .et, transportPort: 2039)
+        let controller = RemoteTmuxController()
+        let view = RemoteTmuxViewConnection(host: host, ownerId: "test-owner")
+        view.onAwaitingCredentials = { controller.noteAwaitingCredentials(host: host) }
+        view.connection = brokeredConnection()
+        view.connection?.ingest(Data("Passcode: ".utf8))
+        view.stop()
+        #expect(controller.multiplexedMirrorFailure(host: host, view: view)
+            == .authenticationRequired(host.destination))
+
+        // Attach holds its view across suspension, even if that view was removed
+        // while a new connection authenticated. The old prompt is no longer a
+        // valid diagnosis for this host's next failure.
+        controller.noteMirrorConnected(host: host)
+        if case .authenticationRequired = controller.multiplexedMirrorFailure(host: host, view: view) {
+            Issue.record("a successful login must retire the verdict even when an attach still holds the old view")
+        }
+    }
+
     /// The message the user reads. "host unreachable" is the wrong classification for a host that
     /// answered and asked for credentials.
     @Test func theErrorNamesTheLoginRatherThanTheNetwork() {
