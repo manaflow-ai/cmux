@@ -17,7 +17,8 @@ public final class ControlPlaneSignaling: SignalingChannel, ICEServerProvider {
     public init(client: ControlPlaneClient, codec: SignalFrameCodec = SignalFrameCodec()) {
         self.client = client
         self.codec = codec
-        let (stream, sink) = AsyncStream.makeStream(of: SignalMessage.self, bufferingPolicy: .unbounded)
+        // Bounded like `client.signals` (E1), which it re-delivers.
+        let (stream, sink) = AsyncStream.makeStream(of: SignalMessage.self, bufferingPolicy: .bufferingNewest(256))
         incoming = stream
         let frames = client.signals
         pump = Task {
