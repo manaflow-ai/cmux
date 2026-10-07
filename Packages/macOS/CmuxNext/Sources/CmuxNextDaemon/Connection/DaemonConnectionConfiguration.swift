@@ -10,6 +10,11 @@ public struct DaemonConnectionConfiguration: Sendable {
     public var retry: RetryPolicy
     /// A connection that stays up this long resets the reconnect backoff.
     public var healthyAfter: Duration
+    /// A bridged (overlay) connection asks the daemon this often whether it
+    /// still answers; `bridgeHeartbeatMisses` unanswered asks in a row close
+    /// it, so a lost server never hangs it (the link itself waits 10 min).
+    public var bridgeHeartbeat: Duration = .seconds(15)
+    public var bridgeHeartbeatMisses = 2
     /// Extra events that may let a reconnect succeed (network, sign-in).
     /// The connection also watches its daemon socket through it.
     public var retryWake: RetryWake?

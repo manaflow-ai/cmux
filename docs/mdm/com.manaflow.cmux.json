@@ -1,5 +1,5 @@
 {
-  "description" : "Managed settings for cmux (every channel). Keys are cmux.json key paths; capitalized keys are policy keys. Forced values lock the setting; non-forced values replace its default.",
+  "description" : "Managed settings for cmux (every channel). Keys are cmux.json key paths; capitalized keys are policy keys. Forced values lock the setting; non-forced values replace its default. Exception: agents.chats.roots adds locked roots to the user list; agents.chats.enabled and agents.chats.discovery can only be forced off.",
   "properties" : {
     "agentPane.editedFiles.maxRows" : {
       "default" : 5,
@@ -51,6 +51,29 @@
       ],
       "title" : "Files Outside the Project",
       "type" : "string"
+    },
+    "agents.chats.discovery" : {
+      "default" : true,
+      "description" : "Find harness chat folders automatically. When off, only the listed folders are used.",
+      "title" : "Discover Chat Folders",
+      "type" : "boolean"
+    },
+    "agents.chats.enabled" : {
+      "default" : true,
+      "description" : "Show chats stored on this device. Nothing is uploaded.",
+      "title" : "Enable Chats",
+      "type" : "boolean"
+    },
+    "agents.chats.roots" : {
+      "default" : [
+
+      ],
+      "description" : "Add absolute paths to harness data folders. Protected folders are refused. Your organization can add locked folders.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Chat Folders",
+      "type" : "array"
     },
     "AllowedSignInMethods" : {
       "description" : "Sign-in methods the app offers.",
@@ -260,6 +283,18 @@
       "default" : true,
       "description" : "A status that asks for a style (cmux status set --style) uses it.",
       "title" : "Let Statuses Choose Their Style",
+      "type" : "boolean"
+    },
+    "appearance.statusIndicator.showAgentWorkingOnTabs" : {
+      "default" : true,
+      "description" : "Three dots take the tab's icon place while an agent works.",
+      "title" : "Show Agent Working on Tabs",
+      "type" : "boolean"
+    },
+    "appearance.statusIndicator.showPageLoading" : {
+      "default" : true,
+      "description" : "A spinner takes a browser tab's icon place while its page loads.",
+      "title" : "Show Page Loading on Tabs",
       "type" : "boolean"
     },
     "appearance.statusIndicator.size" : {
@@ -1444,6 +1479,12 @@
       ],
       "title" : "Section Look",
       "type" : "string"
+    },
+    "sidebar.showChats" : {
+      "default" : false,
+      "description" : "Shows the device-wide Chats section in the sidebar.",
+      "title" : "Show Chats",
+      "type" : "boolean"
     },
     "sidebar.showWorkspaceTabs" : {
       "default" : false,

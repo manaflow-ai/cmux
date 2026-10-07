@@ -28,17 +28,21 @@ use cmux_rd_proto::{
     MAX_DATAGRAM_DEFAULT, SERVICE_REMOTE_BROWSER, STREAM_CONTROL, STREAM_DATAGRAM, StreamDeframer,
     encode_stream_frame,
 };
-use cmux_remote_browser::proto::{Control, ScreenInfo, ViewerCaps};
+use cmux_remote_browser::proto::{Control, ScreenInfo, SurfaceKind, ViewerCaps};
 
 use crate::ffi::{
-    RbCallbacks, RbFrame, ShimPresentation, rb_shim_capture_refresh, rb_shim_frame_release,
-    rb_shim_post, rb_shim_post_delayed, rb_shim_quit, rb_shim_run,
+    RbCallbacks, RbFrame, ShimPresentation, rb_shim_capture_refresh, rb_shim_context_menu_result,
+    rb_shim_dialog_result, rb_shim_frame_release, rb_shim_popup_menu_result, rb_shim_post,
+    rb_shim_post_delayed, rb_shim_quit, rb_shim_run, rb_shim_surface_close,
 };
 use crate::pump::{FrameEncoder, Pump, PumpOut};
-use crate::tab::{DEFAULT_SCREEN, HostTab};
+use crate::shim_ui;
+use crate::tab::{DEFAULT_SCREEN, HostTab, SurfaceOut};
 
 const FPS: u32 = 60;
 const START_KBPS: u32 = 8000;
+/// A popup stream's first bitrate (the engine then sets its share).
+const POPUP_KBPS: u32 = 600;
 /// The viewer id of the stream carrier's single viewer.
 const VIEWER: &str = "rd-viewer";
 
@@ -187,6 +191,13 @@ impl Host {
             self.send_frame(STREAM_DATAGRAM, d);
         }
         let mut p = ShimPresentation;
+        // The input skipped a gap (a lost release may be in it): release
+        // what the viewer holds before the events after the gap apply.
+        if out.release_all {
+            let (keys, buttons) = self.tab.held();
+            eprintln!("serve: release_all: {keys} keys, {buttons} buttons");
+            self.tab.release_all(&mut p);
+        }
         for event in &out.input {
             // A refused event (Blink would drop it) is not an error here.
             let _ = self.tab.input(event, &mut p);
@@ -195,6 +206,42 @@ impl Host {
             self.refresh_wanted = true;
         }
         self.refresh();
+    }
+
+    /// Applies what the tab decided for a popup surface: streams on the
+    /// viewer's pump, messages to the viewer.
+    fn surface_outs(&mut self, outs: Vec<SurfaceOut>) {
+        for out in outs {
+            match out {
+                SurfaceOut::Control(c) => {
+                    eprintln!("serve: {}", serde_json::to_string(&c).unwrap_or_default());
+                    self.send_rb(vec![c]);
+                }
+                SurfaceOut::AddStream { surface, stream, width, height } => {
+                    let Some(v) = self.viewer.as_mut() else { continue };
+                    let added = VideoToolbox::new(width, height, FPS, POPUP_KBPS, false)
+                        .map_err(|e| e.to_string())
+                        .and_then(|vt| {
+                            v.pump
+                                .add_stream(stream, width, height, Vt(vt))
+                                .map_err(|e| format!("{e:?}"))
+                        });
+                    if let Err(e) = added {
+                        // The viewer cannot see it: close it in the page.
+                        eprintln!("serve: surface {surface} stream {stream}: {e}");
+                        if let Ok(id) = c_int::try_from(surface) {
+                            // SAFETY: plain value; UI thread.
+                            unsafe { rb_shim_surface_close(id) };
+                        }
+                    }
+                }
+                SurfaceOut::RemoveStream { stream } => {
+                    if let Some(v) = self.viewer.as_mut() {
+                        v.pump.remove_stream(stream);
+                    }
+                }
+            }
+        }
     }
 
     /// Asks the capture for a full frame when the pump waits for one.
@@ -359,6 +406,110 @@ unsafe extern "C" fn on_page_text(_: *mut c_void, _browser: c_int, text: *const 
     });
 }
 
+/// A C string of a shim callback (valid for the call), or `None` for NULL.
+fn text(p: *const c_char) -> Option<String> {
+    // SAFETY: the shim passes NUL-terminated strings valid for the call.
+    (!p.is_null()).then(|| unsafe { CStr::from_ptr(p) }.to_string_lossy().into_owned())
+}
+
+/// A page context menu: shown on the viewer with an rb token (or cancelled
+/// in Chromium when the menu is refused).
+unsafe extern "C" fn on_context_menu(
+    _: *mut c_void,
+    _browser: c_int,
+    token: i64,
+    x: c_int,
+    y: c_int,
+    items: *const c_char,
+) {
+    let menu = shim_ui::context_menu(x, y, &text(items).unwrap_or_default());
+    dispatch(move |h| match menu {
+        Ok(menu) => {
+            let out = h.tab.menu_opened(token, menu, &mut ShimPresentation);
+            h.send_rb(out);
+        }
+        Err(e) => {
+            eprintln!("serve: context menu JSON: {e}");
+            // SAFETY: plain values; UI thread. Cancels so Chromium does not wait.
+            unsafe { rb_shim_context_menu_result(token, -1) };
+        }
+    });
+}
+
+/// A `<select>` popup, or (NULL items) the page closed the popup itself.
+#[allow(clippy::too_many_arguments)]
+unsafe extern "C" fn on_popup_menu(
+    _: *mut c_void,
+    _browser: c_int,
+    token: i64,
+    x: c_int,
+    y: c_int,
+    width: c_int,
+    height: c_int,
+    items: *const c_char,
+    selected: c_int,
+    multiple: c_int,
+) {
+    let Some(items) = text(items) else {
+        dispatch(move |h| {
+            let out = h.tab.menu_closed_by_page(token);
+            h.send_rb(out);
+        });
+        return;
+    };
+    let menu = shim_ui::select_menu(x, y, width, height, &items, selected, multiple != 0);
+    dispatch(move |h| match menu {
+        Ok(menu) => {
+            let out = h.tab.menu_opened(token, menu, &mut ShimPresentation);
+            h.send_rb(out);
+        }
+        Err(e) => {
+            eprintln!("serve: popup menu JSON: {e}");
+            // SAFETY: a null array with a negative count cancels; UI thread.
+            unsafe { rb_shim_popup_menu_result(token, std::ptr::null(), -1) };
+        }
+    });
+}
+
+/// A JS dialog: shown on the viewer with an rb token (an unknown kind is
+/// dismissed in Chromium).
+#[allow(clippy::too_many_arguments)]
+unsafe extern "C" fn on_dialog(
+    _: *mut c_void,
+    _browser: c_int,
+    token: i64,
+    kind: *const c_char,
+    origin: *const c_char,
+    message: *const c_char,
+    default_text: *const c_char,
+    is_reload: c_int,
+) {
+    let dialog = shim_ui::dialog(
+        &text(kind).unwrap_or_default(),
+        &text(origin).unwrap_or_default(),
+        &text(message).unwrap_or_default(),
+        text(default_text).as_deref(),
+        is_reload != 0,
+    );
+    dispatch(move |h| match dialog {
+        Some(dialog) => {
+            let out = h.tab.dialog_opened(token, dialog, &mut ShimPresentation);
+            h.send_rb(out);
+        }
+        None => {
+            // SAFETY: plain values; UI thread.
+            unsafe { rb_shim_dialog_result(token, 0, std::ptr::null()) };
+        }
+    });
+}
+
+unsafe extern "C" fn on_dialog_reset(_: *mut c_void, _browser: c_int) {
+    dispatch(|h| {
+        let out = h.tab.dialog_reset();
+        h.send_rb(out);
+    });
+}
+
 unsafe extern "C" fn on_frame(_: *mut c_void, _browser: c_int, f: *const RbFrame) {
     // SAFETY: valid for the call.
     let f = unsafe { &*f };
@@ -371,17 +522,7 @@ unsafe extern "C" fn on_frame(_: *mut c_void, _browser: c_int, f: *const RbFrame
     if f.io_surface.is_null() {
         return; // CPU frames are the Linux host's (dropping releases).
     }
-    let full = Rect { x: 0, y: 0, width: lease.width, height: lease.height };
-    let damage = if f.has_update_rect != 0 {
-        Rect {
-            x: u32::try_from(f.update_x).unwrap_or(0),
-            y: u32::try_from(f.update_y).unwrap_or(0),
-            width: u32::try_from(f.update_width).unwrap_or(full.width),
-            height: u32::try_from(f.update_height).unwrap_or(full.height),
-        }
-    } else {
-        full
-    };
+    let damage = frame_damage(f, lease.width, lease.height);
     dispatch(move |h| {
         if !h.first_frame_seen {
             h.first_frame_seen = true;
@@ -395,6 +536,72 @@ unsafe extern "C" fn on_frame(_: *mut c_void, _browser: c_int, f: *const RbFrame
         h.apply(out);
         h.arm();
     });
+}
+
+/// A popup surface opened, moved or went (RP7).
+#[allow(clippy::too_many_arguments)]
+unsafe extern "C" fn on_surface(
+    _: *mut c_void,
+    _browser: c_int,
+    surface: c_int,
+    kind: c_int,
+    visible: c_int,
+    x: c_int,
+    y: c_int,
+    width: c_int,
+    height: c_int,
+) {
+    let Ok(surface) = u32::try_from(surface) else { return };
+    // cef_cmux.h CMUX_RP_SURFACE_PAGE_POPUP; Views bubbles are not surfaces yet.
+    let kind = if kind == 1 { SurfaceKind::PagePopup } else { SurfaceKind::Bubble };
+    let anchor = HostTab::anchor(x, y, width, height);
+    eprintln!("serve: surface {surface} visible {visible} at {x},{y} {width}x{height}");
+    dispatch(move |h| {
+        let outs =
+            h.tab.surface_changed(surface, kind, visible != 0, anchor, &mut ShimPresentation);
+        h.surface_outs(outs);
+    });
+}
+
+/// A captured frame of a popup surface: the first one (or one of a new
+/// size) shows the surface on its own stream; each is encoded there.
+unsafe extern "C" fn on_surface_frame(_: *mut c_void, surface: c_int, f: *const RbFrame) {
+    // SAFETY: valid for the call.
+    let f = unsafe { &*f };
+    let lease = Lease {
+        lease: f.lease,
+        surface: f.io_surface,
+        width: u32::try_from(f.coded_width).unwrap_or(0),
+        height: u32::try_from(f.coded_height).unwrap_or(0),
+    };
+    let Ok(surface) = u32::try_from(surface) else { return };
+    if f.io_surface.is_null() || lease.width == 0 || lease.height == 0 {
+        return;
+    }
+    let damage = frame_damage(f, lease.width, lease.height);
+    dispatch(move |h| {
+        let outs = h.tab.surface_frame(surface, lease.width, lease.height);
+        h.surface_outs(outs);
+        let Some(stream) = h.tab.surface_stream(surface) else { return };
+        let now = h.now();
+        let Some(v) = h.viewer.as_mut() else { return };
+        let out = v.pump.frame_on(stream, lease, damage, now, now);
+        h.apply(out);
+        h.arm();
+    });
+}
+
+/// The frame's update rect, or all of it.
+fn frame_damage(f: &RbFrame, width: u32, height: u32) -> Rect {
+    if f.has_update_rect == 0 {
+        return Rect { x: 0, y: 0, width, height };
+    }
+    Rect {
+        x: u32::try_from(f.update_x).unwrap_or(0),
+        y: u32::try_from(f.update_y).unwrap_or(0),
+        width: u32::try_from(f.update_width).unwrap_or(width),
+        height: u32::try_from(f.update_height).unwrap_or(height),
+    }
 }
 
 fn listen(addr: SocketAddr) -> std::io::Result<()> {
@@ -516,11 +723,13 @@ pub fn run(argv: &mut [*mut c_char], opts: Options) -> i32 {
         on_url: Some(on_page_text),
         on_frame: Some(on_frame),
         on_key_unhandled: None,
-        on_context_menu: None,
-        on_popup_menu: None,
+        on_context_menu: Some(on_context_menu),
+        on_popup_menu: Some(on_popup_menu),
         on_needs_begin_frames: None,
-        on_dialog: None,
-        on_dialog_reset: None,
+        on_dialog: Some(on_dialog),
+        on_dialog_reset: Some(on_dialog_reset),
+        on_surface: Some(on_surface),
+        on_surface_frame: Some(on_surface_frame),
     };
     // SAFETY: argv, the strings and the callbacks outlive the call.
     unsafe {

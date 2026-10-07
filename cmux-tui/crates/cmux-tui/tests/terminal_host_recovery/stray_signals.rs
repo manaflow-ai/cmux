@@ -93,7 +93,8 @@ fn host_loss_is_logged_with_the_signals_its_host_recorded() {
     let (record_path, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
     signal_pid(record.host_pid, libc::SIGTERM);
     wait_for_signal_lines(&record_path, 1);
-    signal_pid(record.host_pid, libc::SIGKILL);
+    // No shell survives the host, so the daemon cannot replace it.
+    pty_custody::kill_shell_then_host(&record_path, &record);
     wait_for_terminal_lifecycle(&harness.socket, &terminal_id, "exited");
 
     let log = harness.host_root().parent().unwrap().join("terminal-losses.jsonl");
