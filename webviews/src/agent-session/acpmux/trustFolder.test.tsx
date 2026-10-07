@@ -117,7 +117,8 @@ test("a new chat's folder is asked about only after its first prompt, and nothin
   expect(row()).toBeNull();
   await render({ levels, chat: { sessionId: "s", cwd: "/work/app", started: true, prompts: 1 } });
   expect(row()!.textContent).toBe("Claude Code can edit and run code in appTrustDon't trust");
-  expect(row()!.getAttribute("title")).toBe("/work/app");
+  // No folder tooltip over the row or its buttons: the cwd chip already names the folder.
+  expect([row()!, ...row()!.querySelectorAll("*")].filter((node) => node.hasAttribute("title"))).toEqual([]);
 });
 
 test("Trust saves acpmux's record and offers Undo, which forgets it and asks again", async () => {
