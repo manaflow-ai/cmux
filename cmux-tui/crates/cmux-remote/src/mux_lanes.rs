@@ -122,6 +122,9 @@ impl MuxLaneTracker {
                 // Forwarded loopback bytes and their stream lifecycle stay in
                 // one ordered lane, away from keystrokes and control replies.
                 name if name.starts_with("loopback-") => Lane::Bulk,
+                // Agent session records and the attachment's close follow
+                // the attach reply in one ordered lane (they can be large).
+                name if name.starts_with("agent-session-") => Lane::Bulk,
                 "overflow" if envelope.scope.as_ref().map(MuxName::as_str) == Some("surface") => {
                     Lane::Bulk
                 }
@@ -178,6 +181,10 @@ pub(crate) fn classify_client_line(line: &[u8]) -> Lane {
         // must stay ordered, and forwarded bytes must never queue ahead of
         // PTY input, so every loopback command uses the bulk lane.
         Some(name) if name.starts_with("loopback-") => Lane::Bulk,
+        // `agent-session-attach-v1`: the attach reply, the replay pages and
+        // the live records of one attachment stay in one ordered lane, so a
+        // record never overtakes the reply it follows.
+        Some(name) if name.starts_with("agent-session-") => Lane::Bulk,
         // Read-only lookups never wait behind PTY input or a slow mutation
         // commit; a stalled Interactive lane must not make a live terminal
         // look missing to the client resolving it.
