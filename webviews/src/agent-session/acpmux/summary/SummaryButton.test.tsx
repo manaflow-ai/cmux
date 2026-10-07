@@ -100,6 +100,31 @@ test("an output opens the changes view at that file and closes the popover", asy
   await unmount();
 });
 
+test("Sources opens the last turn's Changes and closes the popover", async () => {
+  const opened: string[] = [];
+  const container = dom.window.document.getElementById("root")!;
+  const root = createRoot(container);
+  await act(async () =>
+    root.render(
+      createElement(SummaryButton, {
+        rows,
+        changes: { additions: 3, deletions: 1 },
+        onOpenChanges: () => opened.push("changes"),
+      }),
+    ),
+  );
+  const button = container.querySelector<HTMLButtonElement>(".acpmux-summary-button")!;
+  await act(async () => button.click());
+  const changes = [...container.querySelectorAll<HTMLButtonElement>(".acpmux-summary-link")].find((row) =>
+    row.textContent?.includes("Changes"),
+  );
+  expect(changes?.textContent).toContain("+3");
+  await act(async () => changes?.click());
+  expect(opened).toEqual(["changes"]);
+  expect(container.querySelector(".acpmux-summary-popover")).toBeNull();
+  await act(async () => root.unmount());
+});
+
 test("a press outside closes it, and a second press on the button toggles it shut", async () => {
   const { button, popover, unmount } = await render([]);
   await act(async () => button.click());

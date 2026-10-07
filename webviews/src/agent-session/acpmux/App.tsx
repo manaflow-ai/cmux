@@ -2192,13 +2192,17 @@ function AcpmuxPane() {
                       </span>
                     )}
                     <ChatHeaderTools
-                      changes={lastChanges}
-                      changesOpen={Boolean(diffView && diffOpen)}
-                      onChanges={toggleLastChanges}
                       tabTools={!quick}
                       onTerminal={() => runHeaderAction(HEADER_ACTIONS.terminal, localCwd)}
                       onBrowser={() => runHeaderAction(HEADER_ACTIONS.browser)}
-                      summary={<SummaryButton rows={snapshot.rows} onOpenOutput={quick ? undefined : openOutput} />}
+                      summary={
+                        <SummaryButton
+                          rows={snapshot.rows}
+                          changes={quick ? undefined : lastChanges}
+                          onOpenChanges={toggleLastChanges}
+                          onOpenOutput={quick ? undefined : openOutput}
+                        />
+                      }
                       menu={chatMenu}
                       onMenuOpen={readTabState}
                       expand={continuing && canContinue ? "continue" : undefined}

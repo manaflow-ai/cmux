@@ -3,7 +3,6 @@
 // chat's folder; and the "..." chat menu. Every control renders from the first frame at its final
 // size; data fills in place.
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Counts } from "../changes/Counts";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { useShortcut, withShortcut } from "../shortcuts";
@@ -35,9 +34,6 @@ export type ChatMenuItem =
     };
 
 export function ChatHeaderTools({
-  changes,
-  changesOpen,
-  onChanges,
   onTerminal,
   onBrowser,
   tabTools = true,
@@ -47,10 +43,6 @@ export function ChatHeaderTools({
   expand,
   onExpanded,
 }: {
-  /// The last turn that edited files, with its counts; undefined before any edit.
-  changes?: { additions: number; deletions: number };
-  changesOpen: boolean;
-  onChanges: () => void;
   onTerminal: () => void;
   onBrowser: () => void;
   /// Terminal and Browser split the chat's tab; Quick Chat's panel has none.
@@ -69,18 +61,6 @@ export function ChatHeaderTools({
   const browserKey = useShortcut(HEADER_ACTIONS.browser);
   return (
     <div className="acpmux-header-tools">
-      <button
-        type="button"
-        className="acpmux-header-changes"
-        aria-pressed={changesOpen}
-        aria-label={t("header.changes")}
-        title={t("header.changes")}
-        disabled={!changes}
-        onClick={onChanges}
-      >
-        <Icon name="diff.file" size={15} />
-        <Counts additions={changes?.additions ?? 0} deletions={changes?.deletions ?? 0} />
-      </button>
       {tabTools && (
         <>
           <button

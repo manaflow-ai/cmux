@@ -73,8 +73,6 @@ async function render(props: Partial<Parameters<typeof ChatHeaderTools>[0]>, ran
         ShortcutsContext.Provider,
         { value: { splitRight: "⌘D", splitBrowserRight: "⌥⌘D", renameTab: "⌘R" } },
         createElement(ChatHeaderTools, {
-          changesOpen: false,
-          onChanges: () => ran.push("changes"),
           onTerminal: () => ran.push("terminal"),
           onBrowser: () => ran.push("browser"),
           summary: null,
@@ -87,39 +85,22 @@ async function render(props: Partial<Parameters<typeof ChatHeaderTools>[0]>, ran
   return { container, unmount: () => act(async () => root.unmount()) };
 }
 
-test("every header tool is there from the first frame; Changes waits for an edit without moving", async () => {
+test("every header tool is there from the first frame without a separate Changes button", async () => {
   const ran: string[] = [];
   const { container, unmount } = await render({}, ran);
   const buttons = [
     ...container.querySelectorAll<HTMLButtonElement>(".acpmux-header-tools > button, .acpmux-chat-menu > button"),
   ];
   expect(buttons.map((button) => button.getAttribute("aria-label"))).toEqual([
-    "Changes",
     "Terminal",
     "Browser",
     "Chat actions",
   ]);
-  const changes = buttons[0]!;
-  expect(changes.disabled).toBe(true);
-  expect(changes.textContent).toContain("+0");
-  expect(buttons[1]!.title).toBe("Terminal (⌘D)");
-  expect(buttons[2]!.title).toBe("Browser (⌥⌘D)");
+  expect(buttons[0]!.title).toBe("Terminal (⌘D)");
+  expect(buttons[1]!.title).toBe("Browser (⌥⌘D)");
+  await act(async () => buttons[0]!.click());
   await act(async () => buttons[1]!.click());
-  await act(async () => buttons[2]!.click());
   expect(ran).toEqual(["terminal", "browser"]);
-  await unmount();
-});
-
-test("Changes shows the last turn's counts and toggles the changes view", async () => {
-  const ran: string[] = [];
-  const { container, unmount } = await render({ changes: { additions: 85, deletions: 14 }, changesOpen: true }, ran);
-  const changes = container.querySelector<HTMLButtonElement>(".acpmux-header-changes")!;
-  expect(changes.disabled).toBe(false);
-  expect(changes.getAttribute("aria-pressed")).toBe("true");
-  expect(changes.textContent).toContain("+85");
-  expect(changes.textContent).toContain("14");
-  await act(async () => changes.click());
-  expect(ran).toEqual(["changes"]);
   await unmount();
 });
 
@@ -173,8 +154,6 @@ test("Quick Chat has no tab to split, and its menu waits disabled until it has r
   await act(async () =>
     root.render(
       createElement(ChatHeaderTools, {
-        changesOpen: false,
-        onChanges: () => undefined,
         onTerminal: () => undefined,
         onBrowser: () => undefined,
         tabTools: false,
@@ -186,7 +165,7 @@ test("Quick Chat has no tab to split, and its menu waits disabled until it has r
   const labels = [...container.querySelectorAll<HTMLButtonElement>(".acpmux-header-tools > button")].map((button) =>
     button.getAttribute("aria-label"),
   );
-  expect(labels).toEqual(["Changes", "Chat actions"]);
+  expect(labels).toEqual(["Chat actions"]);
   expect(container.querySelector<HTMLButtonElement>('[aria-label="Chat actions"]')!.disabled).toBe(true);
   await act(async () => root.unmount());
 });

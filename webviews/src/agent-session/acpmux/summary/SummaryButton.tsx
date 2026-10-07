@@ -14,9 +14,13 @@ import { registerPicker } from "../pickerOpeners";
 export function SummaryButton({
   rows,
   onOpenOutput,
+  changes,
+  onOpenChanges,
 }: {
   rows: readonly AcpmuxRow[];
   onOpenOutput?: (path: string) => void;
+  changes?: { additions: number; deletions: number };
+  onOpenChanges?: () => void;
 }) {
   const t = useT();
   const { open, setOpen, button, popover, toggle } = usePopover();
@@ -51,6 +55,11 @@ export function SummaryButton({
         >
           <SummaryPopover
             summary={summary}
+            changes={changes}
+            onOpenChanges={() => {
+              setOpen(false);
+              onOpenChanges?.();
+            }}
             onFollow={() => setOpen(false)}
             onOpenOutput={
               onOpenOutput &&
