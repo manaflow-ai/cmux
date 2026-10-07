@@ -95,6 +95,8 @@ public final class ActionRegistry {
     /// Wraps every handler run with its invocation. The App routes the run
     /// to the machine that owns the invocation's explicit target.
     @ObservationIgnored public var invocationScope: (@MainActor (ActionInvocation, () -> Void) -> Void)?
+    /// Sees every handler run after it ran (the tips card's local usage flags).
+    @ObservationIgnored public var runObserver: (@MainActor (ActionID, ActionInvocation) -> Void)?
     /// The key window's claim on a run (``KeyWindowRoute``), asked first by `perform` and menu validation.
     @ObservationIgnored public var keyWindowRoute: (@MainActor (ActionID, ActionInvocation) -> KeyWindowRoute?)?
     @ObservationIgnored public internal(set) var isCapturingRefusal = false

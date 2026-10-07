@@ -26,7 +26,7 @@ struct ShellCompletionFixture {
             let invocation: String
             switch shell {
             case "bash": invocation = #"exec /bin/bash --noprofile --norc --rcfile "$HOME/.bashrc" "$@""#
-            case "zsh": invocation = #"exec /bin/zsh -d -f "$@""#
+            case "zsh": invocation = #"exec /bin/zsh -d "$@""#
             default: preconditionFailure("Unsupported completion test shell: \(shell)")
             }
             let script = """
@@ -48,7 +48,8 @@ struct ShellCompletionFixture {
     var cwd: String { directory.path }
 
     var environment: [String: String] {
-        ["HOME": cwd, "ZDOTDIR": cwd, "HISTFILE": "\(cwd)/history",
+        ["HOME": cwd, "ZDOTDIR": cwd, "HISTFILE": "\(cwd)/history", "BASH_ENV": "\(cwd)/.bashrc",
+         "CMUX_COMPLETE_DUMP": "\(cwd)/.zcompdump",
          "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "LC_ALL": "C", "TERM": "xterm"]
     }
 

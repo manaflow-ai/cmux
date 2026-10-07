@@ -75,7 +75,7 @@ public struct SidebarMapping {
             pullRequest: Self.entry(Self.pullRequestKey, in: entries),
             lastActivity: lastActivity(tabs),
             rowKind: rowKind(tabs),
-            agentWorking: tabs.contains { $0.agent?.state == .working },
+            agentWorking: StatusMapping.shared.isWorking(tabs: tabs),
             icon: Self.icon(color: workspace.color, icon: workspace.icon),
             kind: kind(front),
             kindBrand: AgentBrandCatalog.brand(for: front?.agentSession?.harness ?? front?.agent?.agent)?.rawValue,

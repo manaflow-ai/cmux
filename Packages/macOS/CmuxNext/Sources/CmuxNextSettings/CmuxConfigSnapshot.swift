@@ -124,6 +124,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var newTabKind: NewTabDefaultKind = NewTabDefaultKind.fallback
     /// `newTerminal.opensWorkspace`; off when unset or invalid.
     public var newTerminalOpensWorkspace: Bool = NewTerminalWorkspaceSetting.fallback
+    /// `tabs.cmdWClosesPinnedTabs`; off when unset or invalid.
+    public var cmdWClosesPinnedTabs: Bool = CmdWClosesPinnedTabsSetting.fallback
     /// `palette.scopes.<scope>.prefix`: user-assigned palette scope prefixes.
     public var paletteScopePrefixes = PaletteScopePrefixes()
     /// `tasks.layout`; "inbox" when unset or invalid.
@@ -147,6 +149,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var notifications = NotificationPreferences()
     /// `updates.*`: automatic update behavior (R114).
     public var updates = UpdatesSettings()
+    /// `computerUse.*`: whether cmux starts the signed Computer Use helper.
+    public var computerUse = ComputerUseSettings()
     /// `announcements.*`: the cmux announcement cards (R114).
     public var announcements = AnnouncementsSettings()
     /// `feed.github`: this Mac's opt-in GitHub inbox connection.
@@ -230,6 +234,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.appearanceTuning = AppearanceTuningSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.statusIndicator = StatusIndicatorConfigParser.parse(root, diagnostics: &snapshot.diagnostics)
         DiffViewerSetting.parse(root, diagnostics: &snapshot.diagnostics)
+        ChatSettings.validate(root, diagnostics: &snapshot.diagnostics)
         snapshot.browserOmnibar = BrowserOmnibarSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.agentPaneEditedFiles = AgentPaneEditedFilesSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.statusBehavior = StatusIndicatorConfigParser.behavior(root, diagnostics: &snapshot.diagnostics)
@@ -265,6 +270,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (newTerminalOpensWorkspace, newTerminalOpensWorkspaceDiagnostic) = NewTerminalWorkspaceSetting.parse(root)
         snapshot.newTerminalOpensWorkspace = newTerminalOpensWorkspace
         if let newTerminalOpensWorkspaceDiagnostic { snapshot.diagnostics.append(newTerminalOpensWorkspaceDiagnostic) }
+        let (cmdWClosesPinnedTabs, cmdWClosesPinnedTabsDiagnostic) = CmdWClosesPinnedTabsSetting.parse(root)
+        snapshot.cmdWClosesPinnedTabs = cmdWClosesPinnedTabs
+        if let cmdWClosesPinnedTabsDiagnostic { snapshot.diagnostics.append(cmdWClosesPinnedTabsDiagnostic) }
         let (prefixes, prefixDiagnostics) = PaletteScopePrefixes.parse(root)
         snapshot.paletteScopePrefixes = prefixes
         snapshot.diagnostics += prefixDiagnostics
@@ -282,6 +290,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.feedGitHub = FeedGitHubSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.updates = UpdatesSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.announcements = AnnouncementsSettings.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.computerUse = ComputerUseSettings.parse(root, diagnostics: &snapshot.diagnostics)
         let (appTheme, appThemeDiagnostic) = AppThemeSetting().parse(root)
         snapshot.appTheme = appTheme
         if let appThemeDiagnostic { snapshot.diagnostics.append(appThemeDiagnostic) }

@@ -43,6 +43,12 @@
   padding: 4px 8px;
 }
 
+.icon-picker-error {
+  margin: 0 12px 6px;
+  font-size: 12px;
+  color: var(--page-text);
+}
+
 .icon-picker-clear:hover {
   background: var(--page-hover);
 }

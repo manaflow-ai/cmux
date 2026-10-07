@@ -7,7 +7,7 @@ import Testing
 /// completion system, bash's `compgen`, fish's `complete -C`), never from a list in cmux, and a
 /// completion runs only after a real gesture in the pane (completion functions run code).
 @MainActor
-@Suite struct AgentPaneShellCompletionTests {
+@Suite(.serialized) struct AgentPaneShellCompletionTests {
     private func values(_ result: AgentPaneShellCompletion.Result) -> [String] { result.candidates.map(\.value) }
 
     /// A test shell must ignore login startup, even when it changes completion or exits early.
@@ -104,7 +104,7 @@ import Testing
     /// Completion functions run code (zsh's `_git` runs git), so page script cannot start one.
     @Test func aCompletionRunsOnlyAfterAGestureInThePane() async throws {
         let model = AgentPaneModel(host: MockAgentPaneHost())
-        let fixture = try ShellCompletionFixture(shell: "zsh", files: ["alpha.txt"])
+        let fixture = try ShellCompletionFixture(shell: "bash", files: ["alpha.txt"])
         defer { fixture.remove() }
         let cwd = fixture.cwd
         model.shell.completion = fixture.completion
