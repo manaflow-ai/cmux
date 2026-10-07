@@ -138,6 +138,9 @@ public nonisolated struct KeyBindingTable: Sendable {
         return resolution
     }
 
+    /// Red stub.
+    public func conflicts() -> [[KeyBinding]] { [] }
+
     /// Whether `prefix` starts a longer entry that could run here: the next
     /// key may complete a chord.
     public func continues(_ prefix: [Shortcut], in context: KeyContext, isRunnable: (ActionID) -> Bool) -> Bool {

@@ -97,3 +97,8 @@ extension InboxRow {
             || summary.participants.contains { $0.id != me && $0.displayName.localizedStandardContains(needle) }
     }
 }
+
+extension HomeSidebarModel {
+    /// Red stub.
+    public func neighbor(of current: ConversationID?, offset: Int) -> ConversationID? { nil }
+}

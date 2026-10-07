@@ -35,6 +35,9 @@ extension KeyRouter {
         /// The focused internal page's id when its tab id does not name it
         /// (a store page tab, `page-tabs-v1`).
         var internalPage: String?
+        /// The top page the window shows (`home`), which fills the content
+        /// area without a pane: its `surfaceKind`.
+        var topPage: String?
     }
 
     /// The markdown page's id (`PageDescriptor.markdown`), for the
