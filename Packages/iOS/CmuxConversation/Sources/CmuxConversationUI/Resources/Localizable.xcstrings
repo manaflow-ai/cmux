@@ -765,6 +765,23 @@
           }
         }
       }
+    },
+    "conversation.edit.cancel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel Edit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "編集をキャンセル"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -75,8 +75,8 @@ public final class ConversationViewController: UIViewController {
     var replyHapticFired = false
     var replyTarget: ConversationMessage?
     var editingMessageID: String?
-    /// The composer's draft when editing began; it comes back when editing ends.
-    var draftBeforeEdit: String?
+    /// The in-place editor while a message is being edited.
+    var editOverlay: MessageEditOverlay?
     /// A row kept visible above the composer as insets change (the message
     /// being edited stays in view when the keyboard rises).
     var revealRowID: String?

@@ -19,11 +19,6 @@ extension ConversationViewController: ConversationComposerViewDelegate {
     }
 
     func composerDidTapSend(_ composer: ConversationComposerView) {
-        if let messageID = editingMessageID {
-            store.edit(messageID: messageID, text: composer.text)
-            exitEditMode()
-            return
-        }
         let text = composer.text
         let attachments = composer.attachments
         let fieldFrame = composer.fieldFrame(in: view)
@@ -172,27 +167,30 @@ extension ConversationViewController {
 }
 
 extension ConversationViewController {
-    /// Messages-style edit: the message's text moves into the composer and
-    /// the send button becomes a checkmark; X cancels.
+    /// Messages-style edit: the transcript blurs and the message becomes an
+    /// editable field in its bubble's place (grey X reverts, blue checkmark
+    /// saves). The composer and its draft stay untouched.
     func enterEditMode(for message: ConversationMessage) {
+        guard editOverlay == nil, let indexPath = indexPath(for: message.rowID),
+              let cell = collectionView.cellForItem(at: indexPath) as? MessageCell else { return }
         if replyTarget != nil { exitReplyMode() }
-        // Editing borrows the composer; whatever I was writing waits.
-        if editingMessageID == nil { draftBeforeEdit = composer.text }
         editingMessageID = message.id
         revealRowID = message.rowID
-        composer.isEditMode = true
-        composer.text = message.text
-        header.setTrailingMode(.close, animated: true)
-        composer.textView.becomeFirstResponder()
+        let overlay = MessageEditOverlay(text: message.text)
+        overlay.onSave = { [weak self] text in
+            self?.store.edit(messageID: message.id, text: text)
+            self?.exitEditMode()
+        }
+        overlay.onCancel = { [weak self] in self?.exitEditMode() }
+        editOverlay = overlay
+        overlay.install(in: view, sourceFrame: cell.convert(cell.liftedContentFrame, to: view), topInset: header.frame.maxY)
     }
 
     func exitEditMode() {
         editingMessageID = nil
         revealRowID = nil
-        composer.isEditMode = false
-        composer.clearAfterSend()
-        if let draft = draftBeforeEdit, !draft.isEmpty { composer.text = draft }
-        draftBeforeEdit = nil
+        editOverlay?.dismiss {}
+        editOverlay = nil
         header.setTrailingMode(isSelecting || replyTarget != nil ? .close : .action, animated: true)
     }
 }

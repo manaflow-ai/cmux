@@ -291,14 +291,19 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
             : String(format: String(localized: "conversation.select.deleteMany", defaultValue: "Delete %lld Messages", bundle: .module), doomed.count)
         let sheet = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
         sheet.addAction(UIAlertAction(title: title, style: .destructive) { [weak self] _ in
-            guard let self else { return }
-            self.setSelecting(false)
-            self.store.deleteLocally(rowIDs: doomed)
+            self?.deleteSelection(doomed)
         })
         sheet.addAction(UIAlertAction(title: String(localized: "conversation.retry.cancel", defaultValue: "Cancel", bundle: .module), style: .cancel))
         sheet.popoverPresentationController?.sourceView = source
         sheet.popoverPresentationController?.sourceRect = source.bounds
         present(sheet, animated: true)
+    }
+
+    /// Select mode's confirmed delete: select mode ends and the rows collapse
+    /// together (neighbors regroup in the same animation).
+    func deleteSelection(_ rowIDs: Set<String>) {
+        setSelecting(false)
+        store.deleteLocally(rowIDs: rowIDs)
     }
 
     private func shareSelection() {
