@@ -10,7 +10,7 @@ import { createEntryStore, type EntrySource, type EntryState } from "../src/gall
 import { agentPaneEntry, type GalleryEntry } from "../src/gallery/format";
 import { errorKind, scopeOf, type ScopeNode } from "../dev-server/galleryLive";
 
-mock.module("virtual:cmux-gallery/revision", () => ({
+void mock.module("virtual:cmux-gallery/revision", () => ({
   default: { sha: "0".repeat(40), subject: "test", committedAt: 0, branch: "test" },
 }));
 let EntryBoundary: typeof import("../src/gallery/shell/EntryBoundary").EntryBoundary;
@@ -26,7 +26,8 @@ beforeAll(async () => {
 
 function installDom(): HTMLElement {
   dom = new JSDOM("<!doctype html><div id=root></div>");
-  for (const key of ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"]) saved.set(key, scope[key]);
+  for (const key of ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"])
+    saved.set(key, scope[key]);
   Object.assign(scope, {
     window: dom.window,
     document: dom.window.document,

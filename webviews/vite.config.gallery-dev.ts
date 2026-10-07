@@ -40,7 +40,7 @@ export default {
     ...plugins.filter((plugin) => !(named(plugin) && devServerPlugins.has(plugin.name))),
     galleryModules(),
     // The shell at the base itself: /live/ is the gallery, /live/frame.html a stage.
-    galleryHost({ mount: urlBase, base: urlBase }),
+    galleryHost({ mount: urlBase }),
     galleryLive({ webviewsRoot, repoRoot }),
   ],
   server: {

@@ -211,7 +211,7 @@ export function galleryModules(): Plugin {
  * them at /gallery/; the live gallery (vite.config.gallery-dev.ts) at its base, `/live/` or
  * `/wt/<name>/`, where the base is also every module URL's prefix.
  */
-export function galleryHost({ mount = "/gallery/", base = "/" }: { mount?: string; base?: string } = {}): Plugin {
+export function galleryHost({ mount = "/gallery/" }: { mount?: string } = {}): Plugin {
   const escaped = mount.replace(/[.*+?^$()|[\]{}\\]/g, "\\$&");
   const page = new RegExp(`^${escaped}(index\\.html|frame\\.html)?$`);
   return {
@@ -230,8 +230,9 @@ export function galleryHost({ mount = "/gallery/", base = "/" }: { mount?: strin
         const name = match[1] ?? "index.html";
         try {
           let html = fs.readFileSync(path.join(galleryDir, name), "utf8");
-          // The page's relative script sources are relative to src/gallery, not the mount.
-          html = html.replace(/(\bsrc=")\.\//g, `$1${base}src/gallery/`);
+          // The page's relative script sources are relative to src/gallery, not the mount. (Vite
+          // puts its base before a root-absolute URL.)
+          html = html.replace(/(\bsrc=")\.\//g, "$1/src/gallery/");
           html = await server.transformIndexHtml(`/src/gallery/${name}`, html, request.originalUrl);
           response.statusCode = 200;
           response.setHeader("Content-Type", "text/html; charset=utf-8");
