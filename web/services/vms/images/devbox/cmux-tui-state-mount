@@ -1,0 +1,81 @@
+#!/bin/sh
+# Keep cmux-tui's durable state on a fixed-size filesystem inside the existing
+# VM disk. The image is fully allocated during the bake, so general writes
+# cannot consume the daemon's state budget and leave SQLite/WAL writes with no
+# room. The VM's provisioned disk size is unchanged.
+
+set -eu
+
+STATE_IMAGE=/var/lib/cmux/cmux-tui-state.ext4
+STATE_SIZE_BYTES=1073741824
+
+usage() {
+  echo "usage: $0 ensure|create HOME USER" >&2
+  exit 2
+}
+
+[ "$#" = 3 ] || usage
+action=$1
+home=$2
+user=$3
+state="$home/.local/state/cmux-tui"
+
+case "$home" in
+  /?*) ;;
+  *) echo "cmux-tui-state-mount: HOME must be absolute" >&2; exit 2 ;;
+esac
+case "$user" in
+  ""|*[!A-Za-z0-9._-]*) echo "cmux-tui-state-mount: invalid USER" >&2; exit 2 ;;
+esac
+
+is_mounted() {
+  mountpoint -q "$state" 2>/dev/null
+}
+
+ensure() {
+  # Older images do not carry a reservation. Keep their existing layout
+  # working until they are replaced by an image that does.
+  [ -f "$STATE_IMAGE" ] || return 0
+  mkdir -p "$state"
+  if is_mounted; then
+    return 0
+  fi
+  mount -o loop "$STATE_IMAGE" "$state"
+  chown "$user:$user" "$state"
+  chmod 0700 "$state"
+}
+
+create() {
+  command -v fallocate >/dev/null 2>&1 || { echo "cmux-tui-state-mount: fallocate is required" >&2; return 1; }
+  command -v mkfs.ext4 >/dev/null 2>&1 || { echo "cmux-tui-state-mount: mkfs.ext4 is required" >&2; return 1; }
+  command -v mount >/dev/null 2>&1 || { echo "cmux-tui-state-mount: mount is required" >&2; return 1; }
+  mkdir -p "$home/.local/state" /var/lib/cmux
+  chmod 0700 /var/lib/cmux
+
+  if [ -e "$STATE_IMAGE" ]; then
+    [ -f "$STATE_IMAGE" ] || { echo "cmux-tui-state-mount: state image is not a regular file" >&2; return 1; }
+    ensure
+    return 0
+  fi
+
+  seed=$(mktemp -d /tmp/cmux-tui-state-seed.XXXXXX)
+  cleanup() { rm -rf "$seed"; }
+  trap cleanup EXIT HUP INT TERM
+  cp -a "$state/." "$seed/" 2>/dev/null || true
+
+  # fallocate, rather than truncate, reserves real blocks on the unchanged
+  # root filesystem before the image is formatted and mounted.
+  (umask 077; fallocate -l "$STATE_SIZE_BYTES" "$STATE_IMAGE")
+  mkfs.ext4 -F -m 0 -L cmux-tui-state "$STATE_IMAGE" >/dev/null
+  ensure
+  cp -a "$seed/." "$state/" 2>/dev/null || true
+  chown -R "$user:$user" "$state"
+  trap - EXIT HUP INT TERM
+  cleanup
+}
+
+case "$action" in
+  ensure) ensure ;;
+  create) create ;;
+  *) usage ;;
+esac
