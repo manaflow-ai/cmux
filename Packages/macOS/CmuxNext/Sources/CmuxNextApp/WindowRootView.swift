@@ -241,6 +241,9 @@ final class WindowRootView: NSView, WindowSurfacePainting {
                              width: size.width, height: size.height)
     }
 
+    /// Called after `show(_:)` swaps the content (a top page or a workspace).
+    var onContentChange: (() -> Void)?
+
     /// Replaces the workspace layout view.
     func show(_ view: NSView) {
         guard content !== view else { return }
@@ -251,6 +254,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         content = view
         // A workspace's theme scope inherits this window's room theme.
         view.reparentRootedThemeScope()
+        onContentChange?()
     }
 
     /// Paints only this view. The window's opacity and background are set by
