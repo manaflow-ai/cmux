@@ -143,6 +143,24 @@ impl ChatService {
         Ok(new)
     }
 
+    /// Records the store roots a spawn's env named (launch roots, C3); new
+    /// ones are scanned and watched. Blocking.
+    pub fn record_launch_roots(self: &Arc<Self>, specs: &[RootSpec]) {
+        let mut new = false;
+        {
+            let mut state = lock(&self.state);
+            for spec in specs.iter().filter(|s| self.sources.refusal(&s.path).is_none()) {
+                match state.recorded.record(spec.clone()) {
+                    Ok(fresh) => new |= fresh,
+                    Err(e) => tracing::warn!("record a launch root: {e}"),
+                }
+            }
+        }
+        if new {
+            self.refresh_roots();
+        }
+    }
+
     /// Discovers the roots again; new roots are scanned and watched.
     /// Blocking.
     pub fn refresh_roots(self: &Arc<Self>) {

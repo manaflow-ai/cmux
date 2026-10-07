@@ -349,6 +349,7 @@ impl Hub {
             }
         }
 
+        self.record_launch_roots(session, profile).await;
         // A pooled session claimed for this id (`pool/`): its host already
         // runs with the harness initialized and its session created.
         if let Some(pooled) = self.pool_take_claimed(&session.id) {

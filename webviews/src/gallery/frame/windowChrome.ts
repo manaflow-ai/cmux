@@ -6,6 +6,7 @@
 import type { GalleryEnv } from "../env";
 import type { GalleryEntry } from "../format";
 import { css, type ThemeTokens } from "../theme/tokens";
+import type { PlayReport } from "../play";
 import { windowGeometry, windowSize, type ChromeMetrics, type Rect } from "../window";
 
 const SAMPLE_WORKSPACES = [
@@ -54,6 +55,7 @@ export function mountWindow(options: {
   tokens: ThemeTokens;
   metrics: ChromeMetrics;
   onReady: () => void;
+  onPlay: (report: PlayReport) => void;
 }): void {
   const { entry, variant, env, tokens, metrics } = options;
   const size = windowSize(env.window);
@@ -165,8 +167,10 @@ export function mountWindow(options: {
         background: "transparent",
       });
       addEventListener("message", (event: MessageEvent) => {
-        const data = event.data as { type?: string; status?: string; message?: string } | null;
-        if (event.source !== iframe.contentWindow || data?.type !== "cmux-gallery-stage") return;
+        const data = event.data as { type?: string; status?: string; message?: string; report?: PlayReport } | null;
+        if (event.source !== iframe.contentWindow) return;
+        if (data?.type === "cmux-gallery-play" && data.report) return options.onPlay(data.report);
+        if (data?.type !== "cmux-gallery-stage") return;
         if (data.status === "ready") options.onReady();
         else parent.postMessage(data, "*");
       });
