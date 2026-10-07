@@ -270,7 +270,7 @@ final class KeyRouter: BrowserKeyRouting {
     var typeAheadFocus: FocusState.Resolved?
     var deliveringTypeAhead: String?
     /// The New Tab action owns this buffer before a cold page has a readiness object.
-    private var newTabInput: [String: NewTabInputBuffer] = [:]
+    fileprivate var newTabInput: [String: NewTabInputBuffer] = [:]
 
     /// Set while the Keyboard Shortcuts page records keys: returns whether
     /// it took the key-down (only its own window's keys).
