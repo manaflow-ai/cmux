@@ -61,6 +61,12 @@ tags: [release, notes]
 - **Fixed** a crash when a tab closed during a drag.
 `;
 
+const TASK_CHECKED = "- [x] Checked task\n- [x] Another completed task\n";
+const TASK_UNCHECKED = "- [ ] Unchecked task\n- [ ] Follow-up still needed\n";
+const TASK_NESTED =
+  "- [x] Release checklist\n  - [ ] Update the changelog\n  - [x] Run the focused tests\n    - [ ] Ask for review\n";
+const TASK_LONG = `- [ ] This task has a deliberately long title that wraps across several lines in a narrow markdown column so the checkbox stays aligned with the first line of the item rather than drifting into the line box.`;
+
 const SHOWCASE_DIR = "/Users/you/src/markdown-showcase";
 
 /// The showcase split at its level-2 headings (outside code fences), one variant per section,
@@ -120,6 +126,26 @@ export default markdownPageEntry({
       path: "/Users/you/src/atlas-web/README.md",
       text: README,
       files: { "/Users/you/src/atlas-web/notes.md": "# Notes\n\nPorts: 5173, 8080.\n" },
+    },
+    "tasks-checked": {
+      note: "Checked task-list items.",
+      path: "/Users/you/src/atlas-web/TASKS.md",
+      text: TASK_CHECKED,
+    },
+    "tasks-unchecked": {
+      note: "Unchecked task-list items.",
+      path: "/Users/you/src/atlas-web/TASKS.md",
+      text: TASK_UNCHECKED,
+    },
+    "tasks-nested": {
+      note: "Nested checked and unchecked task-list items.",
+      path: "/Users/you/src/atlas-web/TASKS.md",
+      text: TASK_NESTED,
+    },
+    "tasks-long": {
+      note: "A long task-list item wrapping in a narrow column.",
+      path: "/Users/you/src/atlas-web/TASKS.md",
+      text: TASK_LONG,
     },
     "read-only": {
       note: "A file the user cannot write.",
