@@ -208,6 +208,9 @@ pub enum Command {
     /// files (~/.config/cmux/harnesses/<id>.toml). Also `cmux harness …`.
     #[command(subcommand)]
     Harness(HarnessCmd),
+    /// Every chat on this device, from every harness: list, open, roots. Also `cmux chats …`.
+    #[command(subcommand)]
+    Chats(crate::cli::chats::ChatsCmd),
     /// Everything else about one session: info, cancel, stop, rename, fork, set, allow, deny, export, import, tail.
     #[command(subcommand, alias = "s")]
     Session(SessionCmd),

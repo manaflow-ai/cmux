@@ -44,6 +44,7 @@ mod machine_name;
 mod model;
 mod mux;
 mod pairing;
+mod program_status;
 pub mod provider_management;
 #[cfg(unix)]
 mod pty_write;

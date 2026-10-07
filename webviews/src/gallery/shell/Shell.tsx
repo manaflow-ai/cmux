@@ -4,15 +4,19 @@
 // stage is isolated (its own document, globals, stylesheets and language) and is exactly what
 // the matrix runner screenshots. The shell's own colors are the current theme's tokens.
 import { useRouterState } from "@tanstack/react-router";
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
+import { readyEntries, type EntryState } from "../entryStore";
 import { LOCALES, PSEUDO_LOCALES, type GalleryEnv } from "../env";
 import type { GalleryEntry } from "../format";
-import { entries } from "../registry";
+import { ageText, liveStatus, type LiveStatus } from "../liveStatus";
+import { entryStore } from "../registry";
 import { DEFAULT_DARK_THEME, themeIsDark } from "../theme/ghostty";
 import { css } from "../theme/tokens";
 import { themeTokens } from "../theme/web";
 import themes from "virtual:cmux-gallery/themes";
+import { EntryBoundary } from "./EntryBoundary";
 import { createGalleryRouter, validateShellSearch, VIEWS, type ShellSearch, type View } from "./router";
+import { GalleryVariantPick } from "./GalleryVariantPick";
 import { Controls, SAMPLE_THEMES, Stage, useRoom } from "./Stage";
 
 const VIEW_LABELS: Record<View, string> = {
@@ -24,6 +28,9 @@ const VIEW_LABELS: Record<View, string> = {
 
 /** The sidebar's groups, in this order; an area no entry names yet still shows, at 0. */
 const AREAS = ["Agent pane", "New Tab", "Pages", "Home and Chief", "Settings", "Native"];
+/** Entry files with no loaded entry yet: their area is unknown until they load. */
+const FAILED_AREA = "Failed to load";
+const LOADING_AREA = "Loading";
 
 export const { router } = createGalleryRouter(Layout);
 
@@ -45,17 +52,32 @@ function go({ entry, variant, search }: Address, replace = false): void {
   } as never);
 }
 
-/** The current address: the route's params and validated search. */
-function useAddress(): Address & { entryValue: GalleryEntry | undefined } {
+/** Every entry file's load, re-rendered when one changes (entryStore.ts). */
+function useEntryStates(): readonly EntryState[] {
+  return useSyncExternalStore(entryStore.subscribe, entryStore.getSnapshot);
+}
+
+/** The entry a state stands for: the loaded one, else the last one that file loaded. */
+const known = (state: EntryState): GalleryEntry | undefined => state.entry ?? state.lastGood;
+
+/**
+ * The current address: the route's params and validated search, and the entry file it names. A
+ * broken file keeps its address (its last good id), so its error card shows where the entry was.
+ */
+function useAddress(states: readonly EntryState[]): Address & { state: EntryState | undefined } {
   const location = useRouterState({ router: router as never, select: (state) => state.location });
   return useMemo(() => {
     const [, entryId = "", variantId = ""] = location.pathname.split("/").map(decodeURIComponent);
-    const entry = entries.find((candidate) => candidate.id === entryId) ?? entries[0];
+    const ready = readyEntries(states);
+    const named = states.find((state) => known(state)?.id === entryId);
+    const fallback = ready[0] ? states.find((state) => state.entry === ready[0]) : undefined;
+    const state = named ?? fallback;
+    const entry = state && known(state);
     const variants = entry ? Object.keys(entry.variants) : [];
-    const variant = variants.includes(variantId) ? variantId : (variants[0] ?? "");
+    const variant = variants.includes(variantId) ? variantId : (variants[0] ?? variantId);
     const search = validateShellSearch(location.search as Record<string, unknown>);
-    return { entry: entry?.id ?? "", variant, search, entryValue: entry };
-  }, [location]);
+    return { entry: entry?.id ?? entryId, variant, search, state };
+  }, [location, states]);
 }
 
 /** Text with the filter's match marked. */
@@ -74,26 +96,31 @@ function Highlight({ text, needle }: { text: string; needle: string }): ReactNod
 /** Scrolls the current (or keyboard-active) chip into view when it mounts or becomes current. */
 const reveal = (node: HTMLElement | null) => node?.scrollIntoView({ block: "nearest" });
 
-function Sidebar({ address }: { address: Address }) {
+function Sidebar({ address, states, status }: { address: Address; states: readonly EntryState[]; status: LiveStatus }) {
   const [filter, setFilter] = useState("");
   const [active, setActive] = useState(-1);
   const needle = filter.trim().toLowerCase();
+  const entries = readyEntries(states);
   const entryMatches = (entry: GalleryEntry) =>
     !needle || `${entry.area} ${entry.title} ${entry.id}`.toLowerCase().includes(needle);
-  const visible = entries
-    .map((entry) => ({
-      entry,
-      variants: Object.keys(entry.variants).filter((variant) => entryMatches(entry) || variant.includes(needle)),
-    }))
-    .filter((item) => item.variants.length > 0);
+  const variantsOf = (entry: GalleryEntry) =>
+    Object.keys(entry.variants).filter((variant) => entryMatches(entry) || variant.includes(needle));
   // The filter's arrow keys walk every visible variant in order; Return opens the active one.
-  const flat = visible.flatMap((item) => item.variants.map((variant) => ({ entry: item.entry.id, variant })));
-  const areas = [...AREAS, ...new Set(entries.map((entry) => entry.area).filter((area) => !AREAS.includes(area)))];
+  const flat = entries.flatMap((entry) => variantsOf(entry).map((variant) => ({ entry: entry.id, variant })));
+  const areaOf = (state: EntryState) => known(state)?.area ?? (state.status === "error" ? FAILED_AREA : LOADING_AREA);
+  // A file that never loaded has no area yet: it shows at the top, under its own group.
+  const extra = [...new Set(states.map(areaOf).filter((area) => !AREAS.includes(area)))];
+  const areas = [
+    ...extra.filter((area) => area === FAILED_AREA || area === LOADING_AREA),
+    ...AREAS,
+    ...extra.filter((area) => area !== FAILED_AREA && area !== LOADING_AREA).sort(),
+  ];
   const total = entries.reduce((sum, entry) => sum + Object.keys(entry.variants).length, 0);
   const open = (target: { entry: string; variant: string }) => go({ ...target, search: address.search });
   return (
     <nav className="gallery-list" aria-label="Gallery entries">
       <div className="gallery-filter">
+        <Revision status={status} />
         <input
           type="search"
           placeholder={`Filter ${entries.length} entries, ${total} variants`}
@@ -116,10 +143,14 @@ function Sidebar({ address }: { address: Address }) {
         />
       </div>
       {areas.map((area) => {
-        const items = visible.filter((item) => item.entry.area === area);
-        const all = entries.filter((entry) => entry.area === area);
+        const all = states
+          .filter((state) => areaOf(state) === area)
+          .sort((a, b) => (known(a)?.title ?? a.path).localeCompare(known(b)?.title ?? b.path));
+        // A broken or loading file always shows (its card names the file); a loaded one when it matches.
+        const items = all.filter((state) => state.status !== "ready" || variantsOf(state.entry!).length > 0);
         if (needle && items.length === 0) return null;
-        const variantCount = all.reduce((sum, entry) => sum + Object.keys(entry.variants).length, 0);
+        const loaded = all.flatMap((state) => (state.entry ? [state.entry] : []));
+        const variantCount = loaded.reduce((sum, entry) => sum + Object.keys(entry.variants).length, 0);
         return (
           <section key={area} className="gallery-group">
             <h2>
@@ -129,35 +160,43 @@ function Sidebar({ address }: { address: Address }) {
               </span>
             </h2>
             {all.length === 0 && <p className="gallery-none">No entries yet</p>}
-            {items.map(({ entry, variants }) => (
-              <div key={entry.id} className="gallery-entry">
-                <div className="gallery-entry-title">
-                  <Highlight text={entry.title} needle={needle} />
-                  <span className="gallery-entry-id">{entry.id}</span>
-                </div>
-                <ul className="gallery-variants">
-                  {variants.map((variant) => {
-                    const current = entry.id === address.entry && variant === address.variant;
-                    const index = flat.findIndex((item) => item.entry === entry.id && item.variant === variant);
-                    return (
-                      <li key={variant}>
-                        <a
-                          ref={current || index === active ? reveal : undefined}
-                          href={href({ entry: entry.id, variant, search: address.search })}
-                          aria-current={current ? "page" : undefined}
-                          data-active={index === active ? "" : undefined}
-                          onClick={(event) => {
-                            event.preventDefault();
-                            open({ entry: entry.id, variant });
-                          }}
-                        >
-                          <Highlight text={variant} needle={needle} />
-                        </a>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </div>
+            {items.map((state) => (
+              <EntryBoundary
+                key={state.path}
+                state={state}
+                compact
+                loading={<div className="gallery-entry gallery-entry-loading">{known(state)?.title ?? state.path}</div>}
+                render={(entry) => (
+                  <div className="gallery-entry">
+                    <div className="gallery-entry-title">
+                      <Highlight text={entry.title} needle={needle} />
+                      <span className="gallery-entry-id">{entry.id}</span>
+                    </div>
+                    <ul className="gallery-variants">
+                      {variantsOf(entry).map((variant) => {
+                        const current = entry.id === address.entry && variant === address.variant;
+                        const index = flat.findIndex((item) => item.entry === entry.id && item.variant === variant);
+                        return (
+                          <li key={variant}>
+                            <a
+                              ref={current || index === active ? reveal : undefined}
+                              href={href({ entry: entry.id, variant, search: address.search })}
+                              aria-current={current ? "page" : undefined}
+                              data-active={index === active ? "" : undefined}
+                              onClick={(event) => {
+                                event.preventDefault();
+                                open({ entry: entry.id, variant });
+                              }}
+                            >
+                              <Highlight text={variant} needle={needle} />
+                            </a>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                )}
+              />
             ))}
           </section>
         );
@@ -165,6 +204,67 @@ function Sidebar({ address }: { address: Address }) {
     </nav>
   );
 }
+
+/** The commit the gallery serves and its age; `live` on the live dev server, `build` on a static one. */
+function Revision({ status }: { status: LiveStatus }) {
+  const now = useMinuteClock();
+  const short = status.sha.slice(0, 12);
+  const url = /^[0-9a-f]{40}$/.test(status.sha)
+    ? `https://github.com/manaflow-ai/cmux/commit/${status.sha}`
+    : undefined;
+  return (
+    <div className="gallery-revision" title={`${status.branch ? `${status.branch}: ` : ""}${status.subject}`}>
+      <span className={status.live ? "gallery-revision-live" : undefined}>{status.live ? "live" : "build"}</span>{" "}
+      {url ? (
+        <a href={url} target="_blank" rel="noreferrer">
+          <code>{short}</code>
+        </a>
+      ) : (
+        <code>{short}</code>
+      )}{" "}
+      · {status.committedAt ? `${ageText(status.committedAt, now)} old` : "age unknown"}
+    </div>
+  );
+}
+
+/** Compile errors outside the shell (live server) and entry files that failed to load. */
+function ErrorBanner({ states, status }: { states: readonly EntryState[]; status: LiveStatus }) {
+  const failed = states.filter((state) => state.status === "error").map((state) => state.path);
+  const compile = status.errors.filter(
+    (error) => error.kind === "stage" || !failed.some((path) => error.entries.includes(path)),
+  );
+  if (failed.length === 0 && compile.length === 0) return null;
+  return (
+    <div className="gallery-banner" role="alert" data-gallery-banner="">
+      <strong>
+        {failed.length > 0 && `${failed.length} ${failed.length === 1 ? "entry does" : "entries do"} not load`}
+        {failed.length > 0 && compile.length > 0 && " · "}
+        {compile.length > 0 && `compile error in ${compile.length} ${compile.length === 1 ? "file" : "files"}`}
+      </strong>
+      : {[...failed, ...compile.map((error) => error.file)].join(", ")}. The other entries keep working.
+    </div>
+  );
+}
+
+/** Date.now(), re-read once a minute (the revision's age). */
+let minuteNow = Date.now();
+const minuteListeners = new Set<() => void>();
+let minuteTimer: ReturnType<typeof setInterval> | undefined;
+function subscribeMinute(listener: () => void): () => void {
+  minuteListeners.add(listener);
+  minuteTimer ??= setInterval(() => {
+    minuteNow = Date.now();
+    for (const each of minuteListeners) each();
+  }, 30_000);
+  return () => {
+    minuteListeners.delete(listener);
+    if (minuteListeners.size === 0 && minuteTimer !== undefined) {
+      clearInterval(minuteTimer);
+      minuteTimer = undefined;
+    }
+  };
+}
+const useMinuteClock = () => useSyncExternalStore(subscribeMinute, () => minuteNow);
 
 /** The shell's chrome colors from the current theme (the gallery's own token pipeline). */
 function shellColors(search: ShellSearch): Record<string, string> {
@@ -174,6 +274,11 @@ function shellColors(search: ShellSearch): Record<string, string> {
   if (!theme) return {};
   const tokens = themeTokens(theme);
   return {
+    "--cmux-text": css(tokens.textPrimary),
+    "--cmux-text-secondary": css(tokens.textSecondary),
+    "--cmux-background": css(tokens.chromeBackground),
+    "--cmux-separator": css(tokens.separator),
+    "--cmux-hover": css(tokens.hoverFill),
     "--g-bg": css({ ...tokens.windowBackground, alpha: 1 }),
     "--g-panel": css(tokens.chromeBackground),
     "--g-text": css(tokens.textPrimary),
@@ -187,10 +292,39 @@ function shellColors(search: ShellSearch): Record<string, string> {
 }
 
 function Layout() {
-  const address = useAddress();
+  const states = useEntryStates();
+  const status = useSyncExternalStore(liveStatus.subscribe, liveStatus.get);
+  const address = useAddress(states);
+  const { state, search } = address;
+  return (
+    <div className="gallery" style={shellColors(search)}>
+      <Sidebar address={address} states={states} status={status} />
+      <main className="gallery-main">
+        <ErrorBanner states={states} status={status} />
+        {state ? (
+          <EntryBoundary
+            key={state.path}
+            state={state}
+            loading={<p className="gallery-empty">Loading {state.path}</p>}
+            render={(entry) => <EntryView entry={entry} address={address} />}
+          />
+        ) : states.length === 0 ? (
+          <p className="gallery-empty">No gallery entries. Add a *.gallery.ts file.</p>
+        ) : states.every((each) => each.status === "error") ? (
+          <p className="gallery-empty">No entry loads. Each file's error is in the list.</p>
+        ) : (
+          <p className="gallery-empty">Loading</p>
+        )}
+      </main>
+    </div>
+  );
+}
+
+/** One entry's header and stages. */
+function EntryView({ entry, address }: { entry: GalleryEntry; address: Address }) {
   const [stagesRef, room] = useRoom();
-  const { entryValue: entry, variant, search } = address;
-  if (!entry || !variant) return <p className="gallery-empty">No gallery entries. Add a *.gallery.ts file.</p>;
+  const { search } = address;
+  const variant = entry.variants[address.variant] ? address.variant : Object.keys(entry.variants)[0]!;
   const env: GalleryEnv = search;
   let stages: { key: string; variant: string; env: GalleryEnv; label?: string }[];
   switch (search.view) {
@@ -217,38 +351,45 @@ function Layout() {
       stages = [{ key: variant, variant, env }];
   }
   return (
-    <div className="gallery" style={shellColors(search)}>
-      <Sidebar address={address} />
-      <main className="gallery-main">
-        <header className="gallery-header">
-          <h1>
-            {entry.title} <small>{entry.id}</small> <small>· {variant}</small>
-          </h1>
-          <fieldset className="gallery-segmented">
-            <legend>View</legend>
-            {VIEWS.map((view) => (
-              <label key={view}>
-                <input
-                  type="radio"
-                  name="view"
-                  aria-label={VIEW_LABELS[view]}
-                  checked={search.view === view}
-                  onChange={() => go({ ...address, search: { ...search, view } })}
-                />
-                {VIEW_LABELS[view]}
-              </label>
-            ))}
-          </fieldset>
-          <Controls env={env} onChange={(next) => go({ ...address, search: { ...next, view: search.view } }, true)} />
-          <details className="gallery-covers">
-            <summary>
-              {entry.host} · covers {entry.covers.length}
-            </summary>
-            {entry.covers.join(", ")}
-          </details>
-        </header>
-        <div ref={stagesRef} className={`gallery-stages gallery-stages--${search.view}`}>
-          {stages.map((stage) => (
+    <>
+      <header className="gallery-header">
+        <h1>
+          {entry.title} <small>{entry.id}</small> <small>· {variant}</small>
+        </h1>
+        <fieldset className="gallery-segmented">
+          <legend>View</legend>
+          {VIEWS.map((view) => (
+            <label key={view}>
+              <input
+                type="radio"
+                name="view"
+                aria-label={VIEW_LABELS[view]}
+                checked={search.view === view}
+                onChange={() => go({ ...address, search: { ...search, view } })}
+              />
+              {VIEW_LABELS[view]}
+            </label>
+          ))}
+        </fieldset>
+        <Controls env={env} onChange={(next) => go({ ...address, search: { ...next, view: search.view } }, true)} />
+        <details className="gallery-covers">
+          <summary>
+            {entry.host} · covers {entry.covers.length}
+          </summary>
+          {entry.covers.join(", ")}
+        </details>
+      </header>
+      <div ref={stagesRef} className={`gallery-stages gallery-stages--${search.view}`}>
+        {entry.pick && search.view === "variants" ? (
+          <GalleryVariantPick
+            entry={entry}
+            locale={env.locale}
+            preview={(name) => (
+              <Stage entry={entry} state={name} env={env} available={{ width: 420, height: room.height }} thumbnail />
+            )}
+          />
+        ) : (
+          stages.map((stage) => (
             <Stage
               key={stage.key}
               entry={entry}
@@ -258,9 +399,9 @@ function Layout() {
               available={{ width: Math.max(320, room.width - 4), height: Math.max(240, room.height) }}
               thumbnail={search.view !== "variant"}
             />
-          ))}
-        </div>
-      </main>
-    </div>
+          ))
+        )}
+      </div>
+    </>
   );
 }

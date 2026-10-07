@@ -267,6 +267,9 @@ pub enum Control {
     Page { url: String, title: String, loading: bool, can_go_back: bool, can_go_forward: bool },
     #[serde(rename = "rb.history")]
     History { op: HistoryOp },
+    /// The viewer's omnibar or an opened tab: load `url` in the page.
+    #[serde(rename = "rb.navigate")]
+    Navigate { url: String },
     #[serde(rename = "rb.key_unhandled")]
     KeyUnhandled { input_seq: u32 },
     #[serde(rename = "rb.cursor")]

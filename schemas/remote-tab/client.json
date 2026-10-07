@@ -1140,6 +1140,130 @@
       ]
     },
     {
+      "name": "an unhandled key becomes an effect for the tab; a typed address goes to the host",
+      "steps": [
+        {
+          "input": {
+            "op": "host",
+            "message": {
+              "t": "rb.key_unhandled",
+              "input_seq": 7
+            }
+          },
+          "expect": {
+            "effects": [
+              {
+                "effect": "key_unhandled",
+                "input_seq": 7
+              }
+            ],
+            "note": null,
+            "reject": null,
+            "open_menu": null,
+            "open_dialog": null,
+            "screen_seq": 0
+          }
+        },
+        {
+          "input": {
+            "op": "navigate",
+            "url": "https://example.com/typed"
+          },
+          "expect": {
+            "effects": [
+              {
+                "effect": "send",
+                "message": {
+                  "t": "rb.navigate",
+                  "url": "https://example.com/typed"
+                }
+              }
+            ],
+            "note": null,
+            "reject": null,
+            "open_menu": null,
+            "open_dialog": null,
+            "screen_seq": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "Cmd-click opens a background tab; the App's answer goes to the host once",
+      "steps": [
+        {
+          "input": {
+            "op": "host",
+            "message": {
+              "t": "rb.open_tab",
+              "request": 3,
+              "url": "https://example.com/c",
+              "disposition": "background_tab",
+              "user_gesture": true
+            }
+          },
+          "expect": {
+            "effects": [
+              {
+                "effect": "open_tab",
+                "request": 3,
+                "url": "https://example.com/c",
+                "disposition": "background_tab",
+                "user_gesture": true
+              }
+            ],
+            "note": null,
+            "reject": null,
+            "open_menu": null,
+            "open_dialog": null,
+            "screen_seq": 0
+          }
+        },
+        {
+          "input": {
+            "op": "tab_opened",
+            "request": 3,
+            "tab": "tab-9",
+            "refused": null
+          },
+          "expect": {
+            "effects": [
+              {
+                "effect": "send",
+                "message": {
+                  "t": "rb.open_tab.result",
+                  "request": 3,
+                  "tab": "tab-9",
+                  "refused": null
+                }
+              }
+            ],
+            "note": null,
+            "reject": null,
+            "open_menu": null,
+            "open_dialog": null,
+            "screen_seq": 0
+          }
+        },
+        {
+          "input": {
+            "op": "tab_opened",
+            "request": 3,
+            "tab": "tab-9",
+            "refused": null
+          },
+          "expect": {
+            "effects": [],
+            "note": "unknown_request",
+            "reject": null,
+            "open_menu": null,
+            "open_dialog": null,
+            "screen_seq": 0
+          }
+        }
+      ]
+    },
+    {
       "name": "host messages a later step handles are noted, not acted on",
       "steps": [
         {
@@ -1154,6 +1278,28 @@
             "effects": [],
             "note": "unhandled",
             "reject": null,
+            "open_menu": null,
+            "open_dialog": null,
+            "screen_seq": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "rb.navigate from the host is a protocol error",
+      "steps": [
+        {
+          "input": {
+            "op": "host",
+            "message": {
+              "t": "rb.navigate",
+              "url": "https://example.com/"
+            }
+          },
+          "expect": {
+            "effects": [],
+            "note": null,
+            "reject": "wrong_direction",
             "open_menu": null,
             "open_dialog": null,
             "screen_seq": 0

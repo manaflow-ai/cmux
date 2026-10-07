@@ -1058,8 +1058,10 @@
         return policyHost("set", { blockIPs: !!on, lock: !!(options && options.lock), title: "session.blockIPAddresses" }).blockIPs;
       },
       // cmux-next: the host blocks a navigation before its request and keeps
-      // the log (policy op "log").
-      blockedNavigations: () => policyHost("log"),
+      // the log (policy op "log"). The log also records the session's
+      // cookie clears and restores (entries with an `op`, no `blocked`),
+      // which are not navigations.
+      blockedNavigations: () => policyHost("log").filter((entry) => entry && entry.blocked),
       // Playwright browser-context options for the tabs this session created:
       // { userAgent, extraHTTPHeaders, permissions, proxy }. null clears one.
       configure,

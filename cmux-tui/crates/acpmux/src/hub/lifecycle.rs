@@ -83,7 +83,18 @@ impl Hub {
     pub async fn new_session(self: &Arc<Self>, req: NewRequest) -> Result<Arc<Session>, RpcError> {
         // Harness discovery and launcher checks finish in the background.
         self.wait_startup().await;
-        let NewRequest { harness, preset, name, cwd, policy, model, effort, adopt, remote } = req;
+        let NewRequest {
+            harness,
+            preset,
+            name,
+            cwd,
+            policy,
+            model,
+            effort,
+            adopt,
+            remote,
+            env: session_env,
+        } = req;
         // An adopted session's harness names the head unless one was given.
         let harness = harness.or_else(|| adopt.as_ref().and_then(|a| a.harness.clone()));
         // Resolution is a lookup, never a guess: preset → head (family or
@@ -134,11 +145,15 @@ impl Hub {
             policy,
             remote,
         });
+        meta.session_env = session_env;
         // A pooled session of exactly this shape (`pool/`) gives the session
         // its id; `ensure_child` then takes it instead of starting cold.
+        // A pooled harness started without this session's env: never claimed.
         let pooled = match &adopt {
-            None => self.pool_claim(&meta, &profile, &defaults.env).await,
-            Some(_) => None,
+            None if meta.session_env.is_empty() => {
+                self.pool_claim(&meta, &profile, &defaults.env).await
+            }
+            _ => None,
         };
         // Every way out of here (an error, or this future dropped) before
         // `ensure_child` took the entry puts it back or ends it.
@@ -349,6 +364,7 @@ impl Hub {
             }
         }
 
+        self.record_launch_roots(session, profile).await;
         // A pooled session claimed for this id (`pool/`): its host already
         // runs with the harness initialized and its session created.
         if let Some(pooled) = self.pool_take_claimed(&session.id) {
@@ -985,4 +1001,6 @@ pub struct NewRequest {
     pub remote: bool,
     /// A harness session to resume instead of starting a new one.
     pub adopt: Option<crate::adopt::AdoptRequest>,
+    /// Per-session env (`session_env.rs`), already checked by the caller.
+    pub env: std::collections::BTreeMap<String, String>,
 }
