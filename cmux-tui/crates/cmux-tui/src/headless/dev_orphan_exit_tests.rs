@@ -213,3 +213,20 @@ fn the_check_under_the_fence_sees_a_terminal_started_since_the_decision() {
     facts.terminals.store(1, Ordering::SeqCst);
     assert!(!orphaned(&facts), "a terminal that started since the decision keeps the owner");
 }
+
+#[test]
+fn shortened_timing_drives_the_same_policy() {
+    // The debug-only test seams (CMUX_TUI_TEST_DEV_ORPHAN_DELAY_MS and
+    // _RECHECK_MS) only change these two intervals.
+    let timing = Timing { delay: Duration::from_millis(200), recheck: Duration::from_millis(50) };
+    let start = Instant::now();
+    let gone = facts(true, 1);
+    let live = facts(false, 1);
+    let at = |ms| start + Duration::from_millis(ms);
+    assert_eq!(
+        decide_with(Some(start), at(150), &gone, timing),
+        Decision::Wait(Duration::from_millis(50))
+    );
+    assert_eq!(decide_with(Some(start), at(200), &gone, timing), Decision::Exit);
+    assert_eq!(decide_with(Some(start), at(10_000), &live, timing), Decision::Wait(timing.recheck));
+}

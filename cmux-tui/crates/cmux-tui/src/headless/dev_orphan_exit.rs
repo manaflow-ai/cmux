@@ -14,6 +14,11 @@
 //! after the delay an owner that keeps live terminals looks again every
 //! [`ORPHAN_RECHECK`] (the daemon's idle-close reaper uses the same kind of
 //! bounded interval).
+//!
+//! Test seams, debug builds only: `CMUX_TUI_TEST_DEV_ORPHAN_OWNER=1` makes a
+//! `cmux-app-<tag>` owner count as DEV without a DEV bundle;
+//! `CMUX_TUI_TEST_DEV_ORPHAN_DELAY_MS` and `CMUX_TUI_TEST_DEV_ORPHAN_RECHECK_MS`
+//! replace the two intervals.
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
@@ -24,6 +29,58 @@ pub(crate) const ORPHAN_EXIT_DELAY: Duration = Duration::from_secs(60 * 60);
 /// How often an owner past the delay that keeps live terminals looks for
 /// its executable again.
 pub(crate) const ORPHAN_RECHECK: Duration = Duration::from_secs(10 * 60);
+
+/// Debug builds only (test seams for out-of-process tests; release builds
+/// ignore them): `1` makes an owner of a `cmux-app-<tag>` session count as a
+/// DEV owner without a DEV bundle around its executable.
+#[cfg(debug_assertions)]
+pub(crate) const TEST_DEV_OWNER_ENV: &str = "CMUX_TUI_TEST_DEV_ORPHAN_OWNER";
+/// Debug builds only: replaces [`ORPHAN_EXIT_DELAY`], in milliseconds.
+#[cfg(debug_assertions)]
+pub(crate) const TEST_DELAY_ENV: &str = "CMUX_TUI_TEST_DEV_ORPHAN_DELAY_MS";
+/// Debug builds only: replaces [`ORPHAN_RECHECK`], in milliseconds.
+#[cfg(debug_assertions)]
+pub(crate) const TEST_RECHECK_ENV: &str = "CMUX_TUI_TEST_DEV_ORPHAN_RECHECK_MS";
+
+/// The watcher's two intervals.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Timing {
+    pub(crate) delay: Duration,
+    pub(crate) recheck: Duration,
+}
+
+impl Timing {
+    pub(crate) const STANDARD: Self = Self { delay: ORPHAN_EXIT_DELAY, recheck: ORPHAN_RECHECK };
+
+    /// [`Timing::STANDARD`], or in a debug build the test overrides.
+    fn for_owner() -> Self {
+        #[cfg(debug_assertions)]
+        {
+            let millis = |key: &str| {
+                std::env::var(key)
+                    .ok()
+                    .and_then(|value| value.parse::<u64>().ok())
+                    .map(Duration::from_millis)
+            };
+            Self {
+                delay: millis(TEST_DELAY_ENV).unwrap_or(Self::STANDARD.delay),
+                recheck: millis(TEST_RECHECK_ENV).unwrap_or(Self::STANDARD.recheck),
+            }
+        }
+        #[cfg(not(debug_assertions))]
+        Self::STANDARD
+    }
+}
+
+/// Debug builds only: the [`TEST_DEV_OWNER_ENV`] override.
+fn test_dev_owner() -> bool {
+    #[cfg(debug_assertions)]
+    {
+        std::env::var(TEST_DEV_OWNER_ENV).is_ok_and(|value| value == "1")
+    }
+    #[cfg(not(debug_assertions))]
+    false
+}
 
 /// Whether `bundle_id` is a DEV build's (`com.cmuxterm.app.debug[.<tag>]`).
 pub(crate) fn is_dev_build(bundle_id: Option<&str>) -> bool {
@@ -59,17 +116,28 @@ pub(crate) enum Decision {
 
 /// The policy. `idle_since` is when the owner last had no client (start, or
 /// the last client's departure); `None` while one is connected.
+#[cfg(test)]
 pub(crate) fn decide(
     idle_since: Option<Instant>,
     now: Instant,
     facts: &dyn OrphanFacts,
 ) -> Decision {
+    decide_with(idle_since, now, facts, Timing::STANDARD)
+}
+
+/// The policy with explicit intervals (`decide` uses the standard ones).
+pub(crate) fn decide_with(
+    idle_since: Option<Instant>,
+    now: Instant,
+    facts: &dyn OrphanFacts,
+    timing: Timing,
+) -> Decision {
     let Some(since) = idle_since else { return Decision::Serve };
     let idle = now.saturating_duration_since(since);
-    if idle < ORPHAN_EXIT_DELAY {
-        return Decision::Wait(ORPHAN_EXIT_DELAY - idle);
+    if idle < timing.delay {
+        return Decision::Wait(timing.delay - idle);
     }
-    if orphaned(facts) { Decision::Exit } else { Decision::Wait(ORPHAN_RECHECK) }
+    if orphaned(facts) { Decision::Exit } else { Decision::Wait(timing.recheck) }
 }
 
 /// The executable is gone, or no terminal lives (an unreadable registry
@@ -118,16 +186,27 @@ pub(crate) struct WatchState {
 pub(crate) struct OrphanWatch {
     clock: Arc<dyn OrphanClock>,
     facts: Arc<dyn OrphanFacts>,
+    timing: Timing,
     state: Mutex<WatchState>,
     changed: Condvar,
 }
 
 impl OrphanWatch {
     /// Idle from now unless a client is connected.
+    #[cfg(test)]
     pub(crate) fn new(clock: Arc<dyn OrphanClock>, facts: Arc<dyn OrphanFacts>) -> Arc<Self> {
+        Self::with_timing(clock, facts, Timing::STANDARD)
+    }
+
+    pub(crate) fn with_timing(
+        clock: Arc<dyn OrphanClock>,
+        facts: Arc<dyn OrphanFacts>,
+        timing: Timing,
+    ) -> Arc<Self> {
         let watch = Arc::new(Self {
             clock,
             facts,
+            timing,
             state: Mutex::new(WatchState::default()),
             changed: Condvar::new(),
         });
@@ -171,7 +250,7 @@ impl OrphanWatch {
             let since = state.idle_since;
             // The facts may take locks of their own: read them unlocked.
             drop(state);
-            let decision = decide(since, self.clock.now(), self.facts.as_ref());
+            let decision = decide_with(since, self.clock.now(), self.facts.as_ref(), self.timing);
             state = self.lock();
             if state.stopped {
                 return false;
@@ -255,11 +334,14 @@ pub(crate) fn start(
     mux: &Arc<cmux_tui_core::Mux>,
     stop_owner: impl Fn(&dyn OrphanFacts) -> bool + Send + 'static,
 ) -> Option<OrphanExit> {
-    if !session.starts_with("cmux-app-") || !is_dev_build(bundle_id_of(&executable).as_deref()) {
+    if !session.starts_with("cmux-app-")
+        || !(test_dev_owner() || is_dev_build(bundle_id_of(&executable).as_deref()))
+    {
         return None;
     }
     let facts = Arc::new(OwnerFacts { mux: Arc::downgrade(mux), executable });
-    Some(spawn(OrphanWatch::new(Arc::new(SystemClock), facts), mux, stop_owner))
+    let watch = OrphanWatch::with_timing(Arc::new(SystemClock), facts, Timing::for_owner());
+    Some(spawn(watch, mux, stop_owner))
 }
 
 fn spawn(
