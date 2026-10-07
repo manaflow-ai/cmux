@@ -16102,6 +16102,32 @@
       "title_table" : "ActionCatalog"
     },
     {
+      "cli" : "guiOnly",
+      "cli_name" : "action palette-add-harness",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "palette.addHarness",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "title" : "Add Harness…",
+      "title_key" : "action.palette.addHarness",
+      "title_table" : "ActionCatalog"
+    },
+    {
       "cli" : "liveInput",
       "cli_name" : "agent toggle-dictation",
       "context_menu" : "liveInput",
