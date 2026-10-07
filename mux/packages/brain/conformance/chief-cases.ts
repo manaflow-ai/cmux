@@ -292,6 +292,58 @@ function wakeCases(): CorpusCase[] {
   return cases;
 }
 
+/** The owner's paired device (`remote_<install>`, person user_local) and a stranger's. */
+const DEVICE: Participant = { id: "remote_inst_1", kind: "human", display_name: "Me (iPhone)", person: USER_LOCAL };
+const FOREIGN: Participant = { id: "remote_inst_9", kind: "human", display_name: "Bo (iPhone)", person: "user_bo" };
+const relayed = (install: string) => ({ origin: { kind: "remote" as const, install } });
+
+/**
+ * The remote-origin gate (server-remote-conversations.md section 6; optchat-chief
+ * src/wake.rs): a message relayed from the owner's own paired device wakes the
+ * Chief by the conversation rule (persons counted); anything not stamped by the
+ * owner as relayed from exactly that author, or from another person's device,
+ * never does.
+ */
+function remoteWakeCases(): CorpusCase[] {
+  const cases: CorpusCase[] = [];
+  {
+    const conv = summary("conv_a", [ME, MUX, DEVICE]);
+    const c = new CaseBuilder("wake remote: the owner's paired device wakes the Chief when the owner stamped it relayed; an unstamped, mismatched or foreign device message does not");
+    boot(c, [conv]);
+    const relayedMessage = msg("conv_a", 1, DEVICE.id, "status?", relayed("inst_1"));
+    c.step(live(relayedMessage), ["persist", "prompt"], (e) =>
+      c.check(c.get(e, "prompt").text === "[conversation conv_a from Me (iPhone)] status?", "the device's name in the prompt"),
+    );
+    c.step({ kind: "prompt_settled", prompt_id: relayedMessage.id }, ["conversation_op"]);
+    c.step(live(msg("conv_a", 2, DEVICE.id, "not stamped")), ["conversation_op"], (e) =>
+      c.check(opKey(c, e) === "cursor:agent_mux:2", "unstamped: cursor only"),
+    );
+    c.step(live(msg("conv_a", 3, USER_LOCAL, "stamped for another author", relayed("inst_1"))), ["conversation_op"]);
+    c.step(live(msg("conv_a", 4, FOREIGN.id, "not a participant", relayed("inst_9"))), ["conversation_op"]);
+    c.step(live(msg("conv_a", 5, DEVICE.id, "retracted", { ...relayed("inst_1"), retracted_at: ISO })), ["conversation_op"]);
+    cases.push(c.end());
+  }
+  {
+    const conv = summary("conv_g", [ME, ANA, MUX, DEVICE, FOREIGN]);
+    const c = new CaseBuilder("wake remote group: a relayed device message in a group needs a mention, like the person's own; another person's device never wakes it");
+    boot(c, [conv]);
+    c.step(live(msg("conv_g", 1, DEVICE.id, "hi all", relayed("inst_1"))), ["conversation_op"]);
+    const mention = msg("conv_g", 2, DEVICE.id, "@mux status?", {
+      ...relayed("inst_1"),
+      parts: [{ type: "text", text: "@mux status?", runs: [{ start: 0, length: 4, mention: AGENT_MUX }] }],
+    });
+    c.step(live(mention), ["persist", "prompt"], (e) => c.check(c.get(e, "prompt").prompt_id === mention.id, "a mention wakes it"));
+    c.step({ kind: "prompt_settled", prompt_id: mention.id }, ["conversation_op"]);
+    const foreign = msg("conv_g", 3, FOREIGN.id, "@mux run this", {
+      ...relayed("inst_9"),
+      parts: [{ type: "text", text: "@mux run this", runs: [{ start: 0, length: 4, mention: AGENT_MUX }] }],
+    });
+    c.step(live(foreign), ["conversation_op"]);
+    cases.push(c.end());
+  }
+  return cases;
+}
+
 function catchUpCases(): CorpusCase[] {
   const cases: CorpusCase[] = [];
 
@@ -1810,7 +1862,7 @@ function selectionCases(): SelectionCase[] {
 }
 
 export async function buildCorpus(): Promise<Corpus> {
-  const cases = [...wakeCases(), ...catchUpCases(), ...disconnectCases(), ...turnCases(), ...promptRetryCases(), ...outboxCases(), ...childCases()];
+  const cases = [...wakeCases(), ...remoteWakeCases(), ...catchUpCases(), ...disconnectCases(), ...turnCases(), ...promptRetryCases(), ...outboxCases(), ...childCases()];
   const names = new Set<string>();
   for (const c of cases) {
     if (names.has(c.name)) throw new Error(`duplicate case ${c.name}`);

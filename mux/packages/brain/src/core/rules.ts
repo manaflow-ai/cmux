@@ -1,7 +1,7 @@
 import type { SessionStatus, SessionSummary } from "./acp.ts";
 import { utf16Prefix } from "./acp.ts";
 import { canonicalJson } from "./text.ts";
-import { AGENT_MUX, type Message, messageText, type Part, type ParticipantId, type Summary, type WorkStatus } from "./conversation.ts";
+import { AGENT_MUX, type Message, messageText, type Part, type ParticipantId, type Summary, USER_LOCAL, type WorkStatus } from "./conversation.ts";
 
 // Pure rules of the brain host: the wake rule (plans/cmux-next/home.md
 // section 5), the supervisor's prompt texts and status mapping, reply keys,
@@ -34,6 +34,9 @@ export interface PermissionOption {
   kind?: string;
 }
 
+/** The participant id prefix of a paired install (the relay's remote participant). */
+export const REMOTE_PREFIX = "remote_";
+
 /**
  * A human message wakes the mux when the mux participates and either the
  * conversation has exactly one human and one agent (every human message), or
@@ -48,10 +51,18 @@ export function wakes(
 ): boolean {
   const author = summary.participants.find((p) => p.id === message.author);
   if (!author || author.kind !== "human" || message.author === mux) return false;
-  // A paired device's message starts a remote-origin prompt chain
-  // (server-remote-conversations.md section 6). Until that gate exists it never
-  // wakes the mux: fail closed. Same rule as cmux_chief::rules::wakes.
-  if (message.origin !== undefined || author.person !== undefined) return false;
+  // The remote-origin gate (server-remote-conversations.md section 6; the same
+  // rule as cmux_chief::rules::wakes and optchat-chief src/wake.rs). Default
+  // deny: a device message passes only when the owner stamped it as relayed
+  // from exactly this author (`origin.install`, author `remote_<install>`) and
+  // the author is the owner's own paired device (a human whose person is
+  // user_local). Any other message from a device, or stamped as relayed, never
+  // wakes the mux.
+  const remote = message.origin !== undefined || author.person !== undefined || message.author.startsWith(REMOTE_PREFIX);
+  if (remote) {
+    const install = message.origin?.kind === "remote" ? message.origin.install : "";
+    if (install === "" || message.author !== `${REMOTE_PREFIX}${install}` || author.person !== USER_LOCAL) return false;
+  }
   if (!summary.participants.some((p) => p.id === mux)) return false;
   if (message.retracted_at) return false;
   // Count persons, not participant ids: a paired device (`person`) is the same
