@@ -23,6 +23,8 @@ final class SidebarToggleAnimator: ObservableObject {
     /// The width the pane rests at when open, captured at hide time and
     /// restored after, so the sweep never corrupts the persisted width.
     private var restingWidth: CGFloat = 0
+    /// A hide sweep is running: `isVisible` stays true until it lands.
+    private var isHiding = false
 
     deinit {
         timer?.invalidate()
@@ -49,8 +51,13 @@ final class SidebarToggleAnimator: ObservableObject {
         // Only a docked pane trades width with the terminal; floating
         // visibility is the peek panel's business.
         guard sidebarState.presentationMode == .docked else { return false }
+        // A second hide while one is sweeping (`isVisible` is still true
+        // until it lands) is the same request; restarting it would capture
+        // the half-collapsed width as the resting width.
+        if isHiding && !targetVisible { return true }
         SidebarNavigationTimings.begin(targetVisible ? "toggle.show" : "toggle.hide")
         cancelSweep()
+        isHiding = false
         if targetVisible {
             // Docking over an already-revealed peek card swaps in place: the
             // card is where the pane belongs, so any sweep would be a ghost.
@@ -60,7 +67,7 @@ final class SidebarToggleAnimator: ObservableObject {
             let target = restingWidth > 1
                 ? restingWidth
                 : max(layout.width, CGFloat(SessionPersistencePolicy.defaultSidebarWidth))
-            sidebarState.applyVisibilityBypassingOrchestrator(true)
+            sidebarState.setVisible(true)
             layout.width = 1
             // The width snap above IS the first visual feedback for show (the
             // terminal steps aside in this very turn); the sweep that follows
@@ -70,11 +77,13 @@ final class SidebarToggleAnimator: ObservableObject {
             return true
         } else {
             restingWidth = layout.width
+            isHiding = true
             sweep(from: layout.width, to: 1) { [weak self] in
+                self?.isHiding = false
                 guard let self,
                       let sidebarState = self.sidebarState,
                       let layout = self.layout else { return }
-                sidebarState.applyVisibilityBypassingOrchestrator(false)
+                sidebarState.setVisible(false)
                 // The pane is unmounted now; restore the resting width so the
                 // next show (and the persisted value) see the real width.
                 layout.width = self.restingWidth

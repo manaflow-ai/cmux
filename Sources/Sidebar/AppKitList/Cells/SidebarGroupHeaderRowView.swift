@@ -632,7 +632,8 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         let submenu = NSMenu()
         submenu.autoenablesItems = false
         let palette = WorkspaceTabColorSettings.palette()
-        if model.tintHex != nil {
+        // Clear only what the user set; a config color cannot be cleared here.
+        if actions.customColorHex() != nil {
             let clearItem = menuItem(String(localized: "contextMenu.clearColor", defaultValue: "Clear Color")) {
                 actions.onSetColor(nil)
             }

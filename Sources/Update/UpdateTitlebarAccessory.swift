@@ -1150,16 +1150,7 @@ struct TitlebarControlsView: View {
                 sidebarIconLabel(config: config, iconGeometryKeyPrefix: "titlebarControl_toggleSidebarIcon")
             }
             .safeHelp(KeyboardShortcutSettings.Action.toggleSidebar.tooltip(String(localized: "titlebar.sidebar.tooltip", defaultValue: "Show or hide the sidebar")))
-            .onHover { hovering in
-                // Pre-reveals the peek card while the pointer rests on the
-                // toggle (Aside behaviour); ContentView owns the peek state,
-                // so this only broadcasts.
-                NotificationCenter.default.post(
-                    name: .cmuxSidebarToggleHoverChanged,
-                    object: nil,
-                    userInfo: ["hovering": hovering]
-                )
-            }
+            .broadcastsSidebarToggleHover()
 
             TitlebarControlButton(
                 config: config,

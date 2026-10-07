@@ -947,7 +947,7 @@ struct ContentView: View {
     /// Sweeps the real layout width on toggle (a synthetic divider drag), so
     /// the sidebar and terminal live-resize together through the same path
     /// the manual divider uses.
-    @StateObject private var sidebarToggleAnimator = SidebarToggleAnimator()
+    @StateObject var sidebarToggleAnimator = SidebarToggleAnimator()
     // Not `private`: `ContentView+SidebarPeek` reads the width for the
     // floating panel window's geometry.
     @State var sidebarLayout = SidebarLayoutModel(
@@ -2072,7 +2072,7 @@ struct ContentView: View {
     /// closing pane. A time window rather than a wait-for-exit latch, because
     /// SwiftUI's onHover can drop the exit event across that re-render and a
     /// latch would then never clear.
-    @State private var sidebarToggleHoverSuppressedUntil: Date?
+    @State var sidebarToggleHoverSuppressedUntil: Date?
     private var windowIdentifier: String { "cmux.main.\(windowId.uuidString)" }
     // Not `private`: the peek panel card in `ContentView+SidebarPeek` derives
     // its content colour scheme from the same snapshot the docked sidebar uses.
@@ -2619,81 +2619,7 @@ struct ContentView: View {
         }
 
         return AnyView(
-            layout
-                .onAppear {
-                    sidebarToggleAnimator.install(
-                        sidebarState: sidebarState,
-                        layout: sidebarLayout,
-                        isPeekPresenting: { sidebarPeek.presentsPanel }
-                    )
-                    sidebarPeek.setPolicy(SidebarCustomizationSettings.peekPolicy())
-                }
-                .onReceive(
-                    NotificationCenter.default
-                        .publisher(for: UserDefaults.didChangeNotification)
-                        .receive(on: RunLoop.main)
-                ) { _ in
-                    // Settings-window edits land here. The equality guard
-                    // keeps the frequent defaults churn from rebuilding the
-                    // peek machine when nothing it cares about changed.
-                    let policy = SidebarCustomizationSettings.peekPolicy()
-                    if policy != sidebarPeek.policy {
-                        sidebarPeek.setPolicy(policy)
-                    }
-                }
-                .onChange(of: sidebarState.occupiesLayout) { occupies in
-                    if occupies {
-                        // Docking retires any active peek: the card handed
-                        // its place to the fixed pane.
-                        sidebarPeek.sidebarDocked()
-                    }
-                }
-                .onReceive(NotificationCenter.default.publisher(for: .cmuxSidebarToggleHoverChanged)) { note in
-                    // Aside behaviour: hovering the titlebar's sidebar toggle
-                    // pre-reveals the peek card, so the click lands on a
-                    // sidebar that is already gliding in. Routed through the
-                    // peek machine's edge events, so dwell, grace, and
-                    // dismissal all behave exactly like the screen-edge peek.
-                    guard let hovering = note.userInfo?["hovering"] as? Bool else { return }
-                    guard observedWindow?.isKeyWindow == true else { return }
-                    guard !sidebarState.isVisible, sidebarPeek.policy.isEnabled else { return }
-                    if hovering {
-                        // A hover re-fired by the hide click itself is not a
-                        // request to show; only an arrival after the window
-                        // pre-reveals.
-                        if let until = sidebarToggleHoverSuppressedUntil, Date() < until {
-                            return
-                        }
-                        sidebarPeek.pointerEnteredActivationControl()
-                    } else {
-                        sidebarPeek.pointerExitedEdge()
-                    }
-                }
-                .onChange(of: sidebarState.isVisible) { visible in
-                    guard !visible else { return }
-                    // Hiding retires any peek in flight and opens the hover
-                    // suppression window, so the card cannot flash over the
-                    // closing pane. The show direction is untouched.
-                    sidebarPeek.sidebarCollapsed()
-                    sidebarToggleHoverSuppressedUntil = Date().addingTimeInterval(0.3)
-                }
-                .background(
-                    // Zero-sized anchor that owns the floating card's child
-                    // window. The card cannot live in this tree: the portal
-                    // hosts every terminal surface above the window's SwiftUI
-                    // hosting view, so an in-tree card draws underneath the
-                    // terminal no matter its zIndex.
-                    sidebarPeekPanelHost
-                )
-                .overlay(alignment: .leading) {
-                    // Same slot and layering as the resizer overlay, which is
-                    // the proven way in this codebase to receive pointer
-                    // events over the portal-hosted terminal. A strip placed
-                    // inside the layout stack can end up beneath the terminal's
-                    // AppKit view and never see the pointer at all.
-                    sidebarPeekEdgeStrip
-                        .zIndex(999)
-                }
+            sidebarPeekLifecycle(layout)
                 .overlay(alignment: .leading) {
                     if sidebarState.isVisible {
                         sidebarResizerOverlay

@@ -5496,13 +5496,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func resetCursorRects() {
         super.resetCursorRects()
-        // While the floating sidebar card is up, the pointer over its rows is
-        // geometrically over this surface too. Keep the terminal from
-        // replacing the card's arrow cursor with an I-beam.
-        if window?.cmuxSuppressesTerminalCursorRects == true {
-            addCursorRect(bounds, cursor: .arrow)
-            return
-        }
+        if cmuxYieldsCursorRectsToSidebarCard() { return }
         let cursor = codexActionCommandHovering
             ? NSCursor.pointingHand
             : Self.ghosttyMouseCursor(for: ghosttyMouseShape)

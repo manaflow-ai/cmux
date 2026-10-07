@@ -267,7 +267,17 @@ final class SidebarPeekPanelWindowController {
         }
     }
 
+    /// Drops the panel when the bridge leaves the hierarchy, so the parent's
+    /// terminal gets its cursor rects back.
+    func tearDown() {
+        detach()
+    }
+
     private func detach() {
+        if let parentWindow, parentWindow.cmuxSuppressesTerminalCursorRects {
+            parentWindow.cmuxSuppressesTerminalCursorRects = false
+            parentWindow.resetCursorRects()
+        }
         for observer in parentObservers {
             NotificationCenter.default.removeObserver(observer)
         }
@@ -362,6 +372,11 @@ struct SidebarPeekPanelBridge: NSViewRepresentable {
 
     func makeNSView(context: Context) -> AnchorView {
         AnchorView(frame: .zero)
+    }
+
+    static func dismantleNSView(_ view: AnchorView, coordinator: Coordinator) {
+        view.onWindowChange = nil
+        coordinator.controller.tearDown()
     }
 
     func updateNSView(_ view: AnchorView, context: Context) {
