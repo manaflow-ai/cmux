@@ -706,6 +706,54 @@
         true,
         false
       ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.cmdWClosesPinnedTabs.help",
+        "text" : "When off, Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. Close a pinned tab from its menu."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.cmdWClosesPinnedTabs",
+      "keywords" : [
+        "pin",
+        "pinned",
+        "close",
+        "cmd-w",
+        "tab",
+        "keep"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "tabs",
+        "cmdWClosesPinnedTabs"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.tabs.cmdWClosesPinnedTabs",
+        "text" : "Cmd-W Closes Pinned Tabs"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
       "agent_refusal" : "destructive",
       "agent_settable" : false,
       "consumers" : [
@@ -15847,7 +15895,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "14dd4617c22e3b068d4043842dd6e316bedf30a7daf33ac3d69d46a6474d1719",
+  "schema_hash" : "665e98bbc05ba8e173364f96157dbe32fba60fb43e3e169d98b29f86e36b8858",
   "sections" : [
     {
       "id" : "general",

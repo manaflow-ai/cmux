@@ -100,8 +100,8 @@ final class AppServices {
     private(set) lazy var home = HomeService(services: self)
     /// `cmux://bookmarks`: the manager pages.
     private(set) lazy var bookmarkPages = BookmarkPageService(services: self)
-    /// The sidebar section layout every window draws (plans/cmux-next/sidebar-sections.md).
-    private(set) lazy var sidebarLayout: SidebarLayoutService = {
+    /// The sidebar section layout every window draws (plans/cmux-next/sidebar-sections.md); tests may set a fake owner.
+    lazy var sidebarLayout: SidebarLayoutService = {
         let service = SidebarLayoutService(remote: DaemonSidebarLayoutRemote(services: self),
                                            onRefused: { [weak self] message in self?.registry.refuse(message) })
         service.start()

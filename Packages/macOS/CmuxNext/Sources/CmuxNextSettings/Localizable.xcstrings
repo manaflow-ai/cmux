@@ -67331,6 +67331,268 @@
           }
         }
       }
+    },
+    "settings.tabs.cmdWClosesPinnedTabs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W Closes Pinned Tabs"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W يغلق علامات التبويب المثبتة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W zatvara prikačene kartice"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W lukker fastgjorte faner"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W schließt angeheftete Tabs"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W cierra las pestañas fijadas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W ferme les onglets épinglés"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W chiude le schede fissate"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W でピン留めしたタブを閉じる"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W បិទផ្ទាំងដែលបានខ្ទាស់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W로 고정된 탭 닫기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W lukker festede faner"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W zamyka przypięte karty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W Fecha Abas Fixadas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W закрывает закреплённые вкладки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W ปิดแท็บที่ปักหมุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W Sabitlenmiş Sekmeleri Kapatır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W закриває закріплені вкладки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W đóng các thẻ đã ghim"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W 关闭固定的标签页"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W 關閉固定的分頁"
+          }
+        }
+      }
+    },
+    "settings.tabs.cmdWClosesPinnedTabs.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When off, Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. Close a pinned tab from its menu."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عند الإيقاف، يحدد Cmd-W على علامة تبويب مثبتة علامة التبويب التالية ويحتفظ بالعلامة المثبتة. أغلق علامة التبويب المثبتة من قائمتها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kada je isključeno, Cmd-W na prikačenoj kartici bira sljedeću karticu i zadržava prikačenu. Zatvorite prikačenu karticu iz njenog menija."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når den er slået fra, vælger Cmd-W på en fastgjort fane den næste fane og beholder den fastgjorte fane. Luk en fastgjort fane fra dens menu."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wenn aus, wählt Cmd-W auf einem angehefteten Tab den nächsten Tab und behält den angehefteten Tab. Schließe einen angehefteten Tab über sein Menü."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Si está desactivado, Cmd-W en una pestaña fijada selecciona la siguiente pestaña y conserva la fijada. Cierra una pestaña fijada desde su menú."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Désactivé, Cmd-W sur un onglet épinglé sélectionne l’onglet suivant et garde l’onglet épinglé. Fermez un onglet épinglé depuis son menu."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se disattivato, Cmd-W su una scheda fissata seleziona la scheda successiva e mantiene quella fissata. Chiudi una scheda fissata dal suo menu."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフのとき、ピン留めしたタブで Cmd-W を押すと次のタブを選択し、ピン留めしたタブは残ります。ピン留めしたタブはそのメニューから閉じます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពេលបិទ Cmd-W លើផ្ទាំងដែលបានខ្ទាស់ ជ្រើសផ្ទាំងបន្ទាប់ ហើយរក្សាផ្ទាំងដែលបានខ្ទាស់។ បិទផ្ទាំងដែលបានខ្ទាស់ពីម៉ឺនុយរបស់វា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "끄면 고정된 탭에서 Cmd-W를 누를 때 다음 탭을 선택하고 고정된 탭은 유지합니다. 고정된 탭은 탭 메뉴에서 닫으세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når av, velger Cmd-W på en festet fane neste fane og beholder den festede fanen. Lukk en festet fane fra menyen dens."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gdy wyłączone, Cmd-W na przypiętej karcie wybiera następną kartę i zachowuje przypiętą. Zamknij przypiętą kartę z jej menu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando desativado, Cmd-W em uma aba fixada seleciona a próxima aba e mantém a fixada. Feche uma aba fixada pelo menu dela."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Если выключено, Cmd-W на закреплённой вкладке выбирает следующую вкладку и оставляет закреплённую. Закройте закреплённую вкладку через её меню."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมื่อปิด Cmd-W บนแท็บที่ปักหมุดจะเลือกแท็บถัดไปและเก็บแท็บที่ปักหมุดไว้ ปิดแท็บที่ปักหมุดจากเมนูของแท็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kapalıyken sabitlenmiş bir sekmede Cmd-W sonraki sekmeyi seçer ve sabitlenmiş sekmeyi tutar. Sabitlenmiş bir sekmeyi menüsünden kapatın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Якщо вимкнено, Cmd-W на закріпленій вкладці вибирає наступну вкладку й залишає закріплену. Закрийте закріплену вкладку з її меню."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khi tắt, Cmd-W trên một thẻ đã ghim sẽ chọn thẻ tiếp theo và giữ thẻ đã ghim. Đóng thẻ đã ghim từ menu của nó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭时，在固定的标签页上按 Cmd-W 会选择下一个标签页并保留固定的标签页。请从标签页菜单关闭固定的标签页。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉時，在固定的分頁上按 Cmd-W 會選取下一個分頁並保留固定的分頁。請從分頁選單關閉固定的分頁。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
