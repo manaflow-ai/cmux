@@ -6,6 +6,7 @@ public enum HostKind: Hashable, Sendable {
     case pairedMac
     /// An SSH host (lane C9). `jumpHost` names another host record.
     case ssh(endpoint: HostEndpoint, jumpHost: HostID?)
-    /// A user-entered address dialed directly (lane B4): Tailscale, WireGuard or LAN.
-    case direct(endpoint: HostEndpoint)
+    /// A user-entered address dialed directly (lane B4): Tailscale, WireGuard or LAN,
+    /// pinned to the host's key.
+    case direct(endpoint: HostEndpoint, hostKey: DirectHostKey)
 }
