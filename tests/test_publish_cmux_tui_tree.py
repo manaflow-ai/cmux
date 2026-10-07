@@ -108,3 +108,29 @@ def test_cli_failure_prints_repair_pointer(tmp_path: Path) -> None:
     )
     assert result.returncode == 1
     assert "see cmuxterm-hq REPAIR.md#cmux-tui-tree-publication" in result.stderr
+
+
+LINUX_TREE_NAMES = (
+    "cmux-tui-x86_64-unknown-linux-musl",
+    "cmux-tui-aarch64-unknown-linux-musl",
+    "cmux-tui-app-host-x86_64-unknown-linux-musl",
+    "cmux-tui-app-host-aarch64-unknown-linux-musl",
+)
+
+
+def test_tree_carries_the_linux_daemon_and_app_host() -> None:
+    # Linux daemon mode (GPUI) fetches cmux-tui and its app host by tree key.
+    for name in LINUX_TREE_NAMES:
+        assert name in publisher.COMPANION_NAMES, name
+    # The macOS companions stay: the cmux-next gate reads them.
+    assert publisher.COMPANION_NAMES[:3] == (
+        "cmux-tui-aarch64-apple-darwin",
+        "cmux-tui-app-host-aarch64-apple-darwin",
+        "cmux-tui-cloud-server-aarch64-apple-darwin",
+    )
+
+
+def test_list_companions_is_the_one_list_the_workflow_reads() -> None:
+    result = subprocess.run([sys.executable, str(SCRIPT), "--list-companions"],
+                            text=True, capture_output=True, check=True)
+    assert tuple(result.stdout.split()) == publisher.COMPANION_NAMES
