@@ -119,10 +119,7 @@ pub fn discover(input: &DiscoveryInput<'_>) -> Discovery {
 
     let mut found = Discovery::default();
     for (spec, source) in candidates {
-        let Ok(real_path) = fs::canonicalize(&spec.path) else { continue };
-        if !real_path.is_dir() {
-            continue;
-        }
+        // Refuse before any read: resolving a guarded path reads inside it.
         if let Some(reason) = (input.refuse)(&spec.path) {
             found.refused.push(RefusedRoot {
                 harness: spec.harness,
@@ -130,6 +127,10 @@ pub fn discover(input: &DiscoveryInput<'_>) -> Discovery {
                 source,
                 reason,
             });
+            continue;
+        }
+        let Ok(real_path) = fs::canonicalize(&spec.path) else { continue };
+        if !real_path.is_dir() {
             continue;
         }
         if let Some(root) = found
