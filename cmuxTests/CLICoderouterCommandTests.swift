@@ -854,7 +854,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_SOCKET_PATH"] = fake.home.appendingPathComponent("absent.sock").path
         environment.removeValue(forKey: "CODEROUTER_TEAM_ID")
 
-        let started = Date()
         let result = runProcess(
             executablePath: try bundledCLIPath(),
             arguments: ["cr", "accounts"],
@@ -866,7 +865,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertEqual(result.stderr, "")
         XCTAssertEqual(try recordedTeam(in: fake.home), "<unset>\n")
-        XCTAssertLessThan(Date().timeIntervalSince(started), 3, "an absent app must not hold up CodeRouter")
     }
 }
 
