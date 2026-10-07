@@ -10,6 +10,8 @@ import {
   type RouteTokenPrincipal,
 } from "./repository";
 import {
+  isKnownVmAuthorizationKey,
+  unverifiedVmAuthorizationKeyId,
   VM_AUTHORIZATION_HEADER,
   type VmAuthorizationClaims,
   verifyVmAuthorization,
@@ -57,8 +59,9 @@ export type RouteTokenAuthFailure =
 /**
  * Why a credential was refused, finer than the response reason and never
  * sent to the caller. `placeholder_only`: only the public placeholder key
- * arrived, so the provider edge injected nothing. `signed_unverified`: the
- * injected header failed signature, key or claim checks. `not_live`: the
+ * arrived, so the provider edge injected nothing. `signed_unknown_key`: the
+ * injected token names a key this deployment does not hold (another
+ * deployment signed it). `signed_unverified`: it failed signature or claims. `not_live`: the
  * credential parsed but no live row matched (revoked, unknown, or the machine
  * is no longer live). `binding`: the row belongs to another machine.
  */
@@ -66,13 +69,20 @@ export type RouteTokenAuthFailureDetail =
   | "no_credential"
   | "placeholder_only"
   | "signed_unverified"
+  | "signed_unknown_key"
   | "not_live"
   | "binding"
   | "chatmux_unverified";
 
 export type RouteTokenAuthResult =
   | { readonly ok: true; readonly identity: RouteTokenIdentity }
-  | { readonly ok: false; readonly reason: RouteTokenAuthFailure; readonly detail?: RouteTokenAuthFailureDetail };
+  | {
+    readonly ok: false;
+    readonly reason: RouteTokenAuthFailure;
+    readonly detail?: RouteTokenAuthFailureDetail;
+    /** The unverified key id of a refused signed token. Diagnostic only. */
+    readonly keyId?: string;
+  };
 
 /**
  * The credential a data-plane request carries, in precedence order:
@@ -120,7 +130,7 @@ export async function authenticateRequestRouteToken(
     },
   });
   if (result.ok) recordCoderouterIdentity(result.identity);
-  else recordCoderouterAuthFailure(result.reason, result.detail);
+  else recordCoderouterAuthFailure(result.reason, result.detail, result.keyId);
   return result;
 }
 
@@ -146,6 +156,12 @@ async function authenticateChatmuxMachine(request: Request): Promise<RouteTokenA
   };
 }
 
+function signedRefusal(token: string): RouteTokenAuthResult {
+  const keyId = unverifiedVmAuthorizationKeyId(token);
+  const detail = keyId !== undefined && !isKnownVmAuthorizationKey(keyId) ? "signed_unknown_key" : "signed_unverified";
+  return { ok: false, reason: "invalid_route_token", detail, ...(keyId ? { keyId } : {}) };
+}
+
 function carriesPlaceholder(request: Request): boolean {
   const bearer = /^Bearer[ \t]+(.+)$/i.exec(request.headers.get("authorization")?.trim() ?? "")?.[1]?.trim();
   return bearer === VM_PLACEHOLDER_API_KEY || request.headers.get("x-api-key")?.trim() === VM_PLACEHOLDER_API_KEY;
@@ -163,7 +179,7 @@ async function authenticateUnobserved(
     return { ok: false, reason: "missing_route_token", detail: carriesPlaceholder(request) ? "placeholder_only" : "no_credential" };
   }
   const claims = signedHeader ? await verifyVmAuthorization(token) : null;
-  if (signedHeader && !claims) return { ok: false, reason: "invalid_route_token", detail: "signed_unverified" };
+  if (signedHeader && !claims) return signedRefusal(token);
   // The signature verified; attribute a crash in the ownership lookup below
   // to this machine and team instead of to nobody.
   if (claims) {
