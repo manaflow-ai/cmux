@@ -48,7 +48,7 @@ fn both_servers_and_the_skills_plugin_when_the_app_ships_them_and_mcp_is_on() {
     let json = "{\n  // comment\n  \"mcp\": {\"enabled\": true}\n}";
     let tools = resolve(&inputs(bin.path(), Some(json), state.path()));
     let names: Vec<&str> = tools.servers.iter().map(|s| s.name.as_str()).collect();
-    assert_eq!(names, ["cmux-cua", "cmux"]);
+    assert_eq!(names, ["cmux-cua", "cmux", crate::render_mcp::SERVER_NAME]);
     assert_eq!(tools.servers[0].args, ["mcp"]);
     assert!(tools.servers[0].env.contains(&("CMUX_CUA_MCP_FORCE_PROXY".into(), "1".into())));
     assert_eq!(tools.servers[1].args, ["mcp", "serve"]);
@@ -73,7 +73,9 @@ fn the_cmux_server_needs_mcp_enabled_and_a_missing_binary_is_left_out() {
     let bin = bin_with(&["cmux"]);
     for json in [None, Some("{}"), Some("{\"mcp\": {\"enabled\": false}}"), Some("not json")] {
         let tools = resolve(&inputs(bin.path(), json, state.path()));
-        assert!(tools.servers.is_empty(), "{json:?}");
+        // Only the render server, which needs no setting.
+        let names: Vec<&str> = tools.servers.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, [crate::render_mcp::SERVER_NAME], "{json:?}");
         assert!(tools.plugin_dir.is_some(), "skills do not depend on MCP");
     }
 }
@@ -90,11 +92,15 @@ fn the_render_server_comes_with_cmux_and_needs_no_mcp_switch() {
     assert_eq!(tools.servers[0].args, ["mcp", "serve", "--render-only"]);
     assert_eq!(tools.acp_servers()[0]["name"], crate::render_mcp::SERVER_NAME);
     let args = tools.claude_args();
-    let allowed = args.iter().position(|a| a == "--allowedTools").expect("the render tool is allowed");
+    let allowed =
+        args.iter().position(|a| a == "--allowedTools").expect("the render tool is allowed");
     assert_eq!(args[allowed + 1], crate::render_mcp::CLAUDE_TOOL);
     let config = args.iter().position(|a| a == "--mcp-config").unwrap();
     let config: Value = serde_json::from_str(&args[config + 1]).unwrap();
-    assert_eq!(config["mcpServers"]["cmux-render"]["args"], json!(["mcp", "serve", "--render-only"]));
+    assert_eq!(
+        config["mcpServers"]["cmux-render"]["args"],
+        json!(["mcp", "serve", "--render-only"])
+    );
     // With MCP on, the full cmux server comes too, each once.
     let on = resolve(&inputs(bin.path(), Some("{\"mcp\": {\"enabled\": true}}"), state.path()));
     let names: Vec<&str> = on.servers.iter().map(|s| s.name.as_str()).collect();

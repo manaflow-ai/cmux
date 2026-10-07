@@ -466,7 +466,6 @@ impl Hub {
                 Some(&effort),
                 &mode,
                 Some(&model),
-                crate::render_mcp::claude_config().as_deref(),
             );
             (
                 Some((plan.program, plan.args)),

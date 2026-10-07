@@ -1,6 +1,7 @@
 //! cmux's own tools for every agent session this daemon starts on this Mac:
 //! the cmux Computer Use MCP server (`cmux-cua mcp`), the cmux MCP server
-//! with the browser REPL tools (`cmux mcp serve`), and the `cmux-browser`
+//! with the browser REPL tools (`cmux mcp serve`), the render server
+//! (`cmux mcp serve --render-only`, render_mcp.rs), and the `cmux-browser`
 //! and `cmux-cua` skills. One place decides them; the hub applies them at
 //! each spawn and `session/new|load|fork`, so the app pane, the TUI, the CLI,
 //! the Chief, pooled sessions and forks all get the same set.
@@ -22,6 +23,8 @@
 //!   `Contents/Resources/bin`), or in `CMUX_AGENT_TOOLS_BIN_DIR`. A missing
 //!   binary leaves its server out. `cmux mcp serve` refuses unless
 //!   cmux.json sets `mcp.enabled`, so its server is added only then.
+//!   The render server needs no setting: its one tool reaches nothing, and
+//!   Claude Code is allowed to call it without a prompt.
 //! - Left out (`left_out`): remote-origin sessions (`remote_sandbox.rs`
 //!   keeps their MCP config empty on purpose), a profile or preset whose env
 //!   sets `ACPMUX_AGENT_TOOLS=0` (isolated sessions such as the Chief's
@@ -202,6 +205,15 @@ pub fn resolve(inputs: &Inputs) -> AgentTools {
             env: vec![],
         });
     }
+    // The render server (render_mcp.rs) reaches nothing, so it needs no setting.
+    if let Some(cmux) = executable("cmux") {
+        servers.push(McpServer {
+            name: crate::render_mcp::SERVER_NAME.into(),
+            command: cmux,
+            args: crate::render_mcp::ARGS.iter().map(|a| (*a).into()).collect(),
+            env: vec![],
+        });
+    }
     let plugin_dir = match materialize(&inputs.state_dir) {
         Ok(dir) => Some(dir),
         Err(e) => {
@@ -227,10 +239,16 @@ impl AgentTools {
         )
     }
 
-    /// Claude Code flags: the servers as one `--mcp-config`, the skills as a
-    /// session-only plugin.
+    /// Claude Code flags: the render tool allowed (when its server is on), the
+    /// servers as one `--mcp-config`, the skills as a session-only plugin.
     pub fn claude_args(&self) -> Vec<String> {
         let mut args = Vec::new();
+        // The render tool shows a page and reaches nothing: a permission card per page would
+        // only be noise.
+        if self.servers.iter().any(|s| s.name == crate::render_mcp::SERVER_NAME) {
+            args.push("--allowedTools".into());
+            args.push(crate::render_mcp::CLAUDE_TOOL.into());
+        }
         if !self.servers.is_empty() {
             let mut servers = Map::new();
             for s in &self.servers {

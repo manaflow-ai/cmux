@@ -341,7 +341,6 @@ impl Hub {
                 Some(&effort),
                 &mode,
                 Some(&model),
-                crate::render_mcp::claude_config().as_deref(),
             );
             let plan = self.remote_chain_plan(session, profile, plan).await?;
             // A fresh process was given its id; a resumed one already has it.

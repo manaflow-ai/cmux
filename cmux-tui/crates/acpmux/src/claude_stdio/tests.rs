@@ -101,38 +101,13 @@ fn wrapper_words_come_before_claude_flags() {
         policy: None,
     };
     let plan =
-        spawn_plan(&profile, Some("abc"), false, None, Some("high"), "default", Some("opus"), None);
+        spawn_plan(&profile, Some("abc"), false, None, Some("high"), "default", Some("opus"));
     assert_eq!(plan.program, "sr");
     assert_eq!(&plan.args[..3], &["claude", "proxy", "-p"]);
     assert!(plan.args.windows(2).any(|w| w == ["--resume", "abc"]));
     assert!(plan.args.windows(2).any(|w| w == ["--effort", "high"]));
     assert!(plan.args.windows(2).any(|w| w == ["--model", "opus"]));
     assert!(plan.args.windows(2).any(|w| w == ["--permission-mode", "default"]));
-}
-
-#[test]
-fn the_render_server_comes_last_with_its_tool_allowed_unless_the_profile_wants_no_mcp() {
-    let mut profile = crate::config::HarnessProfile {
-        kind: crate::config::HarnessKind::ClaudeStdio,
-        argv: vec!["claude".into()],
-        env: Default::default(),
-        description: None,
-        fallback: None,
-        family: None,
-        models: vec![],
-        model: None,
-        effort: None,
-        policy: None,
-    };
-    let config = r#"{"mcpServers":{}}"#;
-    let plan = spawn_plan(&profile, None, false, Some("id"), None, "default", None, Some(config));
-    let tail = &plan.args[plan.args.len() - 4..];
-    assert_eq!(tail, ["--allowedTools", "mcp__cmux-render__render", "--mcp-config", config]);
-    let plan = spawn_plan(&profile, None, false, Some("id"), None, "default", None, None);
-    assert!(!plan.args.iter().any(|a| a == "--mcp-config"));
-    profile.argv.push("--strict-mcp-config".into());
-    let plan = spawn_plan(&profile, None, false, Some("id"), None, "default", None, Some(config));
-    assert!(!plan.args.iter().any(|a| a == "--mcp-config" || a == "--allowedTools"));
 }
 
 #[tokio::test]
