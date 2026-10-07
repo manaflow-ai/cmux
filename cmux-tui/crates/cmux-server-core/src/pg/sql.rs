@@ -81,7 +81,8 @@ impl PgPlan {
         ]
     }
 
-    /// Role, limits and database (or schema) for one app.
+    /// Role, limits and database (or schema) for one app:
+    /// [`PgPlan::app_role_sql`] followed by [`PgPlan::app_objects_sql`].
     ///
     /// `password_verifier` is a SCRAM verifier from [`super::scram_verifier`]
     /// (never a clear-text password, so it never reaches the server log). It is
@@ -92,24 +93,64 @@ impl PgPlan {
         limits: &AppLimits,
         password_verifier: Option<&str>,
     ) -> Result<Vec<Statement>, PgError> {
-        let needs = self.app_needs_password(app);
-        let password = match (needs, password_verifier) {
+        let mut out = vec![self.app_role_sql(app, limits, password_verifier)?];
+        out.extend(self.app_objects_sql(app, limits));
+        Ok(out)
+    }
+
+    /// The password clause for `app`: required exactly when the role needs
+    /// a password, and only a SCRAM verifier.
+    fn password_clause(
+        &self,
+        app: &AppDb,
+        password_verifier: Option<&str>,
+    ) -> Result<String, PgError> {
+        match (self.app_needs_password(app), password_verifier) {
             (true, Some(v)) if valid_verifier(v) => {
-                format!(" PASSWORD {}", quote_literal(v).ok_or(PgError::BadVerifier)?)
+                Ok(format!(" PASSWORD {}", quote_literal(v).ok_or(PgError::BadVerifier)?))
             }
-            (false, None) => String::new(),
-            _ => return Err(PgError::BadVerifier),
-        };
+            (false, None) => Ok(String::new()),
+            _ => Err(PgError::BadVerifier),
+        }
+    }
+
+    /// `CREATE ROLE` for a role that does not exist yet.
+    pub fn app_role_sql(
+        &self,
+        app: &AppDb,
+        limits: &AppLimits,
+        password_verifier: Option<&str>,
+    ) -> Result<Statement, PgError> {
+        let password = self.password_clause(app, password_verifier)?;
+        let role = ident(&app.id.role());
+        Ok(stmt(
+            ADMIN_DATABASE,
+            format!(
+                "CREATE ROLE {role} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT CONNECTION LIMIT {}{password}",
+                limits.connection_limit
+            ),
+        ))
+    }
+
+    /// A new password for an existing role (its pgpass file was lost).
+    /// Refused when the role uses peer auth only.
+    pub fn set_password_sql(
+        &self,
+        app: &AppDb,
+        password_verifier: &str,
+    ) -> Result<Statement, PgError> {
+        let clause = self.password_clause(app, Some(password_verifier))?;
+        Ok(stmt(ADMIN_DATABASE, format!("ALTER ROLE {}{clause}", ident(&app.id.role()))))
+    }
+
+    /// Limits and the database (or schema) of an app whose role exists.
+    /// The `ALTER`, `REVOKE` and `GRANT` statements are idempotent; the
+    /// caller skips `CREATE DATABASE` and `CREATE SCHEMA` when the object
+    /// exists.
+    pub fn app_objects_sql(&self, app: &AppDb, limits: &AppLimits) -> Vec<Statement> {
         let role = ident(&app.id.role());
         let a = ADMIN_DATABASE;
         let mut out = vec![
-            stmt(
-                a,
-                format!(
-                    "CREATE ROLE {role} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT CONNECTION LIMIT {}{password}",
-                    limits.connection_limit
-                ),
-            ),
             stmt(
                 a,
                 format!(
@@ -160,7 +201,7 @@ impl PgPlan {
                 ));
             }
         }
-        Ok(out)
+        out
     }
 
     /// The advisory step at 100% of the quota (server.md 8.3):
