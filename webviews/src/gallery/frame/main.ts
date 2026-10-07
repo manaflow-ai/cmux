@@ -126,6 +126,16 @@ async function mount(): Promise<void> {
       return (await import("./pages")).mountMarkdownPage(entry.variants[variantName]!, context);
     case "diff-page":
       return (await import("./pages")).mountDiffPage(entry.variants[variantName]!, context);
+    case "apps-page":
+      return (await import("./pages")).mountAppsPage(entry.variants[variantName]!, context);
+    case "cloud-page":
+      return (await import("./pages")).mountCloudPage(entry.variants[variantName]!, context);
+    case "coderouter-page":
+      return (await import("./pages")).mountCodeRouterPage(entry.variants[variantName]!, context);
+    case "changelog-page":
+      return (await import("./pages")).mountChangelogPage(entry.variants[variantName]!, context);
+    case "icon-picker-page":
+      return (await import("./pages")).mountIconPickerPage(entry.variants[variantName]!, context);
     case "editor-page":
       return (await import("./pages")).mountEditorPage(entry.variants[variantName]!, context);
     case "history-page":
