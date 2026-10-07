@@ -402,8 +402,10 @@ fn browser_host_drives_headless_chromium_over_the_pipe() {
           snapshot: () => [...document.querySelectorAll("input")]
             .map((i) => `${i.id}=${i.value}|${i.getAttribute("value") || ""}`).join(" "),
           fill: (id, v) => { el(id).value = v; },
-          // observe runs each read inside the agent's reply.
+          // observe runs each read inside the agent's reply, and its field
+          // scan within the agent's page-read budget.
           reply: (v) => v,
+          budget: () => ({ spend: () => true, charge: () => true, report: () => ({}) }),
         };
       }"#}),
     );
@@ -1147,3 +1149,7 @@ mod drag;
 // Incognito tabs (private data P1).
 #[path = "chromium/incognito.rs"]
 mod incognito;
+
+// frame.observe's field scan within the page-read budget.
+#[path = "chromium/observe.rs"]
+mod observe;
