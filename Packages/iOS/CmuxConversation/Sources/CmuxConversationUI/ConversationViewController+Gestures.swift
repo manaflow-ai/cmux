@@ -32,7 +32,9 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
 
     public func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         guard gestureRecognizer.name == "conversation.doubleTap" else { return true }
-        return !isSelecting && messageCell(at: touch.location(in: collectionView), requireContentHit: true)?.model?.message.seq != nil
+        // Not while bubble text is selected: that tap only ends the selection, at once.
+        return !isSelecting && textSelection == nil
+            && messageCell(at: touch.location(in: collectionView), requireContentHit: true)?.model?.message.seq != nil
     }
 
     public func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {

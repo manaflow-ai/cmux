@@ -115,7 +115,11 @@ final class MessageActionOverlay: UIView {
         self.snapshot = snapshot
         self.sourceFrame = sourceFrame
         self.isOutgoing = isOutgoing
-        reactionBar = makeGlassView(cornerRadius: Metrics.barHeight / 2)
+        // Messages' bar is nearly opaque (a blue bubble under it doesn't show
+        // through): glass with a strong system-background tint.
+        reactionBar = makeGlassView(cornerRadius: Metrics.barHeight / 2, tint: UIColor { traits in
+            traits.userInterfaceStyle == .dark ? UIColor(white: 0.16, alpha: 0.85) : UIColor(white: 1, alpha: 0.85)
+        })
         menu = makeGlassView(cornerRadius: 26)
         detailCard = mode == .reactionDetail ? makeGlassView(cornerRadius: 22) : nil
         super.init(frame: frame)
