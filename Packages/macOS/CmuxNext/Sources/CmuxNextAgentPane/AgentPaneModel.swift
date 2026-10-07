@@ -367,7 +367,8 @@ public final class AgentPaneModel {
         case .invalidGit:
             return Self.gitFailure(.invalidRequest)
         case .githubRepository(let cwd):
-            return AgentPaneReply.success(["repository": await AgentPaneGitHubRepository.read(at: cwd) ?? NSNull()])
+            let repository = await AgentPaneGitHubRepository.read(at: cwd)
+            return AgentPaneReply.success(["repository": repository.map { $0 as Any } ?? NSNull()])
         case .turnUndo(let undo): return await respondToTurnUndo(undo)
         case .invalidTurnUndo: return AgentPaneReply.failure(code: "native.invalid_request", message: Self.turnUndoInvalidMessage)
         case .transportOpen:
