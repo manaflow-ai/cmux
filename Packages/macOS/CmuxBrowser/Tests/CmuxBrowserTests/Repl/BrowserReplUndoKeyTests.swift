@@ -36,10 +36,10 @@ struct BrowserReplUndoKeyTests {
     }
 
     /// The page in an app-like web view, in a window, as its first responder.
-    private func load(cancellingMetaKeys: Bool = false) async throws -> Setup {
+    private func load(cancellingMetaKeys: Bool = false, childPage: String? = nil) async throws -> Setup {
         let html = Self.page + (cancellingMetaKeys ? "<script>addEventListener('keydown', e => { if (e.metaKey) e.preventDefault(); });</script>" : "")
         let configuration = WKWebViewConfiguration()
-        configuration.setURLSchemeHandler(FramePageSchemeHandler(mainPage: html), forURLScheme: "cmux-test")
+        configuration.setURLSchemeHandler(FramePageSchemeHandler(mainPage: html, childPage: childPage), forURLScheme: "cmux-test")
         let webView = UndoChordWebView(frame: NSRect(x: 0, y: 0, width: 400, height: 300), configuration: configuration)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
@@ -128,5 +128,65 @@ struct BrowserReplUndoKeyTests {
         #expect(error?.code == "blocked", "Meta+Z with the focus in a blocked frame was not refused: \(String(describing: error))")
         let value = try await setup.page.run("return document.getElementById('f').value", in: blocked) as? String
         #expect(value == "blocked text", "Meta+Z undid the blocked frame's edit")
+    }
+
+    /// A blocked frame's page: a field, logging the key and input events
+    /// that reach its document.
+    private static let loggingBlockedPage = "<input id=f value='blocked text'><script>window.log = []; for (const t of ['keydown', 'keypress', 'keyup', 'beforeinput', 'input']) addEventListener(t, (e) => { window.log.push(t + ':' + (e.key || e.inputType)); }, true);</script>"
+
+    /// Sends one key as the REPL driver does: inside the frame gate's input
+    /// guard (the blocked frame's element inert), the focus check, the key,
+    /// then for an Edit menu shortcut no page handled its command through
+    /// the gate.
+    private func replKey(_ key: String, modifiers: [String], in webView: WKWebView, gate: BrowserReplFrameGate) async -> BrowserReplDriverError? {
+        await BrowserReplFrameGateTests.error {
+            let stroke = try #require(try BrowserReplKeyStroke.resolve(key: key, code: "Key\(key.uppercased())", text: modifiers.isEmpty ? key : nil, modifiers: modifiers))
+            let frames: @MainActor () async -> [BrowserReplFrame] = { await BrowserReplFrame.readTree(of: webView) }
+            try await BrowserReplKeyResendTests.withAppDroppingResends {
+                try await gate.guardingInput(in: webView, frames: frames, checkFocusAfter: true) {
+                    try await gate.checkFocus(in: webView, frames: await frames())
+                    let delivery = try await webView.deliverAutomationKeyDown(watchingOutcome: stroke.editingCommand != nil) {
+                        try gate.checkTab(in: webView)
+                        return webView.replayBrowserReplKeyStroke(stroke, keyDown: true, heldBy: "session")
+                    }
+                    defer { _ = webView.replayBrowserReplKeyStroke(stroke, keyDown: false, heldBy: "session") }
+                    if let command = stroke.editingCommand.flatMap(BrowserReplFrameGate.EditingShortcut.init(action:)),
+                       let outcome = delivery.outcome, await outcome.wasUnhandled() {
+                        try await gate.runEditingShortcut(command, in: webView, frames: frames)
+                    }
+                }
+            }
+            _ = try await webView.evaluateJavaScript("0")
+            return nil
+        }
+    }
+
+    /// The main document focuses a blocked frame's element from script
+    /// (nothing clicked into the frame) after that frame made an edit of
+    /// its own. In the app the gate's input guard makes the element inert
+    /// and WebKit moves the focus out of it on its next rendering update,
+    /// so the keys go to the main document; here the page blurs it when it
+    /// turns inert, which a page may also do itself. The blocked frame must
+    /// then get no key event, and the session's Meta+Z or Shift+Meta+Z
+    /// must not undo or redo its edit through the tab's undo stack, which
+    /// holds it: they are refused (`blocked`). A plain key runs.
+    @Test func replKeysAfterTheMainDocumentFocusesABlockedFrameFromScriptDoNotReachIt() async throws {
+        let setup = try await load(childPage: Self.loggingBlockedPage)
+        defer { setup.window.close() }
+        let blocked = try #require(setup.page.frame(host: "blocked.test"))
+        _ = try await setup.page.run("const f = document.getElementById('f'); f.focus(); f.select(); document.execCommand('insertText', false, 'edited'); f.blur(); window.log = []; return true", in: blocked)
+        _ = try await setup.page.run("const b = document.getElementById('b'); new MutationObserver(() => { if (b.inert) b.blur(); }).observe(b, { attributes: true }); b.focus(); return true", in: setup.page.main)
+        let gate = BrowserReplFrameGateTests.gate()
+        for (key, modifiers, expected) in [("z", ["Meta"], "blocked"), ("Z", ["Meta", "Shift"], "blocked"), ("x", [String](), "ran")] {
+            let error = await replKey(key, modifiers: modifiers, in: setup.webView, gate: gate)
+            let name = (modifiers + [key]).joined(separator: "+")
+            #expect((error?.code ?? "ran") == expected, "\(name): \(String(describing: error))")
+            let log = try await setup.page.run("return window.log.join(',')", in: blocked) as? String
+            #expect(log == "", "\(name) reached the blocked frame: \(String(describing: log))")
+            let value = try await setup.page.run("return document.getElementById('f').value", in: blocked) as? String
+            #expect(value == "edited", "\(name) changed the blocked frame's field")
+        }
+        let keys = try await setup.page.run("return window.keys", in: setup.page.main) as? Int
+        #expect(keys == 3, "the main document did not get the keys: \(String(describing: keys))")
     }
 }
