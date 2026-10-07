@@ -102,7 +102,7 @@ test("an output opens the changes view at that file and closes the popover", asy
 
 test("Sources opens the last turn's Changes and closes the popover", async () => {
   const opened: string[] = [];
-  let opener: Element | null = null;
+  const focused: string[] = [];
   const container = dom.window.document.getElementById("root")!;
   const root = createRoot(container);
   await act(async () =>
@@ -112,7 +112,7 @@ test("Sources opens the last turn's Changes and closes the popover", async () =>
         changes: { additions: 3, deletions: 1 },
         onOpenChanges: () => {
           opened.push("changes");
-          opener = dom.window.document.activeElement;
+          focused.push(dom.window.document.activeElement?.getAttribute("aria-label") ?? "");
         },
       }),
     ),
@@ -125,7 +125,7 @@ test("Sources opens the last turn's Changes and closes the popover", async () =>
   expect(changes?.textContent).toContain("+3");
   await act(async () => changes?.click());
   expect(opened).toEqual(["changes"]);
-  expect(opener?.getAttribute("aria-label")).toBe("summary.open");
+  expect(focused).toEqual(["summary.open"]);
   expect(container.querySelector(".acpmux-summary-popover")).toBeNull();
   await act(async () => root.unmount());
 });
