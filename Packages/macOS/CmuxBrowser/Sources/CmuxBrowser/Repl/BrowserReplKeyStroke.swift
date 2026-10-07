@@ -68,10 +68,10 @@ public struct BrowserReplKeyStroke: Equatable, Sendable {
         } else {
             event = BrowserKeyboardEvent(rawKey: key)
         }
-        guard let event, let native = event.nativeKey else { return nil }
+        let held = modifierFlags(named: modifiers)
+        guard let event, let native = event.nativeKey?.resolvingLetterCase(held: held) else { return nil }
 
         var flags = SyntheticKeyEventFactory.appKitModifierFlags(for: native.modifiers)
-        let held = modifierFlags(named: modifiers)
         flags.formUnion(held)
 
         if let modifierKey = native.modifierKey {

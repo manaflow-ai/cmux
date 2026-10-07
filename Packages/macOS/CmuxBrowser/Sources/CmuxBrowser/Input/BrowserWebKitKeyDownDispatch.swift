@@ -148,7 +148,8 @@ extension WKWebView {
         _ event: BrowserKeyboardEvent,
         action: BrowserKeyboardAction
     ) async -> BrowserKeyboardReplayResult {
-        guard let nativeKey = event.nativeKey else {
+        let activeModifiers = browserNativeInputDeliveryOwner.activeModifierFlags
+        guard let nativeKey = event.nativeKey?.resolvingLetterCase(held: activeModifiers) else {
             return .unsupported
         }
 
@@ -160,7 +161,6 @@ extension WKWebView {
             )
         }
 
-        let activeModifiers = browserNativeInputDeliveryOwner.activeModifierFlags
         let specification = SyntheticKeyEventFactory.specification(
             forBrowserNativeKey: nativeKey,
             additionalModifierFlags: activeModifiers
