@@ -17,7 +17,7 @@ extension SidebarBridge {
     static let builtInActions: [SidebarBuiltIn: ActionID] = [
         .home: "home.show",
         .settings: "openSettings",
-        .account: "accounts.show",
+        .account: "sidebar.profileMenu", // the profile control (amendment 2); Accounts stays `accounts.show`
         .notifications: "showNotifications",
         .history: "history.show",
         .bookmarks: "bookmark.manager",

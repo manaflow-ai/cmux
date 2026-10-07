@@ -40,7 +40,6 @@
     "agent-session/acpmux/ModelPickerShell.tsx#ModelPickerShell",
     "agent-session/acpmux/NewTabPage.tsx#KindIcon",
     "agent-session/acpmux/NewTabPage.tsx#NewTabPage",
-    "agent-session/acpmux/ProjectChooser.tsx#ProjectChooser",
     "agent-session/acpmux/QuickKeyHints.tsx#QuickKeyHints",
     "agent-session/acpmux/QuickSurface.tsx#QuickSurface",
     "agent-session/acpmux/SessionSidebar.tsx#SessionSidebar",
