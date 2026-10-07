@@ -423,6 +423,7 @@ extension RemoteTmuxControlConnection {
             completeWindowReorderCommand(isLast: isLast, failed: false)
         case let .tracked(token):
             trackedSendCompletions.removeValue(forKey: token)?(true)
+            trackedSendReceipts.removeValue(forKey: token)?.resolve(true)
         case .paneColorReport, .other:
             break
         }
