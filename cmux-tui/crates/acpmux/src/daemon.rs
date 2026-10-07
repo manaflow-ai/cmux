@@ -165,6 +165,15 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         });
     }
     let hub = Hub::new(config, store);
+    // The curated model catalog (`catalog/`): the last good copy now, then a fetch at
+    // once and every 6 h. `ACPMUX_CATALOG_FETCH=0` keeps the stored or bundled copy.
+    let fetch_catalog = !std::env::var("ACPMUX_CATALOG_FETCH").is_ok_and(|v| v == "0");
+    let fetcher: Option<std::sync::Arc<dyn crate::catalog::Fetcher>> =
+        fetch_catalog.then(|| std::sync::Arc::new(crate::catalog::HttpsFetcher::current()) as _);
+    hub.catalog.attach(home().join("catalog"), fetcher);
+    if fetch_catalog {
+        tokio::spawn(hub.catalog.clone().run());
+    }
     // The app's pane sends no prompt before the folder's trust answer (`server/trust_gate.rs`).
     // Without a home directory no file can answer, so every folder waits (fails closed).
     hub.set_trust_gate(Some(crate::trust::Paths::current().unwrap_or_else(|| {

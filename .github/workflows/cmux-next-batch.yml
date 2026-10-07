@@ -68,13 +68,20 @@ on:
         required: false
         default: ""
 
+# A newer event on one pull request replaces its older run; only `debounce` runs
+# for pull request events. Push and dispatch runs key on their own run id, so a
+# batch, regen or build run is never cancelled here.
+concurrency:
+  group: cmux-next-batch-run-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
 
 jobs:
   debounce:
     if: ${{ github.event_name != 'workflow_dispatch' && github.repository_owner == 'manaflow-ai' && (github.event_name == 'push' || (github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.event.pull_request.head.ref, 'next-batch/'))) }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     # Each event cancels the previous wait: the dispatch comes after quiet.
     concurrency:
@@ -105,7 +112,7 @@ jobs:
 
   batch:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'batch' && github.repository_owner == 'manaflow-ai' }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     # Room for a batch plus a bisect; each validation is one heavy-tier run.
     timeout-minutes: 340
     # One batch at a time. A running batch is never cancelled; a newer
@@ -179,7 +186,7 @@ jobs:
 
   regen:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'regen' && startsWith(inputs.branch, 'next-batch/') && github.repository_owner == 'manaflow-ai' }}
-    runs-on: ${{ vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && (vars.CI_AWS_SIDE_RUNNER || vars.CI_SIDE_LANE_RUNNER) || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 45
     permissions:
       contents: read
@@ -253,7 +260,7 @@ jobs:
 
   regen-linux:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'regen-linux' && startsWith(inputs.branch, 'next-batch/') && github.repository_owner == 'manaflow-ai' }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 30
     permissions:
       contents: read
@@ -321,9 +328,10 @@ jobs:
 
   build:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'build' && startsWith(inputs.branch, 'next-batch/') && github.repository_owner == 'manaflow-ai' }}
-    # A mini: its tailnet tag lets it submit to the build fleet. The job only
-    # submits and waits; the build runs on a fleet worker.
-    runs-on: ${{ vars.CI_LIGHT_LANE_RUNNER || vars.CI_SIDE_LANE_RUNNER }}
+    # An owned mini (CI_PR_POOL_OWNED): its tailnet tag lets it submit to the
+    # build fleet. The job only submits and waits; the build runs on a fleet
+    # worker.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && (vars.CI_AWS_SIDE_RUNNER || vars.CI_SIDE_LANE_RUNNER) || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 150
     permissions:
       contents: read

@@ -1,7 +1,9 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from "react";
 import { ChevronIcon } from "./ComposerPickers";
 import { useT } from "./i18n";
-import { useUiAnchor } from "../../ui/anchor";
+import { Popover } from "../../ui/Popover";
+import { ProjectBadge } from "./ProjectBadge";
+import { usePopoverTrigger } from "./popoverTrigger";
 
 export type Project = { cwd: string; label: string };
 
@@ -29,12 +31,9 @@ export function ProjectChooser({
   const [query, setQuery] = useState("");
   // The highlighted project, by folder: the list re-sorts as chats update while the menu is open.
   const [active, setActive] = useState<string | undefined>(undefined);
-  const root = useRef<HTMLSpanElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
-  const menu = useRef<HTMLDivElement>(null);
   const search = useRef<HTMLInputElement>(null);
   const menuId = useId();
-  const menuStyle = useUiAnchor(trigger, menu, open, { side: "above", align: "start" });
 
   const shown = useMemo(() => {
     const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
@@ -61,6 +60,7 @@ export function ProjectChooser({
     setOpen(false);
     if (refocus) trigger.current?.focus();
   };
+  const press = usePopoverTrigger(open, (next) => (next ? show() : close(true)), show);
   const pick = (project: Project | undefined) => {
     const cwd = project?.cwd ?? typedPath;
     if (!cwd) return;
@@ -73,16 +73,9 @@ export function ProjectChooser({
   useEffect(() => {
     if (!open) return;
     search.current?.focus();
-    const away = (event: PointerEvent) => {
-      if (!root.current?.contains(event.target as Node)) setOpen(false);
-    };
     const blur = () => setOpen(false);
-    document.addEventListener("pointerdown", away);
     window.addEventListener("blur", blur);
-    return () => {
-      document.removeEventListener("pointerdown", away);
-      window.removeEventListener("blur", blur);
-    };
+    return () => window.removeEventListener("blur", blur);
   }, [open]);
 
   const keyDown = (event: React.KeyboardEvent) => {
@@ -101,35 +94,33 @@ export function ProjectChooser({
   };
 
   return (
-    <span
-      ref={root}
-      className="acpmux-picker acpmux-project"
-      onBlur={(event) => {
-        if (open && !root.current?.contains(event.relatedTarget as Node | null)) setOpen(false);
-      }}
-    >
+    <span className="acpmux-picker acpmux-project">
       <button
         ref={trigger}
         type="button"
         className="acpmux-context-chip acpmux-project-button"
         aria-label={t("project.label")}
-        aria-haspopup="listbox"
+        aria-haspopup="dialog"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
         title={current ? `${t("project.label")}: ${current}` : undefined}
-        // WebKit doesn't focus a clicked button, so its mousedown would blur the open search
-        // field and close the menu before this click reopened it.
-        onMouseDown={(event) => {
-          if (open) event.preventDefault();
-        }}
-        onClick={() => (open ? close(true) : show())}
+        {...press}
       >
         {icon}
         <span>{currentLabel ?? t("project.choose")}</span>
         <ChevronIcon />
       </button>
-      {open && (
-        <div ref={menu} className="acpmux-menu acpmux-menu-start acpmux-project-menu" style={menuStyle}>
+      <Popover
+        open={open}
+        onOpenChange={(next) => (next ? show() : close(true))}
+        anchor={open ? trigger.current : null}
+        label={t("project.label")}
+        className="acpmux-menu acpmux-project-menu"
+        side="top"
+        initialFocus={search}
+        finalFocus={false}
+      >
+        <div>
           <div className="acpmux-project-search">
             <SearchIcon />
             <input
@@ -178,10 +169,13 @@ export function ProjectChooser({
                   pick(project);
                 }}
               >
-                {icon}
+                <ProjectBadge project={project} />
                 <span className="acpmux-menu-text">
                   <span className="acpmux-menu-label">{project.label}</span>
                   <span className="acpmux-menu-description" data-path={project.cwd} />
+                </span>
+                <span className="acpmux-project-check" aria-hidden="true">
+                  {project.cwd === current ? "✓" : ""}
                 </span>
               </div>
             ))}
@@ -216,7 +210,7 @@ export function ProjectChooser({
             </button>
           )}
         </div>
-      )}
+      </Popover>
     </span>
   );
 }
