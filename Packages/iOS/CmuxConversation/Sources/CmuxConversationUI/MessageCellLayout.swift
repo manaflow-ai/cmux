@@ -22,6 +22,9 @@ struct MessageCellLayout {
     var editedFrame: CGRect?
     var repliesFrame: CGRect?
     var failedBadgeFrame: CGRect?
+    /// Bottom of the row that only the tail occupies; the gap to the next
+    /// row is measured from the body, so the tail hangs into it.
+    var tailOverhang: CGFloat
     /// Union of everything that lifts in the long-press preview.
     var contentFrame: CGRect
 }
@@ -73,9 +76,9 @@ extension MessageCellLayout {
 
     static func attributedBody(_ text: String, outgoing: Bool) -> NSAttributedString {
         let result = NSMutableAttributedString(string: text, attributes: [
-            .font: ConversationTheme.bodyFont,
+            .font: ConversationTheme.bubbleFont,
             .foregroundColor: outgoing ? ConversationTheme.outgoingText : ConversationTheme.incomingText,
-            .paragraphStyle: ConversationTheme.bodyParagraph,
+            .paragraphStyle: ConversationTheme.bubbleParagraph,
         ])
         let range = NSRange(text.startIndex..., in: text)
         linkDetector?.enumerateMatches(in: text, range: range) { match, _, _ in
@@ -95,6 +98,11 @@ extension MessageCellLayout {
         return CGSize(width: ceil(rect.width), height: ceil(rect.height))
     }
 
+    /// Emoji in an emoji-only message (one, two, or three).
+    static func emojiCount(_ text: String) -> Int {
+        text.filter { !$0.isWhitespace }.count
+    }
+
     /// `margin` is the system layout margin (16 pt on 402-wide phones, 20 on 440).
     static func compute(model: MessageRowModel, width: CGFloat, margin: CGFloat, text: NSAttributedString) -> MessageCellLayout {
         let t = ConversationTheme.self
@@ -104,9 +112,9 @@ extension MessageCellLayout {
         let incomingBodyLeading = margin + avatarColumn
         let isFailed = model.footer == .notDelivered
         let outgoingBodyTrailing = width - margin - (isFailed ? 32 : 0)
-        // Outgoing measures against the full width; incoming against the
-        // space right of the avatar column (282 pt max on a 440 pt screen).
-        let maxBubbleWidth = floor((model.isOutgoing ? width : width - (model.isGroup ? t.avatarSize + t.avatarGap : 0)) * t.maxBubbleWidthFraction)
+        // Messages sizes bubbles against the transcript between its margins
+        // (314.5 pt on a 402 pt phone); incoming group rows lose the avatar column.
+        let maxBubbleWidth = t.maxBubbleWidth(forAvailableWidth: width - 2 * margin - avatarColumn)
         let hasReactions = !model.reactionKinds.isEmpty
 
         /// Frame (tail area included) for a bubble whose body is `w` wide.
@@ -120,7 +128,7 @@ extension MessageCellLayout {
         var quoteFrame: CGRect?
         var quoteTextFrame: CGRect?
         if let quote = model.replyQuote {
-            let quoteFont = UIFont.systemFont(ofSize: 15)
+            let quoteFont = t.quoteFont
             let quoteString = NSAttributedString(string: quote.text, attributes: [.font: quoteFont])
             let size = measure(quoteString, maxWidth: maxBubbleWidth - 24)
             let textHeight = min(size.height, ceil(quoteFont.lineHeight * 2))
@@ -139,8 +147,9 @@ extension MessageCellLayout {
 
         var senderNameFrame: CGRect?
         if model.showsSenderName, model.senderName != nil {
-            senderNameFrame = CGRect(x: incomingBodyLeading + 15, y: y, width: maxBubbleWidth, height: 16)
-            y += 19
+            let nameHeight = ceil(t.senderNameFont.lineHeight)
+            senderNameFrame = CGRect(x: incomingBodyLeading + t.senderNameInset, y: y, width: maxBubbleWidth, height: nameHeight)
+            y += nameHeight + 3
         }
 
         if hasReactions { y += 18 }
@@ -163,9 +172,10 @@ extension MessageCellLayout {
         var textFrame: CGRect?
         var emojiFrame: CGRect?
         if model.isEmojiOnly {
-            let emoji = NSAttributedString(string: message.text, attributes: [.font: UIFont.systemFont(ofSize: t.emojiOnlyFontSize)])
+            let fontSize = t.emojiOnlyFontSize(count: emojiCount(message.text))
+            let emoji = NSAttributedString(string: message.text, attributes: [.font: UIFont.systemFont(ofSize: fontSize)])
             var size = measure(emoji, maxWidth: maxBubbleWidth)
-            size.width += ceil(t.emojiOnlyFontSize * 0.25)
+            size.width += ceil(fontSize * 0.25)
             size.height += 6
             emojiFrame = CGRect(
                 x: model.isOutgoing ? outgoingBodyTrailing - size.width : incomingBodyLeading,
@@ -173,17 +183,17 @@ extension MessageCellLayout {
             )
             y += size.height
         } else if !message.text.isEmpty {
-            let maxTextWidth = maxBubbleWidth - 2 * t.bubbleHorizontalPadding
-            let size = measure(text, maxWidth: maxTextWidth)
-            let textHeight = max(size.height, t.lineHeight)
-            let bodyWidth = max(size.width + 2 * t.bubbleHorizontalPadding, t.lineHeight + 2 * t.bubbleVerticalPadding)
-            let h = textHeight + 2 * t.bubbleVerticalPadding
+            let hPad = t.bubbleHorizontalPadding, vPad = t.bubbleVerticalPadding
+            let size = measure(text, maxWidth: maxBubbleWidth - 2 * hPad)
+            let textHeight = max(size.height, t.bubbleFont.lineHeight)
+            let bodyWidth = max(size.width + 2 * hPad, t.minBubbleWidth)
+            let h = textHeight + 2 * vPad
             let frame = bubbleRect(bodyWidth: bodyWidth, y: y, height: h)
             bubbleFrame = frame
             let bodyMinX = model.isOutgoing ? frame.minX : frame.minX + t.tailWidth
             textFrame = CGRect(
                 x: bodyMinX + (bodyWidth - size.width) / 2,
-                y: frame.minY + t.bubbleVerticalPadding - t.bodyGlyphLift,
+                y: frame.minY + vPad,
                 width: size.width,
                 height: textHeight
             )
@@ -220,17 +230,18 @@ extension MessageCellLayout {
             failedBadgeFrame = CGRect(x: width - margin - 24, y: primary.midY - 12, width: 24, height: 24)
         }
 
-        // Footers align ~9 pt inside the body edge on the sender's side.
+        // Footers sit 20 pt inside the body edge on the sender's side.
         let bodyTrailing = model.isOutgoing ? outgoingBodyTrailing : primary.maxX
         let bodyLeading = model.isOutgoing ? primary.minX : incomingBodyLeading
-        let footerHeight: CGFloat = 15
+        let footerHeight = t.footerHeight
+        let footerInset = t.footerInset
         var editedFrame: CGRect?
         var repliesFrame: CGRect?
         var footerFrame: CGRect?
         func footerRect(_ y: CGFloat) -> CGRect {
             model.isOutgoing
-                ? CGRect(x: margin, y: y, width: bodyTrailing - 9 - margin, height: footerHeight)
-                : CGRect(x: bodyLeading + 9, y: y, width: width - bodyLeading - 9 - margin, height: footerHeight)
+                ? CGRect(x: margin, y: y, width: bodyTrailing - footerInset - margin, height: footerHeight)
+                : CGRect(x: bodyLeading + footerInset, y: y, width: width - bodyLeading - footerInset - margin, height: footerHeight)
         }
         if message.editedAt != nil {
             editedFrame = footerRect(y + 4)
@@ -241,8 +252,8 @@ extension MessageCellLayout {
             y += 4 + footerHeight
         }
         if model.footer != .none {
-            footerFrame = footerRect(y + 5)
-            y += 5 + footerHeight
+            footerFrame = footerRect(y + t.footerGap)
+            y += t.footerGap + footerHeight
         }
 
         var threadPath: CGPath?
@@ -266,8 +277,12 @@ extension MessageCellLayout {
         var content = imageFrames.reduce(bubbleFrame ?? emojiFrame ?? .null) { $0.union($1) }
         if content.isNull { content = primary }
         // The tail hangs below the body; reserve it in the row and the lifted preview.
-        if model.showsTail, bubbleFrame != nil {
-            y = max(y, primary.maxY + t.tailDrop)
+        let tailedImage = bubbleFrame == nil && emojiFrame == nil && !imageFrames.isEmpty
+        var tailOverhang: CGFloat = 0
+        if model.showsTail, bubbleFrame != nil || tailedImage {
+            let tailBottom = primary.maxY + t.tailDrop
+            tailOverhang = max(0, tailBottom - y)
+            y = max(y, tailBottom)
             content.size.height += t.tailDrop
         }
 
@@ -287,6 +302,7 @@ extension MessageCellLayout {
             editedFrame: editedFrame,
             repliesFrame: repliesFrame,
             failedBadgeFrame: failedBadgeFrame,
+            tailOverhang: tailOverhang,
             contentFrame: content
         )
     }

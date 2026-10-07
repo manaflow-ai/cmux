@@ -197,7 +197,8 @@ public final class ConversationViewController: UIViewController {
 
     public override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
         super.traitCollectionDidChange(previousTraitCollection)
-        if previousTraitCollection?.userInterfaceStyle != traitCollection.userInterfaceStyle {
+        if previousTraitCollection?.userInterfaceStyle != traitCollection.userInterfaceStyle
+            || previousTraitCollection?.preferredContentSizeCategory != traitCollection.preferredContentSizeCategory {
             layoutCache.invalidateAll()
             collectionView.reloadData()
         }
@@ -727,8 +728,11 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
             }
             return index > 0 && isMessage(index - 1) ? 10 : 0
         }
-        guard index > 0, isMessage(index - 1) else { return 4 }
-        return model.isFirstInGroup ? ConversationTheme.ungroupedSpacing : ConversationTheme.groupedSpacing
+        guard index > 0, case let .message(previous) = rows[index - 1] else { return 4 }
+        // Gaps run body to body; the previous row's tail hangs into this one.
+        let overhang = layoutCache.layout(for: previous, width: collectionView.bounds.width, margin: layoutMargin).tailOverhang
+        let gap = model.isFirstInGroup ? ConversationTheme.ungroupedSpacing : ConversationTheme.groupedSpacing
+        return max(0, gap - overhang)
     }
 
     private func isMessage(_ index: Int) -> Bool {
