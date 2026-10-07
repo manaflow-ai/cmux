@@ -104,6 +104,7 @@ jobs:
 
       # The merge-base renders with its own gallery code: a change to the gallery shows as a change.
       # A base without the gallery (or without an entry) renders nothing for it: the head's states are new.
+      # So does a base whose gallery does not build (a break this PR may be fixing); the run says so.
       - name: Write the base manifest and build the base gallery
         if: ${{ steps.touched.outputs.count != '0' }}
         env:
@@ -119,8 +120,13 @@ jobs:
             exit 0
           fi
           bun install --frozen-lockfile
-          bun scripts/gallery/manifest.ts --entries "$IDS" --themes "$GALLERY_THEMES" --frame component --out "$RUNNER_TEMP/base.json"
-          CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery-base" bun run gallery:build
+          if ! { bun scripts/gallery/manifest.ts --entries "$IDS" --themes "$GALLERY_THEMES" --frame component --out "$RUNNER_TEMP/base.json" &&
+            CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery-base" bun run gallery:build; }; then
+            echo "[]" > "$RUNNER_TEMP/base.json"
+            rm -rf "$RUNNER_TEMP/gallery-base"
+            echo "::warning::The merge-base gallery does not build; every state is compared as new."
+            echo "> The merge-base gallery does not build, so every state is compared as new." >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Render the base, the head and the head again
         if: ${{ steps.touched.outputs.count != '0' }}
