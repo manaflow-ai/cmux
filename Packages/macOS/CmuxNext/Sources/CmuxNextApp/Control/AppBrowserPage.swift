@@ -7,6 +7,15 @@ import Foundation
 /// Browser page operations (`browser.page.*`, `cmux browser tab_…`) on the page a tab shows,
 /// creating the page when the tab was never shown.
 enum AppBrowserPage {
+    /// The URL `cmux browser navigate` loads for `raw` (stub: the record's engine decides).
+    static func navigationTarget(_ raw: String, tabEngine: String?, page: BrowserEngineKind) -> Result<URL, ControlError> {
+        let chromium = tabEngine == BrowserEngineTag.cef.rawValue
+        guard let resolved = BrowserURLResolver(allowsChromiumSchemes: chromium).url(for: raw) else {
+            return .failure(ControlError(code: "invalid_params", message: "Invalid url: \(raw)"))
+        }
+        return .success(resolved)
+    }
+
     static func run(_ operation: BrowserPageOperation, tabID: String, services: AppServices) async throws -> CmuxNextSettings.JSONValue {
         guard let (tab, _) = services.locateTab(tabID) else {
             throw ControlError(code: "not_found", message: "Surface not found or not a browser")
@@ -24,11 +33,7 @@ enum AppBrowserPage {
         try rebuildStale(stale, tabID: tabID, for: operation, services: services)
         var target: URL?
         if case .navigate(let raw) = operation {
-            let chromium = tab.browserEngine == BrowserEngineTag.cef.rawValue
-            guard let resolved = BrowserURLResolver(allowsChromiumSchemes: chromium).url(for: raw) else {
-                throw ControlError(code: "invalid_params", message: "Invalid url: \(raw)")
-            }
-            target = resolved
+            target = try navigationTarget(raw, tabEngine: tab.browserEngine, page: page.engineKind).get()
         }
         if let refusal = agentURLRefusal(operation, target: target, page: page) { throw refusal }
         if let refusal = agentExtensionRefusal(operation, target: target, page: page,
