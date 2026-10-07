@@ -748,7 +748,8 @@ mod tests {
     fn device_kinds_name_linux_and_windows_and_read_unknown_values_as_unknown() {
         for raw in ["mac", "iphone", "ipad", "tui", "browser", "linux", "windows", "unknown"] {
             assert_eq!(TerminalDeviceKind::parse(raw).as_str(), raw);
-            let decoded: TerminalDeviceKind = serde_json::from_value(serde_json::json!(raw)).unwrap();
+            let decoded: TerminalDeviceKind =
+                serde_json::from_value(serde_json::json!(raw)).unwrap();
             assert_eq!(serde_json::to_value(decoded).unwrap(), raw);
         }
         // Forward compatibility: a kind this daemon does not know is a generic client.
@@ -756,7 +757,8 @@ mod tests {
             assert_eq!(TerminalDeviceKind::parse(raw), TerminalDeviceKind::Unknown, "{raw}");
         }
         let row: TerminalSizingParticipant =
-            serde_json::from_value(serde_json::json!({"id": "c9", "device_kind": "quantum"})).unwrap();
+            serde_json::from_value(serde_json::json!({"id": "c9", "device_kind": "quantum"}))
+                .unwrap();
         assert_eq!(row.device_kind, TerminalDeviceKind::Unknown);
         // A Linux or Windows client is a desktop, not a handheld.
         assert!(!TerminalDeviceKind::parse("linux").is_handheld());

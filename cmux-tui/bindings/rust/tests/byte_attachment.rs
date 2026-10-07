@@ -540,7 +540,11 @@ fn byte_attachment_attach_events_decode_in_wire_order() {
         .iter()
         .map(|row| serde_json::to_value(row.device_kind).unwrap())
         .collect();
-    assert_eq!(kinds, [json!("linux"), json!("unknown")], "an unknown kind does not end the stream");
+    assert_eq!(
+        kinds,
+        [json!("linux"), json!("unknown")],
+        "an unknown kind does not end the stream"
+    );
     let AttachmentItem::Other { event, .. } = next(&mut reader) else { panic!("other") };
     assert_eq!(event, "notification");
     let AttachmentItem::ViewDetached { actor } = next(&mut reader) else { panic!("view detach") };
