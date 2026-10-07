@@ -98,6 +98,12 @@ enum ViewersText {
     }
 
     // Browser
+    static var todo: String { String(localized: "viewers.todo", defaultValue: "Todo", bundle: .module) }
+    static var noTodo: String { String(localized: "viewers.todo.none", defaultValue: "No Todo List", bundle: .module) }
+    static func noTodoBody(_ names: String) -> String {
+        String(format: String(localized: "viewers.todo.none.body",
+                              defaultValue: "Add one of these files to the workspace folder on your Mac: %@", bundle: .module), names)
+    }
     static var emptyFolder: String { String(localized: "viewers.empty-folder", defaultValue: "Empty Folder", bundle: .module) }
     static var symlink: String { String(localized: "viewers.symlink", defaultValue: "Link (not followed)", bundle: .module) }
 

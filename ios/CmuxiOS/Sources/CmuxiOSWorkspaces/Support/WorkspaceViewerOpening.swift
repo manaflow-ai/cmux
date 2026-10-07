@@ -16,11 +16,20 @@ public struct WorkspaceViewerTarget: Hashable, Sendable {
     }
 }
 
-/// Seam for lane C13 (viewers): the workspace detail shows "Changes" and
-/// "Files" rows when one is set, and pushes the screens it returns. The
-/// composition root adapts C13's `ViewersFeature`.
+/// Seam for lane C13 (viewers): the workspace detail shows "Changes",
+/// "Files" and (E4) "Todo" rows when one is set, and pushes the screens it
+/// returns. The composition root adapts C13's `ViewersFeature`.
 @MainActor
 public protocol WorkspaceViewerOpening: AnyObject {
     func changesScreen(for target: WorkspaceViewerTarget) -> UIViewController
     func filesScreen(for target: WorkspaceViewerTarget) -> UIViewController
+    /// The workspace's todo list (a Markdown file in its folder, read only).
+    func todoScreen(for target: WorkspaceViewerTarget) -> UIViewController
+}
+
+/// The viewer rows of the workspace detail.
+enum WorkspaceViewerKind: Hashable {
+    case changes
+    case files
+    case todo
 }

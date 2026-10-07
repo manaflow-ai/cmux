@@ -11,6 +11,7 @@ import CmuxiOSSearchCore
 import CmuxiOSSettingsCore
 import CmuxiOSShell
 import CmuxiOSSSH
+import CmuxiOSTerminalCompose
 import CmuxiOSViewers
 import CmuxiOSWorkspaces
 import UIKit
@@ -80,6 +81,13 @@ enum ShellComposition {
         // Lane C13: Changes and Files in the workspace detail, and the viewer
         // for finished downloads.
         workspaces.viewers = WorkspaceViewersAdapter(feature: container.viewersFeature(for: sources, real: workspacesAreReal))
+        // Lane E4: the composer bar over host terminals (drafts per terminal,
+        // uploads through C4); the More menu's toggle writes the C11 setting.
+        let terminalComposer = TerminalComposerFeature(store: container.terminalCompose, files: container.filesFeature(for: sources))
+        workspaces.terminalComposer = { target in terminalComposer.provider(host: target.hostID, terminal: target.terminalID) }
+        workspaces.onComposerToggle = { [weak container] enabled in
+            container?.terminalPreferences.update { $0.composerEnabled = enabled }
+        }
         // Lane C8: the Compose tab and the floating compose button over Feed
         // and Workspaces. The picker and "open workspace" are C5's, passed as
         // closures so the composer never imports the Workspaces feature.

@@ -44,7 +44,7 @@ import Testing
         await browser.load()
         #expect(browser.phase == .loaded)
         #expect(browser.title == "cmux")
-        #expect(browser.entries.map(\.name) == ["assets", "docs", "Sources", "Package.swift", "README.md"])
+        #expect(browser.entries.map(\.name) == ["assets", "docs", "Sources", "Package.swift", "README.md", "TODO.md"])
         let docs = try #require(browser.entries.first { $0.name == "docs" })
         let child = FileBrowserModel(target: target, source: source, path: browser.childPath(docs), title: docs.name)
         await child.load()

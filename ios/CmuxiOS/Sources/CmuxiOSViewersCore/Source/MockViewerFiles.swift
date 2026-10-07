@@ -1,13 +1,14 @@
 import Foundation
 
 /// The canned repository the mock source serves: a few folders, a Swift
-/// file, a README with tasks, a table and code, notes, an image and a PDF.
+/// file, a README with tasks, a table and code, a todo list, notes, an image and a PDF.
 struct MockViewerFiles: Sendable {
     let contents: [String: Data]
 
     init() {
         var files: [String: Data] = [:]
         files["README.md"] = Data(Self.readme.utf8)
+        files["TODO.md"] = Data(Self.todo.utf8)
         files["Sources/App/Viewer.swift"] = Data(Self.swift.utf8)
         files["Sources/App/DiffRow.swift"] = Data("/// One row of a diff.\nenum DiffRow {\n    case hunk(Int)\n    case line(String)\n}\n".utf8)
         files["Package.swift"] = Data("// swift-tools-version: 6.0\nimport PackageDescription\n\nlet package = Package(name: \"App\")\n".utf8)
@@ -32,6 +33,17 @@ struct MockViewerFiles: Sendable {
         }
         return seen.keys.sorted().map { (name: $0, isDirectory: seen[$0]!.0, size: seen[$0]!.1) }
     }
+
+    static let todo = """
+    # Todo
+
+    - [x] Composer above the key bar
+    - [x] Drafts per terminal
+    - [ ] Paste a screenshot into the composer
+    - [ ] Review the todo surface on a phone
+      - [ ] Dynamic Type at the largest size
+
+    """
 
     static let readme = """
     # cmux viewer demo
