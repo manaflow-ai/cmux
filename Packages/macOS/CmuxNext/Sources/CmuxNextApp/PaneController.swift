@@ -45,6 +45,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
         var connected: Bool
         var generation: String?
         var surfaces: [UInt64]
+        /// The chat dock or a lone chat with one tab shows no strip (``ChatDockChrome``).
+        var hidesStrip = false
     }
 
     init(pane: PaneModel, daemon: DaemonService, layoutPaneID: LayoutPaneID, services: AppServices, state: WindowState) {
@@ -157,7 +159,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
         }
         let connected = if case .connected = store.connectionState { true } else { false }
         return Snapshot(items: items, groups: groups, defaultIndex: pane.defaultTabIndex, connected: connected,
-                        generation: store.generation?.rawValue, surfaces: pane.tabs.map(\.surface.rawValue))
+                        generation: store.generation?.rawValue, surfaces: pane.tabs.map(\.surface.rawValue),
+                        hidesStrip: ChatDockChrome.hidesStrip(self, tabCount: items.count))
     }
 
     /// The page icon, favicon, throbber or globe of browser tab `key`: its live page's
@@ -175,6 +178,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// state after a rejected command (order, membership, closes).
     func apply(_ snapshot: Snapshot, force: Bool = false) {
         if force { view.stripView.discardPendingReorder() }
+        if view.hidesStrip != snapshot.hidesStrip { view.hidesStrip = snapshot.hidesStrip }
         if stripModel.groups != snapshot.groups { stripModel.groups = snapshot.groups }
         if stripModel.tabs != snapshot.items { stripModel.tabs = snapshot.items }
         if !snapshot.items.isEmpty { LaunchReveal.shared.markReady(.tabs) }
