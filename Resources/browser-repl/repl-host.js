@@ -461,7 +461,7 @@
       return e;
     };
     const guarded = {};
-    for (const name of ["setTimeout", "fsOp", "secrets", "policy"]) {
+    for (const name of ["setTimeout", "fsOp", "secrets", "policy", "readResource"]) {
       if (typeof host[name] !== "function") continue;
       guarded[name] = {
         value: (...args) => {
@@ -622,7 +622,7 @@
       },
       now: () => Date.now(),
       print: (level, text) => native.print(level, printable(text)),
-      readResource: (relativePath) => native.readResource(relativePath),
+      readResource: (relativePath) => hostCall(native.readResource, "read", { path: String(relativePath) }),
       fsOp(op, args) {
         const r = JSON.parse(native.fs(op, JSON.stringify(args)));
         if (r.error) {
