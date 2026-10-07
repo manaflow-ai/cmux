@@ -17,6 +17,10 @@ import { sqlApiKeyAdminStoreLayer } from "./db/api-keys.ts";
 import { stackTeamAdminLayer } from "./auth/team-admin.ts";
 import { upstreamSnapshotsLayer } from "./upstream/live-snapshots.ts";
 import { upstreamTerminalsLayer } from "./upstream/live-terminals.ts";
+import { sqlMeshStoreLayer } from "./db/mesh.ts";
+import { meshConfigLayer, parseMeshExperiment } from "./mesh/config.ts";
+import { upstreamMeshLayer } from "./upstream/live-mesh.ts";
+import { sqlMembershipCacheLayer, sqlWebhookDeliveryStoreLayer } from "./db/identity.ts";
 
 /** The per-tenant counters Durable Object; wrangler binds it as TENANT_LIMITS. */
 export { TenantLimitsObject } from "./limits/durable-object.ts";
@@ -35,9 +39,16 @@ export interface Env {
   readonly DEV_TEST_TENANT_IDS?: string;
   /** JSON object of Stack team id to live VM limit, overriding the default. */
   readonly TENANT_VM_QUOTAS?: string;
+  /** Mesh experiment (cx-0op): "1" turns it on for the tenants in CMUX_VM_MESH_TENANT_IDS; anything else is off. */
+  readonly CMUX_VM_MESH_EXPERIMENT?: string;
+  /** Stack team ids allowed into the mesh experiment: comma or space separated. */
+  readonly CMUX_VM_MESH_TENANT_IDS?: string;
+  /** Stack Auth webhook signing secret (whsec_...); optional, the webhook answers 503 without it (G1, cx-0op.6). */
+  readonly STACK_WEBHOOK_SECRET?: string;
 }
 
 const liveServices = (env: Env) => {
+  const sql = hyperdriveSqlLayer(env.HYPERDRIVE.connectionString);
   const policy = tenantPolicyLayer({
     environment: parseEnvironment(env.ENVIRONMENT),
     devTestTenantIds: parseTenantList(env.DEV_TEST_TENANT_IDS),
@@ -45,20 +56,25 @@ const liveServices = (env: Env) => {
   });
   return Layer.mergeAll(
     // Snapshot rows and API key management (slice S3a) share the request's connection with the other stores.
-    Layer.mergeAll(sqlStoresLayer, sqlSnapshotStoreLayer, sqlApiKeyAdminStoreLayer).pipe(
-      Layer.provide(hyperdriveSqlLayer(env.HYPERDRIVE.connectionString)),
+    Layer.mergeAll(sqlStoresLayer, sqlSnapshotStoreLayer, sqlApiKeyAdminStoreLayer, sqlMeshStoreLayer, sqlWebhookDeliveryStoreLayer).pipe(
+      Layer.provide(sql),
     ),
     policy,
     // TODO(cx-b4h, owner: Lawrence Chen): the real billing source; see Entitlements.
     entitlementsFromPolicyLayer.pipe(Layer.provide(policy)),
     durableObjectLimitsLayer(env.TENANT_LIMITS),
-    upstreamLayer({ baseUrl: env.UPSTREAM_API_URL, apiKey: env.UPSTREAM_API_KEY }),
-    stackLayers({
-      apiUrl: env.STACK_API_URL,
-      projectId: env.STACK_PROJECT_ID,
-      serverKey: Redacted.make(env.STACK_SECRET_SERVER_KEY),
-    }),
+    upstreamLayer({ baseUrl: env.UPSTREAM_API_URL, apiKey: env.UPSTREAM_API_KEY, environment: parseEnvironment(env.ENVIRONMENT) }),
+    // The shared positive membership cache (mesh M4) lives in Postgres, so the webhook revokes it for every isolate.
+    Layer.provideMerge(
+      stackLayers({
+        apiUrl: env.STACK_API_URL,
+        projectId: env.STACK_PROJECT_ID,
+        serverKey: Redacted.make(env.STACK_SECRET_SERVER_KEY),
+      }),
+      sqlMembershipCacheLayer.pipe(Layer.provide(sql)),
+    ),
     s3aServices(env),
+    meshServices(env),
     stackTeamAdminLayer({
       apiUrl: env.STACK_API_URL,
       projectId: env.STACK_PROJECT_ID,
@@ -69,9 +85,19 @@ const liveServices = (env: Env) => {
 
 /** The provider snapshot and terminal clients (slice S3a). */
 const s3aServices = (env: Env) => {
-  const upstream = { baseUrl: env.UPSTREAM_API_URL, apiKey: env.UPSTREAM_API_KEY };
+  const upstream = { baseUrl: env.UPSTREAM_API_URL, apiKey: env.UPSTREAM_API_KEY, environment: parseEnvironment(env.ENVIRONMENT) };
   return Layer.mergeAll(upstreamSnapshotsLayer(upstream), upstreamTerminalsLayer(upstream));
 };
+
+/** The mesh experiment's provider client and its gate (off unless both vars say otherwise). */
+const meshServices = (env: Env) =>
+  Layer.mergeAll(
+    upstreamMeshLayer({ baseUrl: env.UPSTREAM_API_URL, apiKey: env.UPSTREAM_API_KEY, environment: parseEnvironment(env.ENVIRONMENT) }),
+    meshConfigLayer({
+      experiment: parseMeshExperiment(env.CMUX_VM_MESH_EXPERIMENT),
+      tenantIds: parseTenantList(env.CMUX_VM_MESH_TENANT_IDS),
+    }),
+  );
 
 let cached: { readonly env: Env; readonly handler: (request: Request) => Promise<Response> } | undefined;
 
@@ -86,7 +112,12 @@ const makeHandler = (env: Env): ((request: Request) => Promise<Response>) => {
     if (!env.HYPERDRIVE || !env.TENANT_LIMITS || !env.UPSTREAM_API_KEY || !env.STACK_PROJECT_ID || !env.STACK_SECRET_SERVER_KEY) {
       return notConfigured;
     }
-    const { handler } = makeWebHandler(liveServices(env), { perRequest: withRequestConnection });
+    const secret = env.STACK_WEBHOOK_SECRET?.trim();
+    const { handler } = makeWebHandler(liveServices(env), {
+      perRequest: withRequestConnection,
+      perWebhook: withRequestConnection,
+      ...(secret === undefined || secret.length === 0 ? {} : { stackWebhookSecret: Redacted.make(secret) }),
+    });
     return (incoming) => handler(incoming);
   } catch {
     console.error("cmux-vm configuration invalid");
