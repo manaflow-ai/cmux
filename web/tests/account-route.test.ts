@@ -2932,6 +2932,31 @@ describe("account deletion resume cron", () => {
     )).toBe(true);
   });
 
+  test("caps a vanished-user Stack-delete cleanup that keeps failing", async () => {
+    const updatedAt = staleUpdatedAt();
+    selectResults = [[resumeRow("stack_delete_pending", updatedAt)], ...selectResults];
+    transactionTombstoneSelectResults = [
+      [{
+        userIdHash: "existing-hash",
+        status: "stack_delete_pending",
+        updatedAt,
+        hostedSubrouterDeletedTeamIds: [],
+      }],
+      [{ status: "stack_delete_pending", attemptCount: 16 }],
+    ];
+    stackUserMissing = true;
+    vaultDeleteError = new Error("vault storage timed out");
+    selectResults = [selectResults[0]!, [{ id: "snapshot-1", objectKey: "vault/u/account-user-1/snapshot.jsonl.zst" }], ...selectResults.slice(1)];
+
+    const response = await GET(cronRequest());
+
+    expect((await response.json()).retryable).toBe(1);
+    expect(tombstoneUpdates.at(-1)).toMatchObject({
+      status: "failed",
+      errorMessage: "account deletion resume attempts exhausted",
+    });
+  });
+
   test("fails a stale early attempt whose Stack user vanished before cleanup", async () => {
     selectResults = [[resumeRow("in_progress", staleUpdatedAt())], ...selectResults];
     stackUserMissing = true;

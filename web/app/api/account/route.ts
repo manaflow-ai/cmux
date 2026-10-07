@@ -340,7 +340,10 @@ async function resumeAccountDeletion(userId: string, status: string): Promise<bo
  * tombstone is `failed`, which the cron never selects, and Sentry gets a
  * report. A tombstone held by a live attempt is left alone.
  */
-async function settleFailedAccountDeletionResume(userId: string): Promise<void> {
+async function settleFailedAccountDeletionResume(
+  userId: string,
+  options: { readonly restingStatus?: string } = {},
+): Promise<void> {
   try {
     const exhausted = await cloudDb().transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${accountDeletionAdvisoryLockKey(userId)}, 0))`);
@@ -354,7 +357,10 @@ async function settleFailedAccountDeletionResume(userId: string): Promise<void> 
         .where(eq(accountDeletionTombstones.userIdHash, userIdHash))
         .limit(1)
         .for("update");
-      if (!row || !isRestingResumeFailureStatus(row.status)) return null;
+      if (
+        !row ||
+        !(isRestingResumeFailureStatus(row.status) || row.status === options.restingStatus)
+      ) return null;
       const now = new Date();
       if (row.attemptCount >= ACCOUNT_DELETION_RESUME_MAX_ATTEMPTS) {
         await tx
@@ -431,10 +437,15 @@ async function finishAccountDeletionWithoutStackUser(
     logAccountDeleteError("account.delete.resume_cleanup_failed", error);
     if (hostedCheckpoint) {
       await markAccountDeletionTombstoneHostedDeletePending(userId);
+      await settleFailedAccountDeletionResume(userId);
     } else {
+      // Written by this resume under no live attempt (the Stack user is gone),
+      // so the cap applies to it as well.
       await markAccountDeletionTombstoneStackDeletePending(userId);
+      await settleFailedAccountDeletionResume(userId, {
+        restingStatus: "stack_delete_pending",
+      });
     }
-    await settleFailedAccountDeletionResume(userId);
     return false;
   }
   if (hostedCheckpoint) {
