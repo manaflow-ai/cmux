@@ -24,9 +24,9 @@ public nonisolated struct AgentPaneContext: Sendable, Equatable {
 
 extension AgentPaneView {
     /// Asks the page what its chat works on. Nil before the page connects,
-    /// or when it does not answer within `limit`. An agent-home cwd becomes
-    /// the home folder (``AgentPaneModel/folderForOtherTabs(_:)``): a terminal
-    /// opened from the chat starts where a terminal normally starts.
+    /// or when it does not answer within `limit`. An agent-home cwd is left
+    /// out (``AgentPaneModel/folderForOtherTabs(_:)``): a terminal opened from
+    /// the chat keeps its own default folder.
     public func workingContext(limit: Duration = .seconds(1)) async -> AgentPaneContext? {
         let read: AgentPaneContext? = await agentPaneFirst(within: limit) { [weak self] in
             guard let webView = self?.webView else { return nil }

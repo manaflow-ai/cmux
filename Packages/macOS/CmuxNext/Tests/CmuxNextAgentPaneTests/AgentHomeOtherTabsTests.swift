@@ -20,18 +20,16 @@ import Testing
         return model
     }
 
-    /// The chat header's Terminal split (`pane.action splitRight`) names the chat's folder: for an
-    /// agent-home folder the split gets the home folder (a terminal's normal default); a project
-    /// folder passes unchanged.
+    /// The chat header's Terminal split (`pane.action splitRight`) names the chat's folder: an
+    /// agent-home folder does not reach the split, a project folder does.
     @Test func theHeaderTerminalSplitDoesNotStartInAgentHome() async {
         let model = Self.model()
-        model.transport.homeFolder = "/Users/me"
         var ran: [String] = []
         model.header = AgentPaneHeaderHooks(run: { id, cwd in ran.append("\(id)@\(cwd ?? "default")") }, tabState: { [:] })
         _ = await model.respond(to: .paneAction("splitRight", cwd: Self.folder))
         _ = await model.respond(to: .paneAction("splitRight", cwd: Self.folder + "/notes"))
         _ = await model.respond(to: .paneAction("splitRight", cwd: "/Users/me/project"))
-        #expect(ran == ["splitRight@/Users/me", "splitRight@/Users/me", "splitRight@/Users/me/project"])
+        #expect(ran == ["splitRight@default", "splitRight@default", "splitRight@/Users/me/project"])
     }
 
     /// A terminal that is in agent-home anyway (the user went there) is no workspace folder: the
