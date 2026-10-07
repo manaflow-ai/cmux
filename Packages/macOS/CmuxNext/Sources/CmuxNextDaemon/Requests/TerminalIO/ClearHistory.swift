@@ -6,7 +6,7 @@ import Foundation
 /// untouched. It fails without a change when it cannot restore the cursor exactly.
 public struct ClearHistoryRequest: DaemonRequest {
     public struct Response: Decodable, Sendable {}
-    public static let command = "clear-history-unwired"  // red commit: not wired yet
+    public static let command = "clear-history"
     public var surface: SurfaceID
 
     public init(surface: SurfaceID) {
