@@ -102,7 +102,9 @@ const tenantId = TenantId.make(TENANT);
 const adminKey = generateApiKey();
 const memberKey = generateApiKey();
 const keys = new Map<string, ApiKeyRecord>([
-  [await Effect.runPromise(hashApiKey(adminKey)), { id: newApiKeyId(), tenantId, scopes: SCOPES.filter((s) => s !== "admin"), resourceAllowlist: null, expiresAt: null }],
+  // With the admin scope: cleanup must delete the member's devices even after the member key is revoked
+  // (run m3muxuf66g left two tunnels and the VPC without it; they were deleted by exact id).
+  [await Effect.runPromise(hashApiKey(adminKey)), { id: newApiKeyId(), tenantId, scopes: [...SCOPES], resourceAllowlist: null, expiresAt: null }],
   [await Effect.runPromise(hashApiKey(memberKey)), { id: newApiKeyId(), tenantId, scopes: ["mesh:read", "mesh:join"] satisfies Scope[], resourceAllowlist: null, expiresAt: null }],
 ]);
 const revoked = new Set<ApiKeyId>();
@@ -259,7 +261,7 @@ try {
   log("signed-rotate", { code: rotated.code, deviceId: answer["deviceId"], rotateMs: Number(answer["respondedAtMs"]) - Number(answer["sentAtMs"]), stderr: rotated.stderr.slice(0, 200) });
   if (rotated.code !== 0) failed = true;
   rmSync(a.keyFile);
-  const ping2 = await agent(["ping", "--config", a.config, "--key-file", newKey, cmux.vmId, "-c", "3"], 90_000);
+  const ping2 = await agent(["ping", "--config", a.config, "--key-file", newKey, "--install-key", a.installFile, cmux.vmId, "-c", "3"], 90_000);
   log("ping-after-rotate", { code: ping2.code, stdout: ping2.stdout.trim().split("\n"), stderr: ping2.stderr.trim().split("\n").slice(-2) });
   if (ping2.code !== 0) failed = true;
 
