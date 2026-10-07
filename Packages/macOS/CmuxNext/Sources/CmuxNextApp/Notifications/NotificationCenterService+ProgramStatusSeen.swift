@@ -9,7 +9,7 @@ extension NotificationCenterService {
     /// clicks and opens see the rest through `interacted`. Pushed by
     /// observation of the viewed tabs' records, no poll.
     func followViewedProgramStatus(_ store: DaemonStore) -> Task<Void, Never> {
-        Task { [weak self] in
+        Task { [weak self] in // task-owner: start(services:) keeps the handle in tasks
             for await _ in Observations({ [weak self] in self?.viewedTabs(store).map(\.programStatus) ?? [] }) {
                 guard let self else { return }
                 for tab in self.viewedTabs(store) { ProgramStatusSeenStore.shared.markSeen(tab) }
