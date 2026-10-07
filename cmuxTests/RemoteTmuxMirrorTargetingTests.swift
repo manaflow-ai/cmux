@@ -462,9 +462,9 @@ struct RemoteTmuxMirrorTargetingTests {
             "@2 abcd,120x40,0,0{60x40,0,0,4,59x40,61,0[59x20,61,0,5,59x19,61,21,8]} abcd,120x40,0,0{60x40,0,0,4,59x40,61,0[59x20,61,0,5,59x19,61,21,8]} [] logs",
         ])
         try harness.drainThroughPaneRects([2: [
-            harness.metadataPaneRectLine(paneID: 4, index: 0, title: "example-host.test"),
-            harness.metadataPaneRectLine(paneID: 5, index: 1, title: "run: build"),
-            harness.metadataPaneRectLine(paneID: 8, index: 2, title: "run: publish"),
+            harness.paneRectLine(paneID: 4, index: 0, title: "example-host.test"),
+            harness.paneRectLine(paneID: 5, index: 1, title: "run: build"),
+            harness.paneRectLine(paneID: 8, index: 2, title: "run: publish"),
         ]])
 
         #expect(try harness.surfaceTitles() == ["logs", "run: build", "run: publish"])
@@ -476,8 +476,8 @@ struct RemoteTmuxMirrorTargetingTests {
         let layout = "abcd,120x40,0,0{60x40,0,0,4,59x40,61,0,5}"
         harness.publishListWindows(["@2 \(layout) \(layout) [] logs"])
         try harness.drainThroughPaneRects([2: [
-            harness.metadataPaneRectLine(paneID: 4, index: 0, title: "path\\037suffix \\123"),
-            harness.metadataPaneRectLine(paneID: 5, index: 1, title: "trailing\\\\"),
+            harness.paneRectLine(paneID: 4, index: 0, title: "path\\037suffix \\123"),
+            harness.paneRectLine(paneID: 5, index: 1, title: "trailing\\\\"),
         ]])
 
         #expect(try harness.surfaceTitles() == ["path\\037suffix \\123", "trailing\\\\"])
@@ -489,8 +489,8 @@ struct RemoteTmuxMirrorTargetingTests {
         let layout = "abcd,120x40,0,0{60x40,0,0,4,59x40,61,0,5}"
         harness.publishListWindows(["@2 \(layout) \(layout) [] logs"])
         try harness.drainThroughPaneRects([2: [
-            harness.metadataPaneRectLine(paneID: 4, index: 0, title: "cmux_title_metadata_v1"),
-            harness.metadataPaneRectLine(paneID: 5, index: 1, title: "suffix cmux_title_metadata_v1\\037"),
+            harness.paneRectLine(paneID: 4, index: 0, title: "cmux_title_metadata_v1"),
+            harness.paneRectLine(paneID: 5, index: 1, title: "suffix cmux_title_metadata_v1\\037"),
         ]])
 
         #expect(try harness.surfaceTitles() == [
@@ -595,7 +595,7 @@ struct RemoteTmuxMirrorTargetingTests {
         #expect(commands == ["select-pane -t %5 -T 'build'"])
     }
 
-    @Test func rejectedPaneRenameRestoresTheLastAuthoritativePaneTitle() throws {
+    @Test func rejectedPaneRenameRestoresTheLastAuthoritativePaneTitle() async throws {
         let harness = try MirrorTitleHarness()
         defer { harness.tearDown() }
         harness.publishListWindows(["@2 abcd,120x40,0,0,5 abcd,120x40,0,0,5 [] logs"])
@@ -611,6 +611,37 @@ struct RemoteTmuxMirrorTargetingTests {
         harness.connection.handleMessageForTesting(.commandResult(
             commandNumber: 99, lines: ["can't find pane"], isError: true
         ))
+        await Task.yield()
+
+        #expect(harness.workspace.panelCustomTitles[panePanel.id] == nil)
+        #expect(try harness.surfaceTitles() == ["shell-b"])
+    }
+
+    @Test func rejectedClearPaneTitleRestoresTheLastAuthoritativePaneTitle() async throws {
+        let harness = try MirrorTitleHarness()
+        defer { harness.tearDown() }
+        harness.publishListWindows(["@2 abcd,120x40,0,0,5 abcd,120x40,0,0,5 [] logs"])
+        try harness.drainThroughPaneRects([2: [
+            harness.paneRectLine(paneID: 5, index: 0, title: "shell-b"),
+        ]])
+
+        let mirror = try #require(harness.workspace.remoteTmuxWindowMirrors.values.first)
+        let panePanel = try #require(mirror.panel(forPane: 5))
+        #expect(harness.workspace.setPanelCustomTitle(
+            panelId: panePanel.id, title: "build", propagateToCloud: false
+        ))
+        harness.connection.handleMessageForTesting(.commandResult(
+            commandNumber: 99, lines: [], isError: false
+        ))
+        await Task.yield()
+
+        #expect(harness.workspace.setPanelCustomTitle(
+            panelId: panePanel.id, title: nil, propagateToCloud: false
+        ))
+        harness.connection.handleMessageForTesting(.commandResult(
+            commandNumber: 100, lines: ["can't find pane"], isError: true
+        ))
+        await Task.yield()
 
         #expect(harness.workspace.panelCustomTitles[panePanel.id] == nil)
         #expect(try harness.surfaceTitles() == ["shell-b"])
@@ -836,21 +867,6 @@ struct RemoteTmuxMirrorTargetingTests {
             "%\(paneID) \(x) \(y) \(width) \(height) \(index == 0 ? 1 : 0) off :\(index) \"\(title)\""
                 + "cmux_title_metadata_v1\\037\(paneTitleMetadata(title: title))"
                     .replacingOccurrences(of: "\u{1f}", with: "\\037")
-        }
-
-        func metadataPaneRectLine(
-            paneID: Int,
-            index: Int,
-            title: String,
-            x: Int = 0,
-            y: Int = 0,
-            width: Int = 60,
-            height: Int = 40
-        ) -> String {
-            paneRectLine(
-                paneID: paneID, index: index, title: title,
-                x: x, y: y, width: width, height: height
-            )
         }
 
         func drainThroughPaneRects(_ linesByWindow: [Int: [String]]) throws {

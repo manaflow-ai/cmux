@@ -4,6 +4,8 @@ import Foundation
 public struct RemoteTmuxPaneTitleMetadata: Equatable, Sendable {
     /// A control character that tmux leaves untouched in format expansions.
     public static let fieldSeparator: Character = "\u{1f}"
+    /// The stable suffix marker separating a pane-rect label from its metadata.
+    public static let paneRectMetadataMarker = "cmux_title_metadata_v1"
 
     /// The raw title emitted by tmux for the pane.
     public let title: String
@@ -39,6 +41,85 @@ public struct RemoteTmuxPaneTitleMetadata: Equatable, Sendable {
         self.title = title
         self.host = host
         self.hostShort = hostShort
+    }
+
+    /// Splits a pane-rect label into its visible header and decoded title metadata.
+    ///
+    /// tmux quotes format fields with backslash-octal escapes. The marker is
+    /// explicit because a title may itself contain the serialized separator.
+    /// - Parameter value: The label field emitted by the `list-panes` format.
+    /// - Returns: The visible header and title metadata, or `nil` if no valid
+    ///   metadata suffix is present.
+    nonisolated public static func paneRectLabel(
+        from value: String
+    ) -> (header: String, metadata: RemoteTmuxPaneTitleMetadata)? {
+        let bytes = Array(value.utf8)
+        let marker = Array((Self.paneRectMetadataMarker + "\\037").utf8)
+        let markerStarts = bytes.indices.filter { start in
+            start + marker.count <= bytes.count
+                && bytes[start..<(start + marker.count)].elementsEqual(marker)
+        }
+        guard !markerStarts.isEmpty else { return nil }
+
+        /// Decodes one byte range without applying tmux quoting rules.
+        func field(_ start: Int, _ end: Int) -> String {
+            String(decoding: bytes[start..<end], as: UTF8.self)
+        }
+        /// Removes tmux's one-byte backslash quoting from a metadata field.
+        func unquote(_ encoded: String) -> String {
+            let encodedBytes = Array(encoded.utf8)
+            var decoded: [UInt8] = []
+            decoded.reserveCapacity(encodedBytes.count)
+            var offset = 0
+            while offset < encodedBytes.count {
+                if encodedBytes[offset] == 0x5c, offset + 1 < encodedBytes.count {
+                    decoded.append(encodedBytes[offset + 1])
+                    offset += 2
+                } else {
+                    decoded.append(encodedBytes[offset])
+                    offset += 1
+                }
+            }
+            return String(decoding: decoded, as: UTF8.self)
+        }
+
+        for markerStart in markerStarts.reversed() {
+            let metadataStart = markerStart + marker.count
+            var separators: [Int] = []
+            var index = metadataStart
+            while index + 3 < bytes.count, separators.count < 2 {
+                guard bytes[index] == 0x5c,
+                      bytes[index + 1] == 0x30,
+                      bytes[index + 2] == 0x33,
+                      bytes[index + 3] == 0x37 else {
+                    index += 1
+                    continue
+                }
+                var precedingBackslashes = 0
+                var preceding = index
+                while preceding > metadataStart, bytes[preceding - 1] == 0x5c {
+                    precedingBackslashes += 1
+                    preceding -= 1
+                }
+                if precedingBackslashes.isMultiple(of: 2) {
+                    separators.append(index)
+                    index += 4
+                } else {
+                    index += 1
+                }
+            }
+            guard separators.count == 2 else { continue }
+            let first = separators[0]
+            let second = separators[1]
+            let wireValue = [
+                unquote(field(metadataStart, first)),
+                unquote(field(first + 4, second)),
+                unquote(field(second + 4, bytes.count)),
+            ].joined(separator: String(Self.fieldSeparator))
+            guard let metadata = Self(wireValue: wireValue) else { continue }
+            return (header: field(0, markerStart), metadata: metadata)
+        }
+        return nil
     }
 
     /// Applies a live raw-title value to prior snapshot metadata.
