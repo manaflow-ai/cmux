@@ -2040,30 +2040,30 @@ function AcpmuxPane() {
   const transcript = (
     <ImageViewerContext.Provider value={quick ? undefined : openImage}>
       <ShellActionsContext.Provider value={shellActions}>
-      <TurnActionsContext.Provider value={turnActions}>
-        <TurnCountsContext.Provider value={turnCountsFor}>
-          <SessionRowsContext.Provider value={snapshot.rows}>
-            <VirtualTranscript
-              rows={transcriptRows}
-              sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
-              canLoadOlder={snapshot.canLoadOlder}
-              expanded={expanded}
-              registry={registry}
-              githubRepository={githubRepository}
-              // The Quick Composer has no room for the changes view; its file rows stay plain.
-              onOpenDiff={quick ? undefined : openDiff}
-              onToggleActivity={(id) =>
-                setExpanded((current) => {
-                  const next = new Set(current);
-                  if (next.has(id)) next.delete(id);
-                  else next.add(id);
-                  return next;
-                })
-              }
-            />
-          </SessionRowsContext.Provider>
-        </TurnCountsContext.Provider>
-      </TurnActionsContext.Provider>
+        <TurnActionsContext.Provider value={turnActions}>
+          <TurnCountsContext.Provider value={turnCountsFor}>
+            <SessionRowsContext.Provider value={snapshot.rows}>
+              <VirtualTranscript
+                rows={transcriptRows}
+                sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
+                canLoadOlder={snapshot.canLoadOlder}
+                expanded={expanded}
+                registry={registry}
+                githubRepository={githubRepository}
+                // The Quick Composer has no room for the changes view; its file rows stay plain.
+                onOpenDiff={quick ? undefined : openDiff}
+                onToggleActivity={(id) =>
+                  setExpanded((current) => {
+                    const next = new Set(current);
+                    if (next.has(id)) next.delete(id);
+                    else next.add(id);
+                    return next;
+                  })
+                }
+              />
+            </SessionRowsContext.Provider>
+          </TurnCountsContext.Provider>
+        </TurnActionsContext.Provider>
       </ShellActionsContext.Provider>
     </ImageViewerContext.Provider>
   );
