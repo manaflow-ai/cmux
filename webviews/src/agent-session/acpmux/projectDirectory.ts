@@ -12,9 +12,7 @@ export type ProjectDirectoryHost = {
 
 export const projectDirectoryHost: ProjectDirectoryHost = {
   list: (path) =>
-    import("./native").then(({ postNative }) =>
-      postNative<ProjectDirectory>("project.listDirectory", { path }),
-    ),
+    import("./native").then(({ postNative }) => postNative<ProjectDirectory>("project.listDirectory", { path })),
   reveal: async (path) => (await import("./native")).postNative("link.openPath", { path }),
 };
 
