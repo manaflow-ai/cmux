@@ -97,6 +97,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `git.diff` or `git.status` whose params the bridge refused (no
     /// absolute `cwd`, an unknown scope); answered `native.invalid_request`.
     case invalidGit(String)
+    /// Reads the selected local session's GitHub `origin` for Markdown reference links.
+    case githubRepository(cwd: String)
     /// `turn.undo`: the edited-files card's host revert (AgentPaneTurnUndo.swift).
     case turnUndo(AgentPaneTurnUndo)
     /// `turn.undo` whose params break its contract; nothing is read or written.
@@ -297,6 +299,12 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
             let id = params?["sessionId"] as? String
             self = .quickOpenInWindow(sessionId: id?.isEmpty == false ? id : nil)
         case "turn.undo": self = AgentPaneTurnUndo(params: params).map(AgentPaneRequest.turnUndo) ?? .invalidTurnUndo
+        case "git.githubRepository":
+            if let cwd = params?["cwd"] as? String, cwd.hasPrefix("/"), !cwd.contains("\0") {
+                self = .githubRepository(cwd: cwd)
+            } else {
+                self = .invalidGit(method)
+            }
         case "git.diff", "git.status", "file.search", "git.checkpoint.diff":
             if let git = AgentPaneGitRequest(method: method, params: params) {
                 self = .git(git)

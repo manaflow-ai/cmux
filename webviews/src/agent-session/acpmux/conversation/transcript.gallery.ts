@@ -5,7 +5,12 @@ import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, summary, thought, tool, user } from "../../../gallery/fixtures/acpmux";
 import { workedTurnRows } from "../workedTurn";
 import { minutesAgo } from "../../../gallery/clock";
-import { BUILD_REPORT_PDF_PAGE_PNG, BUILD_TIMES_PNG, LOGIN_SCREENSHOT_PNG } from "../../../gallery/fixtures/toolImages";
+import {
+  BUILD_REPORT_PDF_PAGE_PNG,
+  BUILD_TIMES_PNG,
+  LOGIN_SCREENSHOT_PNG,
+  LOGIN_TESTS_MP4,
+} from "../../../gallery/fixtures/toolImages";
 
 const prompt = "Add retries with backoff to the fetch helper";
 
@@ -126,6 +131,8 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/StreamingCode.tsx",
     "agent-session/acpmux/conversation/Math.tsx",
     "agent-session/acpmux/conversation/ToolRow.tsx",
+    "agent-session/acpmux/chips/ReplyMedia.tsx",
+    "agent-session/acpmux/conversation/icons.tsx#Expand",
     "agent-session/acpmux/conversation/ToolRun.tsx",
     "agent-session/acpmux/conversation/ToolGroupRow.tsx",
     "agent-session/acpmux/conversation/CommandRow.tsx",
@@ -146,6 +153,19 @@ export default agentPaneEntry({
         user(prompt, 30),
         assistant(MARKDOWN_MIX, 29),
         summary(29, { status: "completed", durationMs: 41_000 }),
+      ]),
+    },
+    "github-references": {
+      note: "Issue and pull request references link in prose while code stays untouched.",
+      ready: { githubRepository: "manaflow-ai/cmux" },
+      native: { "git.githubRepository": { repository: "manaflow-ai/cmux" } },
+      snapshot: chat([
+        user("Please review #18325 and manaflow-ai/cmux#18321", 3),
+        assistant(
+          "The fixes are in #18325.\n\n`#18325` stays code, and fenced examples stay code too:\n\n```text\n#18321\n```",
+          2,
+        ),
+        summary(2, { status: "completed", durationMs: 12_000 }),
       ]),
     },
     tasks: {
@@ -322,6 +342,28 @@ export default agentPaneEntry({
           5.6,
         ),
         summary(5.6, { status: "completed", toolCount: 3 }),
+      ]),
+    },
+    "tool-video": {
+      note: "A terminal recording a tool saved plays inline with controls (muted while hovered); Expand shows it over the pane.",
+      chipHost: {
+        paths: { "/Users/you/src/atlas-web/out/login-tests.mp4": { place: "root" as const, folder: false } },
+        media: { "/Users/you/src/atlas-web/out/login-tests.mp4": `data:video/mp4;base64,${LOGIN_TESTS_MP4}` },
+      },
+      snapshot: chat([
+        user("Record the login tests running so I can attach it to the PR", 4),
+        activity(
+          [
+            tool("vhs scripts/login-tests.tape", "execute", "completed", {
+              command: "vhs scripts/login-tests.tape",
+              output: "Recorded 7 s to /Users/you/src/atlas-web/out/login-tests.mp4\n",
+              exitCode: 0,
+            }),
+          ],
+          3.8,
+        ),
+        assistant("All six login tests pass; the recording is ready to attach.", 3.6),
+        summary(3.6, { status: "completed", toolCount: 1 }),
       ]),
     },
     "long-code": {
