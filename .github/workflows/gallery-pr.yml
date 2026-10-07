@@ -37,7 +37,7 @@ jobs:
   render:
     if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 30
+    timeout-minutes: 45
     outputs:
       touched: ${{ steps.touched.outputs.count }}
       base_sha: ${{ steps.base.outputs.sha }}
@@ -133,6 +133,7 @@ jobs:
         working-directory: scripts/gallery-matrix
         env:
           CMUX_GALLERY_IN_VM: "1"
+          SHARDS: "4"
         run: |
           set -euo pipefail
           ./node_modules/.bin/playwright install --with-deps --only-shell chromium webkit
@@ -141,11 +142,23 @@ jobs:
             "$RUNNER_TEMP/head.json" "$RUNNER_TEMP/base.json" > "$RUNNER_TEMP/cases.json"
           echo "$(jq length "$RUNNER_TEMP/cases.json") cases x $GALLERY_ENGINES"
           render() {
+            # A change to the gallery itself touches every entry (about 600 cases per engine), so each
+            # run renders in $SHARDS parallel shards, then merges them into one folder.
             # A stage that fails to mount makes the runner exit 1; compare.ts reports it, so only a
-            # run that wrote no results.json fails here.
-            bun runner.ts --manifest "$RUNNER_TEMP/cases.json" --gallery-dir "$1" --output-dir "$2" \
-              --engines "$GALLERY_ENGINES" || true
-            test -f "$2/results.json"
+            # shard that wrote no results.json fails here.
+            local shard
+            for shard in $(seq 0 $((SHARDS - 1))); do
+              bun runner.ts --manifest "$RUNNER_TEMP/cases.json" --gallery-dir "$1" --output-dir "$2.$shard" \
+                --engines "$GALLERY_ENGINES" --shard-count "$SHARDS" --shard-index "$shard" > "$2.$shard.log" 2>&1 &
+            done
+            wait || true
+            mkdir -p "$2"
+            for shard in $(seq 0 $((SHARDS - 1))); do
+              tail -3 "$2.$shard.log"
+              test -f "$2.$shard/results.json"
+              find "$2.$shard" -maxdepth 1 -name '*.png' -exec mv -t "$2" {} +
+            done
+            jq -s 'add' "$2".*/results.json > "$2/results.json"
           }
           if [ -d "$RUNNER_TEMP/gallery-base" ]; then render "$RUNNER_TEMP/gallery-base" "$RUNNER_TEMP/runs/base"; fi
           render "$RUNNER_TEMP/gallery-head" "$RUNNER_TEMP/runs/head"
