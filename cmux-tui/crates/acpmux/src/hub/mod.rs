@@ -8,6 +8,7 @@
 //! `adoption` (resuming a harness's own session on `session/new`).
 
 mod adoption;
+mod fork;
 mod handoff;
 mod harness_view;
 mod idle;
@@ -37,6 +38,7 @@ mod peers;
 mod permission_groups;
 mod permissions;
 mod remote_floor;
+mod remote_sandbox;
 pub use permission_groups::PERMISSION_GROUP_OPERATIONS;
 pub mod rules;
 mod transfer;
@@ -313,6 +315,9 @@ pub struct Hub {
     pub(super) web_modes: StdMutex<web_control::WebModeCache>,
     /// Where the folder-trust gate reads (`server/trust_gate.rs`); None: no gate.
     pub(super) trust_gate: StdMutex<Option<crate::trust::Paths>>,
+    /// The `sandbox-exec` remote chains run Claude Code under
+    /// (`remote_sandbox.rs`).
+    pub(super) remote_sandbox_exec: StdMutex<PathBuf>,
     /// The device-wide chat index, once started (`chats/`).
     pub(crate) chats: std::sync::OnceLock<Arc<crate::chats::ChatService>>,
 }
@@ -386,6 +391,7 @@ impl Hub {
             pool: Arc::new(pool::PoolState::new()),
             web_modes: StdMutex::new(Default::default()),
             trust_gate: StdMutex::new(None),
+            remote_sandbox_exec: StdMutex::new(PathBuf::from(remote_sandbox::SANDBOX_EXEC)),
             chats: std::sync::OnceLock::new(),
         });
         if let Ok(c) = hub.config.try_read() {

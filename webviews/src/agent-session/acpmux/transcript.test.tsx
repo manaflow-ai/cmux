@@ -988,6 +988,7 @@ describe("acpmux host handshake", () => {
       },
     };
     const doc = dom.window.document;
+    const title = () => doc.querySelector("section.acpmux-shell")?.getAttribute("aria-label");
     const waitFor = async (done: () => boolean) => {
       for (let tries = 0; tries < 100 && !done(); tries += 1)
         await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
@@ -995,13 +996,13 @@ describe("acpmux host handshake", () => {
     const actions = () => (dom.window as unknown as Window).cmuxAcpmuxActions!;
     try {
       await act(async () => root.render(createElement(AcpmuxApp)));
-      await waitFor(() => Boolean(actions()?.["chat.new"]));
-      expect(doc.querySelector(".acpmux-title")).toBeNull();
+      await waitFor(() => title() === "Agent Chat" && Boolean(actions()?.["chat.new"]));
+      expect(title()).toBe("Agent Chat");
       // No timer or reply runs between the pick and this read.
       act(() => {
         void actions()["chat.new"]!({ harness: "codex" });
       });
-      expect(doc.querySelector(".acpmux-title")).toBeNull();
+      expect(title()).toBe("Agent Chat");
       expect(sent.some((request) => request.method === "session/new")).toBe(true);
       act(() => {
         void actions()["chat.send"]!({ text: "which harness?" }).catch(() => undefined);
@@ -1015,7 +1016,7 @@ describe("acpmux host handshake", () => {
       expect(sent.find((request) => request.method === "session/prompt")?.params.sessionId).toBe("n");
       await waitFor(() => doc.querySelector(".cv-user__status") === null);
       expect(doc.querySelector(".cv-user__bubble")?.textContent).toBe("which harness?");
-      expect(doc.querySelector(".acpmux-title")).toBeNull();
+      expect(title()).toBe("Agent Chat");
     } finally {
       await act(async () => root.unmount());
       globals.WebSocket = realSocket;
@@ -1083,8 +1084,11 @@ describe("acpmux host handshake", () => {
     const file = { id: "a1", kind: "text", name: "notes.md", mimeType: "text/markdown", size: 2, text: "hi" };
     try {
       await act(async () => root.render(createElement(AcpmuxApp)));
-      await waitFor(() => Boolean(actions()?.["chat.new"]));
-      expect(doc.querySelector(".acpmux-title")).toBeNull();
+      await waitFor(
+        () =>
+          Boolean(actions()?.["chat.new"]) &&
+          doc.querySelector("section.acpmux-shell")?.getAttribute("aria-label") === "Agent Chat",
+      );
       act(() => {
         void actions()["chat.new"]!({ harness: "gemini" });
         void actions()["chat.send"]!({ text: "read this", attachments: [file] }).catch(() => undefined);
@@ -3423,4 +3427,73 @@ describe("acpmux hunk review", () => {
       await act(async () => root.unmount());
     }
   });
+});
+
+describe("agent pane header", () => {
+  const snapshot = (connection: string, isWorking = false) => ({
+    type: "snapshot",
+    protocolVersion: 1,
+    rows: [],
+    sessions: [],
+    connection,
+    sessionId: "s",
+    summary: { sessionId: "s", title: "Fix the header", harness: "codex" },
+    isWorking,
+    queue: [],
+    catalog: [],
+    canLoadOlder: false,
+  });
+
+  test.each(["connected", "connecting", "idle", "tool_call", "mock"])(
+    "%s shows no header title or normal status and keeps the pane name",
+    async (connection) => {
+      const root = createRoot(dom.window.document.getElementById("root")!);
+      try {
+        await act(async () => root.render(createElement(AcpmuxApp)));
+        await act(async () =>
+          (dom.window as unknown as Window).cmuxAcpmuxBridge!.receive(snapshot(connection, true) as never),
+        );
+        const header = dom.window.document.querySelector(".acpmux-header")!;
+        expect(header.querySelector(".acpmux-title") === null).toBe(true);
+        expect(header.querySelector(".acpmux-status") === null).toBe(true);
+        expect(header.textContent).not.toContain("Agent Chat");
+        expect(header.textContent).not.toContain("Claude Code");
+        expect(header.textContent).not.toContain("Codex");
+        expect(dom.window.document.querySelector("section.acpmux-shell")?.getAttribute("aria-label")).toBe(
+          "Fix the header",
+        );
+        expect(header.querySelectorAll(".acpmux-header-tools button").length).toBeGreaterThanOrEqual(4);
+      } finally {
+        await act(async () => root.unmount());
+      }
+    },
+  );
+
+  test.each([
+    ["disconnected", "Disconnected", "Disconnected"],
+    ["connecting: Error: connection refused", "Reconnecting", "Error: connection refused"],
+    ["error: access denied", "Failed", "access denied"],
+    ["failed", "Failed", "Failed"],
+  ])(
+    "%s shows a quiet problem label with an icon and details, then clears on recovery",
+    async (connection, label, detail) => {
+      const root = createRoot(dom.window.document.getElementById("root")!);
+      const host = dom.window as unknown as Window;
+      try {
+        await act(async () => root.render(createElement(AcpmuxApp)));
+        await act(async () => host.cmuxAcpmuxBridge!.receive(snapshot(connection!, true) as never));
+        const header = dom.window.document.querySelector(".acpmux-header")!;
+        const tools = header.querySelector(".acpmux-header-tools");
+        const status = header.querySelector(".acpmux-status");
+        expect(status?.textContent).toBe(label!);
+        expect(status?.querySelector("svg")).not.toBeNull();
+        expect(status?.getAttribute("title")).toContain(detail!);
+        await act(async () => host.cmuxAcpmuxBridge!.receive(snapshot("connected") as never));
+        expect(header.querySelector(".acpmux-status") === null).toBe(true);
+        expect(header.querySelector(".acpmux-header-tools")).toBe(tools);
+      } finally {
+        await act(async () => root.unmount());
+      }
+    },
+  );
 });
