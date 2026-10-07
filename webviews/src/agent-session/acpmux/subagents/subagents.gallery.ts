@@ -1,11 +1,12 @@
 // l10n-allow-file: gallery fixtures (sample prompts, subagent names and tasks), not shipped UI.
 // A batch of subagents inline in the transcript (SubagentGroup.tsx): the group row in each state,
-// as the snapshot rows the pane receives after direct.ts folds a session's subagent updates. An
-// open group's list (SubagentListRow) needs a click on the group; its variants come with the
-// gallery's play steps.
+// as the snapshot rows the pane receives after direct.ts folds a session's subagent updates; an
+// open group's list (SubagentListRow), opened by a click; and the header summary's Subagents
+// section, which reads the same groups.
 import { agentPaneEntry } from "../../../gallery/format";
 import { assistant, chat, row, summary, user } from "../../../gallery/fixtures/acpmux";
 import { minutesAgo } from "../../../gallery/clock";
+import type { PlayContext } from "../../../gallery/play";
 import { SUBAGENTS, type Subagent } from "./subagentFold";
 
 const prompt = "Audit the fetch helper: retries, errors, timeouts and tests";
@@ -34,12 +35,66 @@ const group = (agents: Subagent[], minutes: number) => row(SUBAGENTS, minutes, {
 
 const AUDIT = ["Retry policy", "Error parsing", "Timeouts", "Test coverage"];
 
+const MIXED = chat(
+  [
+    user(prompt, 4),
+    group(
+      [
+        agent("Retry policy", 3.8, "completed", { ran: 1.2 }),
+        agent("Error parsing", 3.8, "completed", { ran: 2 }),
+        agent("Timeouts", 3.8, "failed", { ran: 0.6 }),
+        agent("Test coverage", 3.8, "running", { action: "bun test src/net" }),
+      ],
+      3.8,
+    ),
+  ],
+  { isWorking: true },
+);
+
+const PACKAGES = ["net", "ui", "store", "router", "i18n", "icons", "tests"];
+const MANY = chat(
+  [
+    user("Review each package for unused exports", 3),
+    group(
+      PACKAGES.map((name, index) =>
+        agent(`Package ${name}`, 2.9, index < 3 ? "completed" : "running", { ran: 0.5 + index * 0.2 }),
+      ),
+      2.9,
+    ),
+  ],
+  { isWorking: true },
+);
+
+const DONE = chat([
+  user(prompt, 12),
+  group(
+    AUDIT.map((name, index) => agent(name, 11.8, "completed", { ran: 1 + index * 0.5 })),
+    11.8,
+  ),
+  assistant("All four areas are covered. Two timeouts are too short; the rest is fine.", 9),
+  summary(9, { status: "completed", durationMs: 180_000 }),
+]);
+
+/** Opens the first group and waits for its `count` subagent lines. */
+const openGroup = (count: number) => async (ctx: PlayContext) => {
+  await ctx.click({ selector: ".cv-subagents" });
+  await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-subagent").length === count);
+};
+
 export default agentPaneEntry({
   id: "agent-pane.subagents",
   title: "Subagents",
   area: "Agent pane",
   height: 420,
-  covers: ["agent-session/acpmux/subagents/SubagentGroup.tsx"],
+  // The header and the composer stay put while a group opens below or a popover opens over them.
+  anchors: [{ selector: ".acpmux-header" }, { selector: ".acpmux-composer" }],
+  covers: [
+    "agent-session/acpmux/subagents/SubagentGroup.tsx",
+    "agent-session/acpmux/summary/SummaryButton.tsx#SummaryButton",
+    "agent-session/acpmux/summary/SummaryPopover.tsx#SummaryPopover",
+    "agent-session/acpmux/summary/SummarySection.tsx#SummarySection",
+    "agent-session/acpmux/summary/SubagentStack.tsx#SubagentStack",
+  ],
   variants: {
     running: {
       note: "Four subagents started together, all still working.",
@@ -54,57 +109,15 @@ export default agentPaneEntry({
         { isWorking: true },
       ),
     },
-    mixed: {
-      note: "Some done, one failed, one still working.",
-      snapshot: chat(
-        [
-          user(prompt, 4),
-          group(
-            [
-              agent("Retry policy", 3.8, "completed", { ran: 1.2 }),
-              agent("Error parsing", 3.8, "completed", { ran: 2 }),
-              agent("Timeouts", 3.8, "failed", { ran: 0.6 }),
-              agent("Test coverage", 3.8, "running", { action: "bun test src/net" }),
-            ],
-            3.8,
-          ),
-        ],
-        { isWorking: true },
-      ),
-    },
+    mixed: { note: "Some done, one failed, one still working.", snapshot: MIXED },
     single: {
       note: "One subagent: no avatar stack overflow, singular count.",
       snapshot: chat([user("Find every caller of request()", 1), group([agent("Find callers", 0.9)], 0.9)], {
         isWorking: true,
       }),
     },
-    many: {
-      note: "Seven subagents: three avatars, then +4.",
-      snapshot: chat(
-        [
-          user("Review each package for unused exports", 3),
-          group(
-            ["net", "ui", "store", "router", "i18n", "icons", "tests"].map((name, index) =>
-              agent(`Package ${name}`, 2.9, index < 3 ? "completed" : "running", { ran: 0.5 + index * 0.2 }),
-            ),
-            2.9,
-          ),
-        ],
-        { isWorking: true },
-      ),
-    },
-    done: {
-      note: "An ended turn: the group stays in view above the reply, outside Worked for.",
-      snapshot: chat([
-        user(prompt, 12),
-        group(
-          AUDIT.map((name, index) => agent(name, 11.8, "completed", { ran: 1 + index * 0.5 })),
-          11.8,
-        ),
-        assistant("All four areas are covered. Two timeouts are too short; the rest is fine.", 9),
-        summary(9, { status: "completed", durationMs: 180_000 }),
-      ]),
-    },
+    many: { note: "Seven subagents: three avatars, then +4.", snapshot: MANY },
+    done: { note: "An ended turn: the group stays in view above the reply, outside Worked for.", snapshot: DONE },
     stopped: {
       note: "A turn stopped while subagents ran: cancelled and disconnected.",
       snapshot: chat([
@@ -131,6 +144,30 @@ export default agentPaneEntry({
         ],
         { isWorking: true },
       ),
+    },
+    open: {
+      note: "The mixed group opened: a line per subagent with its state or current action.",
+      snapshot: MIXED,
+      play: openGroup(4),
+    },
+    "open-many": {
+      note: "Seven subagents opened: the list grows below, the lines above stay put.",
+      height: 640,
+      snapshot: MANY,
+      play: openGroup(PACKAGES.length),
+    },
+    "open-done": {
+      note: "An ended turn's group opened: the reply below moves down without a layout shift.",
+      snapshot: DONE,
+      play: openGroup(AUDIT.length),
+    },
+    summary: {
+      note: "The header summary: its Subagents section stacks the groups' subagents with their counts.",
+      snapshot: MIXED,
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-summary-button" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-summary-popover .acpmux-summary-subagents"));
+      },
     },
   },
 });
