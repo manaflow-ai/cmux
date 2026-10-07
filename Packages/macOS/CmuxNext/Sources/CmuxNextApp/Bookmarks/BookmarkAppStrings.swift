@@ -27,6 +27,50 @@ enum BookmarkAppStrings {
     static var delete: String { t("bookmarks.palette.delete", "Delete") }
     static var showInManager: String { t("bookmarks.palette.showInManager", "Show in Bookmark Manager") }
 
+    // Import from another browser (BOOKMARKS-IMPORT-EVERY-BROWSER I4).
+    static var importTitle: String { t("bookmarks.importBrowser.title", "Import Bookmarks") }
+    static var importLead: String {
+        t("bookmarks.importBrowser.lead", "Choose the browser profiles to import. Each one goes into its own folder on the Bookmarks Bar.")
+    }
+    static var importNoBrowser: String {
+        t("bookmarks.importBrowser.none", "No browser with bookmarks was found on this Mac. You can import an exported HTML file.")
+    }
+    static var importChooseFile: String { t("bookmarks.importBrowser.chooseFile", "Choose HTML File…") }
+    static var importOpenPrivacy: String { t("bookmarks.importBrowser.openPrivacy", "Open Privacy Settings") }
+    static var importConfirm: String { t("bookmarks.importBrowser.confirm", "Import") }
+
+    static func importNeedsFullDiskAccess(_ browser: String) -> String {
+        String(format: t("bookmarks.importBrowser.fullDiskAccess",
+                         "%1$@: cmux needs Full Disk Access to read its bookmarks. Allow it in System Settings, or export them from %1$@ as an HTML file."),
+               browser)
+    }
+
+    static func importExportFirst(_ browser: String) -> String {
+        String(format: t("bookmarks.importBrowser.exportFirst",
+                         "%1$@ keeps bookmarks in its own format. Export them from %1$@ as an HTML file, then choose the file."), browser)
+    }
+
+    static func importedFrom(_ browser: String) -> String {
+        String(format: t("bookmarks.importBrowser.folderSingle", "Imported from %@"), browser)
+    }
+
+    static func importedFrom(_ browser: String, profile: String) -> String {
+        String(format: t("bookmarks.importBrowser.folder", "Imported from %1$@ (%2$@)"), browser, profile)
+    }
+
+    static func importSummary(added: Int, duplicates: Int, sources: String) -> String {
+        String(format: t("bookmarks.importBrowser.summary", "Imported from %1$@. Bookmarks added: %2$lld. Duplicates skipped: %3$lld."),
+               sources, Int64(added), Int64(duplicates))
+    }
+
+    static func importFailed(_ sources: String) -> String {
+        String(format: t("bookmarks.importBrowser.failed", "Could not read: %@."), sources)
+    }
+
+    static func importUnknownSource(_ query: String) -> String {
+        String(format: t("bookmarks.importBrowser.unknown", "No browser profile with bookmarks matches “%@”."), query)
+    }
+
     static func failure(_ error: any Error) -> String {
         switch error as? BookmarkError {
         case .notFound?: t("bookmarks.error.notFound", "That bookmark no longer exists")

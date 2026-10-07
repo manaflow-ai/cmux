@@ -81,7 +81,7 @@ enum SessionEnding {
         guard let endpoint else { return [EndSessionsFailure(step: .listWorkspaces, message: String(describing: DaemonError.notConnected))] }
         let transport: LineTransport
         do {
-            transport = try LineTransport(path: endpoint.socketPath, preamble: endpoint.preamble)
+            transport = try LineTransport(path: endpoint.socketPath, bridge: endpoint.bridge)
         } catch {
             return [EndSessionsFailure(step: .listWorkspaces, message: String(describing: error))]
         }

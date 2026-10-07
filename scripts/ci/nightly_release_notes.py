@@ -222,6 +222,17 @@ def summarize(prs: list[dict], repo: str, base: str | None, head: str, limit: in
     return "\n".join(lines), plain
 
 
+def metadata_fallback(repo: str, base: str | None, head: str) -> tuple[str, str]:
+    """Notes for a build whose PR metadata GitHub would not serve."""
+    if base:
+        link = f"https://github.com/{repo}/compare/{base}...{head}"
+        plain = f"Change list unavailable; see {link}"
+    else:
+        link = f"https://github.com/{repo}/commit/{head}"
+        plain = "Change list unavailable; see the release page for build details."
+    return f"## Changes\n\nThe change list could not be read from GitHub for this build. [Compare the changes]({link}).\n", plain
+
+
 def update_appcasts(directory: Path, build: str, summary: str) -> None:
     expected = {"appcast-arm64.xml", "appcast-x86_64.xml", "appcast-universal.xml", "appcast.xml"}
     feeds = sorted(directory.glob("appcast*.xml"))
@@ -265,12 +276,20 @@ def main() -> int:
     if not re.fullmatch(r"[\w.-]+/[\w.-]+", args.repo) or not re.fullmatch(r"[0-9a-f]{40}", args.head):
         raise ValueError("Expected owner/repo and a full built SHA")
     github = GitHub(args.repo)
-    release = github.rest(f"releases/tags/{quote(args.tag, safe='')}")
-    base = published_sha(release.get("body") or "")
-    if base is None:
-        print(f"::warning::No previous publication marker; restore cmux-published-sha in the release body to recover the change range. Repair: {REPAIR}")
-    prs = collect_prs(github, base, args.head, args.branch) if base else []
-    markdown, plain = summarize(prs, args.repo, base, args.head)
+    base = None
+    try:
+        release = github.rest(f"releases/tags/{quote(args.tag, safe='')}")
+        base = published_sha(release.get("body") or "")
+        if base is None:
+            print(f"::warning::No previous publication marker; restore cmux-published-sha in the release body to recover the change range. Repair: {REPAIR}")
+        prs = collect_prs(github, base, args.head, args.branch) if base else []
+        markdown, plain = summarize(prs, args.repo, base, args.head)
+    except (RuntimeError, subprocess.TimeoutExpired, KeyError, ValueError) as error:
+        # The change list is cosmetic: a nightly is never lost to GitHub metadata. The marker below
+        # and the appcast descriptions still name this build, and the compare link covers the range.
+        print(f"::warning::Publishing without a change list: {error}")
+        markdown, plain = metadata_fallback(args.repo, base, args.head)
+        prs = []
     body = markdown + "\n## Downloads\n\n" + args.details.read_text()
     args.out.write_text(body)
     args.out.with_suffix(".published.md").write_text(f"<!-- cmux-published-sha: {args.head} -->\n" + body)

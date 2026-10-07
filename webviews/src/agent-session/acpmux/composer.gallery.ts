@@ -16,8 +16,27 @@ export default agentPaneEntry({
   title: "Composer",
   area: "Agent pane",
   height: 420,
+  widths: { narrow: 400, normal: 760, wide: 760 },
   // The transcript must not move while a play step opens a menu over it.
-  anchors: [{ selector: ".acpmux-scroll" }],
+  anchors: [
+    { selector: ".acpmux-scroll" },
+    { selector: ".acpmux-composer-box" },
+    { selector: ".acpmux-composer-context" },
+  ],
+  checks: {
+    anchorMovePx: {
+      value: 0,
+      reason: "Footer menus and the capped draft must preserve the transcript and shelf geometry.",
+    },
+    layoutShiftMax: {
+      value: 0,
+      reason: "The location tray is attached to the composer and must not reflow the transcript.",
+    },
+    longFrameFailMs: {
+      value: 33,
+      reason: "Composer interactions must stay below one display frame on the gallery host.",
+    },
+  },
   covers: [
     "agent-session/acpmux/Composer.tsx#Composer",
     "agent-session/acpmux/ComposerPickers.tsx#ComposerPickers",
@@ -54,6 +73,26 @@ export default agentPaneEntry({
       },
       snapshot: chat(finished),
     },
+    "long-draft-light": {
+      note: "The capped long draft in the light theme proof matrix.",
+      ready: {
+        draft: Array.from(
+          { length: 18 },
+          (_, index) => `Line ${index + 1}: keep the retry rules and the tests in sync with the docs.`,
+        ).join("\n"),
+      },
+      snapshot: chat(finished),
+    },
+    "long-draft-dark": {
+      note: "The capped long draft in the dark theme proof matrix.",
+      ready: {
+        draft: Array.from(
+          { length: 18 },
+          (_, index) => `Line ${index + 1}: keep the retry rules and the tests in sync with the docs.`,
+        ).join("\n"),
+      },
+      snapshot: chat(finished),
+    },
     working: {
       note: "A turn running: Send becomes Stop.",
       snapshot: chat([user("Add retries", 1), assistant("Reading the helper…", 0.5, { streaming: true })], {
@@ -63,6 +102,18 @@ export default agentPaneEntry({
     "codex-model": {
       note: "Another harness and model in the chips.",
       snapshot: chat(finished, { harness: "codex", model: "gpt-6-astra", title: "Codex chat" }),
+    },
+    "tray-long-branch": {
+      note: "The attached tray keeps a long branch readable without moving the composer.",
+      snapshot: chat(finished, { branch: "feature/composer-location-tray" }),
+    },
+    "docked-400": {
+      note: "The recessed location shelf at a 400px dock width.",
+      snapshot: chat(finished, { branch: "feature/composer-location-tray" }),
+    },
+    "wide-760": {
+      note: "The composer and shelf at the 760px wide proof width.",
+      snapshot: chat(finished, { branch: "feature/composer-location-tray" }),
     },
     "slash-menu": {
       note: "Play: type / in the prompt; the agent's command menu opens.",
