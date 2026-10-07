@@ -30,26 +30,99 @@ extension NSWindow {
         return rep
     }
 
-    /// This window as the window server composited it, or nil (no window
-    /// number, not on screen, or an all-transparent image). An app may read
-    /// its own windows this way without the Screen Recording grant.
+    /// This window and its visible child windows as the window server
+    /// composited them, or nil (no window number, not on screen, or an
+    /// all-transparent image). An app may read its own windows this way
+    /// without the Screen Recording grant.
     ///
-    /// `CGWindowListCreateImage` is deprecated (ScreenCaptureKit replaces
-    /// it, but needs the grant even for an app's own windows) and
-    /// unavailable to Swift in the current SDK, so it is looked up at run
-    /// time; a later macOS without the symbol falls back to AppKit
-    /// drawing. This is the only call site.
-    public func compositedSnapshot() -> CGImage? {
-        typealias CreateImage = @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?
-        let defaultHandle = UnsafeMutableRawPointer(bitPattern: -2)
-        guard windowNumber > 0, let symbol = dlsym(defaultHandle, "CGWindowListCreateImage") else { return nil }
-        let create = unsafeBitCast(symbol, to: CreateImage.self)
-        // kCGWindowListOptionIncludingWindow; kCGWindowImageBoundsIgnoreFraming | kCGWindowImageBestResolution.
-        let options: UInt32 = 1 << 3
-        let imageOptions: UInt32 = (1 << 0) | (1 << 3)
-        guard let image = create(.null, options, UInt32(windowNumber), imageOptions)?.takeRetainedValue(),
+    /// Child windows are part of what the window shows: Chromium draws each
+    /// page into a child window over its pane, and overlay panels sit above
+    /// content. The ones `includeChild` accepts are composited in the window
+    /// server's order, cropped to this window's frame. Windows of other apps
+    /// are never included, so an occluded window still comes out whole.
+    /// Without the Screen Recording grant the window server leaves out
+    /// content another process draws (Chromium's GPU process renders the
+    /// page), so a Chromium page window comes out as its background; the
+    /// caller paints the engine's own page image over it.
+    ///
+    /// `CGWindowListCreateImage` and `CGWindowListCreateImageFromArray` are
+    /// deprecated (ScreenCaptureKit replaces them, but needs the grant even
+    /// for an app's own windows) and unavailable to Swift in the current
+    /// SDK, so they are looked up at run time; a later macOS without the
+    /// symbols falls back to AppKit drawing.
+    public func compositedSnapshot(includeChild: (NSWindow) -> Bool = { _ in true }) -> CGImage? {
+        let children = visibleChildWindows.filter(includeChild)
+        let image = children.isEmpty
+            ? Self.windowServerImage(of: windowNumber)
+            : Self.windowServerImage(of: [self] + children, croppedTo: self)
+        guard let image, image.width > 0, image.height > 0, !Self.isBlank(image) else { return nil }
+        return image
+    }
+
+    /// Only the visible child windows `includeChild` accepts, as the window
+    /// server composited them, on a transparent image the size of this
+    /// window (cropped to its frame), or nil without one. Painted over a base
+    /// image that has no child windows, or over page images.
+    public func childWindowsSnapshot(includeChild: (NSWindow) -> Bool = { _ in true }) -> CGImage? {
+        let children = visibleChildWindows.filter(includeChild)
+        guard !children.isEmpty, let image = Self.windowServerImage(of: children, croppedTo: self),
               image.width > 0, image.height > 0, !Self.isBlank(image) else { return nil }
         return image
+    }
+
+    /// The visible child windows of this window and of its children, the
+    /// ones a snapshot composites.
+    public var visibleChildWindows: [NSWindow] {
+        var result: [NSWindow] = []
+        func visit(_ window: NSWindow) {
+            for child in window.childWindows ?? [] where child.isVisible && child.windowNumber > 0 && child.alphaValue > 0 {
+                result.append(child)
+                visit(child)
+            }
+        }
+        visit(self)
+        return result
+    }
+
+    // kCGWindowImageBoundsIgnoreFraming | kCGWindowImageBestResolution.
+    private static let imageOptions: UInt32 = (1 << 0) | (1 << 3)
+
+    /// One window's image (`CGWindowListCreateImage`, kCGWindowListOptionIncludingWindow).
+    private static func windowServerImage(of windowNumber: Int) -> CGImage? {
+        typealias CreateImage = @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?
+        guard windowNumber > 0, let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImage") else {
+            return nil
+        }
+        let create = unsafeBitCast(symbol, to: CreateImage.self)
+        return create(.null, 1 << 3, UInt32(windowNumber), imageOptions)?.takeRetainedValue()
+    }
+
+    /// `windows` composited together (`CGWindowListCreateImageFromArray`),
+    /// cropped to `frameWindow`'s frame.
+    private static func windowServerImage(of windows: [NSWindow], croppedTo frameWindow: NSWindow) -> CGImage? {
+        typealias CreateImage = @convention(c) (CGRect, CFArray, UInt32) -> Unmanaged<CGImage>?
+        guard frameWindow.windowNumber > 0, let primary = NSScreen.screens.first,
+              let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImageFromArray") else { return nil }
+        let create = unsafeBitCast(symbol, to: CreateImage.self)
+        // The array holds CGWindowID values (not CFNumbers), topmost first.
+        var ids: [UnsafeRawPointer?] = frontToBack(windows.map(\.windowNumber)).map { UnsafeRawPointer(bitPattern: UInt($0)) }
+        guard let array = CFArrayCreate(nil, &ids, ids.count, nil) else { return nil }
+        // Global display coordinates: origin at the primary screen's top left.
+        let frame = frameWindow.frame
+        let bounds = CGRect(x: frame.minX, y: primary.frame.maxY - frame.maxY, width: frame.width, height: frame.height)
+        return create(bounds, array, imageOptions)?.takeRetainedValue()
+    }
+
+    /// `numbers` topmost first, as the window server orders them on screen.
+    /// Windows it does not list on screen keep AppKit's order behind them
+    /// (each child after its parent is above it, so reversed).
+    private static func frontToBack(_ numbers: [Int]) -> [Int] {
+        let wanted = Set(numbers)
+        let onScreen = (CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? [])
+            .compactMap { ($0[kCGWindowNumber as String] as? NSNumber)?.intValue }
+            .filter { wanted.contains($0) }
+        let listed = Set(onScreen)
+        return onScreen + numbers.reversed().filter { !listed.contains($0) }
     }
 
     /// Whether every pixel of `image` is transparent (sampled at 64 x 64).

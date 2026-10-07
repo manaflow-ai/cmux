@@ -43,7 +43,6 @@
     "agent-session/acpmux/ProjectChooser.tsx#ProjectChooser",
     "agent-session/acpmux/QuickKeyHints.tsx#QuickKeyHints",
     "agent-session/acpmux/QuickSurface.tsx#QuickSurface",
-    "agent-session/acpmux/SearchChats.tsx#SearchChats",
     "agent-session/acpmux/SessionSidebar.tsx#SessionSidebar",
     "agent-session/acpmux/SwitchNotice.tsx#SwitchNotice",
     "agent-session/acpmux/TrustAsk.tsx#TrustAsk",

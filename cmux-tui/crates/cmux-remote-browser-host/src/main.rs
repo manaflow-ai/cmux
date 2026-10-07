@@ -41,6 +41,8 @@ fn main() -> std::process::ExitCode {
         on_context_menu: None,
         on_popup_menu: None,
         on_needs_begin_frames: None,
+        on_dialog: None,
+        on_dialog_reset: None,
     };
     // SAFETY: argv and the strings outlive the call; the callbacks are valid.
     let code = unsafe {
