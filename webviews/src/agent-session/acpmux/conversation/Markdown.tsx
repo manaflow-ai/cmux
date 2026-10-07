@@ -375,6 +375,23 @@ export function renderInline(source: string, opts: InlineOptions = {}): ReactNod
   return out;
 }
 
+/// The data URL images `renderInline(source)` draws, in order: the same pattern and the same
+/// recursion into bold, italic, strikethrough and link text, so code never counts.
+export function inlineImages(source: string): { src: string; alt: string }[] {
+  const text = capDataUrls(source);
+  const out: { src: string; alt: string }[] = [];
+  for (const m of text.matchAll(INLINE_RE)) {
+    const t = m[0];
+    if (m[2] || m[3]) out.push(...inlineImages(t.slice(2, -2)));
+    else if (m[4]) out.push(...inlineImages(t.slice(1, -1)));
+    else if (m[5]?.startsWith("!")) {
+      const [, alt = "", src = ""] = t.match(/^!\[([^\]]*)\]\((.+)\)$/) ?? [];
+      if (INLINE_IMAGE.test(src) && src.length <= MAX_DATA_URL_LENGTH) out.push({ src, alt });
+    } else if (m[5]) out.push(...inlineImages(t.match(/^\[([^\]]+)\]/)?.[1] ?? ""));
+  }
+  return out;
+}
+
 /// `![alt](src)`: a data URL image draws inline, and a click opens it in the image viewer; a web
 /// image the pane cannot load draws as a link to it, named by its alt text or file name.
 function InlineImage({ source, opts }: { source: string; opts: InlineOptions }) {
@@ -387,7 +404,7 @@ function InlineImage({ source, opts }: { source: string; opts: InlineOptions }) 
     const image = <img className="cv-img" src={src} alt={alt} />;
     if (!openImage) return image;
     return (
-      <button type="button" className="cv-img-open" title={alt || t("image.open")} onClick={() => openImage(src)}>
+      <button type="button" className="cv-img-open" title={alt || t("image.open")} onClick={() => openImage(src, alt)}>
         {image}
       </button>
     );

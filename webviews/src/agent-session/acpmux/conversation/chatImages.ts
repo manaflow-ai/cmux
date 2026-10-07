@@ -1,27 +1,47 @@
 import type { AcpmuxRow } from "../model";
-import { MAX_DATA_URL_LENGTH } from "./Markdown";
+import { inlineImages, parseMarkdown, type MdBlock } from "./Markdown";
 
 /// An image a reply drew inline (a data URL, as Markdown.tsx draws one), for the image viewer.
 export type ChatImage = { src: string; alt: string };
 
-const FENCE = /^ {0,3}(`{3,}|~{3,})[^\n]*\n[\s\S]*?(?:\n {0,3}\1[`~]*[ \t]*(?=\n|$)|$)/gm;
-const CODE_SPAN = /(`+)[^`][\s\S]*?\1/g;
-const IMAGE = /!\[([^\]]*)\]\((data:image\/(?:png|jpe?g|gif|webp|svg\+xml);[^()\s]+)\)/gi;
-
-/// Every inline image of the chat's replies, oldest first, each source once. Code (fenced or
-/// inline) is not an image, and a data URL over MAX_DATA_URL_LENGTH never draws, so neither is listed.
+/// Every inline image of the chat's replies, oldest first, each source once: exactly the images
+/// Markdown.tsx draws, read with its own block parser and inline pattern, so code is never an image.
 export function chatImages(rows: readonly AcpmuxRow[]): ChatImage[] {
   const images: ChatImage[] = [];
   const seen = new Set<string>();
   for (const row of rows) {
     if (row.kind !== "assistant" || !row.text?.includes("](data:image/")) continue;
-    const prose = row.text.replace(FENCE, "").replace(CODE_SPAN, "");
-    for (const match of prose.matchAll(IMAGE)) {
-      const src = match[2]!;
-      if (src.length > MAX_DATA_URL_LENGTH || seen.has(src)) continue;
-      seen.add(src);
-      images.push({ src, alt: match[1]! });
-    }
+    for (const text of blockTexts(parseMarkdown(row.text)))
+      for (const image of inlineImages(text)) {
+        if (seen.has(image.src)) continue;
+        seen.add(image.src);
+        images.push(image);
+      }
   }
   return images;
+}
+
+/// The inline text of `blocks` in reading order, as Markdown.tsx draws it (code and math have none).
+function* blockTexts(blocks: readonly MdBlock[]): Generator<string> {
+  for (const block of blocks)
+    switch (block.type) {
+      case "heading":
+      case "paragraph":
+      case "footnote":
+        yield block.text;
+        break;
+      case "blockquote":
+        yield* blockTexts(block.children);
+        break;
+      case "list":
+        for (const item of block.items) {
+          yield item.text;
+          yield* blockTexts(item.children);
+        }
+        break;
+      case "table":
+        yield* block.header;
+        for (const row of block.rows) yield* row;
+        break;
+    }
 }

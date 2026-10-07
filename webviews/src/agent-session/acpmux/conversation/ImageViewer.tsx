@@ -44,6 +44,11 @@ export function ImageViewer({
   const t = useT();
   const image = images[index];
   const [view, setView] = useState<View>(FIT);
+  // The view a pinch started from, read by the gesture listener (registered once).
+  const viewRef = useRef(view);
+  useEffect(() => {
+    viewRef.current = view;
+  }, [view]);
   const [copied, setCopied] = useState<"copied" | "failed" | undefined>();
   const stage = useRef<HTMLDivElement>(null);
   const layer = useRef<HTMLDivElement>(null);
@@ -78,11 +83,24 @@ export function ImageViewer({
     return { x: clientX - c.x, y: clientY - c.y };
   };
 
-  // A pinch (a wheel event with Control on a trackpad) or Command-scroll zooms about the pointer;
-  // a scroll pans a zoomed image. The listener is not passive, so the pane never scrolls behind.
+  // A pinch zooms about the pointer: WebKit sends it as gesture events, other engines as a wheel
+  // event with Control. Command-scroll zooms too; a scroll pans a zoomed image. The listeners are
+  // not passive, so the pane never scrolls or magnifies behind.
   useEffect(() => {
     const element = stage.current;
     if (!element) return;
+    let pinchFrom: View | undefined;
+    const onGesture = (event: Event) => {
+      event.preventDefault();
+      const gesture = event as Event & { scale?: number; clientX?: number; clientY?: number };
+      if (event.type === "gesturestart") pinchFrom = viewRef.current;
+      else if (event.type === "gesturechange" && pinchFrom && typeof gesture.scale === "number") {
+        const from = pinchFrom;
+        const point = fromCenter(gesture.clientX ?? center().x, gesture.clientY ?? center().y);
+        setView(zoomAbout(from, from.scale * gesture.scale, point));
+      } else if (event.type === "gestureend") pinchFrom = undefined;
+    };
+    for (const type of ["gesturestart", "gesturechange", "gestureend"]) element.addEventListener(type, onGesture);
     const onWheel = (event: WheelEvent) => {
       event.preventDefault();
       if (event.ctrlKey || event.metaKey) {
@@ -96,12 +114,25 @@ export function ImageViewer({
         );
     };
     element.addEventListener("wheel", onWheel, { passive: false });
-    return () => element.removeEventListener("wheel", onWheel);
+    return () => {
+      element.removeEventListener("wheel", onWheel);
+      for (const type of ["gesturestart", "gesturechange", "gestureend"]) element.removeEventListener(type, onGesture);
+    };
   }, []);
 
   const onKeyDown = (event: KeyboardEvent) => {
     if (event.metaKey || event.ctrlKey || event.altKey) return;
     const key = event.key;
+    if (key === "Tab") {
+      // A modal dialog keeps focus: Tab wraps through its own buttons, never to the pane behind.
+      const buttons = [...(layer.current?.querySelectorAll<HTMLElement>("button") ?? [])];
+      const at = buttons.indexOf(document.activeElement as HTMLElement);
+      const next = event.shiftKey ? (at <= 0 ? buttons.length - 1 : at - 1) : at === buttons.length - 1 ? 0 : at + 1;
+      buttons[next]?.focus();
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
     if (key === "Escape") onClose();
     else if (key === "ArrowLeft") step(-1);
     else if (key === "ArrowRight") step(1);

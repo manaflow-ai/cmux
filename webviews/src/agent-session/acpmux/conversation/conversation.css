@@ -1073,7 +1073,8 @@ pre.cv-math-source {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 0 56px 32px;
+  /* Symmetric, so the stage's center is the fitted image's center (zoomAbout in ImageViewer.tsx). */
+  padding: 16px 56px;
   overflow: hidden;
   touch-action: none;
 }

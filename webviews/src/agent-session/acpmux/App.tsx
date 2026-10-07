@@ -1128,10 +1128,10 @@ function AcpmuxPane() {
   turnRowsRef.current = snapshot.rows;
   // The image viewer holds the chat's images from when it opened; another chat closes it.
   const [imageView, setImageView] = useState<{ images: ChatImage[]; index: number } | undefined>();
-  const openImage = useCallback((src: string) => {
+  const openImage = useCallback((src: string, alt: string) => {
     const images = chatImages(turnRowsRef.current);
     const index = images.findIndex((image) => image.src === src);
-    setImageView(index < 0 ? { images: [{ src, alt: "" }], index: 0 } : { images, index });
+    setImageView(index < 0 ? { images: [{ src, alt }], index: 0 } : { images, index });
   }, []);
   useEffect(() => setImageView(undefined), [snapshot.sessionId]);
   const readTurn = useCallback(
