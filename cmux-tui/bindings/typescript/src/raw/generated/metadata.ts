@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR d0a19b0c49c76e88b13c2c04d33a189ecdab1ad0ac00177f028f5e972507e027. */
+/* cmux-tui mux protocol 12, IR c1ebd8eb1ae5f998954d7ab13712687331c488f1e998fc824e6b8735e4069ad6. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "d0a19b0c49c76e88b13c2c04d33a189ecdab1ad0ac00177f028f5e972507e027" as const;
+export const SDK_IR_SHA256 = "c1ebd8eb1ae5f998954d7ab13712687331c488f1e998fc824e6b8735e4069ad6" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -2186,6 +2186,7 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "edge is \"left\" or \"right\" (default \"right\"); mode is \"docked\" or \"overlay\" (default \"docked\").",
+      "permanent: true (permanent-dock-v1) marks the column permanent; false or omitted keeps the current value. An undock, edge change or replacement of a permanent column answers error_code \"dock-column-permanent\".",
       "See spec/commands.md for the result object."
     ]
   },
@@ -20066,6 +20067,15 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "ref",
             "name": "Id"
+          }
+        },
+        "permanent": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
           }
         },
         "transaction": {

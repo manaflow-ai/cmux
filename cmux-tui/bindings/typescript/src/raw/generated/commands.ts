@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR d0a19b0c49c76e88b13c2c04d33a189ecdab1ad0ac00177f028f5e972507e027. */
+/* cmux-tui mux protocol 12, IR c1ebd8eb1ae5f998954d7ab13712687331c488f1e998fc824e6b8735e4069ad6. */
 
 
 import type * as T from "./types.js";
@@ -1812,6 +1812,7 @@ export interface SetColumnDockRequest extends CmuxRequestBase {
   "edge"?: (string) | null;
   "mode"?: (string) | null;
   "pane": T.Id;
+  "permanent"?: (boolean) | null;
   "transaction"?: (bigint) | null;
 }
 export type SetColumnDockResult = T.JsonValue;

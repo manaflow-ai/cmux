@@ -9,7 +9,7 @@
 import { name, type Named } from "@gdp-ts/core";
 import { Clock, Effect, Option } from "effect";
 import { AuditStore } from "../db/stores.ts";
-import { actorRef, CurrentPrincipal, type Principal } from "../domain/principal.ts";
+import { auditActorOf, CurrentPrincipal, type Principal } from "../domain/principal.ts";
 import type { Scope } from "../domain/scopes.ts";
 import { missingScope, QuotaExceeded, unavailable, vmNotFound, type ServiceUnavailable } from "../errors.ts";
 import { parseVmId, type VmId } from "../lib/ids.ts";
@@ -38,7 +38,11 @@ export const rateLimit = (principal: Principal, rateClass: RateClass) =>
       .pipe(Effect.catchAll(dependencyDown("limits.rate")));
     if (!decision.ok) {
       return yield* Effect.fail(
-        new QuotaExceeded({ message: "Too many requests for this team; retry later", retryAfterSeconds: decision.retryAfterSeconds }),
+        new QuotaExceeded({
+          message: "Too many requests for this team; retry later",
+          retryAfterSeconds: decision.retryAfterSeconds,
+          budget: "rate",
+        }),
       );
     }
   });
@@ -105,7 +109,8 @@ const outcomeOf = (error: unknown): string =>
     : "Error";
 
 /**
- * Writes one audit row for a mutation: tenant, actor (user or key id), action,
+ * Writes one audit row for a mutation: tenant, actor (user, key or device id;
+ * a device also names the owner it acted for), action,
  * the public id it produced or acted on, and its outcome. Never request
  * bodies. If the audit table cannot be written, the row goes to the Worker
  * log instead and the request is not failed for it.
@@ -123,7 +128,7 @@ export const audited = <A, E, R>(
     const write = (cmuxId: string | null, outcome: string) =>
       Effect.gen(function* () {
         const at = new Date(yield* Clock.currentTimeMillis);
-        const entry = { tenantId: principal.tenantId, actor: actorRef(principal.actor), action, cmuxId, outcome, at };
+        const entry = { tenantId: principal.tenantId, ...auditActorOf(principal), action, cmuxId, outcome, at };
         yield* store.append(entry).pipe(
           Effect.catchAll(() =>
             Effect.sync(() => console.error(JSON.stringify({ event: "cmux_vm_audit_fallback", ...entry, at: at.toISOString() }))),

@@ -25,6 +25,8 @@ public final class AgentPaneShell {
     /// After the shell exits, how long its pipe may still drain; a background child that keeps
     /// the pipe open does not hold the block open past it.
     static let drainAfterExit: Duration = .milliseconds(250)
+    /// Shell mode's Tab (`shell.complete`); tests replace it.
+    var completion = AgentPaneShellCompletion()
 
     public nonisolated struct Exit: Equatable, Sendable {
         public var code: Int32?

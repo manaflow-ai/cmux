@@ -287,6 +287,7 @@ async fn every_documented_error_status_has_a_distinct_exit_code() {
         (404, "NotFound", exit::NOT_FOUND),
         (409, "Conflict", exit::CONFLICT),
         (413, "PayloadTooLarge", exit::PAYLOAD_TOO_LARGE),
+        (426, "UpgradeRequired", exit::UPGRADE_REQUIRED),
         (429, "QuotaExceeded", exit::QUOTA_EXCEEDED),
         (501, "NotImplemented", exit::NOT_AVAILABLE_YET),
         (503, "ServiceUnavailable", exit::SERVICE_UNAVAILABLE),
@@ -546,7 +547,7 @@ async fn bad_base_url_and_empty_team_are_usage_errors() {
         &["get", VM_ID],
         &[
             ("CMUX_VM_API_KEY", KEY),
-            ("CMUX_VM_BASE_URL", "vm.cmux.com"),
+            ("CMUX_VM_BASE_URL", "vm.cmux.dev"),
         ],
     )
     .await;
@@ -705,4 +706,357 @@ async fn the_binary_refuses_delete_without_yes_when_stdin_is_not_a_terminal() {
     .expect("join");
 
     assert_eq!(output.status.code(), Some(exit::USAGE));
+}
+
+const SNAP_ID: &str = "snap_0123456789abcdefghjkmnpqrs";
+const VM_KEY_ID: &str = "vmk_0123456789abcdefghjkmnpqrs";
+
+fn snapshot() -> Value {
+    json!({
+        "id": SNAP_ID,
+        "sourceVmId": VM_ID,
+        "displayName": "base",
+        "labels": {},
+        "createdAt": "2026-10-07T00:00:00.000Z",
+        "lastUsedAt": null,
+        "ttlSeconds": 3600,
+        "autoDeleteSeconds": null
+    })
+}
+
+#[tokio::test]
+async fn snapshot_create_sends_the_body_and_idempotency_key() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(format!("/v1/vms/{VM_ID}/snapshots")))
+        .and(authorized())
+        .and(header("idempotency-key", "snap-1"))
+        .and(body_json(
+            json!({ "displayName": "base", "ttlSeconds": 3600 }),
+        ))
+        .respond_with(ResponseTemplate::new(201).set_body_json(snapshot()))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let out = cli(
+        &server,
+        &[
+            "--json",
+            "snapshot",
+            "create",
+            VM_ID,
+            "--name",
+            "base",
+            "--ttl",
+            "3600",
+            "--idempotency-key",
+            "snap-1",
+        ],
+    )
+    .await;
+
+    assert_eq!(out.code, exit::OK, "stderr: {}", out.stderr);
+    assert_eq!(json_stdout(&out)["id"], SNAP_ID);
+}
+
+#[tokio::test]
+async fn snapshot_get_list_and_delete() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path(format!("/v1/snapshots/{SNAP_ID}")))
+        .and(authorized())
+        .respond_with(ResponseTemplate::new(200).set_body_json(snapshot()))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/v1/snapshots"))
+        .and(authorized())
+        .and(query_param("sourceVmId", VM_ID))
+        .and(query_param("limit", "2"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "items": [{
+                "id": SNAP_ID,
+                "sourceVmId": VM_ID,
+                "displayName": null,
+                "labels": {},
+                "createdAt": "2026-10-07T00:00:00.000Z"
+            }],
+            "nextCursor": "page-2"
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("DELETE"))
+        .and(path(format!("/v1/snapshots/{SNAP_ID}")))
+        .and(authorized())
+        .respond_with(ResponseTemplate::new(204))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let got = cli(&server, &["snapshot", "get", SNAP_ID]).await;
+    assert_eq!(got.code, exit::OK, "stderr: {}", got.stderr);
+    assert!(
+        got.stdout.contains(SNAP_ID) && got.stdout.contains(VM_ID),
+        "stdout: {}",
+        got.stdout
+    );
+
+    let listed = cli(
+        &server,
+        &["snapshot", "list", "--vm", VM_ID, "--limit", "2"],
+    )
+    .await;
+    assert_eq!(listed.code, exit::OK, "stderr: {}", listed.stderr);
+    assert!(
+        listed
+            .stdout
+            .contains("cmux-vm snapshot list --cursor page-2"),
+        "stdout: {}",
+        listed.stdout
+    );
+
+    let deleted = cli(&server, &["--json", "snapshot", "delete", SNAP_ID, "--yes"]).await;
+    assert_eq!(deleted.code, exit::OK, "stderr: {}", deleted.stderr);
+    assert_eq!(
+        json_stdout(&deleted),
+        json!({ "id": SNAP_ID, "deleted": true })
+    );
+}
+
+#[tokio::test]
+async fn snapshot_delete_and_key_revoke_need_confirmation() {
+    let server = MockServer::start().await;
+    Mock::given(wiremock::matchers::any())
+        .respond_with(ResponseTemplate::new(204))
+        .expect(0)
+        .mount(&server)
+        .await;
+    let uri = server.uri();
+    let env = [("CMUX_VM_API_KEY", KEY), ("CMUX_VM_BASE_URL", uri.as_str())];
+
+    for args in [
+        ["snapshot", "delete", SNAP_ID],
+        ["api-key", "revoke", VM_KEY_ID],
+    ] {
+        let no_tty = cli(&server, &args).await;
+        assert_eq!(
+            no_tty.code,
+            exit::USAGE,
+            "{args:?}: stderr: {}",
+            no_tty.stderr
+        );
+        assert!(
+            no_tty.stderr.contains("--yes"),
+            "{args:?}: stderr: {}",
+            no_tty.stderr
+        );
+
+        let mut wrong = Tty {
+            answer: "yes",
+            asked: 0,
+        };
+        let refused = cli_with_prompt(&args, &env, &mut wrong).await;
+        assert_eq!(
+            refused.code,
+            exit::CANCELLED,
+            "{args:?}: stderr: {}",
+            refused.stderr
+        );
+        assert_eq!(wrong.asked, 1);
+    }
+}
+
+#[tokio::test]
+async fn api_key_create_prints_the_secret_once_and_sends_scopes_and_resources() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/api-keys"))
+        .and(authorized())
+        .and(body_json(json!({
+            "name": "ci",
+            "scopes": ["vm:read", "snapshot:read"],
+            "resourceAllowlist": [VM_ID, SNAP_ID],
+            "expiresAt": "2026-11-01T00:00:00.000Z"
+        })))
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({
+            "id": VM_KEY_ID,
+            "name": "ci",
+            "scopes": ["vm:read", "snapshot:read"],
+            "resourceAllowlist": [VM_ID, SNAP_ID],
+            "createdAt": "2026-10-07T00:00:00.000Z",
+            "expiresAt": "2026-11-01T00:00:00.000Z",
+            "key": "cmuxvm_sk_new"
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let out = cli(
+        &server,
+        &[
+            "api-key",
+            "create",
+            "--name",
+            "ci",
+            "--scope",
+            "vm:read",
+            "--scope",
+            "snapshot:read",
+            "--resource",
+            VM_ID,
+            "--resource",
+            SNAP_ID,
+            "--expires-at",
+            "2026-11-01T00:00:00.000Z",
+        ],
+    )
+    .await;
+
+    assert_eq!(out.code, exit::OK, "stderr: {}", out.stderr);
+    assert!(
+        out.stdout.contains("cmuxvm_sk_new"),
+        "stdout: {}",
+        out.stdout
+    );
+    assert!(
+        out.stdout.contains("shown only once"),
+        "stdout: {}",
+        out.stdout
+    );
+}
+
+#[tokio::test]
+async fn api_key_create_needs_a_scope_and_rejects_a_foreign_resource_id() {
+    let no_scope = cli_with_env(
+        &["api-key", "create", "--name", "ci"],
+        &[("CMUX_VM_API_KEY", KEY)],
+    )
+    .await;
+    assert_eq!(no_scope.code, exit::USAGE, "stderr: {}", no_scope.stderr);
+
+    let bad_resource = cli_with_env(
+        &[
+            "api-key",
+            "create",
+            "--name",
+            "ci",
+            "--scope",
+            "vm:read",
+            "--resource",
+            "team_1",
+        ],
+        &[
+            ("CMUX_VM_API_KEY", KEY),
+            ("CMUX_VM_BASE_URL", "http://127.0.0.1:9"),
+        ],
+    )
+    .await;
+    assert_eq!(
+        bad_resource.code,
+        exit::USAGE,
+        "stderr: {}",
+        bad_resource.stderr
+    );
+}
+
+#[tokio::test]
+async fn api_key_list_and_revoke() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/api-keys"))
+        .and(authorized())
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "items": [{
+                "id": VM_KEY_ID,
+                "name": "ci",
+                "scopes": ["vm:read"],
+                "resourceAllowlist": null,
+                "createdBy": "user_1",
+                "createdAt": "2026-10-07T00:00:00.000Z",
+                "expiresAt": null,
+                "revokedAt": null
+            }]
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("DELETE"))
+        .and(path(format!("/v1/api-keys/{VM_KEY_ID}")))
+        .and(authorized())
+        .respond_with(ResponseTemplate::new(204))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let listed = cli(&server, &["api-key", "list"]).await;
+    assert_eq!(listed.code, exit::OK, "stderr: {}", listed.stderr);
+    assert!(
+        listed.stdout.contains(VM_KEY_ID),
+        "stdout: {}",
+        listed.stdout
+    );
+    assert!(
+        !listed.stdout.contains("cmuxvm_sk"),
+        "stdout: {}",
+        listed.stdout
+    );
+
+    let revoked = cli(
+        &server,
+        &["--json", "api-key", "revoke", VM_KEY_ID, "--yes"],
+    )
+    .await;
+    assert_eq!(revoked.code, exit::OK, "stderr: {}", revoked.stderr);
+    assert_eq!(
+        json_stdout(&revoked),
+        json!({ "id": VM_KEY_ID, "revoked": true })
+    );
+}
+
+#[tokio::test]
+async fn a_quota_error_names_its_budget() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(format!("/v1/vms/{VM_ID}/snapshots")))
+        .respond_with(ResponseTemplate::new(429).set_body_json(json!({
+            "_tag": "QuotaExceeded",
+            "message": "snapshot limit reached",
+            "budget": "snapshots"
+        })))
+        .mount(&server)
+        .await;
+
+    let json_out = cli(&server, &["--json", "snapshot", "create", VM_ID]).await;
+    assert_eq!(
+        json_out.code,
+        exit::QUOTA_EXCEEDED,
+        "stderr: {}",
+        json_out.stderr
+    );
+    let error: Value = serde_json::from_str(json_out.stderr.trim()).expect("JSON error");
+    assert_eq!(error["error"]["budget"], "snapshots");
+
+    let human = cli(&server, &["snapshot", "create", VM_ID]).await;
+    assert_eq!(human.code, exit::QUOTA_EXCEEDED);
+    assert!(
+        human.stderr.contains("budget snapshots"),
+        "stderr: {}",
+        human.stderr
+    );
+}
+
+#[tokio::test]
+async fn help_names_the_cmux_dev_default_base_url() {
+    let out = cli_with_env(&["--help"], &[]).await;
+
+    assert_eq!(out.code, exit::OK, "stderr: {}", out.stderr);
+    assert!(
+        out.stdout.contains("default https://vm.cmux.dev"),
+        "stdout: {}",
+        out.stdout
+    );
+    assert_eq!(cmux_vm_client::DEFAULT_BASE_URL, "https://vm.cmux.dev");
 }

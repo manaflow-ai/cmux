@@ -20,6 +20,10 @@ import { Plugin, PluginKey, TextSelection, type Transaction } from "@milkdown/ki
 import { Decoration, DecorationSet, type EditorView, type NodeViewConstructor } from "@milkdown/kit/prose/view";
 import { ParserState, type SerializerState } from "@milkdown/kit/transformer";
 import { $nodeSchema, $prose } from "@milkdown/kit/utils";
+import "../../markdown-task-checkbox.css";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { TaskCheckbox } from "../../ui/TaskCheckbox";
 import {
   brokenLinkPlugin,
   caretAt,
@@ -250,6 +254,7 @@ export class MarkdownEditor {
       .use(clipboard)
       .use(rawSchema)
       .use(activeBlockPlugin)
+      .use(taskCheckboxPlugin())
       .use(userEditPlugin(() => this.options.onUserEdit?.()))
       .use(codeHighlightPlugin(host));
     if (host.links)
@@ -348,8 +353,10 @@ export class MarkdownEditor {
   /** A click on a task item's box (left of its text) checks or unchecks it. */
   private toggleTask(target: Element | null, event: MouseEvent): boolean {
     const item = target?.closest?.('li[data-item-type="task"]');
+    const checkbox = target?.closest?.(".cmux-markdown-checkbox");
     const view = this.view;
-    if (!item || !view || this.readOnly || event.clientX >= item.getBoundingClientRect().left) return false;
+    if (!item || !view || this.readOnly || (!checkbox && event.clientX >= item.getBoundingClientRect().left))
+      return false;
     const inside = view.posAtDOM(item, 0);
     const $pos = view.state.doc.resolve(inside);
     for (let depth = $pos.depth; depth > 0; depth--) {
@@ -464,6 +471,47 @@ function buildNodes(schema: Schema, root: MdastRoot): ProseNode[] {
 }
 
 const activeKey = new PluginKey("cmuxMarkdownActive");
+
+const taskCheckboxKey = new PluginKey<DecorationSet>("cmuxMarkdownTaskCheckbox");
+
+/** Draws the same custom task checkbox as the agent reply renderer. It is a widget rather than a
+ * pseudo-element so the task state is exposed to assistive technology in the rich editor. */
+function taskCheckboxPlugin() {
+  const checkbox = (checked: boolean): HTMLElement => {
+    const template = document.createElement("template");
+    template.innerHTML = renderToStaticMarkup(createElement(TaskCheckbox, { checked }));
+    const element = template.content.firstElementChild;
+    if (!(element instanceof HTMLElement)) throw new Error("task checkbox primitive did not render an element");
+    element.contentEditable = "false";
+    return element;
+  };
+
+  const decorations = (doc: ProseNode): DecorationSet => {
+    const result: Decoration[] = [];
+    doc.descendants((node, pos) => {
+      if (node.type.name === "list_item" && node.attrs.checked != null) {
+        result.push(Decoration.widget(pos + 2, () => checkbox(Boolean(node.attrs.checked)), { side: -1 }));
+      }
+      return true;
+    });
+    return DecorationSet.create(doc, result);
+  };
+
+  return $prose(
+    () =>
+      new Plugin<DecorationSet>({
+        key: taskCheckboxKey,
+        state: {
+          init: (_config, state) => decorations(state.doc),
+          apply: (tr, previous, _old, state) =>
+            tr.docChanged ? decorations(state.doc) : previous.map(tr.mapping, state.doc),
+        },
+        props: {
+          decorations: (state) => taskCheckboxKey.getState(state),
+        },
+      }),
+  );
+}
 
 /** Marks the top-level block holding the selection `md-active` (diagrams and HTML show source). */
 const activeBlockPlugin = $prose(

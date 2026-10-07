@@ -33,12 +33,14 @@ export type RateDecision = typeof RateDecision.Type;
 /**
  * Progress a create or fork made under one idempotency key: pending (claimed,
  * nothing made yet), snapshotted (a fork took its snapshot, public id, but
- * has not created the VM), done (the VM, public id).
+ * has not created the VM), done (the VM, public id), snapshotDone (a snapshot
+ * create finished, public snapshot id).
  */
 const Progress = Schema.Union(
   Schema.Struct({ phase: Schema.Literal("pending") }),
   Schema.Struct({ phase: Schema.Literal("snapshotted"), snapshotId: Schema.String }),
   Schema.Struct({ phase: Schema.Literal("done"), vmId: Schema.String }),
+  Schema.Struct({ phase: Schema.Literal("snapshotDone"), snapshotId: Schema.String }),
 );
 export type IdempotencyProgress = typeof Progress.Type;
 
@@ -76,6 +78,9 @@ const Reservation = Schema.Struct({ kind: Schema.String, expiresMs: Schema.Numbe
 const isBucket = Schema.is(Bucket);
 const isRecord = Schema.is(IdempotencyRecord);
 const isReservation = Schema.is(Reservation);
+
+const Lock = Schema.Struct({ holder: Schema.String, untilMs: Schema.Number });
+const isLock = Schema.is(Lock);
 
 /** A stored value of the wrong shape (from an older version) reads as absent. */
 const checked = <T>(guard: (value: unknown) => value is T, value: unknown): T | undefined => (guard(value) ? value : undefined);
@@ -138,7 +143,7 @@ export class TenantLedger {
     const record = checked(isRecord, await this.storage.get(storageKey));
     if (record !== undefined && record.expiresMs > nowMs) {
       if (record.fingerprint !== fingerprint) return { state: "mismatch" };
-      if (record.progress.phase === "done") return { state: "resume", progress: record.progress };
+      if (record.progress.phase === "done" || record.progress.phase === "snapshotDone") return { state: "resume", progress: record.progress };
       if (record.leaseUntilMs > nowMs) return { state: "in_progress" };
       if (record.progress.phase === "snapshotted") {
         await this.storage.put(storageKey, { ...record, leaseUntilMs: nowMs + IDEMPOTENCY_LEASE_MS });
@@ -155,7 +160,7 @@ export class TenantLedger {
     return { state: "new" };
   }
 
-  /** Records progress under a claimed key. A `done` record also ends the claim. */
+  /** Records progress under a claimed key. A finished record (`done`, `snapshotDone`) also ends the claim. */
   async advance(key: string, progress: IdempotencyProgress, nowMs: number): Promise<void> {
     const storageKey = `idem:${key}`;
     const record = checked(isRecord, await this.storage.get(storageKey));
@@ -163,7 +168,7 @@ export class TenantLedger {
     await this.storage.put(storageKey, {
       ...record,
       progress,
-      leaseUntilMs: progress.phase === "done" ? nowMs : nowMs + IDEMPOTENCY_LEASE_MS,
+      leaseUntilMs: progress.phase === "done" || progress.phase === "snapshotDone" ? nowMs : nowMs + IDEMPOTENCY_LEASE_MS,
     });
   }
 
@@ -177,6 +182,26 @@ export class TenantLedger {
     if (record === undefined) return;
     if (record.progress.phase === "pending") await this.storage.delete(storageKey);
     else await this.storage.put(storageKey, { ...record, leaseUntilMs: nowMs });
+  }
+
+  /**
+   * A named lock with a lease (mesh M4: one writer per mesh). Taken when free,
+   * expired, or already held by `holder`; the lease bounds how long a holder
+   * that died blocks the next one.
+   */
+  async lock(key: string, holder: string, leaseMs: number, nowMs: number): Promise<boolean> {
+    const storageKey = `lock:${key}`;
+    const held = checked(isLock, await this.storage.get(storageKey));
+    if (held !== undefined && held.untilMs > nowMs && held.holder !== holder) return false;
+    await this.storage.put(storageKey, { holder, untilMs: nowMs + leaseMs });
+    return true;
+  }
+
+  /** Releases the lock when `holder` still holds it. */
+  async unlock(key: string, holder: string): Promise<void> {
+    const storageKey = `lock:${key}`;
+    const held = checked(isLock, await this.storage.get(storageKey));
+    if (held !== undefined && held.holder === holder) await this.storage.delete(storageKey);
   }
 
   /** Drops a bounded number of expired idempotency records. */

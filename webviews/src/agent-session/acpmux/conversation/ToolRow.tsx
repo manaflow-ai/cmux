@@ -4,6 +4,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { toolFiles } from "../diff";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
+import { toolLabel } from "../toolPaths";
 import { EditDiff } from "./EditDiff";
 import { ShellBlock } from "./ShellBlock";
 import { ChevronRight, Globe, Magnifier, OpenBook, Pencil, TerminalSquare, ToolGroup } from "./icons";
@@ -39,7 +40,7 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
   const hasDiff = Boolean(tool.diffs?.length);
   // Diffed only while open: a closed edit row costs nothing on each transcript update.
   const files = useMemo(() => (open && hasDiff ? toolFiles([tool]) : []), [open, hasDiff, tool]);
-  const label = tool.title || tool.inputSummary || item.text;
+  const label = toolLabel(tool, item.text, (command) => t("tools.ranCommand", { command }));
   const running = tool.status === "pending" || tool.status === "in_progress";
   const failed = tool.status === "failed";
   const body = tool.output?.replace(/\n$/, "");

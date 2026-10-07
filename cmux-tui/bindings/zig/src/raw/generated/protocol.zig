@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "d0a19b0c49c76e88b13c2c04d33a189ecdab1ad0ac00177f028f5e972507e027";
+pub const ir_sha256 = "c1ebd8eb1ae5f998954d7ab13712687331c488f1e998fc824e6b8735e4069ad6";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -6934,6 +6934,7 @@ pub const SetColumnDockRequest = struct {
     edge: wire.Field([]const u8) = .absent,
     mode: wire.Field([]const u8) = .absent,
     pane: Id,
+    permanent: wire.Field(bool) = .absent,
     transaction: wire.Field(u64) = .absent,
 };
 
