@@ -269,7 +269,9 @@ fn service_events_have_tag_0x80_and_refuse_unknown_flag_bits() {
 /// offset`, bytes, at most 64 KiB per frame.
 #[test]
 fn bulk_frames_ride_the_stream_carrier_and_round_trip() {
-    use cmux_rd_proto::{BulkFrame, MAX_BULK_CHUNK, STREAM_BULK, StreamDeframer, encode_stream_frame};
+    use cmux_rd_proto::{
+        BulkFrame, MAX_BULK_CHUNK, STREAM_BULK, StreamDeframer, encode_stream_frame,
+    };
     let frame = BulkFrame { transfer: 7, offset: 65_520, bytes: vec![9; 300] };
     let payload = frame.encode();
     assert_eq!(&payload[..16], &[7, 0, 0, 0, 0, 0, 0, 0, 0xf0, 0xff, 0, 0, 0, 0, 0, 0]);

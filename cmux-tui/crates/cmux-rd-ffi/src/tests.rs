@@ -385,8 +385,8 @@ fn header_declares_exactly_the_exported_functions_and_codes() {
     assert!(header.contains(&format!("#define CMUX_RD_FFI_ABI_VERSION {ABI_VERSION}u")));
     assert!(header.contains(&format!("#define CMUX_RD_MESSAGE_CONTROL {STREAM_CONTROL}u")));
     assert!(header.contains(&format!("#define CMUX_RD_MESSAGE_DATAGRAM {STREAM_DATAGRAM}u")));
-    assert!(header.contains(&format!("#define CMUX_RD_MESSAGE_BULK {}u", cmux_rd_proto::STREAM_BULK)));
-    assert_eq!(CMUX_RD_MESSAGE_BULK, u32::from(cmux_rd_proto::STREAM_BULK));
+    assert!(header.contains(&format!("#define CMUX_RD_MESSAGE_BULK {}u", STREAM_BULK)));
+    assert_eq!(CMUX_RD_MESSAGE_BULK, u32::from(STREAM_BULK));
     assert!(header.contains(&format!("#define CMUX_RD_FLAG_KEYFRAME 0x0{}u", flags::KEYFRAME)));
     assert!(header.contains(&format!("#define CMUX_RD_FLAG_RECOVERY 0x0{}u", flags::RECOVERY)));
     assert!(header.contains(&format!("#define CMUX_RD_FLAG_TILE 0x0{}u", flags::TILE)));

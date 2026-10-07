@@ -31,8 +31,8 @@ pub use input::{
     service_flags,
 };
 pub use stream::{
-    MAX_STREAM_FRAME, STREAM_BULK, STREAM_CONTROL, STREAM_DATAGRAM, STREAM_PREFIX_LEN, StreamDeframer,
-    encode_stream_frame,
+    MAX_STREAM_FRAME, STREAM_BULK, STREAM_CONTROL, STREAM_DATAGRAM, STREAM_PREFIX_LEN,
+    StreamDeframer, encode_stream_frame,
 };
 
 /// The remote desktop service: the hello default (rd change C1).

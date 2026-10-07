@@ -331,7 +331,7 @@ fn bulk_frames_on_the_stream_carrier_are_queued_as_bulk_messages() {
     let s = session(CMUX_RD_CARRIER_STREAM);
     let chunk = cmux_rd_proto::BulkFrame { transfer: 2, offset: 0, bytes: vec![3; 1_000] };
     let mut bytes = Vec::new();
-    encode_stream_frame(cmux_rd_proto::STREAM_BULK, &chunk.encode(), &mut bytes).expect("bulk frame");
+    encode_stream_frame(STREAM_BULK, &chunk.encode(), &mut bytes).expect("bulk frame");
     // SAFETY: live session, readable slice.
     let rc = unsafe { cmux_rd_session_push_stream(s.0, bytes.as_ptr(), bytes.len(), 0) };
     assert!(rc >= 0, "a bulk frame does not end the session: {rc}");
@@ -348,7 +348,14 @@ fn bulk_frames_on_the_stream_carrier_are_queued_as_bulk_messages() {
     let p = chunk.encode();
     // SAFETY: readable payload, writable buffer and length.
     let rc = unsafe {
-        cmux_rd_encode_stream_frame(CMUX_RD_MESSAGE_BULK, p.as_ptr(), p.len(), out.as_mut_ptr(), out.len(), &mut len)
+        cmux_rd_encode_stream_frame(
+            CMUX_RD_MESSAGE_BULK,
+            p.as_ptr(),
+            p.len(),
+            out.as_mut_ptr(),
+            out.len(),
+            &mut len,
+        )
     };
     assert_eq!(rc, CMUX_RD_OK);
     assert_eq!(&out[..len], &bytes[..]);

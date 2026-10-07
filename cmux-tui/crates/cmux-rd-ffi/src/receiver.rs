@@ -7,8 +7,8 @@ use std::collections::VecDeque;
 use cmux_rd_core::reassembly::{CompleteFrame, Reassembler};
 use cmux_rd_proto::{
     Arrival, DatagramHeader, DatagramKind, DecodeError, Feedback, HEADER_LEN, MAX_ARRIVALS,
-    MAX_NACK_FRAMES, MAX_NACK_INDEXES, Nack, REF_NONE, STREAM_CONTROL, STREAM_DATAGRAM,
-    StreamDeframer, encode_stream_frame, flags,
+    MAX_NACK_FRAMES, MAX_NACK_INDEXES, Nack, REF_NONE, STREAM_BULK, STREAM_CONTROL,
+    STREAM_DATAGRAM, StreamDeframer, encode_stream_frame, flags,
 };
 
 /// How the session's datagrams travel.
@@ -343,7 +343,7 @@ impl Receiver {
     }
 
     fn queue_message(&mut self, kind: u8, bytes: Vec<u8>) -> Result<(), ReceiverError> {
-        debug_assert!(matches!(kind, STREAM_CONTROL | STREAM_DATAGRAM));
+        debug_assert!(matches!(kind, STREAM_CONTROL | STREAM_DATAGRAM | STREAM_BULK));
         let cost = bytes.len() + MESSAGE_OVERHEAD;
         if self.message_bytes + cost > MAX_MESSAGE_BYTES {
             self.failed = true;
