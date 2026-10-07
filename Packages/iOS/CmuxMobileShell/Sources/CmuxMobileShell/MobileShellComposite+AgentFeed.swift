@@ -517,13 +517,6 @@ extension MobileShellComposite {
         return result
     }
 
-    /// Whether two stop reasons are the same completion, one possibly a
-    /// whitespace-collapsed preview truncated with an ellipsis.
-    static func stopReasonsDescribeSameTurn(_ lhs: String, _ rhs: String) -> Bool {
-        var cache = AgentFeedStopReasonCache()
-        return cache.matches(lhs, rhs)
-    }
-
     // MARK: - Replies
 
     /// Answers a pending permission row. Resolution flows through the same

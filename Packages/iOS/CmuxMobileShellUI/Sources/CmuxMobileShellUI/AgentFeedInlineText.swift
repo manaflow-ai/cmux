@@ -250,8 +250,8 @@ final class AgentFeedInlineTextView: UIView {
     private func ensureTextLayout() {
         guard bounds.width > 0 else { return }
         _ = measure(width: bounds.width)
-        if let measuredEntry { apply(measuredEntry) }
         textView.frame = bounds
+        if let measuredEntry { apply(measuredEntry) }
         if textLayoutNeedsUpdate || laidOutWidth != bounds.width {
             textView.layoutManager.ensureLayout(for: textView.textContainer)
             laidOutWidth = bounds.width
