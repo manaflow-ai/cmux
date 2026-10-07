@@ -122,3 +122,19 @@ import Testing
         #expect(Self.model(Self.rows, query: "me").rows.isEmpty, "my own name matches nothing")
     }
 }
+
+/// Cmd-Shift-[ / ]: the previous or next conversation in the list's visual
+/// order (the pinned grid, then the rows); it stops at the ends, as Messages does.
+extension HomeSidebarModelTests {
+    @Test func neighborsFollowTheListAndStopAtTheEnds() {
+        let model = Self.model(Self.rows)
+        let order = (model.pinned + model.rows).map(\.id)
+        #expect(order.map(\.rawValue) == ["conv_chief", "conv_lucas", "conv_group", "conv_aziz", "conv_old"])
+        #expect(model.neighbor(of: order[0], offset: 1) == order[1])
+        #expect(model.neighbor(of: order[2], offset: -1) == order[1])
+        #expect(model.neighbor(of: order[0], offset: -1) == nil, "stops at the top")
+        #expect(model.neighbor(of: order[4], offset: 1) == nil, "stops at the bottom")
+        #expect(model.neighbor(of: nil, offset: 1) == order[0], "nothing shown: the first")
+        #expect(model.neighbor(of: ConversationID("gone"), offset: -1) == order[0])
+    }
+}
