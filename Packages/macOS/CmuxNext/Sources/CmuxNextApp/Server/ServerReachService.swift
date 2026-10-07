@@ -250,7 +250,7 @@ final class ServerReachService {
         guard gethostname(&buffer, buffer.count) == 0 else { return nil }
         let name = String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
         guard let short = name.split(separator: ".").first.map(String.init), !short.isEmpty else { return nil }
-        return ServerReachPlan.LocalServer(hostName: short, brainSocket: socket)
+        return ServerReachPlan.LocalServer(hostNames: [short], brainSocket: socket)
     }
 
     /// The registry transport for `session`: the reach plus whether it connects at launch.
