@@ -49,7 +49,8 @@ extension ChatColumnPlacement {
         return resolve(from: controller.layoutPaneID, columns: columns, recent: content.recentPanes) { column in
             guard column.root.panes.count == 1, let tabs = content.panes[column.root.panes[0]]?.pane.tabs,
                   tabs.count == 1 else { return false }
-            return agentTabs.isAgentTab(tabs[0].id)
+            // The New Tab page is an agent tab too, but not a chat.
+            return agentTabs.isAgentTab(tabs[0].id) && !agentTabs.isNewTabPage(tabs[0].id)
         }
     }
 
