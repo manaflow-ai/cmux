@@ -4,18 +4,25 @@
 //! no threads, panics caught, a panic poisons only that client, and the
 //! outcome bytes stay valid until the next call on the same client.
 
-use crate::{CMUX_RD_ERR_FAILED};
+use std::panic::{AssertUnwindSafe, catch_unwind};
+
+use cmux_remote_browser::client::{Client, ClientInput};
+use serde_json::json;
+
+use crate::{CMUX_RD_ERR_INVALID, CMUX_RD_ERR_NULL, CMUX_RD_ERR_PANIC, CMUX_RD_OK, bytes_in};
 
 /// The opaque client handle (`CmuxRbClient`).
 #[derive(Debug, Default)]
 pub struct CmuxRbClient {
-    _private: (),
+    inner: Client,
+    outcome: Vec<u8>,
+    poisoned: bool,
 }
 
 /// Creates a client; NULL only when allocation fails.
 #[unsafe(no_mangle)]
 pub extern "C" fn cmux_rb_client_new() -> *mut CmuxRbClient {
-    std::ptr::null_mut()
+    catch_unwind(|| Box::into_raw(Box::<CmuxRbClient>::default())).unwrap_or(std::ptr::null_mut())
 }
 
 /// Frees a client; NULL is ignored.
@@ -23,20 +30,65 @@ pub extern "C" fn cmux_rb_client_new() -> *mut CmuxRbClient {
 /// # Safety
 /// `client` is NULL or came from [`cmux_rb_client_new`] and is not used again.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn cmux_rb_client_free(_client: *mut CmuxRbClient) {}
+pub unsafe extern "C" fn cmux_rb_client_free(client: *mut CmuxRbClient) {
+    if client.is_null() {
+        return;
+    }
+    // SAFETY: guaranteed by the caller; the box is dropped exactly once.
+    let owned = unsafe { Box::from_raw(client) };
+    let _ = catch_unwind(AssertUnwindSafe(move || drop(owned)));
+}
 
-/// Applies one client input (JSON).
+/// Applies one client input (JSON). On `CMUX_RD_OK`, `*outcome` points at the
+/// outcome JSON (`{"effects", "note", "reject"}`) until the next call on this
+/// client. `CMUX_RD_ERR_INVALID` when `json` is not a client input; the state
+/// does not change.
 ///
 /// # Safety
-/// `client` is valid; `json` is readable for `json_len` bytes; `outcome` and
-/// `outcome_len` are writable.
+/// `client` is NULL or valid and not used concurrently; `json` is readable for
+/// `json_len` bytes; `outcome` and `outcome_len` are NULL or writable.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_rb_client_apply(
-    _client: *mut CmuxRbClient,
-    _json: *const u8,
-    _json_len: usize,
-    _outcome: *mut *const u8,
-    _outcome_len: *mut usize,
+    client: *mut CmuxRbClient,
+    json: *const u8,
+    json_len: usize,
+    outcome: *mut *const u8,
+    outcome_len: *mut usize,
 ) -> i32 {
-    CMUX_RD_ERR_FAILED
+    if outcome.is_null() || outcome_len.is_null() {
+        return CMUX_RD_ERR_NULL;
+    }
+    // SAFETY: the caller passes NULL or a live client, used by one thread.
+    let Some(handle) = (unsafe { client.as_mut() }) else { return CMUX_RD_ERR_NULL };
+    if handle.poisoned {
+        return CMUX_RD_ERR_PANIC;
+    }
+    // SAFETY: readable for `json_len` bytes by contract.
+    let Some(input) = (unsafe { bytes_in(json, json_len) }) else { return CMUX_RD_ERR_NULL };
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        let Ok(input) = serde_json::from_slice::<ClientInput>(input) else {
+            return CMUX_RD_ERR_INVALID;
+        };
+        let value = match handle.inner.apply(input) {
+            Ok(out) => json!({"effects": out.effects, "note": out.note, "reject": null}),
+            Err(reject) => json!({"effects": [], "note": null, "reject": reject}),
+        };
+        handle.outcome = value.to_string().into_bytes();
+        CMUX_RD_OK
+    }));
+    let code = match result {
+        Ok(code) => code,
+        Err(_) => {
+            handle.poisoned = true;
+            return CMUX_RD_ERR_PANIC;
+        }
+    };
+    if code == CMUX_RD_OK {
+        // SAFETY: both checked non-NULL; writable by contract.
+        unsafe {
+            *outcome = handle.outcome.as_ptr();
+            *outcome_len = handle.outcome.len();
+        }
+    }
+    code
 }

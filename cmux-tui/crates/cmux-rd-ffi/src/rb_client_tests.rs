@@ -14,7 +14,8 @@ fn apply(client: *mut crate::CmuxRbClient, input: &str) -> (i32, Value) {
     let mut ptr: *const u8 = std::ptr::null();
     let mut len = 0usize;
     // SAFETY: a live client, a readable input and writable out params.
-    let code = unsafe { cmux_rb_client_apply(client, input.as_ptr(), input.len(), &mut ptr, &mut len) };
+    let code =
+        unsafe { cmux_rb_client_apply(client, input.as_ptr(), input.len(), &mut ptr, &mut len) };
     if code != CMUX_RD_OK {
         return (code, Value::Null);
     }
@@ -63,10 +64,19 @@ fn null_pointers_are_refused() {
     let input = b"{}";
     // SAFETY: NULL client and NULL out params are what this test passes.
     unsafe {
-        assert_eq!(cmux_rb_client_apply(std::ptr::null_mut(), input.as_ptr(), 2, &mut ptr, &mut len), CMUX_RD_ERR_NULL);
+        assert_eq!(
+            cmux_rb_client_apply(std::ptr::null_mut(), input.as_ptr(), 2, &mut ptr, &mut len),
+            CMUX_RD_ERR_NULL
+        );
         let client = cmux_rb_client_new();
-        assert_eq!(cmux_rb_client_apply(client, std::ptr::null(), 2, &mut ptr, &mut len), CMUX_RD_ERR_NULL);
-        assert_eq!(cmux_rb_client_apply(client, input.as_ptr(), 2, std::ptr::null_mut(), &mut len), CMUX_RD_ERR_NULL);
+        assert_eq!(
+            cmux_rb_client_apply(client, std::ptr::null(), 2, &mut ptr, &mut len),
+            CMUX_RD_ERR_NULL
+        );
+        assert_eq!(
+            cmux_rb_client_apply(client, input.as_ptr(), 2, std::ptr::null_mut(), &mut len),
+            CMUX_RD_ERR_NULL
+        );
         cmux_rb_client_free(client);
         cmux_rb_client_free(std::ptr::null_mut());
     }
