@@ -119,7 +119,10 @@ nonisolated extension ActionSurfaceCatalog {
             "findPrevious", "hideFind", "toggleUnread", "terminal.scrollToSelection",
         ],
         .dragGesture: [
-            "space.move", "browser.extension.move", "bookmark.move",
+            "space.move", "browser.extension.move", "bookmark.move", "space.moveLeft", "space.moveRight",
+        ],
+        .minimalMenu: [
+            "space.newWindow", "space.newWorkspace", "space.clearIcon", "space.setDefaults", "browserProfile.clearSpaceDefault",
         ],
         .paletteInternal: [
             "commandPaletteNext", "commandPalettePrevious",
