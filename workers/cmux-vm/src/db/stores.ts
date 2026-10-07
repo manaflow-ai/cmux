@@ -50,6 +50,8 @@ export interface ApiKeyRecord {
   readonly tenantId: TenantId;
   readonly scopes: ReadonlyArray<string>;
   readonly resourceAllowlist: ReadonlyArray<string> | null;
+  /** When the key stops working; null for no expiry. */
+  readonly expiresAt: Date | null;
 }
 
 export interface OwnershipStoreService {
@@ -116,6 +118,7 @@ const ApiKeyRow = Schema.Struct({
   tenant_id: TenantId,
   scopes: words,
   resource_allowlist: words,
+  expires_at: Schema.NullOr(Schema.Union(Schema.DateFromSelf, Schema.Date)),
 });
 
 const decodeRows = <A, I>(schema: Schema.Schema<A, I>, operation: string) => (rows: ReadonlyArray<unknown>) =>
@@ -155,7 +158,7 @@ export const sqlStoresLayer: Layer.Layer<OwnershipStore | ApiKeyStore | AuditSto
           .query(
             "ownership.record",
             `INSERT INTO cmux_vm.resources (cmux_id, tenant_id, kind, upstream_id, created_by, created_at, display_name, labels)
-             VALUES ($1, $2, $3, $4, $5, $6::timestamptz, $7, $8::jsonb)`,
+             VALUES ($1, $2, $3, $4, $5, $6::timestamptz, $7, $8::text::jsonb)`,
             params,
           )
           .pipe(Effect.asVoid);
@@ -178,7 +181,7 @@ export const sqlStoresLayer: Layer.Layer<OwnershipStore | ApiKeyStore | AuditSto
               WHERE tenant_id = $1 AND kind = $2 AND deleted_at IS NULL
                 AND ($3::timestamptz IS NULL OR (created_at, cmux_id) < ($3::timestamptz, $4::text))
                 AND ($5::text IS NULL OR cmux_id = ANY (string_to_array($5::text, ' ')))
-                AND ($7::jsonb IS NULL OR labels @> $7::jsonb)
+                AND ($7::text::jsonb IS NULL OR labels @> $7::text::jsonb)
               ORDER BY created_at DESC, cmux_id DESC
               LIMIT $6`,
             params,
@@ -227,7 +230,8 @@ export const sqlStoresLayer: Layer.Layer<OwnershipStore | ApiKeyStore | AuditSto
             `SELECT id, tenant_id,
                     array_to_string(scopes, ' ') AS scopes,
                     CASE WHEN resource_allowlist IS NULL THEN NULL
-                         ELSE array_to_string(resource_allowlist, ' ') END AS resource_allowlist
+                         ELSE array_to_string(resource_allowlist, ' ') END AS resource_allowlist,
+                    expires_at
                FROM cmux_vm.api_keys
               WHERE key_hash = $1
                 AND revoked_at IS NULL
@@ -243,6 +247,7 @@ export const sqlStoresLayer: Layer.Layer<OwnershipStore | ApiKeyStore | AuditSto
                 tenantId: row.tenant_id,
                 scopes: row.scopes ?? [],
                 resourceAllowlist: row.resource_allowlist,
+                expiresAt: row.expires_at,
               })),
             ),
           ),

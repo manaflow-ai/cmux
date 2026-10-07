@@ -234,3 +234,56 @@ test("a backticked path whose file name holds a space is a chip, also from home"
   expect(container.querySelector("code")).toBeNull();
   await unmount();
 });
+
+/// The reply from Lawrence's screenshot (2026-10-06): the fleet status files in /tmp, outside the
+/// session's folders.
+const FLEET_REPLY = [
+  "Rendered the build fleet status: `/tmp/fleetviz/out/fleet.png` and `/tmp/fleetviz/out/fleet.html`.",
+  "",
+  "![Build fleet status](/tmp/fleetviz/out/fleet.png)",
+].join("\n");
+const FLEET_PATHS = {
+  "/tmp/fleetviz/out/fleet.png": { place: "outside", folder: false },
+  "/tmp/fleetviz/out/fleet.html": { place: "outside", folder: false },
+};
+
+test("the fleet reply: both backticked /tmp paths are outside chips (lock, bold name, full path on hover)", async () => {
+  const { container, calls, unmount } = await render(FLEET_REPLY, { paths: FLEET_PATHS });
+  const chips = [...container.querySelectorAll<HTMLButtonElement>(".cv-chip.is-path")];
+  expect(chips.map((chip) => chip.dataset.path)).toEqual([
+    "/tmp/fleetviz/out/fleet.png",
+    "/tmp/fleetviz/out/fleet.html",
+  ]);
+  expect(chips.map((chip) => chip.querySelector(".cv-chip__label")?.textContent)).toEqual(["fleet.png", "fleet.html"]);
+  for (const chip of chips) {
+    expect(chip.classList.contains("is-outside")).toBe(true);
+    expect(chip.querySelector(".cv-chip__lock")).not.toBeNull();
+    expect(chip.title.startsWith(chip.dataset.path!)).toBe(true);
+  }
+  expect(container.querySelector("code")).toBeNull();
+  await act(async () => chips[1]!.click());
+  expect(calls.filter((call) => call.method === "link.openPath")).toEqual([
+    { method: "link.openPath", params: { path: "/tmp/fleetviz/out/fleet.html" } },
+  ]);
+  await unmount();
+});
+
+test("one path detector: prose, code spans and links chip the same forms (file URLs, folders, ./ paths)", async () => {
+  const reply = [
+    "Prose: file:///tmp/fleetviz/out/fleet.html, the folder /tmp/fleetviz/out/ and ./docs/notes.md.",
+    "Code: `file:///tmp/fleetviz/out/fleet.html`, `/tmp/fleetviz/out/` and `./docs/notes.md`.",
+    "Links: [page](file:///tmp/fleetviz/out/fleet.html), [out](/tmp/fleetviz/out/) and [notes](./docs/notes.md).",
+  ].join("\n");
+  const { container, unmount } = await render(reply);
+  const lines = [...container.querySelectorAll("p")].flatMap((p) => p.innerHTML.split("<br>"));
+  const paths = (html: string) => {
+    const div = dom.window.document.createElement("div");
+    div.innerHTML = html;
+    return [...div.querySelectorAll<HTMLButtonElement>(".cv-chip.is-path")].map((chip) => chip.dataset.path);
+  };
+  const expected = ["/tmp/fleetviz/out/fleet.html", "/tmp/fleetviz/out/", "./docs/notes.md"];
+  expect(lines.map(paths)).toEqual([expected, expected, expected]);
+  expect(container.querySelector("code")).toBeNull();
+  expect(container.textContent).toContain("Prose: fleet.html, the folder out and notes.md.");
+  await unmount();
+});

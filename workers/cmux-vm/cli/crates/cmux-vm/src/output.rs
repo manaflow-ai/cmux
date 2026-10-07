@@ -4,7 +4,7 @@
 
 use std::io::Write;
 
-use cmux_vm_client::types::{Vm, VmList};
+use cmux_vm_client::types::{ApiKeyList, CreatedApiKey, Snapshot, SnapshotList, Vm, VmList};
 use serde::Serialize;
 use serde_json::json;
 
@@ -75,11 +75,129 @@ impl<'a> Printer<'a> {
         Ok(())
     }
 
-    pub fn deleted(&mut self, vm_id: &str) -> Result<(), CliError> {
+    pub fn deleted(&mut self, id: &str) -> Result<(), CliError> {
         if self.json {
-            return self.json_value(&json!({ "id": vm_id, "deleted": true }));
+            return self.json_value(&json!({ "id": id, "deleted": true }));
         }
-        self.line(&format!("deleted {vm_id}"))
+        self.line(&format!("deleted {id}"))
+    }
+
+    pub fn revoked(&mut self, id: &str) -> Result<(), CliError> {
+        if self.json {
+            return self.json_value(&json!({ "id": id, "revoked": true }));
+        }
+        self.line(&format!("revoked {id}"))
+    }
+
+    pub fn snapshot(&mut self, body: &[u8]) -> Result<(), CliError> {
+        if self.json {
+            return self.raw_json(body);
+        }
+        let snapshot: Snapshot = decode(body)?;
+        let seconds = |s: Option<f64>| s.map_or_else(|| "none".to_owned(), |s| format!("{s} s"));
+        let lines = [
+            ("id", snapshot.id.as_str().to_owned()),
+            ("name", snapshot.display_name.clone().unwrap_or_default()),
+            (
+                "source vm",
+                snapshot
+                    .source_vm_id
+                    .as_ref()
+                    .map_or_else(|| "deleted".to_owned(), |id| id.as_str().to_owned()),
+            ),
+            ("ttl", seconds(snapshot.ttl_seconds)),
+            ("auto delete", seconds(snapshot.auto_delete_seconds)),
+            ("created", snapshot.created_at.clone()),
+            (
+                "last used",
+                snapshot
+                    .last_used_at
+                    .clone()
+                    .unwrap_or_else(|| "never".to_owned()),
+            ),
+        ];
+        for (label, value) in lines {
+            self.line(&format!("{label:<12}{value}"))?;
+        }
+        Ok(())
+    }
+
+    pub fn snapshot_list(&mut self, body: &[u8]) -> Result<(), CliError> {
+        if self.json {
+            return self.raw_json(body);
+        }
+        let page: SnapshotList = decode(body)?;
+        if page.items.is_empty() {
+            self.line("no snapshots")?;
+        } else {
+            self.line(&format!("{:<32} {:<30} CREATED", "ID", "SOURCE_VM"))?;
+            for snapshot in &page.items {
+                let source = snapshot.source_vm_id.as_ref().map_or("-", |id| id.as_str());
+                self.line(&format!(
+                    "{:<32} {:<30} {}",
+                    snapshot.id.as_str(),
+                    source,
+                    snapshot.created_at
+                ))?;
+            }
+        }
+        if let Some(cursor) = &page.next_cursor {
+            self.line(&format!("more: cmux-vm snapshot list --cursor {cursor}"))?;
+        }
+        Ok(())
+    }
+
+    /// The new key's secret goes to stdout once; the server never shows it again.
+    pub fn created_api_key(&mut self, body: &[u8]) -> Result<(), CliError> {
+        if self.json {
+            return self.raw_json(body);
+        }
+        let key: CreatedApiKey = decode(body)?;
+        let scopes: Vec<String> = key.scopes.iter().map(ToString::to_string).collect();
+        let lines = [
+            ("id", key.id.as_str().to_owned()),
+            ("name", key.name.clone()),
+            ("scopes", scopes.join(",")),
+            (
+                "resources",
+                key.resource_allowlist
+                    .as_ref()
+                    .map_or_else(|| "all".to_owned(), |r| r.join(",")),
+            ),
+            (
+                "expires",
+                key.expires_at.clone().unwrap_or_else(|| "never".to_owned()),
+            ),
+            ("key", key.key.clone()),
+        ];
+        for (label, value) in lines {
+            self.line(&format!("{label:<10}{value}"))?;
+        }
+        self.line("The key is shown only once. Store it now.")
+    }
+
+    pub fn api_key_list(&mut self, body: &[u8]) -> Result<(), CliError> {
+        if self.json {
+            return self.raw_json(body);
+        }
+        let page: ApiKeyList = decode(body)?;
+        if page.items.is_empty() {
+            return self.line("no API keys");
+        }
+        self.line(&format!(
+            "{:<31} {:<24} {:<24} NAME",
+            "ID", "EXPIRES", "REVOKED"
+        ))?;
+        for key in &page.items {
+            self.line(&format!(
+                "{:<31} {:<24} {:<24} {}",
+                key.id.as_str(),
+                key.expires_at.as_deref().unwrap_or("never"),
+                key.revoked_at.as_deref().unwrap_or("-"),
+                key.name
+            ))?;
+        }
+        Ok(())
     }
 
     /// Pretty-prints a response body without decoding it into the generated
