@@ -544,7 +544,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextRemoteBrowserTests",
-            dependencies: ["CmuxNextRemoteBrowser", "CmuxNextRemoteView"],
+            dependencies: ["CmuxNextRemoteBrowser", "CmuxNextRemoteView", "CmuxNextBrowser"],
             swiftSettings: uiSwiftSettings
         ),
         // cmux server (plans/cmux-next/server.md sections 6, 9, 13, 14): the

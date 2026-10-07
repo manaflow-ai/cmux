@@ -725,6 +725,9 @@ async fn dispatch_request(
             );
             Ok(hub.session_summary(&s))
         }
+        method::MUX_HARNESS_ENABLE => {
+            super::harness_enable::handle(hub, conn.origin, &params).await
+        }
         method::ACP_TRUST_GET | method::ACP_TRUST_SET => {
             super::trust_gate::answer(hub, m, &params).await
         }
