@@ -42,6 +42,10 @@ enum WorkspaceMetadataHandlers {
         registry.bind("workspace.toggleTop", unavailable: { context.services.sidebarLayout.unavailableReason }, run: { invocation in
             try PinCommands(context: context).toggleWorkspaceOnTop(try context.workspace(invocation).model.id, origin: invocation.origin)
         })
+        ActionTargetTitles.set("workspace.toggleTop", in: registry) { invocation in
+            guard let workspace = try? context.workspace(invocation).model else { return nil }
+            return PinCommands(context: context).isWorkspaceOnTopRows(workspace.id) ? PinStrings.removeFromTop : PinStrings.addToTop
+        }
         registry.bind("palette.resetWorkspaceColor", requires: DaemonCapabilities.shared.workspaceMetadata, daemon: context.services.activeDaemon, run: { invocation in try setColor(nil, invocation, context) })
         for id: ActionID in ["palette.markWorkspaceRead", "clearWorkspaceNotifications"] {
             registry.bind(id, requires: DaemonCapabilities.shared.notificationAck, daemon: context.services.activeDaemon, run: { invocation in

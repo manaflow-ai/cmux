@@ -20,13 +20,14 @@ extension SidebarLayoutService {
         for group in remote.legacyPins where !group.refs.isEmpty {
             if group.refs.allSatisfy(mirror.isOnTop) {
                 guard !legacyPinsCleared.contains(group.session) else { continue }
-                legacyPinsCleared.insert(group.session) // red: the flags are not cleared yet
+                legacyPinsCleared.insert(group.session)
+                remote.clearLegacyPins(group.refs)
                 continue
             }
             // Once per run: the next fetch after the owner's replies clears the flags.
             guard !legacyPinsSent.contains(group.session) else { continue }
             legacyPinsSent.insert(group.session)
-            for op in document.legacyPinMigrationOps(group.refs) {
+            for op in document.legacyPinMigrationOps(group.refs, labels: group.labels) {
                 do { try send(op) } catch { break }
             }
         }

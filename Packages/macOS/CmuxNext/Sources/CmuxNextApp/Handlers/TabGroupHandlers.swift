@@ -21,6 +21,10 @@ enum TabGroupHandlers {
         bindAppearance(bind, ctx)
         bindLifecycle(bind, ctx)
         TabGroupHandlers.bindMoves(bind, ctx)
+        // The tab group menu names saving Pin Group and unsaving Unpin Group (Chrome parity, P3);
+        // the palette keeps Save Tab Group and Unsave Tab Group.
+        ActionTargetTitles.set("tabGroup.save", in: registry) { _ in PinStrings.pinGroup }
+        ActionTargetTitles.set("tabGroup.unsave", in: registry) { _ in PinStrings.unpinGroup }
     }
 
     typealias Binder = (ActionID, @escaping @MainActor (ActionInvocation) -> Void) -> Void

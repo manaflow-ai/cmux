@@ -31,7 +31,7 @@ extension PinCommands {
         if pinsAreTiles {
             guard let ref = refs.ref(forWorkspace: id) else { throw ActionFailure(message: PinStrings.workspaceCannotPin) }
             let document = layout.document
-            let label: String? = nil // red: the name is not stored yet
+            let label = context.services.machines.workspace(id: id)?.0.displayName
             guard let op = pinned ? document.pinOp(ref, label: label) : document.unpinOp(ref) else { return }
             return try sendLayout(op, title: pinned ? PinStrings.pinWorkspace : PinStrings.unpinWorkspace, origin: origin)
         }
@@ -43,10 +43,25 @@ extension PinCommands {
     }
 
     /// Whether sidebar workspace `id` shows in the top rows (not as a tile).
-    func isWorkspaceOnTopRows(_ id: String) -> Bool { false }
+    func isWorkspaceOnTopRows(_ id: String) -> Bool {
+        guard pinsAreTiles, let ref = refs.ref(forWorkspace: id) else { return false }
+        return layout.document.removeFromTopOp(ref) != nil
+    }
 
-    /// Red: not implemented yet.
-    func toggleWorkspaceOnTop(_ id: String, origin: ActionOrigin) throws {}
+    /// Adds sidebar workspace `id` to the top rows ("Add to Top", P1) or
+    /// removes it from them; its tile, if any, stays. The workspace's name
+    /// is stored with the row for when it is closed.
+    func toggleWorkspaceOnTop(_ id: String, origin: ActionOrigin) throws {
+        if let reason = layout.unavailableReason { throw ActionFailure(message: reason) }
+        guard let ref = refs.ref(forWorkspace: id) else { throw ActionFailure(message: PinStrings.workspaceCannotPin) }
+        let document = layout.document
+        if let remove = document.removeFromTopOp(ref) {
+            return try sendLayout(remove, title: PinStrings.removeFromTop, origin: origin)
+        }
+        let label = context.services.machines.workspace(id: id)?.0.displayName
+        guard let add = document.addToTopOp(ref, label: label) else { return }
+        try sendLayout(add, title: PinStrings.addToTop, origin: origin)
+    }
 
     /// Sends one layout change and, for the user, registers its inverse.
     func sendLayout(_ op: SidebarLayoutOp, title: String, origin: ActionOrigin) throws {

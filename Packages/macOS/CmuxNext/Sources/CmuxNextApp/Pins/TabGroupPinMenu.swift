@@ -5,6 +5,6 @@ import CmuxNextActions
 /// Group (`tabGroup.unsave`), whichever applies, never both.
 enum TabGroupPinMenu {
     static func entries(saved: Bool) -> [ContextMenuEntry] {
-        ContextMenuCatalog.shared.entries(for: .tabGroup) // red: both rows
+        ContextMenuCatalog.shared.entries(for: .tabGroup, removing: [saved ? "tabGroup.save" : "tabGroup.unsave"])
     }
 }

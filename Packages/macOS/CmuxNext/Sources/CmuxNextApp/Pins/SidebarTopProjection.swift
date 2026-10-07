@@ -52,12 +52,13 @@ struct SidebarWorkspaceItems {
     /// front tab's kind glyph (SidebarMapping.row, the one row rule), in the
     /// workspace's color. The selection marks it active (SidebarModel.selectedItem).
     static func workspaceInfo(_ workspace: WorkspaceModel) -> SidebarItemInfo {
-        // Red: the workspace glyph, not the row's.
-        let color = workspace.color.flatMap(GroupColor.init(rawValue:))
-        if case .symbol(let name, let tint)? = workspace.icon.flatMap({ WorkspaceIcon.parse($0, color: color) }) {
-            return SidebarItemInfo(title: workspace.displayName, symbol: name, color: tint)
+        let row = SidebarMapping.shared.row(workspace, machine: .local, showsUnread: false)
+        let color = SidebarMapping.shared.color(workspace.color)
+        if case .symbol(let name, let tint)? = row.icon {
+            return SidebarItemInfo(title: row.title, symbol: name, color: tint)
         }
-        let symbol = IconCatalog.bundled.entry(for: .workspace)?.sf ?? "square.stack"
-        return SidebarItemInfo(title: workspace.displayName, symbol: symbol, icon: .workspace, color: color)
+        let icon = row.kind.iconName
+        let symbol = IconCatalog.bundled.entry(for: icon)?.sf ?? "square.stack"
+        return SidebarItemInfo(title: row.title, symbol: symbol, icon: icon, color: color, brand: row.kindBrand)
     }
 }

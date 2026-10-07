@@ -14,6 +14,7 @@ extension TabStripModel {
     /// only an explicit close (the tab menu, the CLI or MCP by id) closes it.
     /// `closesPinned` (`tabs.cmdWClosesPinnedTabs`) turns the rule off.
     public func keyboardClose(_ id: TabID, closesPinned: Bool = false) -> TabKeyboardClose {
+        guard !closesPinned else { return .close }
         let ordered = orderedTabs
         guard let index = ordered.firstIndex(where: { $0.id == id }), ordered[index].isPinned else { return .close }
         let collapsed = Set(groups.filter(\.isCollapsed).map(\.id))
