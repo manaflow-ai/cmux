@@ -94,3 +94,40 @@ jobs:
             echo "::error::the cmux VM clients must not name the upstream provider"
             exit 1
           fi
+
+  sdk:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: workers/cmux-vm/sdk
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+
+      - id: install
+        run: bun install --frozen-lockfile
+
+      - name: Generated schema matches openapi.json
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          bun run generate
+          if [[ -n "$(git status --porcelain -- .)" ]]; then
+            git --no-pager diff --stat -- .
+            echo "::error::src/schema.d.ts is stale: run \`bun run generate\` in workers/cmux-vm/sdk and commit the result"
+            exit 1
+          fi
+
+      - name: Typecheck
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun run typecheck
+
+      - name: Tests
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun test
