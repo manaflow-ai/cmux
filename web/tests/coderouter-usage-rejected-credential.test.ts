@@ -134,7 +134,7 @@ describe("coderouter usage reads with a rejected credential", () => {
       usageStatus: () => 401,
     });
     const result = await run.load("team-1");
-    expect(result.accounts[0]).toMatchObject({ id: ACCOUNT_ID, state: "active", usageError: "HTTP 401" });
+    expect(result.accounts[0]).toMatchObject({ id: ACCOUNT_ID, state: "active", usageError: "credential_refreshing" });
     expect(run.reported).toEqual([]);
   });
 

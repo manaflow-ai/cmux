@@ -52,6 +52,8 @@ export type CredentialRefreshDependencies = {
   readonly fail: typeof failRefreshLease;
   readonly isTerminal: typeof isTerminalRefreshError;
   readonly failureCode: typeof refreshFailureCode;
+  /** Defaults to the shared coderouter failure reporter. */
+  readonly report?: typeof reportCoderouterFailure;
 };
 
 export function createCredentialRefresher(
@@ -144,10 +146,14 @@ export function createCredentialRefresher(
         throw error;
       }
       const terminal = dependencies.isTerminal(error);
-      reportCoderouterFailure("provider_refresh", error, {
+      // A terminal refresh means the provider revoked this sign-in (logout,
+      // password change, or the refresh token was rotated by another client).
+      // The account is marked broken below and the dashboard asks the team to
+      // reconnect it, so it is the tenant's state to fix, not an operator page.
+      (dependencies.report ?? reportCoderouterFailure)("provider_refresh", error, {
         provider: currentProvider(before.credential),
         terminal,
-      });
+      }, terminal ? { fault: "tenant" } : {});
       await dependencies.fail(
         input.accountId,
         leaseId,
