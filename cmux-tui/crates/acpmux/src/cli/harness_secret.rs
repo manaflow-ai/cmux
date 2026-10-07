@@ -14,6 +14,7 @@ use std::io::{IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Result, anyhow, bail};
+use zeroize::Zeroizing;
 
 use crate::config::profiles;
 use crate::config::{Config, ProfileSource};
@@ -208,17 +209,23 @@ pub fn write_reference(path: &Path, id: &str, key: &str) -> Result<bool, String>
 
 /// Read the value: a no-echo prompt on a terminal, else all of stdin with
 /// one trailing line break removed.
-pub fn read_value(key: &str) -> Result<String> {
+pub fn read_value(key: &str) -> Result<Zeroizing<String>> {
     let stdin = std::io::stdin();
     if stdin.is_terminal() {
         eprint!("Value for {key} (input hidden): ");
         std::io::stderr().flush()?;
         let value = read_hidden_line()?;
         eprintln!();
-        return Ok(value);
+        return Ok(Zeroizing::new(value));
     }
+    read_secret_from(&mut stdin.lock())
+}
+
+/// All of `input` (at most [`MAX_SECRET_BYTES`]) with one trailing line
+/// break removed.
+pub fn read_secret_from(input: &mut impl Read) -> Result<Zeroizing<String>> {
     let mut buf = Vec::new();
-    stdin.lock().take(MAX_SECRET_BYTES as u64 + 1).read_to_end(&mut buf)?;
+    input.take(MAX_SECRET_BYTES as u64 + 1).read_to_end(&mut buf)?;
     if buf.len() > MAX_SECRET_BYTES {
         bail!("the value is longer than {MAX_SECRET_BYTES} bytes");
     }
@@ -229,7 +236,7 @@ pub fn read_value(key: &str) -> Result<String> {
             value.pop();
         }
     }
-    Ok(value)
+    Ok(Zeroizing::new(value))
 }
 
 /// One line from the terminal with echo off; echo is restored on every path.
@@ -260,7 +267,7 @@ fn read_hidden_line() -> Result<String> {
 pub async fn set_cmd(id: &str, key: &str) -> Result<()> {
     let cfg = Config::load()?;
     let value = read_value(key)?;
-    let change = secret_set(id, key, &value, &cfg, &|cmd| run_store(cmd))?;
+    let change = secret_set(id, key, value.as_str(), &cfg, &|cmd| run_store(cmd))?;
     drop(value);
     println!("stored {key} for {id} in the secret store ({})", reference(id, key));
     match change {

@@ -140,3 +140,17 @@ fn a_failed_store_writes_nothing_and_bad_names_are_refused() {
     let other = secret_set("nope", "K", SECRET, &cfg, &|_| Ok(())).unwrap();
     assert!(matches!(other, FileChange::Manual { path: None, .. }), "{other:?}");
 }
+
+#[test]
+fn a_piped_value_is_read_into_one_buffer_sized_before_the_read() {
+    let mut input: &[u8] = b"s3cret-value\r\n";
+    let value = read_secret_from(&mut input).unwrap();
+    assert_eq!(value.as_str(), "s3cret-value");
+    // Sized for the largest value before the read: no reallocation left a
+    // copy of the secret in freed memory that the zeroing cannot reach.
+    assert!(value.capacity() > MAX_SECRET_BYTES, "capacity {}", value.capacity());
+    let mut long: &[u8] = &[b'a'; MAX_SECRET_BYTES + 1];
+    assert!(read_secret_from(&mut long).is_err());
+    let mut bad: &[u8] = &[0xff, 0xfe];
+    assert!(read_secret_from(&mut bad).is_err());
+}
