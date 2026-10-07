@@ -48,6 +48,9 @@ jobs:
       actions: write
       checks: read
       contents: read
+      # Read main's red full-suite issue (without it the label search finds none) and keep the
+      # record of failures seen on other pull requests in issue 17286's body.
+      issues: write
       pull-requests: write
     steps:
       - name: Checkout main's classifier

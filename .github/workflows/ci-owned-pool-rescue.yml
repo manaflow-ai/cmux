@@ -131,6 +131,10 @@ jobs:
           QUEUE_ROUNDS: ${{ vars.CI_PR_POOL_QUEUE_ROUNDS }}
           GH_TOKEN: ${{ github.token }}
           RESCUE_SECONDS: ${{ vars.CI_OWNED_POOL_RESCUE_SECONDS }}
+          # cmux-next uses the repository rescue window. A bot rerun reaches
+          # attempt 3 and takes the workflow's Blacksmith fallback; manual
+          # reruns stay minis-first through attempt 2.
+          SIDE_RESCUE_SECONDS: ${{ vars.CI_OWNED_POOL_RESCUE_SECONDS }}
           POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
           WATCH_RUN_ID: ${{ inputs.run_id }}
           SWEEP: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && !inputs.run_id) && '1' || '' }}
