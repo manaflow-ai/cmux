@@ -26,12 +26,13 @@ extension BrowserReplFrameGate {
     /// the tab is checked again (``checkTab(in:)``) and the document judged
     /// in the command's own script turn, so a document the session's
     /// authority refuses gets no command. Undo and Redo take WebKit's undo
-    /// stack, which is the tab's: the command runs only from an allowed
-    /// focused document, and the edit it undoes is the tab's last one.
+    /// stack, which is the tab's and can hold any frame's edits, so they
+    /// run only from an allowed focused document in a tab that shows no
+    /// frame the policy blocks.
     ///
     /// - Throws: `blocked` when the focus is in a frame the authority
-    ///   refuses or the focused document is one it refuses when the command
-    ///   arrives, `stale` when the focused frame cannot be told or the
+    ///   refuses, the focused document is one it refuses when the command
+    ///   arrives, or (Undo, Redo) the tab shows a frame the policy blocks, `stale` when the focused frame cannot be told or the
     ///   focus moved into a child frame before the command ran, `denied` or
     ///   `cancelled` when the session may no longer use the tab.
     public func runEditingShortcut(
@@ -54,6 +55,17 @@ extension BrowserReplFrameGate {
         try checkTab(in: webView)
         let tree = await frames()
         try await checkFocus(in: webView, frames: tree)
+        // WebKit's undo stack is the tab's, and nothing tells which
+        // document a step belongs to (a blocked frame's `beforeinput` for
+        // it cannot cancel it): an Undo run from an allowed document undoes
+        // a blocked frame's own last edit just as well. So while the tab
+        // shows a frame the policy blocks, Undo and Redo are refused.
+        if shortcut != .selectAll, let entry = blocked(tree, in: webView).first {
+            throw BrowserReplDriverError(
+                code: "blocked",
+                message: "The tab shows frame \(entry.frame.shownURL), which the domain policy blocks: \(entry.reason); \(shortcut.rawValue) is refused because the tab's undo stack can hold that frame's edits"
+            )
+        }
         let leaf = try await focusedFrame(in: webView, tree: tree)
         try await beforeDelivery?()
         let value = try await callAsyncJavaScript(

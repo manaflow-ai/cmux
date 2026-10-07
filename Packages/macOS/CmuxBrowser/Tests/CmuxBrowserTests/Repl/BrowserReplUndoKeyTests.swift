@@ -36,8 +36,9 @@ struct BrowserReplUndoKeyTests {
     }
 
     /// The page in an app-like web view, in a window, as its first responder.
-    private func load(cancellingMetaKeys: Bool = false, childPage: String? = nil) async throws -> Setup {
-        let html = Self.page + (cancellingMetaKeys ? "<script>addEventListener('keydown', e => { if (e.metaKey) e.preventDefault(); });</script>" : "")
+    private func load(cancellingMetaKeys: Bool = false, blockedFrame: Bool = true, childPage: String? = nil) async throws -> Setup {
+        var html = Self.page + (cancellingMetaKeys ? "<script>addEventListener('keydown', e => { if (e.metaKey) e.preventDefault(); });</script>" : "")
+        if !blockedFrame { html = html.replacingOccurrences(of: "blocked.test", with: "allowed.test") }
         let configuration = WKWebViewConfiguration()
         configuration.setURLSchemeHandler(FramePageSchemeHandler(mainPage: html, childPage: childPage), forURLScheme: "cmux-test")
         let webView = UndoChordWebView(frame: NSRect(x: 0, y: 0, width: 400, height: 300), configuration: configuration)
@@ -96,7 +97,9 @@ struct BrowserReplUndoKeyTests {
     }
 
     @Test func replUndoAndRedoInAnAllowedDocumentReachThePageThenRunThroughTheGate() async throws {
-        let setup = try await load()
+        // A tab that shows a blocked frame refuses Undo and Redo outright
+        // (replKeysAfterTheMainDocumentFocusesABlockedFrameFromScriptDoNotReachIt).
+        let setup = try await load(blockedFrame: false)
         defer { setup.window.close() }
         try await typeInEditable(setup)
         #expect(try await text(setup) == "typed")

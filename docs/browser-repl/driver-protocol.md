@@ -203,8 +203,10 @@ the keyboard focus (found as for the clipboard shortcuts), never as a native
 action that would reach whatever document holds the focus when it arrives:
 a focus in a frame the authority refuses, or a document it refuses by the
 time the command runs, gets no command (`blocked`). Undo and redo take the
-tab's undo stack, so from an allowed focused document they undo the tab's
-last edit. The app's web views undo a person's Command-Z themselves, but an
+tab's undo stack, which holds every frame's edits and does not tell whose a
+step is, so a tab that shows a frame the policy blocks refuses them
+(`blocked`); elsewhere, from an allowed focused document, they undo the
+tab's last edit. The app's web views undo a person's Command-Z themselves, but an
 automated Meta+Z or Shift+Meta+Z is never undone that way: it reaches the
 page first, as every other key does. In a tab a
 session created (one with the page clipboard guard), `cmux browser press`
