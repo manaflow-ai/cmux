@@ -237,7 +237,7 @@ extension ConversationViewController {
         revealRowID = nil
         editOverlay?.dismiss {}
         editOverlay = nil
-        header.setTrailingMode(isSelecting || replyTarget != nil ? .close : .action, animated: true)
+        header.setTrailingMode(isSelecting ? .cancel : (replyTarget != nil ? .close : .action), animated: true)
     }
 }
 

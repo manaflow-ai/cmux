@@ -22,13 +22,14 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
 
     public func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         if let pan = gestureRecognizer as? UIPanGestureRecognizer, pan.name == "conversation.horizontalPan" {
-            guard !isSelecting else { return false }
+            guard !isSelecting, !touchBelongsToTextSelection(pan.location(in: collectionView)) else { return false }
             let velocity = pan.velocity(in: collectionView)
             // Only a clearly horizontal drag; vertical scrolling stays native.
             return abs(velocity.x) > abs(velocity.y) * 1.3
         }
         if gestureRecognizer is UILongPressGestureRecognizer {
-            return !isSelecting && messageCell(at: gestureRecognizer.location(in: collectionView), requireContentHit: true) != nil
+            return !isSelecting && !touchBelongsToTextSelection(gestureRecognizer.location(in: collectionView))
+                && messageCell(at: gestureRecognizer.location(in: collectionView), requireContentHit: true) != nil
         }
         return true
     }
@@ -171,6 +172,11 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
             dismissPhotoDrawer()
             return
         }
+        // A tap away from selected bubble text clears it, and does nothing else.
+        if textSelection != nil {
+            if !touchBelongsToTextSelection(point) { endTextSelection() }
+            return
+        }
         if !isSelecting, let indexPath = collectionView.indexPathForItem(at: point), indexPath.item < rows.count,
            case let .notice(notice) = rows[indexPath.item], notice.failure != nil {
             presentNotUnsent(messageID: notice.messageID)
@@ -297,13 +303,16 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
         let anchorRow = initial.flatMap { indexPath(for: $0) }
         let anchorY = anchorRow.flatMap { collectionView.layoutAttributesForItem(at: $0)?.frame.minY }.map { $0 - collectionView.contentOffset.y }
         if selecting { view.endEditing(true) }
+        endTextSelection()
         view.layoutIfNeeded()
         if let anchorRow, let anchorY, let frame = collectionView.layoutAttributesForItem(at: anchorRow)?.frame {
             collectionView.contentOffset.y = min(max(-collectionView.adjustedContentInset.top, frame.minY - anchorY), bottomOffset.y)
         }
         isSelecting = selecting
         selectedRowIDs = selecting ? Set([initial].compactMap { $0 }) : []
-        header.setTrailingMode(selecting || replyTarget != nil ? .close : .action, animated: true)
+        header.setTrailingMode(selecting ? .cancel : (replyTarget != nil ? .close : .action), animated: true)
+        // Messages swaps the back button for the trailing X while selecting.
+        header.setBackHidden(selecting, animated: true)
         UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0) {
             for case let cell as MessageCell in self.collectionView.visibleCells {
                 cell.setSelectionMode(selecting, selected: self.selectedRowIDs.contains(cell.model?.rowID ?? ""), animated: false)
@@ -314,46 +323,45 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
 
     func toggleSelection(_ rowID: String) {
         if selectedRowIDs.contains(rowID) { selectedRowIDs.remove(rowID) } else { selectedRowIDs.insert(rowID) }
-        (view.viewWithTag(Self.selectionTrashTag) as? UIButton)?.isEnabled = !selectedRowIDs.isEmpty
+        for tag in [Self.selectionTrashTag, Self.selectionForwardTag] {
+            (view.viewWithTag(tag) as? UIButton)?.isEnabled = !selectedRowIDs.isEmpty
+        }
         if let indexPath = indexPath(for: rowID), let cell = collectionView.cellForItem(at: indexPath) as? MessageCell {
             cell.setSelectionMode(true, selected: selectedRowIDs.contains(rowID), animated: true)
         }
     }
 
+    /// Messages' select-mode bar: the composer gives way to two glass circles,
+    /// Delete at the leading edge and Forward at the trailing edge (48 pt,
+    /// centers 52 pt in from each side, 4 pt above the composer's center line;
+    /// measured on iOS 26.5 Messages).
     private func setSelectionToolbar(visible: Bool) {
         let tag = 4242
         if visible {
             guard view.viewWithTag(tag) == nil else { return }
-            let bar = UIView()
+            let bar = SelectionToolbarView()
             bar.tag = tag
-            let trash = makeGlassView(cornerRadius: 22, interactive: true)
-            let share = makeGlassView(cornerRadius: 22, interactive: true)
-            let trashButton = UIButton(type: .system)
-            trashButton.setImage(UIImage(systemName: "trash"), for: .normal)
-            trashButton.tintColor = .label
-            trashButton.accessibilityLabel = String(localized: "conversation.select.delete", defaultValue: "Delete", bundle: .module)
-            trashButton.tag = Self.selectionTrashTag
-            trashButton.isEnabled = !selectedRowIDs.isEmpty
-            trashButton.addAction(UIAction { [weak self, weak trashButton] _ in
-                guard let self, let trashButton else { return }
-                self.confirmDeleteSelection(from: trashButton)
-            }, for: .touchUpInside)
-            let shareButton = UIButton(type: .system)
-            shareButton.setImage(UIImage(systemName: "square.and.arrow.up"), for: .normal)
-            shareButton.tintColor = .label
-            shareButton.accessibilityLabel = String(localized: "conversation.select.share", defaultValue: "Share", bundle: .module)
-            shareButton.addAction(UIAction { [weak self] _ in self?.shareSelection() }, for: .touchUpInside)
-            trash.contentView.addSubview(trashButton)
-            share.contentView.addSubview(shareButton)
-            bar.addSubview(trash)
-            bar.addSubview(share)
+            let size = Self.selectionButtonSize
+            let trash = makeSelectionButton(
+                symbol: "trash",
+                label: String(localized: "conversation.select.delete", defaultValue: "Delete", bundle: .module),
+                tag: Self.selectionTrashTag
+            ) { [weak self] button in self?.confirmDeleteSelection(from: button) }
+            let forward = makeSelectionButton(
+                symbol: "arrowshape.turn.up.right",
+                label: String(localized: "conversation.select.forward", defaultValue: "Forward", bundle: .module),
+                tag: Self.selectionForwardTag
+            ) { [weak self] _ in self?.forwardSelection() }
             let width = view.bounds.width
-            let y = composerContainer.frame.minY
-            bar.frame = CGRect(x: 0, y: y, width: width, height: composerContainer.frame.height)
-            trash.frame = CGRect(x: ConversationTheme.composerSideInset, y: 0, width: 44, height: 44)
-            share.frame = CGRect(x: width - ConversationTheme.composerSideInset - 44, y: 0, width: 44, height: 44)
-            trashButton.frame = trash.bounds
-            shareButton.frame = share.bounds
+            let centerY = composerContainer.convert(CGPoint(x: 0, y: composerContainer.bounds.midY), to: view).y - 4
+            bar.frame = CGRect(x: 0, y: centerY - size / 2, width: width, height: size)
+            bar.autoresizingMask = [.flexibleWidth]
+            let inset = Self.selectionButtonCenterInset - size / 2
+            trash.frame = CGRect(x: inset, y: 0, width: size, height: size)
+            forward.frame = CGRect(x: width - inset - size, y: 0, width: size, height: size)
+            forward.autoresizingMask = [.flexibleLeftMargin]
+            bar.addSubview(trash)
+            bar.addSubview(forward)
             bar.alpha = 0
             view.addSubview(bar)
             UIView.animate(withDuration: 0.25) {
@@ -368,7 +376,31 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
         }
     }
 
+    private static let selectionButtonSize: CGFloat = 48
+    private static let selectionButtonCenterInset: CGFloat = 52
+
+    /// One glass circle holding a symbol button.
+    private func makeSelectionButton(symbol: String, label: String, tag: Int, action: @escaping (UIButton) -> Void) -> UIView {
+        let glass = makeGlassView(cornerRadius: Self.selectionButtonSize / 2, interactive: true)
+        glass.frame = CGRect(x: 0, y: 0, width: Self.selectionButtonSize, height: Self.selectionButtonSize)
+        let button = UIButton(type: .system)
+        button.setImage(UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 20, weight: .regular)), for: .normal)
+        button.tintColor = .label
+        button.accessibilityLabel = label
+        button.tag = tag
+        button.isEnabled = !selectedRowIDs.isEmpty
+        button.addAction(UIAction { [weak button] _ in
+            guard let button else { return }
+            action(button)
+        }, for: .touchUpInside)
+        button.frame = glass.contentView.bounds
+        button.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        glass.contentView.addSubview(button)
+        return glass
+    }
+
     static let selectionTrashTag = 4243
+    static let selectionForwardTag = 4244
 
     /// Messages asks before deleting: one destructive "Delete N Messages"
     /// action, then the rows collapse and select mode ends.
@@ -395,13 +427,29 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
         store.deleteLocally(rowIDs: rowIDs)
     }
 
-    private func shareSelection() {
-        let texts = rows.compactMap { row -> String? in
+    /// Forward: select mode ends and New Message opens with the picked
+    /// messages, in transcript order.
+    func forwardSelection() {
+        let picked = rows.compactMap { row -> ConversationMessage? in
             guard case let .message(model) = row, selectedRowIDs.contains(model.rowID) else { return nil }
-            return model.message.text
+            return model.message
         }
-        guard !texts.isEmpty else { return }
-        present(UIActivityViewController(activityItems: [texts.joined(separator: "\n")], applicationActivities: nil), animated: true)
+        let draft = ConversationForwardDraft(messages: picked)
+        guard !draft.isEmpty else { return }
+        setSelecting(false)
+        if let onForward {
+            onForward(draft)
+        } else {
+            presentForwardPlaceholder(draft)
+        }
+    }
+}
+
+/// Lets touches between the two select-mode circles reach the transcript.
+private final class SelectionToolbarView: UIView {
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        let view = super.hitTest(point, with: event)
+        return view === self ? nil : view
     }
 }
 
