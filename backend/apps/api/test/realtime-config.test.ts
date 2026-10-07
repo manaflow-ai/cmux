@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest"
 import { DEFAULT_MOBILE_CONFIG, mobileConfig } from "../src/mobile-config.ts"
+import { handleTurn } from "../src/mobile-routes.ts"
 import { iceServersOf, mintTurnCredentials, TURN_TTL_SECONDS } from "../src/realtime-turn.ts"
-import { call, hostUser } from "./host-control-support.ts"
+import { call, hostUser, testEnv } from "./host-control-support.ts"
 
 /** TURN credential minting for B2 and the remote config for C16 (b1-control-do.md sections 6 and 7). */
 
@@ -31,6 +32,40 @@ describe("Cloudflare Realtime TURN credentials", () => {
     const denied = (async () => new Response("no", { status: 401 })) as unknown as typeof fetch
     expect(await mintTurnCredentials(configured, "in_a", 0, denied)).toMatchObject({ ok: false, retryable: false })
     expect(iceServersOf({ iceServers: { urls: "turns:turn.cloudflare.com:5349", username: "u", credential: "c" } })).toEqual([{ urls: ["turns:turn.cloudflare.com:5349"], username: "u", credential: "c" }])
+  })
+
+  it("limits the authenticated identity before calling the TURN provider", async () => {
+    const u = await hostUser("turn-rate")
+    let providerCalls = 0
+    const env = Object.create(testEnv) as Record<string, unknown>
+    env.MOBILE_TURN_LIMIT = { limit: async ({ key }: { key: string }) => ({ success: key === `turn:${u.phone.install}` }) }
+    env.CLOUDFLARE_TURN_KEY_ID = configured.CLOUDFLARE_TURN_KEY_ID
+    env.CLOUDFLARE_TURN_KEY_API_TOKEN = configured.CLOUDFLARE_TURN_KEY_API_TOKEN
+    const request = new Request("https://api.test/v1/realtime/turn", { method: "POST", headers: { authorization: `Bearer ${u.phone.token}` } })
+    const response = await handleTurn(request, env as never, (async () => {
+      providerCalls++
+      return Response.json({ iceServers: [{ urls: "stun:stun.cloudflare.com:3478" }] })
+    }) as unknown as typeof fetch)
+    expect(response.status).toBe(200)
+    expect(providerCalls).toBe(1)
+
+    env.MOBILE_TURN_LIMIT = { limit: async () => ({ success: false }) }
+    const refused = await handleTurn(request, env as never, (async () => {
+      providerCalls++
+      return Response.json({ iceServers: [{ urls: "stun:stun.cloudflare.com:3478" }] })
+    }) as unknown as typeof fetch)
+    expect(refused.status).toBe(429)
+    expect((await refused.json()) as unknown).toMatchObject({ ok: false, error: { code: "signal.rate_limited", retryable: true } })
+    expect(refused.headers.get("retry-after")).toBe("60")
+    expect(providerCalls).toBe(1)
+
+    env.MOBILE_TURN_LIMIT = { limit: async () => { throw new Error("limiter unavailable") } }
+    const unavailable = await handleTurn(request, env as never, (async () => {
+      providerCalls++
+      return Response.json({ iceServers: [{ urls: "stun:stun.cloudflare.com:3478" }] })
+    }) as unknown as typeof fetch)
+    expect(unavailable.status).toBe(429)
+    expect(providerCalls).toBe(1)
   })
 })
 

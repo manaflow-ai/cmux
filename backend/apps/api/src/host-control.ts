@@ -8,6 +8,7 @@ import { parseSignal, SignalBudget } from "./host-signal.ts"
 import { answerHello, errorFrame, MAX_CONTROL_FRAME, readFields, readReply, sendJson, type ErrorBody, type MobileSession } from "./mobile-session.ts"
 import { mintTurnCredentials, turnAsRead } from "./realtime-turn.ts"
 import { closeQuietly, SocketGate } from "./socket-gate.ts"
+import { MOBILE_RATE_LIMITED, MOBILE_RATE_RETRY_SECONDS, mobileRateKey, takeMobileRate } from "./mobile-rate.ts"
 
 /**
  * HostDO's control sockets (b1-control-do.md): the Mac (`host`) and the phones and other clients
@@ -201,7 +202,7 @@ export class HostControl {
     return this.macFrame(ws, a, frame)
   }
 
-  private hello(ws: WebSocket, a: ControlAttachment, frame: Frame) {
+  private async hello(ws: WebSocket, a: ControlAttachment, frame: Frame) {
     const session = answerHello(ws, frame, HOST_CAPS)
     if (!session) return
     a.mobile = session
@@ -216,24 +217,33 @@ export class HostControl {
       for (const stream of [names.workspace, names.task]) sendJson(ws, { t: "snapshot.request", stream })
     }
     const resume = Array.isArray(frame.resume) ? (frame.resume as Array<{ stream?: unknown; seq?: unknown }>) : []
-    for (const r of resume.slice(0, 8)) if (typeof r?.stream === "string" && Number.isInteger(r.seq)) this.subscribe(ws, a, { t: "subscribe", stream: r.stream, after_seq: r.seq })
+    for (const r of resume.slice(0, 8)) if (typeof r?.stream === "string" && Number.isInteger(r.seq)) await this.subscribe(ws, a, { t: "subscribe", stream: r.stream, after_seq: r.seq })
   }
 
   private emptyState(stream: string, host: string): unknown {
     return stream.startsWith("workspace:") ? { host, workspaces: [] } : { host, tasks: [] }
   }
 
-  private subscribe(ws: WebSocket, a: ControlAttachment, frame: Frame) {
+  private async subscribe(ws: WebSocket, a: ControlAttachment, frame: Frame) {
     const ids = this.ids()!
     const names = this.streamNames(ids.host)
     const stream = typeof frame.stream === "string" ? frame.stream : names.host
     if (stream !== names.host && stream !== names.workspace && stream !== names.task) return sendJson(ws, errorFrame({ code: "auth.forbidden", message: `not a stream of ${ids.host}`, retryable: false }))
     if (!a.streams.includes(stream)) [a.streams.push(stream), ws.serializeAttachment(a)]
-    const pending = Array.isArray(frame.pending) ? (frame.pending as Array<unknown>).filter((k): k is string => typeof k === "string" && KEY.test(k)).slice(0, 256) : []
+    let pending = Array.isArray(frame.pending) ? (frame.pending as Array<unknown>).filter((k): k is string => typeof k === "string" && KEY.test(k)).slice(0, 256) : []
     const after = frame.t === "subscribe" && Number.isInteger(frame.after_seq) ? (frame.after_seq as number) : undefined
     // Pending intents need the owner's decided keys: the Mac follows with this device's own snapshot.
     // The mirror's snapshot goes first, so a Mac that never answers leaves no subscriber without state.
-    if (stream !== names.host && pending.length > 0 && a.role === "device" && this.macOnline()) this.toMac({ t: "snapshot.request", stream, pending, to: identityOf(a.principal) })
+    if (stream !== names.host && pending.length > 0 && a.role === "device" && this.macOnline()) {
+      const identity = identityOf(a.principal)
+      if (!(await takeMobileRate(this.env.MOBILE_PENDING_LIMIT, mobileRateKey("pending", identity), true))) {
+        sendJson(ws, errorFrame({ code: MOBILE_RATE_LIMITED, message: "too many pending snapshot requests; retry shortly", retryable: true, details: { retry_after_s: MOBILE_RATE_RETRY_SECONDS } }))
+        // Still serve the local mirror below; the client can retry its pending keys later.
+        pending = []
+      } else {
+        this.toMac({ t: "snapshot.request", stream, pending, to: identity })
+      }
+    }
     const epoch = typeof frame.epoch === "string" ? frame.epoch : undefined
     const r = this.streams.resume(stream, pending.length > 0 ? undefined : after, epoch)
     if (!r) return sendJson(ws, { t: "snapshot", stream, seq: 0, state: this.emptyState(stream, ids.host), decided: [] })
@@ -282,7 +292,10 @@ export class HostControl {
       case "read": {
         const r = readFields(frame)
         if (!r.ok) return sendJson(ws, r.error)
-        if (r.op === "signal.turn_credentials") return sendJson(ws, readReply(r.id, turnAsRead(await mintTurnCredentials(this.env, me))))
+        if (r.op === "signal.turn_credentials") {
+          if (!(await takeMobileRate(this.env.MOBILE_TURN_LIMIT, mobileRateKey("turn", me), true))) return sendJson(ws, readReply(r.id, { ok: false, code: MOBILE_RATE_LIMITED, message: "too many TURN credential requests; retry shortly", retryable: true, details: { retry_after_s: MOBILE_RATE_RETRY_SECONDS } }))
+          return sendJson(ws, readReply(r.id, turnAsRead(await mintTurnCredentials(this.env, me))))
+        }
         if (!FORWARD_READS.has(r.op)) return sendJson(ws, errorFrame({ code: "validation.invalid", message: `unknown read ${r.op}`, retryable: false }, r.id))
         if (!this.macOnline()) return sendJson(ws, errorFrame({ code: "owner.unreachable", message: "the Mac is offline", retryable: true }, r.id))
         this.failForwards(this.forwards.expire(Date.now()), "the Mac did not answer in time")
@@ -328,7 +341,9 @@ export class HostControl {
         const r = readFields(frame)
         if (!r.ok) return sendJson(ws, r.error)
         if (r.op !== "signal.turn_credentials") return sendJson(ws, errorFrame({ code: "validation.invalid", message: `unknown read ${r.op}`, retryable: false }, r.id))
-        return sendJson(ws, readReply(r.id, turnAsRead(await mintTurnCredentials(this.env, identityOf(a.principal)))))
+        const identity = identityOf(a.principal)
+        if (!(await takeMobileRate(this.env.MOBILE_TURN_LIMIT, mobileRateKey("turn", identity), true))) return sendJson(ws, readReply(r.id, { ok: false, code: MOBILE_RATE_LIMITED, message: "too many TURN credential requests; retry shortly", retryable: true, details: { retry_after_s: MOBILE_RATE_RETRY_SECONDS } }))
+        return sendJson(ws, readReply(r.id, turnAsRead(await mintTurnCredentials(this.env, identity))))
       }
       case "op": {
         const key = typeof frame.idempotency_key === "string" ? frame.idempotency_key : ""

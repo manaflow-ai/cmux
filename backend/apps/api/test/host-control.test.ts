@@ -2,6 +2,7 @@ import { runInDurableObject as runIn } from "cloudflare:test"
 import { describe, expect, it } from "vitest"
 import { HostDO } from "../src/host-do.ts"
 import { COMPACT_EVENTS } from "../src/host-mirror.ts"
+import { MOBILE_PENDING_LIMIT, MOBILE_TURN_LIMIT } from "../src/mobile-rate.ts"
 import { call, hostUser, installToken, op, openHost, roundTrip, testEnv } from "./host-control-support.ts"
 
 /** HostDO control plane (b1-control-do.md sections 2 to 4): auth, hello, presence, mirrors, forwarding, hibernation. */
@@ -301,6 +302,26 @@ describe("HostDO control sockets", { timeout: 60_000 }, () => {
     expect(await mac.next((f) => f.t === "error" && f.id === 7)).toMatchObject({ code: "signal.turn_unavailable", retryable: false })
     mac.send({ t: "read", id: 8, op: "task.list", params: {} })
     expect(await mac.next((f) => f.t === "error" && f.id === 8)).toMatchObject({ code: "validation.invalid" })
+  })
+
+  it("limits TURN reads and pending-key snapshot forwards per authenticated identity", async () => {
+    const u = await hostUser("ctl-mobile-rate")
+    const mac = await openHost(u.host, u.mac.token)
+    await mac.hello("mac")
+    const phone = await openHost(u.host, u.phone.token)
+    await phone.hello()
+
+    // The first requests reach the provider (which is intentionally unconfigured in this test);
+    // the next one is refused before provider work. The same bucket covers the socket path.
+    for (let id = 1; id <= MOBILE_TURN_LIMIT; id++) phone.send({ t: "read", id, op: "signal.turn_credentials", params: { host: u.host } })
+    phone.send({ t: "read", id: MOBILE_TURN_LIMIT + 1, op: "signal.turn_credentials", params: { host: u.host } })
+    expect(await phone.next((f) => f.t === "error" && f.id === MOBILE_TURN_LIMIT + 1)).toMatchObject({ code: "signal.rate_limited", retryable: true })
+
+    // Pending keys are owner-forwarding work, so the mirror snapshot still arrives when the
+    // identity budget is exhausted; only the Mac request is suppressed.
+    const stream = ws(u.host)
+    for (let i = 0; i <= MOBILE_PENDING_LIMIT; i++) phone.send({ t: "subscribe", stream, pending: [`pending-${String(i).padStart(4, "0")}`] })
+    expect(await phone.next((f) => f.t === "error" && f.code === "signal.rate_limited")).toMatchObject({ retryable: true })
   })
 
   it("admits a second install of the same user as a device, never as the host", async () => {

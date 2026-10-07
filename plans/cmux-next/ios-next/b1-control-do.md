@@ -141,6 +141,11 @@ the host socket mint short-lived Cloudflare Realtime TURN credentials, one call 
   `CLOUDFLARE_TURN_KEY_API_TOKEN`. Absent: `503 {error {code: "signal.turn_unavailable"}}` (socket:
   `error signal.turn_unavailable`, retryable false). Upstream failure: `signal.turn_unavailable`
   retryable true. Set with `wrangler secret put <NAME> --env <env>` from stdin (backend-runbook.md).
+- TURN mints are limited per authenticated identity by the `MOBILE_TURN_LIMIT` binding (six per
+  60 seconds). The HTTP route answers `429` with `signal.rate_limited` and `retry-after: 60`; a
+  socket read answers the same code in its `error`/`read` envelope. The HTTP and HostDO paths use
+  the same key (`turn:<install>` for an install token, or `turn:<session identity>` for a session),
+  so changing carriers cannot bypass the budget. A limiter failure fails closed before provider I/O.
 
 ## 7. Remote config (for C16)
 
@@ -182,7 +187,10 @@ in-memory server in the Swift Testing suite).
   each other; per-session identity needs the Stack session id on the principal.
 - `HostDO`'s own `host:` ops (Mac presence and caps, `host.wake`) have no idempotency ledger; they
   are last-writer state, so a replay reapplies the same value. A ledger lands if they gain effects.
-- TURN minting and pending-key snapshot requests have no per-identity rate limit yet.
+- Pending-key snapshot forwards are limited per authenticated identity by the `MOBILE_PENDING_LIMIT`
+  binding (120 per 60 seconds). When the budget is exhausted HostDO sends a retryable
+  `signal.rate_limited` error to the device and still serves its local mirror snapshot; it does not
+  forward that request to the Mac. Limiter failures fail closed for the owner forward.
 - Socket `read` on owners calls the owner's `read` directly; HTTP `/v1/read` also checks catalog
   principal kinds. No read leaks today; the two paths should share admission.
 

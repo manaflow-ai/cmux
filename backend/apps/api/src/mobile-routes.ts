@@ -4,6 +4,7 @@ import type { Env } from "./env.ts"
 import { mobileConfig } from "./mobile-config.ts"
 import { signInRules, ssoGate, ssoRefusal, versionRefusal, withSsoSession } from "./policy-gate.ts"
 import { mintTurnCredentials } from "./realtime-turn.ts"
+import { MOBILE_RATE_LIMITED, MOBILE_RATE_RETRY_SECONDS, mobileRateKey, takeMobileRate } from "./mobile-rate.ts"
 
 /**
  * Worker routes of the mobile control plane (b1-control-do.md sections 2, 6 and 7): the HostDO
@@ -84,7 +85,10 @@ export const handleTurn = async (request: Request, env: Env, fetcher: typeof fet
   if (request.method !== "POST") return refuse(405, "validation.invalid", "POST only")
   const principal = await requestPrincipal(request, env, bearerOfHeader(request), true)
   if (principal instanceof Response) return principal
-  const r = await mintTurnCredentials(env, principal.install ?? principal.identity, Date.now(), fetcher)
+  const identity = principal.install ?? principal.identity
+  if (!(await takeMobileRate(env.MOBILE_TURN_LIMIT, mobileRateKey("turn", identity), true)))
+    return Response.json({ ok: false, error: { code: MOBILE_RATE_LIMITED, message: "too many TURN credential requests; retry shortly", retryable: true } }, { status: 429, headers: { "retry-after": String(MOBILE_RATE_RETRY_SECONDS), "cache-control": "no-store" } })
+  const r = await mintTurnCredentials(env, identity, Date.now(), fetcher)
   if (!r.ok) return Response.json({ ok: false, error: { code: r.code, message: r.message, retryable: r.retryable } }, { status: 503 })
   return Response.json({ ok: true, value: r.value }, { headers: { "cache-control": "no-store" } })
 }

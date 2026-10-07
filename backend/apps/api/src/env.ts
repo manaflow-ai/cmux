@@ -152,6 +152,10 @@ export interface Env {
   readonly GOOGLE_PUBSUB_TEST_JWKS?: string
   /** Workers rate limit counted only for refused Google push requests (per client IP). */
   readonly GOOGLE_HOOK_FAIL_LIMIT?: RateLimit
+  /** Per authenticated mobile identity: TURN credential mints (HTTP and HostDO reads). */
+  readonly MOBILE_TURN_LIMIT?: RateLimit
+  /** Per authenticated mobile identity: pending-key snapshot forwards to a Mac. */
+  readonly MOBILE_PENDING_LIMIT?: RateLimit
   /** Home (plans/cmux-next/home-messaging.md): one ConversationDO per conversation. */
   readonly CONVERSATION_DO: DurableObjectNamespace<ConversationDO>
   /** One MuxDO per chief: its wake queue. */
