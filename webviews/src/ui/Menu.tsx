@@ -49,7 +49,8 @@ export function Menu({ open, onOpenChange, children }: MenuProps) {
         if (next.pointerId !== event.pointerId) return;
         const current = session.current;
         if (!current) return;
-        current.moved ||= Math.hypot(next.clientX - current.x, next.clientY - current.y) >= POINTER_SLOP;
+        if (!current.moved)
+          current.moved = Math.hypot(next.clientX - current.x, next.clientY - current.y) >= POINTER_SLOP;
         if (!current.moved) return;
         const item = doc.elementFromPoint?.(next.clientX, next.clientY)?.closest<HTMLElement>('[role^="menuitem"]');
         item?.focus({ preventScroll: true });
@@ -84,7 +85,8 @@ export function Menu({ open, onOpenChange, children }: MenuProps) {
     movePointer(event) {
       const current = session.current;
       if (!current || current.pointerId !== event.pointerId) return;
-      current.moved ||= Math.hypot(event.clientX - current.x, event.clientY - current.y) >= POINTER_SLOP;
+      if (!current.moved)
+        current.moved = Math.hypot(event.clientX - current.x, event.clientY - current.y) >= POINTER_SLOP;
     },
     activatePointer(event, activate) {
       const current = session.current;
