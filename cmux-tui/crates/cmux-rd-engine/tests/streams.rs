@@ -132,3 +132,29 @@ fn idle_means_no_deadline_and_a_held_input_gap_means_one() {
     assert_eq!(e.tick(true, 202_000).inject, packet.events);
     assert_eq!(e.next_deadline_us(), None);
 }
+
+#[test]
+fn a_tile_stream_tops_off_the_latest_frame_of_its_surface() {
+    let mut e = engine();
+    const TILES: u16 = 8;
+    e.add_tile_stream(TILES, 0, 640, 480).expect("tile stream");
+    assert_eq!(e.add_tile_stream(9, 42, 10, 10), Err(StreamError::NoSurface(42)));
+    let main = e.start(0).expect("main");
+    send(&mut e, &main, 2_000, 0);
+    // The source asks for a top-off after the surface went still.
+    let req =
+        e.damage(TILES, Rect { x: 0, y: 0, width: 64, height: 32 }, 200_000).expect("tile request");
+    assert_eq!(req.stream, TILES);
+    let datagrams = send(&mut e, &req, 5_000, 200_000);
+    for d in &datagrams {
+        let (h, payload) = DatagramHeader::decode(d).expect("header");
+        assert_eq!(h.stream, TILES);
+        assert_ne!(h.flags & cmux_rd_proto::flags::TILE, 0);
+        assert_eq!(h.flags & cmux_rd_proto::flags::KEYFRAME, 0, "tiles are not keyframes");
+        if h.index == 0 {
+            // The frame body prefix: u32 au_len, u64 t_capture_us, u32 ref_frame.
+            let ref_frame = u32::from_le_bytes(payload[12..16].try_into().expect("prefix"));
+            assert_eq!(ref_frame, main.frame, "applies on top of the surface's frame");
+        }
+    }
+}
