@@ -8,7 +8,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { createEntryStore, type EntrySource, type EntryState } from "../src/gallery/entryStore";
 import { agentPaneEntry, type GalleryEntry } from "../src/gallery/format";
-import { errorKind, scopeOf, type ScopeNode } from "../dev-server/galleryLive";
+import { errorFile, errorKind, scopeOf, type ScopeNode } from "../dev-server/galleryLive";
 
 void mock.module("virtual:cmux-gallery/revision", () => ({
   default: { sha: "0".repeat(40), subject: "test", committedAt: 0, branch: "test" },
@@ -203,4 +203,14 @@ test("errors and saves are sorted by who imports the module", () => {
   expect(kind(component)).toBe("stage");
   // The shell imports it (not only through entries): Vite's overlay stays.
   expect(kind(env)).toBe("shell");
+});
+
+test("a compile error names its module by id, by location or in its message", () => {
+  expect(errorFile({ id: "/w/src/a.gallery.ts?t=1" }, "/w")).toBe("/w/src/a.gallery.ts");
+  expect(errorFile({ loc: { file: "/w/src/b.ts" } }, "/w")).toBe("/w/src/b.ts");
+  // The React Compiler's Babel error: no id, the file in the message.
+  expect(
+    errorFile({ message: "[BabelError] /w/src/pages/markdown/markdown.gallery.ts: Unexpected token (104:15)" }, "/w"),
+  ).toBe("/w/src/pages/markdown/markdown.gallery.ts");
+  expect(errorFile({ message: "something else" }, "/w")).toBe("");
 });

@@ -61,6 +61,21 @@ export function scopeOf<N extends ScopeNode>(
   return scope;
 }
 
+/**
+ * The failing module of a prepared Vite error: its id, else its location's file, else the first
+ * path under webviews/ in its message (the React Compiler's Babel errors name the file only there).
+ */
+export function errorFile(
+  error: { id?: string; loc?: { file?: string }; message?: string; stack?: string },
+  root: string,
+): string {
+  const named = error.id ?? error.loc?.file;
+  if (named) return named.split("?")[0]!;
+  const text = `${error.message ?? ""}\n${error.stack ?? ""}`;
+  const at = text.indexOf(`${root}/`);
+  return at < 0 ? "" : /^[^\s:?()'"]+/.exec(text.slice(at))![0];
+}
+
 export type ErrorKind = "shell" | "entry" | "stage";
 
 /** Where a failing module's error belongs (see the file comment). */
@@ -108,7 +123,7 @@ export function galleryLive({ webviewsRoot, repoRoot }: { webviewsRoot: string; 
       client.hot.send = ((...args: unknown[]) => {
         const payload = args[0] as { type?: string; err?: PreparedError } | undefined;
         if (payload && typeof payload === "object" && payload.type === "error" && payload.err) {
-          const file = (payload.err.id ?? payload.err.loc?.file ?? "").split("?")[0]!;
+          const file = errorFile(payload.err, webviewsRoot);
           if (file && path.isAbsolute(file)) {
             const scope = scopeOfFile(file);
             // A module the graph does not know yet: an entry file is still an entry's; else the shell's.
