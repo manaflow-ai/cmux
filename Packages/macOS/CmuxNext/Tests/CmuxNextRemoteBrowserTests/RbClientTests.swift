@@ -89,6 +89,14 @@ struct RemoteBrowserInputEncoderTests {
         #expect(RemoteBrowserInputEncoder.pointer(type: .keyDown, button: 0, clickCount: 0, modifierFlags: [], at: .zero) == nil)
     }
 
+    @Test func aSynthesizedRightClickWithButtonZeroIsStillTheSecondaryButton() throws {
+        let event = try #require(NSEvent.mouseEvent(with: .rightMouseDown, location: .zero, modifierFlags: [], timestamp: 0,
+                                                    windowNumber: 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+        guard case let .object(r)? = RemoteBrowserInputEncoder.pointer(event, at: .zero) else { Issue.record("no pointer"); return }
+        #expect(r["button"] == .int(2))
+        #expect(r["buttons"] == .int(2))
+    }
+
     @Test func keyCodesBecomeDOMCodes() throws {
         let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.shift], timestamp: 0, windowNumber: 0,
                                                   context: nil, characters: "A", charactersIgnoringModifiers: "a", isARepeat: false, keyCode: 0))

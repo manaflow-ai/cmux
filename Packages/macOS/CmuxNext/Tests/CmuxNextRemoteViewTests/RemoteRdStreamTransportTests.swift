@@ -180,11 +180,12 @@ struct RemoteRdStreamTransportTests {
 /// input events (rd changes B3.2 and C2).
 @Suite(.serialized)
 struct RemoteRdServiceTransportTests {
-    private static func streaming(_ host: FakeRdHost, caps: String) async throws -> (RemoteRdStreamTransport, AsyncStream<(UInt8, Data)>.Iterator) {
+    private static func streaming(
+        _ host: FakeRdHost, caps: String, hostFrames: inout AsyncStream<(UInt8, Data)>.Iterator
+    ) async throws -> RemoteRdStreamTransport {
         let port = try await host.start()
         let endpoint = try #require(RemoteRdLoopbackEndpoint(port: port))
         let transport = try #require(RemoteRdStreamTransport.remoteBrowser(endpoint: endpoint, user: "u", install: "i"))
-        var hostFrames = host.frames.makeAsyncIterator()
         transport.connect()
         let hello = try RemoteRdControlTests.object(try #require(await hostFrames.next()).1)
         #expect(hello["service"] as? String == "rb/1")
@@ -192,14 +193,14 @@ struct RemoteRdServiceTransportTests {
         _ = await hostFrames.next() // start
         host.sendControl(#"{"t":"welcome","encoder":"t","width":64,"height":64,"max_datagram":1152,"carrier":"stream","service":"rb/1","caps":\#(caps)}"#)
         host.sendControl(#"{"t":"started","session":1}"#)
-        return (transport, hostFrames)
+        return transport
     }
 
     @Test func serviceBodiesReachTheServiceStreamAndGoBackOut() async throws {
         let host = try FakeRdHost()
         defer { host.stop() }
-        let (transport, frames) = try await Self.streaming(host, caps: #"["input.service"]"#)
-        var hostFrames = frames
+        var hostFrames = host.frames.makeAsyncIterator()
+        let transport = try await Self.streaming(host, caps: #"["input.service"]"#, hostFrames: &hostFrames)
         var bodies = transport.serviceMessages().makeAsyncIterator()
         host.sendControl(#"{"t":"service","service":"rb/1","body":{"t":"rb.opened","session":1,"main_stream":0}}"#)
         // Another service's body never reaches this session's handler.
@@ -221,8 +222,8 @@ struct RemoteRdServiceTransportTests {
     @Test func serviceInputGoesOutOnlyWhenTheHostListsTheCap() async throws {
         let host = try FakeRdHost()
         defer { host.stop() }
-        let (transport, frames) = try await Self.streaming(host, caps: #"["input.service"]"#)
-        var hostFrames = frames
+        var hostFrames = host.frames.makeAsyncIterator()
+        let transport = try await Self.streaming(host, caps: #"["input.service"]"#, hostFrames: &hostFrames)
         let statuses = transport.statusUpdates()
         for await status in statuses where status.state == .streaming { break }
         let seq = try #require(transport.sendServiceInput(Data(#"{"e":"ime_cancel","surface":0}"#.utf8), mustDeliver: true))
@@ -239,7 +240,8 @@ struct RemoteRdServiceTransportTests {
     @Test func serviceInputIsRefusedWithoutTheCap() async throws {
         let host = try FakeRdHost()
         defer { host.stop() }
-        let (transport, _) = try await Self.streaming(host, caps: "[]")
+        var hostFrames = host.frames.makeAsyncIterator()
+        let transport = try await Self.streaming(host, caps: "[]", hostFrames: &hostFrames)
         for await status in transport.statusUpdates() where status.state == .streaming { break }
         #expect(transport.sendServiceInput(Data("{}".utf8), mustDeliver: false) == nil)
         transport.stop()

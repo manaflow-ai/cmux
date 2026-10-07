@@ -45,7 +45,18 @@ public nonisolated enum RemoteBrowserInputEncoder {
 
     public static func pointer(_ event: NSEvent, at point: CGPoint) -> RemoteRdJSON? {
         let clicks = [.mouseMoved, .mouseEntered, .mouseExited].contains(event.type) ? 0 : event.clickCount
-        return pointer(type: event.type, button: event.buttonNumber, clickCount: clicks, modifierFlags: event.modifierFlags, at: point)
+        return pointer(type: event.type, button: appKitButton(event), clickCount: clicks, modifierFlags: event.modifierFlags, at: point)
+    }
+
+    /// The AppKit button (0 left, 1 right, 2+ other): the event type decides
+    /// left and right, since a synthesized right click can carry button 0.
+    static func appKitButton(_ event: NSEvent) -> Int {
+        switch event.type {
+        case .leftMouseDown, .leftMouseUp, .leftMouseDragged: 0
+        case .rightMouseDown, .rightMouseUp, .rightMouseDragged: 1
+        case .otherMouseDown, .otherMouseUp, .otherMouseDragged: max(2, event.buttonNumber)
+        default: 0
+        }
     }
 
     /// A key down or up; nil for other events (modifier changes ride on the
