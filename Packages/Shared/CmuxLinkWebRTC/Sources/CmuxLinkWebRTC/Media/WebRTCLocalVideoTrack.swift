@@ -3,8 +3,8 @@ import CoreVideo
 import Foundation
 @preconcurrency import WebRTC
 
-/// The publisher's side of a video track: `push` feeds `CVPixelBuffer`s (or
-/// `WebRTCVideoFrameBox`es) into a libwebrtc video source, which encodes and
+/// The publisher's side of a video track: `push` feeds `WebRTCPixelBufferBox`es
+/// (or `WebRTCVideoFrameBox`es) into a libwebrtc video source, which encodes and
 /// sends them with congestion control (C2 browser, C3 VNC).
 final class WebRTCLocalVideoTrack: WebRTCMediaBacking, @unchecked Sendable {
     private let source: RTCVideoSource
@@ -36,11 +36,9 @@ final class WebRTCLocalVideoTrack: WebRTCMediaBacking, @unchecked Sendable {
         let videoFrame: RTCVideoFrame
         if let box = native as? WebRTCVideoFrameBox {
             videoFrame = box.frame
-        } else if CFGetTypeID(native as CFTypeRef) == CVPixelBufferGetTypeID() {
-            // swiftlint:disable:next force_cast
-            let pixelBuffer = native as! CVPixelBuffer
+        } else if let box = native as? WebRTCPixelBufferBox {
             videoFrame = RTCVideoFrame(
-                buffer: RTCCVPixelBuffer(pixelBuffer: pixelBuffer), rotation: ._0,
+                buffer: RTCCVPixelBuffer(pixelBuffer: box.pixelBuffer), rotation: ._0,
                 timeStampNs: Int64(frame.timestamp.components.seconds) * 1_000_000_000
                     + frame.timestamp.components.attoseconds / 1_000_000_000
             )
