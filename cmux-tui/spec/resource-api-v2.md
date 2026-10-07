@@ -207,10 +207,18 @@ nothing, and an op that changes nothing commits with no change. Sections and
 items are carried as JSON objects, not closed catalog types: values and keys
 a newer app writes (a new arrangement, item kind, built-in id or field) are
 stored verbatim and come back unchanged. A new `region` or `content` value is
-refused, because the app decodes those two strictly. A change advances the layout's own
+refused, because the app decodes those two strictly. A workspace item's ref
+value is the qualified public id `<session>:ws_…` and a tab item's
+`<session>:tab_…`; the store compares refs as opaque kind and value strings,
+so one local id on two sessions is two refs, and it does not check that the
+target exists. A change advances the layout's own
 `revision` (a decimal string), publishes a `state_upsert` of resource
 `sidebar_layout`, id `user`, and advances `personal_revision`, so raw
-clients get `personal-changed`.
+clients get `personal-changed` (`{event, personal_revision}` with no `kind`
+field, because SDK decoders refuse unknown fields) and refetch with
+`sidebar_layout.get`. Apps hold `sidebar_layout:read` with the app;
+`sidebar_layout:write` is elevated (scope-classes.json): only an explicit user
+grant adds it.
 
 ## Selectors
 
