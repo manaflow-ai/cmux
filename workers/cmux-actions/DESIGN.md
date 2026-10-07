@@ -15,6 +15,51 @@ Inputs read for this design: every file in `.github/workflows` and
 the S2 red tests on `feat-cmux-vm-s2` dcacaed6dc29, and the pinned provider
 document `workers/cmux-vm/upstream/openapi.json` (88 operations).
 
+## 0. Top risk: IPv6-only VM egress
+
+Finding: hq `scripts/freestyle-run` (commit 83880c677a5e, 2026-10-06) records
+that Freestyle VMs are IPv6-only, so GitHub release downloads fail there (its
+bun install goes through npm for that reason). GitHub's web, API, git and asset
+hosts (`github.com`, `api.github.com`, `codeload.github.com`,
+`objects.githubusercontent.com`, `release-assets.githubusercontent.com`,
+`raw.githubusercontent.com`) have no IPv6 today as far as we know, so the risk
+is wider than release assets: `actions/checkout`, `git submodule update`,
+`setup-node` (its first source is the `actions/node-versions` release assets),
+`mlugg/setup-zig`, `rustup` self-install from `sh.rustup.rs`, and any step that
+curls a GitHub URL would fail. npm, crates.io, PyPI and Ubuntu apt mirrors
+answer over IPv6 and are not affected. The provider schema does list an
+optional `egressIpv4` on a VM, so IPv4 egress may exist for some accounts or
+plans; we ask (need N19).
+
+Options compared:
+
+| option | how | where it runs | cost | transparency | risks |
+| --- | --- | --- | --- | --- | --- |
+| P1 pre-bake tools | runner image holds every toolchain our workflows pin (node 22.14.0 and 24 in `RUNNER_TOOL_CACHE`, bun 1.3.14 and 1.4.2, go, python, zig from `scripts/install-zig-ci.sh`, rustup with the `rust-toolchain.toml` channels, apt packages); `setup-*` actions find the toolcache entry and skip the download | inside the snapshot | bake time plus snapshot storage only | full for pinned versions | does not fix `actions/checkout`, submodules or `api.github.com`; every new version needs a re-bake |
+| P2 egress Worker tunnel | the agent runs a local HTTP CONNECT proxy on `127.0.0.1`; steps get `HTTPS_PROXY`, `HTTP_PROXY`, `https_proxy`, `http_proxy`, `ALL_PROXY`, `NODE_USE_ENV_PROXY=1` and a git `http.proxy`. For each CONNECT the local proxy connects directly when the host has an AAAA record, else tunnels the bytes over a WebSocket to an egress Worker that opens the IPv4 TCP connection with `connect()` (TLS stays end to end; the Worker sees only host and byte counts) | Cloudflare Workers (reachable over IPv6), no new server | Workers requests plus CPU; Cloudflare egress is free; expected well under the VM cost | everything that honors proxy env (git, curl, `@actions/http-client`, `@actions/tool-cache`, rustup, cargo, npm, bun, pip, apt with `Acquire::https::Proxy`) | binaries that ignore proxy env; per-connection throughput of `connect()` is unmeasured; `connect()` refuses Cloudflare-hosted IPs and port 25 |
+| P3 NAT64 plus DNS64 | a dual-stack gateway (for example a GCP e2-small with its external IPv6 /96 as the NAT64 prefix, Jool plus Unbound DNS64); the agent points `/etc/resolv.conf` at it | one small GCP VM (or the existing dev-backend VM) | about USD 15 to 30 per month for the VM plus internet egress about USD 0.12 per GB (estimate: 0.5 GB of GitHub traffic per job) | transparent at the IP layer, also for binaries that ignore proxies | a single gateway to run and patch; the NAT64 prefix must be routed to the gateway from the provider network (unverified); the resolver override needs root at boot |
+| P4 provider IPv4 egress | enable IPv4 egress on job VMs if the provider offers it | provider | provider price | transparent | unknown availability; needs a cmux VM API setting (N19) |
+| P5 public NAT64 services | point DNS64 at a third-party NAT64 | third party | free | transparent | untrusted operator on every connection, rate limits; rejected |
+
+Recommendation: P1 plus P2, with P4 adopted if the provider offers it, and P3 as
+the fallback if P2's measured throughput is too low. P1 is required anyway for
+warm snapshots (no step should download a toolchain on a warm run). P2 covers
+checkout, submodules, the GitHub API and release assets with no new server and
+no new bill, and the dual path (direct IPv6 when an AAAA record exists) keeps
+npm, crates.io and PyPI traffic off the tunnel. The egress Worker accepts only
+an authenticated job token, only ports 443 and 80, and records host and bytes
+per job for the cost line. Proxy env is set by the agent before the first step,
+like the other runner env, so workflows stay unmodified.
+
+Slice 2 tests, first in an IPv6-only container on CI (no IPv4 route; real VMs
+are out of scope until VM calls are allowed), then on a cmux VM:
+`actions/setup-node@48b55a01` with a toolcache hit (22.14.0) and a toolcache miss
+(forces the release-asset download through P2); a `curl -fL` of a GitHub
+release asset; `git ls-remote` and `actions/checkout` of `manaflow-ai/cmux`
+with `git submodule update --init --depth 1 ghostty`. Each must pass through
+P2, and a control run without the proxy must fail, which proves the container is
+really IPv6-only.
+
 ## 1. Operating mode: shadow runs on an allowlist
 
 GitHub keeps running every workflow on Blacksmith. cmux Actions runs the same
@@ -278,7 +323,7 @@ so background daemons started by the job (for example `sccache`) resume warm.
 
 ### 8.5 Retention and invalidation
 At most 2 snapshots per key (LRU by `last_used_at`), 50 per repo, provider
-`autoDeleteSeconds` 7 days without use, `ttlSeconds` 30 days. Invalidation is by
+`autoDeleteSeconds` 7 days without use, `ttlSeconds` 14 days. Invalidation is by
 key change (image version, lockfiles, matrix, label) plus explicit delete
 (admin API, or automatic after a job on that snapshot fails with an infra
 error twice in a row). Every delete is by exact `snap_` id.
@@ -293,13 +338,29 @@ the workspace build output comes back through `Swatinem/rust-cache` from the
 local cache tier (section 9.4) at disk speed instead of the network. See
 trade-off T3.
 
-### 8.7 Forked memory and randomness
+### 8.7 Forked memory and randomness (requirement)
 A VM booted from a memory snapshot starts with the parent's kernel RNG state,
-machine id and host keys. Parallel jobs forked from one snapshot could produce
-the same random values unless the provider reseeds on restore (VM generation
-ID). The agent reseeds at boot (writes fresh entropy from the Worker into
-`/dev/urandom` and regenerates `/etc/machine-id`), and we ask the cmux VM
-workers to confirm provider behavior (need N14).
+machine id, host keys and clock. Parallel jobs forked from one snapshot would
+produce the same random values. This is a security requirement (coordinator
+decision C4), not only a risk:
+
+After every restore from a memory snapshot, and before the first step runs, the
+agent must:
+1. reseed the kernel RNG: write 64 bytes of fresh entropy, sent by JobDO in the
+   start exec and generated with `crypto.getRandomValues` in the Worker, to
+   `/dev/urandom` with the `RNDADDENTROPY` ioctl (credited), then read and
+   discard 64 bytes;
+2. regenerate `/etc/machine-id` (and `/var/lib/dbus/machine-id`);
+3. regenerate every host key present (`/etc/ssh/ssh_host_*`);
+4. sync the clock to the time JobDO sends in the start exec, and refuse to run
+   if the skew after sync is above 2 s;
+5. report the new machine id and a hash of 32 random bytes in `hello`. JobDO
+   refuses the job (infra error) if either value equals one already seen for
+   the same snapshot.
+Slice 2 tests it: two VMs forked from one snapshot must produce different random
+bytes and different machine ids. Provider behavior (VM generation ID) is still
+asked of the cmux VM workers (need N14), but the agent steps above run either
+way.
 
 ## 9. Cache and artifact protocols on R2 (A3b)
 
@@ -367,11 +428,13 @@ server before any VM exists.
   with the values it holds (defense in depth).
 - Variables: our own per-repo `vars` store (plain). For the experiment `vars`
   is empty, so `runs-on` expressions fall to their Blacksmith defaults.
-- `github.token`: GitHub requires a token for `actions/checkout`. Until a GitHub
-  App exists, jobs get a fine-grained PAT with `contents: read`,
-  `metadata: read` on the one repo. Write-scoped actions are `unsupported`.
+- `github.token`: GitHub requires a token for `actions/checkout`. Jobs get a
+  GitHub App installation token (coordinator decision C3), minted per job with
+  `repositories: [cmux]` and `permissions: {contents: read, metadata: read}`;
+  it expires within one hour. Write-scoped actions are `unsupported`.
   Checkout's post step removes its credential and the agent scrubs
-  `extraheader` before capture.
+  `extraheader` before capture. The App manifest and its registration flow are
+  in `github-app/` (section 19).
 - Job token: JWT signed by the Worker (HMAC key in Worker secrets), claims
   `repo`, `run`, `job`, `attempt`, `scp`, `cache_read_scopes`,
   `cache_write_scope`, `exp` = job timeout + 15 min. JobDO revokes it at job end
@@ -389,16 +452,17 @@ server before any VM exists.
    (8.4).
 4. Snapshot scopes follow cache scopes (8.2), so a branch cannot poison main.
 5. Tokens: job JWT is per job, short-lived, revoked at job end. The GitHub token
-   is read-only. The cmux VM API key never reaches a VM.
+   is a read-only App installation token that expires within one hour. The App
+   private key and the cmux VM API key never reach a VM.
 6. Webhook HMAC, delivery dedupe, admin API behind an admin key (hash in Worker
    secrets). Run page and logs require a cmux session of the manaflow team
-   (decision D4 below).
+   (coordinator decision C6).
 7. Agent channel: the agent can only report on its own job (token binds job);
    JobDO ignores frames after `job.end`.
 8. Supply chain: remote actions only at 40-character SHAs, fetched once and
    pinned by content in R2.
-9. VM egress is open (steps need GitHub, crates.io, npm). Egress control is a
-   later option (need N12).
+9. VM egress is open over IPv6; IPv4-only hosts go through the authenticated
+   egress Worker (section 0). Egress control is a later option (need N12).
 
 ## 12. Cap and cost controls
 
@@ -414,8 +478,15 @@ server before any VM exists.
   refused and jobs end `error: budget`. Kill switch var stops all admission.
 - Rate: at most 30 runs per hour per repo; a newer push to the same ref cancels
   pending (not running) cmux Actions runs of the same workflow.
-- Storage: snapshots per section 8.5; cache 10 GiB per repo; artifacts 7 days;
-  logs 30 days (R2 lifecycle rule).
+- Storage: one R2 lifecycle rule deletes every object 14 days after creation
+  (coordinator decision C2). Snapshots per section 8.5; cache 10 GiB per repo
+  (LRU); per run: logs at most 64 MiB per job and 256 MiB per run (JobDO stops
+  storing and marks the log truncated), artifacts at most 2 GiB per run
+  (`CreateArtifact` refuses above it), artifact retention clamped to 14 days.
+- Cost line: the run page shows a daily cost line (VM vCPU-seconds and GiB-
+  seconds by day, snapshot storage, R2 bytes stored and operations), computed by
+  FleetDO from lease records and R2 counters with the unit prices in config
+  (coordinator decision C2).
 - Reaper: FleetDO alarm every 5 min lists VMs with label
   `cmux-actions=1` and deletes, by exact id, any VM without a live lease.
 
@@ -446,8 +517,10 @@ server before any VM exists.
   (`logs/<repo>/<run>/<job>/<attempt>/<n>.ndjson`), fans out to run page viewers
   through hibernatable WebSockets, and writes a final plain-text log on
   completion.
-- GitHub: without a GitHub App there are no check runs, no annotations and no
-  log UI. Each job posts a commit status: `pending` on admission, description
+- GitHub: the experiment reports commit statuses (A1) through the GitHub App.
+  Check runs (`checks: write`, optional in the manifest) can later add
+  annotations and a summary; there is no log UI on GitHub either way. Each job
+  posts a commit status: `pending` on admission, description
   updated at step boundaries (at most once per 30 s, 140 characters, current
   step and elapsed time), final `success`/`failure`/`error`, `target_url` = run
   page. Annotations and step summaries render on the run page.
@@ -483,6 +556,7 @@ entries).
 | N16 | base image: create without `snapshotId` boots a documented Ubuntu 24.04 x86_64 image, or a public base snapshot id | baking the runner image | no `image` field; default image undocumented | document the default image and architecture, or accept `image` |
 | N17 | VM state events or a cheap batch get (`GET /v1/vms?ids=`) | reaper and lease checks without N gets | no | optional; list with label filter (N4) is enough |
 | N18 | `@cmux/vm` TypeScript SDK covering all of the above, usable inside a Worker | JobDO client | lifecycle verbs on `feat-cmux-vm-s4` 409ba9c2d6b4 | regenerate as S2/S3a land |
+| N19 | network settings on create: IPv4 egress (on or off, if the provider has it), report `egressIpv4` and `egressIpv6` on get, a DNS resolver override, and attach to a network with routes (for a NAT64 prefix, option P3) | section 0 | no network or egress field on `CreateVmRequest` or `Vm` | add them; first answer whether provider IPv4 egress exists for our account |
 
 `forkVm` (snapshot, create, delete snapshot) is not needed: we keep the
 snapshot and create from it, which N1 plus N5 already give.
@@ -499,36 +573,57 @@ snapshot and create from it, which N1 plus N5 already give.
   by the VM snapshot, only by the local cache tier. A faster but non-standard
   option (preserve ignored build dirs across checkout) is rejected because it
   changes results relative to GitHub, which breaks "identical pass/fail".
-- T4 Branch-scoped snapshots for the proof. A3 says warm bases come from green
-  default-branch runs; the proof runs on a branch, so a branch may warm its own
-  scope. Main stays protected.
 - T5 No secrets in snapshots means any job that uses one of our secrets is
   always cold. Simple and safe; costs warmth for secret-using jobs.
-- T6 Read-only fine-grained PAT as `github.token` (convenience until a GitHub
-  App). It is long-lived. Mitigated by read-only scope on one public repo.
+- T6 GitHub App installation tokens (C3) instead of a PAT. Costs one manual
+  registration click by an org owner; gains one-hour tokens scoped to one repo.
 - T7 Commit statuses instead of check runs (A1). No annotations or logs in the
   GitHub UI.
-- T8 Admin API protected by a single admin key (convenience). Stack Auth team
-  roles later.
 - T9 Snapshot key uses blob SHAs from the Git tree, not `hashFiles` content
   hashes. Same invalidation power, zero content downloads; the digest does not
   equal any `hashFiles()` value, which nothing needs.
-- T10 Label to size map assumes Blacksmith's 4 GiB per vCPU; a wrong ratio skews
-  the timing comparison, so the proof records both machines' sizes.
-- T11 Job `timeout-minutes` clamped to 60. Protects the budget; a legitimately
-  longer job fails here and passes on GitHub (recorded as a compat difference).
+- T12 Slice 1 core (`src/expr`, `src/workflow`, `src/plan`) is plain TypeScript
+  with no Effect dependency, so the in-VM agent can bundle it small and the
+  same code evaluates expressions on both sides. Effect starts at the Worker
+  and DO layer (slice 2), where Layers and typed errors pay off.
 
-## 17. Decisions needed before deploy (not in steps 1 and 2)
+### Experiment-only (coordinator decision C5)
+These choices are for the experiment and must be revisited before cmux Actions
+serves anything beyond it:
+- E1 Branch-scoped warm snapshots. A3 says warm bases come from green
+  default-branch runs; the proof runs on a branch, so a branch may warm its own
+  scope (section 8.2). Main stays protected.
+- E2 One admin key (SHA-256 hash in Worker secrets) protects the admin API.
+  Stack Auth team roles later.
+- E3 Job `timeout-minutes` clamped to 60. A legitimately longer job fails here
+  and passes on GitHub (recorded as a compat difference).
+- E4 Unconfirmed sizes: the label map assumes Blacksmith's 4 GiB per vCPU; the
+  proof records both machines' sizes.
+- E5 Unconfirmed architecture: `RUNNER_ARCH=X64` assumes x86_64 cmux VMs (need
+  N16).
 
-- D1 Repo webhook on `manaflow-ai/cmux` (events: push, pull_request,
-  workflow_dispatch) pointing at the Worker.
-- D2 R2 bucket `cmux-actions` (cache, artifacts, logs, action tarballs, workflow
-  blobs) with lifecycle rules; Workers Paid features (DOs with SQLite, R2) on the
-  existing account.
-- D3 A fine-grained PAT (or a GitHub App) with commit statuses write and
-  contents read on `manaflow-ai/cmux`.
-- D4 Run page access: manaflow team session only, or public for a public repo.
-- D5 A cmux VM API key for tenant `manaflow-ai` (N15) and the 20-VM quota (N13).
+## 17. Coordinator decisions (2026-10-07)
+
+- C1 Webhook: approved for when the intake slice is ready, shadow mode only, HMAC
+  secret piped from a file (never typed or printed). Ask the coordinator before
+  creating it. Because C3 adds a GitHub App that subscribes to the same events,
+  the intake uses the App webhook and no separate repo webhook is created
+  (two webhooks would deliver every event twice); this still waits for the
+  coordinator's go.
+- C2 Approved: R2 bucket `cmux-actions` and DOs with SQLite. Conditions: an R2
+  lifecycle rule deletes objects after 14 days, logs and artifacts are
+  size-capped per run, and the run page shows a daily cost line (section 12).
+  Nothing is created in slice 1.
+- C3 A GitHub App, not a PAT; installation tokens also serve as `github.token`.
+  The manifest and the registration flow are in the repo (section 19). Lawrence
+  registers it once as org owner when slice 2 needs it. Agents do not create it.
+- C4 N14 is a security requirement (section 8.7), tested in slice 2.
+- C5 Convenience choices are listed under "Experiment-only" (section 16).
+- C6 License `GPL-3.0-or-later`. Run page and logs: manaflow team session only.
+- C7 The 39-character `upload-artifact` pin in `ci.yml` is fixed by the
+  coordinator, not here.
+- Still open: a cmux VM API key for tenant `manaflow-ai` (N15) and the 20-VM
+  quota (N13).
 
 ## 18. Slices
 
@@ -541,3 +636,23 @@ snapshot and create from it, which N1 plus N5 already give.
 3. DOs, cmux VM client, runner image bake, proof: `cmux-tui.yml` lint and test
    (linux) cold, warm, warm, versus Blacksmith on time and result. Then the
    compatibility table for every Linux job.
+
+## 19. GitHub App registration (C3)
+
+`github-app/manifest.json` is the App manifest: name "cmux Actions
+(experiment)", private, permissions `statuses: write`, `contents: read`,
+`metadata: read`, `checks: write` (optional, for later annotations), events
+`push`, `pull_request`, `workflow_dispatch`. The webhook is created inactive
+(`hook_attributes.active: false`) because no Worker host exists yet; it is
+activated only after C1's go.
+
+Manifest flow: GitHub accepts the manifest as a form POST to
+`https://github.com/organizations/manaflow-ai/settings/apps/new?state=<random>`.
+`github-app/register.mjs` (Node, no dependencies) does the whole flow from a
+trusted checkout: it serves an auto-submitting form on `127.0.0.1`, receives
+GitHub's redirect with the one-time `code`, exchanges it at
+`POST /app-manifests/{code}/conversions`, writes the response (App id, private
+key, webhook secret, client secret) to
+`~/.secrets/cmux-actions-github-app.json` with mode 0600, and prints only the
+App id, slug and the installation URL. Install it on `manaflow-ai/cmux` only
+("Only select repositories"); the manifest cannot restrict that. Not run yet.
