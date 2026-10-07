@@ -260,7 +260,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     /// The fragment the host last asked the page to show (``open(route:)``); the page may move on
     /// by itself (its own links and history).
-    public private(set) var route: String?
+    public internal(set) var route: String?
 
     /// Shows `route` (the URL fragment) in the page.
     public func open(route: String) {

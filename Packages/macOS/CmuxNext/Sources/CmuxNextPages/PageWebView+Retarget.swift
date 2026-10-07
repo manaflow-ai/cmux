@@ -14,7 +14,7 @@ extension PageWebView {
     func retarget(descriptor: PageDescriptor, routes: [PageRoute], route: String? = nil,
                   documentAttributes: [String: String] = [:], surface: SurfaceKind? = nil,
                   dynamicResources: (any PageDynamicResourceSource)? = nil) -> Bool {
-        guard isPooled, PageServedHosts.pooledDescriptors.contains(descriptor), servedRoot(for: descriptor) != nil else {
+        guard isPooled, PageServedHosts.pooledDescriptors.contains(descriptor), PageWebView.servedRoot(for: descriptor) != nil else {
             return false
         }
         let sameDocument = self.descriptor == descriptor && loaded
