@@ -140,6 +140,27 @@ describe("PasswordsPage", () => {
     expect(text()).toContain("次のアップデートで使用可能になります");
   });
 
+  test("the Import buttons run the app's import actions for the shown profile", async () => {
+    const provider = new MockPasswordsProvider();
+    const store = await render(provider);
+    store.setProfile("work");
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await click($(".pw-import-browser")!);
+    await click($(".pw-import-csv")!);
+    const runs = provider.calls.filter((c) => c.op === "cmux.app.action.run").map((c) => c.params);
+    expect(runs).toEqual([
+      { action: "importFromBrowser" },
+      { action: "password.importCSV", args: { profile: "work" } },
+    ]);
+    // Importing works even before the build can list passwords (fork API 18).
+    act(() => root.unmount());
+    root = createRoot(dom.window.document.getElementById("root")!);
+    await render(new MockPasswordsProvider(shippingData()));
+    expect(($(".pw-import-csv") as HTMLButtonElement).disabled).toBe(false);
+  });
+
   test("without the bridge the page says it is not connected", async () => {
     await render(null);
     expect(text()).toContain("cmux is not connected");

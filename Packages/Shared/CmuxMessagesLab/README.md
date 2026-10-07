@@ -71,6 +71,7 @@ and render-server field animation, blurred header and native scrolling.
 | NativeScroll | the drawn scroll indicator sits 2 pt from the scroller's own right edge (in a pane the window's edge is not the transcript's) |
 | LinkPreviews | the cache lives in the app's own caches folder (`<bundle id>/link-previews`), not MessagesLab's; `cached(_:)` lets a HomeStore rebuild show a fetched preview again |
 | ComposeAttachments | the image placeholder and file tile fill use the theme's chip fill on a light theme (a dark theme keeps the measured white) |
+| MarkdownDraw, Fixture | no colour component read on an unconverted colour: the Markdown palette's dark/light test uses luminance after converting to device RGB (getWhite threw on a theme's sRGB or HDR colour, nxdog66), and the gradient mix falls back to the measured blue when a colour cannot convert. Upstream: https://github.com/manaflow-ai/messageslab/pull/1 |
 | FlightRecorder | the app's policy and log folder (`HomeFlightRecorder`), window captures behind their own opt-in, the pane's optional window (attached from `ChatController.windowChanged`, observers replaced), FlashCheck/LiveProbes/Bench/LiveRecord helpers from `HomeFlightRecorder` |
 
 ## Updating

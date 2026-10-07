@@ -7,17 +7,16 @@ public struct DaemonEndpoint: Hashable, Sendable {
     public var socketPath: String
     public var pid: Int32?
     public var generation: DaemonGeneration?
-    /// A line every connection writes before the daemon protocol, answered
-    /// by one JSON line with `"ok": true` (``LinePreamble``): `cmux link`'s
-    /// `link.dial` when the socket is the link's and the daemon is a paired
-    /// server's (plans/cmux-next/server-reach.md 7 step 1). Nil: none.
-    public var preamble: String?
+    /// Connect through this child process instead of `socketPath`
+    /// (``DaemonBridge``: a paired server's owner session through `cmux link
+    /// dial`). `socketPath` then only names what to watch for changes.
+    public var bridge: DaemonBridge?
 
-    public init(socketPath: String, pid: Int32? = nil, generation: DaemonGeneration? = nil, preamble: String? = nil) {
+    public init(socketPath: String, pid: Int32? = nil, generation: DaemonGeneration? = nil, bridge: DaemonBridge? = nil) {
         self.socketPath = socketPath
         self.pid = pid
         self.generation = generation
-        self.preamble = preamble
+        self.bridge = bridge
     }
 }
 
