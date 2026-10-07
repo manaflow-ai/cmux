@@ -537,6 +537,60 @@ test("cookie calls name the page's tab, so the driver uses that tab's store", as
   }
 });
 
+// A page whose tab closed (the user closed it, or a narrowed domain policy
+// closed it) has no site and no store any more: its cookie calls fail with
+// `closed` and never fall back to the current tab. Seen on the app: once
+// tabs.list() let the close event land, clearCookies() through the closed
+// blocked tab cleared the allowed current tab's site.
+test("cookie calls through a closed page fail with closed and never reach the current tab", async () => {
+  const browser = await createDevBrowser();
+  const servers = await startFixtureServers();
+  const { primary, peer } = servers.origins;
+  const dir = makeTestDir("cmux-repl-cookie-closed-");
+  const driver = browser.driver();
+  const repl = createDevRepl({ host: createNodeHost({ workDir: dir, sessionId: `cookie-closed-${process.pid}`, print: () => {} }), driver });
+  try {
+    const setup = await repl.evaluate(`
+      await page.goto(${JSON.stringify(primary)} + "/set-cookie");
+      globalThis.primaryTab = page;
+      globalThis.peerTab = await tabs.open(${JSON.stringify(peer)} + "/set-cookie");
+      await tabs.use(primaryTab);
+      peerTab._targetId
+    `);
+    assert.equal(setup.ok, true, setup.error);
+    // Closed from outside the page object, as the app closes a tab.
+    await driver.call("tabs.close", { targetId: setup.value });
+    const r = await repl.evaluate(`
+      await tabs.list();
+      const outcome = async (f) => { try { await f(); return "done"; } catch (e) { return e.code || e.message; } };
+      const cx = peerTab.context();
+      const url = ${JSON.stringify(primary)} + "/";
+      const out = { closed: peerTab.isClosed() };
+      out.clear = await outcome(() => cx.clearCookies());
+      out.clearName = await outcome(() => cx.clearCookies({ name: "parity" }));
+      out.clearRegExp = await outcome(() => cx.clearCookies({ name: /parity/ }));
+      out.get = await outcome(() => cx.cookies());
+      out.set = await outcome(() => cx.addCookies([{ name: "planted", value: "1", url }]));
+      out.state = await outcome(() => cx.storageState({ all: true }));
+      out.setState = await outcome(() => cx.setStorageState({ cookies: [{ name: "planted2", value: "1", url }] }));
+      out.primary = (await primaryTab.context().cookies([url])).map((c) => c.name).sort();
+      JSON.stringify(out)
+    `);
+    assert.equal(r.ok, true, r.error);
+    const out = JSON.parse(r.value);
+    assert.equal(out.closed, true, "the close landed");
+    for (const key of ["clear", "clearName", "clearRegExp", "get", "set", "state", "setState"]) {
+      assert.equal(out[key], "closed", `${key} through the closed page: ${JSON.stringify(out)}`);
+    }
+    assert.deepEqual(out.primary, ["parity"], "the current tab's site keeps its cookies and gets none planted");
+  } finally {
+    repl.dispose();
+    await browser.close();
+    await servers.close();
+    removeTestDir(dir);
+  }
+});
+
 // localStorage lives in a tab's data store too: storageState and
 // setStorageState read and write it only through tabs in the page's own
 // store, and restore an origin no such tab shows in a new tab of that store.
