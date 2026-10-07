@@ -321,9 +321,7 @@ final class AppServices {
             self?.keyRouter.cancelChord()
         }
     }
-
     // MARK: Lookup
-
     /// The tab with durable id `id` and the pane that holds it.
     func locateTab(_ id: String) -> (TabModel, PaneModel)? {
         for (workspace, _) in machines.allWorkspaces {
@@ -339,7 +337,6 @@ final class AppServices {
         }
         return nil
     }
-
     /// The tab on `surface` (the local daemon's surfaces).
     func locateTab(surface: SurfaceID) -> TabModel? {
         daemon.store.workspaces.lazy.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first { $0.surface == surface }
@@ -348,7 +345,6 @@ final class AppServices {
     func workspace(id: String) -> WorkspaceModel? {
         machines.workspace(id: id)?.0
     }
-
     /// The daemon that owns `pane`.
     func daemon(for pane: PaneModel) -> DaemonService {
         machines.daemon(forPane: pane)
