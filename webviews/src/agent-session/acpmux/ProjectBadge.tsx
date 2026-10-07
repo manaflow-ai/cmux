@@ -10,7 +10,10 @@ const BADGE_COLORS = [
 ] as const;
 
 function projectBadge(project: Project): { label: string; color: string } {
-  const words = project.label.trim().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  const words = project.label
+    .trim()
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter(Boolean);
   const label = (words.length > 1 ? words.map((word) => word[0]).join("") : project.label.trim()).slice(0, 2);
   let hash = 0;
   for (const character of project.cwd) hash = (hash * 31 + character.charCodeAt(0)) | 0;
@@ -29,4 +32,3 @@ export function ProjectBadge({ project }: { project: Project }) {
     </span>
   );
 }
-
