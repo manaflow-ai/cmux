@@ -45,6 +45,7 @@ final class AppControl {
         service.router.register(PaletteScopeControl.methods(services: services, router: service.router))
         service.router.register(BookmarkControl.methods(services: services))
         service.router.register(FeedControl.methods(services: services))
+        service.router.register(ServerReachControl.methods(services: services))
         service.router.register(KeybindingControl.methods(services: services))
         service.router.register(SettingsControl.methods(services: services))
         service.router.register([

@@ -33,6 +33,7 @@ pub mod protected_folders;
 pub mod rpc;
 pub mod schema;
 pub mod server;
+pub mod session_env;
 pub mod session_name;
 pub mod sha256;
 #[cfg(test)]

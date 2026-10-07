@@ -6,9 +6,16 @@
 //!   `_acpmux/chat_changed {kind: upsert|removed, key, chat?}` for every
 //!   change on this connection (unfiltered; `_acpmux/chats_lagged` asks the
 //!   client to list again).
+//! - `_acpmux/chat_open {key, cwd?}`: how the chat opens again (`chats/open.rs`):
+//!   `adopt` with ready `session/new` params, `terminal` with argv/env/cwd,
+//!   or `readOnly`; `needsFolder` when the person must pick the folder.
 //! - `_acpmux/chat_roots`: the roots, refused roots with reasons, watcher errors.
 //! - `_acpmux/chat_roots_record {harness, transcriptPath}`: a hook reports
 //!   a transcript; its store root joins the index (recorded roots file).
+//! - `_acpmux/chat_settings {enabled, discovery, roots, managedRoots}`: the
+//!   app's effective cmux.json `agents.chats.*` values (`chats/settings.rs`);
+//!   answers the roots view with `applied: true`. While chats are off,
+//!   `_acpmux/chats` answers `enabled: false` and no chats.
 //!
 //! Titles and folders are user data (C5): only the local unix socket gets
 //! them. Every WebSocket origin (Web, LocalApp, Peer) gets "Method not
@@ -68,6 +75,29 @@ pub(super) async fn route(
             Some(service) => blocking(move || Ok(service.roots_view())).await,
             None => Ok(json!({"ready": false, "roots": [], "refused": []})),
         },
+        "_acpmux/chat_open" => {
+            let service =
+                service.ok_or_else(|| RpcError::internal("the chat index is starting"))?;
+            let key = params
+                .get("key")
+                .and_then(Value::as_str)
+                .and_then(crate::chats::parse_key)
+                .ok_or_else(|| {
+                RpcError::invalid_params("key must be <harness>:<session id>")
+            })?;
+            let cwd = params.get("cwd").and_then(Value::as_str).map(PathBuf::from);
+            let homes = hub.harness_homes();
+            let profiles = crate::chats::store_profiles(&*hub.config.read().await, &homes);
+            blocking(move || {
+                let chat = service.get(&key).ok_or_else(|| {
+                    RpcError::not_found(format!("no chat {}", crate::chats::key_text(&key)))
+                })?;
+                let home = dirs::home_dir().unwrap_or_default();
+                crate::chats::plan_open(&chat, &profiles, cwd.as_deref(), &home)
+                    .map_err(RpcError::invalid_params)
+            })
+            .await
+        }
         "_acpmux/chat_roots_record" => {
             let service =
                 service.ok_or_else(|| RpcError::internal("the chat index is starting"))?;
@@ -88,6 +118,21 @@ pub(super) async fn route(
             })
             .await
         }
+        "_acpmux/chat_settings" => {
+            let settings = crate::chats::ChatSettings::from_params(&params)
+                .map_err(RpcError::invalid_params)?;
+            let hub = hub.clone();
+            blocking(move || {
+                let running = hub.apply_chat_settings(settings).map_err(RpcError::internal)?;
+                let mut view = match hub.chat_index() {
+                    Some(service) if running => service.roots_view(),
+                    _ => json!({"ready": false}),
+                };
+                view["applied"] = json!(true);
+                Ok(view)
+            })
+            .await
+        }
         other => Err(RpcError::method_not_found(other)),
     }
 }
@@ -98,7 +143,8 @@ async fn page(service: Option<Arc<ChatService>>, query: ChatQuery) -> Result<Val
     };
     blocking(move || {
         let (chats, next) = service.list(&query);
-        Ok(json!({"ready": true, "chats": chats, "nextCursor": next}))
+        let enabled = service.enabled();
+        Ok(json!({"ready": true, "enabled": enabled, "chats": chats, "nextCursor": next}))
     })
     .await
 }

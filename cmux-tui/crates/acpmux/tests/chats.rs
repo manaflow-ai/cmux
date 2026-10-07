@@ -339,6 +339,7 @@ async fn websocket_origins_never_get_chats() {
             "_acpmux/chats_watch",
             "_acpmux/chat_roots",
             "_acpmux/chat_roots_record",
+            "_acpmux/chat_open",
         ] {
             let reply = c.call(m, json!({})).await;
             assert_eq!(reply["error"]["code"], -32601, "{origin:?} {m}: {reply}");
