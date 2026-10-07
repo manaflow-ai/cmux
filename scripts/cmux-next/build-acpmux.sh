@@ -105,6 +105,19 @@ fi
 
 command -v cargo >/dev/null 2>&1 || { echo "error: cargo is required to build acpmux" >&2; exit 1; }
 command -v rustup >/dev/null 2>&1 || { echo "error: rustup is required to provision acpmux targets" >&2; exit 1; }
+
+# HQ marks managed workers explicitly. Public CI and developer invocations keep
+# their job-private temporary target directories.
+fleet_target_helper=""
+if [[ "${CMUX_FLEET_WORKER_TRUSTED:-0}" == 1 ]]; then
+  fleet_target_helper="$repo_root/scripts/ci/fleet-rust-cache.sh"
+  [[ -r "$fleet_target_helper" ]] || {
+    echo "error: managed worker is missing the reviewed Rust target resolver" >&2
+    exit 78
+  }
+  # shellcheck disable=SC1090
+  source "$fleet_target_helper"
+fi
 # Install the targets into the toolchain cargo actually uses: cmux-tui pins its
 # own channel in rust-toolchain.toml, so rustup must run from that directory
 # (from the repo root it would provision the default toolchain instead, and the
@@ -122,6 +135,10 @@ built_slices=()
 for arch in $archs; do
   target="$([[ "$arch" == arm64 ]] && printf aarch64 || printf x86_64)-apple-darwin"
   target_dir="$build_root/$target"
+  if [[ -n "$fleet_target_helper" ]]; then
+    target_dir="$(fleet_rust_target_dir acpmux "$target" "$source_root/cmux-tui")"
+    mkdir -p "$target_dir"
+  fi
   echo "==> building acpmux ($source_mode $source_commit, $target)"
   (cd "$source_root/cmux-tui" && CARGO_TARGET_DIR="$target_dir" cargo build \
     --locked --release --package acpmux --target "$target")

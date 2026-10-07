@@ -28,6 +28,16 @@ if [[ -n "$filter" && ! "$filter" =~ ^[A-Za-z0-9_:.-]{1,200}$ ]]; then
 fi
 umask 022
 root="$(pwd -P)"
+# Public CI keeps the step-private target directory. HQ marks managed workers
+# with CMUX_FLEET_WORKER_TRUSTED and supplies this reviewed resolver so the
+# pinned cmux-tui toolchain can reuse a stable target directory.
+fleet_target_helper=""
+if [[ "${CMUX_FLEET_WORKER_TRUSTED:-0}" == 1 ]]; then
+  fleet_target_helper="$root/scripts/ci/fleet-rust-cache.sh"
+  [[ -r "$fleet_target_helper" ]] || { echo "error: managed worker is missing the reviewed Rust target resolver" >&2; exit 78; }
+  # shellcheck disable=SC1090
+  source "$fleet_target_helper"
+fi
 export CARGO_TARGET_DIR="$root/.build/cmux-tui-rust-target"
 # The step's checkout has empty submodules; ghostty-vt-sys builds
 # libghostty-vt from ghostty-next (2026-10-05, step ee99e05f: "missing
@@ -39,6 +49,11 @@ if ! git -C "$root" submodule update --init --depth 1 ghostty-next; then
   exit 3
 fi
 cd "$root/cmux-tui"
+if [[ -n "$fleet_target_helper" ]]; then
+  CARGO_TARGET_DIR="$(fleet_rust_target_dir cmux-tui "" "$PWD")"
+  mkdir -p "$CARGO_TARGET_DIR"
+  export CARGO_TARGET_DIR
+fi
 # The step's own RUSTUP_HOME auto-installed the pinned toolchain WITHOUT the
 # components rust-toolchain.toml lists (rustup 1.29.1, 2026-10-05: `cargo fmt`
 # failed with "no such command"). Install them explicitly; from this directory
