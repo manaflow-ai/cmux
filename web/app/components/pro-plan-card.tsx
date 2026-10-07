@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 import { posthog } from "../lib/posthog-client";
 import {
   PRO_PRICING_USD,
@@ -59,18 +59,7 @@ export function ProPlanCard({
 }) {
   const [chosen, setInterval] = useState<BillingInterval>(initialInterval);
   const interval = monthlyOnly ? "month" : chosen;
-  const options = useRef<Record<BillingInterval, HTMLButtonElement | null>>({ year: null, month: null });
-  // Radio-group keyboard model: arrows move and select, one tab stop.
-  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    const next: BillingInterval | null =
-      ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)
-        ? interval === "year" ? "month" : "year"
-        : event.key === "Home" ? "year" : event.key === "End" ? "month" : null;
-    if (!next) return;
-    event.preventDefault();
-    select(next);
-    options.current[next]?.focus();
-  };
+  const radioName = useId();
   const select = (next: BillingInterval) => {
     setInterval(next);
     posthog.capture("cmuxterm_pricing_interval_selected", {
@@ -93,12 +82,9 @@ export function ProPlanCard({
       ) : (
         <div className="flex items-center justify-between gap-3">
           <h2 className="text-sm font-medium tracking-tight">{name}</h2>
-          <div
-            role="radiogroup"
-            aria-label={labels.billingPeriod}
-            className="flex items-center gap-1.5 text-sm"
-            onKeyDown={handleKeyDown}
-          >
+          {/* Native radios give the arrow-key and single-tab-stop behavior. */}
+          <fieldset className="flex items-center gap-1.5 text-sm">
+            <legend className="sr-only">{labels.billingPeriod}</legend>
             {(["year", "month"] as const).map((option, index) => (
               <span key={option} className="flex items-center gap-1.5">
                 {index > 0 ? (
@@ -106,22 +92,22 @@ export function ProPlanCard({
                     ·
                   </span>
                 ) : null}
-                <button
-                  type="button"
-                  role="radio"
-                  ref={(node) => {
-                    options.current[option] = node;
-                  }}
-                  tabIndex={interval === option ? 0 : -1}
-                  aria-checked={interval === option}
-                  onClick={() => select(option)}
-                  className={`transition-colors ${interval === option ? "font-medium text-foreground" : "text-muted hover:text-foreground"}`}
-                >
-                  {option === "year" ? labels.yearly : labels.monthly}
-                </button>
+                <label className="cursor-pointer">
+                  <input
+                    type="radio"
+                    name={radioName}
+                    value={option}
+                    checked={interval === option}
+                    onChange={() => select(option)}
+                    className="peer sr-only"
+                  />
+                  <span className="transition-colors text-muted hover:text-foreground peer-checked:font-medium peer-checked:text-foreground peer-focus-visible:underline peer-focus-visible:underline-offset-4">
+                    {option === "year" ? labels.yearly : labels.monthly}
+                  </span>
+                </label>
               </span>
             ))}
-          </div>
+          </fieldset>
         </div>
       )}
       <div className="mt-3">
