@@ -239,17 +239,14 @@ jobs:
         with:
           node-version: "24.11.1"
 
-      - name: Verify generated webviews assets
+      # The web bundles are build output (cx-vn5): this builds them into the
+      # gitignored resource paths that the budget, React Compiler and webviews
+      # tests below read. The source checks of `bun run build` run separately.
+      - name: Verify webviews source checks
         run: ./scripts/build-webviews-app.sh --check
 
-      - name: Verify generated cmux-next agent pane
-        run: ./scripts/cmux-next/build-agent-pane-web.sh --check
-
-      - name: Verify generated cmux-next palette ranker
-        run: ./scripts/cmux-next/build-palette-ranker.sh --check
-
-      - name: Verify generated cmux-next Agent Activity
-        run: ./scripts/cmux-next/build-agent-activity-web.sh --check
+      - name: Build the web bundles
+        run: ./scripts/cmux-next/build-web-bundles.sh --force
 
       # ci-guards runs this on main; feat-cmux-next PRs skip ci-guards.
       - name: Generated bundle merge driver
