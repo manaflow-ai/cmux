@@ -89,6 +89,7 @@ extension MacConversationViewController: MacConversationCommandValidating, NSMen
         case #selector(editLastMessage(_:)): return lastEditableIndex != nil
         case #selector(copyMessage(_:)), #selector(copy(_:)), #selector(delete(_:)): return selectedMessageIndex != nil
         case #selector(toggleTextStyle(_:)), #selector(applyTextEffect(_:)): return composerIsFocused
+        case #selector(editBackground(_:)): return store.supportsBackgrounds && store.info != nil
         default: return true
         }
     }

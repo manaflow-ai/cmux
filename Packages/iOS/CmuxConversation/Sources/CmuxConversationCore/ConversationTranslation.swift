@@ -319,7 +319,7 @@ public final class ConversationTranslations {
     private func storeChanged(_ change: ConversationStoreChange) {
         guard !isNotifying else { return }
         switch change {
-        case .typing, .older, .readState, .listState, .draft:
+        case .typing, .older, .readState, .listState, .draft, .background:
             return
         case .connection:
             restoreAutoTranslation()

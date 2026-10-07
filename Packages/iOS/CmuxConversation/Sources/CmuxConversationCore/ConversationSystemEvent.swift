@@ -16,6 +16,10 @@ public struct ConversationSystemEvent: Sendable, Hashable {
         case left
         case changedPhoto
         case removedPhoto
+        /// "Leo changed the background." (`GROUP_UPDATE_BACKGROUND_STATUS`)
+        case changedBackground
+        /// "Leo removed the background." (`GROUP_DELETE_BACKGROUND_STATUS`)
+        case removedBackground
     }
 
     public var kind: Kind
@@ -163,6 +167,20 @@ public enum ConversationStatusStrings {
                 template = String(localized: "conversation.system.removedPhoto.you", defaultValue: "#You# removed the group photo.", bundle: .module)
             } else {
                 template = String(localized: "conversation.system.removedPhoto", defaultValue: "#%@# removed the group photo.", bundle: .module)
+                arguments = [actor]
+            }
+        case .changedBackground:
+            if actorIsMe {
+                template = String(localized: "conversation.background.notice.youChanged", defaultValue: "#You# changed the background.", bundle: .module)
+            } else {
+                template = String(localized: "conversation.background.notice.changed", defaultValue: "#%@# changed the background.", bundle: .module)
+                arguments = [actor]
+            }
+        case .removedBackground:
+            if actorIsMe {
+                template = String(localized: "conversation.background.notice.youRemoved", defaultValue: "#You# removed the background.", bundle: .module)
+            } else {
+                template = String(localized: "conversation.background.notice.removed", defaultValue: "#%@# removed the background.", bundle: .module)
                 arguments = [actor]
             }
         }

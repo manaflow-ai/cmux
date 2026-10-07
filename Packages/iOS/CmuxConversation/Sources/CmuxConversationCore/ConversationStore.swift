@@ -32,6 +32,9 @@ public enum ConversationStoreChange: Sendable, Equatable {
     case listState
     /// The unsent composer draft changed; the transcript is unaffected.
     case draft
+    /// The conversation background changed (here, on another device, or by
+    /// someone else); only the backdrop and its contrast are affected.
+    case background
 }
 
 /// Backend-agnostic transcript state: one ordered window of messages that
@@ -123,6 +126,9 @@ public final class ConversationStore {
     var scheduledRefreshTask: Task<Void, Never>?
     /// A Send Later action the server refused; the row is restored.
     public var onScheduledActionFailed: (@MainActor (ConversationScheduledActionFailure) -> Void)?
+    /// Bumps on every background I set, so only the newest answer applies.
+    private var backgroundGeneration = 0
+    private var backgroundInFlight = false
 
     public init(
         backend: any ConversationBackend,
@@ -174,7 +180,10 @@ public final class ConversationStore {
     func apply(_ event: ConversationBackendEvent) {
         switch event {
         case let .connected(info, meID, lagged):
+            let previousBackground = self.info?.background
             self.info = info
+            self.info?.background = reconciledBackground(incoming: info.background, current: previousBackground)
+            if self.info?.background != previousBackground { notify(.background) }
             self.meID = meID
             connection = .connected
             // Unconfirmed reads from the dropped session may never have
@@ -213,8 +222,11 @@ public final class ConversationStore {
             refreshReadState()
         case let .conversationChanged(info):
             listStateGeneration += 1
+            let previousBackground = self.info?.background
             self.info = info
+            self.info?.background = reconciledBackground(incoming: info.background, current: previousBackground)
             notify(.listState)
+            if self.info?.background != previousBackground { notify(.background) }
         }
     }
 
@@ -832,7 +844,7 @@ public final class ConversationStore {
     public static let maxEdits = 5
 
     public func canEdit(_ message: ConversationMessage, now: Date = Date()) -> Bool {
-        message.senderID == meID && message.seq != nil && message.attachments.isEmpty && message.poll == nil && !message.isUnsent
+        message.senderID == meID && message.seq != nil && message.attachments.isEmpty && message.poll == nil && !message.isNotice
             && message.editCount < Self.maxEdits && now.timeIntervalSince(message.sentAt) < Self.editWindow
     }
 
@@ -868,7 +880,7 @@ public final class ConversationStore {
     public static let undoSendWindow: TimeInterval = 2 * 60
 
     public func canUnsend(_ message: ConversationMessage, now: Date = Date()) -> Bool {
-        message.senderID == meID && message.seq != nil && !message.isUnsent
+        message.senderID == meID && message.seq != nil && !message.isNotice
             && now.timeIntervalSince(message.sentAt) < Self.undoSendWindow
     }
 
@@ -1100,6 +1112,54 @@ public final class ConversationStore {
         let base = serverRead.lastReadSeq == lastReadSeq ? serverRead.unreadCount : 0
         return base + (hasLoadedNewest ? incoming(after: max(serverRead.headSeq, lastReadSeq)) : 0)
     }
+    // MARK: Conversation background (state)
+
+    /// A re-delivery of the current background keeps the local copy (and a
+    /// photo's picked bytes); while a set of mine is in flight, the pending
+    /// one stays until the backend answers.
+    private func reconciledBackground(incoming: ConversationBackground?, current: ConversationBackground?) -> ConversationBackground? {
+        if backgroundInFlight { return current }
+        guard let incoming, let current, incoming.id == current.id else { return incoming }
+        return current
+    }
+
+    private func commitBackground(
+        _ optimistic: ConversationBackground?,
+        rejected: (@MainActor (ConversationBackendError) -> Void)?,
+        perform: @escaping @Sendable (any ConversationBackend) async throws -> ConversationInfo
+    ) {
+        guard var current = info else { return }
+        let previous = current.background
+        backgroundGeneration += 1
+        let generation = backgroundGeneration
+        current.background = optimistic
+        info = current
+        notify(.background)
+        backgroundInFlight = true
+        Task { [weak self, backend] in
+            do {
+                let confirmed = try await perform(backend)
+                guard let self, self.backgroundGeneration == generation, var latest = self.info else { return }
+                self.backgroundInFlight = false
+                var background = confirmed.background
+                // Keep the picked bytes so the photo never reloads from the network.
+                if background?.kind == .photo, let local = optimistic?.photo?.localData {
+                    background?.photo?.localData = local
+                }
+                latest.background = background
+                self.info = latest
+                self.notify(.background)
+            } catch {
+                rejected?(error as? ConversationBackendError ?? ConversationBackendError(code: -1, message: String(describing: error)))
+                guard let self, self.backgroundGeneration == generation, var latest = self.info else { return }
+                self.backgroundInFlight = false
+                latest.background = previous
+                self.info = latest
+                self.notify(.background)
+            }
+        }
+    }
+
     // MARK: Conversation list state
 
     /// Pin, Hide Alerts, Mark as Unread and delete state; default until connected.
@@ -1131,6 +1191,51 @@ public final class ConversationStore {
                 self.info = current
                 self.notify(.listState)
             }
+        }
+    }
+}
+
+// MARK: - Conversation background
+
+extension ConversationStore {
+    /// The shared background, nil when there is none.
+    public var background: ConversationBackground? { info?.background }
+
+    /// Whether the backend carries backgrounds (the picker hides otherwise).
+    public var supportsBackgrounds: Bool { backend.supportsBackgrounds }
+
+    /// Sets or (with nil) removes the background at once, then confirms it
+    /// with the backend, which tells everyone and writes "You changed the
+    /// background." A refusal rolls back unless a newer background arrived.
+    public func setBackground(_ draft: ConversationBackgroundDraft?, rejected: (@MainActor (ConversationBackendError) -> Void)? = nil) {
+        let optimistic = draft?.optimisticBackground(id: "local:\(makeClientMessageID())", setBy: meID)
+        commitBackground(optimistic, rejected: rejected) { backend in
+            try await backend.setBackground(draft)
+        }
+    }
+
+    /// A photo background: shows the picked image at once, uploads it, then
+    /// sets it. `luminance` is the image's (`ConversationBackground.luminance(of:)`),
+    /// so every device derives the same transcript contrast.
+    public func setBackgroundPhoto(
+        _ data: Data,
+        mimeType: String,
+        width: Int,
+        height: Int,
+        luminance: Double,
+        rejected: (@MainActor (ConversationBackendError) -> Void)? = nil
+    ) {
+        let draft = ConversationBackgroundDraft(kind: .photo, luminance: luminance)
+        let optimistic = draft.optimisticBackground(
+            id: "local:\(makeClientMessageID())",
+            setBy: meID,
+            photo: ConversationBackground.Photo(url: nil, width: width, height: height, localData: data)
+        )
+        commitBackground(optimistic, rejected: rejected) { backend in
+            let uploaded = try await backend.uploadImage(data, mimeType: mimeType)
+            var photoDraft = draft
+            photoDraft.attachmentID = uploaded.id
+            return try await backend.setBackground(photoDraft)
         }
     }
 }

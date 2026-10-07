@@ -37,19 +37,23 @@ public struct ConversationInfo: Sendable, Hashable {
     public var participants: [ConversationParticipant]
     /// Pin, Hide Alerts, Mark as Unread and Delete state in the conversation list.
     public var listState: ConversationListState
+    /// The shared conversation background (iOS 26 / macOS 26). Nil is none.
+    public var background: ConversationBackground?
 
     public init(
         id: String,
         title: String,
         kind: ConversationKind,
         participants: [ConversationParticipant],
-        listState: ConversationListState = ConversationListState()
+        listState: ConversationListState = ConversationListState(),
+        background: ConversationBackground? = nil
     ) {
         self.id = id
         self.title = title
         self.kind = kind
         self.participants = participants
         self.listState = listState
+        self.background = background
     }
 
     public func participant(_ id: String) -> ConversationParticipant? {
@@ -314,6 +318,10 @@ public struct ConversationMessage: Sendable, Hashable, Identifiable {
 
     /// A status row (group change), not something anyone said.
     public var isSystemEvent: Bool { systemEvent != nil }
+    /// Drawn as a centered notice instead of a bubble (unsent, status row).
+    /// Renders as a centered system line instead of a bubble: an unsent
+    /// message or a system event. It ends the run above it and is not unread.
+    public var isNotice: Bool { unsentAt != nil || systemEvent != nil }
 }
 
 public struct ConversationHistoryPage: Sendable {

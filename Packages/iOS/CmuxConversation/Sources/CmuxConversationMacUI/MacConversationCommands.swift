@@ -71,6 +71,12 @@ enum MacConversationCommands {
         action: #selector(MacConversationViewController.toggleShowTimes(_:)), key: "", modifiers: [],
         title: { String(localized: "conversation.command.showTimes", defaultValue: "Show Times", bundle: .module) }
     )
+    /// Edit Background (ChatKit EDIT_BACKGROUND); the same picker as the
+    /// transcript's context menu and the details panel.
+    static let editBackground = MacConversationCommand(
+        action: #selector(MacConversationViewController.editBackground(_:)), key: "", modifiers: [],
+        title: { String(localized: "conversation.command.editBackground", defaultValue: "Edit Background…", bundle: .module) }
+    )
 
 
     // File, Edit > Search, View, Conversation and Format, from the same AX dump.
@@ -351,6 +357,7 @@ extension MacConversationLab {
             item(MacConversationCommands.textSmaller),
             .separator(),
             item(MacConversationCommands.showTimes),
+            item(MacConversationCommands.editBackground),
             .separator(),
             // Messages lists the filters flat under a "Filter By" header.
             .sectionHeader(title: l("conversation.menu.filterBy", "Filter By")),

@@ -249,6 +249,9 @@ final class ConversationTopEdgeFade: UIView {
     static let extent: CGFloat = 46
 
     private let gradient = CAGradientLayer()
+    /// Over a conversation background the wash fades to the background's
+    /// own top color instead of the system background.
+    var washColor: UIColor? { didSet { setNeedsLayout() } }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -264,7 +267,7 @@ final class ConversationTopEdgeFade: UIView {
         gradient.frame = bounds
         guard bounds.height > 0 else { return }
         let headerBottom = bounds.height - Self.extent
-        let color = ConversationTheme.background.resolvedColor(with: traitCollection)
+        let color = (washColor ?? ConversationTheme.background).resolvedColor(with: traitCollection)
         var colors = [color.withAlphaComponent(Self.stops[0].1).cgColor]
         var locations: [NSNumber] = [0]
         for (offset, alpha) in Self.stops {

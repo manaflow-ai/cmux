@@ -1,7 +1,8 @@
 // conversation-sim: long-running fake remote chat service. See PROTOCOL.md.
 // Run: bun run services/conversation-sim/server.ts  (PORT, HOST, SEED, LOG=verbose)
 import type { ServerWebSocket } from "bun";
-import { mulberry32, proceduralPNG, sniffImageSize } from "./png";
+import { mulberry32, proceduralLuminance, proceduralPNG, sniffImageSize } from "./png";
+import { type Background, parseBackground, randomLook } from "./backgrounds";
 import { editedText, imageSize, mentionText, messageText, pick, pollContent, randInt, replyText, type Rng } from "./corpus";
 import { AUDIO_EXPIRY_MS, audioWaveform, proceduralWAV, sniffWAVDurationMs, spokenDurationMs, spokenText } from "./audio";
 import { LINK_MESSAGES, type LinkPreview, previewImages, previewURL, unfurl } from "./links";
@@ -33,7 +34,7 @@ interface Participant {
   left?: boolean;
 }
 /** Group changes Messages shows as centered status rows. */
-type SystemKind = "named" | "removedName" | "added" | "removed" | "left" | "changedPhoto" | "removedPhoto";
+type SystemKind = "named" | "removedName" | "added" | "removed" | "left" | "changedPhoto" | "removedPhoto" | "changedBackground" | "removedBackground";
 const SYSTEM_KINDS: SystemKind[] = ["named", "removedName", "added", "removed", "left", "changedPhoto", "removedPhoto"];
 interface SystemEvent {
   kind: SystemKind;
@@ -54,6 +55,8 @@ interface Conversation {
   service?: "iMessage" | "SMS"; // absent means iMessage
   // Details: Send Read Receipts for this conversation.
   sendReadReceipts: boolean;
+  /** The shared conversation background; absent is none. */
+  background?: Background;
 }
 const MAX_PINNED = Number(process.env.MAX_PINNED ?? 9);
 interface AttachmentRef {
@@ -198,6 +201,8 @@ const knobs = {
   statusEverySeconds: 300,
   /** Mean seconds between Focus on/off flips for the direct recipient; 0 stops them. */
   focusEverySeconds: 180,
+  /** Chance per bot loop tick that a bot changes (or removes) the background. */
+  botBackgroundRate: 0.01,
 };
 type Knobs = typeof knobs;
 
@@ -361,7 +366,7 @@ class Store {
   }
 
   broadcastConversation() {
-    for (const c of this.conns) if (c.subscribed) c.notify("conversation", { conversation: wireConversation(this.conv) }, true);
+    for (const c of this.conns) if (c.subscribed) c.notify("conversation", { conversation: wireConversation(this.conv, c.base) }, true);
   }
 
   broadcastTyping(participantId: string, isTyping: boolean) {
@@ -379,11 +384,11 @@ class Store {
       reactions: [],
       attachments: [],
       ...opts,
-      ...(isMe ? { status: opts.status ?? "sent" } : {}),
+      ...(isMe && !opts.system ? { status: opts.status ?? "sent" } : {}),
     });
     this.emit("message.created", m);
     // Messages: a new message from someone else brings a deleted conversation back.
-    if (!isMe && this.conv.deleted) {
+    if (!isMe && !m.system && this.conv.deleted) {
       this.conv.deleted = false;
       this.broadcastConversation();
     }
@@ -919,7 +924,7 @@ function wireParticipant(p: Participant) {
   return out;
 }
 
-function wireConversation(c: Conversation) {
+function wireConversation(c: Conversation, base = "") {
   const out: Record<string, unknown> = {
     id: c.id,
     title: c.title,
@@ -933,7 +938,39 @@ function wireConversation(c: Conversation) {
   };
   if (c.pinned && c.pinOrder !== undefined) out.pinOrder = c.pinOrder;
   if (c.service) out.service = c.service;
+  if (c.background) out.background = wireBackground(c.background, base);
   return out;
+}
+
+function wireBackground(b: Background, base: string) {
+  const out: Record<string, unknown> = { id: b.id, kind: b.kind, luminance: Math.round(b.luminance * 10_000) / 10_000, setBy: b.setBy };
+  if (b.colors) out.colors = b.colors;
+  if (b.look) out.look = b.look;
+  if (b.photo)
+    out.photo = { url: `${base}/media/${b.photo.id}.${media.get(b.photo.id)?.ext ?? "png"}`, width: b.photo.width, height: b.photo.height };
+  return out;
+}
+
+/** Sets (or, with undefined, removes) the background as `actor`, tells every device and writes the system line. */
+function setBackground(store: Store, actor: Participant, next: Omit<Background, "id" | "setBy"> | undefined) {
+  if (!next && !store.conv.background) return;
+  store.conv.background = next ? { ...next, id: `bg_${crypto.randomUUID().slice(0, 8)}`, setBy: actor.id } : undefined;
+  store.broadcastConversation();
+  store.create(actor.id, "", { system: { kind: next ? "changedBackground" : "removedBackground" } });
+  log(`background conv=${store.conv.id} by=${actor.id} ${next ? `${next.kind} ${next.look ?? next.colors?.join(",") ?? ""} L=${next.luminance.toFixed(3)}` : "removed"}`);
+}
+
+/** A bot picks a preset or a photo, or removes the background. */
+function botBackground(store: Store, bot: Participant) {
+  if (store.conv.background && R() < 0.15) return setBackground(store, bot, undefined);
+  if (R() < 0.2) {
+    const id = `bgimg_${store.conv.id}_${crypto.randomUUID().slice(0, 8)}`;
+    const [width, height] = [1179, 2556];
+    media.set(id, { width, height, ext: "png", mime: "image/png" });
+    return setBackground(store, bot, { kind: "photo", photo: { id, width, height }, luminance: proceduralLuminance(id, width, height) });
+  }
+  const look = randomLook(R);
+  setBackground(store, bot, { kind: look.kind, colors: look.colors, look: look.id, luminance: parseBackground(look).luminance });
 }
 
 /** Applies a list action with Messages' rules; throws on an invalid one. */
@@ -1128,7 +1165,7 @@ async function handleRpc(conn: Conn, rpcId: unknown, method: string, p: any): Pr
       }
       conn.subscribed = true;
       const result = {
-        conversation: wireConversation(store.conv),
+        conversation: wireConversation(store.conv, conn.base),
         me: ME,
         headSeq: store.headSeq,
         headEventSeq: store.headEventSeq,
@@ -1302,7 +1339,29 @@ async function handleRpc(conn: Conn, rpcId: unknown, method: string, p: any): Pr
       const conv = updateConversation(store, p);
       log(`updateConversation conv=${conv.id} ${JSON.stringify(p ?? {})}`);
       store.broadcastConversation();
-      return { conversation: wireConversation(conv) };
+      return { conversation: wireConversation(conv, conn.base) };
+    }
+    case "setBackground": {
+      const raw = p?.background ?? null;
+      let next: Omit<Background, "id" | "setBy"> | undefined;
+      if (raw !== null) {
+        let parsed: ReturnType<typeof parseBackground>;
+        try {
+          parsed = parseBackground(raw);
+        } catch (e) {
+          throw invalid(String((e as Error).message));
+        }
+        const { attachmentId, ...rest } = parsed;
+        next = rest;
+        if (attachmentId) {
+          const entry = media.get(attachmentId);
+          if (!entry || entry.audio) throw invalid("background.attachmentId");
+          next.photo = { id: attachmentId, width: entry.width, height: entry.height };
+        }
+      }
+      await sleep(lat(120, 600));
+      setBackground(store, ME, next);
+      return { conversation: wireConversation(store.conv, conn.base) };
     }
     case "unfurl": {
       if (typeof p?.url !== "string" || !/^https?:\/\//i.test(p.url)) throw invalid("url");
@@ -1749,7 +1808,7 @@ function randomBotMessage(store: Store, bot?: Participant): { text: string; opts
   }
   if (R() < 0.05 && store.headSeq > 1) {
     const parent = store.messages[store.headSeq - 1 - Math.floor(R() * Math.min(30, store.headSeq))];
-    opts.replyToId = parent.id;
+    if (!parent.system) opts.replyToId = parent.id;
   }
   opts.textRuns = randomTextRuns(R, text);
   if (text && R() < knobs.effectRate) opts.effect = pick(R, EFFECTS);
@@ -1779,8 +1838,10 @@ async function botLoop(store: Store) {
         const { text, opts } = randomBotMessage(store, bot);
         await botSay(store, bot, text, opts);
       }
+      if (R() < knobs.botBackgroundRate) botBackground(store, pick(R, store.bots()));
       if (R() < 0.1 && store.headSeq) {
         const target = store.messages[store.headSeq - 1 - Math.floor(R() * Math.min(10, store.headSeq))];
+        if (target.system) continue;
         const reactor = pick(R, store.bots().filter((b) => b.id !== target.senderId).concat(store.bots()));
         target.reactions = target.reactions.filter((r) => r.participantId !== reactor.id);
         target.reactions.push({ participantId: reactor.id, reaction: pick(R, REACTIONS) });
@@ -1812,7 +1873,7 @@ function json(body: unknown, status = 200) {
 }
 
 function applyKnobs(input: Record<string, unknown>): Knobs {
-  const unitRange = ["failRate", "historyFailRate", "duplicateRate", "effectRate", "unsendFailRate", "pollVoteFailRate", "scheduledFailRate"];
+  const unitRange = ["failRate", "historyFailRate", "duplicateRate", "effectRate", "unsendFailRate", "pollVoteFailRate", "scheduledFailRate", "botBackgroundRate"];
   for (const [k, v] of Object.entries(input)) {
     if (!(k in knobs)) throw new Error(`unknown knob ${k}`);
     const n = Number(v);
@@ -2052,6 +2113,38 @@ async function handleHttp(req: Request, server: ReturnType<typeof Bun.serve>): P
     setSilenced(store, person, url.searchParams.get("on") !== "0");
     return json({ ok: true, conversation: wireConversation(store.conv) });
   }
+  if (path === "/admin/background" && req.method === "POST") {
+    // Someone sets the background now: `look=<preset id>`, `colors=#RRGGBB,...`
+    // (kind=color unless given), `kind=photo` (a procedural photo), a random
+    // preset when none of those, or `clear=1` to remove it. `sender` defaults
+    // to a random bot and may be me.
+    const conv = url.searchParams.get("conversation") ?? "group";
+    const store = stores.get(conv);
+    if (!store) return json({ error: `unknown conversation ${conv}` }, 404);
+    const senderId = url.searchParams.get("sender");
+    const sender = senderId ? store.conv.participants.find((p) => p.id === senderId) : pick(R, store.bots());
+    if (!sender) return json({ error: `unknown sender ${senderId}` }, 400);
+    if (url.searchParams.get("clear")) {
+      setBackground(store, sender, undefined);
+    } else if (url.searchParams.get("kind") === "photo") {
+      const id = `bgimg_${conv}_${crypto.randomUUID().slice(0, 8)}`;
+      const [width, height] = [1179, 2556];
+      media.set(id, { width, height, ext: "png", mime: "image/png" });
+      setBackground(store, sender, { kind: "photo", photo: { id, width, height }, luminance: proceduralLuminance(id, width, height) });
+    } else if (url.searchParams.get("look") || url.searchParams.get("colors")) {
+      const colors = url.searchParams.get("colors")?.split(",").filter(Boolean);
+      try {
+        const look = url.searchParams.get("look") ?? undefined;
+        const kind = url.searchParams.get("kind") ?? look?.split(".")[0] ?? "color";
+        setBackground(store, sender, parseBackground({ kind, look, ...(colors ? { colors } : {}) }) as Omit<Background, "id" | "setBy">);
+      } catch (e) {
+        return json({ error: String((e as Error).message) }, 400);
+      }
+    } else {
+      botBackground(store, sender);
+    }
+    return json({ ok: true, conversation: wireConversation(store.conv, base) });
+  }
   if (path === "/admin/disconnect" && req.method === "POST") {
     return json({ ok: true, dropped: dropAll("admin disconnect") });
   }
@@ -2071,6 +2164,7 @@ async function handleHttp(req: Request, server: ReturnType<typeof Bun.serve>): P
         silenced: s.conv.participants.filter((p) => p.notificationsSilenced).map((p) => p.id),
         left: s.conv.participants.filter((p) => p.left).map((p) => p.id),
         receiptSeq: s.receiptSeq,
+        background: s.conv.background ?? null,
       };
     return json({ knobs, conversations, uploads: [...media.values()].filter((m) => m.bytes).length });
   }

@@ -29,6 +29,12 @@ final class ConversationDetailsOverlay: UIView, UITableViewDataSource, UITableVi
     private let titleLabel = UILabel()
 
     static let panelCornerRadius: CGFloat = 55
+
+    /// Opens the background gallery ("Backgrounds" row). Nil hides the row
+    /// (a backend without backgrounds).
+    var onEditBackground: (() -> Void)? { didSet { table.reloadData() } }
+    /// The current background, named in the "Backgrounds" row.
+    var background: ConversationBackground? { didSet { table.reloadData() } }
     static let avatarSize: CGFloat = 80
 
     init?(store: ConversationStore) {
@@ -69,6 +75,7 @@ final class ConversationDetailsOverlay: UIView, UITableViewDataSource, UITableVi
         table.layoutMargins = UIEdgeInsets(top: 0, left: 16, bottom: 0, right: 16)
         table.register(UITableViewCell.self, forCellReuseIdentifier: "p")
         table.register(ConversationDetailsPhotoGridCell.self, forCellReuseIdentifier: "g")
+        table.register(UITableViewCell.self, forCellReuseIdentifier: "bg")
         table.accessibilityIdentifier = "conversation.details"
         table.tableHeaderView = headerView
         panel.addSubview(table)
@@ -162,6 +169,8 @@ final class ConversationDetailsOverlay: UIView, UITableViewDataSource, UITableVi
 
     private enum Section {
         case toggles
+        /// Backgrounds (opens the gallery), when the service supports them.
+        case background
         case members
         case photos
         case links
@@ -169,6 +178,7 @@ final class ConversationDetailsOverlay: UIView, UITableViewDataSource, UITableVi
 
     private var sections: [Section] {
         var sections: [Section] = [.toggles]
+        if onEditBackground != nil { sections.append(.background) }
         if info.kind == .group { sections.append(.members) }
         if !media.photos.isEmpty { sections.append(.photos) }
         if !media.links.isEmpty { sections.append(.links) }
@@ -183,6 +193,7 @@ final class ConversationDetailsOverlay: UIView, UITableViewDataSource, UITableVi
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         switch sections[section] {
         case .toggles: return toggleCount
+        case .background: return 1
         case .members: return info.participants.count
         case .photos: return 1 + (media.hasMore(.photos) ? 1 : 0)
         case .links: return media.links.count + (media.hasMore(.links) ? 1 : 0)
@@ -191,7 +202,7 @@ final class ConversationDetailsOverlay: UIView, UITableViewDataSource, UITableVi
 
     func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
         switch sections[section] {
-        case .toggles: return nil
+        case .toggles, .background: return nil
         case .members:
             return String(format: String(localized: "conversation.info.members", defaultValue: "%d Members", bundle: .module), info.participants.count)
         // PHOTOS_MENU_ITEM_TITLE / LINKS
@@ -221,6 +232,7 @@ final class ConversationDetailsOverlay: UIView, UITableViewDataSource, UITableVi
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let section = sections[indexPath.section]
+        if section == .background { return backgroundCell(tableView, indexPath) }
         if section == .photos, indexPath.row == 0 {
             let cell = tableView.dequeueReusableCell(withIdentifier: "g", for: indexPath) as! ConversationDetailsPhotoGridCell
             cell.configure(photos: media.photos, columns: Self.photoColumns)
@@ -270,6 +282,8 @@ final class ConversationDetailsOverlay: UIView, UITableViewDataSource, UITableVi
                 content.textToSecondaryTextVerticalPadding = 2
                 content.textProperties.numberOfLines = 1
                 cell.selectionStyle = .default
+            case .background:
+                break  // its own cell (backgroundCell)
             case .photos:
                 break
             }
@@ -289,7 +303,9 @@ final class ConversationDetailsOverlay: UIView, UITableViewDataSource, UITableVi
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
         let section = sections[indexPath.section]
-        if isSeeAll(indexPath) {
+        if section == .background {
+            onEditBackground?()
+        } else if isSeeAll(indexPath) {
             media.showMore(section == .photos ? .photos : .links)
             tableView.reloadData()
         } else if section == .links {
@@ -303,6 +319,26 @@ final class ConversationDetailsOverlay: UIView, UITableViewDataSource, UITableVi
 
     @objc private func receiptsToggled(_ sender: UISwitch) {
         store.updateListState(.init(sendReadReceipts: sender.isOn))
+    }
+
+    /// "Backgrounds", with the current one's name, opening the gallery.
+    private func backgroundCell(_ tableView: UITableView, _ indexPath: IndexPath) -> UITableViewCell {
+        let cell = tableView.dequeueReusableCell(withIdentifier: "bg", for: indexPath)
+        var content = UIListContentConfiguration.valueCell()
+        content.text = ConversationBackgroundStrings.backgrounds
+        content.image = UIImage(systemName: "photo.on.rectangle.angled")
+        content.secondaryText = background.map { background in
+            ConversationBackgroundLook.named(background.look).map(ConversationBackgroundStrings.name) ?? ConversationBackgroundStrings.name(background.kind)
+        } ?? ConversationBackgroundStrings.none
+        cell.contentConfiguration = content
+        var fill = UIBackgroundConfiguration.listGroupedCell()
+        fill.backgroundColor = .tertiarySystemFill
+        cell.backgroundConfiguration = fill
+        cell.accessoryType = .disclosureIndicator
+        cell.selectionStyle = .default
+        cell.accessibilityIdentifier = "conversation.details.backgrounds"
+        cell.accessibilityTraits = .button
+        return cell
     }
 }
 

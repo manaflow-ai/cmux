@@ -140,6 +140,11 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
     }
 
     var isConversationDetailsShown: Bool { detailsHost?.isConversationDetailsShown ?? false }
+    // Conversation background (see MacConversationBackground).
+    let backdropView = MacBackdropView()
+    var backgroundPhotoTask: Task<Void, Never>?
+    var backgroundPicker: MacBackgroundPickerViewController?
+    var backgroundPopover: NSPopover?
 
     public init(store: ConversationStore, serviceTitle: String = "iMessage") {
         self.store = store
@@ -224,6 +229,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         NotificationCenter.default.addObserver(self, selector: #selector(textSizeDidChange), name: MacConversationTextSize.didChange, object: nil)
         installCatchUp()
         installTranslation()
+        installBackdrop()
         store.onChange = { [weak self] change in self?.storeDidChange(change) }
         installAudio()
         store.onScheduledActionFailed = { [weak self] in self?.presentScheduledActionFailure($0) }
@@ -442,6 +448,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             restoreDraft()
             return
         }
+        if case .background = change { updateBackdrop(animated: true); return }
         defer { updateCatchUp() }
 
         var newRows = MacConversationRowBuilder.rows(store: store)
@@ -947,6 +954,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             guard let view = view as? MacMessageContainerView else { return }
             view.topSpacing = topSpacing(at: row, model)
             view.row.audioDelegate = self
+            view.row.backdropStyle = bubbleBackdrop
             view.row.configure(model, layout: layoutCache.layout(model, width: transcriptWidth), text: layoutCache.text(model))
             view.timestampRevealDistance = timestampRevealDistance
             applyMessageSelection(to: view.row)
@@ -1445,7 +1453,10 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
     }
 
     func contextMenu(for event: NSEvent, in table: NSTableView) -> NSMenu? {
-        guard let (index, _) = row(at: event, in: table), let model = messageModel(at: index), let rowView = rowView(at: index) else { return nil }
+        guard let (index, _) = row(at: event, in: table), let model = messageModel(at: index), let rowView = rowView(at: index) else {
+            // Off any message: Messages offers Edit Background.
+            return backgroundContextMenu()
+        }
         let message = model.message
         let menu = NSMenu()
         func item(_ title: String, _ symbol: String, _ action: @escaping () -> Void) -> NSMenuItem {
@@ -1533,6 +1544,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         let argument = parts.count > 1 ? parts[1] : ""
         if let reply = catchUpLabCommand(verb) { return reply }
         if verb.hasPrefix("sl.") { return sendLaterLabCommand(verb, argument) }
+        if let reply = backgroundLabCommand(verb, argument) { return reply }
         switch verb {
         case "type":
             view.window?.makeFirstResponder(composer.textView)

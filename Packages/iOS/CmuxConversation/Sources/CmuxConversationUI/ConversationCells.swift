@@ -184,6 +184,7 @@ final class MessageCell: UICollectionViewCell {
                 ? (message.delivery?.isFailed == true ? ConversationTheme.failedBubble : ConversationTheme.outgoingBubble)
                 : ConversationTheme.incomingBubble
             bubble.screenGradient = model.isOutgoing ? ConversationTheme.iMessageGradient : nil
+            bubble.adaptsToBackdrop = !model.isOutgoing
             bubble.frame = bubbleFrame
             textLabel.effectSeed = ConversationTextEffectMotion.seed(model.rowID)
             textLabel.attributedText = text

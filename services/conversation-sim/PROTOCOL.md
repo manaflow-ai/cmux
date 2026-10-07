@@ -45,6 +45,7 @@ All live for the life of the process and keep growing.
 | `searchContacts` | `{query, limit?, excludeIds?}` | `{contacts: [Contact]}` |
 | `lookupHandles` | `{handles: [String]}` | `{results: [{handle, service: Service?, contact?}]}` |
 | `createConversation` | `{recipients: [{participantId} \| {handle}]}` | `{conversation, created: Bool}` |
+| `setBackground` | `{background: BackgroundDraft \| null}` | `{conversation}` |
 
 `keepAudio` keeps an audio message (clears `expiresAt`, sets `kept`).
 `audioPlayed` reports that I listened to someone's recording; it starts that
@@ -105,6 +106,17 @@ false`, or creates one (`new_<n>`, empty, reachable at
 address fails with `-32005`. Conversation creation does not post a message;
 the client sends the first message on the new socket.
 
+`setBackground` sets the conversation background everyone sees (iOS 26 /
+macOS 26 Messages), or removes it with `null`. The server assigns a new `id`
+and `setBy`, pushes `conversation` to every connection, and appends a system
+line by the actor (`system: "backgroundChanged"` or `"backgroundRemoved"`).
+Removing when there is none changes nothing. A preset `look` fills in its
+`colors`; `luminance` defaults to the mean WCAG relative luminance of
+`colors` (Aurora and Glitter weight their first, base color 85%, as they
+are drawn). A photo needs an uploaded image's `attachmentId` and its
+`luminance` (the client measures it), so every device derives the same
+transcript contrast. Invalid input fails with `-32602`.
+
 ## Notifications (server to client)
 
 `event` with params `{eventSeq, kind, ...}`:
@@ -140,7 +152,17 @@ Conversation {
   id, title, kind: "group"|"direct", participants: [Participant],
   pinned, pinOrder?, muted, markedUnread, deleted   // list state; pinOrder only when pinned
   sendReadReceipts                                  // details toggle, default true
+  background?: Background                          // absent when none
 }
+Background {
+  id, kind: "color"|"photo"|"sky"|"water"|"aurora"|"glitter",
+  colors?: ["#RRGGBB"],          // top to bottom; one is solid; dynamic kinds tint with them
+  look?: string,                 // preset id (backgrounds.ts LOOKS), e.g. "sky.dusk"
+  photo?: {url, width, height},  // kind "photo"
+  luminance: 0..1,               // mean relative luminance; below ~0.179 the transcript goes dark
+  setBy: participantId
+}
+BackgroundDraft { kind, colors?, look?, attachmentId?, luminance? }
 Participant  {
   id, name, initials, colorHex, isMe,
   notificationsSilenced?: true   // Focus on (direct recipient); omitted when off
@@ -170,7 +192,8 @@ Poll {
   votes: [{participantId, optionId, votedAt}]    // multi-select: one per (participant, option)
 }
 SystemEvent {
-  kind: "named"|"removedName"|"added"|"removed"|"left"|"changedPhoto"|"removedPhoto",
+  kind: "named"|"removedName"|"added"|"removed"|"left"|"changedPhoto"|"removedPhoto"
+        |"changedBackground"|"removedBackground",
   targetId?,   // added / removed
   name?        // named: the new conversation name
 }
@@ -258,11 +281,15 @@ edit without `textRuns` clears the formatting.
   in `direct`) return 400.
 - `POST /admin/focus?conversation=direct&on=1|0`: the direct recipient's Focus
   (pushes `conversation` with `notificationsSilenced`).
+- `POST /admin/background?conversation=<id>[&sender=<id>]` with `look=<preset>`,
+  `colors=%23RRGGBB,...` (`kind` defaults to the look's or `color`),
+  `kind=photo` (a procedural 1179x2556 photo), `clear=1`, or nothing (what a
+  bot would do). The sender defaults to a random bot and may be me.
 - `POST /admin/disconnect`: drop every socket (reconnect testing).
 - `POST /admin/knobs` JSON `{latencyScale, failRate, historyFailRate,
   duplicateRate, disconnectEverySeconds, botIntervalScale, botLinkRate, effectRate,
   unsendFailRate, pollVoteFailRate, scheduledFailRate, statusEverySeconds,
-  focusEverySeconds}`. `unsendFailRate` (default 0) makes `unsend` refuse with
+  focusEverySeconds, botBackgroundRate}`. `unsendFailRate` (default 0) makes `unsend` refuse with
   `-32005 "not unsent"`.
 - `POST /admin/scheduled/fire?conversation=<id>&id=<scheduledId>`: make one
   scheduled message due now (honors `scheduledFailRate`).
@@ -307,6 +334,12 @@ is unchanged) plus, near each conversation's newest message, two consecutive
 recordings from one participant and one of mine just above the boot unread
 backlog (which is all from others). Bots send a recording 3% of
 the time. Every recording has a spoken transcript.
+
+Backgrounds: on each bot loop tick (every 5 to 25 s), a bot changes the
+background with probability `botBackgroundRate` (default 0.01): a random
+preset, a procedural photo (20%), or removing the current one (15%). System
+lines never count as unread, never revive a deleted conversation, and bots
+never react or reply to them.
 
 Effects: `effectRate` (default 0.03) of bot text messages carry a random
 effect; ~1.5% of generated history text messages do too.

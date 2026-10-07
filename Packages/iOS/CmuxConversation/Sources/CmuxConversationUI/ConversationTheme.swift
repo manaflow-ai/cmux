@@ -122,7 +122,21 @@ enum ConversationTheme {
     static var timestampBoldFont: UIFont { font(11, .semibold, style: .caption2) }
     /// Separator, swipe-time and status gray: Messages draws these in the
     /// system secondary label color (138,138,142 on white).
-    static let timestampText = UIColor.secondaryLabel
+    static let timestampText = UIColor { traits in
+        if traits.isOverConversationBackdrop { return backdropCaption(traits) }
+        return UIColor.secondaryLabel.resolvedColor(with: traits)
+    }
+
+    /// Captions straight over a conversation background (timestamps, status,
+    /// system lines): ChatKit overrides their gray (`overrideTextColor`) so
+    /// they stay legible on any color; near-white or near-black by the
+    /// background's derived style. Not sampled from Messages.
+    static func backdropCaption(_ traits: UITraitCollection) -> UIColor {
+        let high = traits.accessibilityContrast == .high
+        return traits.userInterfaceStyle == .dark
+            ? UIColor(white: 1, alpha: high ? 1 : 0.86)
+            : UIColor(white: 0, alpha: high ? 0.95 : 0.74)
+    }
 
     /// Composer metrics.
     static let composerSideInset: CGFloat = 27
@@ -215,6 +229,7 @@ enum ConversationTheme {
     static let incomingText = UIColor.label
     static let background = UIColor.systemBackground
     static let secondaryText = UIColor { traits in
+        if traits.isOverConversationBackdrop { return backdropCaption(traits) }
         // Increase Contrast: Messages' captions use the system's high-contrast
         // secondary label (99,99,105 on white, measured).
         if traits.accessibilityContrast == .high { return UIColor.secondaryLabel.resolvedColor(with: traits) }

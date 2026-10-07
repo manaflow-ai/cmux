@@ -144,7 +144,7 @@ extension ConversationViewController {
     private func labMessage(matching query: String) -> ConversationMessage? {
         store.messages.reversed().first { message in
             switch query {
-            case "mine": return message.senderID == store.meID && message.seq != nil && !message.isUnsent
+            case "mine": return message.senderID == store.meID && message.seq != nil && !message.isNotice
             case "failed": return message.delivery?.isFailed == true
             case "theirs": return message.senderID != store.meID
             case "last", "": return true

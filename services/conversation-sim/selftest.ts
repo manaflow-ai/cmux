@@ -1,7 +1,7 @@
 // Self-test: boots server.ts as a subprocess on a random port and checks the protocol.
 // Run: bun run services/conversation-sim/selftest.ts
 import { join } from "node:path";
-import { PNG_SIGNATURE, sniffImageSize } from "./png";
+import { PNG_SIGNATURE, proceduralPNG, sniffImageSize } from "./png";
 
 const port = 20000 + Math.floor(Math.random() * 20000);
 const base = `http://127.0.0.1:${port}`;
@@ -691,6 +691,59 @@ async function main() {
   const eHistory = await ec.call("history", { beforeSeq: null, limit: 50 });
   check(eHistory.messages.length === 0 && eHistory.hasMore === false, "its history is empty and exhausted");
   ec.close();
+
+  console.log("backgrounds");
+  const ba = await Client.connect("direct");
+  const bb = await Client.connect("direct");
+  const bh = await ba.call("hello", { clientId: "bg-a" });
+  await bb.call("hello", { clientId: "bg-b" });
+  check(!("background" in bh.conversation), "a conversation starts without a background");
+  const bgUnreadBefore = bh.unreadCount;
+  const setLook = await ba.call("setBackground", { background: { kind: "sky", look: "sky.dusk" } });
+  const sky = setLook.conversation.background;
+  check(
+    sky.kind === "sky" && sky.look === "sky.dusk" && sky.colors.length === 3 && sky.setBy === "aziz" && sky.luminance > 0 && sky.luminance < 0.18 && typeof sky.id === "string",
+    `setBackground with a preset fills its colors and luminance (L=${sky.luminance})`,
+  );
+  const bgPushed = await bb.waitFor(() => bb.frames.find((f) => f.method === "conversation" && f.params.conversation.background?.id === sky.id), 3000, "background push");
+  check(bgPushed.params.conversation.background.look === "sky.dusk", "the other device receives the background");
+  const notice = await bb.waitFor(() => bb.events().find((e) => e.kind === "message.created" && e.message.system === "backgroundChanged"), 3000, "background notice");
+  check(notice.message.senderId === "aziz" && notice.message.text === "" && !notice.message.status, "setting writes a system line by me, with no delivery status");
+  const solid = await ba.call("setBackground", { background: { kind: "color", colors: ["#ffffff"] } });
+  check(solid.conversation.background.colors[0] === "#FFFFFF" && solid.conversation.background.luminance === 1, "a solid color derives its luminance");
+  check((await ba.raw("setBackground", { background: { kind: "color", colors: ["red"] } })).error?.code === -32602, "malformed colors are rejected");
+  check((await ba.raw("setBackground", { background: { kind: "neon" } })).error?.code === -32602, "unknown kinds are rejected");
+  check((await ba.raw("setBackground", { background: { kind: "photo", luminance: 0.4 } })).error?.code === -32602, "a photo needs an uploaded attachment");
+  const bgUp = await fetch(`${base}/upload`, { method: "POST", headers: { "content-type": "image/png" }, body: proceduralPNG("bg-upload", 300, 600) }).then((r) => r.json());
+  check((await ba.raw("setBackground", { background: { kind: "photo", attachmentId: bgUp.attachment.id } })).error?.code === -32602, "a photo needs its luminance");
+  const photo = await ba.call("setBackground", { background: { kind: "photo", attachmentId: bgUp.attachment.id, luminance: 0.42 } });
+  check(
+    photo.conversation.background.photo.url.endsWith(`/media/${bgUp.attachment.id}.png`) && photo.conversation.background.photo.width === bgUp.attachment.width && photo.conversation.background.luminance === 0.42,
+    "a photo background carries the uploaded image and its luminance",
+  );
+  const cleared = await ba.call("setBackground", { background: null });
+  check(!("background" in cleared.conversation), "setBackground null removes it");
+  await bb.waitFor(() => bb.events().find((e) => e.kind === "message.created" && e.message.system === "backgroundRemoved"), 3000, "removed notice");
+  check(true, "removing writes a 'removed the background' line");
+  const bgEventsBefore = ba.events().length;
+  await ba.call("setBackground", { background: null });
+  await sleep(200);
+  check(!ba.events().slice(bgEventsBefore).some((e) => e.message.system), "removing when there is none writes nothing");
+  const byBot = await post("/admin/background?conversation=direct&sender=john&look=glitter.gold");
+  check(byBot.conversation.background.kind === "glitter" && byBot.conversation.background.setBy === "john", "admin background: John sets Glitter");
+  check(byBot.conversation.background.luminance < 0.18, `Glitter is as dark as its base, not the mean of its sparkle colors (L=${byBot.conversation.background.luminance})`);
+  const botNotice = await ba.waitFor(() => ba.events().find((e) => e.message.system === "backgroundChanged" && e.message.senderId === "john"), 3000, "bot notice");
+  const afterBot = await ba.call("hello", { clientId: "bg-a2" });
+  check(afterBot.unreadCount === bgUnreadBefore && afterBot.conversation.background.setBy === "john", "a system line from someone else is not unread; hello carries the background");
+  const botPhoto = await post("/admin/background?conversation=direct&sender=john&kind=photo");
+  const bp = botPhoto.conversation.background;
+  const bpBytes = new Uint8Array(await (await fetch(bp.photo.url)).arrayBuffer());
+  check(bp.kind === "photo" && sniffImageSize(bpBytes)?.height === 1200 && bp.luminance > 0 && bp.luminance < 1, `a bot photo background is served with its luminance (L=${bp.luminance})`);
+  const bgPage = await ba.call("history", { beforeSeq: null, limit: 10 });
+  check(bgPage.messages.some((m: any) => m.id === botNotice.message.id && m.system === "backgroundChanged"), "history carries system lines");
+  await post("/admin/background?conversation=direct&clear=1&sender=john");
+  ba.close();
+  bb.close();
 
   console.log("admin disconnect");
   await post("/admin/disconnect");

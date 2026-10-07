@@ -44,6 +44,12 @@ final class BubbleBackgroundView: UIView {
     /// `updateScreenGradient()` when it moves without relayout (scrolling).
     var screenGradient: ConversationTheme.ScreenGradient? { didSet { updateColors() } }
     private var gradientLayer: CAGradientLayer?
+    /// Over a conversation background, this bubble (an incoming one) turns
+    /// into a translucent material, as ChatKit's `forcesMaterialBackground`
+    /// balloons do; Reduce Transparency keeps the opaque fill.
+    var adaptsToBackdrop = false { didSet { if adaptsToBackdrop != oldValue { updateColors() } } }
+    private var materialView: UIVisualEffectView?
+    private let materialMask = BubbleMaskView()
 
     /// Send Later outline: a dashed stroke inset so it stays inside the shape.
     var isDashed = false {
@@ -73,7 +79,20 @@ final class BubbleBackgroundView: UIView {
         isUserInteractionEnabled = false
         backgroundColor = .clear
         shapeLayer.lineWidth = 1
+        registerForTraitChanges([ConversationBackdropTrait.self]) { (self: Self, _: UITraitCollection) in
+            self.updateColors()
+        }
+        NotificationCenter.default.addObserver(self, selector: #selector(reduceTransparencyChanged), name: UIAccessibility.reduceTransparencyStatusDidChangeNotification, object: nil)
         updateColors()
+    }
+
+    @objc private func reduceTransparencyChanged() {
+        updateColors()
+    }
+
+    /// Material instead of a fill: over a background, unless Reduce Transparency is on.
+    private var usesMaterial: Bool {
+        adaptsToBackdrop && screenGradient == nil && traitCollection.isOverConversationBackdrop && !UIAccessibility.isReduceTransparencyEnabled
     }
 
     @available(*, unavailable)
@@ -103,6 +122,17 @@ final class BubbleBackgroundView: UIView {
             }
             mask.path = path
         }
+        if let materialView {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            materialView.frame = bounds
+            materialMask.frame = bounds
+            CATransaction.commit()
+            if let animation = shapeLayer.animation(forKey: "path")?.copy() as? CABasicAnimation {
+                materialMask.shape.add(animation, forKey: "path")
+            }
+            materialMask.shape.path = path
+        }
         updateScreenGradient()
     }
 
@@ -131,7 +161,22 @@ final class BubbleBackgroundView: UIView {
     }
 
     private func updateColors() {
-        shapeLayer.fillColor = screenGradient == nil ? fillColor.resolvedColor(with: traitCollection).cgColor : UIColor.clear.cgColor
+        let material = usesMaterial
+        if material, materialView == nil {
+            let effect = UIVisualEffectView(effect: UIBlurEffect(style: .systemThinMaterial))
+            effect.isUserInteractionEnabled = false
+            effect.frame = bounds
+            materialMask.frame = bounds
+            materialMask.shape.path = shapeLayer.path
+            effect.mask = materialMask
+            insertSubview(effect, at: 0)
+            materialView = effect
+        }
+        materialView?.isHidden = !material
+        // The material carries a light wash of the bubble's own gray so it
+        // still reads as an incoming bubble over busy photos.
+        materialView?.contentView.backgroundColor = material ? fillColor.resolvedColor(with: traitCollection).withAlphaComponent(0.32) : nil
+        shapeLayer.fillColor = screenGradient == nil && !material ? fillColor.resolvedColor(with: traitCollection).cgColor : UIColor.clear.cgColor
         shapeLayer.strokeColor = strokeColor?.resolvedColor(with: traitCollection).cgColor
         if screenGradient != nil, gradientLayer == nil {
             let gradient = CAGradientLayer()
@@ -146,5 +191,11 @@ final class BubbleBackgroundView: UIView {
         gradientLayer?.isHidden = screenGradient == nil
         updateScreenGradient()
     }
+}
+
+/// A view whose layer is a shape, used as a material's bubble-shaped mask.
+final class BubbleMaskView: UIView {
+    override class var layerClass: AnyClass { CAShapeLayer.self }
+    var shape: CAShapeLayer { layer as! CAShapeLayer }
 }
 #endif
