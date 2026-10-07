@@ -16,20 +16,30 @@ export const SIGNAL_WINDOW_MS = 10_000
 const bad = (message: string): ErrorBody => ({ code: "validation.invalid", message, retryable: false })
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v)
 const onlyKeys = (o: Record<string, unknown>, keys: ReadonlyArray<string>) => Object.keys(o).every((k) => keys.includes(k))
+const BASE64 = /^[A-Za-z0-9+/_-]+={0,2}$/
+/** `auth {key, sig}`: the signer's P-256 key and its signature over the DTLS fingerprint binding (b2-webrtc.md section 8). Peers verify it; the relay only bounds its shape. */
+const authError = (auth: unknown): ErrorBody | undefined => {
+  if (auth === undefined) return undefined
+  if (!isObj(auth) || !onlyKeys(auth, ["key", "sig"])) return bad("auth must be {key, sig}")
+  for (const field of [auth.key, auth.sig]) {
+    if (typeof field !== "string" || field.length < 1 || field.length > 256 || !BASE64.test(field)) return bad("auth.key and auth.sig must be base64 of at most 256 characters")
+  }
+  return undefined
+}
 
 /** Checks a signal body against families/signal.schema.json. */
 export const signalBodyError = (kind: string, body: unknown): ErrorBody | undefined => {
   if (!isObj(body)) return bad("signal body must be an object")
   switch (kind) {
     case "offer":
-      if (!onlyKeys(body, ["sdp", "ice_restart", "carrier"])) return bad("unknown offer field")
+      if (!onlyKeys(body, ["sdp", "ice_restart", "carrier", "auth"])) return bad("unknown offer field")
       if (typeof body.sdp !== "string" || body.sdp.length < 1 || body.sdp.length > 65536) return bad("offer.sdp must be 1 to 65536 characters")
       if (body.ice_restart !== undefined && typeof body.ice_restart !== "boolean") return bad("offer.ice_restart must be a boolean")
       if (body.carrier !== undefined && body.carrier !== "webrtc" && body.carrier !== "webrtc-wg") return bad("offer.carrier must be webrtc or webrtc-wg")
-      return undefined
+      return authError(body.auth)
     case "answer":
-      if (!onlyKeys(body, ["sdp"]) || typeof body.sdp !== "string" || body.sdp.length < 1 || body.sdp.length > 65536) return bad("answer.sdp must be 1 to 65536 characters")
-      return undefined
+      if (!onlyKeys(body, ["sdp", "auth"]) || typeof body.sdp !== "string" || body.sdp.length < 1 || body.sdp.length > 65536) return bad("answer.sdp must be 1 to 65536 characters")
+      return authError(body.auth)
     case "ice": {
       if (!onlyKeys(body, ["candidate", "sdp_mid", "sdp_mline_index"])) return bad("unknown ice field")
       if (typeof body.candidate !== "string" || body.candidate.length > 1024) return bad("ice.candidate must be at most 1024 characters")
