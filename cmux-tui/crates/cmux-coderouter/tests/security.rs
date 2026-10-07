@@ -1,9 +1,9 @@
 use cmux_coderouter::{
-    BODY_LIMIT, InstallSecretStore, KeyRing, KeyScope, LoopbackAddr, RandomInstallSecretStore,
-    Secret, spawn_data_plane,
+    ApiFamily, BODY_LIMIT, InstallSecretStore, KeyRing, KeyScope, LoopbackAddr,
+    RandomInstallSecretStore, Secret, spawn_data_plane,
 };
 use reqwest::{Client, StatusCode};
-use std::{net::SocketAddr, sync::Arc};
+use std::{collections::BTreeSet, net::SocketAddr, sync::Arc};
 use tokio::sync::RwLock;
 
 fn scope() -> KeyScope {
@@ -11,15 +11,37 @@ fn scope() -> KeyScope {
         harness: "claude".into(),
         session: "session-1".into(),
         surfaces: vec!["surface-1".into()],
+        families: BTreeSet::from([ApiFamily::AnthropicMessages, ApiFamily::OpenAiResponses]),
         expires_at: u64::MAX,
     }
 }
 async fn running_install(id: &str) -> (SocketAddr, tokio::task::JoinHandle<()>, String) {
+    running_install_with_scope(id, scope()).await
+}
+async fn running_install_with_scope(
+    id: &str,
+    key_scope: KeyScope,
+) -> (SocketAddr, tokio::task::JoinHandle<()>, String) {
     let store: Arc<dyn InstallSecretStore> = Arc::new(RandomInstallSecretStore::new(id).unwrap());
     let mut ring = KeyRing::new(store).unwrap();
-    let key = ring.mint("key", scope()).unwrap().expose().clone();
+    let key = ring.mint("key", key_scope).unwrap().expose().clone();
     let (address, task) = spawn_data_plane(Arc::new(RwLock::new(ring))).await.unwrap();
     (address, task, key)
+}
+
+#[tokio::test]
+async fn api_family_scope_mismatch_is_forbidden() {
+    let mut key_scope = scope();
+    key_scope.families = BTreeSet::from([ApiFamily::AnthropicMessages]);
+    let (address, task, key) = running_install_with_scope("family", key_scope).await;
+    let response = client()
+        .post(format!("http://{address}/v1/responses"))
+        .header("authorization", format!("Bearer {key}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    task.abort();
 }
 fn client() -> Client {
     Client::builder().redirect(reqwest::redirect::Policy::none()).build().unwrap()

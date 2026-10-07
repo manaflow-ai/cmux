@@ -11,7 +11,13 @@ use cmux_local_auth::{ListenerPolicy, tokens_match};
 use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
-use std::{collections::BTreeMap, fmt, net::SocketAddr, path::Path, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt,
+    net::SocketAddr,
+    path::Path,
+    sync::Arc,
+};
 #[cfg(unix)]
 use tokio::net::{UnixListener, UnixStream};
 use tokio::{
@@ -72,6 +78,29 @@ pub struct StaticInstallSecretStore {
     install_id: String,
     secret: Vec<u8>,
 }
+
+/// A per-install random store used by tests to model first-launch Keychain
+/// creation. Each instance creates one OS-CSPRNG secret and reuses it.
+pub struct RandomInstallSecretStore {
+    install_id: String,
+    secret: Vec<u8>,
+}
+impl RandomInstallSecretStore {
+    /// Create one install identity with a fresh 32-byte secret.
+    pub fn new(install_id: impl Into<String>) -> anyhow::Result<Self> {
+        let mut secret = [0u8; 32];
+        getrandom::fill(&mut secret)?;
+        Ok(Self { install_id: install_id.into(), secret: secret.to_vec() })
+    }
+}
+impl InstallSecretStore for RandomInstallSecretStore {
+    fn install_id(&self) -> &str {
+        &self.install_id
+    }
+    fn load(&self) -> anyhow::Result<Secret<Vec<u8>>> {
+        Ok(Secret::new(self.secret.clone()))
+    }
+}
 impl StaticInstallSecretStore {
     /// Construct a test store; callers should use a temporary fixture secret.
     pub fn new(install_id: impl Into<String>, secret: Vec<u8>) -> Self {
@@ -107,12 +136,20 @@ impl InstallSecretStore for KeychainInstallSecretStore {
     }
     #[cfg(target_os = "macos")]
     fn load(&self) -> anyhow::Result<Secret<Vec<u8>>> {
-        let (password, _item) = security_framework::passwords::find_generic_password(
-            None,
-            "com.cmuxterm.coderouter",
-            &self.install_id,
-        )?;
-        Ok(Secret::new(password.to_owned()))
+        let keychain = security_framework::os::macos::keychain::SecKeychain::default()?;
+        match keychain.find_generic_password("com.cmuxterm.coderouter", &self.install_id) {
+            Ok((password, _item)) => Ok(Secret::new(password.to_owned())),
+            Err(_) => {
+                let mut secret = [0u8; 32];
+                getrandom::fill(&mut secret)?;
+                keychain.set_generic_password(
+                    "com.cmuxterm.coderouter",
+                    &self.install_id,
+                    &secret,
+                )?;
+                Ok(Secret::new(secret.to_vec()))
+            }
+        }
     }
     #[cfg(not(target_os = "macos"))]
     fn load(&self) -> anyhow::Result<Secret<Vec<u8>>> {
@@ -147,7 +184,24 @@ pub struct KeyScope {
     pub harness: String,
     pub session: String,
     pub surfaces: Vec<String>,
+    pub families: BTreeSet<ApiFamily>,
     pub expires_at: u64,
+}
+/// API family authorized by a scoped key.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "snake_case")]
+pub enum ApiFamily {
+    AnthropicMessages,
+    OpenAiResponses,
+}
+impl ApiFamily {
+    fn for_path(path: &str) -> Option<Self> {
+        match path {
+            "/v1/messages" => Some(Self::AnthropicMessages),
+            "/v1/responses" => Some(Self::OpenAiResponses),
+            _ => None,
+        }
+    }
 }
 #[derive(Clone)]
 struct KeyRecord {
@@ -200,22 +254,23 @@ impl KeyRing {
         mac.update(secret);
         mac.finalize().into_bytes().into()
     }
-    fn validate(&self, value: &str) -> bool {
+    fn validate(&self, value: &str) -> Option<&KeyScope> {
         let mut parts = value.split('_');
         if parts.next() != Some("crl") || parts.next() != Some(self.store.install_id()) {
-            return false;
+            return None;
         }
-        let Some(key_id) = parts.next() else { return false };
-        let Some(secret) = parts.next() else { return false };
+        let Some(key_id) = parts.next() else { return None };
+        let Some(secret) = parts.next() else { return None };
         if parts.next().is_some() {
-            return false;
+            return None;
         }
-        let Some(record) = self.keys.get(key_id) else { return false };
-        let Ok(bytes) = hex::decode(secret) else { return false };
+        let Some(record) = self.keys.get(key_id) else { return None };
+        let Ok(bytes) = hex::decode(secret) else { return None };
         if bytes.len() != 32 {
-            return false;
+            return None;
         }
         tokens_match(&hex::encode(self.digest(&bytes)), &hex::encode(record.digest))
+            .then_some(&record.scope)
     }
 }
 
@@ -264,17 +319,33 @@ pub async fn serve(home: impl AsRef<Path>) -> anyhow::Result<()> {
     }
     let bind_address: SocketAddr = "127.0.0.1:0".parse()?;
     let listener = TcpListener::bind(LoopbackAddr::try_from(bind_address)?.address()).await?;
-    let port = listener.local_addr()?.port();
     let store = Arc::new(KeychainInstallSecretStore::new("default"));
     let keys = Arc::new(tokio::sync::RwLock::new(KeyRing::new(store)?));
-    let state = AppState { port, keys: keys.clone() };
+    let data = data_server(listener, keys.clone());
+    tokio::select! { result = data => result?, result = admin_loop(admin, keys) => result? }
+    Ok(())
+}
+
+/// Start the real loopback data plane for integration tests and composition.
+pub async fn spawn_data_plane(
+    keys: Arc<tokio::sync::RwLock<KeyRing>>,
+) -> anyhow::Result<(SocketAddr, tokio::task::JoinHandle<()>)> {
+    let listener =
+        TcpListener::bind(LoopbackAddr::try_from("127.0.0.1:0".parse::<SocketAddr>()?)?.address())
+            .await?;
+    let address = listener.local_addr()?;
+    let task = tokio::spawn(data_server(listener, keys));
+    Ok((address, task))
+}
+
+async fn data_server(listener: TcpListener, keys: Arc<tokio::sync::RwLock<KeyRing>>) {
+    let state =
+        AppState { port: listener.local_addr().map(|address| address.port()).unwrap_or(0), keys };
     let app = Router::new()
         .fallback(any(data_request))
         .layer(RequestBodyLimitLayer::new(BODY_LIMIT))
         .with_state(state);
-    let data = axum::serve(listener, app.into_make_service());
-    tokio::select! { result = data => result?, result = admin_loop(admin, keys) => result? }
-    Ok(())
+    let _ = axum::serve(listener, app.into_make_service()).await;
 }
 #[cfg(not(unix))]
 pub async fn serve(_home: impl AsRef<Path>) -> anyhow::Result<()> {
@@ -327,59 +398,6 @@ async fn admin_connection(
     Ok(())
 }
 
-/// Apply the data-plane gate to an in-memory request. This is also the stable
-/// test seam for callers that embed the router instead of opening a socket.
-pub async fn handle_request(
-    request: Request<http_body_util::Full<bytes::Bytes>>,
-    port: u16,
-    keys: &KeyRing,
-) -> StatusCode {
-    let header_bytes: usize = request
-        .headers()
-        .iter()
-        .map(|(name, value)| name.as_str().len() + value.as_bytes().len())
-        .sum();
-    if header_bytes > HEADER_LIMIT {
-        return StatusCode::REQUEST_HEADER_FIELDS_TOO_LARGE;
-    }
-    if request.method() == Method::OPTIONS || request.headers().contains_key("origin") {
-        return StatusCode::FORBIDDEN;
-    }
-    let hosts = request
-        .headers()
-        .get_all("host")
-        .iter()
-        .filter_map(|value| value.to_str().ok())
-        .collect::<Vec<_>>();
-    if hosts.len() != 1
-        || !hosts.iter().any(|host| {
-            *host == format!("127.0.0.1:{port}") || *host == format!("localhost:{port}")
-        })
-    {
-        return StatusCode::MISDIRECTED_REQUEST;
-    }
-    let Some(auth) = request.headers().get("authorization").and_then(|value| value.to_str().ok())
-    else {
-        return StatusCode::UNAUTHORIZED;
-    };
-    let Some(token) = auth.strip_prefix("Bearer ").or_else(|| auth.strip_prefix("bearer ")) else {
-        return StatusCode::UNAUTHORIZED;
-    };
-    if !keys.validate(token.trim()) {
-        return StatusCode::UNAUTHORIZED;
-    }
-    let method = request.method().clone();
-    let path = request.uri().path().to_owned();
-    let body = request.into_body().into_inner();
-    if body.map_or(0, |bytes| bytes.len()) > BODY_LIMIT {
-        return StatusCode::PAYLOAD_TOO_LARGE;
-    }
-    match (method, path.as_str()) {
-        (Method::GET, "/v1/models") => StatusCode::OK,
-        (Method::POST, "/v1/messages" | "/v1/responses") => StatusCode::NOT_IMPLEMENTED,
-        _ => StatusCode::NOT_FOUND,
-    }
-}
 #[axum::debug_handler]
 async fn data_request(State(state): State<AppState>, request: Request<Body>) -> Response<Body> {
     let request_id = uuid::Uuid::new_v4().to_string();
@@ -387,7 +405,7 @@ async fn data_request(State(state): State<AppState>, request: Request<Body>) -> 
     let method = request.method().clone();
     let uri = request.uri().path().to_owned();
     let headers = request.headers().clone();
-    let status = authorize(method.clone(), headers, state.port, &state.keys).await;
+    let status = authorize(method.clone(), uri.as_str(), headers, state.port, &state.keys).await;
     if let Err(status) = status {
         return Response::builder()
             .status(status)
@@ -406,6 +424,7 @@ async fn data_request(State(state): State<AppState>, request: Request<Body>) -> 
 }
 async fn authorize(
     method: Method,
+    path: &str,
     headers: HeaderMap,
     port: u16,
     keys: &Arc<tokio::sync::RwLock<KeyRing>>,
@@ -416,6 +435,9 @@ async fn authorize(
         return Err(StatusCode::REQUEST_HEADER_FIELDS_TOO_LARGE);
     }
     if method == Method::OPTIONS || headers.contains_key("origin") {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    if headers.keys().any(|name| name.as_str().starts_with("sec-fetch-")) {
         return Err(StatusCode::FORBIDDEN);
     }
     let hosts =
@@ -434,8 +456,13 @@ async fn authorize(
     let Some(token) = auth.strip_prefix("Bearer ").or_else(|| auth.strip_prefix("bearer ")) else {
         return Err(StatusCode::UNAUTHORIZED);
     };
-    if !keys.read().await.validate(token.trim()) {
+    let Some(scope) = keys.read().await.validate(token.trim()) else {
         return Err(StatusCode::UNAUTHORIZED);
+    };
+    if let Some(family) = ApiFamily::for_path(path)
+        && !scope.families.contains(&family)
+    {
+        return Err(StatusCode::FORBIDDEN);
     }
     Ok(())
 }
