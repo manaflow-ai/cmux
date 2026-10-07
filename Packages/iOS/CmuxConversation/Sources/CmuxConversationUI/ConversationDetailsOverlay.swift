@@ -24,6 +24,12 @@ final class ConversationDetailsOverlay: UIView, UITableViewDataSource, UITableVi
     private let titleLabel = UILabel()
 
     static let panelCornerRadius: CGFloat = 55
+
+    /// Opens the background gallery ("Backgrounds" row). Nil hides the row
+    /// (a backend without backgrounds).
+    var onEditBackground: (() -> Void)? { didSet { table.reloadData() } }
+    /// The current background, named in the "Backgrounds" row.
+    var background: ConversationBackground? { didSet { table.reloadData() } }
     static let avatarSize: CGFloat = 80
 
     init(info: ConversationInfo, meID: String?) {
@@ -60,6 +66,7 @@ final class ConversationDetailsOverlay: UIView, UITableViewDataSource, UITableVi
         table.insetsLayoutMarginsFromSafeArea = false
         table.layoutMargins = UIEdgeInsets(top: 0, left: 16, bottom: 0, right: 16)
         table.register(UITableViewCell.self, forCellReuseIdentifier: "p")
+        table.register(UITableViewCell.self, forCellReuseIdentifier: "bg")
         table.accessibilityIdentifier = "conversation.details"
         table.tableHeaderView = headerView
         panel.addSubview(table)
@@ -134,19 +141,21 @@ final class ConversationDetailsOverlay: UIView, UITableViewDataSource, UITableVi
 
     // MARK: Table
 
-    func numberOfSections(in tableView: UITableView) -> Int { 1 }
+    func numberOfSections(in tableView: UITableView) -> Int { onEditBackground == nil ? 1 : 2 }
 
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        info.participants.count
+        section == 1 ? 1 : info.participants.count
     }
 
     func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
-        info.kind == .group
+        if section == 1 { return nil }
+        return info.kind == .group
             ? String(format: String(localized: "conversation.info.members", defaultValue: "%d Members", bundle: .module), info.participants.count)
             : nil
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        if indexPath.section == 1 { return backgroundCell(tableView, indexPath) }
         let cell = tableView.dequeueReusableCell(withIdentifier: "p", for: indexPath)
         let participant = info.participants[indexPath.row]
         var content = cell.defaultContentConfiguration()
@@ -158,6 +167,35 @@ final class ConversationDetailsOverlay: UIView, UITableViewDataSource, UITableVi
         cell.backgroundConfiguration = background
         cell.selectionStyle = .none
         return cell
+    }
+
+    /// "Backgrounds", with the current one's name, opening the gallery.
+    private func backgroundCell(_ tableView: UITableView, _ indexPath: IndexPath) -> UITableViewCell {
+        let cell = tableView.dequeueReusableCell(withIdentifier: "bg", for: indexPath)
+        var content = UIListContentConfiguration.valueCell()
+        content.text = ConversationBackgroundStrings.backgrounds
+        content.image = UIImage(systemName: "photo.on.rectangle.angled")
+        content.secondaryText = background.map { background in
+            ConversationBackgroundLook.named(background.look).map(ConversationBackgroundStrings.name) ?? ConversationBackgroundStrings.name(background.kind)
+        } ?? ConversationBackgroundStrings.none
+        cell.contentConfiguration = content
+        var fill = UIBackgroundConfiguration.listGroupedCell()
+        fill.backgroundColor = .tertiarySystemFill
+        cell.backgroundConfiguration = fill
+        cell.accessoryType = .disclosureIndicator
+        cell.selectionStyle = .default
+        cell.accessibilityIdentifier = "conversation.details.backgrounds"
+        cell.accessibilityTraits = .button
+        return cell
+    }
+
+    func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        tableView.deselectRow(at: indexPath, animated: true)
+        if indexPath.section == 1 { onEditBackground?() }
+    }
+
+    func tableView(_ tableView: UITableView, shouldHighlightRowAt indexPath: IndexPath) -> Bool {
+        indexPath.section == 1
     }
 }
 #endif

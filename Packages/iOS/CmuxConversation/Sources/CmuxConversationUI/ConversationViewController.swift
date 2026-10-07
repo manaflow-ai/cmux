@@ -35,6 +35,8 @@ public final class ConversationViewController: UIViewController {
     private(set) lazy var collectionView = TranscriptCollectionView(frame: .zero, collectionViewLayout: layout)
     let header = ConversationHeaderView()
     let topEdgeFade = ConversationTopEdgeFade()
+    /// The conversation background, behind the transcript (see +Background).
+    let backdropView = ConversationBackdropView()
     var detailsOverlay: ConversationDetailsOverlay?
     let composer = ConversationComposerView()
     let composerContainer = UIView()
@@ -212,6 +214,7 @@ public final class ConversationViewController: UIViewController {
         installMentions()
         installAudio()
         installEffects()
+        installBackground()
         initialSpinner.translatesAutoresizingMaskIntoConstraints = false
         initialSpinner.startAnimating()
         initialSpinner.accessibilityIdentifier = "conversation.initialLoading"
@@ -383,6 +386,9 @@ public final class ConversationViewController: UIViewController {
             return
         case .readState:
             updateCatchUp()
+            return
+        case .background:
+            applyBackground(animated: true)
             return
         default:
             rebuild(change: change)
@@ -771,6 +777,7 @@ public final class ConversationViewController: UIViewController {
         guard let info = store.info, detailsOverlay == nil else { return }
         view.endEditing(true)
         let overlay = ConversationDetailsOverlay(info: info, meID: store.meID)
+        configureBackgroundRow(overlay)
         overlay.frame = view.bounds
         overlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         view.insertSubview(overlay, belowSubview: header)

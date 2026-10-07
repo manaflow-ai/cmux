@@ -96,6 +96,10 @@ enum ConversationRowBuilder {
             if entry.showsTimestamp {
                 rows.append(.timestamp(id: "ts:\(message.rowID)", date: message.sentAt))
             }
+            if let event = message.systemEvent {
+                rows.append(.notice(id: "system:\(message.rowID)", text: ConversationBackgroundStrings.notice(event, senderID: message.senderID, meID: meID, info: info).text))
+                continue
+            }
             if message.isUnsent {
                 // Its own id: the bubble row leaves (with the poof) and the
                 // notice arrives, never a bubble cell reconfigured as a notice.
