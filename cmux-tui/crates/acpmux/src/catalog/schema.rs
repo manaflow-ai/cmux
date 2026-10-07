@@ -265,8 +265,42 @@ fn sanitize(catalog: &mut Catalog) {
     }
 }
 
-/// Reads one catalog body. RED: no size, version or content check yet.
+/// Reads and checks one catalog body.
 pub fn parse(body: &[u8]) -> Result<Catalog, CatalogError> {
-    let _ = (check_harness, check_info, sanitize, MAX_BODY_BYTES, MAX_HARNESSES);
-    serde_json::from_slice(body).map_err(|e| invalid(e.to_string()))
+    if body.len() > MAX_BODY_BYTES {
+        return Err(CatalogError::Oversize(body.len()));
+    }
+    let value: Value = serde_json::from_slice(body).map_err(|e| invalid(e.to_string()))?;
+    // The version first: a newer major version may change any other field.
+    match value.get("schemaVersion").and_then(Value::as_u64) {
+        Some(SCHEMA_VERSION) => {}
+        Some(v) if v > SCHEMA_VERSION => return Err(CatalogError::UnsupportedVersion(v)),
+        _ => return Err(invalid("schemaVersion must be the integer 1")),
+    }
+    let mut catalog: Catalog = serde_json::from_value(value).map_err(|e| invalid(e.to_string()))?;
+    let date = catalog.generated_at.as_bytes();
+    ensure(date.len() >= 11 && date.len() <= 40 && date[4] == b'-' && date[10] == b'T', || {
+        "generatedAt must be an ISO-8601 timestamp".into()
+    })?;
+    ensure(matches!(catalog.source.as_str(), "live" | "snapshot"), || {
+        "source must be live or snapshot".into()
+    })?;
+    ensure(!catalog.harnesses.is_empty() && catalog.harnesses.len() <= MAX_HARNESSES, || {
+        format!("harnesses must have 1 to {MAX_HARNESSES} entries")
+    })?;
+    let mut seen = HashSet::new();
+    for harness in &catalog.harnesses {
+        check_harness(harness)?;
+        ensure(seen.insert(harness.id.as_str()), || {
+            format!("harness {} is listed twice", harness.id)
+        })?;
+    }
+    for (reference, info) in &catalog.models {
+        check_info(reference, info)?;
+    }
+    ensure(catalog.providers.iter().all(|(id, p)| slug_ok(id) && text_ok(&p.name)), || {
+        "a provider is malformed".into()
+    })?;
+    sanitize(&mut catalog);
+    Ok(catalog)
 }

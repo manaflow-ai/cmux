@@ -173,8 +173,7 @@ impl CatalogService {
         });
         *self.dir.lock().unwrap_or_else(PoisonError::into_inner) = Some(dir);
         *self.fetcher.lock().unwrap_or_else(PoisonError::into_inner) = fetcher;
-        // RED: the stored copy is not used yet.
-        if let Some((catalog, copy)) = stored.filter(|_| false) {
+        if let Some((catalog, copy)) = stored {
             let mut state = self.state();
             // ISO-8601 UTC strings of the same shape order as text.
             if catalog.generated_at >= state.catalog.generated_at {
