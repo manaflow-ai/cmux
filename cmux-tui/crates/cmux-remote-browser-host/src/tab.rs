@@ -299,6 +299,12 @@ impl HostTab {
         }
     }
 
+    /// `rb.screen_applied` for `viewer`, under that viewer's own last seq
+    /// (stub).
+    pub fn screen_applied(&self, _viewer: &str) -> Option<Control> {
+        None
+    }
+
     pub fn state(&self) -> SessionState {
         self.session.state
     }
