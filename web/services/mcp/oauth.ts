@@ -112,13 +112,17 @@ export function isMcpAccessToken(value: string): boolean {
   return value.startsWith(ACCESS_TOKEN_PREFIX);
 }
 
-/** The issuer and resource identifiers for one public origin, e.g. `https://cmux.com`. */
-export function mcpOauthUrls(origin: string) {
+/**
+ * The issuer and resource identifiers for one public origin, e.g. `https://cmux.com`.
+ * `authorizationOrigin` is where the user's browser signs in; it differs from the
+ * issuer only on a development stack whose sign-in host is private.
+ */
+export function mcpOauthUrls(origin: string, authorizationOrigin: string = origin) {
   const base = origin.replace(/\/+$/, "");
   return {
     issuer: base,
     resource: `${base}${MCP_RESOURCE_PATH}`,
-    authorizationEndpoint: `${base}${MCP_AUTHORIZE_PATH}`,
+    authorizationEndpoint: `${authorizationOrigin.replace(/\/+$/, "")}${MCP_AUTHORIZE_PATH}`,
     tokenEndpoint: `${base}${MCP_TOKEN_PATH}`,
     registrationEndpoint: `${base}${MCP_REGISTER_PATH}`,
     revocationEndpoint: `${base}${MCP_REVOKE_PATH}`,
@@ -126,8 +130,8 @@ export function mcpOauthUrls(origin: string) {
   };
 }
 
-export function authorizationServerMetadata(origin: string) {
-  const urls = mcpOauthUrls(origin);
+export function authorizationServerMetadata(origin: string, authorizationOrigin: string = origin) {
+  const urls = mcpOauthUrls(origin, authorizationOrigin);
   return {
     issuer: urls.issuer,
     authorization_endpoint: urls.authorizationEndpoint,

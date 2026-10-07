@@ -11,9 +11,24 @@ import {
 } from "./oauth";
 import { mcpOauthDbStore } from "./oauthStore";
 
-/** The public origin OAuth identifiers are built from: the request's host, or the direct dev-backend URL. */
+/** The origin the browser sees: the request's host, or the direct dev-backend URL. */
 export function mcpPublicOrigin(request: Request, env: Record<string, string | undefined> = process.env): string {
   return directDevBackendOrigin(env)?.origin ?? new URL(request.url).origin;
+}
+
+/**
+ * The OAuth issuer, which also names the MCP resource. It is the public origin
+ * unless `CMUX_MCP_OAUTH_ISSUER` sets one: a development stack reachable by MCP
+ * hosts only through a public tunnel sets it to the tunnel's origin, while the
+ * browser keeps signing in on the stack's own host.
+ */
+export function mcpIssuerFor(fallbackOrigin: string, env: Record<string, string | undefined> = process.env): string {
+  const configured = env.CMUX_MCP_OAUTH_ISSUER?.trim().replace(/\/+$/, "");
+  return configured && /^https:\/\/[^/?#]+$/.test(configured) ? configured : fallbackOrigin;
+}
+
+export function mcpIssuer(request: Request, env: Record<string, string | undefined> = process.env): string {
+  return mcpIssuerFor(mcpPublicOrigin(request, env), env);
 }
 
 // Metadata and the token endpoint are called by the MCP host's browser or
@@ -41,11 +56,11 @@ function metadataResponse(body: unknown): Response {
 }
 
 export function authorizationServerMetadataResponse(request: Request): Response {
-  return metadataResponse(authorizationServerMetadata(mcpPublicOrigin(request)));
+  return metadataResponse(authorizationServerMetadata(mcpIssuer(request), mcpPublicOrigin(request)));
 }
 
 export function protectedResourceMetadataResponse(request: Request): Response {
-  return metadataResponse(protectedResourceMetadata(mcpPublicOrigin(request)));
+  return metadataResponse(protectedResourceMetadata(mcpIssuer(request)));
 }
 
 async function formFrom(request: Request): Promise<URLSearchParams> {
@@ -71,7 +86,7 @@ async function oauthRoute(operation: () => Promise<Response>): Promise<Response>
 export function tokenRoute(request: Request): Promise<Response> {
   return oauthRoute(async () => {
     const form = await formFrom(request);
-    return oauthJsonResponse(await exchangeToken(mcpOauthDbStore(), form, mcpPublicOrigin(request)));
+    return oauthJsonResponse(await exchangeToken(mcpOauthDbStore(), form, mcpIssuer(request)));
   });
 }
 

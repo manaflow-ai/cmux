@@ -2,6 +2,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { directDevBackendOrigin } from "../../lib/direct-dev-backend-origin";
+import { mcpIssuerFor } from "../../../services/mcp/oauthRoutes";
 import { authorizationRedirect, MCP_AUTHORIZE_PATH } from "../../../services/mcp/oauth";
 import {
   AUTHORIZATION_PARAM_NAMES,
@@ -58,7 +59,7 @@ function ErrorCard({ message }: { message: string }) {
 }
 
 export default async function McpAuthorizePage({ searchParams }: McpAuthorizePageProps) {
-  const origin = await pageOrigin();
+  const origin = mcpIssuerFor(await pageOrigin());
   const params = searchParamsFrom(await searchParams);
   const validated = await validateConsentRequest(params, origin);
   if (!validated.ok) {

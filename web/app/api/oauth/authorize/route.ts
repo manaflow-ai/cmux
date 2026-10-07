@@ -11,7 +11,7 @@ import {
   validateConsentRequest,
 } from "../../../../services/mcp/oauthConsent";
 import { authorizationRedirect, MCP_AUTHORIZE_PATH } from "../../../../services/mcp/oauth";
-import { mcpPublicOrigin } from "../../../../services/mcp/oauthRoutes";
+import { mcpIssuer, mcpPublicOrigin } from "../../../../services/mcp/oauthRoutes";
 
 function seeOther(location: string): Response {
   return new Response(null, { status: 303, headers: { location, "cache-control": "no-store" } });
@@ -22,9 +22,9 @@ function plainError(status: number, message: string): Response {
 }
 
 export async function POST(request: Request): Promise<Response> {
-  const origin = mcpPublicOrigin(request);
+  const origin = mcpIssuer(request);
   // The consent cookie session must not be usable from another site.
-  if (request.headers.get("origin") !== origin) return plainError(403, "Cross-site authorization requests are refused.");
+  if (request.headers.get("origin") !== mcpPublicOrigin(request)) return plainError(403, "Cross-site authorization requests are refused.");
   const form = new URLSearchParams(await request.text());
   const params = authorizationParams(form);
   const validated = await validateConsentRequest(params, origin);

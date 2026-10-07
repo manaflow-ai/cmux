@@ -24,7 +24,7 @@ import {
 } from "../../../services/mcp/cloudMcpGateway";
 import { authenticateMcpBearer, type McpOauthCaller } from "../../../services/mcp/mcpAuth";
 import { bearerChallenge } from "../../../services/mcp/oauth";
-import { corsPreflight, mcpPublicOrigin, withCors } from "../../../services/mcp/oauthRoutes";
+import { corsPreflight, mcpIssuer, mcpPublicOrigin, withCors } from "../../../services/mcp/oauthRoutes";
 import { mcpOauthDbStore } from "../../../services/mcp/oauthStore";
 import type { AuthedUser } from "../../../services/vms/auth";
 import { CloudMcpToolError } from "../../../services/mcp/cloudMcpShared";
@@ -138,7 +138,11 @@ function settingsFor(oauth: McpOauthCaller | null) {
   };
 }
 
-async function handleMcp(request: Request, origin: string, oauth: McpOauthCaller | null): Promise<Response> {
+async function handleMcp(
+  request: Request,
+  { issuer, appOrigin }: { readonly issuer: string; readonly appOrigin: string },
+  oauth: McpOauthCaller | null,
+): Promise<Response> {
   return withAuthedVmApiRoute(
     request,
     MCP_ROUTE,
@@ -169,9 +173,9 @@ async function handleMcp(request: Request, origin: string, oauth: McpOauthCaller
             ...(user.primaryEmail ? { email: user.primaryEmail } : {}),
             ...(teamName ? { nickname: teamName } : {}),
           },
-          insufficientScopeChallenge: (scope) => bearerChallenge(origin, "insufficient_scope", scope, `Reconnect cmux and allow ${scope}`),
+          insufficientScopeChallenge: (scope) => bearerChallenge(issuer, "insufficient_scope", scope, `Reconnect cmux and allow ${scope}`),
           settings: settingsFor(oauth),
-          vmRoute: vmRouteCallerFor(user, teamId, request, origin),
+          vmRoute: vmRouteCallerFor(user, teamId, request, appOrigin),
           listScope: () => listScopeFor(user, teamId),
           accessScope: async () => {
             const account = resolveVmRouteAccountScope(user, request, { requestedBillingTeamId: teamId });
@@ -203,13 +207,14 @@ async function handleMcp(request: Request, origin: string, oauth: McpOauthCaller
 }
 
 export async function POST(request: Request): Promise<Response> {
-  const origin = mcpPublicOrigin(request);
+  const issuer = mcpIssuer(request);
+  const appOrigin = mcpPublicOrigin(request);
   const auth = await authenticateMcpBearer(request, mcpOauthDbStore());
-  if (auth.kind === "invalid") return withCors(unauthorizedMcp(origin, "invalid_token"));
+  if (auth.kind === "invalid") return withCors(unauthorizedMcp(issuer, "invalid_token"));
   const response = auth.kind === "oauth"
-    ? await runAsPreauthenticatedVmUser(auth.caller.user, () => handleMcp(request, origin, auth.caller))
-    : await handleMcp(request, origin, null);
-  return withCors(withBearerChallenge(response, origin));
+    ? await runAsPreauthenticatedVmUser(auth.caller.user, () => handleMcp(request, { issuer, appOrigin }, auth.caller))
+    : await handleMcp(request, { issuer, appOrigin }, null);
+  return withCors(withBearerChallenge(response, issuer));
 }
 
 export function GET(): Response {
