@@ -1,4 +1,4 @@
-// Runs the browser REPL (Resources/browser-repl, `sites` included) on the
+// Runs the browser REPL (cmux-tui/crates/cmux-browser-host/js, `sites` included) on the
 // Playwright WebKit dev driver with every https request for a mock host
 // answered by mock-sites.mjs: page loads and in-page fetches through
 // Playwright routing, the REPL's native fetch through the same handler.
@@ -7,12 +7,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { loadRuntime, createDevBrowser, createNodeHost, createDevRepl } from "../lib/dev-driver.mjs";
+import { loadRuntime, createDevBrowser, createNodeHost, createHostedRepl } from "../lib/dev-driver.mjs";
 import { answer, createState, COOKIES, MOCK_HOSTS } from "./mock-sites.mjs";
 import { makeTestDir, removeTestDir, removeTestDirIfEmpty } from "../lib/test-dirs.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const authFillSource = () => fs.readFileSync(path.join(here, "../../../Resources/browser-repl/sites/auth-fill.js"), "utf8");
+const authFillSource = () => fs.readFileSync(path.join(here, "../../../cmux-tui/crates/cmux-browser-host/js/sites/auth-fill.js"), "utf8");
 
 const isMock = (href) => {
   try {
@@ -99,7 +99,7 @@ export async function createSitesEnv({ signedIn = true, authResponder } = {}) {
       if (!authResponder) return call(method, params);
       return authResponder(params, { call, context });
     };
-    const repl = createDevRepl({ host, driver });
+    const repl = createHostedRepl(ns, { host, driver }).repl;
     const s = {
       repl,
       auth,

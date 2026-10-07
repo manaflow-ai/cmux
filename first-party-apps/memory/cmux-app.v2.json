@@ -1,0 +1,46 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "cmux/memory",
+  "name": { "en": "Agent Memory", "ja": "エージェントメモリ" },
+  "version": "0.1.0",
+  "description": {
+    "en": "Browse, search, edit and delete what your agents remember on every machine and project. Every edit shows a diff before it is saved.",
+    "ja": "すべてのマシンとプロジェクトで、エージェントが覚えていることを閲覧、検索、編集、削除します。編集は保存前に差分を表示します。"
+  },
+  "publisher": { "name": "cmux", "url": "https://cmux.dev" },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "GPL-3.0-or-later",
+  "icon": "assets/icon.svg",
+  "categories": ["agents", "productivity"],
+  "keywords": ["memory", "claude.md", "agents.md", "instructions"],
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "main": "dist/main.js" },
+  "catalog": "catalog/memory-catalog.json",
+  "cli": { "name": "memory" },
+  "implements": {
+    "cmux.section/1": { "export": "renderSection", "title": { "en": "Memory", "ja": "メモリ" }, "symbol": "brain", "options": { "defaultRegion": "bottom" } },
+    "cmux.pane/1": { "export": "renderPane", "title": { "en": "Agent Memory", "ja": "エージェントメモリ" }, "symbol": "brain" }
+  },
+  "consumes": { "interfaces": ["cmux.diff.renderer/1"] },
+  "scopes": {
+    "machine:read": "List this Mac, your cmux servers and the team VM.",
+    "memory:read": "List and search agent memory files in your home folder and your workspace folders. Only memory files, never other files.",
+    "document:read": "Read the memory file you open."
+  },
+  "optionalScopes": {
+    "document:write": "Save an edit to a memory file after you review its diff and tap Save.",
+    "fs:write": "Move a memory file to the Trash when you tap Move to Trash after reviewing it."
+  },
+  "handles": {
+    "root": "Your home folder's agent memory and your workspace folders, as the memory roots cmux gives this app.",
+    "document": "The memory file you open.",
+    "diff": "An edit you review in the Diffs app."
+  },
+  "strings": "strings/",
+  "variants": [
+    { "id": "variant", "title": { "en": "Agent Memory design", "ja": "エージェントメモリのデザイン" }, "values": ["files", "entries", "split"], "default": "files" }
+  ],
+  "activation": ["onInterface:cmux.section/1", "onInterface:cmux.pane/1", "onOp:memory_app.open"],
+  "files": ["dist/", "assets/", "strings/", "catalog/"]
+}

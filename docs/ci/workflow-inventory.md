@@ -76,7 +76,6 @@ Sorted by estimated runner minutes. Trigger abbreviations: pr = pull_request, pr
 | `ci-artifact-transport.yml` | pr push (paths) | blacksmith | 692 | 470 / 22 / 0 / 200 | 297 | 2026-09-22 | teamleaderleo #13268 | Leo 2026-09-21 | 1 docs/tests |  |
 | `cmux-tui-spec.yml` | push pr dispatch (paths) | blacksmith | 423 | 380 / 28 / 0 / 11 | 252 | 2026-09-22 | lawrencecchen #9215 | Lawrence Chen 2026-09-01 | 1 wf refs; 1 docs/tests |  |
 | `ci-cache-receipts.yml` | pr push (paths) | blacksmith | 718 | 681 / 37 / 0 / 0 | 214 | 2026-09-22 | teamleaderleo #13272 | Leo 2026-09-21 | 1 docs/tests |  |
-| `localization-catalog.yml` | pr push dispatch (paths) | blacksmith | 647 | 589 / 28 / 0 / 0 | 144 | 2026-09-22 | lawrencecchen #12906 | Lawrence Chen 2026-09-17 | none |  |
 | `cmux-tui-release.yml` | dispatch push | blacksmith/warp/macos/gh-ubuntu | 4 | 3 / 0 / 0 / 1 | 128 | 2026-09-17 | lawrencecchen #7710 | Lawrence Chen 2026-09-16 | 4 wf refs; 2 docs/tests |  |
 | `indexnow.yml` | deployment_status dispatch | blacksmith | 1,199 | 307 / 88 / 804 / 0 | 97 | 2026-09-22 | lawrencecchen #8339 | Lawrence Chen 2026-09-17 | 1 wf refs; 1 docs/tests | **b** 804/1,199 skipped (every deployment_status) |
 | `cloud-vm-image-contract.yml` | pr push dispatch (paths) | blacksmith | 199 | 137 / 62 / 0 / 0 | 93 | 2026-09-22 | lawrencecchen #11984 | Austin Wang 2026-09-10 | none |  |

@@ -81,7 +81,7 @@ COMPILE_FAILED = (
     "2026-09-27T10:40:00.0000000Z /tmp/cmux-ci/src/cmuxTests/SidebarWidthPolicyTests.swift:672:57: error: "
     "ambiguous use of 'init'\n"
 )
-STATIC_CHECK_FAILED = "2026-09-27T10:40:00.0000000Z FAILED config-schema (0.03s)\n"
+STATIC_CHECK_FAILED = "2026-09-27T10:40:00.0000000Z FAILED launch-policy (0.03s)\n"
 ADMISSION_DECLINED = (
     "2026-09-27T10:40:00.0000000Z macOS admission gate declined: a fast Linux job failed. The product compiled "
     "and was uploaded; re-run failed jobs to collect macOS results anyway.\n"
@@ -321,9 +321,9 @@ class SignatureTests(unittest.TestCase):
 
 class RunTests(unittest.TestCase):
     JOBS = [
-        job(1, "macos / app-host unit tests (2/7)"),
+        job(1, "macos / CLI product tests"),
         job(2, "macos / swift-package-tests"),
-        job(3, "macos / app-host unit tests (1/7)"),
+        job(3, "macos / remote-daemon-macos-tests"),
         job(4, "macos / macOS compile admission"),
         job(5, "macos / release-build", conclusion="cancelled"),
         job(6, "macos / macOS status"),
@@ -500,11 +500,8 @@ class ActTests(unittest.TestCase):
         gh = FakeGitHub()
         result = self.act(gh, self.report([cf.MACHINE]))
         self.assertTrue(result["rerun"])
-        # The bot's re-run may emit no workflow_run event, so it starts the
-        # UI test dispatch for attempt 2 itself (ci-ui-tests.yml). The author has nothing
-        # to do, so no new comment notifies them.
-        self.assertEqual(gh.calls, [("POST", "repos/manaflow-ai/cmux/actions/runs/42/rerun-failed-jobs"),
-                                    ("POST", "repos/manaflow-ai/cmux/actions/workflows/ci-ui-tests.yml/dispatches")])
+        # The author has nothing to do, so no new comment notifies them.
+        self.assertEqual(gh.calls, [("POST", "repos/manaflow-ai/cmux/actions/runs/42/rerun-failed-jobs")])
         # An earlier report on the PR is still brought up to date.
         gh = FakeGitHub(comments=[bot_comment(cf.MARKER + "\nred")])
         self.act(gh, self.report([cf.MACHINE]))
@@ -628,11 +625,12 @@ def red_report(log: str, name: str = "macos / app-host unit tests (changed suite
 
 
 def main_issue(failures: list[dict], number: int = 17300) -> tuple[dict, list[dict]]:
-    """main_full_suite.py's open issue, its latest comment carrying the red run's failures."""
-    import main_full_suite
+    """main's main_full_suite.py open issue, its latest comment carrying the red run's failures.
 
+    main_full_suite.py lives on main only; its comment carries this data marker.
+    """
     run = {"id": 9, "head_sha": "c" * 40, "html_url": "https://run/9"}
-    body = main_full_suite.failure_body(run, [], "", failures)
+    body = "Full-suite CI on `main` failed\n\n" + cf.main_failures_marker(run, failures)
     return ({"number": number, "html_url": f"https://github.com/manaflow-ai/cmux/issues/{number}", "comments": 1,
              "body": "Full-suite CI on `main` failed at older", "user": {"login": cf.BOT}},
             [{"body": body, "user": {"login": cf.BOT}}])

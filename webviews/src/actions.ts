@@ -34,8 +34,9 @@ function hasURLScheme(url: string): boolean {
 }
 
 export function diffSourceDetail(payload: any): string {
-  const parts = [payload.sourceLabel, payload.repoRoot, payload.branchBaseRef]
-    .filter((value) => typeof value === "string" && value.trim() !== "");
+  const parts = [payload.sourceLabel, payload.repoRoot, payload.branchBaseRef].filter(
+    (value) => typeof value === "string" && value.trim() !== "",
+  );
   return parts.join(" | ");
 }
 
@@ -74,6 +75,26 @@ export async function copyGitApplyCommand(
   return label("copiedGitApplyCommand");
 }
 
+/** Copies `text` to the clipboard, through the hidden textarea where the Clipboard API refuses. */
+export async function copyText(text: string, fallbackTextarea: HTMLTextAreaElement | null): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return;
+    } catch {
+      // Fall through to the textarea, as for the git apply command.
+    }
+  }
+  if (!fallbackTextarea) {
+    throw new Error("Clipboard API unavailable");
+  }
+  fallbackTextarea.value = text;
+  fallbackTextarea.select();
+  if (!document.execCommand("copy")) {
+    throw new Error("Clipboard copy failed");
+  }
+}
+
 // C0 controls other than tab, LF, and CR, plus DEL and the C1 range. Pasted
 // into an interactive shell these can act as line editor commands or terminal
 // escape sequences (for example ending bracketed paste), so a patch carrying
@@ -95,10 +116,7 @@ const GIT_APPLY_DELIMITER_PREFIX = "CMUX_DIFF_PATCH_";
  * anywhere in the patch, so no patch line (split on CRLF, CR, or LF) can end the
  * heredoc early.
  */
-export function buildGitApplyCommand(
-  patchText: string,
-  randomToken: () => string = randomDelimiterToken,
-): string {
+export function buildGitApplyCommand(patchText: string, randomToken: () => string = randomDelimiterToken): string {
   if (UNSAFE_SHELL_PASTE_CONTROL.test(patchText)) {
     throw new Error("Patch contains control characters");
   }

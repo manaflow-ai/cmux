@@ -27,9 +27,9 @@ For Release variants, `reloads.sh --tag <tag>` uses an isolated staging identity
 The installed cmux (`/Applications/cmux.app`, bundle id `com.cmuxterm.app`, process `cmux`) holds the user's live agent sessions. Never quit, kill (`pkill -x cmux`, `killall cmux`), relaunch or profile it with `xctrace --launch` or Instruments, and never launch a locally built Release app or any other bundle that uses `com.cmuxterm.app` while it runs. To reproduce the user's state, copy their session into the tagged build instead of touching the running app. Profile only by attaching to a tagged build's pid.
 
 `reloadp.sh` refuses to run while another stable-id cmux is running;
-`reload.sh --bundle-id` accepts only `com.cmuxterm.app.debug.*` IDs. A different
-bundle with the stable ID also exits instead of replacing the running app
-(`SingleInstanceConflictPolicy`). Never bypass these protections;
+`reload.sh --bundle-id` accepts only `com.cmuxterm.app.debug.*` IDs. The app
+itself has no single-instance guard, so never launch another bundle with the
+stable ID. Never bypass these protections;
 `CMUX_ALLOW_REPLACING_RUNNING_CMUX=1` is an override only the user may set.
 
 ## Prebuilt GhosttyKit
@@ -54,11 +54,15 @@ A normal `reload.sh` build prints an `App path:` line with the absolute path to 
 ## Tagged CLI and socket
 
 ```bash
-CMUX_TAG=<tag> scripts/cmux-debug-cli.sh list-workspaces
-CMUX_TAG=<tag> scripts/cmux-debug-cli.sh send --workspace workspace:1 --surface surface:1 "echo ok"
+CMUX_TAG=<tag> scripts/cmux-debug-cli.sh app identify
+CMUX_TAG=<tag> scripts/cmux-debug-cli.sh workspace list
+CMUX_TAG=<tag> scripts/cmux-debug-cli.sh terminal current write --text $'echo ok\n'
+CMUX_TAG=<tag> scripts/cmux-debug-cli.sh terminal current screen read
 ```
 
-The helper refuses to run without `CMUX_TAG`, targets `/tmp/cmux-debug-<tag>.sock`, uses the matching tagged CLI from DerivedData (or, for a fleet build restored with `publish-hq`, from `~/Library/Application Support/cmux/tag-app-cache`), scrubs ambient cmux terminal context (`CMUX_SOCKET`, `CMUX_SOCKET_PASSWORD`, workspace/surface/tab/panel IDs, cmuxd socket, debug log), then sets `CMUX_SOCKET_PATH`, `CMUX_BUNDLE_ID`, and `CMUX_BUNDLED_CLI_PATH` for that tag.
+`current` is the tagged app's focused terminal; pass a `term_…` id from `terminal list` when more than one is open.
+
+The helper refuses to run without `CMUX_TAG`, targets `/tmp/cmux-debug-<tag>.sock`, uses the matching tagged CLI from DerivedData (or, for a fleet build restored with `publish-hq`, from `~/Library/Application Support/cmux/tag-app-cache`), scrubs ambient cmux terminal context (`CMUX_SOCKET`, `CMUX_SOCKET_PASSWORD`, legacy workspace/surface/tab/panel IDs, cmuxd and mux sockets, every `CMUX_TUI_*` variable, debug log), then sets `CMUX_SOCKET_PATH`, `CMUX_BUNDLE_ID`, and `CMUX_BUNDLED_CLI_PATH` for that tag.
 
 `/tmp/cmux-cli` points at the most recently reloaded build and can target the user's main app socket, so it is never safe for tagged dogfood.
 

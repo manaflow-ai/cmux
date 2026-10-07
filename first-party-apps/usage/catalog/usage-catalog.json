@@ -1,0 +1,131 @@
+{
+  "family": "usage_app",
+  "operations": [
+    {
+      "name": "usage_app.show",
+      "owner": "app:cmux/usage",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": true,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "cli": {
+        "path": "show",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default"
+      },
+      "palette": {
+        "title": "Show Usage"
+      },
+      "docs": "Show the Usage pane.",
+      "since": "usage_app/1",
+      "export": "show"
+    },
+    {
+      "name": "usage_app.refresh",
+      "owner": "app:cmux/usage",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "cli": {
+        "path": "refresh",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default"
+      },
+      "palette": {
+        "title": "Refresh Usage Now"
+      },
+      "docs": "Ask the usage server to read the routers now.",
+      "since": "usage_app/1",
+      "export": "refresh"
+    },
+    {
+      "name": "usage_app.status",
+      "owner": "app:cmux/usage",
+      "class": "read",
+      "risk": "read",
+      "idempotency": "forbidden",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "provider": {
+            "type": "string",
+            "description": "Only this provider id as the router names it (claude, codex, ...)."
+          },
+          "accounts": {
+            "type": "boolean",
+            "description": "Include one row per account with the router's labels (default false: provider summaries and pace only)."
+          },
+          "refresh": {
+            "type": "boolean",
+            "description": "Ask the usage server to read the router first (rate-limited by the server)."
+          }
+        },
+        "required": []
+      },
+      "cli": {
+        "path": "status",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default"
+      },
+      "docs": "Usage and pace per provider, optionally one row per account.",
+      "since": "usage_app/1",
+      "export": "status"
+    },
+    {
+      "name": "usage_app.cycle_variant",
+      "owner": "app:cmux/usage",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "cli": {
+        "path": "cycle-variant",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "palette": {
+        "title": "Next Usage Variant"
+      },
+      "docs": "Switch to the next Usage design variant (DEV and NIGHTLY).",
+      "since": "usage_app/1",
+      "export": "cycleVariant"
+    }
+  ]
+}

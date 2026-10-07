@@ -1,4 +1,8 @@
 @import "tailwindcss";
+/* The pane protocol is not UI: its tests and generated code must not mint utility classes. */
+@source not "./protocol";
+/* The icon picker's emoji keywords ("uppercase", "italic") are data, not class names. */
+@source not "./icon-picker/generated";
 
 :root {
   color-scheme: light dark;
@@ -9,51 +13,70 @@
   --cmux-diff-selection-bg-light: #abd8ff;
   --cmux-diff-selection-bg-dark: #3f638b;
   --cmux-diff-ui-font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
-  --cmux-diff-ui-font-size: 12px;
-  --cmux-diff-ui-line-height: 16px;
+  /* 13 px UI text, the classic viewer's size (its 2x screenshots). */
+  --cmux-diff-ui-font-size: 13px;
+  --cmux-diff-ui-line-height: 18px;
   --cmux-diff-code-font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
   --cmux-diff-font-size: 10px;
   --cmux-diff-line-height: 20px;
   --cmux-diff-bg: var(--cmux-diff-bg-light);
   --cmux-diff-fg: var(--cmux-diff-fg-light);
-  --cmux-diff-border: color-mix(in lab, var(--cmux-diff-fg) 12%, transparent);
-  --cmux-diff-toolbar-bg: transparent;
-  --cmux-diff-sidebar-bg: transparent;
+  /* Separators, panel edges and outlines: the foreground at 8% over the
+     backdrop (#383933 on Monokai's #272822, as in the classic viewer). */
+  --cmux-diff-border: color-mix(in srgb, var(--cmux-diff-fg) 8%, transparent);
+  /* "+N -N" counts: the theme's addition and deletion colors, softened
+     toward the backdrop like the classic viewer's (#85b336 for Monokai's
+     #a6e22e). */
+  --cmux-diff-addition-fg: var(--cmux-diff-addition-fg-light);
+  --cmux-diff-deletion-fg: var(--cmux-diff-deletion-fg-light);
+  --cmux-diff-count-added: color-mix(in srgb, var(--cmux-diff-addition-fg) 78%, var(--cmux-diff-solid-bg));
+  --cmux-diff-count-deleted: color-mix(in srgb, var(--cmux-diff-deletion-fg) 78%, var(--cmux-diff-solid-bg));
+  /* Dim text: directories, file names in the tree, placeholders, icons. */
+  --cmux-diff-text-dim: color-mix(in srgb, var(--cmux-diff-fg) 50%, var(--cmux-diff-solid-bg));
   --cmux-diff-muted-bg: color-mix(in lab, var(--cmux-diff-fg) 8%, transparent);
   --cmux-diff-hover-bg: color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
   --cmux-diff-accent: light-dark(#0a84ff, #7ab7ff);
   --cmux-diff-text-muted: color-mix(in lab, var(--cmux-diff-fg) 72%, var(--cmux-diff-bg));
   --cmux-diff-text-subtle: color-mix(in lab, var(--cmux-diff-fg) 84%, var(--cmux-diff-bg));
-  /* The native browser panel behind the WebView owns the themed fill. Keep the
-     page itself transparent so terminal/window transparency survives. */
-  --cmux-diff-surface-fill-light: transparent;
-  --cmux-diff-surface-fill-dark: transparent;
-  --cmux-diff-surface-fill: var(--cmux-diff-surface-fill-light);
+  /* The page background is the shared backdrop (R48): the host's
+     `--cmux-surface-background` (WebTheme.swift: the theme color in an opaque
+     window, transparent over a see-through one, or the surface's R55
+     override); without a host, the terminal theme color. Only `html` paints
+     it; the toolbar, diff body and every other block are clear over it.
+     `--cmux-diff-solid-bg` is that backdrop composited onto the theme color at
+     full alpha (backdrop.ts sets it): file header bars are never transparent,
+     and the files panel uses it because the tree's truncation marker must
+     cover the text under it. This fallback is the opaque case. */
+  --cmux-diff-viewer-bg: var(--cmux-surface-background, var(--cmux-diff-bg));
+  --cmux-diff-solid-bg: var(--cmux-diff-bg);
 
-  background: var(--cmux-diff-surface-fill);
+  background: var(--cmux-diff-viewer-bg);
   color: var(--cmux-diff-fg);
 }
 @media (prefers-color-scheme: dark) {
   :root {
     --cmux-diff-bg: var(--cmux-diff-bg-dark);
     --cmux-diff-fg: var(--cmux-diff-fg-dark);
-    --cmux-diff-surface-fill: var(--cmux-diff-surface-fill-dark);
+    --cmux-diff-addition-fg: var(--cmux-diff-addition-fg-dark);
+    --cmux-diff-deletion-fg: var(--cmux-diff-deletion-fg-dark);
   }
 }
 * {
   box-sizing: border-box;
 }
+html {
+  background: var(--cmux-diff-viewer-bg);
+}
 html,
 body {
   height: 100%;
-  background: var(--cmux-diff-surface-fill);
   overflow: hidden;
 }
 body {
   margin: 0;
   height: 100vh;
   min-height: 0;
-  background: var(--cmux-diff-surface-fill);
+  background: transparent;
   color: var(--cmux-diff-fg);
   display: flex;
   flex-direction: column;
@@ -111,7 +134,7 @@ body {
   min-height: 32px;
   padding: 3px 4px 3px 8px;
   border-bottom: 1px solid var(--cmux-diff-border);
-  background: var(--cmux-diff-toolbar-bg);
+  background: transparent;
   color: color-mix(in lab, var(--cmux-diff-fg) 76%, var(--cmux-diff-bg));
   z-index: 50;
 }
@@ -255,7 +278,6 @@ body {
 #jump-select:focus,
 #jump-search-button:focus-visible,
 .base-picker-button:focus-visible,
-.base-picker-input:focus-visible,
 .toolbar-icon:focus-visible,
 .menu-item:focus-visible,
 .file-entry:focus-visible {
@@ -489,11 +511,9 @@ body {
   color: color-mix(in lab, #ff5f56 70%, var(--cmux-diff-fg));
 }
 .base-picker-group-header {
-  padding: 8px 8px 3px;
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  padding: 8px 8px 4px;
+  font-size: 11px;
+  font-weight: 400;
   color: color-mix(in lab, var(--cmux-diff-fg) 52%, var(--cmux-diff-bg));
 }
 .base-picker-more {
@@ -535,17 +555,6 @@ body {
   white-space: nowrap;
   text-align: right;
   color: color-mix(in lab, var(--cmux-diff-fg) 55%, var(--cmux-diff-bg));
-}
-.base-picker-pill {
-  flex: 0 0 auto;
-  padding: 1px 6px;
-  border-radius: 999px;
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--cmux-diff-accent);
-  background: color-mix(in lab, var(--cmux-diff-accent) 16%, transparent);
 }
 @media (max-width: 760px) {
   #toolbar {
@@ -606,31 +615,17 @@ body {
   stroke: none;
 }
 #layout-toggle svg [data-diff-deletion] {
-  fill: light-dark(var(--cmux-diff-deletion-fg-light), var(--cmux-diff-deletion-fg-dark));
+  fill: color-mix(in srgb, var(--cmux-diff-deletion-fg) 55%, var(--cmux-diff-solid-bg));
 }
 #layout-toggle svg [data-diff-addition] {
-  fill: light-dark(var(--cmux-diff-addition-fg-light), var(--cmux-diff-addition-fg-dark));
+  fill: color-mix(in srgb, var(--cmux-diff-addition-fg) 55%, var(--cmux-diff-solid-bg));
 }
 .toolbar-icon svg [data-precision-dot],
 .menu-item svg [data-precision-dot] {
   stroke-width: 2;
 }
-#options-menu {
-  position: absolute;
-  top: calc(100% + 7px);
-  right: 10px;
-  min-width: 246px;
-  padding: 8px;
-  border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 13%, transparent);
-  border-radius: 8px;
-  background: var(--cmux-diff-bg);
-  box-shadow: 0 16px 34px color-mix(in lab, #000 28%, transparent);
-  z-index: 100;
-}
-#options-menu[hidden] {
-  display: none;
-}
 .menu-separator {
+  border: 0;
   height: 1px;
   margin: 7px 6px;
   background: color-mix(in lab, var(--cmux-diff-fg) 12%, transparent);
@@ -698,6 +693,8 @@ body {
   justify-self: end;
 }
 #content {
+  /* Sidebar resize and slide coordinates are physical; keep their grid LTR. */
+  direction: ltr;
   --cmux-diff-files-width: 252px;
   position: relative;
   flex: 1 1 auto;
@@ -712,28 +709,48 @@ body {
   contain: strict;
   background: transparent;
 }
+/* Localized chrome follows the document; code comparisons keep their source order. */
+:root[dir="rtl"] :is(#viewer, #files-sidebar) {
+  direction: rtl;
+}
+#viewer diffs-container,
+#file-list file-tree-container,
+.source-pill-stats,
+.base-picker-label {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
 body[data-files-hidden="true"] #content {
   grid-template-columns: minmax(0, 1fr) 0;
 }
+/* Files sidebar open/close: the sidebar is a fixed-width panel pinned to the
+   right edge of #content. These rules are its resting states; the slide
+   between them is a composited Web Animations transform driven by
+   files-panel-motion.ts, which starts in the toggle's frame and changes the
+   diff column's width once, when the slide ends. The panel stays painted
+   while it closes (data-files-motion). */
 body[data-status-only="true"] #content {
   grid-template-columns: minmax(0, 1fr);
   grid-template-areas: "viewer";
 }
 #files-sidebar {
-  grid-area: files;
-  position: relative;
-  width: 100%;
-  height: 100%;
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  width: var(--cmux-diff-files-width);
   min-height: 0;
   min-width: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   border-left: 1px solid var(--cmux-diff-border);
-  background: var(--cmux-diff-sidebar-bg);
+  background: var(--cmux-diff-solid-bg);
   contain: strict;
-  opacity: 1;
-  transition: opacity 100ms ease, visibility 0s linear 0s;
+  /* Its own compositor layer before any slide starts. */
+  will-change: transform;
+  transform: translate3d(0, 0, 0);
 }
 #files-resize-handle {
   position: absolute;
@@ -760,97 +777,145 @@ body[data-status-only="true"] #content {
   background: transparent;
 }
 body[data-files-hidden="true"] #files-sidebar {
-  opacity: 0;
   pointer-events: none;
   visibility: hidden;
-  transition: opacity 100ms ease, visibility 0s linear 100ms;
+  transform: translate3d(100%, 0, 0);
+}
+/* Closing: stay painted for the whole slide, then drop out of hit testing and
+   the accessibility tree. */
+body[data-files-hidden="true"] #files-sidebar[data-files-motion="running"] {
+  visibility: visible;
 }
 body[data-status-only="true"] #files-sidebar {
+  display: none;
+}
+/* The curtain: the panel's resting box in the panel's background, under it. While the panel
+   closes over a diff still laid out beside it, its scaleX (from its left edge) follows the
+   panel, so the strip the panel uncovers is never blank. At rest it is scaled to nothing. */
+#files-motion-curtain {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1;
+  width: var(--cmux-diff-files-width);
+  background: var(--cmux-diff-solid-bg);
+  pointer-events: none;
+  transform-origin: left center;
+  transform: scaleX(0);
+  will-change: transform;
+}
+body[data-status-only="true"] #files-motion-curtain {
   display: none;
 }
 #files-sidebar-backdrop {
   display: none;
 }
-#files-header {
+/* The filter field: a search icon and the input in one rounded box. */
+#files-filter {
   position: relative;
   z-index: 1;
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  min-height: 30px;
-  gap: 8px;
-  padding: 0 7px 0 10px;
-  border-bottom: 1px solid var(--cmux-diff-border);
-  background: var(--cmux-diff-sidebar-bg);
-  color: var(--cmux-diff-text-muted);
+  gap: 7px;
+  height: 28px;
+  margin: 4px 8px 1px;
+  padding: 0 4px 0 10px;
+  border: 1px solid color-mix(in srgb, var(--cmux-diff-fg) 11%, transparent);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--cmux-diff-fg) 3.5%, var(--cmux-diff-solid-bg));
+  color: var(--cmux-diff-text-dim);
 }
-#files-title {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
+#files-filter:focus-within {
+  border-color: color-mix(in lab, var(--cmux-diff-accent) 60%, transparent);
 }
-#files-header-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
+#files-filter > svg {
   flex: 0 0 auto;
+  width: 12px;
+  height: 12px;
 }
-#file-search-toggle {
-  width: 24px;
-  height: 24px;
+#file-filter-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  outline: none;
+  appearance: none;
+  background: transparent;
+  color: var(--cmux-diff-fg);
+  font: inherit;
+  font-size: var(--cmux-diff-ui-font-size);
+}
+#file-filter-input::placeholder {
+  color: var(--cmux-diff-text-dim);
+}
+#file-filter-input::-webkit-search-cancel-button {
+  appearance: none;
+}
+.files-filter-button {
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
   border: 0;
   border-radius: 5px;
   background: transparent;
-  color: var(--cmux-diff-text-muted);
-  padding: 0;
+  color: var(--cmux-diff-text-dim);
+  cursor: pointer;
 }
-#file-search-toggle:hover,
-#file-search-toggle[aria-pressed="true"] {
+.files-filter-button:hover {
   background: var(--cmux-diff-hover-bg);
   color: var(--cmux-diff-fg);
 }
-#file-search-toggle svg {
-  width: 15px;
-  height: 15px;
-  fill: none;
-  stroke: currentcolor;
-  stroke-width: 1;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+.files-filter-button svg {
+  width: 12px;
+  height: 12px;
 }
 #file-list {
   flex: 1 1 auto;
   min-height: 0;
   overflow: hidden;
-  background: var(--cmux-diff-sidebar-bg);
-  padding: 6px 4px 6px 6px;
-  --trees-bg-override: var(--cmux-diff-sidebar-bg);
-  --trees-fg-override: var(--cmux-diff-text-subtle);
-  --trees-fg-muted-override: var(--cmux-diff-text-muted);
-  --trees-bg-muted-override: var(--cmux-diff-hover-bg);
-  --trees-selected-bg-override: color-mix(in lab, var(--cmux-diff-fg) 11%, transparent);
+  background: transparent;
+  padding: 0 8px 4px;
+  /* Classic viewer rows (screenshot 5.20.26): 13 px regular text on 29 px
+     rows, dim file names, bright folder names and selection, a 16 px icon
+     lane and the library's guide line under the open folder. */
+  --trees-bg-override: var(--cmux-diff-solid-bg);
+  --trees-fg-override: var(--cmux-diff-text-dim);
+  --trees-fg-muted-override: var(--cmux-diff-text-dim);
+  --trees-bg-muted-override: color-mix(in srgb, var(--cmux-diff-fg) 4%, var(--cmux-diff-solid-bg));
+  --trees-selected-bg-override: color-mix(in srgb, var(--cmux-diff-fg) 5.5%, var(--cmux-diff-solid-bg));
   --trees-selected-fg-override: var(--cmux-diff-fg);
   --trees-selected-focused-border-color-override: transparent;
   --trees-border-color-override: var(--cmux-diff-border);
   --trees-focus-ring-color-override: color-mix(in lab, var(--cmux-diff-accent) 72%, transparent);
   --trees-font-family-override: var(--cmux-diff-ui-font-family);
   --trees-font-size-override: var(--cmux-diff-ui-font-size);
-  --trees-font-weight-semibold-override: 500;
-  --trees-density-override: 0.78;
-  --trees-border-radius-override: 5px;
-  --trees-item-padding-x-override: 7px;
+  /* No bold text anywhere in the tree. */
+  --trees-font-weight-semibold-override: var(--trees-font-weight-regular);
+  --trees-search-font-weight-override: var(--trees-font-weight-regular);
+  --trees-border-radius-override: 6px;
+  --trees-icon-width-override: 14px;
+  --trees-item-padding-x-override: 4px;
+  --trees-item-row-gap-override: 6.5px;
+  /* 11.5 px per level: the classic list's folders step 8.5 px and its files
+     12.5 px, which one library indent can not do both of. */
+  --trees-level-gap-override: -1.5px;
   --trees-item-margin-x-override: 0;
-  --trees-padding-inline-override: 8px;
-  --trees-search-bg-override: color-mix(in lab, var(--cmux-diff-bg) 92%, var(--cmux-diff-fg));
-  --trees-status-added-override: light-dark(var(--cmux-diff-addition-fg-light), var(--cmux-diff-addition-fg-dark));
-  --trees-status-modified-override: var(--cmux-diff-accent);
-  --trees-status-renamed-override: light-dark(#a26300, #ffd166);
-  --trees-status-deleted-override: light-dark(var(--cmux-diff-deletion-fg-light), var(--cmux-diff-deletion-fg-dark));
+  --trees-padding-inline-override: 0px;
+  --trees-scrollbar-gutter-override: 0px;
+  --trees-status-added-override: var(--cmux-diff-count-added);
+  --trees-status-deleted-override: var(--cmux-diff-count-deleted);
+}
+/* SCROLLBARS-FOLLOW-MACOS: the tree has no scroller of its own width in overlay mode (rows keep the
+   full width); for "Always" it shows the library's scroller in a gutter (scrollers.ts). */
+html[data-scrollers="legacy"] #file-list {
+  --trees-scrollbar-gutter-override: 6px;
 }
 body[data-loading="false"] .diff-loading-placeholder {
   display: none;
@@ -949,7 +1014,8 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
     grid-template-columns: minmax(0, 1fr);
     grid-template-areas: "viewer";
   }
-  #files-sidebar {
+  #files-sidebar,
+  #files-motion-curtain {
     display: none;
   }
   #app[data-file-search-open="true"] #files-sidebar-backdrop {
@@ -982,18 +1048,12 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
     opacity: 1;
     pointer-events: auto;
     border-left: 1px solid var(--cmux-diff-border);
-    background: var(--cmux-diff-bg);
+    background: var(--cmux-diff-solid-bg);
     box-shadow: -18px 0 42px color-mix(in srgb, #000 34%, transparent);
     isolation: isolate;
-    --cmux-diff-sidebar-bg: var(--cmux-diff-bg);
   }
   #app[data-file-search-open="true"] #files-resize-handle {
     display: none;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  #files-sidebar {
-    transition: none;
   }
 }
 #viewer diffs-container {
@@ -1152,7 +1212,7 @@ body[data-loading="true"] #status::before {
   min-height: 0;
   max-height: 40%;
   border-top: 1px solid var(--cmux-diff-border);
-  background: var(--cmux-diff-sidebar-bg);
+  background: transparent;
 }
 #comments-header {
   display: flex;
@@ -1391,83 +1451,6 @@ body[data-loading="true"] #status::before {
    source. */
 
 /* Review parity: viewed progress, file filter, and per-file header controls. */
-#files-review-bar {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 6px 7px 6px 10px;
-  border-bottom: 1px solid var(--cmux-diff-border);
-  background: var(--cmux-diff-sidebar-bg);
-  color: var(--cmux-diff-text-muted);
-  font-size: calc(var(--cmux-diff-ui-font-size) * 0.92);
-}
-#files-viewed-progress {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-#files-filter {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
-}
-#file-filter-input {
-  flex: 1 1 auto;
-  min-width: 0;
-  height: 22px;
-  padding: 0 6px;
-  border: 1px solid var(--cmux-diff-border);
-  border-radius: 5px;
-  background: color-mix(in lab, var(--cmux-diff-bg) 92%, var(--cmux-diff-fg));
-  color: var(--cmux-diff-fg);
-  font: inherit;
-}
-#file-filter-input:focus-visible {
-  outline: 2px solid color-mix(in lab, var(--cmux-diff-accent) 72%, transparent);
-  outline-offset: -1px;
-}
-#files-filter-toggles {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-}
-.files-filter-button {
-  height: 20px;
-  min-width: 20px;
-  padding: 0 5px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid transparent;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--cmux-diff-text-muted);
-  font: inherit;
-  font-size: calc(var(--cmux-diff-ui-font-size) * 0.85);
-  line-height: 1;
-}
-.files-filter-button:hover {
-  background: var(--cmux-diff-hover-bg);
-  color: var(--cmux-diff-fg);
-}
-.files-filter-button[aria-pressed="true"] {
-  border-color: var(--cmux-diff-border);
-  background: color-mix(in lab, var(--cmux-diff-fg) 11%, transparent);
-  color: var(--cmux-diff-fg);
-}
-.files-filter-button svg {
-  width: 13px;
-  height: 13px;
-  fill: none;
-  stroke: currentcolor;
-  stroke-width: 1;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-#hide-viewed-toggle {
-  margin-left: auto;
-}
 #files-filter-empty {
   padding: 12px 10px;
   color: var(--cmux-diff-text-muted);
@@ -1477,7 +1460,7 @@ body[data-loading="true"] #status::before {
   padding: 4px;
   border: 1px solid var(--cmux-diff-border);
   border-radius: 7px;
-  background: var(--cmux-diff-sidebar-bg);
+  background: var(--cmux-diff-solid-bg);
   box-shadow: 0 8px 24px color-mix(in lab, var(--cmux-diff-fg) 18%, transparent);
 }
 .file-review-controls {
@@ -1520,76 +1503,673 @@ body[data-loading="true"] #status::before {
   background: transparent;
   cursor: pointer;
   white-space: nowrap;
-  color: var(--cmux-diff-fg);
+  color: var(--cmux-diff-text-dim);
   font: inherit;
 }
-.file-review-checkbox {
+.file-review-eye {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 13px;
-  height: 13px;
-  border: 1px solid var(--cmux-diff-border);
-  border-radius: 3px;
-  background: color-mix(in lab, var(--cmux-diff-bg) 92%, var(--cmux-diff-fg));
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
 }
-.file-review-viewed[aria-pressed="true"] .file-review-checkbox {
-  border-color: var(--cmux-diff-accent);
-  background: var(--cmux-diff-accent);
-  color: light-dark(#fff, #08233f);
+.file-review-viewed:hover .file-review-eye {
+  background: var(--cmux-diff-hover-bg);
 }
-.file-review-checkbox svg {
-  width: 10px;
-  height: 10px;
+.file-review-eye svg {
+  width: 18px;
+  height: 18px;
   fill: none;
   stroke: currentcolor;
-  stroke-width: 1.5;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+  stroke-width: 1.3;
 }
-.file-review-controls[data-viewed-state="viewed"] .file-review-viewed {
-  color: var(--cmux-diff-text-muted);
+.file-review-viewed[aria-pressed="true"] .file-review-eye circle {
+  fill: currentcolor;
+}
+.file-review-viewed[aria-pressed="true"] {
+  color: var(--cmux-diff-accent);
 }
 /* Octicon-backed icons are filled 16px glyphs. These selectors outrank every
    stroke-icon rule above (all `<container> svg`) without !important. */
 .toolbar-icon svg[data-icon-fill],
 .menu-item svg[data-icon-fill],
 .files-filter-button svg[data-icon-fill],
-.file-review-checkbox svg[data-icon-fill],
-#file-search-toggle svg[data-icon-fill],
 .base-picker-button svg[data-icon-fill],
 .base-picker-search svg[data-icon-fill],
 svg[data-icon-fill] {
   fill: currentcolor;
   stroke: none;
 }
-/* Status filters use the same colors as the file tree status marks. A filter
-   that is off keeps its shape but fades, so the four states stay legible. */
-.files-status-filter[data-file-status-filter="added"] {
-  color: light-dark(var(--cmux-diff-addition-fg-light), var(--cmux-diff-addition-fg-dark));
-}
-.files-status-filter[data-file-status-filter="modified"] {
-  color: var(--cmux-diff-accent);
-}
-.files-status-filter[data-file-status-filter="renamed"] {
-  color: light-dark(#a26300, #ffd166);
-}
-.files-status-filter[data-file-status-filter="deleted"] {
-  color: light-dark(var(--cmux-diff-deletion-fg-light), var(--cmux-diff-deletion-fg-dark));
-}
-.files-status-filter[aria-pressed="false"] svg {
-  opacity: 0.35;
-}
 /* The page is as wide as its pane. In a narrow pane the file name keeps
    priority: the deferral badge and the "Viewed" word hide, and both stay
    reachable as tooltips on "Load diff" and the checkbox. */
 @media (max-width: 560px) {
-  .file-review-badge[data-deferred-reason],
-  .file-review-viewed-label {
+  .file-review-badge[data-deferred-reason] {
     display: none;
   }
   .file-review-controls {
     gap: 6px;
     margin-left: 6px;
   }
+}
+
+/* ------------------------------------------------------------------------
+   Diff toolbar (DiffToolbar.tsx): source pill, jump-to-file palette, floating
+   toolbar pill, menus and tooltips.
+   ------------------------------------------------------------------------ */
+/* One bar: the source controls on the left and the toolbar pill on the right,
+   above the files sidebar (screenshot 5.20.26). */
+#toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 50px;
+  padding: 0 7px 0 8px;
+}
+/* toolbar-left is an inline-size container (the base picker's drop-order
+   queries), so it cannot size to its content: it takes the header's width. */
+#toolbar .toolbar-left {
+  flex: 1 1 auto;
+  gap: 6px;
+}
+/* Source pill: "Branch v +N -N". */
+.source-pill {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+  height: 28px;
+  padding: 2px 10px 2px 2px;
+  border-radius: 999px;
+  background: color-mix(in lab, var(--cmux-diff-fg) 8%, transparent);
+  font-variant-numeric: tabular-nums;
+}
+.source-pill-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 8px 0 10px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--cmux-diff-fg);
+  font: inherit;
+  cursor: pointer;
+}
+.source-pill-button:hover,
+.source-pill-button[aria-expanded="true"] {
+  background: color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
+}
+.source-pill-button svg,
+.toolbar-round-button svg {
+  width: 12px;
+  height: 12px;
+  fill: currentcolor;
+  opacity: 0.75;
+}
+.source-pill-stats {
+  display: inline-flex;
+  gap: 4px;
+}
+.source-pill-additions {
+  color: light-dark(var(--cmux-diff-addition-fg-light), var(--cmux-diff-addition-fg-dark));
+}
+.source-pill-deletions {
+  color: light-dark(var(--cmux-diff-deletion-fg-light), var(--cmux-diff-deletion-fg-dark));
+}
+/* The base picker joins the toolbar as a pill too: "head -> base v". */
+#toolbar .base-picker-button {
+  height: 28px;
+  padding: 0 10px 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in lab, var(--cmux-diff-fg) 8%, transparent);
+  font-weight: 400;
+}
+#toolbar .base-picker-button:hover:not(:disabled),
+#toolbar .base-picker-button[aria-expanded="true"] {
+  background: color-mix(in lab, var(--cmux-diff-fg) 13%, transparent);
+}
+#toolbar .base-picker-ref {
+  font-weight: 500;
+}
+.toolbar-round-button {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in lab, var(--cmux-diff-fg) 8%, transparent);
+  color: var(--cmux-diff-fg);
+  cursor: pointer;
+}
+.toolbar-round-button:hover,
+.toolbar-round-button[aria-expanded="true"] {
+  background: color-mix(in lab, var(--cmux-diff-fg) 13%, transparent);
+}
+.source-pill-button:focus-visible,
+.toolbar-round-button:focus-visible,
+.diff-pill-button:focus-visible,
+.toolbar-menu-item:focus-visible {
+  outline: 2px solid color-mix(in lab, var(--cmux-diff-accent) 70%, transparent);
+  outline-offset: 1px;
+}
+
+/* Menus and palettes share one surface. */
+.toolbar-menu {
+  position: fixed;
+  z-index: 130;
+  display: flex;
+  flex-direction: column;
+  min-width: 200px;
+  padding: 6px;
+  border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 13%, transparent);
+  border-radius: 12px;
+  background: color-mix(in lab, var(--cmux-diff-bg) 92%, var(--cmux-diff-fg));
+  box-shadow: 0 16px 34px color-mix(in lab, #000 30%, transparent);
+  color: var(--cmux-diff-fg);
+}
+.toolbar-menu-section {
+  display: flex;
+  flex-direction: column;
+}
+.toolbar-menu .menu-separator {
+  margin: 5px 8px;
+}
+.toolbar-menu-item {
+  min-height: 28px;
+  border-radius: 7px;
+  cursor: pointer;
+  color: color-mix(in lab, var(--cmux-diff-fg) 90%, var(--cmux-diff-bg));
+}
+.source-menu .toolbar-menu-item {
+  grid-template-columns: minmax(0, 1fr) 18px;
+}
+.toolbar-menu-item:focus,
+.toolbar-menu-item:hover {
+  background: color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
+  color: var(--cmux-diff-fg);
+  outline: none;
+}
+.toolbar-menu-item[aria-disabled="true"] {
+  color: color-mix(in lab, var(--cmux-diff-fg) 38%, var(--cmux-diff-bg));
+  cursor: default;
+}
+.toolbar-menu-item[aria-disabled="true"]:hover {
+  background: transparent;
+}
+.toolbar-menu .menu-check svg {
+  width: 13px;
+  height: 13px;
+}
+.toolbar-submenu-anchor {
+  position: relative;
+}
+.toolbar-submenu {
+  position: absolute;
+  top: -6px;
+  left: calc(100% + 4px);
+  max-height: 60vh;
+  overflow-y: auto;
+}
+/* Jump to file palette: file name + dim directory. */
+.jump-palette {
+  padding: 0;
+  overflow: hidden;
+}
+.jump-palette-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+}
+.jump-palette-search svg,
+.base-picker-search svg {
+  width: 13px;
+  height: 13px;
+  fill: currentcolor;
+  stroke: none;
+  opacity: 0.55;
+}
+.jump-palette-input,
+.jump-palette-input:focus,
+.jump-palette-input:focus-visible {
+  outline: none;
+}
+.jump-palette-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--cmux-diff-fg);
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+}
+.jump-palette-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 6px 6px;
+}
+.jump-palette-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-height: 28px;
+  padding: 5px 8px;
+  border-radius: 7px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.jump-palette-row-active {
+  background: color-mix(in lab, var(--cmux-diff-fg) 11%, transparent);
+}
+.jump-palette-name {
+  flex: 0 0 auto;
+  max-width: 75%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.jump-palette-dir {
+  flex: 0 3 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: color-mix(in lab, var(--cmux-diff-fg) 50%, var(--cmux-diff-bg));
+}
+.jump-palette-status {
+  padding: 8px;
+  color: color-mix(in lab, var(--cmux-diff-fg) 55%, var(--cmux-diff-bg));
+}
+/* Branch rows: branch icon, name, check on the current base. */
+.base-picker-row-icon,
+.base-picker-row-check {
+  display: inline-flex;
+  flex: 0 0 auto;
+  width: 14px;
+  justify-content: center;
+}
+.base-picker-row-icon svg,
+.base-picker-row-check svg {
+  width: 13px;
+  height: 13px;
+}
+.base-picker-row-icon svg {
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 1.4;
+  opacity: 0.7;
+}
+.base-picker-row-check svg {
+  fill: currentcolor;
+}
+
+/* Floating toolbar pill, bottom-right of the diff. It shares the viewer's grid
+   cell so it never covers the files sidebar. */
+.diff-pill-anchor {
+  position: relative;
+  z-index: 60;
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+.diff-pill {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px;
+  border: 1px solid color-mix(in srgb, var(--cmux-diff-fg) 16%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--cmux-diff-fg) 9%, var(--cmux-diff-solid-bg));
+}
+.diff-pill-button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: color-mix(in srgb, var(--cmux-diff-fg) 62%, var(--cmux-diff-solid-bg));
+  cursor: pointer;
+}
+.diff-pill-button:hover,
+.diff-pill-button[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--cmux-diff-fg) 14%, var(--cmux-diff-solid-bg));
+  color: var(--cmux-diff-fg);
+}
+/* A pressed toggle (the files sidebar) sinks into the pill. */
+.diff-pill-button[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--cmux-diff-fg) 5%, var(--cmux-diff-solid-bg));
+  color: var(--cmux-diff-fg);
+}
+/* The 20 px stroke glyphs at 19 px: about 14 px of ink, as in the classic pill. */
+.diff-pill-button svg {
+  width: 19px;
+  height: 19px;
+  display: block;
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 1.45;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.diff-pill-button svg[data-icon-fill] {
+  width: 14px;
+  height: 14px;
+  fill: currentcolor;
+  stroke: none;
+}
+.diff-pill-button svg [data-diff-deletion],
+.diff-pill-button svg [data-diff-addition] {
+  stroke: none;
+}
+.diff-pill-button svg [data-diff-deletion] {
+  fill: color-mix(in srgb, var(--cmux-diff-deletion-fg) 55%, var(--cmux-diff-solid-bg));
+}
+.diff-pill-button svg [data-diff-addition] {
+  fill: color-mix(in srgb, var(--cmux-diff-addition-fg) 55%, var(--cmux-diff-solid-bg));
+}
+/* Tooltip below the hovered or keyboard-focused button (the pill sits at the
+   top of the page). */
+.diff-pill-button::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  top: calc(100% + 10px);
+  left: 50%;
+  translate: -50% -4px;
+  padding: 5px 10px;
+  border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 12%, transparent);
+  border-radius: 9px;
+  background: color-mix(in lab, var(--cmux-diff-bg) 86%, var(--cmux-diff-fg));
+  box-shadow: 0 6px 18px color-mix(in lab, #000 22%, transparent);
+  color: var(--cmux-diff-fg);
+  font-size: 12px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition:
+    opacity 90ms ease,
+    translate 90ms ease;
+}
+.diff-pill-button:last-child::after {
+  left: auto;
+  right: 0;
+  translate: 0 -4px;
+}
+.diff-pill-button:hover::after,
+.diff-pill-button:focus-visible::after {
+  opacity: 1;
+  translate: -50% 0;
+  transition-delay: 350ms;
+}
+.diff-pill-button:last-child:hover::after,
+.diff-pill-button:last-child:focus-visible::after {
+  translate: 0 0;
+}
+.diff-pill-button[aria-expanded="true"]::after {
+  display: none;
+}
+/* The "..." menu opens down from the pill. */
+#options-menu.options-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  min-width: 248px;
+  max-height: calc(100vh - 120px);
+  overflow-y: auto;
+}
+@media (prefers-reduced-motion: reduce) {
+  .diff-pill-button::after {
+    transition: none;
+  }
+}
+
+/* The base picker popover uses the toolbar menu surface. */
+.base-picker-popover {
+  border-radius: 12px;
+  background: color-mix(in lab, var(--cmux-diff-bg) 92%, var(--cmux-diff-fg));
+  box-shadow: 0 16px 34px color-mix(in lab, #000 30%, transparent);
+}
+.base-picker-search {
+  padding: 9px 12px;
+  border-bottom: 0;
+}
+.base-picker-input {
+  font-size: 13px;
+}
+.base-picker-input:focus,
+.base-picker-input:focus-visible {
+  outline: none;
+}
+.base-picker-row {
+  min-height: 30px;
+  border-radius: 7px;
+}
+/* File header row (FileHeader in App.tsx), slotted into Pierre's opaque sticky
+   header: language icon, dim directory + bright file name, collapse caret,
+   then +N -N and the review controls (screenshot 10 of the classic viewer). */
+/* Pierre wraps the slotted header content in its own element; let it fill the
+   header row so the counts and controls sit at the right edge. */
+#viewer diffs-container > [slot="header-custom"] {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+}
+/* Only listens for file row clicks; the tree keeps its own box. */
+.file-tree-activation {
+  display: contents;
+}
+/* One opaque 38 px row per file with a hairline under it (screenshot
+   5.20.56): 14 px text, a 15 px icon at 17 px, the counts and controls at
+   the right edge. */
+.file-header {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px 0 17px;
+  font-family: var(--cmux-diff-ui-font-family);
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--cmux-diff-fg);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.cmux-file-icon {
+  flex: 0 0 auto;
+  width: 15px;
+  height: 15px;
+  fill: currentcolor;
+  color: var(--cmux-diff-text-muted);
+}
+.file-header-path {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  overflow: hidden;
+}
+.file-header .cmux-file-icon {
+  margin-right: 3px;
+}
+.file-header-previous,
+.file-header-directory {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  /* A long path loses its leading directories first, never the file name. */
+  direction: rtl;
+  flex: 0 1 auto;
+  color: var(--cmux-diff-text-dim);
+}
+.file-header-previous {
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in lab, var(--cmux-diff-fg) 35%, transparent);
+}
+.file-header-name {
+  /* The name keeps its width until the directory is fully elided, and only
+     then truncates against the path's own width. */
+  min-width: 0;
+  max-width: 100%;
+  flex: 0 0 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--cmux-diff-fg);
+}
+.file-header-caret {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: -2px;
+  border-radius: 5px;
+  color: var(--cmux-diff-text-muted);
+}
+/* The whole bar is the toggle; the caret shows its hover and state. */
+.file-header:hover .file-header-caret {
+  background: var(--cmux-diff-hover-bg);
+  color: var(--cmux-diff-fg);
+}
+.file-header:focus-visible {
+  outline: 2px solid var(--cmux-diff-accent);
+  outline-offset: -2px;
+}
+.file-header-caret svg {
+  width: 12px;
+  height: 12px;
+  fill: currentcolor;
+  transition: transform 120ms ease;
+}
+.file-header[data-collapsed="true"] .file-header-caret svg {
+  transform: rotate(-90deg);
+}
+.file-header-spacer {
+  flex: 1 1 auto;
+  min-width: 4px;
+}
+.file-header [data-cmux-diff-metadata] {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--cmux-diff-text-muted);
+}
+.file-header-stats {
+  flex: 0 0 auto;
+  display: inline-flex;
+  gap: 5px;
+  font-variant-numeric: tabular-nums;
+}
+.file-header-additions {
+  color: var(--cmux-diff-count-added);
+}
+.file-header-deletions {
+  color: var(--cmux-diff-count-deleted);
+}
+.file-header .file-review-controls {
+  flex: 0 0 auto;
+  margin-left: 6px;
+}
+/* The bar's "..." menu button, after the eye. */
+.file-header-menu-button {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin-left: 6px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--cmux-diff-text-dim);
+  cursor: pointer;
+}
+.file-header-menu-button:hover,
+.file-header-menu-button[aria-expanded="true"] {
+  background: var(--cmux-diff-hover-bg);
+  color: var(--cmux-diff-fg);
+}
+.file-header-menu-button svg {
+  width: 13px;
+  height: 13px;
+}
+.file-header-menu-button:focus-visible {
+  outline: 2px solid var(--cmux-diff-accent);
+  outline-offset: -2px;
+}
+.file-header-menu {
+  z-index: 80;
+  min-width: 180px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .file-header-caret svg {
+    transition: none;
+  }
+}
+/* Language icon hues, matching the @pierre/trees built-in icon colors so a
+   file looks the same in its header and in the files tree. */
+.cmux-file-icon[data-icon-hue="gray"] { color: light-dark(#84848a, #adadb1); }
+.cmux-file-icon[data-icon-hue="red"] { color: light-dark(#d52c36, #ff6762); }
+.cmux-file-icon[data-icon-hue="orange"] { color: light-dark(#d47628, #ffa359); }
+.cmux-file-icon[data-icon-hue="yellow"] { color: light-dark(#d5a910, #ffd452); }
+.cmux-file-icon[data-icon-hue="green"] { color: light-dark(#199f43, #5ecc71); }
+.cmux-file-icon[data-icon-hue="teal"] { color: light-dark(#17a5af, #64d1db); }
+.cmux-file-icon[data-icon-hue="cyan"] { color: light-dark(#1ca1c7, #68cdf2); }
+.cmux-file-icon[data-icon-hue="blue"] { color: light-dark(#1a85d4, #69b1ff); }
+.cmux-file-icon[data-icon-hue="indigo"] { color: light-dark(#693acf, #9d6afb); }
+.cmux-file-icon[data-icon-hue="purple"] { color: light-dark(#a631be, #d568ea); }
+.cmux-file-icon[data-icon-hue="pink"] { color: light-dark(#d32a61, #ff678d); }
+.cmux-file-icon[data-icon-hue="mauve"] { color: light-dark(#594c5b, #79697b); }
+
+/* R139 desktop feel for the chrome this file restyles (the toolbar and its
+   pill, the files sidebar, the file bars, the file menu): not selectable, an
+   arrow cursor, no image or link drag. The file bar's path and anything
+   marked `.selectable` opt back into selection; diff lines opt in inside
+   Pierre's shadow root (codeViewUnsafeCSS). Focus rings come from :focus-visible rules only. */
+#toolbar,
+#files-sidebar,
+.file-header,
+.file-header-menu,
+#options-menu {
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: default;
+}
+#toolbar :is(button, [role="button"], [role="menuitem"], [role="menuitemcheckbox"]),
+#files-sidebar :is(button, [role="button"]),
+.file-header,
+.file-header :is(button, [role="button"]),
+.file-header-menu :is(button, [role="menuitem"]),
+#options-menu :is(button, [role="menuitem"], [role="menuitemcheckbox"]) {
+  cursor: default;
+}
+#toolbar :is(img, svg, a),
+#files-sidebar :is(img, svg, a),
+.file-header :is(img, svg, a) {
+  -webkit-user-drag: none;
+}
+#file-filter-input {
+  -webkit-user-select: text;
+  user-select: text;
+  cursor: text;
+}
+/* The file bar's path is `.selectable` (a drag-select never toggles the file). */
+.selectable {
+  -webkit-user-select: text;
+  user-select: text;
 }

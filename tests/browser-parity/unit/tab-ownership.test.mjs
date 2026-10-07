@@ -1,5 +1,5 @@
 // Session behaviors stop at tabs the session did not open
-// (docs/browser-repl/README.md, Sessions and tabs): in a user's tab that a
+// (plans/cmux-next/browser-repl/README.md, Sessions and tabs): in a user's tab that a
 // session only drives, a dialog, file chooser or download without a handler
 // stays with the user; a handler the agent registered on that page takes
 // just that event. A dialog or file chooser the agent's own click opens goes

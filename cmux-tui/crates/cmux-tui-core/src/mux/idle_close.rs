@@ -166,7 +166,7 @@ impl Mux {
             })
             .collect();
         let due = self.idle_close.lock().unwrap().due(now, &candidates);
-        let forgot_any = !due.is_empty();
+        let any_due = !due.is_empty();
         let mut closed = Vec::with_capacity(due.len());
         for terminal_id in due {
             // Whatever happens next, this terminal's idle period is over: a
@@ -196,13 +196,14 @@ impl Mux {
         // A closed or forgotten terminal is re-tracked from `now` on the
         // next pass, so the deadline below covers only live periods.
         let next = self.idle_close.lock().unwrap().next_deadline(&candidates);
-        let next = if !forgot_any && next.is_none_or(|next| next > now) {
+        // A due terminal was forgotten even when its close failed or a view
+        // attached at the recheck; without a pass now it would never be
+        // re-tracked and the reaper would block with no deadline.
+        let next = if !any_due && next.is_none_or(|next| next > now) {
             next
         } else {
-            // Something changed this pass (a close, a failed close, or a late
-            // attach): evaluate again at once so the tracker records fresh
-            // periods for the terminals it forgot. A failed close is then
-            // retried after one more full period instead of never.
+            // Something changed this pass: evaluate again at once so the
+            // tracker records fresh periods for the terminals it forgot.
             Some(now)
         };
         (closed, next)

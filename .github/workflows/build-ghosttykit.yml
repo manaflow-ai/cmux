@@ -152,7 +152,7 @@ jobs:
             -Dtest-filter="Page VT preserves a fully styled blank row" \
             --summary all
 
-      - name: Test Ghostty layer display after teardown
+      - name: Test Ghostty config window padding
         run: |
           set -euo pipefail
           cd ghostty
@@ -160,7 +160,7 @@ jobs:
             -Dapp-runtime=none \
             -Demit-macos-app=false \
             -Dsentry=false \
-            -Dtest-filter="teardown invalidation makes display a no-op" \
+            -Dtest-filter="c_get: window padding" \
             --summary all
 
       - name: Build GhosttyKit.xcframework

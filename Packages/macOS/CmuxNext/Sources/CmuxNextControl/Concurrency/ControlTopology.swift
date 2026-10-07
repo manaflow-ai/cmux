@@ -1,0 +1,122 @@
+public import CmuxNextSettings
+import Foundation
+
+/// The window / workspace / pane / tab tree as the control socket reports
+/// it, mapped by the App from the daemon mirror and window state. Ids are
+/// the durable string ids the CLI uses; handles are the daemon's
+/// session-scoped handles, for commands.
+public struct ControlTopology: Sendable, Hashable {
+    public var isLoaded = false
+    /// `connecting`, `connected`, `disconnected`, or `failed`.
+    public var daemonState = "connecting"
+    /// Why the first daemon connection has not succeeded, once the startup
+    /// deadline passed (nil while connecting normally or once connected).
+    public var daemonFailure: String?
+    public var windows: [ControlWindowInfo] = []
+    public var workspaceGroups: [ControlWorkspaceGroupInfo] = []
+    public var workspaces: [ControlWorkspaceInfo] = []
+    public var focus = ControlFocus()
+    /// `DaemonStore.appliedSequence` when this topology was built: every
+    /// daemon event up to it is reflected. Compat reads wait for it to pass
+    /// a write's barrier instead of refetching the tree.
+    public var daemonSequence: UInt64 = 0
+    /// Every session the app knows (plans/cmux-next/data-model.md 1.1):
+    /// the home session first, then each connected remote session.
+    public var sessions: [ControlSessionInfo] = []
+    /// `DaemonStore.appliedSequence` of each remote session's store when
+    /// this topology was built, by `ControlSessionInfo.id` (the home
+    /// session's is `daemonSequence`).
+    public var sessionSequences: [String: UInt64] = [:]
+
+    public init() {}
+
+    /// The session `id` names (a `ControlSessionInfo.id`); nil for the home session or an unknown id.
+    public func session(id: String?) -> ControlSessionInfo? {
+        guard let id else { return nil }
+        return sessions.first { $0.id == id }
+    }
+
+    /// The home session, when the App reported one.
+    public var homeSession: ControlSessionInfo? { sessions.first(where: \.isHome) }
+
+    public func workspace(id: String) -> ControlWorkspaceInfo? {
+        workspaces.first { $0.id == id || $0.handle == id || ($0.resourceID != nil && $0.resourceID == id) }
+    }
+
+    /// The pane with durable id or handle `id`, and its workspace.
+    public func pane(id: String) -> (pane: ControlPaneInfo, workspace: ControlWorkspaceInfo)? {
+        for workspace in workspaces {
+            for screen in workspace.screens {
+                if let pane = screen.panes.first(where: { $0.id == id || $0.handle == id }) { return (pane, workspace) }
+            }
+        }
+        return nil
+    }
+
+    /// The tab with durable id or surface handle `id`, its pane, and workspace.
+    public func tab(id: String) -> (tab: ControlTabInfo, pane: ControlPaneInfo, workspace: ControlWorkspaceInfo)? {
+        for workspace in workspaces {
+            for screen in workspace.screens {
+                for pane in screen.panes {
+                    if let tab = pane.tabs.first(where: { $0.id == id || $0.surface == id }) { return (tab, pane, workspace) }
+                }
+            }
+        }
+        return nil
+    }
+
+    public var tabCount: Int { workspaces.reduce(0) { $0 + $1.screens.reduce(0) { $0 + $1.panes.reduce(0) { $0 + $1.tabs.count } } } }
+}
+
+/// Which window, workspace, pane, and tab have focus (app-local state).
+public struct ControlFocus: Sendable, Hashable {
+    public var windowID: String?
+    public var workspaceID: String?
+    public var paneID: String?
+    public var tabID: String?
+
+    public init(windowID: String? = nil, workspaceID: String? = nil, paneID: String? = nil, tabID: String? = nil) {
+        self.windowID = windowID
+        self.workspaceID = workspaceID
+        self.paneID = paneID
+        self.tabID = tabID
+    }
+}
+
+public struct ControlWindowInfo: Sendable, Hashable {
+    public var id: String
+    /// Workspace shown.
+    public var workspaceID: String?
+    /// Every workspace the window's sidebar lists, in order (each workspace
+    /// belongs to exactly one window).
+    public var workspaceIDs: [String]
+    public var isKey: Bool
+    public var isVisible: Bool
+    public var focusedPaneID: String?
+    /// Kept off screen: a saved window none of whose workspaces a machine
+    /// reports yet, or a Cloud window waiting for its machine.
+    public var isHidden = false
+    /// The workspaces the window's sidebar shows now (its current room,
+    /// reported by a machine); nil means all of `workspaceIDs`.
+    public var visibleWorkspaceIDs: [String]?
+
+    /// The typed id clients print and pass (`win_<32 hex>`), derived
+    /// bijectively from the stored UUID; `id` stays the record key.
+    public var publicID: String { Self.publicID(forKey: id) }
+
+    public static let publicPrefix = "win_"
+
+    public static func publicID(forKey key: String) -> String {
+        guard let uuid = UUID(uuidString: key) else { return key }
+        return publicPrefix + uuid.uuidString.lowercased().replacingOccurrences(of: "-", with: "")
+    }
+
+    public init(id: String, workspaceID: String?, workspaceIDs: [String] = [], isKey: Bool, isVisible: Bool, focusedPaneID: String?) {
+        self.id = id
+        self.workspaceID = workspaceID
+        self.workspaceIDs = workspaceIDs
+        self.isKey = isKey
+        self.isVisible = isVisible
+        self.focusedPaneID = focusedPaneID
+    }
+}

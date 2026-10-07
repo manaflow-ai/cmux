@@ -34,6 +34,23 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     private var pendingCheckTransitionState: UpdateState?
     private var checkTimeoutTask: Task<Void, Never>?
     private(set) var lastFeedURLString: String?
+    /// Opt-in background installs (see `UpdateDriver+BackgroundInstall.swift`); off keeps the
+    /// prompt-driven flow unchanged.
+    var installsInBackground = false
+    /// With background installs: whether a found update downloads without a click.
+    var downloadsInBackground = true
+    /// Replaces the baked feed when set (``UpdateController/feedOverride``).
+    var feedOverride: String?
+    /// Builds at or below this are not offered (``UpdateController/skipsBuildsThrough``).
+    var skipsBuildsThrough: String?
+    /// The update a background check accepted, and its held install once it is ready.
+    var backgroundItem: SUAppcastItem?
+    var stagedInstall: (() -> Void)?
+    /// Cancels the held installer (Skip on the ready prompt: no skipped version is recorded).
+    var stagedCancel: (() -> Void)?
+    var installsWhenStaged = false
+    /// Holds a ready update's relaunch while agents are mid-turn or commands are running.
+    let relaunchGate: UpdateRelaunchGate
 
     init(
         model: UpdateStateModel,
@@ -49,6 +66,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
         self.clock = clock
         self.infoFeedURLProvider = infoFeedURLProvider
         self.isDevLikeBundle = isDevLikeBundle
+        self.relaunchGate = UpdateRelaunchGate(clock: clock, log: log)
         super.init()
     }
 
@@ -82,10 +100,16 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
                          state: SPUUserUpdateState,
                          reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
         log.append("show update found: \(appcastItem.displayVersionString)")
+        if let skip = skipsBuildsThrough, appcastItem.versionString.compare(skip, options: .numeric) != .orderedDescending {
+            log.append("not offering \(appcastItem.versionString): a rollback left it (skips through \(skip))")
+            setState(.idle)
+            return reply(.dismiss)
+        }
         let available = UpdateState.UpdateAvailable(appcastItem: appcastItem) { choice in reply(choice) }
         available.reply.onConsumed = { [weak self] reply, choice, source in
             self?.handlePromptReply(reply, choice: choice, source: source)
         }
+        if installsInBackground && downloadsInBackground { return acceptInBackground(available) }
         setStateAfterMinimumCheckDelay(.updateAvailable(available))
     }
 
@@ -107,6 +131,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
                           acknowledgement: @escaping () -> Void) {
         let details = formatErrorForLog(error)
         log.append("show updater error: \(details)")
+        relaunchGate.cancel()
         setState(.error(.init(
             error: error,
             retry: { [weak self] in
@@ -169,7 +194,59 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
 
     func showReady(toInstallAndRelaunch reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
         log.append("show ready to install")
+        if installsInBackground { return stageInBackground(reply) }
         reply(.install)
+    }
+
+    /// Sparkle asks this before every install that relaunches cmux: Install and Relaunch,
+    /// Restart Now on the install-on-quit prompt, and a resumed install after Later. Returns
+    /// `true` to hold the relaunch until `installHandler` is invoked (see ``UpdateRelaunchGate``).
+    func handleShouldPostponeRelaunch(installHandler: @escaping () -> Void) -> Bool {
+        guard !currentRelaunchBlockers().isEmpty else { return false }
+        var isAutoUpdate = false
+        if case .installing(let installing) = model.state { isAutoUpdate = installing.isAutoUpdate }
+        holdRelaunch(isAutoUpdate: isAutoUpdate, install: installHandler)
+        return true
+    }
+
+    private func currentRelaunchBlockers() -> UpdateRelaunchBlockers {
+        actionDelegate?.updaterRelaunchBlockers() ?? .empty
+    }
+
+    /// Holds `install` while relaunching would interrupt a busy agent or a running command.
+    /// Later leaves the downloaded update on "Restart to Complete Update"; Sparkle still
+    /// installs it when cmux quits.
+    private func holdRelaunch(isAutoUpdate: Bool, install: @escaping () -> Void) {
+        relaunchGate.hold(
+            isAutoUpdate: isAutoUpdate,
+            blockers: { [weak self] in self?.currentRelaunchBlockers() ?? .empty },
+            isShown: { [weak self] in
+                guard case .installing(let installing) = self?.model.state else { return false }
+                return installing.relaunchBlockers != nil
+            },
+            publish: { [weak self] state in self?.setState(state) },
+            relaunch: install,
+            later: { [weak self] in self?.showRestartToComplete(install: install) }
+        )
+    }
+
+    /// The postponed Sparkle session stays open until `install` runs, so this state keeps it
+    /// reachable: Restart Later only closes the popover (dropping `install` would leave every
+    /// later check waiting on a session that never ends), and Restart Now goes through the
+    /// gate again and installs at most once.
+    private func showRestartToComplete(install: @escaping () -> Void) {
+        let once = InstallOnce(install)
+        setState(.installing(.init(
+            isAutoUpdate: true,
+            retryTerminatingApplication: { [weak self] in
+                guard let self else {
+                    once.run()
+                    return
+                }
+                self.holdRelaunch(isAutoUpdate: true, install: once.run)
+            },
+            dismiss: {}
+        )))
     }
 
     func showInstallingUpdate(withApplicationTerminated applicationTerminated: Bool, retryTerminatingApplication: @escaping () -> Void) {
@@ -184,6 +261,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
 
     func showUpdateInstalledAndRelaunched(_ relaunched: Bool, acknowledgement: @escaping () -> Void) {
         log.append("show update installed (relaunched=\(relaunched))")
+        relaunchGate.cancel()
         setState(.idle)
         acknowledgement()
     }
@@ -288,7 +366,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
         }
     }
 
-    private func setState(_ newState: UpdateState) {
+    func setState(_ newState: UpdateState) {
         cancelPendingCheckTransition()
         checkTimeoutTask?.cancel()
         checkTimeoutTask = nil
@@ -320,6 +398,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     }
 
     private func applyState(_ newState: UpdateState) {
+        if Self.endsInstallRequest(newState) { installsWhenStaged = false }
         model.applyDriverState(newState)
         log.append("state -> \(describe(newState))")
     }
@@ -392,7 +471,25 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
         case .extracting(let extracting):
             return String(format: "extracting(%.0f%%)", extracting.progress * 100)
         case .installing(let installing):
+            if let blockers = installing.relaunchBlockers {
+                return "installing(auto=\(installing.isAutoUpdate), waiting agents=\(blockers.busyAgentCount) commands=\(blockers.runningCommandCount))"
+            }
             return "installing(auto=\(installing.isAutoUpdate))"
         }
+    }
+}
+
+/// Runs a Sparkle install handler at most once.
+private final class InstallOnce {
+    private var install: (() -> Void)?
+
+    init(_ install: @escaping () -> Void) {
+        self.install = install
+    }
+
+    func run() {
+        guard let install else { return }
+        self.install = nil
+        install()
     }
 }

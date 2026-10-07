@@ -28,7 +28,7 @@ permissions:
 jobs:
   refresh:
     if: github.repository_owner == 'manaflow-ai'
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     permissions:
       contents: write

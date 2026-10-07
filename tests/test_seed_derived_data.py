@@ -236,11 +236,11 @@ class SeedDerivedData(unittest.TestCase):
         adopt_at, _ = named(seeder, "Adopt the newest seed")
         save_at, _ = named(seeder, "Save seed")
         keep_at, keep = named(seeder, "Keep the seed on this Mac")
-        stage_at, _ = named(seeder, "Stage compiled package frameworks")
+        package_at, _ = named(seeder, "Package compiled app-host test product")
         self.assertLess(choose_at, adopt_at)
         self.assertLess(adopt_at, keep_at)
         self.assertLess(keep_at, save_at)  # the LAN archive gets the seed without waiting on R2
-        self.assertLess(save_at, stage_at)
+        self.assertLess(save_at, package_at)
         self.assertIn("matrix.pool == vars.CI_SEED_TRUSTED_POOL", choose["if"])
         # only runners that run nothing else as this user: a kept seed becomes the next R2 seed
         self.assertIn("vars.CI_SEED_KEEP_LOCAL_RUNNERS", choose["if"])
@@ -915,17 +915,14 @@ class Wiring(unittest.TestCase):
 
         for path in (ROOT / ".github/workflows").glob("*.yml"):
             text = path.read_text()
-            if "admission-derived-data-" in text and path.name not in {"nightly.yml", "ci-macos.yml", "seed-derived-data.yml", "test-e2e.yml",
+            if "admission-derived-data-" in text and path.name not in {"nightly.yml", "ci-macos.yml", "seed-derived-data.yml",
                                                                         "main-compile-probe.yml"}:
                 self.fail(f"{path.name} names the admission DerivedData seed")
-        # E2E builds and main compile probes adopt the same seed but only read it.
+        # Main compile probes adopt the same seed but only read it.
         probe = (ROOT / ".github/workflows/main-compile-probe.yml").read_text()
         self.assertEqual(set(re.findall(r"seed_derived_data\.py (\w+)", probe)), {"adopt"})
         self.assertNotIn("cache-save", probe)
         self.assertNotIn("secrets.", probe)
-        e2e = (ROOT / ".github/workflows/test-e2e.yml").read_text()
-        for command in re.findall(r"seed_derived_data\.py (\w+)", e2e):
-            self.assertIn(command, {"start", "adopt"})
         self.assertNotIn("secrets.", json.dumps(adopt))
 
     def test_every_main_push_seeds_incrementally_under_the_key_admission_reads(self):
@@ -1224,10 +1221,6 @@ class Wiring(unittest.TestCase):
         self.assertLess(install_at, key_at)
         self.assertLess(key_at, build_at)
 
-        stage_at, stage = named(seeder, "Stage compiled package frameworks")
-        _, admission_stage = named(admission, "Stage compiled package frameworks")
-        self.assertEqual(stage["run"], admission_stage["run"])
-
         package_at, package = named(seeder, "Package compiled app-host test product")
         _, admission_package = named(admission, "Package compiled app-host test product")
         for line in admission_package["run"].splitlines():
@@ -1242,21 +1235,21 @@ class Wiring(unittest.TestCase):
             self.assertEqual(upload["with"][field], admission_upload["with"][field], field)
         self.assertIn("retention-days", upload["with"])
 
-        # Staging and relocation rewrite Build/Products, so they run only once
-        # the seed incremental builds read is already saved.
+        # Relocation rewrites Build/Products, so it runs only once the seed
+        # incremental builds read is already saved.
         self.assertLess(build_at, save_at)
-        self.assertLess(save_at, stage_at)
-        self.assertLess(stage_at, package_at)
+        self.assertLess(save_at, package_at)
         self.assertLess(package_at, upload_at)
 
         # Only a main push is a trusted producer; a dispatch would upload a
         # product nothing adopts.
-        for step in (stage, package, upload):
+        for step in (package, upload):
             self.assertIn("github.event_name == 'push'", step["if"])
             self.assertIn("github.ref == 'refs/heads/main'", step["if"])
             self.assertIs(step.get("continue-on-error"), True)
         self.assertIn("steps.package-products.outcome == 'success'", upload["if"])
-        self.assertNotIn("secrets.", json.dumps([stage, package, upload]))
+        self.assertIn("matrix.pool == needs.decide.outputs.publisher", package["if"])
+        self.assertNotIn("secrets.", json.dumps([package, upload]))
 
     def test_the_seeder_reads_and_writes_through_the_public_url_admission_reads(self):
         # r2-cache.sh restores through CI_CACHE_R2_PUBLIC_URL and refuses to
@@ -1441,7 +1434,7 @@ class Wiring(unittest.TestCase):
         # (test_a_retry_goes_to_blacksmith_after_a_host_fault_...).
         mini, root, gui, side = ("glaeda-std-xcode-26.6", "glaeda-root-std-xcode-26.6",
                                  "glaeda-gui-std-xcode-26.6", "glaeda-side-std-xcode-26.6")
-        owned_jobs = (" admission shard-1 lag cli-product swift-package claude-wrapper remote-daemon ")
+        owned_jobs = (" admission shard-1 lag cli-product swift-package remote-daemon ")
         late = json.dumps({"shard-1": root, "lag": gui, "cli-product": root})
         checked = set()
         for path in sorted((ROOT / ".github/workflows").glob("*.yml")):
@@ -1488,25 +1481,8 @@ class Wiring(unittest.TestCase):
         # The guard reaches owned jobs at all: attempts 1 and 2 of the main lanes take the fleet.
         owned = {(workflow, job) for workflow, job, on_fleet in checked if on_fleet}
         self.assertTrue({("ci-macos.yml", "macos-compile-admission"), ("ci-macos.yml", "cli-product-tests"),
-                         ("ci-macos.yml", "app-host-unit-tests"), ("ci.yml", "claude-wrapper"),
+                         ("remote-daemon.yml", "remote-daemon-macos-tests"),
                          ("auth-refresh-tests.yml", next(iter(load("auth-refresh-tests.yml")["jobs"])))} <= owned, owned)
-
-    def test_full_suite_shards_take_the_shard_runner_on_admissions_xcode(self):
-        shards = load("ci-macos.yml")["jobs"]["app-host-unit-tests"]
-        for retry, owned, shard, runner in (
-            ("", "", "blacksmith-6vcpu-macos-26", "blacksmith-6vcpu-macos-26"),  # spread off 12vcpu
-            ("", "", "", "blacksmith-12vcpu-macos-26"),                          # stay with admission
-            # An owned run's shards not placed there take the retry runner.
-            ("blacksmith-12vcpu-macos-26", " admission ", "", "blacksmith-12vcpu-macos-26"),
-        ):
-            context = github_context("pull_request", ref="refs/pull/1/merge")
-            context["github"].update(repository="manaflow-ai/cmux", run_attempt="1",
-                                     event={"pull_request": {"head": {"repo": {"full_name": "manaflow-ai/cmux"}}}})
-            context["inputs"].update(pr_retry_runner=retry, pr_owned_jobs=owned, pr_shard_runner=shard)
-            context["matrix"] = {"shard": 3}
-            context["needs"] = {"macos-compile-admission": {"outputs": {"runner": "blacksmith-12vcpu-macos-26"}}}
-            with self.subTest(retry=retry, shard=shard):
-                self.assertEqual(evaluate(shards["runs-on"], context), runner)
 
     def test_root_jobs_take_the_root_label_when_the_picker_names_one(self):
         # glaeda refuses a canonical-root job on a mini whose root is taken, so
@@ -1535,12 +1511,8 @@ class Wiring(unittest.TestCase):
                 self.assertEqual(admission, runner)
                 self.assertEqual(evaluate(macos["macos-compile-admission"]["env"]["CMUX_PRODUCT_RUNNER"], context),
                                  runner)
-                self.assertEqual(evaluate(macos["tests-build-and-lag"]["runs-on"], context), runner)
-                # The shards and cli-product-tests follow admission.
+                # cli-product-tests follows admission.
                 context["needs"] = {"macos-compile-admission": {"outputs": {"runner": admission}}}
-                # The evaluator has no format(): matrix shard 1 stands in.
-                shard = macos["app-host-unit-tests"]["runs-on"].replace("format(' shard-{0} ', matrix.shard)", "' shard-1 '")
-                self.assertEqual(evaluate(shard, context), runner)
                 self.assertEqual(evaluate(macos["cli-product-tests"]["runs-on"], context), runner)
 
     def test_cli_product_takes_the_gui_label_like_the_shards(self):
@@ -1599,10 +1571,8 @@ class Wiring(unittest.TestCase):
                 self.assertEqual(evaluate(admission["runs-on"], context), runner)
                 product_runner = evaluate(admission["env"]["CMUX_PRODUCT_RUNNER"], context)
                 self.assertEqual(product_runner, runner[0] if isinstance(runner, list) else runner)
-                self.assertEqual(evaluate(macos["tests-build-and-lag"]["runs-on"], context), product_runner)
                 context["needs"] = {"macos-compile-admission": {"outputs": {"runner": product_runner}}}
-                shard = macos["app-host-unit-tests"]["runs-on"].replace("format(' shard-{0} ', matrix.shard)", "' shard-1 '")
-                self.assertEqual(evaluate(shard, context), product_runner)
+                self.assertEqual(evaluate(macos["cli-product-tests"]["runs-on"], context), product_runner)
 
     def test_main_full_suite_dispatch_takes_the_owned_pool_the_picker_names(self):
         # pr_runner_pool.py may put main's full-suite dispatch on an owned
@@ -1625,10 +1595,7 @@ class Wiring(unittest.TestCase):
                 self.assertEqual(evaluate(admission["runs-on"], context), runner)
                 self.assertEqual(evaluate(admission["env"]["CMUX_PRODUCT_RUNNER"], context), runner)
                 self.assertEqual(evaluate(admission["env"]["CMUX_CI_XCODE_APP"], context), "/Applications/Xcode-pr.app")
-                self.assertEqual(evaluate(macos["tests-build-and-lag"]["runs-on"], context), runner)
                 context["needs"] = {"macos-compile-admission": {"outputs": {"runner": runner}}}
-                shard = macos["app-host-unit-tests"]["runs-on"].replace("format(' shard-{0} ', matrix.shard)", "' shard-1 '")
-                self.assertEqual(evaluate(shard, context), runner)
                 self.assertEqual(evaluate(macos["cli-product-tests"]["runs-on"], context), runner)
                 # An owned Mac's kept build is reused on main too, starting at main's own commit.
                 context["env"] = {"CMUX_PRODUCT_RUNNER": runner}

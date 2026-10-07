@@ -1,5 +1,5 @@
-// `dev` browser driver: implements docs/browser-repl/driver-protocol.md on
-// Playwright WebKit so the engine-neutral runtime in Resources/browser-repl can
+// `dev` browser driver: implements plans/cmux-next/browser-repl/driver-protocol.md on
+// Playwright WebKit so the engine-neutral runtime in cmux-tui/crates/cmux-browser-host/js can
 // be developed and checked without an app build.
 //
 // Playwright cannot choose a content world on WebKit, so the "agent" world is
@@ -17,26 +17,23 @@ import crypto from "node:crypto";
 import os from "node:os";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
-import { createBoundary } from "./native-boundary.mjs";
+import { createReferenceHost } from "./reference-host.mjs";
 import { siteOf } from "./public-suffix.mjs";
 import { makeTestDir, removeTestDir, removeTestDirIfEmpty } from "./test-dirs.mjs";
 
 const require = createRequire(import.meta.url);
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
-export const runtimeDir = path.join(repoRoot, "Resources/browser-repl");
+export const runtimeDir = path.join(repoRoot, "cmux-tui/crates/cmux-browser-host/js");
 
 const AGENT_KEY = 'Symbol.for("cmux.browserRepl.agent")';
+const OBSERVE_METHODS = new Set(["ping", "snapshot", "stats", "refState", "refForHandle", "elementAt", "splitFrames", "queryAll", "describe", "strictError", "elementState", "checkStates", "rect", "contentBox", "iframeHandles", "retarget", "read", "activeHandle"]);
 const NEEDS_AGENT = "__cmuxNeedsAgent__";
 const ERROR_KEY = "__cmuxError__";
 const JSON_KEY = "__cmuxJson__";
 
 export function loadPlaywright() {
   process.env.PLAYWRIGHT_BROWSERS_PATH ??= path.join(process.env.HOME, ".cache/cmux-parity-browsers");
-  // A node_modules directory with playwright: PARITY_PLAYWRIGHT_DIR, else the
-  // copy bundled with reference B's runtime (lib/references.mjs), else the
-  // usual resolution from here.
-  const runtime = process.env.PARITY_REFERENCE_B_RUNTIME || process.env.CUA_REFERENCE_RUNTIME;
-  const dirs = [process.env.PARITY_PLAYWRIGHT_DIR, runtime && path.join(runtime, "lib/node_modules")].filter(Boolean);
+  const dirs = [process.env.PARITY_PLAYWRIGHT_DIR].filter(Boolean);
   for (const d of dirs) {
     try {
       return require(path.join(d, "playwright"));
@@ -495,8 +492,11 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
   }
 
   // WebKit content-blocker rules applied with request routing: the last
-  // matching block or ignore-previous-rules rule decides. Main-frame
-  // documents are not routed, as in the app.
+  // matching block or ignore-previous-rules rule decides. A document rule
+  // with load-context child-frame covers iframes only; one without
+  // load-context covers the main frame too. A blocked main-frame document is
+  // reported as navigation.blocked (the request never reaches the server; reason
+  // null: reference-host.mjs names it from its policy).
   const RESOURCE_TYPES = { image: "image", stylesheet: "style-sheet", script: "script", font: "font", media: "media", fetch: "fetch", xhr: "fetch", websocket: "websocket", ping: "ping", other: "other" };
   let contentRules = [];
   let routed = false;
@@ -521,14 +521,26 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
     routed = true;
     await context.route("**/*", (route, request) => {
       const isDocument = request.resourceType() === "document";
-      if (isDocument && request.frame().parentFrame() === null) return cancelsNavigation(request) ? route.abort("blockedbyclient") : route.fallback();
+      let isMain = false;
+      try {
+        isMain = isDocument && request.frame().parentFrame() === null;
+      } catch {}
+      // Main's path: a session's own domain policy on the driver (S0b).
+      if (isMain && cancelsNavigation(request)) return route.abort("blockedbyclient");
       const type = isDocument ? "document" : RESOURCE_TYPES[request.resourceType()] || "other";
       let blocked = false;
       for (const r of contentRules) {
         if (!r.re.test(request.url())) continue;
         if (r.types && !r.types.includes(type)) continue;
-        if (isDocument && !r.child) continue;
+        if (isMain && r.child) continue;
         blocked = r.type === "block";
+      }
+      if (blocked && isMain) {
+        let tab = null;
+        try {
+          tab = tabOf.get(request.frame().page());
+        } catch {}
+        if (tab) emit("navigation.blocked", { targetId: tab.targetId, url: request.url(), reason: null });
       }
       return blocked ? route.abort("blockedbyclient") : route.fallback();
     });
@@ -557,8 +569,11 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
       if (targetId !== undefined) tabFor(targetId);
       return { dataStore: DATA_STORE };
     },
-    "tabs.open": async ({ url, background, dataStore }, driver) => {
+    "tabs.open": async ({ url, background, dataStore, incognito }, driver) => {
       if (dataStore !== undefined && dataStore !== DATA_STORE) throw new DriverError("invalid", `tabs.open: no open tab uses data store ${JSON.stringify(dataStore)}`);
+      // driver-protocol.md: a driver without a store that keeps nothing
+      // opens nothing (never a persistent tab).
+      if (incognito === true) throw new DriverError("unsupported", "tabs.open: incognito tabs are not supported by the dev driver; nothing was opened");
       const page = await context.newPage();
       const tab = register(page);
       tab.blankStart = !url;
@@ -677,6 +692,15 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
       return out;
     },
     "frame.evaluate": async ({ targetId, frameId: id, ...rest }) => evaluate(frameFor(targetId, id), rest),
+    // The host's read-only page-agent call (browser lead contract v1): the
+    // driver builds the call; only allowlisted methods run.
+    "frame.observe": async ({ targetId, frameId: id, method, args = [] }) => {
+      if (!OBSERVE_METHODS.has(method)) {
+        throw Object.assign(new DriverError("forbidden", `frame.observe: ${method} is not a read; use frame.evaluate`), { errorName: "observe_not_allowed" });
+      }
+      if (!Array.isArray(args) || args.length > 8 || JSON.stringify(args).length > 65536) throw new DriverError("invalid", "frame.observe: args: expected at most 8 JSON values (64 KiB)");
+      return evaluate(frameFor(targetId, id), { world: "agent", source: `(m, ...a) => { const A = globalThis[${AGENT_KEY}]; return A.reply(A[m](...a)); }`, args: [method, ...args], awaitPromise: true });
+    },
     "frame.ownerBox": async ({ targetId, frameId: id }) => {
       const frame = frameFor(targetId, id);
       const owner = await frame.frameElement();
@@ -810,7 +834,7 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
     },
     // The session's domain policy covers cookies as in the app: blocked
     // URLs are refused and blocked sites' cookies are never listed, set or
-    // cleared (driver.cookieBlockReason, from the native-boundary emulation).
+    // cleared (driver.cookieBlockReason, from the reference host).
     "cookies.get": async ({ urls } = {}, driver) => {
       for (const url of urls || []) {
         const reason = driver.blockReason && driver.blockReason(url);
@@ -963,7 +987,7 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
   // Reads and input on a tab whose page the session's policy blocks are
   // refused, as the app's driver does.
   // Of the cookie calls only cookies.clear takes its scope from the page.
-  const GUARDED = /^(frame\.evaluate|input\.|tab\.screenshot|tab\.pdf|clipboard\.|filechooser\.respond|cookies\.clear$)/;
+  const GUARDED = /^(frame\.evaluate|frame\.observe|input\.|tab\.screenshot|tab\.pdf|clipboard\.|filechooser\.respond|cookies\.clear$)/;
   // The session's own input, script and navigations (WebKitBrowserReplDriver.isActionOnPage).
   const ACTIONS = /^(input\.|frame\.evaluate$|tab\.navigate$|tab\.reload$|tab\.history$)/;
   const NAVIGATIONS = /^tab\.(navigate|reload|history)$/;
@@ -977,12 +1001,13 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
       blockReason: null,
       cookieBlockReason: null,
       policyFailure: null,
-      // Called by the native-boundary emulation, never by the runtime. As
+      // Called by the reference host, never by the runtime. As
       // WebKit does, rules with a non-ASCII url-filter do not compile; then
       // every call fails until a policy that compiles replaces them.
-      async setDomainPolicy(policy, blockReason, cookieBlockReason, cookieSetBlockReason) {
+      // Called by the reference host (reference-host.mjs), never by the
+      // runtime. `rules` are the host's content rules for the policy.
+      async setDomainPolicy(policy, blockReason, cookieBlockReason, cookieSetBlockReason, rules = []) {
         driver.cookieSetBlockReason = policy.allowed || policy.prohibited.length || policy.blockIPs ? cookieSetBlockReason || null : null;
-        const rules = loadRuntime().agentTools.policyContentRules(policy);
         const bad = rules.find((r) => /[^\x00-\x7f]/.test(r.trigger["url-filter"]));
         if (bad) {
           driver.policyFailure = new DriverError("invalid", `the domain policy could not be applied: WebKit refused its content rules (contentRules: Only ASCII characters are supported in pattern ${bad.trigger["url-filter"]}); set a policy that compiles (session.allowedDomains, session.prohibitedDomains, session.blockIPAddresses), or reset the session if the policy is locked`);
@@ -1261,7 +1286,7 @@ export function createNodeHost({ workDir, sessionId = "dev", print, readable = n
     },
     fsOp: createFsOp({ workDir, tmpdir, readable }),
     // As the app's fetcher: every redirect hop is checked against the
-    // domain policy (init.blockReason, from the native-boundary emulation)
+    // domain policy (init.blockReason, from the reference host)
     // and a body over 64 MiB fails.
     async fetch(url, init = {}) {
       let current = url;
@@ -1271,7 +1296,8 @@ export function createNodeHost({ workDir, sessionId = "dev", print, readable = n
       for (let hop = 0; ; hop++) {
         res = await fetch(current, { method, headers: init.headers, body, redirect: "manual" });
         const location = res.status >= 300 && res.status < 400 && res.headers.get("location");
-        if (!location || hop >= 20) break;
+        // reference-host.mjs follows redirects itself, one checked hop at a time.
+        if (!location || hop >= 20 || init.redirect === "manual") break;
         const next = new URL(location, current).href;
         const reason = init.blockReason && init.blockReason(next);
         if (reason) throw Object.assign(new Error(`fetch: redirect to ${next} is blocked: ${reason}`), { code: "blocked" });
@@ -1290,30 +1316,26 @@ export function createNodeHost({ workDir, sessionId = "dev", print, readable = n
   };
 }
 
-// A REPL session on the dev backend, with the native session's guards
-// (secrets, domain policy, redaction) emulated around the host and driver,
-// as the app's BrowserReplSession puts them around its JavaScriptCore
-// context. Use it wherever the app would run a session.
-export function createDevRepl({ host, driver }) {
-  const ns = loadRuntime();
-  const boundary = createBoundary(ns.agentTools, { now: () => (host.now ? host.now() : Date.now()) });
-  const repl = ns.replHost.createBrowserRepl({ host: boundary.wrapHost(host), driver: boundary.wrapDriver(driver) });
-  return {
-    ...repl,
-    boundary,
-    async evaluate(code, options) {
-      const r = await repl.evaluate(code, options);
-      if (!r.ok) {
-        r.error = boundary.redact(r.error);
-        if (r.exception instanceof Error) {
-          try {
-            r.exception.message = boundary.redact(r.exception.message);
-          } catch {}
-        }
-      }
-      return r;
-    },
+// The runtime behind the reference host (reference-host.mjs): what agent code
+// sees under the Rust browser host. Every harness builds its REPL here.
+export function createHostedRepl(ns, { host, driver }) {
+  const ref = createReferenceHost(ns, { host, driver });
+  const repl = ns.replHost.createBrowserRepl({ host: ref.host, driver: ref.driver });
+  const evaluate = repl.evaluate;
+  repl.evaluate = async (code, options) => {
+    const r = await evaluate(code, options);
+    if (!r.ok) {
+      r.error = ref.maskText(r.error);
+      ref.maskError(r.exception);
+    }
+    return r;
   };
+  // Reads a field of the current tab as the host (unmasked), for tests.
+  async function pageValue(selector) {
+    const page = [...repl.session.pages.values()].reverse().find((p) => !p._closed && !String(p._targetId).startsWith("lazy:"));
+    return driver.call("frame.evaluate", { targetId: page._targetId, world: "page", source: "(s) => document.querySelector(s).value", args: [selector], awaitPromise: true });
+  }
+  return { ...ref, repl, pageValue };
 }
 
 // Runs REPL cells the way `cmux browser repl` runs calls: every cell is a
@@ -1339,7 +1361,7 @@ export async function runDevCells(cells, { workDir } = {}) {
         let current = print;
         const host = createNodeHost({ workDir: dir, sessionId: cell.session || `oneshot-${outputs.length + 1}`, print: (l, t) => current(l, t), readable });
         hosts.push(host);
-        entry = { driver, repl: createDevRepl({ host, driver }), setPrint: (p) => (current = p) };
+        entry = { driver, repl: createHostedRepl(ns, { host, driver }).repl, setPrint: (p) => (current = p) };
         if (cell.session) named.set(cell.session, entry);
       }
       entry.setPrint(print);

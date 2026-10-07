@@ -835,8 +835,15 @@ fn allocate_id(next: &mut u32, used: &mut HashSet<u32>) -> (u32, usize) {
 }
 
 fn transmit_image(image_id: u32, image: &GraphicImage) -> Vec<u8> {
-    record_image_transmission(image.key);
     let data = image.data.base64();
+    // Frame data from the daemon is written inside an APC string. Anything
+    // outside the base64 alphabet could end that string and inject terminal
+    // commands, so such an image is dropped.
+    if !data.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'/' | b'='))
+    {
+        return Vec::new();
+    }
+    record_image_transmission(image.key);
     let mut out = Vec::new();
     for (index, chunk) in data.as_bytes().chunks(CHUNK).enumerate() {
         let more = usize::from((index + 1) * CHUNK < data.len());
@@ -1416,6 +1423,25 @@ mod tests {
         };
         assert_eq!(borrowed, encoded.as_ref());
         assert_eq!(borrowed.as_ptr(), encoded.as_ptr());
+    }
+
+    /// Remote browser frame data is supposed to be base64. Anything else
+    /// (an ESC ST that ends the APC early, then raw controls) is never
+    /// written to the terminal.
+    #[test]
+    fn sec_audit_non_base64_frame_data_is_never_transmitted() {
+        let hostile: Arc<str> = Arc::from("AAAA\x1b\\\x1b]0;owned\x07\x1b[2J");
+        let image = GraphicImage {
+            key: GraphicImageKey { namespace: 0, surface: 1, image_id: 7 },
+            generation: 1,
+            width: 2,
+            height: 2,
+            format: GraphicFormat::Png,
+            data: GraphicData::Base64(hostile),
+        };
+        let bytes = transmit_image(7, &image);
+        let text = String::from_utf8_lossy(&bytes);
+        assert!(!text.contains("owned") && !text.contains("\x1b[2J"), "{text:?}");
     }
 
     #[test]

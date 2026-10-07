@@ -2,6 +2,30 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>en</string>
+		<string>ja</string>
+		<string>ar</string>
+		<string>bs</string>
+		<string>da</string>
+		<string>de</string>
+		<string>es</string>
+		<string>fr</string>
+		<string>it</string>
+		<string>ko</string>
+		<string>nb</string>
+		<string>pl</string>
+		<string>pt-BR</string>
+		<string>ru</string>
+		<string>th</string>
+		<string>tr</string>
+		<string>km</string>
+		<string>uk</string>
+		<string>vi</string>
+		<string>zh-Hans</string>
+		<string>zh-Hant</string>
+	</array>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
@@ -30,6 +54,33 @@
 			<key>LSItemContentTypes</key>
 			<array>
 				<string>com.apple.terminal.shell-script</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Web page</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Default</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>public.html</string>
+				<string>public.xhtml</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Shell script</string>
+			<key>CFBundleTypeRole</key>
+			<string>Shell</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>public.shell-script</string>
+				<string>public.zsh-script</string>
+				<string>public.bash-script</string>
 			</array>
 		</dict>
 		<dict>
@@ -103,8 +154,6 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
-	<key>NSDockTilePlugIn</key>
-	<string>CmuxDockTilePlugin.plugin</string>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.developer-tools</string>
 	<key>LSArchitecturePriority</key>
@@ -112,6 +161,8 @@
 		<string>arm64</string>
 		<string>x86_64</string>
 	</array>
+	<key>LSMinimumSystemVersion</key>
+	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
 	<key>NSHumanReadableCopyright</key>
 	<string></string>
 	<key>NSMainStoryboardFile</key>
@@ -211,6 +262,18 @@
 			<key>LSHandlerRank</key>
 			<string>Alternate</string>
 		</dict>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>CFBundleURLName</key>
+			<string>Manual page URL</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>x-man-page</string>
+			</array>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+		</dict>
 	</array>
 	<key>CMUXIrohRelayPolicyKeyID</key>
 	<string>$(CMUX_IROH_RELAY_POLICY_KEY_ID)</string>
@@ -248,12 +311,27 @@
 			</dict>
 		</dict>
 	</dict>
-	<key>NSAppleScriptEnabled</key>
-	<true/>
-	<key>NSPrincipalClass</key>
-	<string>NSApplication</string>
 	<key>NSServices</key>
 	<array>
+		<dict>
+			<key>NSMenuItem</key>
+			<dict>
+				<key>default</key>
+				<string>New $(PRODUCT_NAME) Tab Here</string>
+			</dict>
+			<key>NSMessage</key>
+			<string>newTabHere</string>
+			<key>NSRequiredContext</key>
+			<dict>
+				<key>NSTextContent</key>
+				<string>FilePath</string>
+			</dict>
+			<key>NSSendTypes</key>
+			<array>
+				<string>NSFilenamesPboardType</string>
+				<string>public.plain-text</string>
+			</array>
+		</dict>
 		<dict>
 			<key>NSMenuItem</key>
 			<dict>
@@ -293,8 +371,10 @@
 			</array>
 		</dict>
 	</array>
-	<key>OSAScriptingDefinition</key>
-	<string>cmux.sdef</string>
+	<key>NSAppleScriptEnabled</key>
+	<true/>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
 	<key>SUAutomaticallyUpdate</key>
 	<false/>
 	<key>SUEnableAutomaticChecks</key>
@@ -350,69 +430,6 @@
 					<string>text/markdown</string>
 				</array>
 			</dict>
-		</dict>
-	</array>
-	<key>UTExportedTypeDeclarations</key>
-	<array>
-		<dict>
-			<key>UTTypeIdentifier</key>
-			<string>com.cmux.cloud-sidebar-row</string>
-			<key>UTTypeConformsTo</key>
-			<array>
-				<string>public.data</string>
-			</array>
-			<key>UTTypeDescription</key>
-			<string>Cloud Sidebar Row</string>
-		</dict>
-		<dict>
-			<key>UTTypeIdentifier</key>
-			<string>com.splittabbar.tabtransfer</string>
-			<key>UTTypeDescription</key>
-			<string>Bonsplit Tab Transfer</string>
-			<key>UTTypeConformsTo</key>
-			<array>
-				<string>public.data</string>
-			</array>
-		</dict>
-		<dict>
-			<key>UTTypeIdentifier</key>
-			<string>com.cmux.sidebar-tab-reorder</string>
-			<key>UTTypeDescription</key>
-			<string>cmux Sidebar Tab Reorder</string>
-			<key>UTTypeConformsTo</key>
-			<array>
-				<string>public.data</string>
-			</array>
-		</dict>
-		<dict>
-			<key>UTTypeIdentifier</key>
-			<string>com.cmux.right-sidebar-mode-reorder</string>
-			<key>UTTypeDescription</key>
-			<string>cmux Right Sidebar Tab Reorder</string>
-			<key>UTTypeConformsTo</key>
-			<array>
-				<string>public.data</string>
-			</array>
-		</dict>
-		<dict>
-			<key>UTTypeIdentifier</key>
-			<string>com.cmux.filepreview.transfer</string>
-			<key>UTTypeDescription</key>
-			<string>cmux File Preview Transfer</string>
-			<key>UTTypeConformsTo</key>
-			<array>
-				<string>public.data</string>
-			</array>
-		</dict>
-		<dict>
-			<key>UTTypeIdentifier</key>
-			<string>com.cmux.surface-resource</string>
-			<key>UTTypeDescription</key>
-			<string>cmux Surface Resource</string>
-			<key>UTTypeConformsTo</key>
-			<array>
-				<string>public.data</string>
-			</array>
 		</dict>
 	</array>
 </dict>

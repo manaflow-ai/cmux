@@ -1,0 +1,54 @@
+# Lane: react-pages
+
+## Active streams
+- History and App Store as React pages with a Rust backend (React UIs lead, R62 UI-STACK). Design: plans/cmux-next/react-pages.md. Pages live in `webviews/src/pages/<page>/`; `webviews/src/pages/shared/pageClient.ts` is the only transport file (pane-protocol envelope over the `cmuxPage` WebKit bridge until the daemon router lands). Touches: webviews dev server (`/history/` route), CmuxNextHistory xcstrings (page strings source), `cmux-history` crate (H2), daemon `history.*` ops (H3, main window), app platform `cmux.apps.*` ops (theirs).
+
+## Landed
+- 2026-10-04 (this push) CmuxNextPages: ONE per-page CSP, `PageDescriptor.csp: PageCSP` (decided for the agent pane move H11 and hq-48's diff S1): strict by default; a first-party page (PageID table) may add `connect` and `frame` sources and the one script keyword `'wasm-unsafe-eval'`; any other id gets the strict policy; sources with `;`, `,` or whitespace are dropped. The scheme handler's header is the page's only CSP: build-pages-web.sh no longer writes a CSP meta (a meta would also apply and could only narrow) (React UIs lead)
+- 2026-10-04 (this push) Cloud page host glue (Cloud lead's page, cmux-page://cmux.cloud/): `PageDescriptor.cloud` (namespace cmux.cloud.; `confirmedOps` for machine/snapshot/publication/firewall delete, publication and firewall create, billing, sign-in/out, connect: the page reaches them only through `cmux.app.action.run {action: <op>, args}`, the host shows the native sheet and answers `{confirmed: false}` or runs the op with `confirmed` context and answers `{confirmed: true, value}`); the page ships in `build-pages-web.sh`; Debug Settings `cloud.machines.layout` (rows, cards) reaches the page as `data-cloud-machines-layout` before its code runs (`PageWebView` documentAttributes); `AppServices.cloudWebPage()`. Until apps-v1 runs the Cloud app server, the cmux.cloud. route answers `cmux.cloud.unsupported` (the page shows "Not available yet"). Open: the route to the app server, `cloud.machine.watch` to page subscriptions, the entry point that opens the page (app screen) (React UIs lead)
+- 2026-10-04 (this push) CmuxNextPages security (coordinator rule, P8 review; review item H1 of the agent pane move): `PageID.firstParty` (cmux.history, cmux.apps, cmux.settings, cmux.cloud, cmux.agent, cmux.keybindings) and `PageID.isReserved` (the table plus every `cmux.` id); `PageDescriptor.appPage(...)` refuses reserved ids, cmux.* or foreign op namespaces and ids a URL host cannot carry, and gives app pages no native ops or actions; `PageWebView` serves a reserved id only from its bundled root (DEBUG override `CMUX_NEXT_PAGE_ROOT_<id>`). The browser lead's CEF scheme registration must read `PageID`. H4: `PageDescriptor.commands` limits a page's dispatcher commands. gen-strings.mjs formatted (React UIs lead)
+- 2026-10-04 (this push) webviews: one page string generator. `webviews/scripts/pages/gen-strings.mjs` now also writes the Settings page table (schema keys from CmuxNextSettings + `settingsPage.` keys from CmuxNextSettingsWindow; output byte-identical); `webviews/scripts/pages/settings/generate-strings.mjs` is deleted; `bun run strings:settings` and build-settings-web.sh call `node scripts/pages/gen-strings.mjs settings`. safe-push's Settings-strings check should call `node scripts/pages/gen-strings.mjs --check` (React UIs lead)
+- 2026-10-04 (this push) CmuxNextPages: the generic native confirmation (A2, coordinator Q4): `PageConfirmation` (install, uninstall, update, grant, delete, custom; scopes riskiest first with their class from scope-classes.json; a web app's url and origins), `AlertPageConfirmationPresenter` (sheet on the page's window; Cancel is the default for removals), `ConfirmingPageProvider` (declined: `cmux.page.cancelled`, owner never called; approved: `PageCallContext.confirmed == true`, so the app relay may add top-level `origin: "user"` next to `cmd` for the app supervisor). Strings in 21 languages. App Store page: real risk classes (standard, sensitive, restricted) with badges (React UIs lead)
+- 2026-10-04 (this push) history (R69): setting `navigation.historyScope` (workspace default, window, surface; Settings > General > History; agent-settable; MDM docs and settings-schema.json regenerated); Go Back / Go Forward / Go to Last Location walk the trail within the scope, and with `surface` run the focused page's browserBack / browserForward; new action `history.goTo {index}` (keyboard only; palette, CLI and menu exempt as focusMove) for the titlebar list. For the sidebar lead (titlebar buttons, coordinator decision b): `services.locationTrail.canNavigate(.back|.forward)`, `services.locationTrail.list(.back|.forward)` (LocationTrailListItem: index + entry, nearest first), rows run `history.goTo {index}`; `onChange` tells when to re-read (React UIs lead)
+- 2026-10-04 (this push) pages: the Settings lead's page pattern for every page. Built-in streams served by PageRouter, never by a provider: `cmux.page.connection {connected}` (current state first; the app's PageConnectionWatch follows the local daemon's connection state) and `cmux.page.command {command: find|focusSearch|back|forward|reset, text?}` (PageWebView.send). A lost link is `cmux.protocol.closed` (page client, relay, router). `debug.page` gains `connected`. History and App Store pages subscribe to both (React UIs lead)
+- 2026-10-04 (this push) webviews: App Store page A1 on a mock `cmux.apps` provider (`/apps/?mock`; Discover grid/list/split from the fragment `#/discover?layout=`, detail with permissions and versions, Installed with enable, update, grants, logs stream), against app-platform.md section 15 op names (draft types until the generated client); new `store.` strings (update, open, screenshots, disconnected) in the CmuxNextApps table. Page client and CmuxNextPages: subscriptions carry a `filter` (refused when it holds `origin`). Shared page base CSS. `scripts/pages/layout-check.mjs` covers History and every App Store view at 320 to 1400 px (React UIs lead)
+- 2026-10-04 (this push) CmuxNextPages: the one host for React pages (PageWebView, `cmux-page://<id>/` scheme handler, engine-neutral PageHostBridge matching PaneHostBridge, PageRouter with descriptor admission, origin stamped `user`, page-sent origin refused, per-page denylist and action allowlist, fragment routes). `PageSurface` marks the view for the key dispatcher (`surfaceKind == page`); the view handles no keys. Pages ship as one self-contained index.html each (`scripts/cmux-next/build-pages-web.sh`). App: `DaemonPageRelay` (`cmux.<ns>.<verb>` -> daemon v2 `<ns>.<verb>`, `idempotency_key` to the envelope, codes under `cmux.`), `AppPageNativeProvider` (`cmux.app.action.run` with the page's action allowlist, `cmux.app.clipboard.write`), `ResourceRelayClient` in CmuxNextDaemon, `debug.page` (state, snapshot, command), action `history.open {id, new_tab}` (CLI `history open`), Debug Settings `history.surface = native|web`. Settings: use CmuxNextPages and add only its descriptor and provider (React UIs lead)
+- 2026-10-04 d8431616164 cmux-tui: cmux-history crate (H2): HistoryEntry wire model, HistoryQuery (icu_normalizer NFKD fold: case, marks, width), agent and command journal folds, HiddenHistory merge (reads the Swift `history.hidden` document), per-profile SQLite VisitStore; shared fixtures in `cmux-tui/crates/cmux-history/tests/fixtures/`; 63 tests on a Testbox (React UIs lead)
+- 2026-10-04 (this commit) webviews: History page H1 on a mock provider (`/history/?mock` in the webviews dev server), `pageClient.ts`, page string generator `webviews/scripts/pages/gen-strings.mjs` (+`--check`), new key `page.disconnected` in CmuxNextHistory xcstrings. Not in the shipped bundle yet (H1b adds the host) (React UIs lead)
+
+## R82 (2026-10-04): React Settings is the Settings UI
+
+- Landed e642c639cf3 (commit 1): every Settings entrypoint opens cmux-page://cmux.settings/ as a tab
+  (openSettings from Cmd-, menu, palette, sidebar, jumps; accounts.show; Feed GitHub jump; new
+  control method settings.open {section?, setting?, focus?}). Keyboard opens the Keyboard Shortcuts
+  page. INTERIM: accounts, rooms, machines (and no main window) still open the Swift window.
+  INTERIM owner: SettingsPageProvider over SettingsController until the daemon config actor
+  serves settings.*. One kept page view (no reload on reopen) until the R94 PageHostPool lands.
+- Measured on cmux-lawrence-2 (scripts/cmux-next/bench-settings.py, 3 interleaved runs, median):
+  open 339 -> 213 ms (main-thread stall 298 -> 102 ms); reopen 353 -> 28 ms (stall 278 -> 7 ms);
+  search keystroke worst stall 2,159 -> 5 ms. NOT THE SAME METHOD: the React number is 8 real
+  keystrokes through the app key path (debug.key into the WKWebView). The Swift number sets the
+  query through the model binding (`debug.settings {action: query}`), because the SwiftUI field
+  took no synthesized keys in a window that is never key. Compare the two only as stall sizes.
+- Open items: live preview (`cmux.settings.preview`) is a no-op; tracked in commit 5 (theme levels).
+  The first-open stall (~100 ms) goes with the R94 PageHostPool prewarm; no second prewarm here.
+- Next: commits 2-5 (accounts, rooms, machines, theme levels, backdrop, browser profiles, keymap
+  import/export as native ops), then commit 6 deletes CmuxNextSettingsWindow UI (the settingsPage.
+  strings catalog moves first; Debug Settings moves to a React tunables page).
+- Migration list after Settings: Debug Settings, Tasks, Bookmark manager, Feed/Inbox tab,
+  Notifications panel, App Store (apps-v1), Server panel (Rust server role), Appearance Studio,
+  Onboarding, Page Info. Onboarding gets the step "Ctrl-1...9 select: Tabs (default) / Spaces",
+  which writes the keys lead's ShortcutDigitScheme override into cmux.json like the keymap preset.
+
+## R82 commits 2-5, origin, paint (2026-10-04)
+
+- Landed: 31797c43322 (Spaces & Profiles, Machines), 03024ab0bc0 (Accounts), 5ae196754a6 (theme
+  levels, wallpaper, terminal, Advanced), 5668e1e12bc (live preview), 2c95aa34bd9 (paint probe;
+  automation-only drawing of occluded pages; user path proven: a minimized page redraws 0.9 s after
+  Show Main Window), 6c6383a7646 (page calls are origin page; page_relay connection, inactive until
+  origin-claim-v1), 14085dabee5 (opid -> v2 idempotency_key), 76c31ba3bd9 (strings per locale).
+- First open after the strings split (cmux-lawrence-2, 3 interleaved runs, median; the new build
+  also waits for `painted`): 365 -> 233 ms; main-thread gap ~100 ms remains (WKWebView creation),
+  which the R94 PageHostPool removes. Reopen ~25-34 ms; keystroke worst gap ~2.5 ms.
+- Before commit 6: keymap import/export on the keybindings page (keybindings lead), the folder_list
+  editor (picker.pinned, R89) and schema rows for editor.* / markdown.remoteImages (mine).

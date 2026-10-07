@@ -119,13 +119,9 @@ button, [role="button"], .menu-item, .model-row, .row-control { cursor: default 
 }
 .row-control:hover, .row-control[data-popup-open] { background: var(--bg-hover); color: var(--text); }
 .row-control:disabled, .row-control[data-disabled] { opacity: .42; cursor: default; }
-.row-icon, .row-control > svg, .provider-icon, .provider-icon-img { width: 15px; height: 15px; flex: none; }
+.row-icon, .row-control > svg, .provider-icon { width: 15px; height: 15px; flex: none; }
 .provider-icon { display: inline-block; }
-.provider-icon-img {
-  display: inline-block; background: center / contain no-repeat;
-}
-.provider-running .provider-icon,
-.provider-running .provider-icon-img { animation: harnessPulse 2s ease-in-out infinite; }
+.provider-running .provider-icon { animation: harnessPulse 2s ease-in-out infinite; }
 @keyframes harnessPulse {
   0%, 100% { opacity: .58; }
   50% { opacity: 1; }

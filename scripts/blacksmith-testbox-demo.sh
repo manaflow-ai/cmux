@@ -92,15 +92,16 @@ git -C "$HQ_TOOLS" pull --ff-only >/dev/null || no_hq "cannot update $HQ_TOOLS (
 WARMUP="$HQ_TOOLS/scripts/testbox-warmup.sh"
 test -x "$WARMUP" || no_hq "missing $WARMUP."
 
-if [[ ! -f ghostty/build.zig.zon ]]; then
-  say "Initializing the Ghostty submodule (one time, takes a moment)"
-  run_local git submodule update --init ghostty
+# cmux-tui builds libghostty-vt from the ghostty-next gitlink only.
+if [[ ! -f ghostty-next/build.zig.zon ]]; then
+  say "Initializing the ghostty-next submodule (one time, takes a moment)"
+  run_local git submodule update --init ghostty-next
 fi
 
 BRANCH="$(git symbolic-ref --short HEAD 2>/dev/null || true)"
 [[ -n "$BRANCH" ]] || { echo "HEAD is detached; check out a branch first" >&2; exit 65; }
 SOURCE_SHA="$(git rev-parse HEAD)"
-GHOSTTY_SHA="$(git rev-parse HEAD:ghostty)"
+GHOSTTY_NEXT_SHA="$(git rev-parse HEAD:ghostty-next)"
 
 if [[ -n "$(git status --porcelain=v1 --untracked-files=normal)" ]]; then
   echo "worktree is dirty; commit and push before benchmarking" >&2
@@ -120,7 +121,7 @@ fi
 blacksmith auth whoami >/dev/null || { echo "run: blacksmith auth login" >&2; exit 65; }
 echo "branch        $BRANCH"
 echo "commit        $SOURCE_SHA"
-echo "ghostty       $GHOSTTY_SHA"
+echo "ghostty-next  $GHOSTTY_NEXT_SHA"
 echo "CLI           $(blacksmith --version)"
 
 say "Boxes currently running in the org (never adopt one you did not warm)"
@@ -212,7 +213,12 @@ bounded 1200 blacksmith testbox status --id "$TBX" --wait --wait-timeout 15m
 say "Pinning the box to your commit"
 echo "The box is an exact checkout of main right now, because that is what CI"
 echo "hydrated. This makes it an exact checkout of $SOURCE_SHA."
-pin_command="set -euo pipefail; git fetch --no-tags origin $SOURCE_SHA; git reset --hard $SOURCE_SHA; git submodule update --init --depth 1 ghostty; git rev-parse HEAD"
+# A box warmed from main can hold a submodule checkout (the classic ghostty)
+# at main's commit. After the reset it no longer matches the candidate's
+# gitlink and the stage refuses the dirty tree, so deinitialize every
+# checked-out submodule and initialize only ghostty-next, the one cmux-tui
+# builds from.
+pin_command="set -euo pipefail; git fetch --no-tags origin $SOURCE_SHA; git reset --hard $SOURCE_SHA; git submodule foreach --quiet 'printf \"%s\\n\" \"\$sm_path\"' | xargs -r git submodule deinit --force --; git submodule update --init --depth 1 ghostty-next; git rev-parse HEAD"
 printf '\033[2m$ blacksmith testbox run --id %s "%s"\033[0m\n' "$TBX" "$pin_command"
 bounded 300 blacksmith testbox run --id "$TBX" "$pin_command"
 
@@ -223,7 +229,7 @@ if (( STAGES )); then
   mkdir -p "$out/raw"
   for stage in first-clean incremental-noop changed-file; do
     say "Stage: $stage"
-    stage_command="CMUX_TESTBOX_REMOTE=1 CMUX_TESTBOX_ID=$TBX ./scripts/blacksmith-cmux-tui-testbox-stage.sh $stage $SOURCE_SHA $GHOSTTY_SHA"
+    stage_command="CMUX_TESTBOX_REMOTE=1 CMUX_TESTBOX_ID=$TBX ./scripts/blacksmith-cmux-tui-testbox-stage.sh $stage $SOURCE_SHA $GHOSTTY_NEXT_SHA"
     printf '\033[2m$ blacksmith testbox run --id %s "%s"\033[0m\n' "$TBX" "$stage_command"
     bounded 1500 blacksmith testbox run --id "$TBX" "$stage_command"
     for suffix in json time log; do

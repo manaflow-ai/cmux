@@ -1,0 +1,21 @@
+# OpenCode speaks ACP itself: `opencode acp`. Models come from your OpenCode providers.
+schema = 1
+id = "opencode"
+name = "OpenCode"
+icon = "opencode"
+protocol = "acp"
+command = "opencode"
+args = ["acp"]
+
+[capabilities]
+permission_modes = true
+resume = true
+
+[auth]
+login = "opencode auth login"
+docs = "https://opencode.ai/docs"
+
+[sessions]
+adapter = "opencode"
+[sessions.resume]
+adopt = true

@@ -4,6 +4,7 @@ import {
   cacheDeadline,
   requestedTeamIdFromRequest,
   resolveTeamId,
+  stackHeaders,
   tokenExpiryMs,
   type AuthedUser,
 } from "../src/auth";
@@ -154,3 +155,23 @@ describe("verifyRequest negative cache", () => {
     }
   });
 })
+
+describe("stackHeaders", () => {
+  // A project that does not require a publishable key accepts a request
+  // without one but rejects an empty or revoked key, so an unset key is
+  // never sent (as in the app and web clients).
+  it("omits the publishable key header when no key is configured", () => {
+    const headers = stackHeaders({ STACK_PROJECT_ID: "p" }, "token");
+    expect("x-stack-publishable-client-key" in headers).toBe(false);
+    expect(headers["x-stack-access-token"]).toBe("token");
+  });
+
+  it("omits it for an empty or blank key too", () => {
+    expect("x-stack-publishable-client-key" in stackHeaders({ STACK_PROJECT_ID: "p", STACK_PUBLISHABLE_CLIENT_KEY: "  " }, "t")).toBe(false);
+  });
+
+  it("sends a configured key", () => {
+    const headers = stackHeaders({ STACK_PROJECT_ID: "p", STACK_PUBLISHABLE_CLIENT_KEY: "pck_x" }, "t");
+    expect(headers["x-stack-publishable-client-key"]).toBe("pck_x");
+  });
+});

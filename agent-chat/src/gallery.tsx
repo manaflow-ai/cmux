@@ -23,7 +23,7 @@ import { groupTurns } from "./turns";
 import { agentChatText } from "./i18n";
 import { RepositorySlugContext } from "./context";
 
-const cwd = "/Users/lawrence/fun/cmuxterm-hq/worktrees/feat-agent-chat-ui/agent-chat";
+const cwd = "/Users/dev/project/agent-chat";
 const noLoadingProviders = new Set<string>();
 const codexModelsLoading = new Set(["codex"]);
 

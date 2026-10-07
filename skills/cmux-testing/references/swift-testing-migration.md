@@ -1,6 +1,6 @@
 # Swift Testing Migration
 
-Swift Testing for unit and integration tests; XCTest stays for UI tests under `cmuxUITests/` (Swift Testing has no `XCUIApplication` support).
+Swift Testing for unit and integration tests. XCTest remains only for XCUITest UI tests (Swift Testing has no `XCUIApplication` support).
 
 ## New tests
 

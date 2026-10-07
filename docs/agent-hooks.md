@@ -2,16 +2,16 @@
 
 cmux uses agent hooks to show running state, Feed approvals, notifications, and to restore agent sessions after a normal app relaunch.
 
-Claude Code is handled by the cmux Claude wrapper when Claude Code integration is enabled in Settings. Other agents are installed with:
+Install, remove, or inspect the hooks with:
 
 ```bash
-cmux hooks setup
-cmux hooks setup <agent>
-cmux hooks setup --agent <agent>
-cmux hooks uninstall <agent>
+cmux agent hook install              # every supported agent found on PATH
+cmux agent hook install codex claude
+cmux agent hook status
+cmux agent hook uninstall <agent>
 ```
 
-Supported agent names are `codex`, `grok`, `opencode`, `pi`, `omp`, `campfire`, `amp`, `cursor`, `gemini`, `kiro`, `antigravity` (or `agy`), `rovodev` (or `rovo`), `hermes-agent`, `copilot`, `codebuddy`, `factory`, `qoder`, and `kimi`. `cmux hooks setup` skips agents whose binary is not on `PATH` and prints a summary.
+Supported agent names are `claude` (or `claude-code`), `codex`, `gemini`, `cursor`, `grok`, `hermes-agent` (or `hermes`), `omp`, `campfire`, `kiro`, `antigravity` (or `agy`), `rovodev` (or `rovo`), `copilot`, `codebuddy`, `factory`, `qoder`, `kimi`, `opencode`, `amp`, and `pi`. Providers load hooks at process start, so restart an agent inside a cmux terminal after installing. Each hook runs `cmux agent hook emit --source <agent> --event <event>`, which records the event in the session journal for the calling terminal (`CMUX_TUI_TERMINAL_ID`). The old `cmux hooks …` and `cmux claude-hook …` verbs were removed with the Swift CLI (see [plans/cmux-next/cli.md](../plans/cmux-next/cli.md)).
 
 ## Remote hosts
 
@@ -20,8 +20,8 @@ In a `cmux ssh` or `cmux mosh-tmux` workspace that uses the CLI relay, Claude Co
 Claude sessions that did not start from a cmux shell, for example inside a tmux server that was already running before cmux attached to it, need the hooks in Claude's user settings instead. Run this once on the remote host, then restart those sessions:
 
 ```bash
-~/.cmux/bin/cmux claude-hook install     # writes ${CLAUDE_CONFIG_DIR:-~/.claude}/settings.json
-~/.cmux/bin/cmux claude-hook uninstall   # removes only the cmux entries
+cmux agent hook install claude     # writes ${CLAUDE_CONFIG_DIR:-~/.claude}/settings.json
+cmux agent hook uninstall claude   # removes only the cmux entries
 ```
 
 Inside tmux, these hooks report to the cmux workspace attached to the tmux session.
@@ -49,17 +49,7 @@ Inside tmux, these hooks report to the cmux workspace attached to the tmux sessi
 | Kimi Code | `kimi` | `~/.kimi-code/config.toml` or `~/.kimi/config.toml` | `kimi --resume <id>` | PreToolUse, PostToolUse |
 | Antigravity | `agy` | `~/.gemini/config/hooks.json` (`cmux` hook group) | `agy --conversation <id>` | none |
 
-Kimi Code resumes with the captured executable and working directory, preserving supported
-model and configuration options. Prompts, old session selectors, and noninteractive commands
-are omitted by the sanitizer described below.
-
-OpenCode also supports project-local Feed installation:
-
-```bash
-cmux hooks opencode install --project
-```
-
-That writes `.opencode/plugins/cmux-feed.js` in the current directory.
+Project-local OpenCode installation (the old `--project` flag) is not supported by `cmux agent hook install`; it installs into the global OpenCode config only.
 
 ## What the hooks record
 
@@ -120,8 +110,8 @@ After a wake, cmux checks that the agent actually came back. The wake counts as 
 Enable routine hibernation from the command palette (`⌘⇧P` -> **Enable Agent Hibernation**), from **Settings > Terminal > Agent Hibernation**, or from the CLI:
 
 ```bash
-cmux agent-hibernation on
-cmux agent-hibernation off
+cmux settings set terminal.agentHibernation.enabled true
+cmux settings set terminal.agentHibernation.enabled false
 ```
 
 Tune the idle window and live-terminal limit from Settings, or set them in `~/.config/cmux/cmux.json`:
@@ -172,7 +162,7 @@ and browser state. Restored agent terminals stay idle until you resume them manu
 When cmux launches Codex and at least one cmux event is not already covered by
 a persistent cmux handler in `hooks.json`, the wrapper adds `--enable hooks`,
 `--dangerously-bypass-hook-trust`, and one `-c hooks.<event>=...` value per
-uncovered event, for that invocation only. When `cmux hooks codex install` has
+uncovered event, for that invocation only. When `cmux agent hook install codex` has
 already installed every cmux handler, the wrapper adds nothing, which also
 keeps an intentional `features.hooks = false` intact.
 
@@ -194,7 +184,7 @@ Two trade-offs apply whenever the wrapper injects. `--dangerously-bypass-hook-tr
 skips Codex's hook review for the whole process, so user and project handlers
 run without the trust prompt. Session flags form one layer, so a
 `-c hooks.<event>=` value you pass to `codex` yourself is applied after cmux's
-and replaces cmux's handler for that event only; use `cmux hooks codex install`
+and replaces cmux's handler for that event only; use `cmux agent hook install codex`
 when you need both.
 
 Set `CMUX_CODEX_HOOKS_DISABLED=1` for a launch to keep Codex's configuration
@@ -228,20 +218,20 @@ Pi uses Pi's extension system, not the legacy Pi hooks API. The installed extens
 
 OMP uses OMP's native extension system. OMP native extension discovery scans `${PI_CODING_AGENT_DIR:-~/${PI_CONFIG_DIR:-.omp}/agent}/extensions/`, so cmux installs OMP's extension with a distinct `cmux-omp-session.ts` filename and does not reuse Pi's `cmux-session.ts`.
 
-Campfire ships this integration natively: current campfire versions include a built-in cmux bridge, so no install step is needed (like Claude Code via the cmux wrapper) — `cmux hooks campfire install` exists for older campfire versions, and the installed extension defers to the native bridge when both are present. Campfire embeds vanilla Pi under a `.campfire` white-label, so its extension discovery scans `${CAMPFIRE_CODING_AGENT_DIR:-~/.campfire/agent}/extensions/`. The cmux extension records only the HOST role (`CAMPFIRE_SESSION_ROLE=host`); a joiner is an ephemeral view whose argv carries the invite URL — a capability token that is never persisted or replayed. The extension also subscribes to campfire's in-process observer bridge and surfaces driver-actionable collaborative moments (a joiner waiting in the lobby, a capability ask) as cmux notifications.
+Campfire ships this integration natively: current campfire versions include a built-in cmux bridge, so no install step is needed. `cmux agent hook install campfire` exists for older campfire versions, and the installed extension defers to the native bridge when both are present. Campfire embeds vanilla Pi under a `.campfire` white-label, so its extension discovery scans `${CAMPFIRE_CODING_AGENT_DIR:-~/.campfire/agent}/extensions/`. The cmux extension records only the HOST role (`CAMPFIRE_SESSION_ROLE=host`); a joiner is an ephemeral view whose argv carries the invite URL (a capability token that is never persisted or replayed). The extension also subscribes to campfire's in-process observer bridge and surfaces driver-actionable collaborative moments (a joiner waiting in the lobby, a capability ask) as cmux notifications.
 
 Kiro stores hooks inside agent configuration files. The cmux installer creates or updates a `cmux` agent config with lifecycle, tool, and completion hooks; merge the generated `hooks` block into another Kiro agent config if you want the same cmux notifications on that agent.
 
 Kiro Feed verbosity follows **Settings > Automation > Kiro Notification Level** or `automation.kiroNotificationLevel` in `cmux.json`. `minimal` keeps actionable approval cards only, `standard` also keeps mutating tool events, and `verbose` keeps every Kiro tool event.
 
-Kimi ships under two config layouts: Kimi Code CLI reads `${KIMI_CODE_HOME:-~/.kimi-code}/config.toml`, and Kimi CLI 1.49 and earlier read `${KIMI_SHARE_DIR:-~/.kimi}/config.toml`. cmux installs into the file the installed binary reports through `kimi doctor`; when the binary cannot answer, it installs into the first of those two locations that already exists, defaulting to the Kimi Code CLI path. The other location is never emptied by setup: an existing cmux block there is refreshed in place so a second Kimi install keeps working, and a config without a cmux block is left untouched. `cmux hooks uninstall kimi` removes the block from both. Unrelated TOML and third-party hooks are preserved everywhere.
+Kimi ships under two config layouts: Kimi Code CLI reads `${KIMI_CODE_HOME:-~/.kimi-code}/config.toml`, and Kimi CLI 1.49 and earlier read `${KIMI_SHARE_DIR:-~/.kimi}/config.toml`. cmux installs into the file the installed binary reports through `kimi doctor`; when the binary cannot answer, it installs into the first of those two locations that already exists, defaulting to the Kimi Code CLI path. The other location is never emptied by setup: an existing cmux block there is refreshed in place so a second Kimi install keeps working, and a config without a cmux block is left untouched. `cmux agent hook uninstall kimi` removes the block from both. Unrelated TOML and third-party hooks are preserved everywhere.
 
-Antigravity (`agy`) hooks are written as the `cmux` group of `~/.gemini/config/hooks.json`. Each hook command first uses the cmux that owns the terminal the session runs in (`CMUX_BUNDLED_CLI_PATH` and `CMUX_SOCKET_PATH` from that terminal's environment), so sessions started from different cmux builds (stable, nightly, tagged dev builds) each report to their own app and restore correctly. When `agy` runs a hook without that environment, the command falls back to the cmux build that installed it. Re-run `cmux hooks agy install --yes` from an up-to-date cmux to refresh that fallback.
+Antigravity (`agy`) hooks are written as the `cmux` group of `~/.gemini/config/hooks.json`. Each hook command first uses the cmux that owns the terminal the session runs in (`CMUX_BUNDLED_CLI_PATH` and `CMUX_SOCKET_PATH` from that terminal's environment), so sessions started from different cmux builds (stable, nightly, tagged dev builds) each report to their own app and restore correctly. When `agy` runs a hook without that environment, the command falls back to the cmux build that installed it. Re-run `cmux agent hook install agy` from an up-to-date cmux to refresh that fallback.
 
 ## Troubleshooting
 
-Run `cmux hooks <agent> install --yes` to reinstall one integration. Run `cmux hooks <agent> uninstall --yes` before editing generated files by hand.
+Run `cmux agent hook install <agent>` to reinstall one integration and `cmux agent hook status` to see what is installed. Run `cmux agent hook uninstall <agent>` before editing generated files by hand.
 
-If Feed shows nothing, confirm the terminal has `CMUX_SURFACE_ID` and the hook file contains a `cmux hooks feed --source <agent>` command, generated extension bridge, or OpenCode feed plugin. Pi reports non-blocking tool execution telemetry through its generated extension. OMP, Campfire, and Rovo Dev currently provide lifecycle and restore hooks only, so they do not create Feed approval cards. Amp's bundled plugin reports live tab-status updates (idle / thinking / running / reading / done / error / interrupted) and lifecycle restore but does not create Feed approval cards.
+If Feed shows nothing, confirm the terminal has `CMUX_TUI_TERMINAL_ID` and the hook file contains a `cmux agent hook emit --source <agent>` command, generated extension bridge, or OpenCode feed plugin. Pi reports non-blocking tool execution telemetry through its generated extension. OMP, Campfire, and Rovo Dev currently provide lifecycle and restore hooks only, so they do not create Feed approval cards. Amp's bundled plugin reports live tab-status updates (idle / thinking / running / reading / done / error / interrupted) and lifecycle restore but does not create Feed approval cards.
 
-If relaunch does not resume an agent, first run `cmux sessions --agent <name> --json` to inspect the saved session without a running cmux socket. If needed, check `~/.cmuxterm/<agent>-hook-sessions.json` and verify the agent's resume command still works outside cmux.
+If relaunch does not resume an agent, run `cmux agent list --json` to see the agent state the daemon recorded. If needed, check `~/.cmuxterm/<agent>-hook-sessions.json` and verify the agent's resume command still works outside cmux.

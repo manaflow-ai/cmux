@@ -353,11 +353,13 @@ impl TerminalSizingEngine {
         self.publish()
     }
 
-    // Host extensions outside the shared fixture corpus. They never change
-    // activity, so they cannot promote a participant by themselves.
+    // Host extensions. They never change activity, so they cannot promote a
+    // participant by themselves.
 
     /// Forgets a viewport while keeping the view attached, for a viewer that
-    /// hid the terminal but keeps its stream cached.
+    /// hid the terminal but keeps its stream cached (an iPhone app in the
+    /// background, a terminal off screen). The viewer stops counting until
+    /// its next report. Shared fixture op `clear_viewport`.
     pub fn clear_viewport(&mut self, id: &str) -> bool {
         let Some(index) = self.index(id) else { return false };
         self.entries[index].participant.viewport = None;
@@ -580,6 +582,9 @@ mod tests {
                     }
                     "activity" => {
                         engine.note_activity(id);
+                    }
+                    "clear_viewport" => {
+                        engine.clear_viewport(id);
                     }
                     "set_counts" => {
                         engine.set_counts_override(id, step["counts_override"].as_bool());

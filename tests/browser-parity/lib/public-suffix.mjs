@@ -1,5 +1,4 @@
-// Sites (registrable domains) for the dev backend's native-boundary
-// emulation and dev driver. The app asks macOS's Public Suffix List
+// Sites (registrable domains) for the dev driver's cookie scoping. The app asks macOS's Public Suffix List
 // (BrowserReplPublicSuffixList in Packages/macOS/CmuxBrowser, CFNetwork's
 // lookup); Node has none, so this stand-in holds the suffixes the tests and
 // fixtures use and applies the same walk: the longest public suffix wins,

@@ -2,15 +2,18 @@ use super::*;
 use crate::JournalIngress;
 use crate::resource::{NotificationPublicId, TerminalPublicId};
 use serde_json::json;
+mod patch_apply;
+use patch_apply::decorate_snapshot_result;
+pub(crate) use patch_apply::{apply_resource_patch, apply_resource_patch_unrecorded};
 
 /// Completed pure mutations keep a finite exactly-once replay window. Pruning
 /// runs in batches, so a live registry may temporarily retain the interval as
 /// slack; startup always restores the hard bound. Non-terminal effect or
 /// creation receipts remain protected by their authoritative receipt tables.
-pub(super) const RESOURCE_MUTATION_REPLAY_CAPACITY: usize = 4096;
-pub(super) const RESOURCE_MUTATION_PRUNE_INTERVAL: u64 = 128;
+pub(crate) const RESOURCE_MUTATION_REPLAY_CAPACITY: usize = 4096;
+pub(crate) const RESOURCE_MUTATION_PRUNE_INTERVAL: u64 = 128;
 const RESOURCE_EVENT_PAGE_SIZE: usize = 1024;
-pub(super) const AGENT_HOOK_RETRY_PAGE_SIZE: i64 = 64;
+pub(crate) const AGENT_HOOK_RETRY_PAGE_SIZE: i64 = 64;
 // Rows that reach this cap stay durable as dead-letter records. Selectors
 // exclude them, so a permanent projection failure cannot spin forever.
 pub(crate) const AGENT_HOOK_MAX_ATTEMPTS: i64 = 8;
@@ -38,7 +41,7 @@ pub(crate) type PendingAgentHookProjection = (String, String, String, u64, Journ
 /// `(event_sequence, idempotency_key, rowid)` resume cursor for paged reads.
 pub(crate) type PendingAgentHookCursor = (u64, String, i64);
 
-pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+pub(crate) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     transaction.execute_batch(
         "CREATE TABLE IF NOT EXISTS resource_identities (
            public_id TEXT PRIMARY KEY NOT NULL,
@@ -186,7 +189,8 @@ pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
            agent_session_id TEXT NOT NULL,
            applied_sequence INTEGER NOT NULL CHECK(applied_sequence >= 0),
            ended INTEGER NOT NULL CHECK(ended IN (0, 1)),
-           committed_revision INTEGER NOT NULL CHECK(committed_revision >= 0)
+           committed_revision INTEGER NOT NULL CHECK(committed_revision >= 0),
+           ended_at_ms INTEGER CHECK(ended_at_ms IS NULL OR ended_at_ms >= 0)
          );
          CREATE TABLE IF NOT EXISTS resource_agent_hook_apply_cursor (
            id INTEGER PRIMARY KEY CHECK(id = 1),
@@ -287,11 +291,12 @@ pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
          CREATE INDEX IF NOT EXISTS resource_agent_hook_pending_by_terminal
            ON resource_agent_hook_pending(terminal_id, event_sequence, idempotency_key);",
     )?;
+    screen_rows::create_column_dock_schema(transaction)?;
     migrate_tab_name_authority(transaction)
 }
 
 /// Additive migration: pre-authority labels remain user-owned.
-pub(super) fn migrate_tab_name_authority(connection: &Connection) -> anyhow::Result<()> {
+pub(crate) fn migrate_tab_name_authority(connection: &Connection) -> anyhow::Result<()> {
     let columns = connection
         .prepare("PRAGMA table_info(resource_tabs)")?
         .query_map([], |row| row.get::<_, String>(1))?
@@ -324,7 +329,7 @@ pub(super) fn migrate_tab_name_authority(connection: &Connection) -> anyhow::Res
 /// any number of live tabs, while browser content retains its single-view
 /// invariant. Foreign keys are disabled by the caller for this table rebuild
 /// and checked immediately after the migration commits.
-pub(super) fn migrate_resource_tabs_to_multiview(
+pub(crate) fn migrate_resource_tabs_to_multiview(
     transaction: &Transaction<'_>,
 ) -> anyhow::Result<()> {
     let duplicate_live_browser = transaction.query_row(
@@ -383,7 +388,7 @@ pub(super) fn migrate_resource_tabs_to_multiview(
 /// Detect a legacy table-level `UNIQUE(content_id)` constraint or a missing or
 /// malformed browser-view index. Any such shape must be rebuilt before terminal
 /// content can have multiple views without weakening the one-live-view browser rule.
-pub(super) fn resource_tabs_needs_multiview_normalization(
+pub(crate) fn resource_tabs_needs_multiview_normalization(
     connection: &Connection,
 ) -> anyhow::Result<bool> {
     const CANONICAL_BROWSER_VIEW_INDEX: &str = concat!(
@@ -436,9 +441,12 @@ pub(crate) struct AgentHookProjectionState {
     pub agent_session_id: String,
     pub applied_sequence: u64,
     pub ended: bool,
+    /// Observed time of the session's latest end, the hook fence's
+    /// incarnation boundary.
+    pub ended_at_ms: Option<u64>,
 }
 
-pub(super) fn migrate_resource_agent_projections(
+pub(crate) fn migrate_resource_agent_projections(
     transaction: &Transaction<'_>,
 ) -> anyhow::Result<()> {
     transaction.execute(
@@ -468,7 +476,7 @@ pub(super) fn migrate_resource_agent_projections(
     Ok(())
 }
 
-pub(super) fn migrate_resource_mutations_to_session_scope(
+pub(crate) fn migrate_resource_mutations_to_session_scope(
     transaction: &Transaction<'_>,
 ) -> anyhow::Result<()> {
     transaction.execute_batch(
@@ -493,13 +501,13 @@ pub(super) fn migrate_resource_mutations_to_session_scope(
     Ok(())
 }
 
-pub(super) fn initialize_resource_mutation_retention(
+pub(crate) fn initialize_resource_mutation_retention(
     transaction: &Transaction<'_>,
 ) -> anyhow::Result<()> {
     compact_resource_mutations(transaction)
 }
 
-pub(super) fn prune_resource_mutations(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+pub(crate) fn prune_resource_mutations(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     if transaction_resource_revision(transaction)? % RESOURCE_MUTATION_PRUNE_INTERVAL != 0 {
         return Ok(());
     }
@@ -539,7 +547,7 @@ fn compact_resource_mutations(transaction: &Transaction<'_>) -> anyhow::Result<(
     Ok(())
 }
 
-pub(super) fn migrate_resource_browser_metadata(
+pub(crate) fn migrate_resource_browser_metadata(
     transaction: &Transaction<'_>,
 ) -> anyhow::Result<()> {
     let columns = {
@@ -604,7 +612,7 @@ impl WorkspaceRegistry {
         tx.commit()?;
         Ok(())
     }
-    pub(super) fn stage_agent_hook_pending(
+    pub(crate) fn stage_agent_hook_pending(
         transaction: &Transaction<'_>,
         producer_id: &str,
         origin: &str,
@@ -1028,21 +1036,29 @@ impl WorkspaceRegistry {
         if let Some(hook_state) = hook_state {
             let applied_sequence = i64::try_from(hook_state.applied_sequence)
                 .context("agent hook sequence exceeds SQLite range")?;
+            let ended_at_ms = hook_state
+                .ended_at_ms
+                .map(i64::try_from)
+                .transpose()
+                .context("agent hook end time exceeds SQLite range")?;
             tx.execute(
                 "INSERT INTO resource_agent_hook_state(
-                   terminal_id, agent_session_id, applied_sequence, ended, committed_revision
-                 ) VALUES(?1, ?2, ?3, ?4, ?5)
+                   terminal_id, agent_session_id, applied_sequence, ended, committed_revision,
+                   ended_at_ms
+                 ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)
                  ON CONFLICT(terminal_id) DO UPDATE SET
                    agent_session_id = excluded.agent_session_id,
                    applied_sequence = excluded.applied_sequence,
                    ended = excluded.ended,
-                   committed_revision = excluded.committed_revision",
+                   committed_revision = excluded.committed_revision,
+                   ended_at_ms = excluded.ended_at_ms",
                 params![
                     terminal_id.as_str(),
                     hook_state.agent_session_id,
                     applied_sequence,
                     hook_state.ended,
                     sqlite_revision,
+                    ended_at_ms,
                 ],
             )?;
         }
@@ -1396,212 +1412,7 @@ impl WorkspaceRegistry {
     }
 
     pub fn resource_topology_snapshot(&self) -> anyhow::Result<ResourceTopologySnapshot> {
-        let revision = current_resource_revision(&self.connection)?;
-        let active_workspace = meta_value(&self.connection, "active_workspace_id")?
-            .map(WorkspacePublicId::parse)
-            .transpose()?;
-        let active_screens = {
-            let mut statement = self.connection.prepare(
-                "SELECT public_id, active_screen_id
-                 FROM resource_workspaces
-                 WHERE deleted_revision IS NULL
-                 ORDER BY created_revision ASC, public_id ASC",
-            )?;
-            statement
-                .query_map([], |row| {
-                    Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
-                })?
-                .map(|row| {
-                    let (workspace, screen) = row?;
-                    Ok((
-                        WorkspacePublicId::parse(workspace)?,
-                        screen.map(ScreenPublicId::parse).transpose()?,
-                    ))
-                })
-                .collect::<anyhow::Result<Vec<_>>>()?
-        };
-        let screens = {
-            let mut statement = self.connection.prepare(
-                "SELECT public_id, workspace_id, position, name, layout_json,
-                        active_pane_id, zoomed_pane_id, auto_layout_json, viewport_json
-                 FROM resource_screens
-                 WHERE deleted_revision IS NULL
-                 ORDER BY workspace_id ASC, position ASC",
-            )?;
-            statement
-                .query_map([], |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, i64>(2)?,
-                        row.get::<_, Option<String>>(3)?,
-                        row.get::<_, String>(4)?,
-                        row.get::<_, String>(5)?,
-                        row.get::<_, Option<String>>(6)?,
-                        row.get::<_, Option<String>>(7)?,
-                        row.get::<_, String>(8)?,
-                    ))
-                })?
-                .map(|row| {
-                    let (
-                        public_id,
-                        workspace_id,
-                        position,
-                        name,
-                        layout,
-                        active_pane,
-                        zoomed_pane,
-                        auto_layout,
-                        viewport,
-                    ) = row?;
-                    Ok(RegistryScreen {
-                        public_id: ScreenPublicId::parse(public_id)?,
-                        workspace_id: WorkspacePublicId::parse(workspace_id)?,
-                        position: usize::try_from(position)
-                            .context("stored screen position is negative")?,
-                        name,
-                        layout: serde_json::from_str(&layout)?,
-                        active_pane: PanePublicId::parse(active_pane)?,
-                        zoomed_pane: zoomed_pane.map(PanePublicId::parse).transpose()?,
-                        auto_layout: auto_layout
-                            .map(|value| serde_json::from_str(&value))
-                            .transpose()?,
-                        viewport: serde_json::from_str(&viewport)?,
-                    })
-                })
-                .collect::<anyhow::Result<Vec<_>>>()?
-        };
-        let panes = {
-            let mut statement = self.connection.prepare(
-                "SELECT public_id, screen_id, name, active_tab_id, creation_ordinal
-                 FROM resource_panes
-                 WHERE deleted_revision IS NULL
-                 ORDER BY screen_id ASC, creation_ordinal ASC, public_id ASC",
-            )?;
-            statement
-                .query_map([], |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, Option<String>>(2)?,
-                        row.get::<_, Option<String>>(3)?,
-                        row.get::<_, i64>(4)?,
-                    ))
-                })?
-                .map(|row| {
-                    let (public_id, screen_id, name, active_tab, creation_ordinal) = row?;
-                    Ok(RegistryPane {
-                        public_id: PanePublicId::parse(public_id)?,
-                        screen_id: ScreenPublicId::parse(screen_id)?,
-                        name,
-                        active_tab: active_tab.map(TabPublicId::parse).transpose()?,
-                        creation_ordinal: u64::try_from(creation_ordinal)
-                            .context("stored pane creation ordinal is negative")?,
-                    })
-                })
-                .collect::<anyhow::Result<Vec<_>>>()?
-        };
-        let tabs = {
-            let mut statement = self.connection.prepare(
-                "SELECT t.public_id, t.pane_id, t.position, t.content_kind,
-                        t.content_id, t.name, b.url, rt.terminal_id, t.name_source, t.name_revision
-                 FROM resource_tabs t
-                 LEFT JOIN resource_browsers b ON b.public_id = t.content_id
-                 LEFT JOIN resource_terminals rt ON rt.public_id = t.content_id
-                 WHERE t.deleted_revision IS NULL
-                 ORDER BY t.pane_id ASC, t.position ASC",
-            )?;
-            statement
-                .query_map([], |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, i64>(2)?,
-                        row.get::<_, String>(3)?,
-                        row.get::<_, String>(4)?,
-                        row.get::<_, Option<String>>(5)?,
-                        row.get::<_, Option<String>>(6)?,
-                        row.get::<_, Option<String>>(7)?,
-                        row.get::<_, String>(8)?,
-                        row.get::<_, i64>(9)?,
-                    ))
-                })?
-                .map(|row| {
-                    let (
-                        public_id,
-                        pane_id,
-                        position,
-                        kind,
-                        content_id,
-                        name,
-                        browser_url,
-                        terminal_id,
-                        name_source,
-                        name_revision,
-                    ) = row?;
-                    let content_id = match kind.as_str() {
-                        "terminal" => {
-                            ContentPublicId::Terminal(TerminalPublicId::parse(content_id)?)
-                        }
-                        "browser" => ContentPublicId::Browser(BrowserPublicId::parse(content_id)?),
-                        _ => anyhow::bail!("stored tab has invalid content kind {kind:?}"),
-                    };
-                    Ok(RegistryTab {
-                        public_id: TabPublicId::parse(public_id)?,
-                        pane_id: PanePublicId::parse(pane_id)?,
-                        position: usize::try_from(position)
-                            .context("stored tab position is negative")?,
-                        content_id,
-                        name,
-                        name_source: serde_json::from_value(json!(name_source))?,
-                        name_revision: u64::try_from(name_revision)
-                            .context("negative name revision")?,
-                        browser_url,
-                        terminal_id,
-                    })
-                })
-                .collect::<anyhow::Result<Vec<_>>>()?
-        };
-        let browsers = {
-            let mut statement = self.connection.prepare(
-                "SELECT public_id, url, metadata_json
-                 FROM resource_browsers
-                 WHERE deleted_revision IS NULL
-                 ORDER BY public_id ASC",
-            )?;
-            statement
-                .query_map([], |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, String>(2)?,
-                    ))
-                })?
-                .map(|row| {
-                    let (public_id, url, metadata) = row?;
-                    let browser: RegistryBrowser = serde_json::from_str(&metadata)
-                        .with_context(|| format!("invalid metadata for browser {public_id}"))?;
-                    validate_registry_browser(&browser)?;
-                    if browser.public_id.as_str() != public_id || browser.url != url {
-                        anyhow::bail!(
-                            "browser {public_id} metadata does not match its indexed fields"
-                        );
-                    }
-                    Ok(browser)
-                })
-                .collect::<anyhow::Result<Vec<_>>>()?
-        };
-        Ok(ResourceTopologySnapshot {
-            session_id: self.session_id.clone(),
-            generation: self.generation.clone(),
-            revision,
-            active_workspace,
-            active_screens,
-            screens,
-            panes,
-            tabs,
-            browsers,
-        })
+        load_resource_topology(&self.connection, self.session_id.clone(), self.generation.clone())
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1626,6 +1437,7 @@ impl WorkspaceRegistry {
             result,
             deltas,
             None,
+            None,
         )
         .map(|(commit, _)| commit)
     }
@@ -1642,13 +1454,13 @@ impl WorkspaceRegistry {
         result: &Value,
         deltas: &Value,
         workspace_ledger: Option<&ResourceWorkspaceLedger>,
+        state_write: Option<crate::resource_mutation::PlanStateWrite>,
     ) -> anyhow::Result<(ResourcePatchCommit, Option<u64>)> {
         validate_identifier("mutation id", &mutation.id)?;
         validate_identifier("mutation origin", &mutation.origin)?;
         validate_identifier("resource operation", operation)?;
         validate_resource_patch(patch)?;
         let fingerprint = canonical_json(fingerprint)?;
-        let result_json = canonical_json(result)?;
         let tx = self.connection.transaction()?;
         if let Some(replayed) = resource_patch_replay(&tx, mutation, operation, &fingerprint)? {
             return Ok((replayed, None));
@@ -1693,8 +1505,25 @@ impl WorkspaceRegistry {
                 .map(|(revision, _)| revision)
             })
             .transpose()?;
-
-        apply_resource_patch(&tx, patch, sqlite_revision)?;
+        if let Some(ledger) = workspace_ledger
+            && let Some(update) = &ledger.presentation
+        {
+            presentation_store::write_workspace_presentation(&tx, &ledger.workspace_key, update)?;
+        }
+        let patch = &apply_resource_patch(&tx, patch, sqlite_revision)?;
+        let mut result = result.clone();
+        decorate_snapshot_result(&tx, operation, &mut result)?;
+        let written;
+        let deltas = match state_write {
+            Some(write) => {
+                let mut changes = deltas.as_array().cloned().unwrap_or_default();
+                write(&tx, &mut result, &mut changes)?;
+                written = Value::Array(crate::state::store::finish_changes(changes));
+                &written
+            }
+            None => deltas,
+        };
+        let result_json = canonical_json(&result)?;
         tx.execute(
             "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
             [revision.to_string()],
@@ -1720,15 +1549,12 @@ impl WorkspaceRegistry {
             &mutation.id,
             operation,
             Some(patch),
-            result,
+            &result,
             deltas,
         )?;
         prune_resource_mutations(&tx)?;
         tx.commit()?;
-        Ok((
-            ResourcePatchCommit { revision, result: result.clone(), replayed: false },
-            workspace_revision,
-        ))
+        Ok((ResourcePatchCommit { revision, result, replayed: false }, workspace_revision))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -2010,21 +1836,12 @@ fn validate_registry_browser(browser: &RegistryBrowser) -> anyhow::Result<()> {
     Ok(())
 }
 
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct RegistryViewport {
-    pub base_width: Option<f32>,
-    pub columns: Vec<RegistryViewportColumn>,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct RegistryViewportColumn {
-    pub id: SplitPublicId,
-    pub width: f32,
-    pub layout: RegistryLayoutNode,
-    pub auto_layout: Option<Vec<PanePublicId>>,
-}
+mod screen_rows;
+pub(crate) use screen_rows::repair_resources_at_open;
+mod viewport;
+use screen_rows::upsert_resource_screen;
+use viewport::validate_registry_viewport;
+pub use viewport::{RegistryRow, RegistryViewport, RegistryViewportColumn};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
@@ -2158,6 +1975,9 @@ pub struct ResourceWorkspaceLedger {
     pub workspace_key: String,
     pub workspaces: Vec<RegistryWorkspace>,
     pub legacy_result: Value,
+    /// Presentation (such as the group of a workspace the commit creates)
+    /// written in the same transaction.
+    pub presentation: Option<WorkspacePresentationUpdate>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -2269,7 +2089,7 @@ impl WorkspaceRegistry {
     }
 }
 
-pub(super) fn collect_split_public_ids(layout: &RegistryLayoutNode, output: &mut Vec<String>) {
+pub(crate) fn collect_split_public_ids(layout: &RegistryLayoutNode, output: &mut Vec<String>) {
     match layout {
         RegistryLayoutNode::Leaf { .. } | RegistryLayoutNode::Stack { .. } => {}
         RegistryLayoutNode::Split { split, first, second, .. } => {
@@ -2280,7 +2100,7 @@ pub(super) fn collect_split_public_ids(layout: &RegistryLayoutNode, output: &mut
     }
 }
 
-pub(super) fn collect_screen_split_public_ids(
+pub(crate) fn collect_screen_split_public_ids(
     layout: &RegistryLayoutNode,
     viewport: &RegistryViewport,
     output: &mut Vec<String>,
@@ -2293,7 +2113,7 @@ pub(super) fn collect_screen_split_public_ids(
     }
 }
 
-pub(super) fn resource_patch_replay(
+pub(crate) fn resource_patch_replay(
     transaction: &Connection,
     mutation: &WorkspaceMutation,
     operation: &str,
@@ -2333,7 +2153,7 @@ pub(super) fn resource_patch_replay(
     }))
 }
 
-pub(super) fn validate_resource_patch(patch: &ResourcePatch) -> anyhow::Result<()> {
+pub(crate) fn validate_resource_patch(patch: &ResourcePatch) -> anyhow::Result<()> {
     let mut targets = HashSet::new();
     let mut singleton_changes = HashSet::new();
     for change in &patch.changes {
@@ -2474,98 +2294,6 @@ fn validate_layout_node<'a>(
     Ok(())
 }
 
-fn validate_registry_viewport(
-    viewport: &RegistryViewport,
-    screen_layout: &RegistryLayoutNode,
-    screen_panes: &HashSet<&PanePublicId>,
-    screen_splits: &HashSet<&SplitPublicId>,
-) -> anyhow::Result<()> {
-    let valid_width = |width: f32| {
-        width.is_finite()
-            && (crate::MIN_VIEWPORT_PANE_WIDTH..=crate::MAX_VIEWPORT_PANE_WIDTH).contains(&width)
-    };
-    if viewport.columns.is_empty() {
-        if viewport.base_width.is_some() {
-            anyhow::bail!("viewport metadata has no columns");
-        }
-        return Ok(());
-    }
-    if viewport.columns.len() < 2 {
-        anyhow::bail!("viewport must have at least two columns when active");
-    }
-    let base_width =
-        viewport.base_width.ok_or_else(|| anyhow::anyhow!("viewport is missing base width"))?;
-    if !valid_width(base_width) || viewport.columns[0].width != base_width {
-        anyhow::bail!("viewport has invalid base width {base_width}");
-    }
-    let mut column_ids = HashSet::new();
-    let mut internal_splits = HashSet::new();
-    let mut column_panes = HashSet::new();
-    for (index, column) in viewport.columns.iter().enumerate() {
-        if !valid_width(column.width) {
-            anyhow::bail!("viewport column has invalid width {}", column.width);
-        }
-        if !column_ids.insert(&column.id) {
-            anyhow::bail!("viewport has duplicate column id {}", column.id);
-        }
-        if index != 0 && !screen_splits.contains(&column.id) {
-            anyhow::bail!("viewport column has unknown projected split {}", column.id);
-        }
-        let mut panes = HashSet::new();
-        let mut splits = HashSet::new();
-        validate_layout_node(&column.layout, &mut panes, &mut splits)?;
-        if panes.iter().any(|pane| !screen_panes.contains(*pane))
-            || splits.iter().any(|split| !screen_splits.contains(*split))
-        {
-            anyhow::bail!("viewport column references content outside its screen");
-        }
-        for split in splits {
-            if !internal_splits.insert(split) {
-                anyhow::bail!("split {split} appears in more than one viewport column");
-            }
-        }
-        if let Some(auto_layout) = &column.auto_layout
-            && (auto_layout.len() != panes.len()
-                || auto_layout.iter().any(|pane| !panes.contains(pane)))
-        {
-            anyhow::bail!("viewport column has invalid auto-layout membership");
-        }
-        for pane in panes {
-            if !column_panes.insert(pane) {
-                anyhow::bail!("pane {pane} appears in more than one viewport column");
-            }
-        }
-    }
-    if &column_panes != screen_panes {
-        anyhow::bail!("viewport columns do not cover the screen panes");
-    }
-    let owners = viewport.columns.iter().skip(1).map(|column| &column.id).collect::<HashSet<_>>();
-    if owners.iter().any(|owner| internal_splits.contains(*owner)) {
-        anyhow::bail!("viewport boundary owner also appears inside a column");
-    }
-    let covered_splits =
-        owners.iter().copied().chain(internal_splits.iter().copied()).collect::<HashSet<_>>();
-    if &covered_splits != screen_splits {
-        anyhow::bail!("viewport columns do not cover the screen splits");
-    }
-    let mut projected = viewport.columns[0].layout.clone();
-    let mut width_before = viewport.columns[0].width;
-    for column in viewport.columns.iter().skip(1) {
-        projected = RegistryLayoutNode::Split {
-            split: column.id.clone(),
-            direction: "right".into(),
-            ratio: width_before / (width_before + column.width),
-            first: Box::new(projected),
-            second: Box::new(column.layout.clone()),
-        };
-        width_before += column.width;
-    }
-    if &projected != screen_layout {
-        anyhow::bail!("viewport compatibility layout does not match its ordered columns");
-    }
-    Ok(())
-}
-
 pub(crate) fn validate_registry_screen_projection(
     screen: &RegistryScreen,
     expected_panes: &HashSet<PanePublicId>,
@@ -2581,7 +2309,7 @@ pub(crate) fn validate_registry_screen_projection(
     validate_registry_viewport(&screen.viewport, &screen.layout, &layout_pane_refs, &layout_splits)
 }
 
-pub(super) fn complete_terminal_close_patch(
+pub(crate) fn complete_terminal_close_patch(
     transaction: &Transaction<'_>,
     terminals: &[(String, Option<String>)],
     patch: &ResourcePatch,
@@ -2637,12 +2365,225 @@ pub(super) fn complete_terminal_close_patch(
     Ok((patch, deltas))
 }
 
+/// Load the live resource topology from `connection`. The registry's
+/// snapshot and the startup repair (which runs inside the open transaction,
+/// before this open's generation exists) share it.
+pub(crate) fn load_resource_topology(
+    connection: &Connection,
+    session_id: SessionPublicId,
+    generation: String,
+) -> anyhow::Result<ResourceTopologySnapshot> {
+    let revision = current_resource_revision(connection)?;
+    let active_workspace =
+        meta_value(connection, "active_workspace_id")?.map(WorkspacePublicId::parse).transpose()?;
+    let active_screens = {
+        let mut statement = connection.prepare(
+            "SELECT public_id, active_screen_id
+             FROM resource_workspaces
+             WHERE deleted_revision IS NULL
+             ORDER BY created_revision ASC, public_id ASC",
+        )?;
+        statement
+            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)))?
+            .map(|row| {
+                let (workspace, screen) = row?;
+                Ok((
+                    WorkspacePublicId::parse(workspace)?,
+                    screen.map(ScreenPublicId::parse).transpose()?,
+                ))
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?
+    };
+    let screens = {
+        let mut statement = connection.prepare(
+            "SELECT public_id, workspace_id, position, name, layout_json,
+                    active_pane_id, zoomed_pane_id, auto_layout_json, viewport_json
+             FROM resource_screens
+             WHERE deleted_revision IS NULL
+             ORDER BY workspace_id ASC, position ASC",
+        )?;
+        statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, Option<String>>(6)?,
+                    row.get::<_, Option<String>>(7)?,
+                    row.get::<_, String>(8)?,
+                ))
+            })?
+            .map(|row| {
+                let (
+                    public_id,
+                    workspace_id,
+                    position,
+                    name,
+                    layout,
+                    active_pane,
+                    zoomed_pane,
+                    auto_layout,
+                    viewport,
+                ) = row?;
+                Ok(RegistryScreen {
+                    public_id: ScreenPublicId::parse(public_id)?,
+                    workspace_id: WorkspacePublicId::parse(workspace_id)?,
+                    position: usize::try_from(position)
+                        .context("stored screen position is negative")?,
+                    name,
+                    layout: serde_json::from_str(&layout)?,
+                    active_pane: PanePublicId::parse(active_pane)?,
+                    zoomed_pane: zoomed_pane.map(PanePublicId::parse).transpose()?,
+                    auto_layout: auto_layout
+                        .map(|value| serde_json::from_str(&value))
+                        .transpose()?,
+                    viewport: serde_json::from_str(&viewport)?,
+                })
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?
+    };
+    let screens = screen_rows::with_side_tables(connection, screens)?;
+    let panes = {
+        let mut statement = connection.prepare(
+            "SELECT public_id, screen_id, name, active_tab_id, creation_ordinal
+             FROM resource_panes
+             WHERE deleted_revision IS NULL
+             ORDER BY screen_id ASC, creation_ordinal ASC, public_id ASC",
+        )?;
+        statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, i64>(4)?,
+                ))
+            })?
+            .map(|row| {
+                let (public_id, screen_id, name, active_tab, creation_ordinal) = row?;
+                Ok(RegistryPane {
+                    public_id: PanePublicId::parse(public_id)?,
+                    screen_id: ScreenPublicId::parse(screen_id)?,
+                    name,
+                    active_tab: active_tab.map(TabPublicId::parse).transpose()?,
+                    creation_ordinal: u64::try_from(creation_ordinal)
+                        .context("stored pane creation ordinal is negative")?,
+                })
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?
+    };
+    let tabs = {
+        let mut statement = connection.prepare(
+            "SELECT t.public_id, t.pane_id, t.position, t.content_kind,
+                    t.content_id, t.name, b.url, rt.terminal_id, t.name_source, t.name_revision
+             FROM resource_tabs t
+             LEFT JOIN resource_browsers b ON b.public_id = t.content_id
+             LEFT JOIN resource_terminals rt ON rt.public_id = t.content_id
+             WHERE t.deleted_revision IS NULL
+             ORDER BY t.pane_id ASC, t.position ASC",
+        )?;
+        statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, Option<String>>(5)?,
+                    row.get::<_, Option<String>>(6)?,
+                    row.get::<_, Option<String>>(7)?,
+                    row.get::<_, String>(8)?,
+                    row.get::<_, i64>(9)?,
+                ))
+            })?
+            .map(|row| {
+                let (
+                    public_id,
+                    pane_id,
+                    position,
+                    kind,
+                    content_id,
+                    name,
+                    browser_url,
+                    terminal_id,
+                    name_source,
+                    name_revision,
+                ) = row?;
+                let content_id = match kind.as_str() {
+                    "terminal" => ContentPublicId::Terminal(TerminalPublicId::parse(content_id)?),
+                    "browser" => ContentPublicId::Browser(BrowserPublicId::parse(content_id)?),
+                    _ => anyhow::bail!("stored tab has invalid content kind {kind:?}"),
+                };
+                Ok(RegistryTab {
+                    public_id: TabPublicId::parse(public_id)?,
+                    pane_id: PanePublicId::parse(pane_id)?,
+                    position: usize::try_from(position)
+                        .context("stored tab position is negative")?,
+                    content_id,
+                    name,
+                    name_source: serde_json::from_value(json!(name_source))?,
+                    name_revision: u64::try_from(name_revision)
+                        .context("negative name revision")?,
+                    browser_url,
+                    terminal_id,
+                })
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?
+    };
+    let browsers = {
+        let mut statement = connection.prepare(
+            "SELECT public_id, url, metadata_json
+             FROM resource_browsers
+             WHERE deleted_revision IS NULL
+             ORDER BY public_id ASC",
+        )?;
+        statement
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?))
+            })?
+            .map(|row| {
+                let (public_id, url, metadata) = row?;
+                let browser: RegistryBrowser = serde_json::from_str(&metadata)
+                    .with_context(|| format!("invalid metadata for browser {public_id}"))?;
+                validate_registry_browser(&browser)?;
+                if browser.public_id.as_str() != public_id || browser.url != url {
+                    anyhow::bail!("browser {public_id} metadata does not match its indexed fields");
+                }
+                Ok(browser)
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?
+    };
+    Ok(ResourceTopologySnapshot {
+        session_id,
+        generation,
+        revision,
+        active_workspace,
+        active_screens,
+        screens,
+        panes,
+        tabs,
+        browsers,
+    })
+}
+
 /// Repair terminal rows left live by older close implementations. This is a
 /// load-time migration for the durable invariant: a terminal resource is live
-/// only while both its host and identity ledger are live. The repair advances
-/// the resource revision and emits a resource journal batch so revision-based
-/// consumers observe the tombstones after restart.
-pub(super) fn repair_dangling_terminal_resources(
+/// only while both its host and identity ledger are live, and a live tab shows
+/// only live content. The repair therefore also retires every tab that still
+/// shows a repaired terminal (as any terminal close does), compacts the
+/// remaining tab positions of those panes, and selects a surviving tab where
+/// the retired tab was active. It advances the resource revision and emits a
+/// resource journal batch so revision-based consumers observe the tombstones
+/// after restart. The batch also restates every surviving tab of an affected
+/// pane (its index and focus may move) and every screen that holds such a
+/// pane (its layout lists the pane's tabs and active tab), so an event-feed
+/// client converges without waiting for the next full topology projection.
+pub(crate) fn repair_dangling_terminal_resources(
     transaction: &Transaction<'_>,
 ) -> anyhow::Result<()> {
     let current_revision = current_resource_revision(transaction)?;
@@ -2669,20 +2610,88 @@ pub(super) fn repair_dangling_terminal_resources(
         .ok_or_else(|| anyhow::anyhow!("resource revision exhausted during terminal repair"))?;
     let sqlite_revision = i64::try_from(repair_revision)
         .context("resource repair revision exceeds SQLite integer range")?;
-    let changes = Value::Array(
-        dangling
-            .iter()
-            .enumerate()
-            .map(|(sequence, public_id)| {
-                json!({
-                    "kind": "delete",
-                    "sequence": sequence,
-                    "resource": "terminal",
-                    "id": public_id,
-                })
+    // Live tabs that show a repaired terminal, with their pane and position.
+    let mut retired_tabs = Vec::new();
+    for public_id in &dangling {
+        let mut statement = transaction.prepare(
+            "SELECT public_id, pane_id, position FROM resource_tabs
+             WHERE content_kind = 'terminal' AND content_id = ?1
+               AND deleted_revision IS NULL
+             ORDER BY pane_id ASC, position ASC",
+        )?;
+        let rows = statement
+            .query_map([public_id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        retired_tabs.extend(rows);
+    }
+    let mut changes = dangling
+        .iter()
+        .map(|public_id| ("terminal", public_id))
+        .chain(retired_tabs.iter().map(|(tab_id, _, _)| ("tab", tab_id)))
+        .enumerate()
+        .map(|(sequence, (resource, public_id))| {
+            json!({
+                "kind": "delete",
+                "sequence": sequence,
+                "resource": resource,
+                "id": public_id,
             })
-            .collect(),
-    );
+        })
+        .collect::<Vec<_>>();
+
+    // Retire the views first: this also clears an active-tab selection that
+    // points at a retired tab.
+    let mut affected_panes: std::collections::BTreeMap<&str, i64> =
+        std::collections::BTreeMap::new();
+    for (tab_id, pane_id, position) in &retired_tabs {
+        tombstone_resource_tab_row(transaction, tab_id, sqlite_revision)?;
+        affected_panes
+            .entry(pane_id.as_str())
+            .and_modify(|first| *first = (*first).min(*position))
+            .or_insert(*position);
+    }
+    let affected_pane_ids =
+        affected_panes.keys().map(|pane_id| (*pane_id).to_owned()).collect::<Vec<_>>();
+    for (pane_id, first_retired_position) in affected_panes {
+        let survivors = {
+            let mut statement = transaction.prepare(
+                "SELECT public_id FROM resource_tabs
+                 WHERE pane_id = ?1 AND deleted_revision IS NULL
+                 ORDER BY position ASC",
+            )?;
+            statement
+                .query_map([pane_id], |row| row.get::<_, String>(0))?
+                .collect::<Result<Vec<_>, _>>()?
+        };
+        for (position, tab_id) in survivors.iter().enumerate() {
+            transaction.execute(
+                "UPDATE resource_tabs
+                 SET position = ?1, updated_revision = ?2
+                 WHERE public_id = ?3 AND deleted_revision IS NULL AND position != ?1",
+                params![
+                    i64::try_from(position).context("tab position exceeds SQLite range")?,
+                    sqlite_revision,
+                    tab_id,
+                ],
+            )?;
+        }
+        // Select the tab that took the retired tab's place (or the new last
+        // tab) when the pane lost its active tab and still has tabs.
+        let replacement = usize::try_from(first_retired_position)
+            .ok()
+            .map(|position| position.min(survivors.len().saturating_sub(1)))
+            .and_then(|position| survivors.get(position));
+        if let Some(replacement) = replacement {
+            transaction.execute(
+                "UPDATE resource_panes
+                 SET active_tab_id = ?1, updated_revision = ?2
+                 WHERE public_id = ?3 AND active_tab_id IS NULL AND deleted_revision IS NULL",
+                params![replacement, sqlite_revision, pane_id],
+            )?;
+        }
+    }
 
     for public_id in &dangling {
         transaction.execute(
@@ -2702,6 +2711,8 @@ pub(super) fn repair_dangling_terminal_resources(
         "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
         [repair_revision.to_string()],
     )?;
+    restate_repaired_panes(transaction, &affected_pane_ids, &mut changes)?;
+    let changes = Value::Array(changes);
     append_resource_journal_record(
         transaction,
         repair_revision,
@@ -2710,13 +2721,69 @@ pub(super) fn repair_dangling_terminal_resources(
         &format!("terminal-close-repair-{repair_revision}"),
         "terminal.close.repair",
         None,
-        &json!({"repaired_terminals": dangling}),
+        &json!({
+            "repaired_terminals": dangling,
+            "retired_tabs": retired_tabs.iter().map(|(tab_id, _, _)| tab_id).collect::<Vec<_>>(),
+        }),
         &changes,
     )?;
     Ok(())
 }
 
-pub(super) fn apply_resource_patch(
+/// Append upserts for the surviving tabs of `pane_ids` and for the screens
+/// that hold those panes, read back from the repaired rows. Values use the
+/// same public representation as the session snapshot.
+fn restate_repaired_panes(
+    transaction: &Transaction<'_>,
+    pane_ids: &[String],
+    changes: &mut Vec<Value>,
+) -> anyhow::Result<()> {
+    if pane_ids.is_empty() {
+        return Ok(());
+    }
+    let session_id = SessionPublicId::parse(required_meta(transaction, "session_public_id")?)?;
+    // The repair runs inside the open transaction, before this open's
+    // generation exists. Public tab and screen values do not include it.
+    let topology = load_resource_topology(transaction, session_id, String::new())?;
+    let tabs_by_pane = crate::resource_screen::tabs_by_pane(&topology.tabs);
+    let panes_by_id =
+        topology.panes.iter().map(|pane| (&pane.public_id, pane)).collect::<HashMap<_, _>>();
+    let mut screens = HashSet::new();
+    for pane in
+        topology.panes.iter().filter(|pane| pane_ids.iter().any(|id| id == pane.public_id.as_str()))
+    {
+        screens.insert(&pane.screen_id);
+        for tab in tabs_by_pane.get(&pane.public_id).into_iter().flatten() {
+            let sequence = changes.len();
+            changes.push(json!({
+                "kind": "upsert",
+                "sequence": sequence,
+                "resource": "tab",
+                "id": tab.public_id,
+                "value": tab.public_value(pane.active_tab.as_ref() == Some(&tab.public_id)),
+            }));
+        }
+    }
+    for screen in topology.screens.iter().filter(|screen| screens.contains(&screen.public_id)) {
+        let value = crate::resource_screen::public_screen_value(
+            &topology,
+            screen,
+            &tabs_by_pane,
+            &panes_by_id,
+        )?;
+        let sequence = changes.len();
+        changes.push(json!({
+            "kind": "upsert",
+            "sequence": sequence,
+            "resource": "screen",
+            "id": screen.public_id,
+            "value": value,
+        }));
+    }
+    Ok(())
+}
+
+fn apply_effective_resource_patch(
     transaction: &Transaction<'_>,
     patch: &ResourcePatch,
     revision: i64,
@@ -2819,6 +2886,367 @@ pub(super) fn apply_resource_patch(
     }
 
     validate_touched_resource_invariants(transaction, patch)
+}
+
+/// Drop every change that would leave its row exactly as stored. An order
+/// change is kept when the stored order differs, and also whenever a kept
+/// change under the same parent needs it: a create, move, or close of a
+/// child is validated against its parent's order in the same patch, and an
+/// earlier write in the transaction (the legacy workspace ledger) may
+/// already have stored the new order.
+pub(crate) fn prune_unchanged_resource_changes(
+    transaction: &Transaction<'_>,
+    patch: &ResourcePatch,
+) -> anyhow::Result<ResourcePatch> {
+    let is_order = |change: &ResourceChange| {
+        matches!(
+            change,
+            ResourceChange::SetWorkspaceOrder { .. }
+                | ResourceChange::SetScreenOrder { .. }
+                | ResourceChange::SetTabOrder { .. }
+        )
+    };
+    let mut kept = Vec::with_capacity(patch.changes.len());
+    for change in &patch.changes {
+        kept.push(!is_order(change) && !resource_change_is_stored(transaction, change)?);
+    }
+    let mut workspace_order = false;
+    let mut screen_parents = HashSet::<String>::new();
+    let mut tab_parents = HashSet::<String>::new();
+    for (change, kept) in patch.changes.iter().zip(&kept) {
+        if !kept {
+            continue;
+        }
+        match change {
+            ResourceChange::UpsertWorkspace { .. } | ResourceChange::TombstoneWorkspace { .. } => {
+                workspace_order = true;
+            }
+            ResourceChange::UpsertScreen(screen) => {
+                screen_parents.insert(screen.workspace_id.to_string());
+                screen_parents.extend(resource_field_any(
+                    transaction,
+                    "resource_screens",
+                    "workspace_id",
+                    screen.public_id.as_str(),
+                )?);
+            }
+            ResourceChange::TombstoneScreen { screen_id } => {
+                screen_parents.extend(resource_field_any(
+                    transaction,
+                    "resource_screens",
+                    "workspace_id",
+                    screen_id.as_str(),
+                )?);
+            }
+            ResourceChange::UpsertTab(tab) => {
+                tab_parents.insert(tab.pane_id.to_string());
+                tab_parents.extend(resource_field_any(
+                    transaction,
+                    "resource_tabs",
+                    "pane_id",
+                    tab.public_id.as_str(),
+                )?);
+            }
+            ResourceChange::TombstoneTab { tab_id, .. } => {
+                tab_parents.extend(resource_field_any(
+                    transaction,
+                    "resource_tabs",
+                    "pane_id",
+                    tab_id.as_str(),
+                )?);
+            }
+            ResourceChange::TombstoneTerminal { public_id, .. } => {
+                tab_parents.extend(content_tab_panes(transaction, public_id.as_str())?);
+            }
+            ResourceChange::TombstoneBrowser { public_id } => {
+                tab_parents.extend(content_tab_panes(transaction, public_id.as_str())?);
+            }
+            _ => {}
+        }
+    }
+    let mut changes = Vec::with_capacity(patch.changes.len());
+    for (change, kept) in patch.changes.iter().zip(kept) {
+        let keep = kept
+            || match change {
+                ResourceChange::SetWorkspaceOrder { .. } => {
+                    workspace_order || !resource_change_is_stored(transaction, change)?
+                }
+                ResourceChange::SetScreenOrder { workspace_id, .. } => {
+                    screen_parents.contains(workspace_id.as_str())
+                        || !resource_change_is_stored(transaction, change)?
+                }
+                ResourceChange::SetTabOrder { pane_id, .. } => {
+                    tab_parents.contains(pane_id.as_str())
+                        || !resource_change_is_stored(transaction, change)?
+                }
+                _ => false,
+            };
+        if keep {
+            changes.push(change.clone());
+        }
+    }
+    Ok(ResourcePatch { changes })
+}
+
+fn content_tab_panes(
+    transaction: &Transaction<'_>,
+    content_id: &str,
+) -> anyhow::Result<Vec<String>> {
+    let mut statement = transaction.prepare(
+        "SELECT pane_id FROM resource_tabs
+         WHERE content_id = ?1 AND deleted_revision IS NULL",
+    )?;
+    Ok(statement
+        .query_map([content_id], |row| row.get::<_, String>(0))?
+        .collect::<Result<Vec<_>, _>>()?)
+}
+
+fn resource_change_is_stored(
+    transaction: &Transaction<'_>,
+    change: &ResourceChange,
+) -> anyhow::Result<bool> {
+    Ok(match change {
+        ResourceChange::UpsertWorkspace { workspace, position, active_screen } => {
+            let stored = transaction
+                .query_row(
+                    "SELECT w.numeric_id, w.name, w.group_key, w.position, rw.active_screen_id
+                     FROM resource_workspaces rw
+                     JOIN workspaces w ON w.workspace_key = rw.workspace_key
+                     WHERE rw.public_id = ?1 AND rw.workspace_key = ?2
+                       AND rw.deleted_revision IS NULL AND w.tombstoned = 0",
+                    params![workspace.public_id.as_str(), workspace.key],
+                    |row| {
+                        Ok((
+                            row.get::<_, i64>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, String>(2)?,
+                            row.get::<_, Option<i64>>(3)?,
+                            row.get::<_, Option<String>>(4)?,
+                        ))
+                    },
+                )
+                .optional()?;
+            stored.is_some_and(|(numeric_id, name, group_key, stored_position, screen)| {
+                i64::try_from(workspace.id).ok() == Some(numeric_id)
+                    && name == workspace.name
+                    && group_key == workspace.group_key
+                    && stored_position == i64::try_from(*position).ok()
+                    && screen.as_deref() == active_screen.as_ref().map(ScreenPublicId::as_str)
+            })
+        }
+        ResourceChange::UpsertScreen(screen) => {
+            let stored = transaction
+                .query_row(
+                    "SELECT workspace_id, position, name, layout_json, active_pane_id,
+                            zoomed_pane_id, auto_layout_json, viewport_json
+                     FROM resource_screens
+                     WHERE public_id = ?1 AND deleted_revision IS NULL",
+                    [screen.public_id.as_str()],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, Option<i64>>(1)?,
+                            row.get::<_, Option<String>>(2)?,
+                            row.get::<_, String>(3)?,
+                            row.get::<_, Option<String>>(4)?,
+                            row.get::<_, Option<String>>(5)?,
+                            row.get::<_, Option<String>>(6)?,
+                            row.get::<_, String>(7)?,
+                        ))
+                    },
+                )
+                .optional()?;
+            match stored {
+                None => false,
+                Some((workspace_id, position, name, layout, active, zoomed, auto, viewport)) => {
+                    let desired_auto = screen
+                        .auto_layout
+                        .as_ref()
+                        .map(|value| canonical_json(&serde_json::to_value(value)?))
+                        .transpose()?;
+                    workspace_id == screen.workspace_id.as_str()
+                        && position == i64::try_from(screen.position).ok()
+                        && name == screen.name
+                        && active.as_deref() == Some(screen.active_pane.as_str())
+                        && zoomed.as_deref()
+                            == screen.zoomed_pane.as_ref().map(PanePublicId::as_str)
+                        && auto == desired_auto
+                        && layout == canonical_json(&serde_json::to_value(&screen.layout)?)?
+                        && viewport
+                            == canonical_json(&serde_json::to_value(screen.viewport.durable())?)?
+                        && screen_rows::side_tables_match(transaction, screen)?
+                }
+            }
+        }
+        ResourceChange::UpsertPane(pane) => {
+            let stored = transaction
+                .query_row(
+                    "SELECT screen_id, name, active_tab_id, creation_ordinal
+                     FROM resource_panes WHERE public_id = ?1 AND deleted_revision IS NULL",
+                    [pane.public_id.as_str()],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, Option<String>>(1)?,
+                            row.get::<_, Option<String>>(2)?,
+                            row.get::<_, i64>(3)?,
+                        ))
+                    },
+                )
+                .optional()?;
+            stored.is_some_and(|(screen_id, name, active_tab, ordinal)| {
+                screen_id == pane.screen_id.as_str()
+                    && name == pane.name
+                    && active_tab.as_deref() == pane.active_tab.as_ref().map(TabPublicId::as_str)
+                    && i64::try_from(pane.creation_ordinal).ok() == Some(ordinal)
+            })
+        }
+        ResourceChange::UpsertTab(tab) => {
+            let (content_kind, content_id) = match &tab.content_id {
+                ContentPublicId::Terminal(id) => ("terminal", id.as_str()),
+                ContentPublicId::Browser(id) => ("browser", id.as_str()),
+            };
+            let name_source = serde_json::to_value(tab.name_source)?;
+            let stored = transaction
+                .query_row(
+                    "SELECT pane_id, position, content_kind, content_id, name,
+                            name_source, name_revision
+                     FROM resource_tabs WHERE public_id = ?1 AND deleted_revision IS NULL",
+                    [tab.public_id.as_str()],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, Option<i64>>(1)?,
+                            row.get::<_, String>(2)?,
+                            row.get::<_, String>(3)?,
+                            row.get::<_, Option<String>>(4)?,
+                            row.get::<_, Option<String>>(5)?,
+                            row.get::<_, Option<i64>>(6)?,
+                        ))
+                    },
+                )
+                .optional()?;
+            stored.is_some_and(|(pane_id, position, kind, id, name, source, name_revision)| {
+                pane_id == tab.pane_id.as_str()
+                    && position == i64::try_from(tab.position).ok()
+                    && kind == content_kind
+                    && id == content_id
+                    && name == tab.name
+                    && source.as_deref() == name_source.as_str()
+                    && name_revision == i64::try_from(tab.name_revision).ok()
+            })
+        }
+        ResourceChange::UpsertTerminal { public_id, terminal } => {
+            let stored = transaction
+                .query_row(
+                    "SELECT terminal_id, lifecycle FROM resource_terminals
+                     WHERE public_id = ?1 AND deleted_revision IS NULL",
+                    [public_id.as_str()],
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+                )
+                .optional()?;
+            match stored {
+                Some((host, lifecycle))
+                    if host == terminal.terminal_id && lifecycle == "active" =>
+                {
+                    read_terminal(transaction, &terminal.terminal_id)?.as_ref() == Some(terminal)
+                }
+                _ => false,
+            }
+        }
+        ResourceChange::UpsertBrowser(browser) => {
+            let stored = transaction
+                .query_row(
+                    "SELECT url, metadata_json, lifecycle FROM resource_browsers
+                     WHERE public_id = ?1 AND deleted_revision IS NULL",
+                    [browser.public_id.as_str()],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, String>(2)?,
+                        ))
+                    },
+                )
+                .optional()?;
+            match stored {
+                Some((url, metadata, lifecycle)) => {
+                    lifecycle == "running"
+                        && url == browser.url
+                        && metadata == canonical_json(&serde_json::to_value(browser)?)?
+                }
+                None => false,
+            }
+        }
+        ResourceChange::SetWorkspaceOrder { workspace_ids } => {
+            let mut statement = transaction.prepare(
+                "SELECT rw.public_id, w.position
+                 FROM resource_workspaces rw
+                 JOIN workspaces w ON w.workspace_key = rw.workspace_key
+                 WHERE rw.deleted_revision IS NULL AND w.tombstoned = 0
+                 ORDER BY w.position ASC",
+            )?;
+            let stored = statement
+                .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<i64>>(1)?)))?
+                .collect::<Result<Vec<_>, _>>()?;
+            stored_order_matches(&stored, workspace_ids.iter().map(WorkspacePublicId::as_str))
+        }
+        ResourceChange::SetScreenOrder { workspace_id, screen_ids } => {
+            let stored = stored_child_order(
+                transaction,
+                "resource_screens",
+                "workspace_id",
+                workspace_id.as_str(),
+            )?;
+            stored_order_matches(&stored, screen_ids.iter().map(ScreenPublicId::as_str))
+        }
+        ResourceChange::SetTabOrder { pane_id, tab_ids } => {
+            let stored =
+                stored_child_order(transaction, "resource_tabs", "pane_id", pane_id.as_str())?;
+            stored_order_matches(&stored, tab_ids.iter().map(TabPublicId::as_str))
+        }
+        ResourceChange::SetActiveWorkspace { workspace_id } => {
+            meta_value(transaction, "active_workspace_id")?.as_deref()
+                == workspace_id.as_ref().map(WorkspacePublicId::as_str)
+        }
+        ResourceChange::TombstoneWorkspace { .. }
+        | ResourceChange::TombstoneScreen { .. }
+        | ResourceChange::TombstonePane { .. }
+        | ResourceChange::TombstoneTab { .. }
+        | ResourceChange::TombstoneTerminal { .. }
+        | ResourceChange::TombstoneBrowser { .. } => false,
+    })
+}
+
+fn stored_child_order(
+    transaction: &Transaction<'_>,
+    table: &str,
+    parent_field: &str,
+    parent_id: &str,
+) -> anyhow::Result<Vec<(String, Option<i64>)>> {
+    let query = format!(
+        "SELECT public_id, position FROM {table}
+         WHERE {parent_field} = ?1 AND deleted_revision IS NULL
+         ORDER BY position ASC"
+    );
+    let mut statement = transaction.prepare(&query)?;
+    Ok(statement
+        .query_map([parent_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, Option<i64>>(1)?))
+        })?
+        .collect::<Result<Vec<_>, _>>()?)
+}
+
+/// True when the stored live rows are exactly `desired`, at positions
+/// `0..desired.len()` in that order.
+fn stored_order_matches<'a>(
+    stored: &[(String, Option<i64>)],
+    desired: impl ExactSizeIterator<Item = &'a str>,
+) -> bool {
+    stored.len() == desired.len()
+        && stored.iter().zip(desired).enumerate().all(|(index, ((id, position), desired))| {
+            id == desired && *position == i64::try_from(index).ok()
+        })
 }
 
 fn validate_resource_order_coverage(
@@ -3237,78 +3665,6 @@ fn upsert_resource_workspace(
     Ok(())
 }
 
-fn upsert_resource_screen(
-    transaction: &Transaction<'_>,
-    screen: &RegistryScreen,
-    revision: i64,
-) -> anyhow::Result<()> {
-    let old_splits = transaction
-        .query_row(
-            "SELECT layout_json, viewport_json FROM resource_screens WHERE public_id = ?1",
-            [screen.public_id.as_str()],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
-        )
-        .optional()?
-        .map(|(layout, viewport)| {
-            let layout: RegistryLayoutNode = serde_json::from_str(&layout)?;
-            let viewport: RegistryViewport = serde_json::from_str(&viewport)?;
-            let mut splits = Vec::new();
-            collect_screen_split_public_ids(&layout, &viewport, &mut splits);
-            Ok::<_, anyhow::Error>(splits)
-        })
-        .transpose()?
-        .unwrap_or_default();
-    upsert_resource_identity(transaction, screen.public_id.as_str(), "screen", revision)?;
-    let mut desired_splits = Vec::new();
-    collect_screen_split_public_ids(&screen.layout, &screen.viewport, &mut desired_splits);
-    for split in &desired_splits {
-        upsert_resource_identity(transaction, split, "split", revision)?;
-    }
-    let desired_splits = desired_splits.into_iter().collect::<HashSet<_>>();
-    for split in old_splits {
-        if !desired_splits.contains(&split) {
-            tombstone_resource_identity(transaction, &split, revision)?;
-        }
-    }
-    let layout = canonical_json(&serde_json::to_value(&screen.layout)?)?;
-    let auto_layout = screen
-        .auto_layout
-        .as_ref()
-        .map(|value| canonical_json(&serde_json::to_value(value)?))
-        .transpose()?;
-    let viewport = canonical_json(&serde_json::to_value(&screen.viewport)?)?;
-    transaction.execute(
-        "INSERT INTO resource_screens(
-           public_id, workspace_id, position, name, layout_json, active_pane_id,
-           zoomed_pane_id, auto_layout_json, viewport_json,
-           created_revision, updated_revision, deleted_revision
-         ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10, NULL)
-         ON CONFLICT(public_id) DO UPDATE SET
-           workspace_id=excluded.workspace_id,
-           position=excluded.position,
-           name=excluded.name,
-           layout_json=excluded.layout_json,
-           active_pane_id=excluded.active_pane_id,
-           zoomed_pane_id=excluded.zoomed_pane_id,
-           auto_layout_json=excluded.auto_layout_json,
-           viewport_json=excluded.viewport_json,
-           updated_revision=excluded.updated_revision",
-        params![
-            screen.public_id.as_str(),
-            screen.workspace_id.as_str(),
-            i64::try_from(screen.position).context("screen position exceeds SQLite range")?,
-            screen.name,
-            layout,
-            screen.active_pane.as_str(),
-            screen.zoomed_pane.as_ref().map(PanePublicId::as_str),
-            auto_layout,
-            viewport,
-            revision,
-        ],
-    )?;
-    Ok(())
-}
-
 fn upsert_resource_pane(
     transaction: &Transaction<'_>,
     pane: &RegistryPane,
@@ -3539,7 +3895,7 @@ fn tombstone_resource_workspace(
     for screen in screens {
         tombstone_resource_screen(transaction, &screen, revision)?;
     }
-
+    crate::state::home_store::refuse_close_id(transaction, workspace_id)?;
     transaction.execute(
         "UPDATE resource_workspaces
          SET active_screen_id = NULL, updated_revision = ?1, deleted_revision = ?1
@@ -3576,6 +3932,7 @@ fn tombstone_resource_screen(
         require_known_resource(transaction, screen_id, "screen")?;
         return Ok(());
     };
+    screen_rows::delete_side_tables(transaction, screen_id, revision)?;
     let panes = {
         let mut statement = transaction.prepare(
             "SELECT public_id FROM resource_panes
@@ -4338,12 +4695,7 @@ fn validate_touched_screen(transaction: &Transaction<'_>, screen_id: &str) -> an
     {
         anyhow::bail!("screen {screen_id} selects a pane outside its layout");
     }
-    let mut split_ids = Vec::new();
-    collect_screen_split_public_ids(&layout, &viewport, &mut split_ids);
-    for split in split_ids {
-        validate_identity_state(transaction, &split, "split", true)?;
-    }
-    Ok(())
+    screen_rows::validate_screen_splits(transaction, screen_id, &layout, &viewport)
 }
 
 fn validate_touched_pane(transaction: &Transaction<'_>, pane_id: &str) -> anyhow::Result<()> {
@@ -4563,7 +4915,7 @@ fn validate_positions_for_parent(
     Ok(())
 }
 
-pub(super) fn validate_resource_invariants(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+pub(crate) fn validate_resource_invariants(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     ensure_no_foreign_key_violations(transaction)?;
     validate_concrete_identity_lifecycles(transaction)?;
     validate_contiguous_positions(

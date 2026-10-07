@@ -301,6 +301,29 @@ class GroupMembershipTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("(F2)", result.stderr)
 
+    def test_built_file_under_a_synchronized_root_passes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "App").mkdir()
+            (root / "App" / "Main.swift").write_text("struct Main {}\n")
+            path = root / "cmux.xcodeproj" / "project.pbxproj"
+            path.parent.mkdir()
+            path.write_text(
+                """// !$*UTF8*$!\n{
+    objects = {
+        BF1 = {isa = PBXBuildFile; fileRef = F1; };
+        F1 = {isa = PBXFileReference; path = Main.swift; sourceTree = \"<group>\"; };
+        G1 = {isa = PBXFileSystemSynchronizedRootGroup; path = App; sourceTree = \"<group>\"; };
+        M1 = {isa = PBXGroup; children = (G1); };
+        P1 = {isa = PBXProject; mainGroup = M1; rootObject = P1; };
+        S1 = {isa = PBXSourcesBuildPhase; files = (BF1); };
+    };
+    rootObject = P1;
+}\n"""
+            )
+            result = subprocess.run([sys.executable, str(GROUP_GUARD), str(path)], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

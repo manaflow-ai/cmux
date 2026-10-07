@@ -1,0 +1,86 @@
+/// One cmux.json setting: its key, where the Settings window shows it, its
+/// type, allowed values and default. `SettingsSchema` lists every one; the
+/// Settings window, write validation and the palette's Toggle Setting read
+/// it, and `SettingsSchemaTests` checks it against the cmux.json parsers, so
+/// a key, default or allowed value cannot drift between them.
+public nonisolated struct SettingDescriptor: Sendable, Hashable, Identifiable {
+    /// Key path in cmux.json, for example `["ui", "animationSpeed"]`.
+    public let path: [String]
+    public let section: SettingsSection
+    /// Heading of the row group inside the section.
+    public let group: String
+    public let title: String
+    /// One line under the title; nil when the title says it all.
+    public let help: String?
+    public let kind: SettingKind
+    /// The value an absent key means. nil when the default is derived at
+    /// run time (the density's padding, the theme's color); `defaultLabel`
+    /// then names it.
+    public let defaultValue: JSONValue?
+    public let defaultLabel: String?
+    /// Extra words the Settings search matches.
+    public let keywords: [String]
+    /// String catalog keys of `group`, `title`, `help` and `defaultLabel`
+    /// (nil for text that is not localized), so clients outside the app
+    /// localize from the same catalog (`SettingsSchemaExport`).
+    public let textKeys: SettingTextKeys
+    /// Whether the palette lists this setting (R93). Every row is exposed
+    /// unless it names a reason to stay out.
+    public var palette: SettingPaletteExposure = .exposed
+    /// The apps that read this key from the shared cmux.json. The export, validation and docs cover
+    /// every key; the cmux-next Settings page and palette show only keys cmux-next reads, so a
+    /// cmux-browser-only key never shows a control that does nothing here.
+    public var consumers: Set<SettingConsumer> = [.cmuxNext]
+    /// Whether the Settings page shows this row (`isShownOnSettingsPage`).
+    public var page: SettingPageExposure = .shown
+
+    /// A row whose texts come from the string catalog (`SettingsText.keyed`).
+    public init(_ path: [String], section: SettingsSection, group: SettingText, title: SettingText, help: SettingText? = nil,
+                kind: SettingKind, default defaultValue: JSONValue?, defaultLabel: SettingText? = nil, keywords: [String] = []) {
+        self.init(path, section: section, group: group.text, title: title.text, help: help?.text, kind: kind,
+                  default: defaultValue, defaultLabel: defaultLabel?.text, keywords: keywords,
+                  textKeys: SettingTextKeys(group: group.key, title: title.key, help: help?.key, defaultLabel: defaultLabel?.key))
+    }
+
+    public init(_ path: [String], section: SettingsSection, group: String, title: String, help: String? = nil,
+                kind: SettingKind, default defaultValue: JSONValue?, defaultLabel: String? = nil, keywords: [String] = [],
+                textKeys: SettingTextKeys = SettingTextKeys()) {
+        self.path = path
+        self.section = section
+        self.group = group
+        self.title = title
+        self.help = help
+        self.kind = kind
+        self.defaultValue = defaultValue
+        self.defaultLabel = defaultLabel
+        self.keywords = keywords
+        self.textKeys = textKeys
+    }
+
+    /// The dotted key, as diagnostics and the CLI print it.
+    public var id: String { path.joined(separator: ".") }
+}
+
+extension SettingDescriptor {
+    public var isPaletteExposed: Bool { palette == .exposed && isShownInCmuxNext }
+    /// cmux-next reads this key, so its Settings page and palette offer it.
+    public var isShownInCmuxNext: Bool { consumers.contains(.cmuxNext) }
+    /// The Settings page (web page and anchors) has a row for this key.
+    public var isShownOnSettingsPage: Bool { isShownInCmuxNext && page == .shown }
+
+    /// This row, read by `consumers` instead of cmux-next alone.
+    public func consumed(by consumers: Set<SettingConsumer>) -> SettingDescriptor {
+        var row = self
+        row.consumers = consumers
+        return row
+    }
+
+    /// This row, kept off the Settings page and the palette for `reason`.
+    public func hiddenFromSettingsPage(_ reason: String) -> SettingDescriptor {
+        var row = self
+        row.page = .hidden(reason)
+        row.palette = .hidden(reason)
+        return row
+    }
+}
+

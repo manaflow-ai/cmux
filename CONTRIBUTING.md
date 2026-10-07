@@ -12,11 +12,11 @@ and pull requests the way the short [writing guide](STYLE.md) says.
 Only needed for the native app. Docs, translations, Python tooling, `cmux-tui` and
 `web/` work on Linux; see [what you can fix without a Mac build](docs/start-here.md#2-things-you-can-fix-without-a-mac-build).
 
-- macOS 14+
-- Xcode 26 (the pinned toolchain). Xcode 16.2 on Intel Macs with macOS 14.5+ also
-  builds the app, best effort ([Swift 6.0 limits](skills/cmux-architecture/references/swift-6-0-compatibility.md)).
-- The Xcode 26 Metal compiler, which is a separate download. Select the Xcode you
-  build with first (`DEVELOPER_DIR` overrides `xcode-select`), then:
+- macOS 26 (the app's deployment target)
+- Xcode 26 (the pinned toolchain)
+- [Zig](https://ziglang.org/) (install via `brew install zig`)
+- [Rust](https://rustup.rs): `scripts/setup.sh` requires `rustup`. The official installer puts
+  `rustup` and `cargo` in `~/.cargo/bin`, which is where `setup.sh` looks:
 
   ```bash
   xcodebuild -downloadComponent MetalToolchain
@@ -68,8 +68,18 @@ build: see [team dev setup](docs/team-dev-setup.md).
 
 ## Fast checks before committing or building
 
-```bash
-python3 scripts/verify-local.py
+Run `python3 scripts/verify-local.py` on your reviewed checkout. It selects
+affected static checks and parses changed Swift, including committed branch edits.
+The base comes from local `upstream/HEAD`, then `origin/HEAD`; nothing is fetched.
+Use `--list` to preview, `--all` for the full CI static recipe, or `--affected BASE`
+to choose a different static comparison base.
+
+Checks cover localization, project wiring, package grouping, generated policy
+and feature flags. Unknown inputs or a missing base select the full static recipe.
+CI also keeps the full static recipe. Failures print a focused rerun command:
+
+```sh
+python3 scripts/verify-local.py --only project
 ```
 
 It picks the static checks your diff touches (localization, project and test

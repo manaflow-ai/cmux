@@ -15,13 +15,34 @@ extension UpdateDriver: @preconcurrency SPUUpdaterDelegate {
             return override
         }
 #endif
-        // The feed URL is baked into Info.plist at build time:
-        // - Stable releases use the stable appcast URL
-        // - cmux NIGHTLY and cmux RC have their channel appcast URL injected by CI
+        let url = resolvedFeedURL()
+        recordFeedURLString(url, usedFallback: feedOverride == nil && UpdateFeedResolver().resolve(infoFeedURL: infoFeedURLProvider()).usedFallback)
+        return url
+    }
+
+    /// The feed every check reads: a test feed override, else the feed baked into Info.plist
+    /// (stable releases use the stable appcast; cmux NIGHTLY and RC have their channel appcast
+    /// URL injected by CI).
+    func resolvedFeedURL() -> String {
+        if let feedOverride {
+            log.append("update channel: test feed \(feedOverride)")
+            return feedOverride
+        }
         let resolved = UpdateFeedResolver().resolve(infoFeedURL: infoFeedURLProvider())
         log.append("update channel: \(resolved.channel.rawValue)")
-        recordFeedURLString(resolved.url, usedFallback: resolved.usedFallback)
         return resolved.url
+    }
+
+    /// cmux-next appcast items carry `sparkle:channel` cmux-next; only a build whose baked
+    /// feed is the cmux-next feed accepts them. Every other build allows no extra channel,
+    /// so it ignores those items even if a wrong feed URL served them.
+    func allowedChannels(for updater: SPUUpdater) -> Set<String> {
+        UpdateFeedResolver().resolve(infoFeedURL: infoFeedURLProvider()).channel.allowedSparkleChannels
+    }
+
+    func updater(_ updater: SPUUpdater, willInstallUpdate item: SUAppcastItem) {
+        log.append("will install \(item.versionString)")
+        actionDelegate?.updaterWillInstallUpdate(build: item.versionString)
     }
 
     func updater(_ updater: SPUUpdater, willScheduleUpdateCheckAfterDelay delay: TimeInterval) {
@@ -120,11 +141,18 @@ extension UpdateDriver: @preconcurrency SPUUpdaterDelegate {
     func handleDidFinishUpdateCycle(_ updateCheck: SPUUpdateCheck, error: (any Error)?) {
         let errorText = error.map(formatErrorForLog) ?? "none"
         log.append("update cycle finished (check=\(updateCheck.rawValue), error=\(errorText))")
+        relaunchGate.cancel()
         eventDelegate?.updateDriverDidFinishCycle(updateCheck, error: error.map { $0 as NSError })
     }
 
     func updater(_ updater: SPUUpdater, userDidMake _: SPUUserUpdateChoice, forUpdate _: SUAppcastItem, state _: SPUUserUpdateState) {
         model.clearDetectedUpdate()
+    }
+
+    func updater(_ updater: SPUUpdater,
+                 shouldPostponeRelaunchForUpdate item: SUAppcastItem,
+                 untilInvokingBlock installHandler: @escaping () -> Void) -> Bool {
+        handleShouldPostponeRelaunch(installHandler: installHandler)
     }
 
     func updaterWillRelaunchApplication(_ updater: SPUUpdater) {

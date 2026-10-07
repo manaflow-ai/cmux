@@ -115,14 +115,11 @@ DIFF_SIDECAR_EXACT = {
     "scripts/generate-diff-sidecar-types.sh",
     "scripts/install-rust-ci.sh",
     "scripts/run-diff-sidecar-cargo.sh",
-    "Sources/Panels/CmuxDiffViewerURLSchemeHandler.swift",
-    "Sources/Panels/DiffSidecarBridge.swift",
     "webviews/bun.lock",
     "webviews/package.json",
 }
 DIFF_SIDECAR_PREFIXES = (
     "Native/DiffSidecar/",
-    "Packages/macOS/CmuxBrowser/Sources/CmuxBrowser/DiffViewer/",
     "webviews/bench/",
     "webviews/src/diff/",
 )
@@ -175,10 +172,26 @@ UNIT_TESTS_EXCLUDED_PREFIXES = (
 
 REACT_EXACT = {
     "scripts/build-webviews-app.sh",
+    "scripts/check-webviews-bun-version.sh",
     "scripts/check-webviews-react-compiler.mjs",
+    # The generated agent pane page, its build and regenerate scripts, and
+    # the merge driver that keeps it mergeable: react-apps-check verifies
+    # the page and runs the driver's test.
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/index.html",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/pane.js",
+    "scripts/cmux-next/build-agent-pane-web.sh",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextPalette/Resources/palette-ranker.js",
+    "scripts/cmux-next/build-palette-ranker.sh",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity/index.html",
+    "scripts/cmux-next/build-agent-activity-web.sh",
+    "scripts/cmux-next/regenerate-web-bundles.sh",
+    ".gitattributes",
+    "scripts/install-git-hooks.sh",
+    "tests/test_install_git_hooks.py",
 }
 REACT_PREFIXES = (
     "Resources/markdown-viewer/",
+    "config/vite-plus/",
     "webviews/",
 )
 

@@ -3,22 +3,35 @@
 # runs on a GitHub runner and as a fleet ci-step (`cmux-ci run`, hq#794) from a
 # fresh checkout of the commit on a mini.
 #
-# Usage: package-test-lane.sh [run|select|bonsplit|packages|ghostty-sha]
+# Usage: package-test-lane.sh [run|select|packages|ghostty-sha]
 #          [--event[=]NAME] [--full-suite[=]true|false]
 #
 #   run       (default) select, then set up what the selection needs (Xcode,
-#             GhosttyKit.xcframework, Rust) and run the Bonsplit and package
-#             tests.
+#             GhosttyKit.xcframework) and run the package tests.
 #   select    choose the packages. Under Actions it writes the step outputs
-#             (selected_packages, selected_count, bonsplit, needs_ghosttykit,
-#             needs_rust, changed_files) to GITHUB_OUTPUT.
-#   bonsplit  run the Bonsplit package tests.
+#             (selected_packages, selected_count, needs_ghosttykit,
+#             changed_files) to GITHUB_OUTPUT.
 #   packages  run the packages listed in the file SELECTED_PACKAGES.
 #   prebuild-one PACKAGE LOG
 #             build PACKAGE and its tests into LOG; the packages phase runs
 #             several of these at once before its serial test pass.
 #   ghostty-sha  print the GhosttyKit revision a download would use (empty
 #             when a ghostty submodule checkout provides it).
+#   suite PACKAGE_DIR FILTER[,FILTER...] [FILTER[,FILTER...]...]
+#             a lane's focused gate: select Xcode (CMUX_CI_XCODE_APP), fetch
+#             GhosttyKit when the package names it, build PACKAGE_DIR (a
+#             Packages/ path) with its tests ONCE, then run `swift test
+#             --skip-build --filter FILTER` for each filter in turn under the
+#             hang watchdog. Filters come as comma lists, separate arguments,
+#             or both. A failing suite does not stop the ones after it; the
+#             summary lists every suite and the step fails when any failed. A
+#             filter that runs no test fails. The watchdog limits apply to
+#             each suite (CMUX_SWIFT_PACKAGE_TEST_TIMEOUT_SECONDS, 900 s), so N
+#             suites can take N times that; cmux-ci's --timeout covers the step.
+#             Lanes: cmux-ci run --class light --script
+#             scripts/ci/package-test-lane.sh --ref SHA --arg=suite
+#             --arg=Packages/macOS/CmuxNext --arg=SuiteA,SuiteB,SuiteC
+#             --env CMUX_CI_XCODE_APP=/Applications/Xcode_26.6.app
 #
 # --event and --full-suite default to EVENT_NAME and FULL_SUITE. Run from the
 # repository root; every helper path is relative to it.
@@ -26,9 +39,51 @@ set -euo pipefail
 
 phase=run
 case "${1:-}" in
-  run|select|bonsplit|packages|ghostty-sha) phase="$1"; shift ;;
+  run|select|packages|ghostty-sha) phase="$1"; shift ;;
   prebuild-one) phase="$1"; prebuild_package="$2"; prebuild_log="$3"; shift 3 ;;
+  suite)
+    phase="$1"; suite_package="${2:-}"
+    if [ "$#" -lt 3 ]; then
+      echo "usage: package-test-lane.sh suite PACKAGE_DIR FILTER[,FILTER...] [FILTER...]" >&2; exit 2
+    fi
+    # A Packages/ path inside the checkout, and filters that are not options.
+    if ! [[ "$suite_package" =~ ^Packages/[A-Za-z0-9_][A-Za-z0-9_./-]*$ ]] || [[ "$suite_package" == *..* ]] \
+      || [ ! -f "$suite_package/Package.swift" ]; then
+      echo "package-test-lane.sh: suite needs a package directory under Packages/ (got '$suite_package')" >&2; exit 2
+    fi
+    shift 2
+    suite_filters=()
+    for suite_arg in "$@"; do
+      if [[ "$suite_arg" == *$'\n'* ]]; then
+        echo "package-test-lane.sh: a suite filter has a newline (got '$suite_arg')" >&2; exit 2
+      fi
+      # Split on commas, keeping empty fields so "A,,B" and "A," are refused.
+      IFS=, read -r -a suite_parts <<< "$suite_arg,"
+      for suite_filter in ${suite_parts[@]+"${suite_parts[@]}"}; do
+        if ! [[ "$suite_filter" =~ ^[A-Za-z0-9_][A-Za-z0-9_./:-]*$ ]]; then
+          echo "package-test-lane.sh: suite needs test filters such as SuiteA,SuiteB (got '$suite_arg')" >&2; exit 2
+        fi
+        # A trailing '.' or '/' (`CmuxNextAppTests.`, copied from the route's
+        # regex) matches no test, so the step built everything for nothing.
+        case "$suite_filter" in
+          *.|*/)
+            echo "package-test-lane.sh: suite filter '$suite_filter' ends with '${suite_filter: -1}'; pass the target name (CmuxNextAppTests) or Target.Suite/test" >&2; exit 2 ;;
+        esac
+        suite_filters+=("$suite_filter")
+      done
+    done
+    set --
+    ;;
 esac
+# Swift Testing runs many test cases at once (up to twice the core count).
+# The CmuxNext full run then oversubscribes the main actor: on 2026-10-04 a
+# queued main-actor reload waited 55 s, past test deadlines. Cap the width at
+# the physical core count unless the caller set one. The variable is
+# experimental in swift-testing and is ignored by a toolchain without it.
+if [ -z "${SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH:-}" ]; then
+  SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH="$(sysctl -n hw.physicalcpu 2>/dev/null || echo 4)"
+  export SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH
+fi
 event="${EVENT_NAME:-}"
 full_suite="${FULL_SUITE:-false}"
 while [ "$#" -gt 0 ]; do
@@ -53,15 +108,6 @@ output() {
   fi
 }
 
-# A fleet step starts from a worktree without submodules. Bonsplit is a local
-# package of several packages and is read by the selector, so it has to be
-# there before anything else. A GitHub checkout already has it.
-ensure_bonsplit() {
-  if [ ! -f vendor/bonsplit/Package.swift ]; then
-    git submodule update --init vendor/bonsplit
-  fi
-}
-
 # The selection needs the commit's first parent. A GitHub checkout fetches
 # depth 2; a fleet step's worktree may be shallow, so fetch the parent there.
 ensure_parent() {
@@ -73,81 +119,30 @@ ensure_parent() {
   git fetch --no-tags --no-write-fetch-head --depth=2 "$remote" "$(git rev-parse HEAD)" || true
 }
 
+# A package whose manifest names GhosttyKit.xcframework has a binaryTarget on
+# the xcframework at the repository root: the lane downloads it first, and its
+# `swift test` may exit 1 on a cosmetic binaryTarget diagnostic (test_package).
+references_ghosttykit() {
+  local dir
+  dir="$(find Packages -mindepth 2 -maxdepth 2 -type d -name "$1" -print -quit)"
+  [ -n "$dir" ] && grep -q 'GhosttyKit\.xcframework' "$dir/Package.swift" 2>/dev/null
+}
+
 select_packages() {
   PACKAGES=(
     CMUXAuthCore
-    CmuxBrowser
-    CmuxCanvasUI
-    CmuxCloud
-    CmuxCloudMachines
-    CmuxCloudTui
-    CmuxComputerUse
-    CmuxCore
-    CmuxRemoteDaemon
-    CmuxRemoteWorkspace
-    CmuxRemoteSession
-    CmuxAgentChat
-    CmuxAgentSessionStore
     CmuxAuthRuntime
-    CmuxWorkspacePresence
     CmuxIrohTransport
     CmuxIrxTransport
-    CmuxHive
-    CmuxCommandPalette
-    CmuxControlSocket
-    CmuxFoundation
-    CmuxGit
-    CmuxMobileTerminalKit
-    CmuxMobileWorkspace
-    CmuxNotifications
-    CmuxSettings
-    CmuxSettingsUI
-    CmuxSidebarGit
-    CmuxSurfaceCatalogModel
-    CmuxSudoBroker
-    CmuxSudoBrokerUI
-    CmuxTerminal
-    CmuxTerminalCore
-    CmuxTerminalImport
-    CmuxTerminalPrediction
     CmuxUpdater
-    CmuxWorkspaces
-    CMUXAgentLaunch
-    CmuxAgentJournal
-    CmuxFilePreviewCore
-    CmuxSyntaxHighlighting
-    CmuxAppKitSupportUI
-    CmuxCanvas
-    CmuxCloudBannerCore
-    CmuxCloudImagePaste
-    CmuxCloudTunnelCore
-    CMUXDebugLog
-    CmuxExtensionKit
-    CmuxFeedback
-    CmuxLiveEval
-    CmuxPanes
     CmuxPhonePush
-    CMUXProjectModel
-    CmuxSidebar
-    CmuxSidebarInterpreterService
-    CmuxSimulator
-    CmuxSwiftRender
-    CmuxSwiftRenderUI
-    CmuxTestSupport
-    CmuxUpdaterUI
-    CmuxWindowing
   )
 
   changed="$work/changed-files.txt"
   selected="$work/selected-packages.txt"
-  run_bonsplit=false
   if { [ "$event" = "pull_request" ] || [ "$event" = "merge_group" ]; } \
     && git diff --no-renames --name-only HEAD^1 HEAD > "$changed" 2>/dev/null; then
     output "changed_files=$changed"
-    # vendor/bonsplit is a submodule, so a revision bump is the bare path.
-    if grep -qE '^vendor/bonsplit(/|$)' "$changed" || grep -qxF '.github/workflows/ci.yml' "$changed"; then
-      run_bonsplit=true
-    fi
     selection_args=(--changed-files "$changed")
     if [ "$full_suite" != "true" ]; then
       # Match the router's candidate filtering even for mixed PRs.
@@ -161,30 +156,33 @@ select_packages() {
       exit 1
     fi
     echo "Diff unavailable; running every package."
-    run_bonsplit=true
     printf '%s\n' "${PACKAGES[@]}" > "$selected"
   fi
-  if [ "$run_bonsplit" = true ]; then
-    output "bonsplit=true"
-  fi
-
   count="$(wc -l < "$selected" | tr -d ' ')"
   output "selected_packages=$selected"
   output "selected_count=$count"
 
-  if grep -qxE 'CmuxTerminal|CmuxTerminalCore|CmuxCloudTui|CmuxCloud' "$selected"; then
-    needs_ghosttykit=true
-  else
-    needs_ghosttykit=false
-  fi
-  if grep -qxF CmuxCommandPalette "$selected"; then
-    needs_rust=true
-  else
-    needs_rust=false
-  fi
+  needs_ghosttykit=false
+  while IFS= read -r pkg; do
+    if [ -n "$pkg" ] && references_ghosttykit "$pkg"; then
+      needs_ghosttykit=true
+    fi
+  done < "$selected"
   output "needs_ghosttykit=$needs_ghosttykit"
-  output "needs_rust=$needs_rust"
+  write_package_input_keys
   echo "Selected $count of ${#PACKAGES[@]} Swift packages."
+}
+
+write_package_input_keys() {
+  [ -f "${selected:-}" ] || return 0
+  local receipt_file="$work/package-input-keys.json" receipt
+  python3 scripts/ci/package_input_key.py --root . --packages-file "$selected" --output "$receipt_file"
+  receipt="$(tr -d "\n" < "$receipt_file")"
+  output "package_input_keys=$receipt"
+  # Fleet steps do not receive GITHUB_OUTPUT; this marker is copied back by the
+  # workflow wrapper alongside the interface-fingerprint receipt.
+  printf 'CMUX_PACKAGE_INPUT_KEYS=%s\n' "$receipt"
+  PACKAGE_INPUT_KEYS_FILE="$receipt_file"
 }
 
 # The workflow's "Select Xcode" step already exported DEVELOPER_DIR through
@@ -241,77 +239,58 @@ interface_fingerprint() {
   echo "::endgroup::"
 }
 
-install_rust() {
-  ./scripts/install-rust-ci.sh
-  # install-rust-ci.sh hands PATH to later workflow steps; this shell needs it now.
-  export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$HOME/.cargo/bin:$PATH"
-}
-
-run_bonsplit_tests() {
-  # Blacksmith macOS runners intermittently abort a package's test
-  # runner at startup. Retry exactly once only for the known signal
-  # 5/6 crash immediately after build and before test output, matching
-  # the package loop below.
-  # Output streams live through the hang watchdog, which fails a run
-  # whose tests stop making progress (see the package loop below).
-  log="$(mktemp -t bonsplit-test.XXXXXX)"
-  run_swift_test() {
-    test_status=0
-    python3 scripts/ci/hung_test_watchdog.py \
-      --stall-seconds "${CMUX_SWIFT_TEST_STALL_SECONDS:-180}" \
-      --timeout-seconds "${CMUX_SWIFT_PACKAGE_TEST_TIMEOUT_SECONDS:-900}" \
-      --sample-seconds 5 --label Bonsplit --log "$log" \
-      -- swift test --package-path vendor/bonsplit < /dev/null || test_status=$?
-  }
-  run_swift_test
-  if [ "$test_status" -ne 0 ] \
-    && grep -Fq 'Build complete!' "$log" \
-    && grep -Eq 'Exited with unexpected signal code [56]([^0-9]|$)' "$log" \
-    && ! grep -Eq '^(Test Suite|Test Case|◇ |↳ |✔ |✘ )' "$log"; then
-    echo "Test runner crashed at startup (runner flake); retrying Bonsplit once."
-    run_swift_test
-  fi
-  if [ "$test_status" -ne 0 ]; then
-    exit "$test_status"
-  fi
-  python3 scripts/ci/require_swift_test_execution.py --log "$log"
-}
-
 # Sets pkgdir and swift_test_args for one package. The prebuild and the test
 # pass share them, so the test pass finds the prebuilt products up to date.
 package_args() {
   local pkg="$1"
-  # Packages live under group folders (Packages/{Shared,iOS,macOS}/);
-  # resolve the actual directory so this list stays group-agnostic.
-  pkgdir="$(find Packages -mindepth 2 -maxdepth 2 -type d -name "$pkg" -print -quit)"
+  pkgdir=""
+  if [[ "$pkg" == */* ]]; then
+    # A path is accepted only when it is exactly Packages/<group>/<name> with a
+    # Package.swift (2026-10-04: a path looked up as a name compiled nothing).
+    if [[ "$pkg" =~ ^Packages/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/?$ && "$pkg" != *..* && -f "${pkg%/}/Package.swift" ]]; then
+      pkgdir="${pkg%/}"
+    fi
+  elif [[ "$pkg" =~ ^[A-Za-z0-9_.-]+$ ]]; then
+    # Packages live under group folders (Packages/{Shared,iOS,macOS}/);
+    # resolve the actual directory so this list stays group-agnostic.
+    pkgdir="$(find Packages -mindepth 2 -maxdepth 2 -type d -name "$pkg" -print -quit)"
+    [ -z "$pkgdir" ] || [ -f "$pkgdir/Package.swift" ] || pkgdir=""
+  fi
   if [ -z "$pkgdir" ]; then
-    echo "package '$pkg' not found under Packages/*/ (renamed or moved?)"
+    echo "package '$pkg' not found: give a name under Packages/*/ or a Packages/<group>/<name> path with a Package.swift"
     return 1
   fi
   swift_test_args=(--package-path "$pkgdir")
-  # Preserve the notification workflow's warning gate without a
-  # second package build or changing the existing startup retry.
-  case "$pkg" in
-    CMUXAgentLaunch|CmuxAgentJournal)
-      swift_test_args+=(-Xswiftc -warnings-as-errors)
-      ;;
-  esac
 }
 
-# One package's build, for prebuild_packages. It never fails the lane: a
+# One package's build. It exits non-zero when the package is not found or its
+# build fails, so a compile step run on its own is never green without a
+# compile (2026-10-04 false green). prebuild_packages ignores its status: a
 # package whose prebuild fails is built again by its `swift test`, which
 # reports the error in that package's group as before.
 prebuild_one() {
   local pkg="$1" log="$2" started=$SECONDS status=0
-  package_args "$pkg" > "$log" 2>&1 || { echo "Prebuild skipped $pkg (not found)."; return 0; }
+  if ! package_args "$pkg" > "$log" 2>&1; then
+    cat "$log" >&2
+    echo "error: prebuild of $pkg compiled nothing: package not found." >&2
+    return 2
+  fi
   python3 scripts/ci/run_with_timeout.py \
     --timeout-seconds "${CMUX_SWIFT_PACKAGE_TEST_TIMEOUT_SECONDS:-900}" \
     -- swift build --build-tests "${swift_test_args[@]}" > "$log" 2>&1 < /dev/null || status=$?
   if [ "$status" -eq 0 ]; then
     echo "Prebuilt $pkg in $((SECONDS - started))s."
-  else
-    echo "Prebuild of $pkg exited $status after $((SECONDS - started))s; its swift test builds whatever is still missing (the GhosttyKit packages exit 1 here on the known binaryTarget diagnostic)."
+    return 0
   fi
+  # The GhosttyKit packages exit 1 on the known cosmetic binaryTarget
+  # diagnostic after a complete build; anything else is a failed build.
+  if [ "$status" -eq 1 ] && grep -q 'GhosttyKit\.xcframework' "$pkgdir/Package.swift" 2>/dev/null \
+    && grep -Fq 'Build complete!' "$log" && grep -Eq 'unexpected binary' "$log"; then
+    echo "Prebuilt $pkg in $((SECONDS - started))s (tolerated the GhosttyKit binaryTarget diagnostic)."
+    return 0
+  fi
+  echo "Prebuild of $pkg exited $status after $((SECONDS - started))s (log: $log)." >&2
+  return "$status"
 }
 
 # Every package is its own SwiftPM root with its own .build, so each selected
@@ -337,15 +316,13 @@ prebuild_packages() {
 }
 
 run_package_tests() {
-  # The cmux-unit scheme only runs the cmuxTests app-host suite; it does
-  # not execute the SPM package test targets. Run them here so package
-  # tests (settings stores, secret-file migration, socket-control
+  # No Xcode scheme executes the SPM package test targets. Run them here
+  # so package tests (settings stores, secret-file migration, socket-control
   # convergence, etc.) are a real CI gate, not just compiled.
   # Scoped to packages that build headlessly via SwiftPM (no GhosttyKit /
   # app-target dependency). Add a package here once its `swift test`
-  # is confirmed to resolve standalone. The GhosttyKit-referencing
-  # packages (CmuxTerminalCore and the terminal packages stacked on
-  # it) are the exception: their binaryTarget only needs the
+  # is confirmed to resolve standalone. A GhosttyKit-referencing
+  # package (references_ghosttykit) is the exception: its binaryTarget only needs the
   # xcframework present at the repo root (downloaded earlier in this
   # lane), and their test runners link a C stub for the @_silgen_name
   # symbol instead of the GhosttyKit archive.
@@ -389,29 +366,45 @@ run_package_tests() {
       END { exit found ? 0 : 1 }
     ' "$log"
   }
-  if grep -qxF CmuxCommandPalette "$selected"; then
-    # CmuxCommandPalette's nucleo FFI tests load the Rust dylib through
-    # CMUX_NUCLEO_FFI_LIB (they skip when it is absent, so build it here
-    # to keep the FFI parity suite a real gate).
-    cargo build --manifest-path Native/CommandPaletteNucleoFFI/Cargo.toml --release
-    export CMUX_NUCLEO_FFI_LIB="$PWD/Native/CommandPaletteNucleoFFI/target/release/libcmux_command_palette_nucleo_ffi.dylib"
-  fi
-  # Every selected package runs even after another one fails, so one
-  # broken or hung package cannot hide the results of the packages
-  # after it. test_package returns the package's status instead of
-  # exiting; the summary at the end fails the lane.
+  # Every selected package runs even after another one fails, so one broken
+  # or hung package cannot hide the results of the packages after it.
+  # test_package returns the package's status instead of exiting; every
+  # package gets a summary row, and the summary at the end fails the lane.
   prebuild_packages
+  run_default_package_test() {
+    # Blacksmith macOS runners intermittently abort a package's
+    # test runner at startup (signal 5/6 immediately after "Build
+    # complete!", zero test output). That is a runner flake, not a
+    # test failure: retry exactly once, and only when no test
+    # output was emitted.
+    run_swift_test
+    if [ "$test_status" -ne 0 ] \
+      && grep -Fq 'Build complete!' "$log" \
+      && grep -Eq 'Exited with unexpected signal code [56]([^0-9]|$)' "$log" \
+      && ! grep -Eq '^(Test Suite|Test Case|◇ |↳ |✔ |✘ )' "$log"; then
+      echo "Test runner crashed at startup (runner flake); retrying $pkg once."
+      run_swift_test
+    fi
+    if [ "$test_status" -ne 0 ]; then
+      return "$test_status"
+    fi
+    python3 scripts/ci/require_swift_test_execution.py --log "$log" || return $?
+  }
   test_package() {
     local pkg="$1"
     package_args "$pkg" || return 1
     case "$pkg" in
-    # CmuxFoundation has several process-tree suites whose child
-    # fixtures share global process resources; run each suite in its
-    # own Swift Testing process just like the auth/transport suites.
-    CmuxAgentChat|CmuxAuthRuntime|CmuxFoundation|CmuxIrohTransport|CmuxIrxTransport)
+    # These packages have process-tree suites whose child fixtures
+    # share global process resources; run each suite in its own Swift
+    # Testing process.
+    CmuxAuthRuntime|CmuxIrohTransport|CmuxIrxTransport)
       ./scripts/ci/run-swift-testing-suites.sh "$pkgdir" || return $?
       ;;
-    CmuxTerminal|CmuxTerminalCore|CmuxCloudTui|CmuxCloud)
+    *)
+      if ! references_ghosttykit "$pkg"; then
+        run_default_package_test
+        return $?
+      fi
       run_swift_test
       if [ "$test_status" -ne 0 ]; then
         if [ "$test_status" -eq 1 ] \
@@ -427,25 +420,6 @@ run_package_tests() {
       else
         python3 scripts/ci/require_swift_test_execution.py --log "$log" || return $?
       fi
-      ;;
-    *)
-      # Blacksmith macOS runners intermittently abort a package's
-      # test runner at startup (signal 5/6 immediately after "Build
-      # complete!", zero test output). That is a runner flake, not a
-      # test failure: retry exactly once, and only when no test
-      # output was emitted.
-      run_swift_test
-      if [ "$test_status" -ne 0 ] \
-        && grep -Fq 'Build complete!' "$log" \
-        && grep -Eq 'Exited with unexpected signal code [56]([^0-9]|$)' "$log" \
-        && ! grep -Eq '^(Test Suite|Test Case|◇ |↳ |✔ |✘ )' "$log"; then
-        echo "Test runner crashed at startup (runner flake); retrying $pkg once."
-        run_swift_test
-      fi
-      if [ "$test_status" -ne 0 ]; then
-        return "$test_status"
-      fi
-      python3 scripts/ci/require_swift_test_execution.py --log "$log" || return $?
       ;;
     esac
   }
@@ -492,7 +466,73 @@ run_package_tests() {
   fi
 }
 
+run_suite() {
+  select_xcode
+  echo "Xcode: $DEVELOPER_DIR"
+  if grep -q 'GhosttyKit\.xcframework' "$suite_package/Package.swift"; then
+    ensure_ghosttykit
+  fi
+  # CMUX_SWIFT_SUITE_CONFIGURATION=release builds the suites optimized (measurements of what the
+  # user runs); @testable imports then need -enable-testing. The default stays debug.
+  local configuration=(-c "${CMUX_SWIFT_SUITE_CONFIGURATION:-debug}")
+  # Release keeps DEBUG defined, so test helpers behind #if DEBUG still build; the code is optimized.
+  # The Xcode 26.6 optimizer crashes in CopyPropagation on CmuxNextSettingsTests (signal 6), so a
+  # release suite build turns that one SIL pass off.
+  if [ "${CMUX_SWIFT_SUITE_CONFIGURATION:-debug}" = release ]; then
+    configuration+=(-Xswiftc -enable-testing -Xswiftc -DDEBUG -Xswiftc -Xllvm -Xswiftc -sil-disable-pass=copy-propagation)
+  fi
+  echo "::group::swift build --build-tests ${configuration[*]} $suite_package"
+  swift build --build-tests "${configuration[@]}" --package-path "$suite_package" < /dev/null
+  echo "::endgroup::"
+  # swift build copies String Catalogs into the resource bundles uncompiled; without the
+  # compiled <lang>.lproj tables, localization suites fail (cmux-next.yml runs the same step).
+  if [ -x scripts/cmux-next/compile-string-catalogs.sh ]; then
+    (cd "$suite_package" && "$OLDPWD/scripts/cmux-next/compile-string-catalogs.sh")
+  fi
+  # One build serves every suite. Each suite runs in its own `swift test` so the
+  # summary has a result per suite and one failure does not hide the others.
+  local log filter status started result failed=0 first_failure_status=0 rows=()
+  for filter in "${suite_filters[@]}"; do
+    echo "::group::swift test --filter $filter"
+    log="$(mktemp -t swift-suite-test.XXXXXX)"
+    started=$SECONDS
+    status=0
+    python3 scripts/ci/hung_test_watchdog.py \
+      --stall-seconds "${CMUX_SWIFT_TEST_STALL_SECONDS:-180}" \
+      --timeout-seconds "${CMUX_SWIFT_PACKAGE_TEST_TIMEOUT_SECONDS:-900}" \
+      --sample-seconds 5 --label "$filter" --log "$log" \
+      -- swift test "${configuration[@]}" --package-path "$suite_package" --skip-build --filter "$filter" < /dev/null || status=$?
+    if [ "$status" -eq 0 ]; then
+      python3 scripts/ci/require_swift_test_execution.py --log "$log" || status=$?
+    fi
+    echo "::endgroup::"
+    if [ "$status" -eq 0 ]; then
+      result=passed
+    else
+      failed=$((failed + 1))
+      [ "$first_failure_status" -ne 0 ] || first_failure_status="$status"
+      if [ "$status" -eq 124 ]; then result="stalled/timeout"; else result="failed (exit $status)"; fi
+      echo "::error title=Swift suite failed::$filter in $suite_package: $result after $((SECONDS - started))s"
+    fi
+    rows+=("$(printf '%-48s %-18s %6ss' "$filter" "$result" "$((SECONDS - started))")")
+  done
+  local table
+  table="$(printf '%-48s %-18s %7s\n' suite result time; printf '%s\n' "${rows[@]}")"
+  printf 'Swift suite results (%s):\n%s\n' "$suite_package" "$table"
+  if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+    printf '### Swift suites (%s)\n\n```\n%s\n```\n' "$suite_package" "$table" >> "$GITHUB_STEP_SUMMARY"
+  fi
+  if [ "$failed" -ne 0 ]; then
+    echo "$failed of ${#suite_filters[@]} suites failed."
+    exit "$first_failure_status"
+  fi
+  echo "All ${#suite_filters[@]} suites passed."
+}
+
 case "$phase" in
+  suite)
+    run_suite
+    ;;
   prebuild-one)
     prebuild_one "$prebuild_package" "$prebuild_log"
     ;;
@@ -501,18 +541,13 @@ case "$phase" in
     echo "${GHOSTTY_SHA:-}"
     ;;
   select)
-    ensure_bonsplit
     ensure_parent
     select_packages
-    ;;
-  bonsplit)
-    run_bonsplit_tests
     ;;
   packages)
     run_package_tests
     ;;
   run)
-    ensure_bonsplit
     ensure_parent
     # Under Actions the select step already wrote the outputs; this run only
     # needs the files.
@@ -521,12 +556,6 @@ case "$phase" in
     interface_fingerprint
     if [ "$needs_ghosttykit" = true ]; then
       ensure_ghosttykit
-    fi
-    if [ "$needs_rust" = true ]; then
-      install_rust
-    fi
-    if [ "$run_bonsplit" = true ]; then
-      run_bonsplit_tests
     fi
     SELECTED_PACKAGES="$selected" SELECTED_COUNT="$count" run_package_tests
     ;;

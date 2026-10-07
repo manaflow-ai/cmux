@@ -13,22 +13,28 @@ GENERATED_CONTRACT_FILES = {
     # quicktype emits one monolithic Codable model file for this wire contract;
     # schema additions must change its generated line count atomically.
     Path("Packages/Shared/CmuxIrxTransport/Sources/CmuxIrxTransport/ControlPlane/V2WireModels.swift"),
-    # generate-cmux-config-schema.py embeds web/data/cmux.schema.json line for
-    # line, so every new schema key or enum value adds a line here.
-    Path("Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/ConfigValidation/CmuxConfigSchema.generated.swift"),
 }
 
 
 def main():
     base = git("merge-base", "HEAD", "origin/main")
-    paths = set(git("diff", "--name-only", base, "--", "*.swift").splitlines())
+    # A moved file keeps the budget of its old path, so a rename is not
+    # treated as a new file.
+    previous = {}
+    paths = set()
+    for line in git("-c", "diff.renameLimit=0", "diff", "-M", "--name-status", base, "--", "*.swift").splitlines():
+        fields = line.split("\t")
+        if fields[0].startswith("R") and len(fields) == 3:
+            previous[fields[2]] = fields[1]
+        paths.add(fields[-1])
     paths.update(git("ls-files", "--others", "--exclude-standard", "--", "*.swift").splitlines())
     failures = []
     for name in sorted(paths):
         path = Path(name)
         if not path.is_file() or path in GENERATED_CONTRACT_FILES:
             continue
-        old = subprocess.run(["git", "show", f"{base}:{name}"], capture_output=True, text=True)
+        old_name = previous.get(name, name)
+        old = subprocess.run(["git", "show", f"{base}:{old_name}"], capture_output=True, text=True)
         budget = max(500, len(old.stdout.splitlines())) if old.returncode == 0 else 500
         count = len(path.read_text(encoding="utf-8").splitlines())
         if count > budget:

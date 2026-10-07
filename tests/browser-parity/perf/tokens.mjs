@@ -1,6 +1,5 @@
-// Token counts for bench.mjs: o200k_base through js-tiktoken when it
-// resolves from here (any node_modules up the tree), else bytes / 4.
-// TOKENIZER names which one counted, and bench.mjs records it per run.
+// Token counts for printed output: o200k_base through js-tiktoken when it is
+// installed, else bytes / 4.
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
@@ -12,9 +11,7 @@ try {
 } catch {
   encoder = null;
 }
-
 export const TOKENIZER = encoder ? "o200k_base (js-tiktoken)" : "bytes/4 (js-tiktoken not installed)";
-
 export function tokens(text) {
   if (!text) return 0;
   if (!encoder) return Math.ceil(Buffer.byteLength(text) / 4);

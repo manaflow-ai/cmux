@@ -30,7 +30,7 @@ export type DiffSource = { "kind": "patch", path: string, } | { "kind": "unstage
 
 export type DiffTransportConfig = { kind: DiffTransportKind, endpoint: string, protocolVersion: number, };
 
-export type DiffTransportKind = "fetch" | "webSocket" | "webKit";
+export type DiffTransportKind = "fetch" | "webSocket" | "webKit" | "page";
 
 export type HandshakeResult = { protocolVersion: number, capabilities: Array<string>, };
 

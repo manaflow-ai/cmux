@@ -1,5 +1,7 @@
 # Remote SSH Living Spec
 
+> The Swift `cmux` CLI verbs named here were removed in the Rust CLI cutover ([plans/cmux-next/cli.md](../plans/cmux-next/cli.md)). The CLI relay scenarios below record the Swift CLI's test matrix.
+
 Last updated: July 18, 2026
 Tracking issue: https://github.com/manaflow-ai/cmux/issues/151
 Primary PR: https://github.com/manaflow-ai/cmux/pull/1296

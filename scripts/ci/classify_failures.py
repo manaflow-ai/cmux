@@ -89,7 +89,6 @@ from guard_attribution import (  # noqa: E402
     pr_number,
     upsert_comment,
 )
-import ui_tests_dispatch  # noqa: E402
 from pr_runner_pool import LAST_OWNED_ATTEMPT  # noqa: E402
 
 MACHINE, CODE, DERIVED, UNKNOWN = "machine", "code", "derived", "unknown"
@@ -136,8 +135,6 @@ SIGNATURES = (
         "the owned runner refused the job (host busy or out of capacity)"),
     sig("product-restore-failed", MACHINE, r'^CMUX_TEST_PRODUCT_RESTORE \{.*"outcome": "failure"',
         "the compiled app-host products did not restore on this runner"),
-    sig("app-host-preparation", MACHINE, r"Unexpected app-host preparation outcome",
-        "the isolated app-host home was not prepared"),
     sig("gui-token-unavailable", MACHINE,
         r"^Could not take this Mac's gui token for the app-host tests \(take-gui exited ",
         "the runner could not acquire the GUI token for app-host tests"),
@@ -169,7 +166,6 @@ SIGNATURES = (
         step=DOWNLOAD_ARTIFACT_STEP, yields_to_code=True),
     sig("swift-testing-issue", CODE, r"^✘ (?:Test|Suite) .+ (?:recorded an issue|failed after)", "a test failed"),
     sig("xctest-failure", CODE, r"\.swift:\d+: error: -\[", "a test failed"),
-    sig("ratchet-new-failure", CODE, r"^RATCHET_NEW_FAILURE ", "a test failed that passes on main"),
     sig("compile-error", CODE, r"\S+\.(?:swift|m|mm|c|h|ts|tsx|js|py|rs|zig):\d+:\d+: error: ",
         "a compile error"),
     sig("guard-failed", CODE, r"^\s*FAIL\s+[\d.]+s\s", "a guard step failed"),
@@ -595,6 +591,35 @@ def login(item: Mapping) -> str:
 MAIN_RED, MAIN_GREEN, MAIN_UNKNOWN = "red", "green", "unknown"
 
 
+class main_full_suite:  # noqa: N801 - stands in for main's scripts/ci/main_full_suite.py
+    """The names main_red() reads from main's main_full_suite.py.
+
+    That module and its workflow live on main only (this branch deleted them
+    with the legacy app), but main_red() still reads main's full-suite state
+    through the API. Keep these values equal to main's module.
+    """
+
+    ISSUE_LABEL = "main-full-suite-failure"
+    CI_WORKFLOW_FILE = "ci.yml"
+    CI_WORKFLOW_PATH = ".github/workflows/ci.yml"
+    DISPATCH_EVENT = "workflow_dispatch"
+    TESTED_CONCLUSIONS = frozenset({"success", "failure"})
+
+    @classmethod
+    def latest_tested_run(cls, runs, branch: str = "main"):
+        """The newest completed full-suite run on the branch that went green or red."""
+        tested = [
+            run for run in runs
+            if run.get("event") == cls.DISPATCH_EVENT
+            and run.get("head_branch") == branch
+            and run.get("path") == cls.CI_WORKFLOW_PATH
+            and run.get("status") == "completed"
+            and run.get("conclusion") in cls.TESTED_CONCLUSIONS
+        ]
+        tested.sort(key=lambda run: str(run.get("created_at") or ""), reverse=True)
+        return tested[0] if tested else None
+
+
 def main_state(main: Mapping) -> str:
     """What main_red() found; {} (it failed) is unknown."""
     return str(main.get("state") or (MAIN_RED if main.get("issue") else MAIN_UNKNOWN))
@@ -607,8 +632,6 @@ def main_red(gh: GitHub) -> dict:
     Green needs main's latest completed full-suite run to have passed. No open issue is not enough:
     a token without the `issues` permission finds none, and the issue lags the run (#17258 was told
     main was green while #17286 was open and main's latest run was red)."""
-    import main_full_suite
-
     issues = list(gh.get(f"repos/{gh.repo}/issues?labels={main_full_suite.ISSUE_LABEL}&state=open&per_page=1") or [])  # type: ignore[arg-type]
     if not issues:
         body = gh.get(f"repos/{gh.repo}/actions/workflows/{main_full_suite.CI_WORKFLOW_FILE}/runs?branch=main"
@@ -1114,14 +1137,6 @@ def act(gh: GitHub, writer: Writer, run: Mapping, report: dict) -> dict:
         except RuntimeError as error:
             # GitHub refuses to re-run a run another re-run already started.
             rerun, line = False, f"Every failure is a machine failure; the re-run request failed: {code(error)}"
-        else:
-            # This token's re-run may emit no workflow_run event; start the UI
-            # test dispatch the new attempt's ui-tests job waits for.
-            path, body = ui_tests_dispatch.rerun_dispatch(report["run_id"], int(report.get("attempt") or 1) + 1)
-            try:
-                writer.call("POST", f"repos/{gh.repo}/{path}", body)
-            except RuntimeError as error:
-                print(f"::warning::could not start {ui_tests_dispatch.DISPATCH_WORKFLOW_FILE}: {code(error)}", flush=True)
     body = render_comment(report, line, rerun)
     write_summary(body)
     # A green run says so only where a failure was reported before; a green run whose macOS jobs

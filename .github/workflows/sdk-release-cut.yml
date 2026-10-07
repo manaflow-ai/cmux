@@ -211,6 +211,15 @@ jobs:
             exit 1
           }
 
+          # Last license gate before publishing: the exact validated artifacts.
+          python3 cmux-tui/bindings/check_package_license.py crate \
+            "validated-rust-sdk/cmux-sdk-$CMUX_SDK_VERSION.crate" \
+            "validated-sidebar/cmux-sidebar-$CMUX_SDK_VERSION.crate"
+          python3 cmux-tui/bindings/check_package_license.py npm "${npm_packages[0]}"
+          python3 cmux-tui/bindings/check_package_license.py wheel "${python_wheels[0]}"
+          python3 cmux-tui/bindings/check_package_license.py sdist "${python_sdists[0]}"
+          python3 cmux-tui/bindings/check_package_license.py go-module cmux-tui/bindings/go
+
           python3 cmux-tui/bindings/reconcile_registry_artifact.py check \
             --registry crates \
             --package cmux-sdk \

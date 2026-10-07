@@ -46,33 +46,24 @@ def cli(repo, *args):
 class PreflightTests(unittest.TestCase):
     def test_real_wiring_failure_then_repair_without_native_execution(self):
         with repo_fixture() as repo:
-            for name in ("lint-pbxproj-test-wiring.sh", "sync-test-wiring",
-                         "sync_test_wiring.py", "normalize-pbxproj.py"):
-                shutil.copy2(ROOT / "scripts" / name, repo / "scripts" / name)
-            for name in ("test_ci_pbxproj_test_wiring.sh", "test_sync_test_wiring.py"):
-                shutil.copy2(ROOT / "tests" / name, repo / "tests" / name)
-            shutil.copytree(ROOT / "tests/fixtures/pbxproj-test-wiring",
-                            repo / "tests/fixtures/pbxproj-test-wiring")
-            (repo / "cmuxTests").mkdir()
-            (repo / "cmuxTests/ExistingTests.swift").write_text("import Testing\n")
-            (repo / "cmux.xcodeproj").mkdir()
-            project = repo / "cmux.xcodeproj/project.pbxproj"
-            shutil.copyfile(ROOT / "tests/fixtures/pbxproj-test-wiring/base.pbxproj", project)
-            sync = [str(repo / "scripts/sync-test-wiring"), "--repo-root", str(repo)]
-            subprocess.run(sync, check=True, capture_output=True, text=True)
-            (repo / "cmuxTests/UnwiredTests.swift").write_text("import Testing\n@Test func example() {}\n")
+            lint = repo / "scripts/lint-pbxproj-test-wiring.sh"
+            shutil.copy2(ROOT / "tests/test_ci_pbxproj_test_wiring.sh",
+                         repo / "tests/test_ci_pbxproj_test_wiring.sh")
+            # A lint that accepts everything is what the regression guard catches.
+            lint.write_text("#!/usr/bin/env bash\nexit 0\n")
+            lint.chmod(0o755)
             with tempfile.TemporaryDirectory() as receipts:
                 evidence = Path(receipts) / "receipt.json"
                 failed = cli(repo, "--only", "test-wiring", "--receipt", str(evidence))
                 self.assertEqual(failed.returncode, 1, failed.stdout + failed.stderr)
-                self.assertIn("UnwiredTests.swift", failed.stdout)
+                self.assertIn("lint without --target should fail", failed.stdout)
                 self.assertIn("--only test-wiring", failed.stdout)
                 result = json.loads(evidence.read_text())
                 self.assertEqual(result["outcome"]["status"], "failed")
                 self.assertEqual(result["evidence"]["executions"][0]["argv"],
                                  ["bash", "tests/test_ci_pbxproj_test_wiring.sh"])
                 self.assertEqual(verify.receipt.check(result, "typechecking")["status"], "skipped")
-                subprocess.run(sync, check=True, capture_output=True, text=True)
+                shutil.copy2(ROOT / "scripts/lint-pbxproj-test-wiring.sh", lint)
                 fixed = cli(repo, "--only", "test-wiring", "--receipt", str(evidence))
                 self.assertEqual(fixed.returncode, 0, fixed.stdout + fixed.stderr)
                 result = json.loads(evidence.read_text())
@@ -378,15 +369,11 @@ class AffectedChecksTests(unittest.TestCase):
         with repo_fixture() as repo:
             (repo / "scripts/normalize-pbxproj.py").write_text("# changed helper")
             selected, _ = verify.affected_checks(repo, "HEAD")
-            self.assertEqual(selected, ["project-tests", "project", "test-wiring-sync", "feature-flags"])
+            self.assertEqual(selected, ["project-tests", "project", "feature-flags"])
 
-    def test_current_ci_schema_and_sync_inputs_select_their_checks(self):
+    def test_current_ci_wiring_inputs_select_their_checks(self):
         for path, expected in (
-            ("web/data/cmux.schema.json", "config-schema"),
-            ("Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/ConfigValidation/CmuxConfigSchema.generated.swift", "config-schema"),
-            ("scripts/sync-test-wiring", "test-wiring-sync"),
-            ("scripts/sync_test_wiring.py", "test-wiring-sync"),
-            ("tests/fixtures/pbxproj-test-wiring/new.pbxproj", "test-wiring-sync"),
+            ("scripts/lint-pbxproj-test-wiring.sh", "test-wiring"),
         ):
             with self.subTest(path=path), repo_fixture() as repo:
                 target = repo / path
@@ -402,12 +389,11 @@ class AffectedChecksTests(unittest.TestCase):
             (repo / "scripts/claude-launch-environment-policy.json").write_text("{}")
             selected, _ = verify.affected_checks(repo, "HEAD")
             self.assertEqual(selected, ["launch-policy", "feature-flags"])
-            output = repo / "Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/ClaudeSessionEnvironmentPolicy+Generated.swift"
-            output.parent.mkdir(parents=True)
+            output = repo / "agent-chat/adapters/claude-environment-policy.generated.ts"
+            output.parent.mkdir(parents=True, exist_ok=True)
             output.write_text("// edited generated output")
             selected, _ = verify.affected_checks(repo, "HEAD")
             self.assertIn("launch-policy", selected)
-            self.assertIn("package-groups", selected)
 
     def test_deleted_input_and_rename_keep_old_and_new_dependencies(self):
         with repo_fixture() as repo:

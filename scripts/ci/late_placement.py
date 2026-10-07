@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Move a run's post-admission jobs onto owned root runners that are idle now.
+"""Move a run's post-admission job onto an owned runner that is idle now.
 
 pr_runner_pool.py places every macOS job of a run when the run starts. The
-jobs after compile admission (the app-host shards, tests-build-and-lag and
-cli-product-tests) only start once admission finishes, often ten minutes
-later. If the owned pool was full at the start, they are committed to
+job after compile admission (cli-product-tests) only starts once admission
+finishes, often ten minutes later. If the owned pool was full at the start, they are committed to
 Blacksmith (admission's pool, or pr_retry_runner) and wait in its queue even
 when root runners have drained in the meantime.
 
@@ -16,15 +15,15 @@ ci-macos.yml takes `runners` only in the attempt that made it (output
 `attempt`), and those jobs take their owned labels.
 It reads the idle root runners live through the org route App and gives
 each job that is not already owned the root label, in owned priority order,
-up to that many idle runners. The shards and friends then run
+up to that many idle runners. cli-product-tests then runs
 test-without-building on the mini against admission's uploaded products, as
-they do after an owned admission; they never compile.
+it does after an owned admission; it never compiles.
 
 When a runner carries the pool's gui label (pr_runner_pool.gui_label(): one
 gui runner per mini), the jobs that hold the
-gui token (pr_runner_pool.gui_token_job(): the shards, tests-build-and-lag,
-cli-product-tests) take that label instead, one per idle gui runner, and the other jobs the root
-label, one per idle root runner: each mini runs one GUI job at a time.
+gui token (pr_runner_pool.gui_token_job(): cli-product-tests) take that label instead, one per
+idle gui runner, and the other jobs the root label, one per idle root runner: each mini runs one
+gui-token job at a time.
 
 Overflow off a full gui pool: each mini has one gui runner, so the gui label
 has about ten machines, and the picker charges a run's gui-token jobs to the
@@ -53,8 +52,7 @@ switch) no job queues on purpose. With no gui runner idle and either the kill
 switch on or no gui runner online, every owned gui job moves without a read.
 Otherwise an unreadable backlog moves nothing.
 
-Output `runners` is a JSON object from job key (shard-N, lag, cli-product)
-to label. Any failure prints a warning and outputs {} (no change).
+Output `runners` is a JSON object from job key (cli-product) to label. Any failure prints a warning and outputs {} (no change).
 """
 from __future__ import annotations
 
@@ -80,7 +78,7 @@ def _picker():
 pool = _picker()
 
 # Measured on 2026-09-27 (build-fleet/data/raw/2026/09/27/gh-jobs.jsonl.gz, successful jobs):
-# an app-host shard ran a p50 407 s on the gui label (523 jobs), 295 s on 12vcpu (72), 334 s on
+# a gui-token job (then an app-host shard) ran a p50 407 s on the gui label (523 jobs), 295 s on 12vcpu (72), 334 s on
 # 6vcpu macOS 26 (66) and 341 s on macOS 15 (38); a Blacksmith macOS job waited a p90 15 to 19 s on
 # the macOS 26 pools and 65 s on macOS 15 to start (5,327 jobs, most with nothing queued ahead).
 GUI_JOB_SECONDS = 407
@@ -92,7 +90,7 @@ BLACKSMITH_START_SECONDS = {"blacksmith-12vcpu-macos-26": 15, "blacksmith-6vcpu-
 DEFAULT_BLACKSMITH_START_SECONDS = 20
 # In-flight CI runs gui_backlog() reads jobs from, oldest first, and the window it reads them in: a run's gui
 # jobs queue only once its admission finished (p50 about 9 minutes), so a run younger than BACKLOG_MIN_AGE has none,
-# and one older than the window has finished its shards.
+# and one older than the window has finished its gui jobs.
 BACKLOG_LOOKUPS = 30
 BACKLOG_READERS = 8
 BACKLOG_WINDOW_MINUTES = 120
@@ -101,12 +99,9 @@ E2E_WORKFLOW = "test-e2e.yml"
 BACKLOG_WORKFLOWS = (pool.CI_WORKFLOW, E2E_WORKFLOW)
 
 
-def late_jobs(*, macos: str | None, cli: str | None, full_suite: str | None, unit_suite: str | None,
-              unit_in_admission: str | None, unit_selectors: str | None) -> tuple[str, ...]:
+def late_jobs(*, macos: str | None, full_suite: str | None) -> tuple[str, ...]:
     """The jobs that run after compile admission in this run (pr_runner_pool.run_plan)."""
-    plan = pool.run_plan(macos=macos, full_suite=full_suite, unit_suite=unit_suite,
-                         unit_in_admission=unit_in_admission, claude_wrapper=None, cli=cli,
-                         remote_daemon=None, unit_selectors=unit_selectors)
+    plan = pool.run_plan(macos=macos, full_suite=full_suite, remote_daemon=None)
     return plan.after
 
 
@@ -116,7 +111,7 @@ def root_for(xcode_app: str | None) -> str:
     return pool.root_label(std[0]) if std else ""
 
 
-def place(jobs: Sequence[str], *, owned_jobs: str, idle: int, root: str, gui: bool = True,
+def place(jobs: Sequence[str], *, owned_jobs: str, idle: int, root: str,
           gui_label: str = "", gui_idle: int = 0) -> dict[str, str]:
     """Give the not-yet-owned jobs the root label, highest priority first, one per idle runner.
 
@@ -124,8 +119,7 @@ def place(jobs: Sequence[str], *, owned_jobs: str, idle: int, root: str, gui: bo
     if not root:
         return {}
     owned = f" {owned_jobs.strip()} " if owned_jobs.strip() else " "
-    waiting = sorted((key for key in jobs if f" {key} " not in owned and (gui or not pool.gui_job(key))),
-                     key=pool.priority)
+    waiting = sorted((key for key in jobs if f" {key} " not in owned), key=pool.priority)
     if not gui_label:
         return {key: root for key in waiting[:max(0, idle)]}
     on_gui = [key for key in waiting if pool.gui_token_job(key)][:max(0, gui_idle)]
@@ -220,9 +214,7 @@ def overflow(jobs: Sequence[str], *, owned_jobs: str, gui_idle: int, gui_online:
 
 def decide(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
            backlog: Callable[[Sequence[str]], Mapping[str, int]] | None = None) -> tuple[dict[str, str], str]:
-    jobs = late_jobs(macos=env.get("MACOS"), cli=env.get("CLI"), full_suite=env.get("FULL_SUITE"),
-                     unit_suite=env.get("UNIT_SUITE"), unit_in_admission=env.get("UNIT_IN_ADMISSION"),
-                     unit_selectors=env.get("UNIT_SELECTORS"))
+    jobs = late_jobs(macos=env.get("MACOS"), full_suite=env.get("FULL_SUITE"))
     if not jobs:
         return {}, "no job runs after compile admission"
     root = root_for(env.get("ADMISSION_XCODE_APP"))
@@ -231,7 +223,7 @@ def decide(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
     if runners is None:
         return {}, "owned runners could not be read live"
     # From the runners, not the picker's gui_runner: a run the picker sent to Blacksmith has none,
-    # and its GUI jobs must still never take the root label once the minis have gui runners. Any
+    # and its gui-token jobs must still never take the root label once the minis have gui runners. Any
     # runner carrying the label counts, online or not (drained minis' runners go offline), so the
     # jobs never fall back to the root label; CI_OWNED_POOL_SLOTS no longer decides it.
     gui_label = pool.gui_label(pool.pool_label(root))
@@ -240,7 +232,6 @@ def decide(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
     free = pool.live_owned_free(runners, [root, *([gui_label] if gui_label else [])])
     idle, gui_idle = free[root], free.get(gui_label, 0)
     owned_jobs = env.get("OWNED_JOBS", "")
-    gui_on = env.get("POOL_OWNED_GUI", "").strip() != "0"
     seen = f"{idle} idle `{root}` runner(s)" + (f" and {gui_idle} idle `{gui_label}`" if gui_label else "")
     # Owned gui-token jobs the idle gui runners cannot take now: past the allowed queue, Blacksmith.
     moved_off: tuple[str, ...] = ()
@@ -248,7 +239,7 @@ def decide(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
     rounds = pool.parse_queue_rounds(env.get("POOL_QUEUE_ROUNDS"))
     rounds = 1 if rounds is None else rounds
     owned_gui = [key for key in jobs if f" {key} " in f" {owned_jobs.strip()} " and pool.gui_token_job(key)]
-    if gui_label and gui_on and retry and not pool.persistent(retry) and backlog is not None \
+    if gui_label and retry and not pool.persistent(retry) and backlog is not None \
             and len(owned_gui) > gui_idle:
         online = pool.live_online(runners, [gui_label])[gui_label]
         try:
@@ -272,7 +263,7 @@ def decide(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
             if retry_queued is not None:
                 seen += f" and {retry_queued} on `{retry}`"
     # Moved off the gui label, a job frees its place there for the not-yet-owned ones only while idle.
-    placed = place(jobs, owned_jobs=owned_jobs, idle=idle, root=root, gui=gui_on, gui_label=gui_label,
+    placed = place(jobs, owned_jobs=owned_jobs, idle=idle, root=root, gui_label=gui_label,
                    gui_idle=max(0, gui_idle - (len(owned_gui) - len(moved_off))))
     placed.update({key: retry for key in moved_off})
     if not placed:

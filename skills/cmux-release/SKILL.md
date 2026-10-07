@@ -50,3 +50,4 @@ If the pretag guard fails, run `./scripts/bump-version.sh`, commit the build-num
 ## Detailed reference
 
 - [references/release-checklist.md](references/release-checklist.md): changelog tone, failure triage, and asset-rename fallout.
+- [references/cmux-next-update-floor.md](references/cmux-next-update-floor.md): the macOS 26 appcast floor for cmux-next and how macOS 14/15 users stay on the last legacy build.

@@ -105,13 +105,10 @@ jobs:
     # Import the Apple Developer ID intermediate chain into the build keychain
     # below so signing does not depend on mutable runner login-keychain state.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
-    # Notarization wait times vary on Apple's side. The standalone Computer Use
-    # helper starts as soon as the unsigned app exists and overlaps the remaining
-    # release preparation; the outer app and final DMG still serialize afterward.
-    # v0.64.22 took 40 minutes before the Cloud tunnel extension, its Go engine
-    # build and the universal diff sidecar joined this job, and the helper's
-    # Gatekeeper propagation wait alone can now take twenty minutes, so 60 left
-    # no headroom. Keep at least 25 percent above the measured duration.
+    # Notarization wait times vary on Apple's side; the app and the final DMG
+    # serialize. v0.64.22 took 40 minutes with the legacy app's extra helper
+    # builds and notarizations. Keep at least 25 percent above the measured
+    # duration.
     timeout-minutes: 90
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
@@ -237,6 +234,16 @@ jobs:
           chmod +x "$wrapper_dir/create-dmg"
           echo "$wrapper_dir" >> "$GITHUB_PATH"
 
+      - name: Build in-tree acpmux for the app bundle
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        env:
+          CMUX_NEXT_ACPMUX_ARCHS: arm64,x86_64
+        run: |
+          set -euo pipefail
+          acpmux_bin="$RUNNER_TEMP/cmux-next-acpmux/acpmux"
+          scripts/cmux-next/build-acpmux.sh --output "$acpmux_bin"
+          echo "CMUX_NEXT_ACPMUX_BIN=$acpmux_bin" >> "$GITHUB_ENV"
+
       - name: Download pre-built GhosttyKit.xcframework
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |
@@ -267,12 +274,34 @@ jobs:
           echo "Derived Sparkle public key: $DERIVED_PUBLIC_KEY"
           echo "SPARKLE_PUBLIC_KEY=$DERIVED_PUBLIC_KEY" >> "$GITHUB_ENV"
 
-      - name: Set up Go for the Cloud tunnel extension and SSH daemon
+      - name: Set up Go for the SSH daemon assets
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.26.x'
           cache: false
+
+      # The Embed CEF phase embeds the pinned Chromium engine
+      # (scripts/cmux-next/cef-manifest.json) from the ensure-cef cache. This
+      # step fills the cache from the private R2 bucket with the read-only key
+      # (the GitHub release with CMUX_CEF_READ_TOKEN is the fallback); only
+      # this step gets the key. x86_64 Macs get the engine only when the
+      # manifest has an x86_64 artifact. With no readable source the app ships the browser
+      # as unavailable (warned below).
+      - name: Fetch the Chromium engine
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        env:
+          CMUX_CEF_R2_ACCOUNT_ID: ${{ secrets.CMUX_CEF_R2_ACCOUNT_ID }}
+          CMUX_CEF_R2_ACCESS_KEY_ID: ${{ secrets.CMUX_CEF_R2_ACCESS_KEY_ID }}
+          CMUX_CEF_R2_SECRET_ACCESS_KEY: ${{ secrets.CMUX_CEF_R2_SECRET_ACCESS_KEY }}
+          CMUX_CEF_R2_ENV_FILE: /dev/null
+          GH_TOKEN: ${{ secrets.CMUX_CEF_READ_TOKEN }}
+        # The x86_64 engine (a manifest "x86_64" object) lets a universal
+        # build embed both slices (embed-cef.sh); without it this prints
+        # nothing and the universal app keeps the arm64 engine.
+        run: |
+          scripts/cmux-next/ensure-cef.sh --optional
+          scripts/cmux-next/ensure-cef.sh --optional --arch x86_64
 
       - name: Build universal app (Release)
         if: steps.guard_release_assets.outputs.skip_all != 'true'
@@ -283,6 +312,20 @@ jobs:
             ARCHS="arm64 x86_64" \
             ONLY_ACTIVE_ARCH=NO \
             CODE_SIGNING_ALLOWED=NO build
+
+      - name: Report the embedded Chromium engine
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        run: |
+          set -euo pipefail
+          app="build-universal/Build/Products/Release/cmux.app"
+          framework="$app/Contents/Frameworks/Chromium Embedded Framework.framework"
+          if [[ -d "$framework" ]]; then
+            echo "Chromium engine embedded: $(lipo -archs "$framework/Versions/A/Chromium Embedded Framework")"
+            # Chromium's license notices must ship with the engine (not CEF's sample page).
+            ./scripts/cmux-next/check-cef-credits.sh "$app"
+          else
+            echo "::warning title=No Chromium engine::The CEF artifact was not readable (secrets CMUX_CEF_R2_*); this release ships the browser as unavailable."
+          fi
 
       - name: Build and embed verified SSH daemon assets
         if: steps.guard_release_assets.outputs.skip_all != 'true'
@@ -328,22 +371,6 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
           security list-keychains -d user -s build.keychain
 
-      - name: Start Computer Use helper notarization
-        if: steps.guard_release_assets.outputs.skip_all != 'true'
-        env:
-          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
-          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
-          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-        run: |
-          state="$RUNNER_TEMP/cmux-computer-use-notarization.state"
-          rm -f "$state"
-          ./scripts/ci/notarize-computer-use-helper.sh \
-            --start "$state" \
-            "build-universal/Build/Products/Release/cmux.app" \
-            cmux.release.entitlements \
-            "$APPLE_SIGNING_IDENTITY"
-
       - name: Download universal Ghostty CLI helper
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -362,26 +389,26 @@ jobs:
           ./scripts/install-prebuilt-ghostty-cli-helper.sh \
             ghostty-cli-helper/ghostty \
             build-universal/Build/Products/Release/cmux.app
-          # actions/checkout is depth 1 here, so a bare `git log -1 -- cmux-tui` would answer
-          # HEAD. A release bundles the exact client of the newest cmux-tui commit or fails.
-          cmux_tui_commit="$(./scripts/ci/resolve-cmux-tui-client-commit.sh)"
-          test -n "$cmux_tui_commit"
+          # A release bundles the universal client of the cmux-tui commit the app
+          # was built and tested against (scripts/cmux-next/cmux-tui.pin) or fails.
+          cmux_tui_commit="$(awk -F= '$1=="commit"{print $2}' scripts/cmux-next/cmux-tui.pin)"
+          [[ "$cmux_tui_commit" =~ ^[0-9a-f]{40}$ ]]
           ./scripts/install-cmux-tui-client.sh \
             build-universal/Build/Products/Release/cmux.app \
             --manifest-url "https://files.cmux.com/cmux-tui/${cmux_tui_commit}/manifest.json" \
             --expected-commit "$cmux_tui_commit" \
-            --require-capability wireguard-hub
+            --require-capability wireguard-hub \
+            --require-acpmux
+          ./scripts/cmux-next/write-cmux-tui-version.sh \
+            build-universal/Build/Products/Release/cmux.app "$cmux_tui_commit"
+          # The pinned daemon must serve every capability the app relies on.
+          ./scripts/cmux-next/check-daemon-capabilities.sh \
+            --binary build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux-tui
 
       - name: Verify binary architectures
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |
           set -euo pipefail
-          APP="build-universal/Build/Products/Release/cmux.app"
-          # The Release build's tunnel extension is com.cmuxterm.app.tunnel: the
-          # bundle identifier carries no team prefix (only NEMachServiceName and
-          # the profile's App ID do), exactly as nightly ships <bundle id>.tunnel.
-          # tests/test_ci_release_tunnel_identifiers.sh pins this to the project.
-          ./scripts/normalize-system-extension-bundle.sh "$APP" "com.cmuxterm.app.tunnel"
           APP_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/MacOS/cmux"
           CLI_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux"
           HELPER_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/ghostty"
@@ -397,22 +424,13 @@ jobs:
           [[ "$APP_ARCHS" == *arm64* && "$APP_ARCHS" == *x86_64* ]]
           [[ "$CLI_ARCHS" == *arm64* && "$CLI_ARCHS" == *x86_64* ]]
           [[ "$HELPER_ARCHS" == *arm64* && "$HELPER_ARCHS" == *x86_64* ]]
-          TUNNEL_BINARY="$APP/Contents/Library/SystemExtensions/com.cmuxterm.app.tunnel.systemextension/Contents/MacOS/cmuxTunnel"
-          [ -x "$TUNNEL_BINARY" ] || { echo "Cloud tunnel extension binary not found at $TUNNEL_BINARY" >&2; exit 1; }
-          TUNNEL_ARCHS="$(lipo -archs "$TUNNEL_BINARY")"
-          echo "Tunnel extension architectures: $TUNNEL_ARCHS"
-          [[ "$TUNNEL_ARCHS" == *arm64* && "$TUNNEL_ARCHS" == *x86_64* ]]
-          ./scripts/verify-tunnel-extension-engine.sh "$TUNNEL_BINARY"
+          # bin/cmux is the cmux-tui binary; cmux-tui and acpmux are symlinks to it.
+          for alias in cmux-tui acpmux; do
+            [[ "$(readlink "build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/$alias")" == cmux ]] || {
+              echo "bin/$alias is not a symlink to cmux" >&2; exit 1; }
+          done
           ./scripts/verify-diff-sidecar-artifact.sh "$DIFF_SIDECAR"
           [[ "$SDK_VERSION" == 26.* ]]
-
-      - name: Run CLI version memory guard regression
-        if: steps.guard_release_assets.outputs.skip_all != 'true'
-        run: |
-          set -euo pipefail
-          CLI_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux"
-          [ -x "$CLI_BINARY" ] || { echo "cmux CLI binary not found at $CLI_BINARY" >&2; exit 1; }
-          CMUX_CLI_BIN="$CLI_BINARY" python3 tests/test_cli_version_memory_guard.py
 
       - name: Verify bundled Ghostty theme picker helper
         if: steps.guard_release_assets.outputs.skip_all != 'true'
@@ -468,34 +486,9 @@ jobs:
           fi
           cp "$TMP_PROFILE" "$PROFILE_PATH"
 
-      - name: Embed Cloud tunnel extension provisioning profile
-        if: steps.guard_release_assets.outputs.skip_all != 'true'
-        env:
-          APPLE_RELEASE_TUNNEL_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_RELEASE_TUNNEL_PROVISIONING_PROFILE_BASE64 }}
-        run: |
-          set -euo pipefail
-          ./scripts/ci/embed-tunnel-extension-profile.sh \
-            "build-universal/Build/Products/Release/cmux.app" \
-            "7WLXT3NR37.com.cmuxterm.app.tunnel" \
-            "${APPLE_RELEASE_TUNNEL_PROVISIONING_PROFILE_BASE64:-}"
-
       - name: Strip release binaries
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: ./scripts/strip-release-bundle.sh "build-universal/Build/Products/Release/cmux.app"
-
-      - name: Verify Cloud tunnel engine before signing
-        if: steps.guard_release_assets.outputs.skip_all != 'true'
-        run: |
-          set -euo pipefail
-          app="build-universal/Build/Products/Release/cmux.app"
-          sysext="$(find "$app/Contents/Library/SystemExtensions" -mindepth 1 -maxdepth 1 -name '*.systemextension' -print -quit 2>/dev/null || true)"
-          if [[ -z "$sysext" ]]; then
-            echo "::error::Cloud tunnel system extension is missing"
-            exit 1
-          fi
-          executable="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$sysext/Contents/Info.plist")"
-          binary="$sysext/Contents/MacOS/$executable"
-          ./scripts/verify-tunnel-extension-engine.sh "$binary"
 
       - name: Codesign app
         if: steps.guard_release_assets.outputs.skip_all != 'true'
@@ -507,8 +500,7 @@ jobs:
             exit 1
           fi
           APP_PATH="build-universal/Build/Products/Release/cmux.app"
-          CMUX_SIGN_MODE=all-except-computer-use \
-            ./scripts/sign-cmux-bundle.sh \
+          ./scripts/sign-cmux-bundle.sh \
             "$APP_PATH" \
             cmux.release.entitlements \
             "$APPLE_SIGNING_IDENTITY"
@@ -540,8 +532,8 @@ jobs:
         run: |
           set -euo pipefail
           # Launch-only smoke proves the process lives; this drives the shipped
-          # app through the CLI inside the same bundle (version, help, SSH
-          # daemon manifest, ping, capabilities, workspace create/list/close).
+          # app through the CLI inside the same bundle (version, help, acp,
+          # the cmux-tui and acpmux symlinks, app ping and identify).
           ./scripts/smoke-signed-app-cli.sh \
             "build-universal/Build/Products/Release/cmux.app"
 
@@ -562,11 +554,6 @@ jobs:
           APP_PATH="build-universal/Build/Products/Release/cmux.app"
           ZIP_SUBMIT="cmux-notary.zip"
           DMG_RELEASE="cmux-macos.dmg"
-          ./scripts/ci/notarize-computer-use-helper.sh \
-            --finish "$RUNNER_TEMP/cmux-computer-use-notarization.state" \
-            "$APP_PATH" \
-            cmux.release.entitlements \
-            "$APPLE_SIGNING_IDENTITY"
           ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$ZIP_SUBMIT"
           APP_SUBMIT_JSON="$(xcrun notarytool submit "$ZIP_SUBMIT" "${NOTARY_AUTH_ARGS[@]}" --wait --output-format json)"
           APP_SUBMIT_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$APP_SUBMIT_JSON")"
@@ -634,6 +621,14 @@ jobs:
             echo "Missing SPARKLE_PRIVATE_KEY secret" >&2
             exit 1
           fi
+          # The item carries the bundle's macOS floor (26.0 for cmux-next). A
+          # pinned final legacy item, when present, keeps macOS 14/15 on the
+          # last legacy build (skills/cmux-release/references/cmux-next-update-floor.md).
+          SPARKLE_MINIMUM_SYSTEM_VERSION="$(python3 scripts/ci/appcast_minimum_system_version.py floor build-universal/Build/Products/Release/cmux.app)"
+          export SPARKLE_MINIMUM_SYSTEM_VERSION
+          if [ -f scripts/cmux-next/legacy-appcast-item.xml ]; then
+            export SPARKLE_LEGACY_APPCAST_ITEM_FILE=scripts/cmux-next/legacy-appcast-item.xml
+          fi
           ./scripts/sparkle_generate_appcast.sh cmux-macos.dmg "$GITHUB_REF_NAME" appcast.xml
           # macOS /bin/bash 3.2 can report "unbound variable" from a script with
           # an EXIT trap and still exit 0; dry run 34227505375 (2026-09-08)
@@ -642,6 +637,7 @@ jobs:
           test -s appcast.xml
           grep -q 'sparkle:edSignature' appcast.xml
           grep -q 'cmux-macos.dmg' appcast.xml
+          grep -q "<sparkle:minimumSystemVersion>${SPARKLE_MINIMUM_SYSTEM_VERSION}</sparkle:minimumSystemVersion>" appcast.xml
 
       - name: Upload build artifacts (dry-run)
         if: steps.guard_release_assets.outputs.skip_upload != 'true' && github.event_name == 'workflow_dispatch'
@@ -652,8 +648,16 @@ jobs:
             cmux-macos.dmg
             appcast.xml
             remote-daemon-assets/cmuxd-remote-*
+            docs/mdm/com.manaflow.cmux.*
+            docs/mdm/cmux-example.mobileconfig
+            docs/mdm/ddm-legacy-profile-declaration.json
+            docs/mdm/managed-preferences.md
           if-no-files-found: error
 
+      # The MDM schema for this release (enterprise P17-5): administrators fetch
+      # https://github.com/manaflow-ai/cmux/releases/download/<tag>/com.manaflow.cmux.plist
+      # (Jamf JSON, Intune plist, example profile, DDM declaration, key table) for the
+      # exact version they deploy. ManagedPreferencesManifestTests keeps docs/mdm current.
       - name: Upload release asset
         if: steps.guard_release_assets.outputs.skip_upload != 'true' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
         env:
@@ -663,7 +667,26 @@ jobs:
             --repo "$GITHUB_REPOSITORY" --tag "$GITHUB_REF_NAME" \
             --immutable cmux-macos.dmg \
             --immutable 'remote-daemon-assets/cmuxd-remote-*' \
+            --immutable 'docs/mdm/com.manaflow.cmux.*' \
+            --immutable docs/mdm/cmux-example.mobileconfig \
+            --immutable docs/mdm/ddm-legacy-profile-declaration.json \
+            --immutable docs/mdm/managed-preferences.md \
             --feed appcast.xml
+
+      # GNU libintl is LGPL-2.1-or-later. GhosttyKit and the ghostty CLI helper
+      # are built with -Di18n=false, so no shipped Mach-O may define a libintl
+      # symbol unless this release carries gettext-0.24.tar.gz and COPYING.LIB.
+      - name: Verify shipped libintl has its source
+        if: steps.guard_release_assets.outputs.skip_upload != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          args=(build-universal/Build/Products/Release/cmux.app)
+          if [ "${{ github.event_name }}" = "push" ] && [ "${GITHUB_REF#refs/tags/}" != "$GITHUB_REF" ]; then
+            args+=(--release-repo "$GITHUB_REPOSITORY" --release-tag "$GITHUB_REF_NAME")
+          fi
+          python3 scripts/verify_app_libintl.py "${args[@]}"
 
       # Keep a new stable release hidden until its entire asset set is verified.
       - name: Publish verified release

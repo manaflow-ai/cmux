@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Execute the notification gates with controlled test-runner outcomes."""
+"""Execute the Swift package lane gates with controlled test-runner outcomes."""
 
 import json
 import os
@@ -9,103 +9,12 @@ import subprocess
 import tempfile
 import unittest
 
-import yaml
-
 
 ROOT = Path(__file__).resolve().parents[1]
-SUITES = [
-    "AgentNotificationRegressionTests",
-    "AgentJournalLifecycleCenterTests",
-    "FeedWaiterRegistryTests",
-    "ClaudeBackgroundWorkNotifyTests",
-    "OpenCodeHookRegressionTests",
-]
-
-
-def step_script(job, name):
-    workflow = yaml.safe_load((ROOT / ".github/workflows/ci-macos.yml").read_text())
-    return next(s["run"] for s in workflow["jobs"][job]["steps"] if s.get("name") == name)
 
 
 class NotificationSemanticsTests(unittest.TestCase):
-    def run_gate(self, outcome="pass", fail_suite=SUITES[1]):
-        script = step_script("app-host-unit-tests", "Run agent notification semantics")
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            helpers = root / "scripts/ci"
-            helpers.mkdir(parents=True)
-            console = helpers / "run-in-console-session.sh"
-            console.write_text('#!/bin/bash\nexec "$@"\n')
-            console.chmod(0o755)
-            runner = helpers / "run-app-host-xcodebuild.sh"
-            runner.write_text("""#!/usr/bin/env python3
-import json, os, sys
-args = sys.argv[1:]
-with open(os.environ['CALLS'], 'a') as f:
-    f.write(json.dumps({'args': args, 'path': os.getenv('TEST_RUNNER_PATH'),
-                        'bun': os.getenv('TEST_RUNNER_BUN_INSTALL')}) + '\\n')
-suite = next(a.split('/', 1)[1] for a in args if a.startswith('-only-testing:'))
-outcome = os.environ['OUTCOME'] if suite == os.environ['FAIL_SUITE'] else 'pass'
-if outcome == 'crash':
-    print('The test runner timed out while preparing to run tests.')
-    sys.exit(65)
-if outcome == 'zero':
-    print('Executed 0 tests, with 0 failures (0 unexpected) in 0.0 seconds')
-elif outcome == 'failure':
-    print('Executed 3 tests, with 1 failure (0 unexpected) in 0.1 seconds')
-    sys.exit(65)
-elif suite == 'OpenCodeHookRegressionTests':
-    print('Executed 3 tests, with 0 failures (0 unexpected) in 0.1 seconds')
-else:
-    print('Test run with 4 tests in 1 suite passed after 0.1 seconds.')
-""")
-            runner.chmod(0o755)
-            shutil.copy2(ROOT / "scripts/ci/require_selected_test_execution.sh", helpers)
-            shutil.copy2(ROOT / "scripts/ci/run-and-capture.sh", helpers)
-            bindir = root / "bin"
-            bindir.mkdir()
-            for command in ("node", "bun"):
-                executable = bindir / command
-                executable.write_text("#!/bin/bash\nexit 0\n")
-                executable.chmod(0o755)
-            calls = root / "calls.jsonl"
-            env = dict(os.environ, PATH=f"{bindir}:{os.environ['PATH']}",
-                       RUNNER_TEMP=str(root), CALLS=str(calls), OUTCOME=outcome,
-                       FAIL_SUITE=fail_suite, CMUX_APP_HOST_XCTESTRUN="/products/cmux-unit.xctestrun")
-            result = subprocess.run(["/bin/bash", "-c", script], cwd=root, env=env,
-                                    text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-            invocations = [json.loads(line) for line in calls.read_text().splitlines()] if calls.exists() else []
-            return result, invocations
-
-    def test_every_suite_runs_once_from_the_compiled_product(self):
-        result, calls = self.run_gate()
-        self.assertEqual(result.returncode, 0, result.stdout)
-        self.assertEqual(len(calls), len(SUITES))
-        for suite, call in zip(SUITES, calls):
-            args = call["args"]
-            self.assertIn(f"-only-testing:cmuxTests/{suite}", args)
-            self.assertEqual(args[args.index("-xctestrun") + 1], "/products/cmux-unit.xctestrun")
-            self.assertIn("test-without-building", args)
-            self.assertNotIn("test", args)
-            self.assertNotIn("build-for-testing", args)
-            self.assertTrue(call["path"])
-            self.assertTrue(call["bun"])
-
-    def test_assertion_failure_cannot_pass(self):
-        result, _ = self.run_gate("failure")
-        self.assertEqual(result.returncode, 65, result.stdout)
-
-    def test_host_failure_cannot_pass(self):
-        result, _ = self.run_gate("crash")
-        self.assertEqual(result.returncode, 65, result.stdout)
-
-    def test_empty_filter_cannot_pass(self):
-        for suite in SUITES:
-            with self.subTest(suite=suite):
-                result, _ = self.run_gate("zero", suite)
-                self.assertNotEqual(result.returncode, 0, result.stdout)
-
-    def run_packages(self, warning_package=""):
+    def run_packages(self, failing_package=""):
         script = f"bash '{ROOT / 'scripts/ci/package-test-lane.sh'}' packages\n"
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -164,8 +73,8 @@ if args[0] == 'build':
             time.sleep(0.05)
     finally:
         mark.unlink()
-if package == os.environ['WARNING_PACKAGE'] and '-warnings-as-errors' in args:
-    print('error: compiler warning promoted to an error')
+if package == os.environ['FAILING_PACKAGE']:
+    print('error: compile failure')
     sys.exit(1)
 print('Test run with 4 tests in 1 suite passed after 0.1 seconds.')
 """)
@@ -175,7 +84,7 @@ print('Test run with 4 tests in 1 suite passed after 0.1 seconds.')
                 os.environ,
                 PATH=f"{bindir}:{os.environ['PATH']}",
                 CALLS=str(calls),
-                WARNING_PACKAGE=warning_package,
+                FAILING_PACKAGE=failing_package,
                 RUNNER_TEMP=str(runner_temp),
                 SELECTED_PACKAGES=str(selected),
                 SELECTED_COUNT=str(len(package_names)),
@@ -185,17 +94,6 @@ print('Test run with 4 tests in 1 suite passed after 0.1 seconds.')
                                     text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
             self.prebuilds_overlapped = Path(str(calls) + ".overlap").exists()
             return result, [json.loads(line) for line in calls.read_text().splitlines()]
-
-    def test_package_warning_gates_run_once(self):
-        result, calls = self.run_packages()
-        self.assertEqual(result.returncode, 0, result.stdout)
-        for package in ("CMUXAgentLaunch", "CmuxAgentJournal"):
-            matching = [args for args in calls if args[args.index('--package-path') + 1].endswith('/' + package)]
-            # One prebuild and one test run, with the same flags, so the test
-            # run finds the prebuilt products up to date.
-            self.assertEqual(sorted(args[0] for args in matching), ["build", "test"])
-            for args in matching:
-                self.assertEqual(args[args.index('-Xswiftc') + 1], '-warnings-as-errors')
 
     def test_packages_prebuild_in_parallel_then_test_serially(self):
         result, calls = self.run_packages()
@@ -210,26 +108,20 @@ print('Test run with 4 tests in 1 suite passed after 0.1 seconds.')
         self.assertTrue(self.prebuilds_overlapped, "no two prebuilds ran at once")
         self.assertIn("at a time", result.stdout)
 
-    def test_package_warning_is_still_fatal(self):
-        for package in ("CMUXAgentLaunch", "CmuxAgentJournal"):
-            with self.subTest(package=package):
-                result, _ = self.run_packages(package)
-                self.assertNotEqual(result.returncode, 0, result.stdout)
-
     def test_a_failing_package_does_not_hide_later_packages(self):
-        # CMUXAgentLaunch sorts first, so every other package runs after it.
-        result, calls = self.run_packages("CMUXAgentLaunch")
+        # CMUXAuthCore sorts first, so every other package runs after it.
+        result, calls = self.run_packages("CMUXAuthCore")
         self.assertNotEqual(result.returncode, 0, result.stdout)
         ran = {Path(args[args.index('--package-path') + 1]).name for args in calls}
-        self.assertIn("CmuxTerminal", ran)
+        self.assertIn("CmuxIrohTransport", ran)
         self.assertIn("CmuxUpdater", ran)
         self.assertIn(
-            "::error title=Swift package tests failed::CMUXAgentLaunch failed with exit status 1",
+            "::error title=Swift package tests failed::CMUXAuthCore failed with exit status 1",
             result.stdout,
         )
         self.assertEqual(result.stdout.count("::error title=Swift package tests failed::"), 1)
         table = result.stdout.split("Swift package test results:\n", 1)[1]
-        self.assertRegex(table, r"CMUXAgentLaunch +failed \(exit 1\)")
+        self.assertRegex(table, r"CMUXAuthCore +failed \(exit 1\)")
         self.assertRegex(table, r"CmuxUpdater +passed")
         self.assertIn("1 of ", result.stdout)
 

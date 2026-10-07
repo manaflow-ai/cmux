@@ -22,10 +22,12 @@ parsing, test compilation, executed tests and runtime evidence.
 | Which commit broke a test on main, stale test or regression | [cmux-test-bisect](cmux-test-bisect/SKILL.md) |
 | Package boundaries, Swift APIs and concurrency | [cmux-architecture](cmux-architecture/SKILL.md) |
 | Backend APIs, providers, database and migrations | [cmux-backend](cmux-backend/SKILL.md) |
+| cmux-next cloud backend migrations (`backend/`, PlanetScale `cmux-next`) | [cmux-backend-migrations](cmux-backend-migrations/SKILL.md) |
 | Billing implementation, Stripe and entitlements | [cmux-billing](cmux-billing/SKILL.md) |
 | Instrumentation and app/runtime implementation bugs | [cmux-debugging](cmux-debugging/SKILL.md) |
 | User-facing strings and localization | [cmux-localization](cmux-localization/SKILL.md) |
 | CLI/socket implementation, threading and focus | [cmux-socket-policy](cmux-socket-policy/SKILL.md) |
+| Any cmux-next feature, action, setting, op or agent capability (standing rules) | [cmux-next-feature](cmux-next-feature/SKILL.md) |
 | Shared actions across multiple entry points | [cmux-shared-behavior](cmux-shared-behavior/SKILL.md) |
 | Ghostty submodule or GhosttyKit | [cmux-ghostty](cmux-ghostty/SKILL.md) |
 | Versions, changelog and release artifacts | [cmux-release](cmux-release/SKILL.md) |
@@ -40,11 +42,9 @@ parsing, test compilation, executed tests and runtime evidence.
 | Browser automation | [cmux-browser](cmux-browser/SKILL.md) |
 | Operate Cloud machines and their persistent workspaces | [cmux-cloud-vm](cmux-cloud-vm/SKILL.md) |
 | Native computer use when requested | [cmux-cua](cmux-cua/SKILL.md) |
-| Screenshot or record a cmux window as evidence | [cmux-capture](cmux-capture/SKILL.md) |
 | Settings values and validation | [cmux-settings](cmux-settings/SKILL.md) |
 | Shortcuts, key bindings and templates | [cmux-keyboard-shortcuts](cmux-keyboard-shortcuts/SKILL.md) |
 | Actions, commands and layouts | [cmux-customization](cmux-customization/SKILL.md) |
-| Build a custom sidebar | [cmux-custom-sidebar](cmux-custom-sidebar/SKILL.md) |
 | Diagnose installed hooks, settings, restore or socket access | [cmux-diagnostics](cmux-diagnostics/SKILL.md) |
 | Display a Markdown file in a viewer | [cmux-markdown](cmux-markdown/SKILL.md) |
 
