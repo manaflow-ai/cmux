@@ -21,6 +21,18 @@ export async function mountComponent(
   globalThis.__cmuxPaneStrings = strings;
   applyAgentTheme(context.agentTheme as never);
   installChipHost(state.chipHost);
+  if (entry.pane) {
+    const strings = (await import("../../agent-session/acpmux/generated/strings.json")).default as unknown as Record<
+      string,
+      Record<string, string>
+    >;
+    (await import("../pseudo")).addPseudoLocales(strings);
+    globalThis.__cmuxPaneStrings = strings as never;
+    const { applyAgentTheme } = await import("../../agent-session/shared/theme");
+    applyAgentTheme(context.agentTheme as never);
+    document.documentElement.dataset.cmuxWebviewKind = "acpmux-agent-session";
+    await import("virtual:cmux-gallery/agent-pane.css");
+  }
   await import("../../pages/shared/desktop");
   await import("../../pages/shared/pageBase.css");
   await import("../../ui/ui.css");

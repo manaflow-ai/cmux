@@ -50,6 +50,8 @@ export interface ApiKeyRecord {
   readonly tenantId: TenantId;
   readonly scopes: ReadonlyArray<string>;
   readonly resourceAllowlist: ReadonlyArray<string> | null;
+  /** When the key stops working; null for no expiry. */
+  readonly expiresAt: Date | null;
 }
 
 export interface OwnershipStoreService {
@@ -71,6 +73,12 @@ export interface AuditStoreService {
 export interface ApiKeyStoreService {
   /** A live (not revoked, not expired at `now`) key with this SHA-256 hex hash, or none. */
   readonly findActiveByHash: (keyHash: string, now: Date) => Effect.Effect<Option.Option<ApiKeyRecord>, StoreError>;
+  /**
+   * The tenant's live key with this id, or none. Mesh M3 (cx-0op.5): a code or
+   * a device-signed request that acts as an API key checks here that the key
+   * was not revoked (or expired) since it made the code or enrolled the device.
+   */
+  readonly findActiveById: (tenantId: TenantId, id: ApiKeyId, now: Date) => Effect.Effect<Option.Option<ApiKeyRecord>, StoreError>;
 }
 
 export class OwnershipStore extends Context.Tag("cmux-vm/OwnershipStore")<OwnershipStore, OwnershipStoreService>() {}
@@ -116,6 +124,7 @@ const ApiKeyRow = Schema.Struct({
   tenant_id: TenantId,
   scopes: words,
   resource_allowlist: words,
+  expires_at: Schema.NullOr(Schema.Union(Schema.DateFromSelf, Schema.Date)),
 });
 
 const decodeRows = <A, I>(schema: Schema.Schema<A, I>, operation: string) => (rows: ReadonlyArray<unknown>) =>
@@ -155,7 +164,7 @@ export const sqlStoresLayer: Layer.Layer<OwnershipStore | ApiKeyStore | AuditSto
           .query(
             "ownership.record",
             `INSERT INTO cmux_vm.resources (cmux_id, tenant_id, kind, upstream_id, created_by, created_at, display_name, labels)
-             VALUES ($1, $2, $3, $4, $5, $6::timestamptz, $7, $8::jsonb)`,
+             VALUES ($1, $2, $3, $4, $5, $6::timestamptz, $7, $8::text::jsonb)`,
             params,
           )
           .pipe(Effect.asVoid);
@@ -178,7 +187,7 @@ export const sqlStoresLayer: Layer.Layer<OwnershipStore | ApiKeyStore | AuditSto
               WHERE tenant_id = $1 AND kind = $2 AND deleted_at IS NULL
                 AND ($3::timestamptz IS NULL OR (created_at, cmux_id) < ($3::timestamptz, $4::text))
                 AND ($5::text IS NULL OR cmux_id = ANY (string_to_array($5::text, ' ')))
-                AND ($7::jsonb IS NULL OR labels @> $7::jsonb)
+                AND ($7::text::jsonb IS NULL OR labels @> $7::text::jsonb)
               ORDER BY created_at DESC, cmux_id DESC
               LIMIT $6`,
             params,
@@ -219,15 +228,29 @@ export const sqlStoresLayer: Layer.Layer<OwnershipStore | ApiKeyStore | AuditSto
           .pipe(Effect.asVoid),
     };
 
+    const KEY_COLUMNS = `id, tenant_id,
+                    array_to_string(scopes, ' ') AS scopes,
+                    CASE WHEN resource_allowlist IS NULL THEN NULL
+                         ELSE array_to_string(resource_allowlist, ' ') END AS resource_allowlist,
+                    expires_at`;
+    const toKeyRecord = (operation: string) => (rows: ReadonlyArray<unknown>) =>
+      decodeRows(ApiKeyRow, operation)(rows).pipe(
+        Effect.map((decoded) =>
+          Option.map(Option.fromNullable(decoded[0]), (row) => ({
+            id: row.id,
+            tenantId: row.tenant_id,
+            scopes: row.scopes ?? [],
+            resourceAllowlist: row.resource_allowlist,
+            expiresAt: row.expires_at,
+          })),
+        ),
+      );
     const apiKeys: ApiKeyStoreService = {
       findActiveByHash: (keyHash, now) =>
         sql
           .query(
             "api_keys.find",
-            `SELECT id, tenant_id,
-                    array_to_string(scopes, ' ') AS scopes,
-                    CASE WHEN resource_allowlist IS NULL THEN NULL
-                         ELSE array_to_string(resource_allowlist, ' ') END AS resource_allowlist
+            `SELECT ${KEY_COLUMNS}
                FROM cmux_vm.api_keys
               WHERE key_hash = $1
                 AND revoked_at IS NULL
@@ -235,17 +258,21 @@ export const sqlStoresLayer: Layer.Layer<OwnershipStore | ApiKeyStore | AuditSto
               LIMIT 1`,
             [keyHash, now.toISOString()],
           )
-          .pipe(
-            Effect.flatMap(decodeRows(ApiKeyRow, "api_keys.find")),
-            Effect.map((rows) =>
-              Option.map(Option.fromNullable(rows[0]), (row) => ({
-                id: row.id,
-                tenantId: row.tenant_id,
-                scopes: row.scopes ?? [],
-                resourceAllowlist: row.resource_allowlist,
-              })),
-            ),
-          ),
+          .pipe(Effect.flatMap(toKeyRecord("api_keys.find"))),
+      findActiveById: (tenantId, id, now) =>
+        sql
+          .query(
+            "api_keys.findById",
+            `SELECT ${KEY_COLUMNS}
+               FROM cmux_vm.api_keys
+              WHERE id = $1
+                AND tenant_id = $2
+                AND revoked_at IS NULL
+                AND (expires_at IS NULL OR expires_at > $3::timestamptz)
+              LIMIT 1`,
+            [id, tenantId, now.toISOString()],
+          )
+          .pipe(Effect.flatMap(toKeyRecord("api_keys.findById"))),
     };
 
     return Context.make(OwnershipStore, ownership).pipe(Context.add(ApiKeyStore, apiKeys), Context.add(AuditStore, audit));

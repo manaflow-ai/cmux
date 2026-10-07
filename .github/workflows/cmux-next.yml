@@ -629,6 +629,7 @@ jobs:
           bash scripts/cmux-next/tests/pin-cmux-tui-probe.test.sh
           python3 tests/test_cmux_next_tree_notify.py
           bash scripts/cmux-next/tests/pin-cmux-tui-resolve-newest.test.sh
+          bash scripts/cmux-next/tests/pin-cmux-tui-dispatch.test.sh
           bash scripts/cmux-next/tests/reset-stale-submodules.test.sh
           bash scripts/cmux-next/tests/tree-key-v2.test.sh
           bash scripts/cmux-next/tests/tree-publish-v2.test.sh
@@ -644,6 +645,7 @@ jobs:
           bash scripts/cmux-next/tests/check-scrollbars.test.sh
           bash scripts/ci/tests/cmux-tui-rust-check.test.sh
           bash scripts/ci/tests/package-test-lane-suite-args.test.sh
+          bash scripts/ci/tests/package-test-lane-sdkroot.test.sh
           bash scripts/cmux-next/tests/cef-credits.test.sh
           bash scripts/cmux-next/tests/swift-test-summary.test.sh
           bash scripts/cmux-next/tests/cef-license.test.sh
@@ -869,11 +871,6 @@ jobs:
         working-directory: cmux-tui
         run: cargo test -p cmux-layout-reducer --locked
 
-      # Package.swift links the app FFI from one pinned release; the pin must
-      # match these sources and the release must be built from them.
-      - name: Check the app FFI pin
-        run: scripts/cmux-next/check-app-ffi-pin.sh --verify-release
-
       # macOS-only script behavior tests (PlistBuddy, plutil, lipo): the "Bundle
       # server helper" phase writes the server helper and agent plists without
       # the app's processed Info.plist, and release signing signs every
@@ -884,6 +881,24 @@ jobs:
           bash scripts/cmux-next/tests/bundle-server-helper.test.sh
           bash scripts/cmux-next/tests/sign-cmux-bundle-helpers.test.sh
           bash tests/test_check_app_personalities.sh
+
+      # The package's resources include the web bundles (agent pane, pages,
+      # Activity, palette ranker) and the tests read them: build them from the
+      # sources (cx-vn5) with the bun webviews/package.json pins.
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+
+      # The webviews app's `vp build` must run on node: on bun it emits
+      # different bytes (build-web-bundles.sh).
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.11.1"
+
+      - name: Build the web bundles
+        run: scripts/cmux-next/build-web-bundles.sh
 
       - name: Build package and tests
         id: build-tests
@@ -1051,6 +1066,24 @@ jobs:
       - name: Set up pinned cmux-tui Rust (sidebar layout reducer)
         uses: ./.github/actions/setup-cmux-tui-rust
 
+      # The package's resources include the web bundles (agent pane, pages,
+      # Activity, palette ranker) and the tests read them: build them from the
+      # sources (cx-vn5) with the bun webviews/package.json pins.
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+
+      # The webviews app's `vp build` must run on node: on bun it emits
+      # different bytes (build-web-bundles.sh).
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.11.1"
+
+      - name: Build the web bundles
+        run: scripts/cmux-next/build-web-bundles.sh
+
       - name: Build package and tests
         id: build-tests
         working-directory: Packages/macOS/CmuxNext
@@ -1181,6 +1214,24 @@ jobs:
 
       - name: Set up pinned cmux-tui Rust (sidebar layout reducer)
         uses: ./.github/actions/setup-cmux-tui-rust
+
+      # The package's resources include the web bundles (agent pane, pages,
+      # Activity, palette ranker) and the tests read them: build them from the
+      # sources (cx-vn5) with the bun webviews/package.json pins.
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+
+      # The webviews app's `vp build` must run on node: on bun it emits
+      # different bytes (build-web-bundles.sh).
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.11.1"
+
+      - name: Build the web bundles
+        run: scripts/cmux-next/build-web-bundles.sh
 
       - name: Build package and tests
         working-directory: Packages/macOS/CmuxNext

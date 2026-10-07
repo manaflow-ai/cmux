@@ -17,6 +17,34 @@ final class HeaderBar: NSObject, NSToolbarDelegate {
     private let pillContent = PillContentView()
     var title: String = "Instinct" { didSet { applyTitle() } }
     var onVideo: () -> Void = {}
+    /// The transcript's left edge in the window (the sidebar's width; 0 without a sidebar):
+    /// the pill and the avatar center on the transcript, not on the window.
+    var contentLeading: CGFloat = 0 {
+        didSet {
+            guard contentLeading != oldValue else { return }
+            centerPill()
+            avatarHolder?.shift = contentLeading / 2
+        }
+    }
+    private var pillCenter: NSLayoutConstraint!
+    /// The accessory spans the window, or (macOS 26 with a sidebar item) only the detail
+    /// pane: the pill moves from the accessory's center to the transcript's.
+    func centerPill() {
+        guard let holder = accessory.view.superview != nil ? accessory.view : nil, let w = holder.window else {
+            pillCenter.constant = contentLeading / 2
+            return
+        }
+        let f = holder.convert(holder.bounds, to: nil)
+        let target = contentLeading + (w.frame.width - contentLeading) / 2
+        pillCenter.constant = (target - f.midX).rounded()
+    }
+    private weak var avatarHolder: AvatarHolder?
+    /// Replaces the avatar disc (the sidebar's conversations; default: Instinct's).
+    func setAvatar(_ image: NSImage) {
+        avatarImageOverride = image
+        avatarHolder?.imageView.layer?.contents = image
+    }
+    private var avatarImageOverride: NSImage?
     var onContact: () -> Void = {}
 
     override init() {
@@ -36,12 +64,13 @@ final class HeaderBar: NSObject, NSToolbarDelegate {
         pill.font = .systemFont(ofSize: 13, weight: .bold)
         pill.target = self
         pill.action = #selector(contactClicked)
-        let holder = NSView()
+        let holder = PassThroughView()
+        pillCenter = pill.centerXAnchor.constraint(equalTo: holder.centerXAnchor)
         holder.translatesAutoresizingMaskIntoConstraints = false
         pill.translatesAutoresizingMaskIntoConstraints = false
         holder.addSubview(pill)
         NSLayoutConstraint.activate([
-            pill.centerXAnchor.constraint(equalTo: holder.centerXAnchor),
+            pillCenter,
             // Messages' pill is centered 58 pt from the window top (measured
             // on the recording: whole device pixels 88-144); the accessory
             // below the 52 pt toolbar centers at 70.
@@ -177,7 +206,9 @@ final class HeaderBar: NSObject, NSToolbarDelegate {
             // and clips, so the item holds an empty 40 x 38 view and the image
             // goes into the titlebar view, 8 pt from the window top and
             // centered on the item (AvatarHolder).
-            let holder = AvatarHolder(image: HeaderBar.avatarImage(title))
+            let holder = AvatarHolder(image: avatarImageOverride ?? HeaderBar.avatarImage(title))
+            holder.shift = contentLeading / 2
+            avatarHolder = holder
             holder.setAccessibilityElement(true)
             holder.setAccessibilityRole(.image)
             holder.setAccessibilityLabel(title)
@@ -229,6 +260,8 @@ final class HeaderBar: NSObject, NSToolbarDelegate {
 /// window top, kept there by its autoresizing mask. (The toolbar rejects
 /// constraints that pierce its item viewers.)
 private final class AvatarHolder: NSView {
+    /// Moves the disc right of the window's center (HeaderBar.contentLeading / 2).
+    var shift: CGFloat = 0 { didSet { if shift != oldValue { place() } } }
     /// A plain layer view (an NSImageView in the titlebar draws dimmed while the window is
     /// not key; Messages keeps the avatar at full strength).
     let imageView = NSView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
@@ -243,6 +276,9 @@ private final class AvatarHolder: NSView {
     deinit { imageView.removeFromSuperview() }
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        place()
+    }
+    private func place() {
         imageView.removeFromSuperview()
         guard window != nil else { return }
         var v = superview
@@ -254,8 +290,9 @@ private final class AvatarHolder: NSView {
         }
         let b = bar.bounds
         let y = bar.isFlipped ? HeaderBar.avatarTop : b.height - HeaderBar.avatarTop - 40
-        imageView.frame = NSRect(x: (b.width - 40) / 2, y: y, width: 40, height: 40)
-        imageView.autoresizingMask = [.minXMargin, .maxXMargin, bar.isFlipped ? .maxYMargin : .minYMargin]
+        imageView.frame = NSRect(x: (b.width - 40) / 2 + shift, y: y, width: 40, height: 40)
+        imageView.autoresizingMask = shift == 0 ? [.minXMargin, .maxXMargin, bar.isFlipped ? .maxYMargin : .minYMargin]
+            : [.maxXMargin, bar.isFlipped ? .maxYMargin : .minYMargin]
         bar.addSubview(imageView)
     }
 }
@@ -267,4 +304,13 @@ private final class PillContentView: NSView {
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     override func draw(_ dirtyRect: NSRect) { HeaderBar.drawPillContent(title, in: bounds) }
+}
+
+/// The name pill's accessory: only the pill takes clicks (the sidebar's controls sit under
+/// the accessory's empty sides).
+private final class PassThroughView: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let v = super.hitTest(point)
+        return v === self ? nil : v
+    }
 }

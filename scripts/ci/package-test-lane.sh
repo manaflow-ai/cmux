@@ -189,15 +189,42 @@ write_package_input_keys() {
 # GITHUB_ENV. A fleet step selects here, without touching the mini's
 # host-global xcode-select default.
 select_xcode() {
-  if [ -n "${DEVELOPER_DIR:-}" ]; then
-    return 0
+  if [ -z "${DEVELOPER_DIR:-}" ]; then
+    local env_file="$work/xcode.env"
+    : > "$env_file"
+    GITHUB_ENV="$env_file" CMUX_CI_SKIP_XCODE_SELECT=1 ./scripts/select-ci-xcode.sh
+    DEVELOPER_DIR="$(sed -n 's/^DEVELOPER_DIR=//p' "$env_file" | tail -n 1)"
+    test -n "$DEVELOPER_DIR"
+    export DEVELOPER_DIR
   fi
-  local env_file="$work/xcode.env"
-  : > "$env_file"
-  GITHUB_ENV="$env_file" CMUX_CI_SKIP_XCODE_SELECT=1 ./scripts/select-ci-xcode.sh
-  DEVELOPER_DIR="$(sed -n 's/^DEVELOPER_DIR=//p' "$env_file" | tail -n 1)"
-  test -n "$DEVELOPER_DIR"
-  export DEVELOPER_DIR
+  pin_sdkroot
+}
+
+# SDKROOT is the macOS SDK of the Xcode whose swiftc runs, for every phase.
+# Without it an xcrun shim picks its own: on 2026-10-07 the /usr/bin/python3
+# shim that starts hung_test_watchdog.py, with DEVELOPER_DIR=Xcode_26.6,
+# exported SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk (Swift
+# 6.4) to `swift test`, and every suite failed with "Invalid manifest" after a
+# good build. An SDKROOT from the environment is replaced: it may be that leak.
+pin_sdkroot() {
+  local sdk
+  sdk="$(env -u SDKROOT DEVELOPER_DIR="$DEVELOPER_DIR" xcrun --sdk macosx --show-sdk-path 2>/dev/null || true)"
+  if [ -z "$sdk" ] || [ ! -d "$sdk" ]; then
+    echo "::error title=No macOS SDK::package-test-lane.sh: xcrun found no macOS SDK in $DEVELOPER_DIR (got '$sdk')" >&2
+    exit 1
+  fi
+  SDKROOT="$sdk"
+  export SDKROOT
+  echo "SDK: $SDKROOT"
+}
+
+# A `swift test` whose toolchain and SDK differ compiles no manifest and runs
+# no test; say so instead of reporting an ordinary test failure.
+toolchain_mismatch() {
+  local hit
+  hit="$(grep -m1 -oE 'SDK is not supported by the compiler|Invalid manifest|no tests found' "$1" || true)"
+  [ -n "$hit" ] || return 1
+  echo "::error title=Swift toolchain and SDK differ::$2: swift test reported '$hit' with DEVELOPER_DIR=$DEVELOPER_DIR SDKROOT=${SDKROOT:-unset}; no test result here is valid"
 }
 
 # A fleet step has no ghostty submodule checkout, only the empty directory git
@@ -356,6 +383,9 @@ run_package_tests() {
       --timeout-seconds "${CMUX_SWIFT_PACKAGE_TEST_TIMEOUT_SECONDS:-900}" \
       --sample-seconds 5 --label "$pkg" --log "$log" \
       -- swift test "${swift_test_args[@]}" < /dev/null || test_status=$?
+    if toolchain_mismatch "$log" "$pkg"; then
+      [ "$test_status" -ne 0 ] || test_status=1
+    fi
   }
   has_other_error() {
     awk '
@@ -502,7 +532,9 @@ run_suite() {
       --timeout-seconds "${CMUX_SWIFT_PACKAGE_TEST_TIMEOUT_SECONDS:-900}" \
       --sample-seconds 5 --label "$filter" --log "$log" \
       -- swift test "${configuration[@]}" --package-path "$suite_package" --skip-build --filter "$filter" < /dev/null || status=$?
-    if [ "$status" -eq 0 ]; then
+    if toolchain_mismatch "$log" "$filter in $suite_package"; then
+      [ "$status" -ne 0 ] || status=1
+    elif [ "$status" -eq 0 ]; then
       python3 scripts/ci/require_swift_test_execution.py --log "$log" || status=$?
     fi
     echo "::endgroup::"
