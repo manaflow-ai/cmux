@@ -23,7 +23,11 @@
 # it cannot create it (workflow files changed, an HTTP 403, or a create that
 # publishes nothing, as in run 37556534995), it fails with "Publish by hand"
 # and the exact commands (HAND_PUBLISH). Publishing by hand, with its checks,
-# is the only other path.
+# is the only other path: docs/ci/app-ffi-release.md is the runbook.
+#
+# The push paths are the FFI inputs that scripts/cmux-next/check-app-ffi-pin.sh
+# derives from the Cargo path dependencies of cmux-app-ffi (--list-inputs);
+# scripts/cmux-next/tests/app-ffi-release-paths.test.sh keeps them in step.
 name: app FFI release
 
 on:
@@ -36,6 +40,7 @@ on:
       - "cmux-tui/crates/cmux-rd-core/**"
       - "cmux-tui/crates/cmux-rd-proto/**"
       - "cmux-tui/crates/cmux-rd-ffi/**"
+      - "cmux-tui/crates/cmux-remote-browser/**"
       - "cmux-tui/rust-toolchain.toml"
       - "scripts/cmux-next/build-app-ffi.sh"
       - ".github/workflows/app-ffi-release.yml"
@@ -191,6 +196,7 @@ jobs:
         --prerelease --latest=false
         ; then pin the URL and checksum ${{ needs.build.outputs.checksum }} in Packages/macOS/CmuxNext/Package.swift
         and run scripts/cmux-next/check-app-ffi-pin.sh --verify-release
+        (runbook: docs/ci/app-ffi-release.md)
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:

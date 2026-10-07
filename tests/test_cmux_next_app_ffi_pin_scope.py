@@ -34,7 +34,11 @@ class PullRequestScope(unittest.TestCase):
             os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@e", GIT_COMMITTER_NAME="t",
             GIT_COMMITTER_EMAIL="t@e"))
         self.git("init", "-q", "-b", "main")
-        # The pinned source commit, then the pin to it: the base starts clean.
+        # The pinned source commit, then the pin to it: the base starts clean. The check finds
+        # the FFI crates through cmux-app-ffi's Cargo path dependencies.
+        self.write("cmux-tui/crates/cmux-app-ffi/Cargo.toml",
+                   '[package]\nname = "cmux-app-ffi"\n[dependencies]\ncmux-rd-core = { path = "../cmux-rd-core" }\n')
+        self.write("cmux-tui/crates/cmux-rd-core/Cargo.toml", '[package]\nname = "cmux-rd-core"\n')
         self.write(SOURCE, "v1\n")
         self.pinned = self.commit("ffi v1")
         self.write("Packages/macOS/CmuxNext/Package.swift", manifest(self.pinned))
@@ -111,8 +115,10 @@ class PullRequestScope(unittest.TestCase):
 class Workflow(unittest.TestCase):
     def test_swift_test_scopes_the_check_to_the_pull_request(self):
         text = (ROOT / ".github/workflows/cmux-next.yml").read_text()
-        self.assertIn("check-app-ffi-pin.sh --verify-release \"${base[@]}\"", text)
-        self.assertIn("base=(--base HEAD^1)", text)
+        # Both calls: the Linux checks job and swift test.
+        self.assertEqual(text.count("check-app-ffi-pin.sh --verify-release \"${base[@]}\""), 2)
+        self.assertEqual(text.count("check-app-ffi-pin.sh"), 2)
+        self.assertGreaterEqual(text.count("[[ \"$EVENT_NAME\" == pull_request ]] && base=(--base HEAD^1)"), 2)
 
 
 if __name__ == "__main__":

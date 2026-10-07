@@ -4,12 +4,23 @@ import { createRoot } from "react-dom/client";
 import type { ComponentEntry, ComponentVariant } from "../format";
 import { languageDirection, UiProvider } from "../../ui/UiProvider";
 import type { StageContext } from "./context";
+import { addPseudoLocales } from "../pseudo";
+import { applyAgentTheme } from "../../agent-session/shared/theme";
+import { installChipHost } from "./chips";
 
 export async function mountComponent(
   entry: ComponentEntry<Record<string, unknown>>,
   state: ComponentVariant<Record<string, unknown>>,
   context: StageContext,
 ): Promise<void> {
+  const strings = (await import("../../agent-session/acpmux/generated/strings.json")).default as unknown as Record<
+    string,
+    Record<string, string>
+  >;
+  addPseudoLocales(strings);
+  globalThis.__cmuxPaneStrings = strings;
+  applyAgentTheme(context.agentTheme as never);
+  installChipHost(state.chipHost);
   await import("../../pages/shared/desktop");
   await import("../../pages/shared/pageBase.css");
   await import("../../ui/ui.css");
