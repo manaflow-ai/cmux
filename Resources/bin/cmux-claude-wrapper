@@ -1248,16 +1248,6 @@ cmux_claude_wrapper_sha256_file() {
     printf '%s' "$digest"
 }
 
-cmux_claude_wrapper_prune_durable_settings() {
-    local settings_dir="$1"
-    local keep_path="$2"
-    # Seven days matches the relay cache policy. Reusing a settings document
-    # refreshes its mtime, while idle documents can be collected on a later
-    # launch without sweeping files from another user's directory.
-    find "$settings_dir" -type f -name '*.json' -mmin +10080 \
-        ! -path "$keep_path" -delete 2>/dev/null || true
-}
-
 cmux_claude_wrapper_promote_settings_file() {
     local source="$1"
     local settings_dir digest target temporary
@@ -1265,7 +1255,6 @@ cmux_claude_wrapper_promote_settings_file() {
     settings_dir="$(cmux_claude_wrapper_durable_settings_dir)" || return 1
     digest="$(cmux_claude_wrapper_sha256_file "$source")" || return 1
     target="$settings_dir/${digest:0:32}.json"
-    cmux_claude_wrapper_prune_durable_settings "$settings_dir" "$target"
 
     if [[ -f "$target" && ! -L "$target" ]] && cmp -s "$source" "$target"; then
         chmod 0600 "$target" || return 1

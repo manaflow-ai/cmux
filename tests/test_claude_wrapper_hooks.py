@@ -1552,6 +1552,11 @@ def test_settings_artifact_survives_tmpdir_purge(failures: list[str]) -> None:
                 f"{label} settings purge: path must be durable and outside TMPDIR, got {settings_path}",
                 failures,
             )
+            expect(
+                settings_path.is_file(),
+                f"{label} settings purge: durable settings file is missing: {settings_path}",
+                failures,
+            )
             if settings_path.is_file():
                 expect(
                     settings_path.stat().st_mode & 0o777 == 0o600
