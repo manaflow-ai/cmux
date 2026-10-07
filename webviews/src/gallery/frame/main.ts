@@ -126,6 +126,10 @@ async function mount(): Promise<void> {
       return (await import("./pages")).mountMarkdownPage(entry.variants[variantName]!, context);
     case "diff-page":
       return (await import("./pages")).mountDiffPage(entry.variants[variantName]!, context);
+    case "settings-page":
+      return (await import("./pages")).mountSettingsPage(entry.variants[variantName]!, context);
+    case "passwords-page":
+      return (await import("./pages")).mountPasswordsPage(entry.variants[variantName]!, context);
     case "component":
       return (await import("./component")).mountComponent(entry, entry.variants[variantName]!, context);
     case "native":
