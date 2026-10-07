@@ -76,7 +76,8 @@ final class ImportConsentView: NSView {
                 list.addArrangedSubview(row)
                 row.widthAnchor.constraint(equalTo: list.widthAnchor).isActive = true
             }
-            keychain.stringValue = OnboardingStrings.passwordsKeychain(Self.quotedList(model.passwordKeychainItems))
+            keychain.stringValue = OnboardingStrings.passwordsConsent(
+                keychainItems: model.passwordKeychainItems, includesFirefox: model.passwordsIncludeFirefox, quote: { Self.quotedList($0) })
         }
         // While Touch ID is up the choice is fixed; a cancelled one says nothing was read.
         for profile in profiles {
