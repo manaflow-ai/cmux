@@ -214,3 +214,42 @@ describe("edited-files card settings (agentPane.editedFiles)", () => {
     await unmount();
   });
 });
+
+/// The Write call from Lawrence's 2026-10-06 screenshot: Claude Code's rawInput has `content`
+/// before `file_path`, and the call carried no diff.
+const FLEET_WRITE = JSON.stringify({
+  content: 'import json, sys, urllib.request, html, datetime\n\nURL = "http://100.89.225.106:18765/v1/status"\n',
+  file_path: "/tmp/fleetviz/gen.py",
+});
+
+function plainRow(tools: { title: string; inputSummary?: string; kind?: string }[]): AcpmuxRow {
+  rowCount += 1;
+  return {
+    id: `row-${rowCount}`,
+    version: 1,
+    at: 0,
+    kind: "activity",
+    ended: true,
+    items: tools.map((tool, index) => ({
+      kind: "tool" as const,
+      text: tool.title,
+      tool: { id: `p${rowCount}-${index}`, status: "completed", kind: tool.kind ?? "edit", ...tool },
+    })),
+  };
+}
+
+describe("edited-files rows without a diff", () => {
+  test("the fleet Write row shows its path, never the tool input's JSON", async () => {
+    const { container, unmount } = await render(
+      plainRow([
+        { title: "Write", inputSummary: FLEET_WRITE },
+        { title: "Edit", inputSummary: "{}" },
+      ]),
+    );
+    const rows = [...container.querySelectorAll(".acpmux-edited-file")].map((row) => row.textContent);
+    expect(rows).toEqual(["/tmp/fleetviz/gen.py", "Unknown file"]);
+    expect(container.textContent).not.toContain("{");
+    expect(container.querySelector(".acpmux-edited-file .acpmux-edited-base")?.textContent).toBe("gen.py");
+    await unmount();
+  });
+});

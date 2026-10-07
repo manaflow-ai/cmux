@@ -63,3 +63,38 @@ fn unregistered_upstream_streams_are_ignored() {
     }
     assert!(e.upstream_feedback(0).is_none());
 }
+
+#[test]
+fn the_viewer_sender_recovers_a_lost_shard_through_the_hosts_nack() {
+    use cmux_rd_core::cc::{CcConfig, PathKind};
+    use cmux_rd_core::upstream::{UpstreamConfig, UpstreamSender};
+
+    let mut host = MediaEngine::new(EngineConfig::default(), 0);
+    host.add_upstream(MIC).expect("upstream stream");
+    let mut viewer = UpstreamSender::new(UpstreamConfig {
+        stream: MIC,
+        max_datagram: MAX_DATAGRAM_VPC,
+        cc: CcConfig::default(),
+        path: PathKind::DirectWan,
+        fec: true,
+    });
+    let sent = viewer.send_frame(&[5u8; 4_000], 9, true, 0).expect("packetize").expect("sent");
+    assert_eq!(DatagramHeader::decode(&sent[0]).expect("header").0.fec_count, 0, "clean path");
+    // Shard 1 is lost on the way.
+    for (i, d) in sent.iter().enumerate() {
+        if i != 1 {
+            assert!(host.on_datagram(d, false, 1_000).upstream.is_empty());
+        }
+    }
+    // After the NACK delay the host's feedback names the gap; the viewer resends it.
+    let fb = host.upstream_feedback(10_000).expect("feedback with a NACK");
+    let resent = viewer.on_datagram(&fb, 11_000).expect("feedback for this stream");
+    assert_eq!(resent, vec![sent[1].clone()]);
+    let got = host.on_datagram(&resent[0], false, 12_000).upstream;
+    assert_eq!(got.len(), 1);
+    assert_eq!(got[0].1.body.access_unit, vec![5u8; 4_000]);
+    // The acknowledgement clears the viewer's history.
+    let ack = host.upstream_feedback(70_000).expect("feedback after the release");
+    viewer.on_datagram(&ack, 71_000).expect("feedback for this stream");
+    assert_eq!(viewer.stats().acked_frame, 1);
+}

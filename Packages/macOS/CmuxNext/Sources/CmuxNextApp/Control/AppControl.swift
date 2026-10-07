@@ -39,7 +39,6 @@ final class AppControl {
                                                frameSource: frames, watchdog: watchdog)
         self.service = service
         registerSyncBarrier(service.router, daemon: services.daemon)
-        let probe = frameProbe
         service.router.register(HistoryControl.methods(services: services))
         service.router.register(TabSearchControl.methods())
         service.router.register(PaletteScopeControl.methods(services: services, router: service.router))
@@ -48,6 +47,24 @@ final class AppControl {
         service.router.register(ServerReachControl.methods(services: services))
         service.router.register(KeybindingControl.methods(services: services))
         service.router.register(SettingsControl.methods(services: services))
+        service.router.register([
+            // CPU and memory per tab and workspace, two samples `interval_ms` apart.
+            .async("resources") { [weak services] call in
+                let services = await MainActor.run { services }
+                return try await ResourceControl.run(call.params, services: services)
+            }.withDeadline(.fixed(ResourceControl.deadline)),
+            // Installed Chrome extensions, shortcuts and toolbar badges.
+            .mainActor("browser.extensions") { [weak services] _ in
+                guard let services else { return .value(.null) }
+                return .value(ExtensionControl.report(services))
+            },
+            // Ghostty config keys and keybind actions cmux does not apply (R92).
+            GhosttyDiagnosticsControl().method,
+        ])
+        // Diagnostics for tagged DEV builds; a release build registers no debug.* method
+        // (ControlRouter drops them too: Configuration.allowsDebugMethods).
+        #if DEBUG
+        let probe = frameProbe
         service.router.register([
             .mainActor("debug.frames") { call in .value(probe.handle(call.params)) },
             // Measured animation spans (plans/cmux-next/motion.md).
@@ -147,11 +164,6 @@ final class AppControl {
                 return report
                 #endif
             },
-            // CPU and memory per tab and workspace, two samples `interval_ms` apart.
-            .async("resources") { [weak services] call in
-                let services = await MainActor.run { services }
-                return try await ResourceControl.run(call.params, services: services)
-            }.withDeadline(.fixed(ResourceControl.deadline)),
             // Idle wakeups: ledger, display-link clients, process CPU (idle-wakeups.md).
             .async("debug.wakeups") { call in await DebugWakeups.report(call.params) },
             // Chromium start: trigger (tab or warm reason), timings, footprint.
@@ -171,14 +183,8 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugCrashes.report(services))
             },
-            // Installed Chrome extensions, shortcuts and toolbar badges.
-            .mainActor("browser.extensions") { [weak services] _ in
-                guard let services else { return .value(.null) }
-                return .value(ExtensionControl.report(services))
-            },
-            // Ghostty config keys and keybind actions cmux does not apply (R92).
-            GhosttyDiagnosticsControl().method,
         ])
+        #endif
         #if DEBUG
         // Deliberately blocks the main thread (watchdog and bench self-test).
         service.router.register([
