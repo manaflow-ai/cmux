@@ -2613,8 +2613,16 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             sequenceNumber: 1_000_000 + dragSequence
         )
         attachment.drag?.drop = drop
+        // Each drag callback comes after an await, during which the page can
+        // navigate its main frame: the gate judges the live page again
+        // before each (BrowserReplFrameGate.checkTab, as for every native
+        // step). A refusal throws with the drop set, so the gesture's
+        // cleanup (BrowserReplTabAttachment.discardDrag) ends the drag with
+        // `dragend` and no drop.
+        try frameGate.checkTab(in: webView)
         _ = webView.draggingEntered(drop)
         await BrowserReplNativeInput.roundTrip(webView)
+        try frameGate.checkTab(in: webView)
         attachment.drag?.operation = webView.draggingUpdated(drop)
         await BrowserReplNativeInput.roundTrip(webView)
     }
