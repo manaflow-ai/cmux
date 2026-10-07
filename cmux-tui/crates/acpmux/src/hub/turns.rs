@@ -258,6 +258,7 @@ impl Hub {
             turn_seq: 0,
             control,
         });
+        session.last_turn_web.store(control == Control::Web, Ordering::SeqCst);
         self.reset_stream(session);
         self.append(
             session,
@@ -288,6 +289,15 @@ impl Hub {
                 return Err(e);
             }
         };
+        // A Web steer while the agent started made this a Web turn.
+        let control = session.turn().map_or(control, |t| t.control);
+        // Starting the agent may have changed its mode (a spawn, a resume, a
+        // pool claim, a replayed config): checked again before the prompt.
+        if let Err(e) = self.check_dispatch(session, control, &prompt_id, &turn_id, client) {
+            self.refuse_started_turn(session, &prompt_id, &turn_id, &e);
+            drop(guard);
+            return Err(e);
+        }
         if session.rehydrate.swap(false, Ordering::SeqCst)
             && let Some(transcript) = self.transcript(session, 24_000)
         {
@@ -302,11 +312,27 @@ impl Hub {
                 session,
                 "mux",
                 "turn_started",
-                json!({"prompt": short_text(&text, 200), "client": client, "promptId": prompt_id, "turnId": turn_id}),
+                json!({"prompt": short_text(&text, 200), "client": client, "promptId": prompt_id, "turnId": turn_id, "control": control.as_str()}),
             )
             .seq;
-        if let Some(t) = session.turn.lock().unwrap().as_mut() {
-            t.turn_seq = turn_seq;
+        let control = {
+            let mut turn = session.turn.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(t) = turn.as_mut() {
+                t.turn_seq = turn_seq;
+            }
+            turn.as_ref().map_or(control, |t| t.control)
+        };
+        // The remote floor fired before the prompt went out (a mode write
+        // in the gap): the prompt is not sent. After this point the floor's
+        // cancel reaches the agent after the prompt (`remote_floor.rs`).
+        if control == Control::Web
+            && let Some(reason) = self.remote_floor_breach(session)
+        {
+            let e = RpcError::new(-32000, "the remote floor cancelled this turn before its prompt")
+                .with_data(json!({"reason": reason}));
+            self.refuse_started_turn(session, &prompt_id, &turn_id, &e);
+            drop(guard);
+            return Err(e);
         }
         self.set_status(session, SessionStatus::Running);
         let mut result = child
@@ -334,7 +360,19 @@ impl Hub {
                 self.detach_child(session).await;
                 session.meta.lock().unwrap().harness = to.clone();
                 self.save_meta(session);
+                let control = session.turn().map_or(control, |t| t.control);
                 match self.child_for(session).await {
+                    Ok(_)
+                        if self
+                            .check_dispatch(session, control, &prompt_id, &turn_id, client)
+                            .is_err() =>
+                    {
+                        result = Err(RpcError::new(
+                            -32000,
+                            "the fallback agent's mode does not ask; a remote device's turn does not run in it",
+                        )
+                        .with_data(json!({"reason": "remote.mode_not_asking"})));
+                    }
                     Ok(child2) => {
                         if let Some(sid2) = session.meta().agent_session_id {
                             result = child2
@@ -468,6 +506,21 @@ impl Hub {
 
     /// A recorded prompt whose agent could not start: the turn ends failed, so every client
     /// sees the prompt settle instead of a turn that never starts.
+    /// A turn refused after it was accepted (the dispatch check again, or
+    /// the remote floor): failed as an unstarted turn, the agent kept.
+    fn refuse_started_turn(
+        &self,
+        session: &Arc<Session>,
+        prompt_id: &str,
+        turn_id: &str,
+        e: &RpcError,
+    ) {
+        self.fail_unstarted_turn(session, prompt_id, turn_id, e);
+        if session.status() == SessionStatus::Disconnected {
+            self.set_status(session, SessionStatus::Ready);
+        }
+    }
+
     fn fail_unstarted_turn(
         &self,
         session: &Arc<Session>,
@@ -734,6 +787,7 @@ impl Hub {
         session: &Arc<Session>,
         name: Option<String>,
         cwd: Option<PathBuf>,
+        session_env: std::collections::BTreeMap<String, String>,
     ) -> Result<Arc<Session>, RpcError> {
         let parent_meta = session.meta();
         let is_claude = self
@@ -810,6 +864,9 @@ impl Hub {
             last_turn: None,
             // A fork of a remote-origin session stays remote-origin.
             remote_origin: parent_meta.remote_origin,
+            // Never inherited: the fork request sets its own or runs without one.
+            session_env,
+            harness_roots: vec![],
         };
         let new = self.make_session(meta);
         if is_claude {

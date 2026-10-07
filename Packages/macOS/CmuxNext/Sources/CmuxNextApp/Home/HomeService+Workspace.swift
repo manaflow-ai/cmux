@@ -87,6 +87,8 @@ extension HomeService {
 
     /// Re-checks the Chief tab now (a chief was just placed on a server).
     func refreshChiefTab() {
+        // The Chief moved to a server: that server's session joins the sidebar too.
+        services.serverReach.refresh()
         guard let connection = services.machines.local.connection,
               services.machines.local.supports(DaemonCapabilities.shared.workspaceKind) else { return }
         ensureHomeWorkspace(connection)

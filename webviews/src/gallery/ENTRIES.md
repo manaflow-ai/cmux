@@ -89,12 +89,62 @@ export default componentEntry<DisclosureProps>({
 
 ## Window mode
 
-Window mode is the default view. The entry renders at its real size in the pane that `Panes`
-selects (`one`: the whole content area; `two`: the left pane; `agent-right`: the right column).
-The window around it has its real size (16:9 by default), and the shell scales the finished
-window down with one transform. A full-page surface (settings, a page tab) uses `one`. The pane
-size comes from the app's metrics (`MetricTunables.swift` for each density), so you add nothing
-for window mode. `component` mode shows the entry alone at a pane width, for close work.
+Window mode is the default view. The surface renders at the real size of its pane: the window
+preset (16:9 by default), the app's metrics (`MetricTunables.swift` for each density: sidebar
+width, titlebar, tab strip, column gap) and `Panes` (`one`: the whole content area; `two`: the
+left of two panes; `agent-right`: the right column) give the pane size. Only the surface is drawn,
+inside a plain neutral frame with a caption (the preset and the pane size in points). Nothing of
+the native window (sidebar, tab strip, title bar) is imitated. The shell scales the finished
+surface down with one transform, so nothing reflows. A full-page surface uses `one`. You add
+nothing for window mode. `component` mode shows the entry at a chosen pane width, for close work.
+
+## Play steps and checks
+
+A variant can drive the mounted page into an interactive state with `play` (`src/gallery/play.ts`).
+The steps run after mount and before the stage is ready, so the screenshot and the shell show the
+played state. The shell runs them when a variant opens and has a Replay button; the matrix runner
+runs the same function before each screenshot, with trusted Playwright input.
+
+```ts
+"slash-menu": {
+  snapshot: chat(rows, { commands }),
+  play: async (ctx) => {
+    await ctx.click({ selector: "[contenteditable='true']" });
+    await ctx.type("/");
+    await ctx.waitFor(() => ctx.document.querySelector("[role='listbox'], [role='menu']"));
+  },
+},
+```
+
+`ctx` has `click`, `hover`, `focus`, `type(text, target?)`, `press("Meta+k")`,
+`pointer.down/move/up` (the macOS press-drag-release menus), `waitFor(condition, { capMs })` and
+`find`. A target is `{ role, name }` (name is a string or a RegExp), `{ testId }`, `{ text }` or
+`{ selector }`. `waitFor` checks again on each DOM mutation, animation end, transition end and
+frame. It never waits for a fixed time; its cap only fails a wait that never comes true.
+
+Each action is one step, and the stage measures it:
+
+- anchors: the entry's `anchors` (targets). An anchor the step did not target must not move or
+  resize (0 px).
+- layout shift: the step's CLS sum and each shift with its source node (0 allowed).
+- long frames: Long Animation Frames (Chromium), else rAF intervals. A frame over 16.7 ms is
+  reported (warn). A frame over 33 ms fails only from Chromium's Long Animation Frames data:
+  headless WebKit on a CPU-only VM renders in software, and its rAF timing measures the VM. So
+  there it only warns ("software-rendered, not a gate"). Real WebKit frame timing comes from the
+  native app on a fleet Mac. The anchor and layout-shift checks are strict in both engines.
+
+To loosen a check, the entry writes the value and the reason, and `validateEntries` refuses a
+check without a reason:
+
+```ts
+checks: { longFrameFailMs: { value: 50, reason: "The first Shiki highlight compiles its grammar." } },
+```
+
+The report is `window.cmuxGalleryPlayReport` (and `data-gallery-play` on the stage's root). The
+matrix index shows a layout shift cell and a long frames cell (pass, warn or fail, with the
+numbers) for each case; click a cell for each step's details. A failing play fails the run. The
+checks are real only in the matrix runner (Freestyle or CI). The shell shows the same report as a
+live line for the person who opens it.
 
 ## Play steps and checks
 

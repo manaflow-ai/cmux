@@ -430,6 +430,90 @@
           "aliases": []
         },
         {
+          "id": "home.previousConversation",
+          "title": {
+            "en": "Previous Conversation",
+            "ar": "المحادثة السابقة",
+            "bs": "Prethodni razgovor",
+            "da": "Forrige samtale",
+            "de": "Vorherige Unterhaltung",
+            "es": "Conversación anterior",
+            "fr": "Conversation précédente",
+            "it": "Conversazione precedente",
+            "ja": "前の会話",
+            "km": "ការសន្ទនាមុន",
+            "ko": "이전 대화",
+            "no": "Forrige samtale",
+            "pl": "Poprzednia rozmowa",
+            "pt-BR": "Conversa anterior",
+            "ru": "Предыдущий разговор",
+            "th": "การสนทนาก่อนหน้า",
+            "tr": "Önceki Sohbet",
+            "uk": "Попередня розмова",
+            "vi": "Cuộc trò chuyện trước",
+            "zh-CN": "上一个对话",
+            "zh-TW": "上一個對話"
+          },
+          "shortcut": null,
+          "chord": null,
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "[",
+                  "modifiers": [
+                    "shift",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": "topPage == home"
+            }
+          ]
+        },
+        {
+          "id": "home.nextConversation",
+          "title": {
+            "en": "Next Conversation",
+            "ar": "المحادثة التالية",
+            "bs": "Sljedeći razgovor",
+            "da": "Næste samtale",
+            "de": "Nächste Unterhaltung",
+            "es": "Conversación siguiente",
+            "fr": "Conversation suivante",
+            "it": "Conversazione successiva",
+            "ja": "次の会話",
+            "km": "ការសន្ទនាបន្ទាប់",
+            "ko": "다음 대화",
+            "no": "Neste samtale",
+            "pl": "Następna rozmowa",
+            "pt-BR": "Próxima conversa",
+            "ru": "Следующий разговор",
+            "th": "การสนทนาถัดไป",
+            "tr": "Sonraki Sohbet",
+            "uk": "Наступна розмова",
+            "vi": "Cuộc trò chuyện tiếp theo",
+            "zh-CN": "下一个对话",
+            "zh-TW": "下一個對話"
+          },
+          "shortcut": null,
+          "chord": null,
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "]",
+                  "modifiers": [
+                    "shift",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": "topPage == home"
+            }
+          ]
+        },
+        {
           "id": "focusHistoryBack",
           "title": {
             "en": "Go Back",

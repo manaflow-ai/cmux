@@ -1157,3 +1157,7 @@ mod observe;
 // FETCH-PRIVATE-RANGES under a proxy store (browser-egress.md 7.3).
 #[path = "chromium/proxy_ranges.rs"]
 mod proxy_ranges;
+
+// Undoable cookie clears through the whole host (private data P2).
+#[path = "chromium/cookie_backups.rs"]
+mod cookie_backups;
