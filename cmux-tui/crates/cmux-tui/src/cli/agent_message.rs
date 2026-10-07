@@ -420,6 +420,7 @@ fn failure_text(failure: &Failure) -> String {
             error["message"].as_str().map_or_else(|| error.to_string(), str::to_owned)
         }
         Failure::Transport(message) => message.clone(),
+        Failure::AppAction { action, .. } => format!("{action} is an app action"),
     }
 }
 
