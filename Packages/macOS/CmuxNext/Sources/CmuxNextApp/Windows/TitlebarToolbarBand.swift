@@ -9,7 +9,9 @@ import Observation
 /// not in the sidebar that animates), then the band's other items. A
 /// strip under it starts its tabs after it (`TitlebarAccessoryHosting`).
 final class TitlebarToolbarBand: NSView {
-    let sidebarToggle = TitlebarBandButton(symbol: "sidebar.left")
+    /// A plain outline with a filled leading third: no row ticks, which blur
+    /// to a smudge at 1x in `sidebar.left`.
+    let sidebarToggle = TitlebarBandButton(symbol: "rectangle.leftthird.inset.filled")
     /// Back and Forward through the location trail (R69).
     let backButton = TitlebarBandButton(symbol: "chevron.left")
     let forwardButton = TitlebarBandButton(symbol: "chevron.right")
@@ -104,11 +106,19 @@ final class TitlebarToolbarBand: NSView {
     }
 }
 
-/// An icon button of the toolbar band: the chrome's hover and pressed look.
+/// An icon button of the toolbar band, in the same glyph family as the
+/// sidebar's icon buttons next to it (TRAFFIC-LIGHTS-ALWAYS-AND-CLEAN-SIDEBAR-TOGGLE):
+/// an SF Symbol at `smallIconSize`, the same weight, `textSecondary` at rest
+/// and `textPrimary` with the shared `hoverFill` while hovered or pressed
+/// (`ChromeHover`). The glyph is drawn on the device pixel grid, so its
+/// strokes stay crisp at 1x and 2x.
 final class TitlebarBandButton: NSButton {
     static var side: CGFloat { Metrics.sidebarRowHeight - Metrics.space1 }
+    /// The sidebar icon buttons' weight (spec visuals/components/sidebar.md).
+    static let weight: NSFont.Weight = .semibold
     private let symbol: String
-    private var renderedIconSize: CGFloat = 0
+    /// Icon size, side and scale of the drawn glyph (redrawn when one changes).
+    private var renderedKey: [CGFloat] = []
     private(set) lazy var hover = ChromeHover(self, behindContent: true)
 
     init(symbol: String) {
@@ -117,8 +127,9 @@ final class TitlebarBandButton: NSButton {
         isBordered = false
         bezelStyle = .regularSquare
         imagePosition = .imageOnly
+        imageScaling = .scaleNone
+        wantsLayer = true
         renderSymbol()
-        contentTintColor = performWithTheme { Palette.textSecondary }
         _ = hover
     }
 
@@ -132,12 +143,75 @@ final class TitlebarBandButton: NSButton {
         renderSymbol()
     }
 
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        renderSymbol()
+    }
+
+    /// The scale the glyph is drawn for: the window's, else the main screen's.
+    private var backingScale: CGFloat { window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2 }
+
     private func renderSymbol() {
-        let size = Metrics.smallIconSize
-        guard size != renderedIconSize else { return }
-        renderedIconSize = size
-        image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
-            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: size, weight: .regular))
+        let size = Metrics.smallIconSize, side = Self.side, scale = backingScale
+        guard renderedKey != [size, side, scale] else { return }
+        renderedKey = [size, side, scale]
+        guard let glyph = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: size, weight: Self.weight)) else {
+            image = nil
+            return
+        }
+        let rect = Self.glyphRect(glyph.size, side: side, scale: scale)
+        let canvas = NSImage(size: NSSize(width: side, height: side), flipped: false) { _ in
+            glyph.draw(in: rect)
+            return true
+        }
+        canvas.isTemplate = true
+        image = canvas
+    }
+
+    /// Where a glyph of `size` sits in the button's `side` square: centered,
+    /// its origin rounded to the device pixel grid at `scale` (pure). AppKit
+    /// centers an odd-sized symbol on a half point, which blurs its strokes
+    /// at 1x.
+    static func glyphRect(_ size: CGSize, side: CGFloat, scale: CGFloat) -> CGRect {
+        let snap = { (value: CGFloat) in (value * scale).rounded() / scale }
+        return CGRect(x: snap((side - size.width) / 2), y: snap((side - size.height) / 2), width: size.width, height: size.height)
+    }
+
+    override var wantsUpdateLayer: Bool { true }
+
+    override func updateLayer() {
+        super.updateLayer()
+        layer?.cornerRadius = Metrics.itemCornerRadius
+        performWithTheme {
+            contentTintColor = hover.state.hovering || hover.state.pressed ? Palette.textPrimary : Palette.textSecondary
+        }
+        hover.refresh(animated: false)
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        hover.updateTrackingAreas()
+    }
+
+    private func changeHover(_ change: (inout ChromeHover.State) -> Void) {
+        change(&hover.state)
+        needsDisplay = true
+    }
+
+    override func mouseEntered(with event: NSEvent) { changeHover { $0.hovering = true } }
+    override func mouseExited(with event: NSEvent) { changeHover { $0.hovering = false } }
+
+    /// A button faded out under the pointer gets no exit event; it comes
+    /// back without the fill.
+    override func viewDidHide() {
+        super.viewDidHide()
+        changeHover { $0.hovering = false; $0.pressed = false }
     }
 
     /// A right-click or long-press menu (Back / Forward lists).

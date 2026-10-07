@@ -7,7 +7,9 @@ import CmuxNextDesign
 // sidebar, then fade in, in place, through the one hover-reveal mechanism
 // (HoverReveal; the sidebar's hover is a hold on it). Shortcuts and the
 // palette reach the same actions while they are hidden; keyboard focus on a
-// hidden button reveals them, and they stay in the accessibility tree.
+// hidden button reveals them, and they stay in the accessibility tree. The
+// traffic lights are not part of this reveal: they always show
+// (TRAFFIC-LIGHTS-ALWAYS-AND-CLEAN-SIDEBAR-TOGGLE).
 extension WindowRootView {
     func setUpTitlebarReveal() {
         titlebarReveal.add(toolbarBand.sidebarToggle)

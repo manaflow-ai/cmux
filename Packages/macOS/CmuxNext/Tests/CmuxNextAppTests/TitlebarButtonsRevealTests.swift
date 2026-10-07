@@ -61,16 +61,16 @@ import Testing
         }
     }
 
-    /// Keyboard focus on the toggle reveals it (no hidden-but-focusable trap); with the sidebar
-    /// hidden, focus on any band button also brings the collapsed window controls back.
-    @Test func focusOnTheToggleRevealsItAndTheCollapsedControls() throws {
+    /// Keyboard focus on the toggle reveals it (no hidden-but-focusable trap), with the sidebar
+    /// hidden too; the traffic lights show throughout.
+    @Test func focusOnTheToggleRevealsIt() throws {
         try withSettings(.hover) { root in
-            let window = NSWindow(contentRect: root.frame, styleMask: [.titled, .fullSizeContentView], backing: .buffered, defer: true)
+            let window = NSWindow(contentRect: root.frame, styleMask: [.titled, .closable, .fullSizeContentView], backing: .buffered, defer: true)
             window.isReleasedWhenClosed = false
             defer { window.contentView = nil; window.close() }
             window.contentView = root
             root.sidebarHidden = true
-            #expect(root.windowControlsCollapsed)
+            #expect(root.toolbarBand.sidebarToggle.alphaValue == 0)
             let toggle = root.toolbarBand.sidebarToggle
             // Stands in for the button's own focus under Full Keyboard Access (a test host has it off).
             let focus = FocusableView(frame: toggle.bounds)
@@ -78,7 +78,7 @@ import Testing
             defer { focus.removeFromSuperview() }
             #expect(window.makeFirstResponder(focus))
             #expect(toggle.alphaValue == 1)
-            #expect(!root.windowControlsCollapsed, "focus in the band shows the collapsed controls")
+            #expect(window.standardWindowButton(.closeButton)?.alphaValue == 1, "the traffic lights never fade")
         }
     }
 
@@ -105,6 +105,16 @@ import Testing
                 button.mouseExited(with: exited)
                 #expect(!button.hover.state.hovering)
             }
+        }
+    }
+
+    /// The glyph sits on whole device pixels at 1x and 2x, centered within half a pixel, so its
+    /// strokes stay crisp (AppKit centers an odd 17 x 13 symbol in a 22 pt button on a half point).
+    @Test(arguments: [CGFloat(1), 2]) func theBandGlyphSitsOnWholePixels(scale: CGFloat) {
+        for size in [CGSize(width: 17, height: 13), CGSize(width: 8.5, height: 13.5)] {
+            let rect = TitlebarBandButton.glyphRect(size, side: 22, scale: scale)
+            #expect((rect.minX * scale).rounded() == rect.minX * scale && (rect.minY * scale).rounded() == rect.minY * scale, "\(rect) at \(scale)x")
+            #expect(abs(rect.midX - 11) <= 0.5 / scale && abs(rect.midY - 11) <= 0.5 / scale)
         }
     }
 

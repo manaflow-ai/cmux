@@ -330,7 +330,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionProviding, TitlebarAccessoryHosting, WindowChromeHosting {
     /// The incognito badge in the top row while the sidebar is hidden.
     var titlebarAccessoryFrame: CGRect? { (contentView as? WindowRootView)?.titlebarAccessoryFrame }
-    var windowControlsCollapsed: Bool { (contentView as? WindowRootView)?.windowControlsCollapsed ?? false }
+    /// Pages read it (`WindowChromeHosting`, `data-app-sidebar`).
     var sidebarHidden: Bool { (contentView as? WindowRootView)?.sidebarHidden ?? false }
 
     weak var keyRouter: KeyRouter?

@@ -12,7 +12,7 @@ extension WindowController {
         guard let view = topPages.view(for: route, in: self) else { return false }
         if root.content === view { return true }
         parkContentForPage()
-        root.show(view)
+        root.show(view, clearsWindowControls: true)
         // Pages draw in the room theme (the window's own scope).
         themeScope.show(nil)
         root.titlebar.title = topPages.title(for: route)

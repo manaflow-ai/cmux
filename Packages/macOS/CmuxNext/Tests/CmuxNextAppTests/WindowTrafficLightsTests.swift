@@ -112,6 +112,39 @@ struct WindowTrafficLightsTests {
         withExtendedLifetime(services) {}
     }
 
+    /// A top page (Home, Settings, App Store: no strip of its own) starts below the top row while
+    /// the traffic lights and the band sit over the content, so they never cover its header; with
+    /// the sidebar shown (the lights sit on the sidebar) it fills the content area.
+    @Test func aTopPageStartsBelowTheTrafficLightsWhileTheSidebarIsHidden() throws {
+        let saved = DesignSettings.shared.titlebar
+        defer { DesignSettings.shared.titlebar = saved }
+        DesignSettings.shared.titlebar = .minimal
+        let services = ActionBindingCoverageTests.boundServices()
+        let controller = makeWindow(services)
+        defer {
+            controller.teardown()
+            controller.window?.close()
+        }
+        let root = controller.root
+        let window = try #require(controller.window)
+        let page = NSView()
+        root.show(page, clearsWindowControls: true)
+        root.layoutSubtreeIfNeeded()
+        #expect(page.frame.height == root.contentHost.bounds.height, "sidebar shown: the page fills the content area")
+        root.sidebarHidden = true
+        root.layoutSubtreeIfNeeded()
+        let lights = try #require(WindowTitlebar.trafficLightsFrame(in: window))
+        let pageFrame = page.convert(page.bounds, to: nil)
+        #expect(pageFrame.maxY <= lights.minY, "page \(pageFrame) starts below the traffic lights \(lights)")
+        #expect(pageFrame.maxY <= root.toolbarBand.convert(root.toolbarBand.bounds, to: nil).minY, "and below the band")
+        // The workspace layout keeps the lights clear in its own strip.
+        let layout = NSView()
+        root.show(layout)
+        root.layoutSubtreeIfNeeded()
+        #expect(layout.frame.height == root.contentHost.bounds.height)
+        withExtendedLifetime(services) {}
+    }
+
     @Test func themedAndTranslucentWindowsShowTheTrafficLights() {
         let services = ActionBindingCoverageTests.boundServices()
         let controller = makeWindow(services)
