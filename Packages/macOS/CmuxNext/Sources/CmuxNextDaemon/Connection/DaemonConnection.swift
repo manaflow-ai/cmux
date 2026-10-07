@@ -51,9 +51,7 @@ public actor DaemonConnection {
     private var pacer: RetryPacer
     private let wake: RetryWake
     private let healthy: DemandTimer
-    /// The bridged connection's liveness ask (`DaemonConnection+Heartbeat`).
-    let heartbeat: DemandTimer
-    var heartbeatMisses = 0
+    private let heartbeat = BridgeHeartbeat()
 
     /// Identity of the current (or last) daemon.
     public private(set) var identity: DaemonIdentity?
@@ -72,7 +70,6 @@ public actor DaemonConnection {
         pacer = RetryPacer(configuration.retry)
         wake = configuration.retryWake ?? RetryWake(owner: "DaemonConnection.reconnect")
         healthy = DemandTimer(owner: "DaemonConnection.healthy", clock: clock)
-        heartbeat = DemandTimer(owner: "DaemonConnection.heartbeat", clock: clock)
         // concurrency-allow: drained at once by the store pump into the bounded EventInbox
         (events, continuation) = AsyncThrowingStream.makeStream(of: DaemonEventEnvelope.self, bufferingPolicy: .unbounded)
     }
@@ -96,7 +93,7 @@ public actor DaemonConnection {
     /// Stops reconnecting, closes the socket, and finishes `events`.
     public func close() {
         healthy.cancel()
-        heartbeat.cancel()
+        heartbeat.stop()
         reconnectTask?.cancel()
         reconnectTask = nil
         if case .ready(let transport, _, _) = phase { transport.close() }
@@ -229,7 +226,7 @@ public actor DaemonConnection {
             phase = .ready(transport, serial: serial, userOriginAllowed: userOriginAllowed)
             wake.watch(file: endpoint.socketPath)
             healthy.schedule(after: configuration.healthyAfter) { [weak self] in await self?.stayedHealthy(serial: serial) }
-            if endpoint.bridge != nil { scheduleHeartbeat(transport, serial: serial) }
+            if endpoint.bridge != nil { heartbeat.start(transport, every: configuration.bridgeHeartbeat, misses: configuration.bridgeHeartbeatMisses) }
             let connected = DaemonEventEnvelope(sequence: DaemonEventEnvelope.sequence(serial: serial, index: 0),
                                                 event: .connected(identity, generationChanged: generationChanged))
             gate.open(first: connected) { continuation.yield($0) }
@@ -279,7 +276,6 @@ public actor DaemonConnection {
         if case .ready = phase {} else if case .connecting = phase {} else { return }
         phase = .waiting
         healthy.cancel()
-        heartbeat.cancel()
         let detail: String = switch reason {
         case .closedByClient: "closed"
         case .daemonShutdown: "daemon shut down"
@@ -298,8 +294,7 @@ public actor DaemonConnection {
         }
     }
 
-    /// The connection stayed up for `healthyAfter`: the next drop starts
-    /// the backoff from its first step again.
+    /// Up for `healthyAfter`: the next drop starts the backoff from its first step.
     private func stayedHealthy(serial: UInt64) {
         guard serial == self.serial, case .ready = phase else { return }
         pacer.reset()
@@ -308,8 +303,7 @@ public actor DaemonConnection {
     private func reconnectLoop() async {
         // wakeup-allow: each iteration waits in RetryWake (capped backoff, then events only)
         while !Task.isCancelled {
-            // A drop or a failed attempt: space the next one, or wait for an
-            // event once the timed budget is spent.
+            // A drop or a failed attempt: space the next one (events only past the budget).
             wake.rebaseline()
             let delay = pacer.failed()
             guard await wake.awaitWake(delay: delay, clock: clock) != .cancelled else { break }
