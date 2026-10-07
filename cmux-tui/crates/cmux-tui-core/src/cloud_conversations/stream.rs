@@ -6,7 +6,9 @@
 
 use serde_json::{Value, json};
 
-use super::contract::{Target, conversation_change, inbox_entries, snapshot_parts};
+use super::contract::{
+    Target, conversation_change, inbox_entries, mux_pending, mux_wakes, snapshot_parts,
+};
 
 /// A daemon event of `cloud-conversations-v1`.
 ///
@@ -42,6 +44,19 @@ pub enum CloudEvent {
         seq: u64,
         account: Option<String>,
     },
+    /// New wakes in the leased chief's MuxDO queue: ids only.
+    MuxWake {
+        seq: u64,
+        wakes: Vec<Value>,
+        account: Option<String>,
+    },
+    /// The queue's pending wakes after a (re)subscribe: a wake missed while
+    /// the socket was down is here.
+    MuxResynced {
+        seq: u64,
+        pending: Vec<Value>,
+        account: Option<String>,
+    },
     SubscriptionState {
         target: Target,
         state: &'static str,
@@ -62,6 +77,8 @@ impl CloudEvent {
             | Self::ConversationResynced { account, .. }
             | Self::InboxChanged { account, .. }
             | Self::InboxReset { account, .. }
+            | Self::MuxWake { account, .. }
+            | Self::MuxResynced { account, .. }
             | Self::SubscriptionState { account, .. } => {
                 *account = socket_account.map(str::to_string);
             }
@@ -76,6 +93,8 @@ impl CloudEvent {
             | Self::ConversationResynced { account, .. }
             | Self::InboxChanged { account, .. }
             | Self::InboxReset { account, .. }
+            | Self::MuxWake { account, .. }
+            | Self::MuxResynced { account, .. }
             | Self::SubscriptionState { account, .. } => account.as_deref(),
             Self::SessionNeeded { .. } => None,
         }
@@ -109,6 +128,12 @@ impl CloudEvent {
                 "entries": entries,
             }),
             Self::InboxReset { seq, .. } => json!({"event": "cloud-inbox-reset", "seq": seq}),
+            Self::MuxWake { seq, wakes, .. } => {
+                json!({"event": "cloud-mux-wake", "seq": seq, "wakes": wakes})
+            }
+            Self::MuxResynced { seq, pending, .. } => {
+                json!({"event": "cloud-mux-resynced", "seq": seq, "pending": pending})
+            }
             Self::SubscriptionState { target, state, reason, .. } => {
                 let mut value = json!({
                     "event": "cloud-subscription-state",
@@ -180,6 +205,7 @@ impl StreamState {
     fn stream_name(&self) -> Option<String> {
         match &self.target {
             Target::Conversation(id) => Some(format!("conv:{id}")),
+            Target::Mux(agent) => Some(format!("mux:{agent}")),
             Target::Inbox => self.user.as_ref().map(|user| format!("inbox:{user}")),
         }
     }
@@ -259,6 +285,9 @@ impl StreamState {
         self.last_seq = Some(seq);
         let event = match &self.target {
             Target::Inbox => CloudEvent::InboxReset { seq, account: None },
+            Target::Mux(_) => {
+                CloudEvent::MuxResynced { seq, pending: mux_pending(frame), account: None }
+            }
             Target::Conversation(conversation) => match snapshot_parts(frame) {
                 Ok((summary, messages, rev, seq)) => CloudEvent::ConversationResynced {
                     conversation: conversation.clone(),
@@ -301,6 +330,15 @@ impl StreamState {
                 },
                 None => return self.request_snapshot(),
             },
+            Target::Mux(_) => {
+                let wakes = mux_wakes(frame);
+                self.last_seq = Some(seq);
+                // An ack or a configure changes no wake the brain must see.
+                if wakes.is_empty() {
+                    return Vec::new();
+                }
+                CloudEvent::MuxWake { seq, wakes, account: None }
+            }
             Target::Inbox => match inbox_entries(frame) {
                 Some(entries) => {
                     CloudEvent::InboxChanged { seq, transaction, entries, account: None }

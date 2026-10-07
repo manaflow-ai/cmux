@@ -61,6 +61,10 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     case setAutomaticUpdates(Bool)
     /// A link in the update card's popover (a pull request, the release notes).
     case openUpdateLink(URL)
+    /// The tip card's "Try It": run the tip's feature.
+    case tryTip(String)
+    /// The tip card's x: never show this tip again.
+    case dismissTip(String)
     /// Change the section layout; the App sends it to the workspace store.
     case layout(SidebarLayoutOp)
     /// Workspace rows dropped on a top section (the pinned tiles or the top

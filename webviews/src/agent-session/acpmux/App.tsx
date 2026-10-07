@@ -86,6 +86,9 @@ import { DateLine } from "./conversation/DateLine";
 import { SHORTCUT_ACTIONS, ShortcutsContext, readShortcuts, type ShortcutLabels } from "./shortcuts";
 import { FALLBACK_LINK_SCHEME, revealTurnWhenShown, setLinkScheme } from "./links";
 import { copyText } from "./conversation/clipboard";
+import { chatImages, type ChatImage } from "./conversation/chatImages";
+import { ImageViewer } from "./conversation/ImageViewer";
+import { ImageViewerContext } from "./conversation/imageViewerContext";
 import { sessionLink } from "./links";
 import { ChatHeaderStatus } from "./header/ChatHeaderStatus";
 import { ChatHeaderTools, HEADER_ACTIONS, type ChatMenuItem } from "./header/ChatHeaderTools";
@@ -1148,6 +1151,14 @@ function AcpmuxPane() {
   // recorded on its summary, diffed on the session host.
   const turnRowsRef = useRef(snapshot.rows);
   turnRowsRef.current = snapshot.rows;
+  // The image viewer holds the chat's images from when it opened; another chat closes it.
+  const [imageView, setImageView] = useState<{ images: ChatImage[]; index: number } | undefined>();
+  const openImage = useCallback((src: string, alt: string) => {
+    const images = chatImages(turnRowsRef.current);
+    const index = images.findIndex((image) => image.src === src);
+    setImageView(index < 0 ? { images: [{ src, alt }], index: 0 } : { images, index });
+  }, []);
+  useEffect(() => setImageView(undefined), [snapshot.sessionId]);
   const readTurn = useCallback(
     ({ rowId }: { rowId: string }) => readTurnFromRows(turnRowsRef.current, rowId, checkpointDiff),
     [],
@@ -2027,7 +2038,8 @@ function AcpmuxPane() {
     return [...byPath.values()];
   }, [composerSnapshot.sessions, newTab?.cwd, newTab?.projects, directProjects]);
   const transcript = (
-    <ShellActionsContext.Provider value={shellActions}>
+    <ImageViewerContext.Provider value={quick ? undefined : openImage}>
+      <ShellActionsContext.Provider value={shellActions}>
       <TurnActionsContext.Provider value={turnActions}>
         <TurnCountsContext.Provider value={turnCountsFor}>
           <SessionRowsContext.Provider value={snapshot.rows}>
@@ -2052,7 +2064,8 @@ function AcpmuxPane() {
           </SessionRowsContext.Provider>
         </TurnCountsContext.Provider>
       </TurnActionsContext.Provider>
-    </ShellActionsContext.Provider>
+      </ShellActionsContext.Provider>
+    </ImageViewerContext.Provider>
   );
   const asks = (
     <>
@@ -2172,6 +2185,12 @@ function AcpmuxPane() {
         }}
         onStop={() => void callNative("chat.cancel")}
         onProject={chooseProject}
+        // SSH… opens Connect to Machine; cmux Cloud… opens New Cloud Machine (Lawrence 2026-10-06).
+        onConnect={(kind) =>
+          void callNative("action.run", { id: kind === "ssh" ? "remote.connect" : "newCloudMachine" }).catch(
+            () => undefined,
+          )
+        }
         projectChoices={freshChat && !quick ? newTabProjects : undefined}
         onBrowseProject={
           freshChat && !quick
@@ -2389,6 +2408,14 @@ function AcpmuxPane() {
             </>
           )}
         </div>
+        {imageView && (
+          <ImageViewer
+            images={imageView.images}
+            index={imageView.index}
+            onIndex={(index) => setImageView((current) => current && { ...current, index })}
+            onClose={() => setImageView(undefined)}
+          />
+        )}
       </section>
     </ShortcutsContext.Provider>
   );
