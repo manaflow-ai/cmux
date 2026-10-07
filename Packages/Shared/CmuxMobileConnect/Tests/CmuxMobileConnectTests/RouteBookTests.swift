@@ -42,3 +42,17 @@ struct RouteBookTests {
         #expect(MobileRouteBook(trusted: [broken]).routes().isEmpty)
     }
 }
+
+extension RouteBookTests {
+    @Test("another account's Mac carries its team to the signaling socket; a team change is a new client")
+    func team() async throws {
+        let fixture = try await ConnectFixture()
+        var key = try #require(await fixture.lookup.hostKey(for: ConnectFixture.hostID))
+        let own = try #require(MobileRouteBook(trusted: [key]).routes().first)
+        #expect(own.team == nil)
+        key.team = "team_b1"
+        let guest = try #require(MobileRouteBook(trusted: [key]).routes().first)
+        #expect(guest.team == "team_b1")
+        #expect(!guest.pinsSameKeys(as: own))
+    }
+}

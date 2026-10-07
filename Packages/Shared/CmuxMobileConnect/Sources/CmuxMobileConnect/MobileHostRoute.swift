@@ -21,10 +21,14 @@ public struct MobileHostRoute: Sendable, Hashable {
     public var webrtcHostKey: WebRTCPublicKey?
     /// B3: the host's WireGuard key.
     public var wireGuardHostKey: WireGuardPublicKey?
+    /// Another account's Mac: its team, so its HostDO socket (signaling)
+    /// asks `?team=` (B6 guest admission). Nil for own Macs.
+    public var team: String?
 
     public init(hostID: String, name: String, directEndpoints: [DirectEndpoint] = [], directHostKey: DirectPublicKey? = nil,
-                webrtcHostKey: WebRTCPublicKey? = nil, wireGuardHostKey: WireGuardPublicKey? = nil) {
+                webrtcHostKey: WebRTCPublicKey? = nil, wireGuardHostKey: WireGuardPublicKey? = nil, team: String? = nil) {
         self.hostID = hostID
+        self.team = team
         self.name = name
         self.directHostKey = directHostKey
         self.directEndpoints = directHostKey.map { key in directEndpoints.filter { $0.hostKey == key } } ?? []
@@ -40,7 +44,7 @@ public struct MobileHostRoute: Sendable, Hashable {
         let wireGuard = key.wireGuardKey.flatMap(WireGuardPublicKey.init(rawRepresentation:))
         self.init(hostID: key.host, name: key.name,
                   directEndpoints: targets.map { DirectEndpoint(target: $0, hostKey: direct) },
-                  directHostKey: direct, webrtcHostKey: webrtc, wireGuardHostKey: wireGuard)
+                  directHostKey: direct, webrtcHostKey: webrtc, wireGuardHostKey: wireGuard, team: key.team)
     }
 
     /// The peer every carrier dials: the WebRTC and WireGuard pins ride the
@@ -53,10 +57,10 @@ public struct MobileHostRoute: Sendable, Hashable {
         return LinkPeer(hostID: hostID, hints: hints)
     }
 
-    /// Whether `other` pins the same keys (same client) and only its
-    /// endpoints or name may differ.
+    /// Whether `other` pins the same keys and team (same client and relay
+    /// socket) and only its endpoints or name may differ.
     public func pinsSameKeys(as other: MobileHostRoute) -> Bool {
         hostID == other.hostID && directHostKey == other.directHostKey && webrtcHostKey == other.webrtcHostKey
-            && wireGuardHostKey == other.wireGuardHostKey
+            && wireGuardHostKey == other.wireGuardHostKey && team == other.team
     }
 }

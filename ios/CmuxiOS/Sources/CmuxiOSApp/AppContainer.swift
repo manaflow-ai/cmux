@@ -1,3 +1,4 @@
+import CmuxControlPlane
 import CmuxFeedPushCore
 import CmuxHomeCore
 import CmuxHomeUI
@@ -204,7 +205,7 @@ final class AppContainer {
         }
         realFactories = Self.addingFiles(to: Self.addingWorkspaces(
             to: Self.addingFeed(to: factories, base: base, identity: madeIdentity, pairing: madePairing),
-            base: base, identity: madeIdentity), connector: madePairing == nil ? nil : links)
+            base: base, identity: madeIdentity, sockets: madePairing?.hostSockets), connector: madePairing == nil ? nil : links)
         let ops: any CloudOpsSending
         if let base, let madeIdentity {
             ops = CloudOpsClient(baseURL: base, tokens: IdentityTokens(identity: madeIdentity))
@@ -293,16 +294,18 @@ final class AppContainer {
     /// C5: workspaces of the account's paired Macs over the control plane;
     /// C8: the composer over the same Macs' `task:` streams.
     private static func addingWorkspaces(to factories: RealFeatureFactories, base: URL?,
-                                         identity: InstallIdentity?) -> RealFeatureFactories {
+                                         identity: InstallIdentity?, sockets: HostSocketPool?) -> RealFeatureFactories {
         var factories = factories
-        // One `ControlPlaneClient` per paired Mac on `/v1/wire/host/<host>`,
-        // as this install (b1-control-do.md). Without an API origin each Mac
-        // shows as unreachable instead of as fake data.
+        // A lease on each paired Mac's one `/v1/wire/host/<host>` socket
+        // (D1b, shared with presence, tasks and signaling), as this install
+        // (b1-control-do.md). Without an API origin each Mac shows as
+        // unreachable instead of as fake data.
         let channels: any WorkspaceChannelFactory
         if let base, let identity {
             let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
             channels = ControlPlaneWorkspaceChannelFactory(
                 apiBaseURL: base, appVersion: version ?? "0", reasons: WorkspacesFeature.controlPlaneReasons,
+                sessions: sockets,
                 install: { try await identity.ownerInstall().install },
                 token: { try await identity.token(for: nil) })
         } else {
@@ -311,8 +314,8 @@ final class AppContainer {
         factories.workspaces = { devices in
             ControlPlaneWorkspaceSource(directory: DeviceRegistryHostDirectory(registry: devices), channels: channels)
         }
-        // C8: the composer's `task:<host>` streams ride the same host sockets'
-        // endpoint (one more subscription per Mac while a composer is open).
+        // C8: the composer's `task:<host>` streams ride the same host sockets
+        // (one more subscription per Mac while a composer is open).
         let taskChannels: any WorkspaceChannelFactory
         if let controlPlane = channels as? ControlPlaneWorkspaceChannelFactory {
             taskChannels = controlPlane.streaming("task")
@@ -522,7 +525,12 @@ final class AppContainer {
         homeAccount = nil
         dropFeatureSources()
         accountLinks.stop()
-        if let pairing { Task { await pairing.cache.reset() } }
+        if let pairing {
+            Task {
+                await pairing.cache.reset()
+                await pairing.hostSockets.stopAll()
+            }
+        }
     }
 
     /// Binds the account's links (D1): routes from B6's trust store, Bonjour
@@ -531,7 +539,10 @@ final class AppContainer {
         guard let pairing else { return }
         let composition = LinkComposition(pairing: pairing, bundleID: Bundle.main.bundleIdentifier ?? "",
                                           appVersion: pairing.appVersion, dev: linkDev)
-        let reset: Task<Void, Never>? = resetting ? Task { await pairing.cache.reset() } : nil
+        let reset: Task<Void, Never>? = resetting ? Task {
+            await pairing.cache.reset()
+            await pairing.hostSockets.stopAll()
+        } : nil
         accountLinks.start(bootstrap: {
             await reset?.value
             return try await composition.bootstrap()

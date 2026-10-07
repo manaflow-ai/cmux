@@ -45,11 +45,12 @@ struct LinkComposition {
             credentials: credentials, mirror: runtime.mirror,
             lookup: TrustStoreKeyLookup(mirror: runtime.mirror, environment: account.environment, user: account.user),
             options: MobileConnectOptions(wireGuardOverWebRTC: dev.wireGuardOverWebRTC),
-            signaling: { host in
-                let client = pairing.controlClient(path: "/v1/wire/host/\(host)", install: account.install)
-                Task { await client.start() }
-                let relay = ControlPlaneSignaling(client: client)
-                return MobileHostSignaling(router: SignalRouter(channel: relay), iceServers: relay, close: { await client.stop() })
+            signaling: { route in
+                // A lease on the Mac's shared host socket (D1b), with `team=` for another account's Mac.
+                let session = pairing.hostSockets.deferredSession(host: route.hostID, team: route.team)
+                Task { await session.start() }
+                let relay = ControlPlaneSignaling(client: session)
+                return MobileHostSignaling(router: SignalRouter(channel: relay), iceServers: relay, close: { await session.stop() })
             })
     }
 

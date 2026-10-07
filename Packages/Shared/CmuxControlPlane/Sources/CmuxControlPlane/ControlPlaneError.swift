@@ -11,4 +11,6 @@ public enum ControlPlaneError: Error, Hashable, Sendable {
     /// The socket closed for good (revoked install, version mismatch) or the client was stopped.
     case closed(ControlPlaneCloseError)
     case stopped
+    /// No install principal or token to connect with (signed out).
+    case unauthenticated
 }
