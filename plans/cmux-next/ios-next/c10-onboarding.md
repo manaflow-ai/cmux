@@ -166,4 +166,9 @@ with a sample code in DEBUG), SSH host save (C9 real `HostsStore`), Mac install 
   sign-out return, replay, persistence round trip, launch policy, pairing phase, the hint delay on an
   injected clock. Run with `swift test` on macOS through a scratch package that links the same sources.
 - `CmuxiOSApp` compiles for `arm64-apple-ios17.0-simulator` with SwiftPM.
-- Tagged build `nxc10`: see the coordination note for the result.
+- Tagged build `nxc10` through `ios/scripts/reload-cloud.sh`: BLOCKED on 2026-10-06. The same-tag Mac
+  leg failed on the dev backend VM (`cmux-dev-backend-1` SSH timeout); with
+  `CMUX_DEV_BACKEND_MODE=local` there was no fleet manifest (`~/.config/macfleet/hosts.json`), and the
+  local fallback refused at 17 GiB free (floor 40 GiB). No install, no screenshot; the screens are
+  unverified on a device. Rerun the same command when a fleet slot or disk is available, with
+  `CMUX_IOS_ONBOARDING=1` (and `CMUX_IOS_ONBOARDING_STEP=<step>` for a single screen).
