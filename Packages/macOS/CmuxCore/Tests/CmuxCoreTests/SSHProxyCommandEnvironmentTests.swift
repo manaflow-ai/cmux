@@ -12,6 +12,8 @@ struct SSHProxyCommandEnvironmentTests {
         var expected = ProcessInfo.processInfo.environment
         if let agentSocketPath {
             expected["SSH_AUTH_SOCK"] = agentSocketPath
+        } else {
+            expected.removeValue(forKey: "SSH_AUTH_SOCK")
         }
         // Report only equality, never dump inherited credentials on failure.
         let preservesEnvironment = configuration(agentSocketPath: agentSocketPath).sshProcessEnvironment == expected
@@ -53,7 +55,7 @@ struct SSHProxyCommandEnvironmentTests {
         #expect(process.terminationStatus == 255)
         let inherited = ProcessInfo.processInfo.environment
         let expected = ["HOME", "USER", "LOGNAME", "PATH"].map { inherited[$0] ?? "" }
-            + [agentSocketPath ?? inherited["SSH_AUTH_SOCK"] ?? "unset"]
+            + [agentSocketPath ?? "unset"]
         let proxyReceivedExpectedEnvironment =
             try String(contentsOf: capture, encoding: .utf8) == expected.joined(separator: "\n") + "\n"
         // Report only equality, never dump inherited credentials on failure.

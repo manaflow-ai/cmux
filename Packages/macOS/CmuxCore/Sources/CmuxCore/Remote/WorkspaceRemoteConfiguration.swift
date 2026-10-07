@@ -478,11 +478,16 @@ extension WorkspaceRemoteConfiguration {
     /// Assigning `nil` to Foundation's `Process.environment` clears the child
     /// environment on macOS, unlike leaving the property unset. Always supply
     /// the inherited environment so local `ProxyCommand` helpers can find the
-    /// user's home directory, credentials, and executables without an agent override.
+    /// user's home directory, credentials, and executables without restoring an
+    /// unconfigured `SSH_AUTH_SOCK`.
     public var sshProcessEnvironment: [String: String]? {
         var environment = ProcessInfo.processInfo.environment
         if let agentSocketPath {
             environment["SSH_AUTH_SOCK"] = agentSocketPath
+        } else {
+            // Keep ForwardAgent=no and an explicit empty socket from falling
+            // back to the app's own agent socket.
+            environment.removeValue(forKey: "SSH_AUTH_SOCK")
         }
         return environment
     }
