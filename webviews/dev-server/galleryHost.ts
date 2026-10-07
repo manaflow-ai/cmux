@@ -143,13 +143,24 @@ export function readRevision(root = repoRoot): Revision {
   }
 }
 
+/** A stylesheet's relative @imports, rewritten to resolve from `dir` (where the virtual file sits). */
+function rebaseImports(css: string, file: string, dir: string): string {
+  return css.replace(/^@import\s+(["'])(\.{1,2}\/[^"']+)\1/gm, (_match, quote: string, relative: string) => {
+    const rebased = path
+      .relative(dir, path.resolve(path.dirname(file), relative))
+      .split(path.sep)
+      .join("/");
+    return `@import ${quote}${rebased.startsWith(".") ? rebased : `./${rebased}`}${quote}`;
+  });
+}
+
 /** The pane's stylesheets as one virtual file under the gallery (PANE_CSS_PATH). */
 export function agentPaneCSS(): string {
   return agentPaneStylesheets()
     .map((file) => {
       const css = fs.readFileSync(file, "utf8");
       const body = file.endsWith("shared/styles.css") ? css.replace(/^@import .*$/gm, "") : css;
-      return `/* ${path.relative(webviewsRoot, file)} */\n${body}`;
+      return `/* ${path.relative(webviewsRoot, file)} */\n${rebaseImports(body, file, galleryDir)}`;
     })
     .join("\n");
 }
