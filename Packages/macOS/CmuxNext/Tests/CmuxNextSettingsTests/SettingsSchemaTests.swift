@@ -42,6 +42,7 @@ import Testing
             ["", "https://search.example/?q=%s", "https://search.example/find?q={searchTerms}"]
         case .url: ["", "https://example.com/start", "example.com"]
         case .hostList: [[], ["mail.google.com", "*.example.com"]]
+        case .folderList where descriptor.path == ChatSettings.rootsPath: [[], ["/Users/ada/src", "/opt/chat"]]
         case .folderList: [[], ["/Users/ada/src", "~/notes"]]
         case .timeRange: [["start": "22:00", "end": "07:30"]]
         case .theme: ["Nord", "light:Rose Pine Dawn,dark:Rose Pine", "Theme From A Newer Ghostty"]

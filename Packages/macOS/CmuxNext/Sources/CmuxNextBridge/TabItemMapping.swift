@@ -37,7 +37,15 @@ public struct TabItemMapping {
         )
         if busy.state.replacesTabIcon { item.indicator = busy.state }
         item.busyStyle = busy.style
+        applyUserIcon(tab, to: &item)
         return item
+    }
+
+    /// The icon the user set on the tab record replaces every derived icon (kind, agent
+    /// mark, page icon, favicon). Callers that set a derived icon after ``item(_:fallbackTitle:isNewTabPage:)``
+    /// apply it again last. A busy indicator still covers it while the tab loads.
+    public func applyUserIcon(_ tab: TabModel, to item: inout StripTabItem) {
+        if let icon = TabUserIcon.shared.icon(tab.userIcon) { item.icon = icon }
     }
 
     /// A tab's kind icon from the cmux icon registry. A live agent terminal, and an agent chat
