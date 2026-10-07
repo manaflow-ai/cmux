@@ -59,14 +59,42 @@ class AuthorizationLaunchTests(unittest.TestCase):
         if gate_start >= 0: gate += '\n var readyForTesting: Bool { isWindowSetupComplete }\n'
         window = (ROOT / 'Sources/App/CmuxMainWindow.swift').read_text()
         if 'func whenInitialDisplayCompletes(' in window:
-            lifecycle = '\n'.join(declaration(window, x) for x in (
-                'func whenInitialDisplayCompletes(', 'override func displayIfNeeded()',
-                'override func display()', 'private func completeInitialDisplayIfNeeded()'))
+            start = window.index('    private var initialDisplayCompletion')
             lifecycle = ('@MainActor final class Window: FakeWindow {\n'
-                         'var initialDisplayCompletion: (() -> Void)?\n'
-                         'var isCompletingInitialDisplay = false\n'
-                         'var didCompleteInitialDisplay = false\n' + lifecycle + '\n}')
+                         + window[start:window.index('    private var isSoftHiddenForVisibilityController', start)]
+                         + '\n}')
             trigger = 'let window = Window(); window.whenInitialDisplayCompletes { signal += 1 }; window.displayIfNeeded(); precondition(signal == 0); window.isVisible = true; window.displayIfNeeded(); precondition(window.events == ["layout", "display", "layout", "display"]); precondition(signal == 1); window.display(); precondition(signal == 1)'
+            trigger = '''
+            if mode.hasPrefix("window-late-") {
+                let window = Window(); window.isVisible = true
+                if mode == "window-late-display" { window.display() } else { window.displayIfNeeded() }
+                let events = window.events
+                window.whenInitialDisplayCompletes { signal += 1 }
+                precondition(signal == 1, "completed initial display was lost before registration")
+                precondition(window.events == events, "late registration required another redraw")
+                window.whenInitialDisplayCompletes { signal += 10 }
+                window.display(); window.displayIfNeeded()
+                precondition(signal == 1, "completion delivered more than once")
+                return
+            }
+            if mode == "window-before" {
+                let window = Window(); window.isVisible = true
+                window.whenInitialDisplayCompletes { signal += 1 }
+                precondition(signal == 0, "registration inferred a display")
+                window.contentView = nil; window.display(); precondition(signal == 0)
+                window.contentView = true; window.display(); precondition(signal == 1)
+                return
+            }
+            if mode == "window-lifetime" {
+                weak var released: Window?
+                do {
+                    let window = Window(); released = window
+                    window.whenInitialDisplayCompletes { signal += 1 }
+                }
+                precondition(released == nil && signal == 0, "pending readiness retained a window or delivered after release")
+                return
+            }
+            ''' + trigger
         else:
             delegate = (ROOT / 'Sources/AppDelegate.swift').read_text()
             lifecycle = ('@MainActor final class Owner { var didScheduleNotificationWindowSetupSignal = false\n'
@@ -91,6 +119,10 @@ class AuthorizationLaunchTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_window_completion_requires_display(self): self.run_case('window')
+    def test_late_registration_after_display_without_redraw(self): self.run_case('window-late-display')
+    def test_late_registration_after_display_if_needed_without_redraw(self): self.run_case('window-late-if-needed')
+    def test_registration_before_display_and_without_content_stays_closed(self): self.run_case('window-before')
+    def test_pending_readiness_does_not_retain_window(self): self.run_case('window-lifetime')
     def test_early_native_status_does_not_publish(self): self.run_case('status')
     def test_early_grant_does_not_publish(self): self.run_case('grant')
     def test_early_failure_does_not_publish(self): self.run_case('failure')

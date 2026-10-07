@@ -57,7 +57,7 @@ struct Options: OptionSet, Sendable {
 @main struct Runner {
     @MainActor static func main() async {
         let mode = CommandLine.arguments[1]
-        if mode == "window" {
+        if mode.hasPrefix("window") {
             var signal = 0
             // WINDOW TEST
             return

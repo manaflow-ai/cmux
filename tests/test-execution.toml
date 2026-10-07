@@ -11,6 +11,11 @@
 version = 1
 
 [[test]]
+path = "tests/test_main_window_display_readiness.py"
+lane = "manual"
+reason = "Requires an isolated macOS GUI session for a short-lived real AppKit accessory-window probe; never launches cmux."
+
+[[test]]
 path = "tests/test_cli_new_window_name.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
