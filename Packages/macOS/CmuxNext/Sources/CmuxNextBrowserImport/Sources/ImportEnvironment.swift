@@ -35,7 +35,7 @@ public struct ImportEnvironment: Sendable {
         allowsFixtures: Bool = fixturesAllowed,
         locateApp: @escaping @Sendable (String) -> URL?
     ) -> ImportEnvironment {
-        if let fixture = environment[fixtureHomeKey], !fixture.isEmpty {
+        if allowsFixtures, let fixture = environment[fixtureHomeKey], !fixture.isEmpty {
             return ImportEnvironment(homeDirectory: URL(fileURLWithPath: fixture, isDirectory: true), locateApp: { _ in nil })
         }
         return ImportEnvironment(homeDirectory: FileManager.default.homeDirectoryForCurrentUser, locateApp: locateApp)

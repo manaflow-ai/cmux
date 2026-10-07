@@ -56,6 +56,10 @@ public struct PasswordImporter: Sendable {
     }
 
     public func run(_ profile: BrowserSourceProfile, intoProfile profileID: String) async throws -> PasswordImportReport {
+        if profile.browser.family == .firefox, !profile.browser.refusesSessionData {
+            guard destination.isAvailable else { throw Failure.storeUnavailable }
+            return try await store(try await readFirefox(profile), intoProfile: profileID)
+        }
         guard profile.browser.family == .chromium, !profile.browser.refusesSessionData,
               let service = profile.browser.safeStorageService else { throw Failure.unsupportedBrowser }
         guard destination.isAvailable else { throw Failure.storeUnavailable }

@@ -91,7 +91,8 @@ public struct BrowserSourceDetector: Sendable {
             .history: session(places),
             .openTabs: session(FirefoxSessionReader().sessionFile(in: profile) != nil ? .available : .absent),
             .extensions: present("extensions.json") ? .unsupported(.notChromeExtensions) : .absent,
-            .passwords: present("logins.json") ? .unsupported(.exportFromSource) : .absent,
+            // Firefox keeps passwords in logins.json, sealed with the NSS key store key4.db.
+            .passwords: session(FirefoxLoginReader.hasLogins(profile) ? .available : present("logins.json") ? .unsupported(.exportFromSource) : .absent),
             .cookies: session(present("cookies.sqlite") ? .available : .absent),
         ]
     }
