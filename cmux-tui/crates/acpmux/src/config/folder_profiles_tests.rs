@@ -75,7 +75,8 @@ impl Fx {
         cwd: &Path,
         remote: bool,
     ) -> Option<Result<HarnessProfile, String>> {
-        resolve_for_session(&self.cfg, id, cwd, remote).map(|r| r.map(|(p, _)| p))
+        resolve_for_session(&self.cfg, id, cwd, remote)
+            .map(|r| r.map(|(p, _)| p).map_err(|e| e.message))
     }
     fn inside(&self) -> PathBuf {
         self.folder.join("sub")

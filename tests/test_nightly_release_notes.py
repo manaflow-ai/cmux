@@ -7,6 +7,7 @@ import re
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from unittest.mock import Mock
 import xml.etree.ElementTree as ET
 
@@ -163,7 +164,25 @@ class CollectionTests(unittest.TestCase):
     def github(self, responses):
         github = Mock(repo=REPO)
         github.rest.side_effect = responses
+        github.graphql.side_effect = self.route(github)
         return github
+
+    def route(self, github, inner=None):
+        """Answer association queries from the test, and the follow-up
+        pullRequest(number:) detail queries from the PRs those returned."""
+        seen = {}
+
+        def call(query):
+            numbers = re.findall(r"(p\d+): pullRequest\(number: (\d+)\)", query)
+            if numbers:
+                return {alias: seen[int(number)] for alias, number in numbers}
+            result = inner(query) if inner else github.graphql.return_value
+            for obj in result.values():
+                for pr in ((obj or {}).get("associatedPullRequests") or {}).get("nodes", []):
+                    seen[pr["number"]] = pr
+            return result
+
+        return call
 
     def associations(self, *prs, more=False):
         return {"associatedPullRequests": {"pageInfo": {"hasNextPage": more}, "nodes": list(prs)}}
@@ -184,7 +203,10 @@ class CollectionTests(unittest.TestCase):
         }
         self.assertEqual(NOTES.collect_prs(github, BASE, HEAD, "main"), [expected])
         github.rest.assert_called_once_with(f"compare/{BASE}...{HEAD}?per_page=100&page=1")
-        query = github.graphql.call_args.args[0]
+        query = github.graphql.call_args_list[0].args[0]
+        # Membership is read cheaply; titles, labels and files only for kept PRs.
+        self.assertNotIn("files(first", query)
+        self.assertIn("pullRequest(number: 10)", github.graphql.call_args_list[-1].args[0])
         self.assertIn(first, query)
         self.assertIn(second, query)
 
@@ -213,9 +235,9 @@ class CollectionTests(unittest.TestCase):
             return {alias: self.associations(expected) if sha == shas[-1] else self.associations()
                     for alias, sha in objects}
 
-        github.graphql.side_effect = graphql
+        github.graphql.side_effect = self.route(github, graphql)
         self.assertEqual(NOTES.collect_prs(github, BASE, HEAD, "main"), [expected])
-        self.assertEqual(github.graphql.call_count, 2)
+        self.assertEqual(github.graphql.call_count, 3)
 
     def test_identical_publication_needs_no_metadata_requests(self):
         github = Mock(repo=REPO)
@@ -264,11 +286,47 @@ class CollectionTests(unittest.TestCase):
             return {"c0": {"associatedPullRequests": {
                 "pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": [expected]}}}
 
-        github.graphql.side_effect = graphql
+        github.graphql.side_effect = self.route(github, graphql)
         self.assertEqual(NOTES.collect_prs(github, BASE, HEAD, "main"), [expected])
         self.assertEqual(len(calls), 3)
         self.assertIn(sha, calls[1])
         self.assertIn("first: 100", calls[1])
+
+    def test_timed_out_batch_is_split_until_github_answers(self):
+        # nightly-next run 37593192286: a 25-commit association batch returned
+        # HTTP 504 and failed the publish. A transient 5xx splits the batch.
+        shas = [f"{number:040x}" for number in range(1, 5)]
+        github = self.github([{"status": "ahead", "total_commits": len(shas),
+                               "commits": [{"sha": sha} for sha in shas]}])
+        expected = self.merged(10, shas[-1])
+
+        def graphql(query):
+            objects = re.findall(r'(c\d+): object\(oid: "([0-9a-f]{40})"\)', query)
+            if len(objects) > 1:
+                raise NOTES.TransientGitHubError("HTTP 504")
+            alias, sha = objects[0]
+            return {alias: self.associations(expected) if sha == shas[-1] else self.associations()}
+
+        github.graphql.side_effect = self.route(github, graphql)
+        self.assertEqual(NOTES.collect_prs(github, BASE, HEAD, "main"), [expected])
+
+    def test_single_commit_that_keeps_timing_out_fails(self):
+        github = self.github([{"status": "ahead", "total_commits": 1,
+                               "commits": [{"sha": "c" * 40}]}])
+        github.graphql.side_effect = NOTES.TransientGitHubError("HTTP 504")
+        with self.assertRaises(RuntimeError):
+            NOTES.collect_prs(github, BASE, HEAD, "main")
+
+    def test_request_retries_a_transient_server_error(self):
+        responses = iter([(1, "", "gh: HTTP 504"), (0, '{"ok": true}', "")])
+
+        def run(*args, **kwargs):
+            code, out, err = next(responses)
+            return Mock(returncode=code, stdout=out, stderr=err)
+
+        with unittest.mock.patch.object(NOTES.subprocess, "run", side_effect=run), \
+                unittest.mock.patch.object(NOTES.time, "sleep"):
+            self.assertEqual(NOTES.GitHub.request(["graphql"]), {"ok": True})
 
     def test_endless_association_pages_fail_instead_of_looping(self):
         github = self.github([{"status": "ahead", "total_commits": 1,
@@ -357,6 +415,63 @@ class AppcastTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 NOTES.update_appcasts(directory, "102", "Fresh notes")
             self.assertEqual(before, {name: (directory / name).read_bytes() for name in APPCASTS})
+
+
+
+class MetadataFallbackTests(unittest.TestCase):
+    """A publish is never lost to GitHub metadata: the notes degrade, the marker stays."""
+
+    def run_main(self, directory, collect):
+        AppcastTests.write_feeds(None, directory)
+        details = directory / "downloads.md"
+        details.write_text("Download links\n")
+        out = directory / "notes.md"
+        github = Mock(repo=REPO)
+        github.rest.return_value = {"body": f"<!-- cmux-published-sha: {BASE} -->\nOld notes"}
+        argv = ["nightly_release_notes.py", "--repo", REPO, "--tag", "nightly-next", "--head", HEAD,
+                "--branch", "nightly-next", "--details", str(details), "--out", str(out),
+                "--appcasts", str(directory), "--build", "102"]
+        with unittest.mock.patch.object(NOTES, "GitHub", return_value=github), \
+                unittest.mock.patch.object(NOTES, "collect_prs", side_effect=collect), \
+                unittest.mock.patch.object(sys, "argv", argv):
+            return NOTES.main(), out
+
+    def test_metadata_failure_publishes_minimal_notes_with_the_marker(self):
+        failure = RuntimeError("GitHub metadata request failed; check Actions token")
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            status, out = self.run_main(directory, failure)
+            self.assertEqual(status, 0)
+            body = out.read_text()
+            self.assertIn(f"https://github.com/{REPO}/compare/{BASE}...{HEAD}", body)
+            self.assertIn("Download links", body)
+            published = out.with_suffix(".published.md").read_text()
+            self.assertTrue(published.startswith(f"<!-- cmux-published-sha: {HEAD} -->"))
+            feed = ET.parse(directory / "appcast.xml").getroot()
+            current = [item for item in feed.iter("item") if item.findtext(f"{{{SPARKLE}}}version") == "102"][0]
+            self.assertIn("compare", current.findtext("description"))
+
+    def test_a_transient_metadata_timeout_also_degrades(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            status, out = self.run_main(Path(temporary), NOTES.TransientGitHubError("kept timing out"))
+            self.assertEqual(status, 0)
+            self.assertTrue(out.with_suffix(".published.md").read_text().startswith(f"<!-- cmux-published-sha: {HEAD} -->"))
+
+    def test_a_broken_appcast_still_fails_the_publish(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            AppcastTests.write_feeds(None, directory)
+            (directory / "appcast.xml").unlink()
+            details = directory / "downloads.md"
+            details.write_text("Download links\n")
+            github = Mock(repo=REPO)
+            github.rest.return_value = {"body": ""}
+            argv = ["nightly_release_notes.py", "--repo", REPO, "--tag", "nightly-next", "--head", HEAD,
+                    "--branch", "nightly-next", "--details", str(details), "--out", str(directory / "notes.md"),
+                    "--appcasts", str(directory), "--build", "102"]
+            with unittest.mock.patch.object(NOTES, "GitHub", return_value=github), \
+                    unittest.mock.patch.object(sys, "argv", argv), self.assertRaises(RuntimeError):
+                NOTES.main()
 
 
 if __name__ == "__main__":
