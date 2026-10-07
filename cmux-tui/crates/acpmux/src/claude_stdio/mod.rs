@@ -70,6 +70,8 @@ pub fn models() -> &'static [(&'static str, &'static str)] {
 mod inbound;
 mod outbound;
 #[cfg(test)]
+mod subagent_tests;
+#[cfg(test)]
 mod tests;
 
 /// What the hub's request becomes: lines for claude's stdin, or an
