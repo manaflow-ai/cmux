@@ -147,7 +147,8 @@ export class BridgePageClient implements PageClient {
     this.listeners.set(sub, listener);
     const held = this.early.get(sub) ?? [];
     this.early.delete(sub);
-    for (const event of held.sort((a, b) => a.seq - b.seq)) this.deliver(sub, listener, event.data, event.seq, event.meta);
+    for (const event of held.sort((a, b) => a.seq - b.seq))
+      this.deliver(sub, listener, event.data, event.seq, event.meta);
     return () => {
       if (!this.listeners.delete(sub)) return;
       this.lastSeq.delete(sub);
