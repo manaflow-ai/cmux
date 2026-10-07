@@ -11,4 +11,7 @@ public enum ControlPlaneError: Error, Hashable, Sendable {
     /// The socket closed for good (revoked install, version mismatch) or the client was stopped.
     case closed(ControlPlaneCloseError)
     case stopped
+    /// The socket is not draining: `outboxLimit` frames already wait, so this
+    /// one was not queued. Retry later (E1).
+    case busy
 }
