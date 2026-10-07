@@ -100,7 +100,8 @@
 .acpmux-mp-refresh{display:inline-flex;align-items:center;justify-content:center;flex:none;width:26px;height:26px;padding:0;border:0;border-radius:6px;background:none;color:var(--agent-muted);cursor:pointer}
 .acpmux-mp-refresh:hover{background:var(--acpmux-menu-hover);color:var(--agent-text)}
 .acpmux-mp-refresh:disabled{cursor:default;opacity:.8}
-.acpmux-mp-refresh-spinner{width:12px;height:12px;border:1.5px solid color-mix(in srgb,currentColor 35%,transparent);border-top-color:currentColor;border-radius:50%;animation:acpmux-mp-spin 700ms linear infinite}
+.acpmux-mp-refresh-spinner{width:12px;height:12px;border:1.5px solid color-mix(in srgb,currentColor 35%,transparent);border-top-color:currentColor;border-radius:50%}
+@media (prefers-reduced-motion: no-preference){.acpmux-mp-refresh-spinner{animation:acpmux-mp-spin 700ms linear infinite}}
 @keyframes acpmux-mp-spin{to{transform:rotate(360deg)}}
 .acpmux-mp-empty{padding:9px;color:var(--agent-muted);font-size:12px}
 /* The context ring is a button the size of the mic; a click opens the usage details above the bar. */

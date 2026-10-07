@@ -163,7 +163,7 @@ final class AppServices {
     /// Agent chat tabs and their shared acpmux host (New Agent Chat).
     private(set) lazy var agentTabs = AgentTabStore.wired(to: self)
     /// The device-wide Chats index (nil without acpmux), watched once for every window.
-    private(set) lazy var chatsFeed: ChatsFeed? = QuitAgents.environment(self).map { ChatsFeed(socketPath: $0.socketPath) }
+    private(set) lazy var chatsFeed: ChatsFeed? = ChatsFeed.started(for: self)
     /// Shared Open Chat path for sidebar clicks and palette Return.
     private(set) lazy var chatsOpener = ChatsOpenCoordinator(services: self)
     /// `agentTabs` once made: a tab close releases its view without starting acpmux.

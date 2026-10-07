@@ -103,6 +103,8 @@ extension SettingsSchema {
         "appearance.statusIndicator.thickness",
         "appearance.statusIndicator.color",
         "appearance.statusIndicator.honorStatusStyle",
+        "appearance.statusIndicator.showAgentWorkingOnTabs",
+        "appearance.statusIndicator.showPageLoading",
         "status.inferCommandBusy",
         "status.inferCommandBusyAfter",
         "terminal.fontFamily",
