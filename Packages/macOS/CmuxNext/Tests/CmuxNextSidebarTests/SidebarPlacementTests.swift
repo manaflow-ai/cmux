@@ -62,9 +62,11 @@ import Testing
         #expect(view.footer.frame.height == 0 || view.footer.frame.maxY <= view.belowFade.frame.minY + 0.5)
     }
 
-    @Test func spacesAtTheBottomSitOnTheSettingsBand() {
+    /// Amendment 3: at the bottom the dots share the footer band's row.
+    @Test func spacesAtTheBottomShareTheFooterBandRow() {
         let view = sidebar(spaces: .bottom)
         let dots = view.profileBar.convert(view.profileBar.bounds, to: view)
-        #expect(dots.maxY <= view.belowFade.frame.minY + 0.5 && dots.minY > view.bounds.midY)
+        let band = view.belowFade.frame
+        #expect(dots.minY >= band.minY - 0.5 && dots.maxY <= band.maxY + 0.5 && dots.height > 0, "\(dots) in \(band)")
     }
 }

@@ -43,9 +43,10 @@ final class SidebarItemRowView: NSView {
     private(set) var style = Style.builtIn
     private let pill = CALayer()
     private let chip = CALayer()
-    private let icon = NSImageView()
-    private let title = NSTextField(labelWithString: "")
-    private let badge = UnreadBadgeView()
+    let icon = NSImageView()
+    let title = NSTextField(labelWithString: "")
+    let badge = UnreadBadgeView()
+    let avatarView = SidebarAvatarView()
     private var isHovered = false { didSet { if isHovered != oldValue { pointerChanged() } } }
     private var isPressed = false { didSet { if isPressed != oldValue { pointerChanged() } } }
     /// The next fill change came from the pointer, so it fades.
@@ -62,7 +63,7 @@ final class SidebarItemRowView: NSView {
         icon.imageScaling = .scaleProportionallyDown
         title.lineBreakMode = .byTruncatingTail
         title.maximumNumberOfLines = 1
-        [icon, title, badge].forEach(addSubview)
+        [icon, title, badge, avatarView].forEach(addSubview)
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
     }
@@ -143,6 +144,7 @@ final class SidebarItemRowView: NSView {
         // caption can truncate, so it keeps the full title.
         toolTip = style.isIconOnly ? info.toolTip : style == .favorite ? info.title : nil
         setAccessibilityLabel(info.title)
+        applyAvatar()
         setAccessibilitySelected(info.isActive)
         alphaValue = info.isMissing ? 0.5 : 1
         needsLayout = true
@@ -162,6 +164,7 @@ final class SidebarItemRowView: NSView {
             // An icon is secondary at rest and full strength under the pointer
             // or keyboard focus (the footer's avatar and gear).
             let strong = style == .icon && (isHovered || isPressed || isKeyFocused)
+            avatarView.isStrong = strong
             icon.contentTintColor = wells && info.color != nil ? Palette.textOnPrimary
                 : style == .favorite ? Palette.textPrimary
                 : info.isActive || isRailButton || strong ? Palette.textPrimary : Palette.textSecondary
@@ -204,6 +207,7 @@ final class SidebarItemRowView: NSView {
         chip.cornerRadius = Metrics.space1 + 1
         CATransaction.commit()
 
+        if layoutAvatar(in: b) { return }
         // Row size beside a title, like a workspace row's type glyph; inside a list well, the well's
         // glyph size; a rail button's own glyph size.
         let glyphSide = isRailButton ? SidebarStyle.railGlyphSize : style == .list ? SidebarStyle.wellGlyphSize : SidebarStyle.kindGlyphSize

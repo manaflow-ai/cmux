@@ -4,14 +4,20 @@ import Testing
 @testable import CmuxNextSidebar
 
 /// SIDEBAR-FOOTER-AND-SPACE-MENU (Lawrence 2026-10-06, footer screenshot:
-/// "this looks bad"): the footer's avatar read as a small glyph next to a
-/// larger gear. Both now draw at one visual size: the avatar's circle spans
-/// what the gear's teeth span, on one center line, each centered in its
-/// square, so the gap between them is even. The test draws each item's
-/// glyph offscreen at its frame and measures the opaque pixels (the ink).
+/// "this looks bad"): icon-only items read at different sizes. Every
+/// icon-only item now draws its glyph ink at one visual size, on one center
+/// line, centered in its square. Since amendment 2 the default footer is
+/// the profile control alone (its own drawn avatar, SidebarProfileControlTests);
+/// this suite keeps the glyph rule for icon items a user puts in the footer
+/// (an account without a profile, the Settings gear). The test draws each
+/// item's glyph offscreen at its frame and measures the opaque pixels.
 @MainActor @Suite(.serialized) struct SidebarFooterGlyphTests {
-    private func sidebar() -> SidebarView {
-        let view = SidebarView(model: SidebarModel())
+    private func sidebar() throws -> SidebarView {
+        let model = SidebarModel()
+        model.layout = try SidebarLayoutReducer.reduce(model.layout, .itemAdd(
+            LayoutItem(id: LayoutItemID("itm_settings"), ref: .builtIn(.settings), showsLabel: false),
+            section: SidebarLayoutDocument.bottomSectionID, index: 1)).get()
+        let view = SidebarView(model: model)
         view.frame = NSRect(x: 0, y: 0, width: 260, height: 700)
         view.layoutSubtreeIfNeeded()
         return view
@@ -47,7 +53,7 @@ import Testing
     }
 
     @Test func theAvatarAndTheGearDrawAtOneSizeOnOneCenterLine() throws {
-        let view = sidebar()
+        let view = try sidebar()
         let account = try #require(view.belowRegion.itemView(LayoutItemID("itm_account")))
         let gear = try #require(view.belowRegion.itemView(LayoutItemID("itm_settings")))
         let a = try ink(account, in: view), g = try ink(gear, in: view)

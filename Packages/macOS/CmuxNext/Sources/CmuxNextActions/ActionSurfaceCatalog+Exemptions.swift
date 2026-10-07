@@ -167,6 +167,7 @@ nonisolated extension ActionSurfaceCatalog {
             "palette.pro.upgrade", "palette.welcomeChecklist", "sendFeedback", "help.featureFlags",
             "help.documentation", "recentlyFocused", "recentlyClosed", "history.commands", "browserShowHistory",
             "history.search", "bookmark.toggleBar", "bookmark.manager", "browserLinkHints", "browserLinkHintsNewSplit",
+            "sidebar.profileMenu", "browser.downloads.showFolder",
         ],
         .liveInput: [
             "palette.toggleDictation",

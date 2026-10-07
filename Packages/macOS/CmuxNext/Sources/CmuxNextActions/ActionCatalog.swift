@@ -92,6 +92,7 @@ public nonisolated enum ActionCatalog {
         CertificateWarningActionCatalog.self,
         ExtensionActionCatalog.self,
         BrowserProfileActionCatalog.self,
+        ProfileMenuActionCatalog.self,
         SidebarActionCatalog.self,
         NotificationActionCatalog.self,
         AgentActionCatalog.self,

@@ -26,7 +26,7 @@ import Testing
         view.cacheDisplay(in: view.bounds, to: rep)
         let scale = CGFloat(rep.pixelsWide) / view.bounds.width
         let slot = Metrics.roomDotSlot
-        let xs = ProfileBarLogic.slotXs(count: count, slot: Double(slot), width: Double(view.bounds.width))
+        let xs = ProfileBarLogic.slotXs(count: count, slot: Double(slot), leading: Double(view.slotsLeading))
         return try (0..<count).map { index in
             var minX = Int.max, minY = Int.max, maxX = -1, maxY = -1
             let from = Int(CGFloat(xs[index]) * scale), to = Int((CGFloat(xs[index]) + slot) * scale)
