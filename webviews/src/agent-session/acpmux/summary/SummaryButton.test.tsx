@@ -149,6 +149,25 @@ test("the Changes files match the totals' turn", async () => {
   await unmount();
 });
 
+test("empty Changes totals leave the section non-actionable", async () => {
+  const container = dom.window.document.getElementById("root")!;
+  const root = createRoot(container);
+  await act(async () =>
+    root.render(
+      createElement(SummaryButton, {
+        rows: rows.slice(0, 1),
+        changes: { additions: 0, deletions: 0 },
+        onOpenChanges: () => undefined,
+      }),
+    ),
+  );
+  const button = container.querySelector<HTMLButtonElement>(".acpmux-summary-button")!;
+  await act(async () => button.click());
+  expect(container.querySelectorAll("button.acpmux-summary-link")).toHaveLength(0);
+  expect([...container.querySelectorAll(".acpmux-summary-none")].map((node) => node.textContent)).toContain("None");
+  await act(async () => root.unmount());
+});
+
 test("Sources opens the last turn's Changes and closes the popover", async () => {
   const opened: string[] = [];
   const focused: string[] = [];
