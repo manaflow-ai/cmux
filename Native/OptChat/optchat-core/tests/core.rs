@@ -85,7 +85,8 @@ fn drain(memory: &mut Memory, store: &Mem) {
                         store,
                         node,
                         CompactPrompt::default().text("Chief"),
-                    );
+                    )
+                    .unwrap();
                     assert!(
                         !request.context.contains(PLACEHOLDER),
                         "compactor saw an unbuilt line for {}",
@@ -93,7 +94,7 @@ fn drain(memory: &mut Memory, store: &Mem) {
                     );
                     let text = fake_summary(node);
                     store.nodes.borrow_mut().insert(node, text.clone());
-                    memory.complete(node, &text);
+                    memory.complete(node, &text).unwrap();
                 }
             }
         }
@@ -228,7 +229,7 @@ fn level_zero_nodes_start_in_order_and_jobs_are_capped() {
         .nodes
         .borrow_mut()
         .insert(NodeId::new(0, 0), text.clone());
-    memory.complete(NodeId::new(0, 0), &text);
+    memory.complete(NodeId::new(0, 0), &text).unwrap();
     assert_eq!(
         memory.pump(&store),
         vec![Work::Model {
@@ -362,7 +363,8 @@ fn compactor_requests_carry_no_ids_and_the_scale_line() {
         &store,
         NodeId::new(1, 0),
         CompactPrompt::default().text("Chief"),
-    );
+    )
+    .unwrap();
     assert!(request.context.starts_with("<chat>\n") && request.context.ends_with("</chat>"));
     assert!(
         !request.context.contains("+1|") && !request.step.contains("0+1"),
@@ -504,7 +506,8 @@ fn a_huge_message_is_cut_for_its_summary_call_only_and_the_line_says_so() {
         &store,
         NodeId::new(0, 0),
         CompactPrompt::default().text("Chief"),
-    );
+    )
+    .unwrap();
     assert_eq!(store.message(0).1, huge, "the log keeps the message whole");
     assert!(
         request.step.chars().count() < STEP_MESSAGE + 2_000,
@@ -526,7 +529,7 @@ fn a_huge_message_is_cut_for_its_summary_call_only_and_the_line_says_so() {
     let mut memory = Memory::new(VIEW);
     store.push(Kind::Tool, "w".repeat(STEP_MESSAGE));
     memory.append();
-    let whole = compact_request(&memory, &store, NodeId::new(0, 0), String::new());
+    let whole = compact_request(&memory, &store, NodeId::new(0, 0), String::new()).unwrap();
     assert_eq!(whole.cut, None);
     assert!(whole.step.ends_with(&"w".repeat(STEP_MESSAGE)));
     assert_eq!(finish_line(&whole, "tool: x"), "tool: x");
@@ -562,7 +565,7 @@ fn a_cut_request_knows_its_room() {
     store.push(Kind::Echo, "e".repeat(total));
     let mut memory = Memory::new(VIEW);
     memory.append();
-    let request = compact_request(&memory, &store, NodeId::new(0, 0), "S".into());
+    let request = compact_request(&memory, &store, NodeId::new(0, 0), "S".into()).unwrap();
     let prefix = request.cut.clone().unwrap();
     assert_eq!(request.room(), NODE - prefix.len());
     let line = finish_line(&request, &"w".repeat(request.room()));
@@ -588,7 +591,7 @@ fn drain_in(memory: &mut Memory, store: &Mem) {
                 Work::Model { node } => {
                     let text = fake_summary(node);
                     store.nodes.borrow_mut().insert(node, text.clone());
-                    memory.complete_in(node, &text, store);
+                    memory.complete_in(node, &text, store).unwrap();
                 }
             }
         }
@@ -695,4 +698,95 @@ fn a_checkpoint_that_does_not_fit_the_store_is_refused() {
         view: vec![NodeId::new(3, 0)],
     };
     assert!(Memory::resume(&missing, 8, Vec::new(), VIEW, &store).is_none());
+}
+
+/// Audit major 1 (fixed by e46860e1a8bc, which checks built before it stores
+/// a size): a second `complete` for a node, with a text of another length,
+/// changes no size, so `view_size` stays the sum of the view's lines.
+#[test]
+fn a_second_complete_changes_no_size() {
+    let mut memory = Memory::new(VIEW);
+    let store = Mem::default();
+    store.push(Kind::Echo, "z".repeat(5_000));
+    memory.append();
+    assert_eq!(
+        memory.pump(&store),
+        vec![Work::Model {
+            node: NodeId::new(0, 0)
+        }]
+    );
+    let text = fake_summary(NodeId::new(0, 0));
+    store
+        .nodes
+        .borrow_mut()
+        .insert(NodeId::new(0, 0), text.clone());
+    memory.complete(NodeId::new(0, 0), &text).unwrap();
+    let size = memory.view_size();
+    assert_eq!(size, text.len());
+    let _ = memory.complete(NodeId::new(0, 0), "a much shorter line");
+    assert_eq!(
+        memory.view_size(),
+        size,
+        "a second complete changed view_size"
+    );
+    for _ in 0..40 {
+        store.push(Kind::Echo, "z".repeat(5_000));
+        memory.append();
+    }
+    drain(&mut memory, &store);
+    let lines: usize = memory
+        .view()
+        .iter()
+        .map(|p| store.node(*p).unwrap().len())
+        .sum();
+    assert_eq!(
+        memory.view_size(),
+        lines,
+        "view_size is the sum of the view's lines"
+    );
+}
+
+/// Audit major 3: `complete` writes only a node whose model call is running.
+/// A node `pump` never handed out (here past the end of the log) or one
+/// completed already is refused, and nothing becomes built: a later message
+/// at that id would otherwise count as summarized by an unrelated text.
+#[test]
+fn a_complete_for_a_node_with_no_call_running_is_refused() {
+    let mut memory = Memory::new(VIEW);
+    let store = Mem::default();
+    store.push(Kind::User, "hi");
+    memory.append();
+    assert!(memory.complete(NodeId::new(0, 5), "made up").is_err());
+    assert!(
+        !memory.is_built(NodeId::new(0, 5)),
+        "a node no call ran for became built"
+    );
+    assert!(memory.complete(NodeId::new(2, 0), "made up").is_err());
+    assert!(!memory.is_built(NodeId::new(2, 0)));
+}
+
+/// Audit major 3: a compactor call for a node whose child or context line is
+/// built but missing from the store is refused, never sent with an empty
+/// line (the node the model wrote from it would be wrong for good).
+#[test]
+fn a_compactor_call_with_a_missing_line_is_refused() {
+    let mut memory = Memory::new(VIEW);
+    let store = Mem::default();
+    for _ in 0..4 {
+        store.push(Kind::Echo, "z".repeat(5_000));
+        memory.append();
+    }
+    drain(&mut memory, &store);
+    assert!(memory.is_built(NodeId::new(1, 0)));
+    // A merge whose child text is gone.
+    store.nodes.borrow_mut().remove(&NodeId::new(0, 1));
+    let merge = compact_request(&memory, &store, NodeId::new(1, 0), String::new());
+    assert_eq!(merge.err(), Some(MissingNode(NodeId::new(0, 1))));
+    // A level-0 call whose context (a view line before it) is gone.
+    store.push(Kind::Echo, "z".repeat(5_000));
+    memory.append();
+    let gone = memory.view()[0];
+    store.nodes.borrow_mut().remove(&gone);
+    let leaf = compact_request(&memory, &store, NodeId::new(0, 4), String::new());
+    assert_eq!(leaf.err(), Some(MissingNode(gone)));
 }

@@ -2173,11 +2173,14 @@ def _evaluate_concurrency_group(template: str, context: dict[str, object]) -> st
     return re.sub(r"\$\{\{(.*?)\}\}", evaluate, template)
 
 
-def test_cmux_tui_artifacts_supersedes_queued_runs_of_an_older_branch_head() -> None:
-    # Only the newest commit's tree matters, and macOS runners are scarce (2026-10-06:
-    # 30 runs queued behind ~3 macos-15 slots). With cancel-in-progress false a
-    # concurrency group keeps one running and one pending run: a newer push replaces
-    # the pending one and never cancels a running publish (immutable objects).
+def test_cmux_tui_artifacts_never_replaces_a_queued_feat_cmux_next_push() -> None:
+    # 2026-10-07: with one group per branch, each feat-cmux-next push replaced the
+    # pending run before its preflight started (01:31 to 02:11: 13 runs cancelled,
+    # 1 publish), so a base tree rarely got artifacts and every PR's same-tree wait
+    # timed out at 45 min. Each feat-cmux-next push now has its own group: its
+    # preflight skips a complete tree, and the jobs' owner election (tree-owner-wait,
+    # per-run job groups) keeps one builder per tree key. Pin branches keep one
+    # pending run per branch, since each publishes one tree on purpose.
     document = yaml.load(workflow("cmux-tui-artifacts.yml"), Loader=yaml.BaseLoader)
     concurrency = document["concurrency"]
     assert concurrency["cancel-in-progress"] == "false"
@@ -2190,18 +2193,19 @@ def test_cmux_tui_artifacts_supersedes_queued_runs_of_an_older_branch_head() -> 
         )
 
     feat = "refs/heads/feat-cmux-next"
-    assert evaluate("push", feat, "a" * 40) == evaluate("push", feat, "b" * 40)
+    assert evaluate("push", feat, "a" * 40) != evaluate("push", feat, "b" * 40)
+    assert "a" * 40 in evaluate("push", feat, "a" * 40)
     pin_a = evaluate("push", "refs/heads/cmux-tui-pin-aaaa", "a" * 40)
-    pin_b = evaluate("push", "refs/heads/cmux-tui-pin-bbbb", "b" * 40)
-    assert pin_a != pin_b and evaluate("push", feat, "a" * 40) not in (pin_a, pin_b)
+    assert pin_a == evaluate("push", "refs/heads/cmux-tui-pin-aaaa", "b" * 40)
+    assert pin_a != evaluate("push", "refs/heads/cmux-tui-pin-bbbb", "b" * 40)
+    assert evaluate("push", feat, "a" * 40) != pin_a
     assert evaluate("push", "refs/heads/main", "a" * 40) == "cmux-tui-artifacts-main"
     assert evaluate("pull_request_target", feat, "a" * 40, pr=7) == "cmux-tui-artifacts-pr-7"
     assert evaluate("pull_request_target", feat, "a" * 40, pr=7) != evaluate("pull_request_target", feat, "a" * 40, pr=8)
-    # A manual republish of one commit is never superseded by a branch push.
+    # A manual republish of one commit never shares a group with a branch push.
     dispatched = evaluate("workflow_dispatch", feat, "c" * 40)
     assert dispatched != evaluate("push", feat, "c" * 40)
     assert "c" * 40 in dispatched
-
 
 if __name__ == "__main__":
     unittest.main()

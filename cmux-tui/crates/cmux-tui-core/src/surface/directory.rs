@@ -9,23 +9,50 @@ pub(super) enum PublishedDirectory {
     Cleared,
 }
 
+impl PtyTerminalRuntime {
+    /// The OSC 7501 records this terminal's parser feeds. A replaced mirror
+    /// terminal (resize, reconnect) gets the same records.
+    pub(super) fn program_status_records(&self) -> crate::program_status::SharedProgramStatus {
+        self.terminal_metadata
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .program_status()
+    }
+}
+
 impl Surface {
     /// The terminal's OSC 9;4 progress while one is shown.
     pub(crate) fn terminal_progress(&self) -> Option<crate::terminal_metadata::TerminalProgress> {
         self.as_pty()?.terminal_metadata.lock().unwrap().progress()
     }
 
-    /// Publish a changed OSC 9;4 progress as a terminal upsert. The reader
-    /// calls this after each output chunk, outside the parser lock.
+    /// The terminal's OSC 7501 program status records as the public value
+    /// (`extra.program_status`); `running` false hides the records that end
+    /// with the process. `None` when nothing is shown.
+    pub(crate) fn terminal_program_status(&self, running: bool) -> Option<serde_json::Value> {
+        let records = self.as_pty()?.program_status_records();
+        let records = records.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        records.to_json(running)
+    }
+
+    /// Publish a changed OSC 9;4 progress or OSC 7501 program status as a
+    /// terminal upsert. The reader calls this after each output chunk,
+    /// outside the parser lock.
     pub(crate) fn publish_pending_progress(&self) {
         let Some(pty) = self.as_pty() else { return };
-        let changed = pty.terminal_metadata.lock().unwrap().take_progress_change();
-        if changed.is_none() {
+        let (progress_changed, records) = {
+            let mut metadata = pty.terminal_metadata.lock().unwrap();
+            (metadata.take_progress_change().is_some(), metadata.program_status())
+        };
+        let status_changed =
+            records.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take_change();
+        if !progress_changed && !status_changed {
             return;
         }
         let Some(mux) = pty.mux.upgrade() else { return };
-        if let Err(error) = mux.publish_terminal_progress(self) {
-            eprintln!("cmux-tui: terminal progress publication failed: {error}");
+        let mutation = if status_changed { "terminal.program_status" } else { "terminal.progress" };
+        if let Err(error) = mux.publish_terminal_progress(self, mutation) {
+            eprintln!("cmux-tui: terminal {mutation} publication failed: {error}");
         }
     }
 

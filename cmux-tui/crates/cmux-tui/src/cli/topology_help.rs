@@ -118,6 +118,7 @@ pub(super) const TERMINAL_HELP: &str = "\
 USAGE
   cmux terminal list
   cmux terminal <selector> show
+  cmux terminal <selector> status
   cmux terminal <selector> write [--text <value>|--bytes-base64 <base64>]
   cmux terminal <selector> keys <key...>
   cmux terminal <selector> mouse <kind> [OPTIONS]
@@ -138,6 +139,8 @@ USAGE
 screen wait prints its result either way and exits 1 when the timeout
 passes without a match. keep on stops the owner from ending the terminal
 when it has no tab; keep off lets it end after the reap grace period.
+status prints the program status records (OSC 7501) the terminal's
+programs reported: state, progress, kind, app, title and msg per record id.
 
 SELECTORS
   <selector> is an id (ws_…, pane_…, tab_…, term_…), current, or an exact
