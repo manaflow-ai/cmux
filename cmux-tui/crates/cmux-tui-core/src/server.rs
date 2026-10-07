@@ -15825,11 +15825,11 @@ mod session_identity_tests;
 mod personal_tests;
 
 #[cfg(test)]
-#[path = "server/dock_columns_tests.rs"]
-mod dock_columns_tests;
-#[cfg(test)]
 #[path = "server/device_kind_tests.rs"]
 mod device_kind_tests;
+#[cfg(test)]
+#[path = "server/dock_columns_tests.rs"]
+mod dock_columns_tests;
 
 #[cfg(test)]
 #[path = "server/rows_tests.rs"]
