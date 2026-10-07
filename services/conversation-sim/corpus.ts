@@ -132,3 +132,20 @@ const ASPECTS: [number, number][] = [
 export function imageSize(rng: Rng): [number, number] {
   return pick(rng, ASPECTS);
 }
+
+// Polls: a question with 2 to 4 choices.
+const POLLS: [string, string[]][] = [
+  ["Lunch?", ["Tacos", "Ramen", "Salad place", "Skip lunch"]],
+  ["Ship the nightly tonight?", ["Yes", "No", "After the scroll fix"]],
+  ["Which bug next?", ["Scroll anchoring", "Reconnect backoff", "Read receipts", "Typing indicator"]],
+  ["Standup time tomorrow", ["9:30", "10:00", "10:30"]],
+  ["Should the sidebar default to collapsed?", ["Yes", "No"]],
+  ["Which agent for the refactor?", ["Codex", "Claude", "Both in parallel"]],
+  ["Offsite location", ["SF", "NYC", "Tokyo", "Remote"]],
+  ["Approve RC?", ["Approve", "Needs another pass"]],
+];
+export const pollContent = (rng: Rng): { question: string; options: string[] } => {
+  const [question, options] = pick(rng, POLLS);
+  const n = randInt(rng, Math.min(2, options.length), options.length);
+  return { question, options: options.slice(0, n) };
+};

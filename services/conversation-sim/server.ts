@@ -2,7 +2,7 @@
 // Run: bun run services/conversation-sim/server.ts  (PORT, HOST, SEED, LOG=verbose)
 import type { ServerWebSocket } from "bun";
 import { mulberry32, proceduralPNG, sniffImageSize } from "./png";
-import { editedText, imageSize, messageText, pick, randInt, replyText, type Rng } from "./corpus";
+import { editedText, imageSize, messageText, pick, pollContent, randInt, replyText, type Rng } from "./corpus";
 
 // ---------------------------------------------------------------- types
 
@@ -28,6 +28,23 @@ interface AttachmentRef {
   width: number;
   height: number;
 }
+interface PollOption {
+  id: string;
+  text: string;
+  addedBy?: string; // participant who added it after creation
+}
+interface PollVote {
+  participantId: string;
+  optionId: string;
+  votedAt: number;
+}
+/** Messages polls are multi-select: one vote per (participant, option). */
+interface Poll {
+  question: string;
+  options: PollOption[];
+  votes: PollVote[];
+}
+const POLL_MAX_OPTIONS = 12;
 interface Message {
   id: string;
   seq: number;
@@ -42,6 +59,7 @@ interface Message {
   attachments: AttachmentRef[];
   status?: "sent" | "delivered" | "read";
   readAt?: number;
+  poll?: Poll; // text holds the question
 }
 interface LoggedEvent {
   eventSeq: number;
@@ -74,6 +92,7 @@ const knobs = {
   duplicateRate: 0.02,
   disconnectEverySeconds: 240,
   botIntervalScale: 1,
+  pollVoteFailRate: 0.03,
 };
 type Knobs = typeof knobs;
 
@@ -288,6 +307,24 @@ function generateHistory(store: Store, total: number, meShare: number, seed: num
       } else m.status = "delivered";
     }
   }
+  // Polls use their own rng so the rest of the seeded history is unchanged.
+  const pollRng = mulberry32(seed ^ 0x9011);
+  const voters = conv.participants;
+  // The newest screens stay poll-free so other transcript references are
+  // unchanged; POST /admin/poll makes one on demand.
+  for (const m of drafts.slice(0, Math.max(0, drafts.length - 300))) {
+    if (!m.text || m.attachments.length || pollRng() >= 0.004) continue;
+    const { question, options } = pollContent(pollRng);
+    const poll = makePoll(question, options);
+    for (const v of voters) {
+      if (pollRng() < 0.2) continue;
+      setPollVote(poll, v.id, pick(pollRng, poll.options).id, true, m.sentAt + randInt(pollRng, 10_000, 3_600_000));
+      if (pollRng() < 0.2) setPollVote(poll, v.id, pick(pollRng, poll.options).id, true, m.sentAt + randInt(pollRng, 10_000, 3_600_000));
+    }
+    m.text = question;
+    m.poll = poll;
+    m.editedAt = undefined;
+  }
   for (const d of drafts) {
     const { day, replyToIndex, ...rest } = d;
     store.append(rest);
@@ -397,6 +434,7 @@ function wireMessage(m: Message, base: string) {
   if (m.editedAt) out.editedAt = m.editedAt;
   if (m.status) out.status = m.status;
   if (m.readAt) out.readAt = m.readAt;
+  if (m.poll) out.poll = m.poll;
   return out;
 }
 
@@ -474,10 +512,33 @@ async function handleRpc(conn: Conn, rpcId: unknown, method: string, p: any): Pr
       const m = store.byId.get(p?.messageId);
       if (!m) throw invalid("unknown messageId");
       if (m.senderId !== ME.id) throw invalid("can only edit my messages");
+      if (m.poll) throw invalid("polls cannot be edited");
       if (typeof p?.text !== "string" || !p.text.length) throw invalid("text");
       await sleep(lat(120, 600));
       m.text = p.text;
       m.editedAt = Date.now();
+      store.emit("message.updated", m);
+      return { message: wireMessage(m, conn.base) };
+    }
+    case "votePoll": {
+      const m = store.byId.get(p?.messageId);
+      if (!m?.poll) throw invalid("unknown poll messageId");
+      if (!m.poll.options.some((o) => o.id === p?.optionId)) throw invalid("unknown optionId");
+      if (typeof p?.selected !== "boolean") throw invalid("selected");
+      await sleep(lat(80, 500));
+      if (R() < knobs.pollVoteFailRate) throw new RpcError(-32004, "vote not delivered");
+      setPollVote(m.poll, ME.id, p.optionId, p.selected);
+      store.emit("message.updated", m);
+      return { message: wireMessage(m, conn.base) };
+    }
+    case "addPollOption": {
+      const m = store.byId.get(p?.messageId);
+      if (!m?.poll) throw invalid("unknown poll messageId");
+      const text = typeof p?.text === "string" ? p.text.trim() : "";
+      if (!text) throw invalid("text");
+      if (m.poll.options.length >= POLL_MAX_OPTIONS) throw invalid("too many options");
+      await sleep(lat(120, 600));
+      m.poll.options.push({ id: `o${m.poll.options.length + 1}`, text, addedBy: ME.id });
       store.emit("message.updated", m);
       return { message: wireMessage(m, conn.base) };
     }
@@ -505,7 +566,8 @@ async function handleSend(conn: Conn, p: any): Promise<Message> {
   const attachmentIds: string[] = p?.attachmentIds ?? [];
   if (!Array.isArray(attachmentIds)) throw invalid("attachmentIds");
   for (const a of attachmentIds) if (!media.has(a)) throw invalid(`unknown attachment ${a}`);
-  if (!text && !attachmentIds.length) throw invalid("empty message");
+  const poll = parsePollDraft(p?.poll);
+  if (!text && !attachmentIds.length && !poll) throw invalid("empty message");
   if (p?.replyToId && !store.byId.get(p.replyToId)) throw invalid("unknown replyToId");
 
   await sleep(lat(120, 900));
@@ -522,8 +584,9 @@ async function handleSend(conn: Conn, p: any): Promise<Message> {
     const e = media.get(id)!;
     return { id, kind: "image", width: e.width, height: e.height };
   });
-  const m = store.create(ME.id, text, { clientMessageId: cmid, replyToId: p?.replyToId || undefined, attachments });
+  const m = store.create(ME.id, poll ? poll.question : text, { clientMessageId: cmid, replyToId: p?.replyToId || undefined, attachments, poll });
   afterMySend(store, m);
+  if (poll) void botsVote(store, m);
   if (fail) throw new RpcError(-32002, "not delivered");
   return m;
 }
@@ -553,6 +616,56 @@ function afterMySend(store: Store, m: Message) {
   }
 }
 
+// ---------------------------------------------------------------- polls
+
+function parsePollDraft(raw: any): Poll | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (typeof raw !== "object") throw invalid("poll");
+  const question = typeof raw.question === "string" ? raw.question.trim() : "";
+  if (!Array.isArray(raw.options)) throw invalid("poll.options");
+  const options = raw.options.map((o: unknown) => (typeof o === "string" ? o.trim() : "")).filter(Boolean);
+  if (options.length < 2 || options.length > POLL_MAX_OPTIONS) throw invalid("poll needs 2 to 12 options");
+  return makePoll(question, options);
+}
+
+function makePoll(question: string, options: string[]): Poll {
+  return { question, options: options.map((text, i) => ({ id: `o${i + 1}`, text })), votes: [] };
+}
+
+function setPollVote(poll: Poll, participantId: string, optionId: string, selected: boolean, at = Date.now()) {
+  const has = poll.votes.some((v) => v.participantId === participantId && v.optionId === optionId);
+  if (selected && !has) poll.votes.push({ participantId, optionId, votedAt: at });
+  else if (!selected && has) poll.votes = poll.votes.filter((v) => !(v.participantId === participantId && v.optionId === optionId));
+}
+
+/** Each bot votes over the next seconds (live updates), mostly for one choice, sometimes two; some change their mind. */
+async function botsVote(store: Store, m: Message) {
+  const poll = m.poll!;
+  await Promise.all(
+    store.bots().map(async (bot) => {
+      if (R() < 0.15) return; // abstains
+      await botSleep(uniform(1500, 14_000));
+      const first = pick(R, poll.options);
+      setPollVote(poll, bot.id, first.id, true);
+      store.emit("message.updated", m);
+      if (R() < 0.25) {
+        await botSleep(uniform(1500, 6000));
+        const second = pick(R, poll.options);
+        if (R() < 0.5 && second.id !== first.id) setPollVote(poll, bot.id, first.id, false); // changes vote
+        setPollVote(poll, bot.id, second.id, true);
+        store.emit("message.updated", m);
+      }
+    }),
+  );
+}
+
+async function botPoll(store: Store, bot: Participant) {
+  const { question, options } = pollContent(R);
+  const m = await botSay(store, bot, question, { poll: makePoll(question, options) }, uniform(1500, 3500));
+  void botsVote(store, m);
+  return m;
+}
+
 // ---------------------------------------------------------------- bots
 
 function typingMs(text: string) {
@@ -564,7 +677,7 @@ async function botSay(store: Store, bot: Participant, text: string, opts: Partia
   await botSleep(typingFor ?? typingMs(text));
   store.broadcastTyping(bot.id, false);
   const m = store.create(bot.id, text, opts);
-  if (R() < 0.05) {
+  if (R() < 0.05 && !m.poll) {
     void (async () => {
       await botSleep(uniform(4000, 20_000));
       m.text = editedText(R, m.text || "photo");
@@ -612,6 +725,8 @@ async function botLoop(store: Store) {
           const { text, opts } = randomBotMessage(store);
           await botSay(store, bot, text, opts, uniform(500, 1800));
         }
+      } else if (roll < 0.11) {
+        await botPoll(store, bot);
       } else if (roll < 0.23) {
         // Starts typing, then gives up.
         store.broadcastTyping(bot.id, true);
@@ -654,7 +769,7 @@ function json(body: unknown, status = 200) {
 }
 
 function applyKnobs(input: Record<string, unknown>): Knobs {
-  const unitRange = ["failRate", "historyFailRate", "duplicateRate"];
+  const unitRange = ["failRate", "historyFailRate", "duplicateRate", "pollVoteFailRate"];
   for (const [k, v] of Object.entries(input)) {
     if (!(k in knobs)) throw new Error(`unknown knob ${k}`);
     const n = Number(v);
@@ -744,6 +859,21 @@ async function handleHttp(req: Request, server: ReturnType<typeof Bun.serve>): P
     if (intervalMs === 0) await burst(store, count, 0);
     else void burst(store, count, intervalMs);
     return json({ ok: true, conversation: conv, count, headSeq: store.headSeq, headEventSeq: store.headEventSeq });
+  }
+  if (path === "/admin/poll" && req.method === "POST") {
+    // A bot posts a poll now; bots vote on it over the next seconds.
+    const conv = url.searchParams.get("conversation") ?? "group";
+    const store = stores.get(conv);
+    if (!store) return json({ error: `unknown conversation ${conv}` }, 404);
+    const q = url.searchParams.get("question");
+    const opts = url.searchParams.get("options");
+    const bot = pick(R, store.bots());
+    const content = q && opts ? { question: q, options: opts.split(",").map((o) => o.trim()).filter(Boolean).slice(0, POLL_MAX_OPTIONS) } : pollContent(R);
+    if (content.options.length < 2) return json({ error: "need 2+ options" }, 400);
+    const m = store.create(bot.id, content.question, { poll: makePoll(content.question, content.options) });
+    if (url.searchParams.get("votes") !== "0") void botsVote(store, m);
+    log(`admin poll conv=${conv} id=${m.id} "${content.question}" options=${content.options.length}`);
+    return json({ ok: true, message: wireMessage(m, base) });
   }
   if (path === "/admin/disconnect" && req.method === "POST") {
     return json({ ok: true, dropped: dropAll("admin disconnect") });

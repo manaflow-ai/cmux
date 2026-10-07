@@ -21,9 +21,11 @@ process and keep growing.
 | --- | --- | --- |
 | `hello` | `{clientId, resumeAfterEventSeq?}` | `{conversation, me: Participant, headSeq, headEventSeq, serverTime, lagged}` |
 | `history` | `{beforeSeq: Int?, limit: Int}` | `{messages: [Message], hasMore: Bool}` |
-| `send` | `{clientMessageId, text, replyToId?, attachmentIds?}` | `{message: Message}` |
+| `send` | `{clientMessageId, text, replyToId?, attachmentIds?, poll?: {question, options: [String]}}` | `{message: Message}` |
 | `react` | `{messageId, reaction: Reaction?}` | `{message: Message}` |
 | `edit` | `{messageId, text}` | `{message: Message}` |
+| `votePoll` | `{messageId, optionId, selected: Bool}` | `{message: Message}` |
+| `addPollOption` | `{messageId, text}` | `{message: Message}` |
 | `typing` | `{isTyping: Bool}` | `{}` |
 | `markRead` | `{upToSeq: Int}` | `{}` |
 
@@ -60,6 +62,12 @@ Message {
   reactions: [{participantId, reaction}],
   attachments: [{id, kind: "image", width, height, url}],
   status?: "sent"|"delivered"|"read", readAt?    // only on my messages
+  poll?: Poll                                    // text holds the question
+}
+Poll {
+  question,
+  options: [{id, text, addedBy?}],               // addedBy: added after creation
+  votes: [{participantId, optionId, votedAt}]    // multi-select: one per (participant, option)
 }
 Reaction = "heart"|"thumbsup"|"thumbsdown"|"haha"|"exclamation"|"question"
 ```
@@ -73,9 +81,12 @@ Reaction = "heart"|"thumbsup"|"thumbsdown"|"haha"|"exclamation"|"question"
 - `GET /healthz`: `ok`.
 - `POST /admin/burst?conversation=<id>&count=<n>`: make participants send `n`
   messages rapidly (pressure testing).
+- `POST /admin/poll?conversation=<id>&question=<q>&options=<a,b,...>&votes=0|1`:
+  a bot posts a poll now (random content without `question`/`options`); bots
+  vote on it unless `votes=0`.
 - `POST /admin/disconnect`: drop every socket (reconnect testing).
 - `POST /admin/knobs` JSON `{latencyScale, failRate, historyFailRate,
-  duplicateRate, disconnectEverySeconds, botIntervalScale}`.
+  duplicateRate, disconnectEverySeconds, botIntervalScale, pollVoteFailRate}`.
 
 ## Simulated traffic
 
@@ -94,3 +105,18 @@ Reaction = "heart"|"thumbsup"|"thumbsdown"|"haha"|"exclamation"|"question"
   bursts of 3 to 6 quick messages. Replies to my messages within 3 to 12 s
   most of the time, tapbacks my messages ~30% of the time, edits its own last
   message ~5% of the time.
+
+## Polls
+
+Messages polls: 2 to 12 choices, multi-select (a vote is per participant and
+choice; `selected: false` takes it back), anyone may add a choice. A poll
+message cannot be edited.
+
+- `send` with `poll` stores `text` = trimmed question; blank choices are dropped.
+- `votePoll` acks after 80 to 500 ms; fails with `-32004 "vote not delivered"`
+  at `pollVoteFailRate` (default 0.03) without changing the poll.
+- Bots post a poll on ~3% of their turns. After any new poll (mine, a bot's,
+  or `/admin/poll`) each bot votes 1.5 to 14 s later (15% abstain), and 25%
+  later add or switch a vote, each change a `message.updated` event.
+- Seeded history carries polls (~0.4% of older messages, own rng, never in the
+  newest 300) with existing votes.

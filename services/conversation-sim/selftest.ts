@@ -246,6 +246,46 @@ async function main() {
   const withImg = await l.call("send", { clientMessageId: `img-${crypto.randomUUID()}`, text: "", attachmentIds: [up.attachment.id] });
   check(withImg.message.attachments[0]?.id === up.attachment.id, "send with attachmentIds attaches the upload");
 
+  console.log("polls");
+  const pollSend = await l.call("send", { clientMessageId: `poll-${crypto.randomUUID()}`, text: "", poll: { question: " Lunch? ", options: ["Tacos", " ", "Ramen"] } });
+  const pm = pollSend.message;
+  check(pm.text === "Lunch?" && pm.poll?.question === "Lunch?" && pm.poll.options.map((o: any) => o.id).join() === "o1,o2", "send with poll creates a poll message (blank choices dropped)");
+  const badPoll = await l.raw("send", { clientMessageId: `poll-${crypto.randomUUID()}`, text: "", poll: { question: "q", options: ["only"] } });
+  check(badPoll.error?.code === -32602, "a poll with fewer than 2 choices is rejected");
+  const v1 = await l.call("votePoll", { messageId: pm.id, optionId: "o1", selected: true });
+  const v2 = await l.call("votePoll", { messageId: pm.id, optionId: "o2", selected: true });
+  const mine = (m: any) => m.poll.votes.filter((v: any) => v.participantId === "aziz").map((v: any) => v.optionId).sort().join();
+  check(mine(v1.message) === "o1" && mine(v2.message) === "o1,o2", "votePoll is multi-select");
+  const v3 = await l.call("votePoll", { messageId: pm.id, optionId: "o1", selected: false });
+  check(mine(v3.message) === "o2", "votePoll selected=false takes the vote back");
+  const added = await l.call("addPollOption", { messageId: pm.id, text: "Sushi" });
+  check(added.message.poll.options.at(-1).id === "o3" && added.message.poll.options.at(-1).addedBy === "aziz", "addPollOption appends a choice with addedBy");
+  const badVote = await l.raw("votePoll", { messageId: pm.id, optionId: "o9", selected: true });
+  check(badVote.error?.code === -32602, "voting for an unknown choice is rejected");
+  const pollEdit = await l.raw("edit", { messageId: pm.id, text: "x" });
+  check(pollEdit.error?.code === -32602, "polls cannot be edited");
+  await post("/admin/knobs", { pollVoteFailRate: 1 });
+  const vf = await l.raw("votePoll", { messageId: pm.id, optionId: "o1", selected: true });
+  check(vf.error?.code === -32004 && vf.error.message === "vote not delivered", "pollVoteFailRate=1 -> -32004 vote not delivered");
+  await post("/admin/knobs", { pollVoteFailRate: 0 });
+  await post("/admin/knobs", { botIntervalScale: 0.05 }); // let bots act briefly
+  const adminPoll = await post("/admin/poll?conversation=group&question=Ship%3F&options=Yes,No");
+  check(adminPoll.message.poll.options.length === 2 && adminPoll.message.senderId !== "aziz", "/admin/poll makes a bot post a poll");
+  await l.waitFor(
+    () => l.events().find((e) => e.message.id === adminPoll.message.id && e.message.poll.votes.some((v: any) => v.participantId !== "aziz")),
+    5000,
+    "bot votes",
+  );
+  check(true, "bots vote on a new poll with live message.updated events");
+  await post("/admin/knobs", { botIntervalScale: 10000 });
+  let historyPoll: any;
+  for (let before: number | null = null; !historyPoll && before !== 1; ) {
+    const page = await l.call("history", { beforeSeq: before, limit: 200 });
+    historyPoll = page.messages.find((m: any) => m.poll && m.seq < pm.seq - 600);
+    before = page.messages[0].seq;
+  }
+  check(historyPoll?.poll.options.length >= 2 && historyPoll.text === historyPoll.poll.question, "seeded history contains polls");
+
   console.log("admin disconnect");
   await post("/admin/disconnect");
   await l.waitFor(() => l.closed, 3000, "socket drop");
