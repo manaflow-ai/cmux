@@ -76,13 +76,7 @@ adopt_legacy_production() (
   chmod 600 "$temporary_file"
   # Publish a complete copy atomically. An exclusive link also protects a
   # canonical path created by another setup process while this copy was made.
-  python3 -c '
-import os, sys
-try:
-    os.link(sys.argv[1], sys.argv[2])
-except FileExistsError:
-    pass
-' "$temporary_file" "$PRODUCTION_ENV_FILE"
+  update_credentials_file adopt "$PRODUCTION_ENV_FILE" "$temporary_file"
 )
 
 prompt_credentials() {
@@ -160,31 +154,68 @@ sys.exit(0 if isinstance(token, str) and token else 1)
   fi
 }
 
+update_credentials_file() {
+  # Lock a stable sidecar, since atomically replacing the credentials changes
+  # its inode. The advisory lock is released by the OS even after a crash.
+  python3 -c '
+import fcntl, os, stat, sys, tempfile
+
+action, file, argument = sys.argv[1:]
+values = sys.stdin.buffer.read().split(b"\0") if action == "save" else None
+
+def validate(fd):
+    metadata = os.fstat(fd)
+    if not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.getuid() or metadata.st_mode & 0o077:
+        sys.exit("error: credential and lock files must be owned by the current user, regular, and private (mode 600).")
+
+try:
+    descriptor = os.open(file + ".lock", os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
+    with os.fdopen(descriptor, "rb") as lock:
+        validate(lock.fileno())
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if action == "adopt":
+            try:
+                os.link(argument, file)
+            except FileExistsError:
+                pass
+        else:
+            try:
+                descriptor = os.open(file, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+            except FileNotFoundError:
+                previous = b"# Local cmux sign-in credentials. Never commit or source this file.\n"
+            else:
+                with os.fdopen(descriptor, "rb") as source:
+                    validate(source.fileno())
+                    previous = source.read()
+            prefix = argument.encode("ascii")
+            lines = previous.split(b"\n")
+            if lines[-1] == b"":
+                lines.pop()
+            retained = [line for line in lines if line.partition(b"=")[0].strip() not in (prefix + b"_EMAIL", prefix + b"_PASSWORD")]
+            # Match the shared parser: strip one outer quote layer only, and
+            # preserve literal quotes, CRs, and other password bytes inside.
+            retained.extend((prefix + b"_EMAIL=\"" + values[0] + b"\"", prefix + b"_PASSWORD=\"" + values[1] + b"\""))
+            descriptor, temporary = tempfile.mkstemp(prefix=".cmux-credentials.", dir=os.path.dirname(file))
+            try:
+                with os.fdopen(descriptor, "wb") as output:
+                    output.write(b"\n".join(retained) + b"\n")
+                os.replace(temporary, file)
+            finally:
+                if os.path.exists(temporary):
+                    os.unlink(temporary)
+except OSError as error:
+    sys.exit("error: could not update protected credentials: " + error.strerror)
+' "$@"
+}
+
 save_profile() (
-  local file="$1" prefix="$2" temporary_file=""
-  # File updates are atomic; an interrupted replacement leaves the old pair.
+  local file="$1" prefix="$2"
   umask 077
   mkdir -p "$SECRETS_DIR"
   chmod 700 "$SECRETS_DIR"
-  validate_existing_file "$file"
-  temporary_file="$(mktemp "$SECRETS_DIR/.cmux-credentials.XXXXXX")"
-  trap 'rm -f "$temporary_file"' EXIT
-  {
-    if [[ -f "$file" ]]; then
-      awk -F= -v prefix="$prefix" '
-        { key = $1; gsub(/^[[:space:]]+|[[:space:]]+$/, "", key) }
-        key != prefix "_EMAIL" && key != prefix "_PASSWORD" { print }
-      ' "$file"
-    else
-      echo "# Local cmux sign-in credentials. Never commit or source this file."
-    fi
-    # The shared parser strips exactly one layer of quotes without evaluating
-    # the value. This preserves leading/trailing whitespace and literal quotes.
-    printf '%s_EMAIL="%s"\n' "$prefix" "$email"
-    printf '%s_PASSWORD="%s"\n' "$prefix" "$password"
-  } > "$temporary_file"
-  chmod 600 "$temporary_file"
-  mv -f "$temporary_file" "$file"
+  # Pass values through stdin before taking the read/modify/replace lock.
+  # User input and sign-in have already completed; no secret enters argv.
+  printf '%s\0%s\0' "$email" "$password" | update_credentials_file save "$file" "$prefix"
 )
 
 configure_profile() {
@@ -244,6 +275,8 @@ configure_production() {
 echo "==> cmux developer account setup"
 echo "    Use development accounts for both dogfood and simulator/test profiles."
 echo "    Both accounts may belong to you; existing complete profiles are preserved."
+echo "    Each account needs a password; an email code cannot be used here."
+echo "    First set your own password in the Hexclave account portal for cmux development."
 echo
 configure_profile "Development personal dogfood" development personal CMUX_DOGFOOD_STACK \
   "$DEV_ENV_FILE" "$REFRESH_PERSONAL" 0

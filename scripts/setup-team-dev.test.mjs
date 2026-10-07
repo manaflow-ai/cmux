@@ -231,6 +231,9 @@ test("concurrent personal and agent refreshes preserve both successful updates",
       if (message.includes("\n")) events.emit(message.trim(), socket);
     });
     socket.on("close", () => sockets.delete(socket));
+    socket.on("error", (error) => {
+      if (error.code !== "ECONNRESET") throw error;
+    });
   });
   t.after(() => {
     for (const child of children) {
@@ -369,7 +372,7 @@ test("failed agent setup retains the already verified personal profile for a rer
 
 test("special password characters survive both verification and the credential loader", (t) => {
   const f = fixture(t, { dev: agent });
-  const password = '  "literal\\fixture-password\t$()`"  ';
+  const password = '  "literal\\fixture-password\t\r$()`"  ';
   successful(f.run(`person@example.com\n${password}\nn\n`));
   assert.equal(f.requests()[0].body.password, password);
   assert.equal(f.value(f.devFile, "CMUX_DOGFOOD_STACK_PASSWORD"), password);
