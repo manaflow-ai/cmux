@@ -350,6 +350,18 @@ struct CloudBrowserProxyIntegrationTests {
             try await Task.sleep(for: .milliseconds(10))
         }
         try #require(panel.cloudAccess.showsPage)
+        // Model the retained, disabled SSH bridge from a prior route. Its
+        // generation must be superseded when the replacement restores Cloud.
+        panel.cloudLoopbackScriptGeneration += 1
+        panel.cloudLoopbackRuntimeBridgeScript = WKUserScript(
+            source: RemoteLoopbackRuntimeBridge.scriptSource(
+                aliasHost: "127.0.0.1", enabled: false,
+                generation: panel.cloudLoopbackScriptGeneration
+            ),
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: false
+        )
+        panel.cloudLoopbackScriptConfigurationKey = nil
         let previousStore = panel.websiteDataStore
         #expect(panel.switchToProfile(profile.id))
         #expect(panel.websiteDataStore !== previousStore)

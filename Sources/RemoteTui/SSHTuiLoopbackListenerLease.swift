@@ -18,8 +18,13 @@ final class SSHTuiLoopbackListenerLease: @unchecked Sendable {
     var localURL: URL { URL(string: "http://127.0.0.1:\(port)")! }
 
     init() throws {
-        let fd = Darwin.socket(AF_INET, SOCK_STREAM, 0)
+        let fd = Darwin.socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0)
         guard fd >= 0 else { throw Self.socketError("create") }
+        guard Self.setCloseOnExec(fd) else {
+            let error = Self.socketError("protect descriptor from child processes")
+            Darwin.close(fd)
+            throw error
+        }
         var address = sockaddr_in()
         address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
         address.sin_family = sa_family_t(AF_INET)
@@ -60,9 +65,19 @@ final class SSHTuiLoopbackListenerLease: @unchecked Sendable {
     /// Process.standardInput is mapped to descriptor 0 in the child. Keeping
     /// this descriptor open in the parent reserves the exact same socket.
     func makeChildInput() throws -> FileHandle {
-        let childDescriptor = Darwin.dup(descriptor)
+        let childDescriptor = fcntl(descriptor, F_DUPFD_CLOEXEC, 0)
         guard childDescriptor >= 0 else { throw Self.socketError("duplicate") }
+        guard Self.setCloseOnExec(childDescriptor) else {
+            let error = Self.socketError("protect child descriptor from other processes")
+            Darwin.close(childDescriptor)
+            throw error
+        }
         return FileHandle(fileDescriptor: childDescriptor, closeOnDealloc: true)
+    }
+
+    private static func setCloseOnExec(_ descriptor: Int32) -> Bool {
+        let flags = fcntl(descriptor, F_GETFD)
+        return flags >= 0 && fcntl(descriptor, F_SETFD, flags | FD_CLOEXEC) == 0
     }
 
     func prepareForChild() -> UInt64 {

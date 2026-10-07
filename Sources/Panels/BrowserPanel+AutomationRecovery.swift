@@ -210,17 +210,30 @@ extension BrowserPanel {
         for userScript in browserAutomationUserScripts {
             replacement.configuration.userContentController.addUserScript(userScript)
         }
-        if let script = cloudLoopbackRuntimeBridgeScript {
-            replacement.configuration.userContentController.addUserScript(script)
+        let controller = replacement.configuration.userContentController
+        if cloudAccess.model?.usesBrowserProxy == true, let host = cloudAccess.remoteURL?.host {
+            // The retained SSH bridge can carry a larger generation than the
+            // default Cloud bridge. Advance the generation so this restored
+            // Cloud policy actually takes effect when the document loads.
+            cloudLoopbackScriptGeneration += 1
+            let script = WKUserScript(
+                source: RemoteLoopbackRuntimeBridge.scriptSource(
+                    aliasHost: host, preservesSubdomains: false,
+                    generation: cloudLoopbackScriptGeneration
+                ),
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: false
+            )
+            cloudLoopbackRuntimeBridgeScript = script
+            cloudLoopbackScriptConfigurationKey = "browser-proxy:\(host.lowercased())"
+            controller.addUserScript(script)
+        } else if let script = cloudLoopbackRuntimeBridgeScript {
+            controller.addUserScript(script)
         }
         if cloudAccess.model?.route == .loopback, let ruleList = cloudLoopbackContentRuleList {
-            replacement.configuration.userContentController.add(ruleList)
+            controller.add(ruleList)
         }
         if cloudAccess.model?.usesBrowserProxy == true, let host = cloudAccess.remoteURL?.host {
-            replacement.configuration.userContentController.addUserScript(WKUserScript(
-                source: RemoteLoopbackRuntimeBridge.scriptSource(aliasHost: host, preservesSubdomains: false),
-                injectionTime: .atDocumentStart, forMainFrameOnly: false
-            ))
             if let endpoint = cloudAccess.model?.browserProxy {
                 CloudBrowserRouting.installWebSocketBridge(endpoint: endpoint, address: host, on: replacement)
             }
