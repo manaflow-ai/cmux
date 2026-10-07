@@ -75,15 +75,18 @@ function choicesFor(entry: HarnessChoice | undefined): ModelChoice[] {
 }
 
 function uniqueHarnesses(catalog: ModelPickerProps["catalog"]): HarnessChoice[] {
-  const entries: HarnessChoice[] = catalog.map((entry) => ({
-    id: entry.id,
-    ids: [entry.id],
-    name: entry.name,
-    models: entry.models,
-    unavailable: entry.unavailable,
-    acpmuxHarness: entry.id,
-    pickable: entry.pickable !== false,
-  }));
+  // Terminal and unknown harnesses are routing entries, not installed choices.
+  const entries: HarnessChoice[] = catalog
+    .filter((entry) => entry.pickable !== false)
+    .map((entry) => ({
+      id: entry.id,
+      ids: [entry.id],
+      name: entry.name,
+      models: entry.models,
+      unavailable: entry.unavailable,
+      acpmuxHarness: entry.id,
+      pickable: entry.pickable !== false,
+    }));
   const result: HarnessChoice[] = [];
   const byName = new Map<string, HarnessChoice>();
   for (const entry of entries) {
@@ -140,6 +143,15 @@ export function ModelPicker(props: ModelPickerProps) {
   const [activeHarness, setActiveHarness] = useState(0);
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
+  const [favoritesOnly, setFavoritesOnly] = useState(false);
+  const [favorites, setFavorites] = useState<Set<string>>(() => {
+    try {
+      const stored = globalThis.localStorage?.getItem("cmux.model-picker.favorites");
+      return stored ? new Set(JSON.parse(stored) as string[]) : new Set<string>();
+    } catch {
+      return new Set<string>();
+    }
+  });
   const [localRefreshStatus, setLocalRefreshStatus] = useState<"fetching" | "updated" | "error">();
   const root = useRef<HTMLSpanElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -150,7 +162,10 @@ export function ModelPicker(props: ModelPickerProps) {
   const current = harnesses.find((entry) => entry.ids.includes(harness ?? "")) ?? harnesses[0];
   const selected = harnesses.find((entry) => entry.ids.includes(selectedHarness ?? "")) ?? current;
   const models = useMemo(() => choicesFor(selected), [selected]);
-  const visible = useMemo(() => (query ? models.filter((model) => matches(model, query)) : models), [models, query]);
+  const visible = useMemo(() => {
+    const matching = query ? models.filter((model) => matches(model, query)) : models;
+    return favoritesOnly ? matching.filter((model) => favorites.has(model.id)) : matching;
+  }, [favorites, favoritesOnly, models, query]);
   const refreshStatus = localRefreshStatus ?? catalogRefresh?.status ?? "idle";
   const refreshDate = catalogRefresh?.date;
   const formattedRefreshDate = refreshDate
@@ -266,6 +281,19 @@ export function ModelPicker(props: ModelPickerProps) {
       setLocalRefreshStatus("error");
     }
   };
+  const toggleFavorite = (modelId: string) => {
+    setFavorites((current) => {
+      const next = new Set(current);
+      if (next.has(modelId)) next.delete(modelId);
+      else next.add(modelId);
+      try {
+        globalThis.localStorage?.setItem("cmux.model-picker.favorites", JSON.stringify([...next]));
+      } catch {
+        // Storage is optional in gallery and private browsing contexts.
+      }
+      return next;
+    });
+  };
   const move = (step: number) =>
     setActive((index) => (visible.length ? (index + step + visible.length) % visible.length : 0));
   const keyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
@@ -286,7 +314,12 @@ export function ModelPicker(props: ModelPickerProps) {
       event.preventDefault();
       const model = visible[active];
       if (model) selectModel(model);
-    } else if (/^[1-9]$/.test(event.key) && !event.metaKey && !event.altKey) {
+    } else if (
+      /^[1-9]$/.test(event.key) &&
+      !event.ctrlKey &&
+      !event.altKey &&
+      (!event.metaKey || Number(event.key) <= 4)
+    ) {
       const model = visible[Number(event.key) - 1];
       if (model) {
         event.preventDefault();
@@ -363,44 +396,59 @@ export function ModelPicker(props: ModelPickerProps) {
           </div>
           <div className="acpmux-mp-columns">
             {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- rich harness rows need icons and prewarm states. */}
-            <div className="acpmux-mp-harnesses" role="listbox" aria-label={harnessText}>
-              {harnesses.map((entry, index) => (
-                <button
-                  type="button"
-                  // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a rich button row is the selectable option.
-                  role="option"
-                  key={entry.name}
-                  aria-selected={entry.ids.includes(selectedHarness ?? "")}
-                  disabled={!entry.pickable}
-                  className="acpmux-mp-harness"
-                  tabIndex={index === activeHarness ? 0 : -1}
-                  onKeyDown={(event) => {
-                    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-                      event.preventDefault();
-                      const step = event.key === "ArrowDown" ? 1 : -1;
-                      const next = (index + step + harnesses.length) % harnesses.length;
-                      setActiveHarness(next);
-                      setSelectedHarness(harnesses[next]?.id);
+            <div className="acpmux-mp-harnesses">
+              <button
+                type="button"
+                className="acpmux-mp-harness-favorites"
+                aria-label={modelText}
+                aria-pressed={favoritesOnly}
+                title={modelText}
+                onClick={() => setFavoritesOnly((value) => !value)}
+              >
+                <span aria-hidden="true">★</span>
+              </button>
+              {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- rich harness rows need icons and prewarm states. */}
+              <div className="acpmux-mp-harness-list" role="listbox" aria-label={harnessText}>
+                {harnesses.map((entry, index) => (
+                  <button
+                    type="button"
+                    // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a rich button row is the selectable option.
+                    role="option"
+                    key={entry.name}
+                    aria-selected={entry.ids.includes(selectedHarness ?? "")}
+                    disabled={!entry.pickable}
+                    className="acpmux-mp-harness"
+                    tabIndex={index === activeHarness ? 0 : -1}
+                    onKeyDown={(event) => {
+                      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                        event.preventDefault();
+                        const step = event.key === "ArrowDown" ? 1 : -1;
+                        const next = (index + step + harnesses.length) % harnesses.length;
+                        setActiveHarness(next);
+                        setSelectedHarness(harnesses[next]?.id);
+                        setQuery("");
+                        event.currentTarget.parentElement
+                          ?.querySelectorAll<HTMLElement>(".acpmux-mp-harness")
+                          [next]?.focus();
+                      } else if (event.key === "ArrowRight" || event.key === "Enter") {
+                        event.preventDefault();
+                        search.current?.focus();
+                      }
+                    }}
+                    onPointerEnter={() => onHarnessHint?.(entry.acpmuxHarness ?? entry.id)}
+                    onClick={() => {
+                      setSelectedHarness(entry.id);
+                      setActiveHarness(index);
                       setQuery("");
-                      (event.currentTarget.parentElement?.children[next] as HTMLElement | undefined)?.focus();
-                    } else if (event.key === "ArrowRight" || event.key === "Enter") {
-                      event.preventDefault();
-                      search.current?.focus();
-                    }
-                  }}
-                  onPointerEnter={() => onHarnessHint?.(entry.acpmuxHarness ?? entry.id)}
-                  onClick={() => {
-                    setSelectedHarness(entry.id);
-                    setActiveHarness(index);
-                    setQuery("");
-                    setActive(0);
-                  }}
-                >
-                  <AgentMark agent={entry.id} size={16} />
-                  <span>{entry.name}</span>
-                  {entry.ids.includes(harness ?? "") && <CheckIcon />}
-                </button>
-              ))}
+                      setActive(0);
+                    }}
+                  >
+                    <AgentMark agent={entry.id} size={16} />
+                    <span>{entry.name}</span>
+                    {entry.ids.includes(harness ?? "") && <CheckIcon />}
+                  </button>
+                ))}
+              </div>
             </div>
             <div
               id={`${menuId}-models`}
@@ -413,24 +461,42 @@ export function ModelPicker(props: ModelPickerProps) {
                 <div className="acpmux-mp-empty">{noMatchesText}</div>
               ) : (
                 visible.map((model, index) => (
-                  <button
-                    type="button"
-                    // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a rich button row is the selectable option.
-                    role="option"
-                    key={model.id}
-                    id={modelRowId(model.id)}
-                    data-key={`model:${model.id}`}
-                    aria-selected={index === active}
-                    aria-checked={model.id === props.model}
-                    className={`acpmux-mp-row${index === active ? " acpmux-mp-active" : ""}`}
-                    onPointerEnter={() => setActive(index)}
-                    disabled={Boolean(model.unavailable)}
-                    onClick={() => selectModel(model)}
-                  >
-                    <span className="acpmux-menu-label">{model.name}</span>
-                    {model.unavailable && <span className="acpmux-menu-description">{unavailableText}</span>}
-                    {model.id === props.model && <CheckIcon />}
-                  </button>
+                  <div className="acpmux-mp-row-shell" key={model.id}>
+                    <button
+                      type="button"
+                      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a rich button row is the selectable option.
+                      role="option"
+                      id={modelRowId(model.id)}
+                      data-key={`model:${model.id}`}
+                      aria-selected={index === active}
+                      aria-checked={model.id === props.model}
+                      className={`acpmux-mp-row${index === active ? " acpmux-mp-active" : ""}`}
+                      onPointerEnter={() => setActive(index)}
+                      disabled={Boolean(model.unavailable)}
+                      onClick={() => selectModel(model)}
+                    >
+                      <span className="acpmux-mp-row-main">
+                        <span className="acpmux-menu-label">{model.name}</span>
+                        <span className="acpmux-mp-row-subtitle">
+                          <AgentMark agent={selected?.id} size={12} />
+                          {selected?.name}
+                        </span>
+                      </span>
+                      {index < 4 && <span className="acpmux-mp-hotkey">⌘{index + 1}</span>}
+                      {model.unavailable && <span className="acpmux-menu-description">{unavailableText}</span>}
+                      {model.id === props.model && <CheckIcon />}
+                    </button>
+                    <button
+                      type="button"
+                      className="acpmux-mp-favorite"
+                      aria-label={`${modelText}: ${model.name}`}
+                      aria-pressed={favorites.has(model.id)}
+                      title={modelText}
+                      onClick={() => toggleFavorite(model.id)}
+                    >
+                      <span aria-hidden="true">{favorites.has(model.id) ? "★" : "☆"}</span>
+                    </button>
+                  </div>
                 ))
               )}
             </div>
