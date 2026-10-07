@@ -780,6 +780,7 @@ function DefaultComposerChips({ snapshot }: { snapshot: AcpmuxSnapshot }) {
       setRefreshStatus("updated");
     } catch {
       setRefreshStatus("error");
+      // l10n-allow: a developer error for the refresh caller; the picker shows refreshStatus, never this text.
       throw new Error("models.catalog refresh failed");
     }
   }, [picker]);
