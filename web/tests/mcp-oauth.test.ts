@@ -360,7 +360,7 @@ describe("MCP App and extensions", () => {
   });
 
   test("open_cloud is a sidebar and thread entrypoint that accepts {}", async () => {
-    const tool = listedTools(scopedGateway(null)).find((candidate) => candidate.name === "open_cloud") as Record<string, any>;
+    const tool = listedTools(scopedGateway(null)).find((candidate) => candidate.name === "open_cloud") as { _meta: { ui: { resourceUri: string }; "openai/ui": { entrypoints: unknown } } };
     expect(tool._meta["openai/ui"].entrypoints).toEqual([{ type: "global" }, { type: "thread" }]);
     expect(tool._meta.ui.resourceUri).toBe(CLOUD_MCP_APP_URI);
     const result = await callCloudMcpTool(scopedGateway(null), "open_cloud", {});

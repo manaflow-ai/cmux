@@ -215,7 +215,9 @@ function grantedTo(gateway: CloudMcpGateway, tool: ToolDefinition): boolean {
 
 /** `tools/list` for one caller: only tools its connection may call, without server-only fields. */
 export function listedTools(gateway: CloudMcpGateway): JsonObject[] {
-  return CLOUD_MCP_TOOLS.filter((tool) => grantedTo(gateway, tool)).map(({ requiredScope: _scope, ...tool }) => tool as JsonObject);
+  return CLOUD_MCP_TOOLS
+    .filter((tool) => grantedTo(gateway, tool))
+    .map((tool) => Object.fromEntries(Object.entries(tool).filter(([key]) => key !== "requiredScope")));
 }
 
 type ToolResult = {
@@ -477,6 +479,39 @@ function rpcError(id: JsonRpcId, code: number, message: string): JsonRpcResponse
   return { jsonrpc: "2.0", id, error: { code, message } };
 }
 
+function initializeReply(id: string | number, params: JsonObject): JsonRpcResponse {
+  const requested = typeof params.protocolVersion === "string" ? params.protocolVersion : "";
+  const protocolVersion = (CLOUD_MCP_PROTOCOL_VERSIONS as readonly string[]).includes(requested)
+    ? requested
+    : LATEST_PROTOCOL_VERSION;
+  return {
+    jsonrpc: "2.0",
+    id,
+    result: {
+      protocolVersion,
+      capabilities: {
+        tools: { listChanged: false },
+        resources: { listChanged: false },
+        extensions: { "openai/settings": SETTINGS_CAPABILITY },
+        experimental: { "openai/settings": SETTINGS_CAPABILITY },
+      },
+      serverInfo: { name: CLOUD_MCP_SERVER_NAME, title: "cmux Cloud", version: CLOUD_MCP_SERVER_VERSION },
+      instructions:
+        "Control the caller's cmux Cloud machines. Call list_machines first; every other machine tool takes a machine_id from it. " +
+        "run_agent starts a coding agent in a new terminal; poll it with read_terminal. " +
+        "Confirm with the user before delete_machine. When a tool says the plan does not include an action, tell the user and share plan_info_url; do not retry.",
+    },
+  };
+}
+
+async function toolCallReply(gateway: CloudMcpGateway, id: string | number, params: JsonObject): Promise<JsonRpcResponse> {
+  if (typeof params.name !== "string") return rpcError(id, -32602, "tools/call needs a tool name.");
+  if (!CLOUD_MCP_TOOLS.some((tool) => tool.name === params.name)) {
+    return rpcError(id, -32602, `Unknown tool: ${params.name}`);
+  }
+  return { jsonrpc: "2.0", id, result: await callCloudMcpTool(gateway, params.name, params.arguments) };
+}
+
 /** The one resource this server has: the cmux Cloud MCP App. */
 function resourceReply(id: string | number, method: string, params: JsonObject): JsonRpcResponse {
   if (method === "resources/list") return { jsonrpc: "2.0", id, result: { resources: [cloudMcpAppResource().listing] } };
@@ -501,30 +536,8 @@ export async function handleCloudMcpMessage(gateway: CloudMcpGateway, message: u
   if (!hasId) return null; // notifications (initialized, cancelled) need no reply
   const params = request.params && typeof request.params === "object" ? request.params as JsonObject : {};
   switch (request.method) {
-    case "initialize": {
-      const requested = typeof params.protocolVersion === "string" ? params.protocolVersion : "";
-      const protocolVersion = (CLOUD_MCP_PROTOCOL_VERSIONS as readonly string[]).includes(requested)
-        ? requested
-        : LATEST_PROTOCOL_VERSION;
-      return {
-        jsonrpc: "2.0",
-        id,
-        result: {
-          protocolVersion,
-          capabilities: {
-            tools: { listChanged: false },
-            resources: { listChanged: false },
-            extensions: { "openai/settings": SETTINGS_CAPABILITY },
-            experimental: { "openai/settings": SETTINGS_CAPABILITY },
-          },
-          serverInfo: { name: CLOUD_MCP_SERVER_NAME, title: "cmux Cloud", version: CLOUD_MCP_SERVER_VERSION },
-          instructions:
-            "Control the caller's cmux Cloud machines. Call list_machines first; every other machine tool takes a machine_id from it. " +
-            "run_agent starts a coding agent in a new terminal; poll it with read_terminal. " +
-            "Confirm with the user before delete_machine. When a tool says the plan does not include an action, tell the user and share plan_info_url; do not retry.",
-        },
-      };
-    }
+    case "initialize":
+      return initializeReply(id, params);
     case "ping":
       return { jsonrpc: "2.0", id, result: {} };
     case "tools/list":
@@ -533,13 +546,8 @@ export async function handleCloudMcpMessage(gateway: CloudMcpGateway, message: u
     case "resources/templates/list":
     case "resources/read":
       return resourceReply(id, request.method, params);
-    case "tools/call": {
-      if (typeof params.name !== "string") return rpcError(id, -32602, "tools/call needs a tool name.");
-      if (!CLOUD_MCP_TOOLS.some((tool) => tool.name === params.name)) {
-        return rpcError(id, -32602, `Unknown tool: ${params.name}`);
-      }
-      return { jsonrpc: "2.0", id, result: await callCloudMcpTool(gateway, params.name, params.arguments) };
-    }
+    case "tools/call":
+      return toolCallReply(gateway, id, params);
     default:
       return rpcError(id, -32601, `Method not found: ${request.method}`);
   }
