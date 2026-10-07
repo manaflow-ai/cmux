@@ -669,6 +669,11 @@
       // `s` with its cuts settled, for a page function that cuts or
       // searches its own text before it replies (sealing settles the rest).
       settle: (s) => settleCuts(s),
+      // The bounded DOM reads, charged to this budget.
+      textContent: (node) => boundedTextContent(node, b),
+      innerText: (el) => boundedInnerText(el, b),
+      outerHTML: (el) => boundedHTML(el, b, true),
+      innerHTML: (el) => boundedHTML(el, b, false),
       get truncated() {
         return b.truncated;
       },
@@ -768,11 +773,211 @@
     }
   }
 
-  // Every reply this world sends to the session passes through `reply`:
-  // the runtime wraps each agent-world call in it (runtime-core.js,
-  // Frame._call) and the host's frame.observe script runs each read inside
-  // it, so a method or page function added here cannot reply around it.
-  // Sealing settles every cut the reply's strings hold (settleCuts).
+  // ---------------------------------------------------------------------------
+  // Bounded DOM reads. A DOM getter (textContent, innerText, outerHTML)
+  // builds its whole string before anything can cut it, and a hostile
+  // page sets how large that is. These read within a page-read budget `b`:
+  // first a counting walk (nodes, and the lengths of the strings the getter
+  // would join, read without copying them), stopped at what `b` has left;
+  // when the getter's string fits, the getter runs and the string is
+  // charged (exact text); else the string is built node by node and stops
+  // where the budget does (`b.truncated` says why). Walks are iterative.
+  // What a getter of `kind` ("text": textContent, "inner": innerText,
+  // "html": innerHTML/outerHTML) would read under `root`: { nodes, size,
+  // depth } within `limits` ({ nodes, size, depth, deadline }), else
+  // { over: "nodes" | "size" | "time" | "depth" }. Attributes count as
+  // nodes; the size of HTML adds tags and attributes.
+  function measureTree(root, kind, limits) {
+    let nodes = 0;
+    let size = 0;
+    let depth = 0;
+    let deepest = 0;
+    let over = null;
+    walkTree(root, (n) => {
+      if (++nodes > limits.nodes) return (over = "nodes"), STOP;
+      if ((nodes & 255) === 0 && now() > limits.deadline) return (over = "time"), STOP;
+      const t = n.nodeType;
+      if (t === 3 || t === 4) size += n.data.length;
+      else if (t === 8 || t === 7) size += kind === "html" ? n.data.length + 7 : 0;
+      else if (t === 1) {
+        if (kind === "html") {
+          const attrs = n.attributes;
+          nodes += attrs.length;
+          if (nodes > limits.nodes) return (over = "nodes"), STOP;
+          size += 2 * n.tagName.length + 5;
+          for (let i = 0; i < attrs.length; i++) size += attrs[i].name.length + attrs[i].value.length + 4;
+        } else if (kind === "inner") size += 2;
+        if (++depth > deepest) deepest = depth;
+        if (deepest > limits.depth) return (over = "depth"), STOP;
+      }
+      if (size > limits.size) return (over = "size"), STOP;
+      return kind === "html" || t === 1 || t === 9 || t === 11;
+    }, (n) => {
+      if (n.nodeType === 1) depth--;
+    }, kind === "html");
+    return over ? { over } : { nodes, size, depth: deepest };
+  }
+  // How far a getter's result may run past the counted size: escaping
+  // grows HTML, innerText adds line breaks. A result past it is still cut.
+  function readLimits(b) {
+    return { nodes: b.left, size: b.sizeLeft, depth: Infinity, deadline: b.deadline };
+  }
+  // textContent: every Text descendant's data, in order.
+  function boundedTextContent(node, b) {
+    const t = node.nodeType;
+    if (t === 3 || t === 4 || t === 7 || t === 8) return spend(b, 1) ? fit(b, node.data) : "";
+    if (t === 9 || t === 10) return null;
+    const m = measureTree(node, "text", readLimits(b));
+    if (!m.over) {
+      spend(b, m.nodes);
+      return fit(b, node.textContent);
+    }
+    const parts = [];
+    walkTree(node, (n) => {
+      if (!spend(b, 1)) return STOP;
+      if (n.nodeType === 3 || n.nodeType === 4) {
+        parts.push(fit(b, n.data));
+        if (b.truncated) return STOP;
+      }
+      return n.nodeType === 1 || n.nodeType === 11;
+    });
+    return parts.join("");
+  }
+  // innerText: past the budget, an approximation of the rendered text (no
+  // hidden, script or style content; a line break around each block and
+  // at each <br>) that stops at the budget.
+  const NO_INNER_TEXT = new Set(["script", "style", "template", "noscript", "head", "title", "meta", "link"]);
+  function boundedInnerText(el, b) {
+    const m = measureTree(el, "inner", readLimits(b));
+    if (!m.over) {
+      spend(b, m.nodes);
+      return fit(b, el.innerText);
+    }
+    const parts = [];
+    const blocks = [];
+    walkTree(el, (n) => {
+      if (!spend(b, 1)) return STOP;
+      if (n.nodeType === 3 || n.nodeType === 4) {
+        parts.push(fit(b, head(b, n.data).replace(/[ \t\r\n]+/g, " ")));
+        return b.truncated ? STOP : true;
+      }
+      if (n.nodeType !== 1) return false;
+      const tag = tagOf(n);
+      if (NO_INNER_TEXT.has(tag)) return false;
+      if (tag === "br") {
+        parts.push(fit(b, "\n"));
+        return false;
+      }
+      const style = styleOf(n);
+      if (!style || style.display === "none") return false;
+      const block = n !== el && !/^inline/.test(style.display) && style.display !== "contents";
+      if (block) parts.push(fit(b, "\n"));
+      blocks.push(block);
+      return true;
+    }, (n) => {
+      if (n.nodeType === 1 && n !== el && blocks.length && blocks.pop()) parts.push(fit(b, "\n"));
+    });
+    return parts.join("").replace(/ *\n */g, "\n").replace(/\n{3,}/g, "\n\n").replace(/^\n+|\n+$/g, "");
+  }
+  // innerHTML (`outer` false) or outerHTML: past the budget, the HTML
+  // fragment serialization algorithm, node by node, stopped at the budget.
+  const VOID_TAGS = new Set(["area", "base", "basefont", "bgsound", "br", "col", "embed", "frame", "hr", "img", "input", "keygen", "link", "meta", "param", "source", "track", "wbr"]);
+  const RAW_TEXT_TAGS = new Set(["style", "script", "xmp", "iframe", "noembed", "noframes", "plaintext", "noscript"]);
+  const FOREIGN_NS = new Set([HTML_NS, "http://www.w3.org/2000/svg", "http://www.w3.org/1998/Math/MathML"]);
+  const escapeText = (s) => s.replace(/&/g, "&amp;").replace(/\u00a0/g, "&nbsp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const escapeAttr = (s) => s.replace(/&/g, "&amp;").replace(/\u00a0/g, "&nbsp;").replace(/"/g, "&quot;");
+  function attrName(a) {
+    if (!a.namespaceURI) return a.localName;
+    if (a.namespaceURI === "http://www.w3.org/XML/1998/namespace") return "xml:" + a.localName;
+    if (a.namespaceURI === "http://www.w3.org/2000/xmlns/") return a.localName === "xmlns" ? "xmlns" : "xmlns:" + a.localName;
+    if (a.namespaceURI === "http://www.w3.org/1999/xlink") return "xlink:" + a.localName;
+    return a.name;
+  }
+  function boundedHTML(el, b, outer) {
+    const m = measureTree(el, "html", readLimits(b));
+    if (!m.over) {
+      spend(b, m.nodes);
+      return fit(b, outer ? el.outerHTML : el.innerHTML);
+    }
+    const parts = [];
+    const push = (s) => {
+      parts.push(fit(b, s));
+      return b.truncated ? STOP : true;
+    };
+    const tagName = (n) => (FOREIGN_NS.has(n.namespaceURI) ? n.localName : n.tagName);
+    walkTree(el, (n) => {
+      if (!spend(b, 1)) return STOP;
+      if (n === el && !outer) return true;
+      const t = n.nodeType;
+      if (t === 3 || t === 4) {
+        const p = n.parentNode;
+        return push(p && p.nodeType === 1 && p.namespaceURI === HTML_NS && RAW_TEXT_TAGS.has(tagOf(p)) ? n.data : escapeText(n.data)) === STOP ? STOP : false;
+      }
+      if (t === 8) return push(`<!--${n.data}-->`) === STOP ? STOP : false;
+      if (t === 7) return push(`<?${n.target} ${n.data}>`) === STOP ? STOP : false;
+      if (t !== 1) return false;
+      const attrs = n.attributes;
+      if (!spend(b, attrs.length)) return STOP;
+      let head = "<" + tagName(n);
+      for (let i = 0; i < attrs.length; i++) head += ` ${attrName(attrs[i])}="${escapeAttr(attrs[i].value)}"`;
+      if (push(head + ">") === STOP) return STOP;
+      return !(n.namespaceURI === HTML_NS && VOID_TAGS.has(tagOf(n)));
+    }, (n) => {
+      if (n.nodeType !== 1 || (n === el && !outer)) return;
+      if (n.namespaceURI === HTML_NS && VOID_TAGS.has(tagOf(n))) return;
+      return push(`</${tagName(n)}>`);
+    }, true);
+    return parts.join("");
+  }
+  // A string read whole by the page (an attribute, a field's value),
+  // charged and cut.
+  function boundedString(s, b) {
+    if (typeof s !== "string") return s;
+    return spend(b, 1) ? fit(b, s) : "";
+  }
+
+
+  // The reply budget. Every reply this world sends to the session passes
+  // through `reply`: the runtime wraps each agent-world call in it
+  // (runtime-core.js, Frame._call) and the host's frame.observe script runs
+  // each read inside it, so a method or page function added here cannot
+  // reply around it. Past `limit` characters of JSON (at most MAX_REPLY) the
+  // reply becomes a cut marker, which the runtime turns into an error worded
+  // by core.readCutNote, as every read cut at its budget. A caller can lower
+  // the limit, never raise it. The default is what a read within the
+  // page-read budget can return: MAX_SIZE characters of values and NODE_SIZE
+  // of keys for each of MAX_NODES nodes. Sealing also settles every cut the
+  // reply's strings hold (settleCuts).
+  const MAX_REPLY = MAX_SIZE + MAX_NODES * NODE_SIZE;
+  const REPLY_CUT = "__cmuxReplyCut";
+  // The reply of a method that stopped at its budget before it had all its
+  // answer: the runtime fails the call with core.readCutNote's words, as
+  // for a reply past the reply budget. `cut` is { truncated, maxNodes, maxSize }.
+  const cutReply = (cut) => ({ [REPLY_CUT]: cut });
+  // The characters of JSON `value` takes, counted until they pass `max`.
+  // Iterative, and it stops there, so measuring costs at most the limit.
+  function replySize(value, max) {
+    let size = 0;
+    const stack = [value];
+    while (stack.length && size <= max) {
+      const v = stack.pop();
+      if (typeof v === "string") size += v.length + 2;
+      else if (v === null || v === undefined || typeof v !== "object") size += typeof v === "function" ? 0 : 8;
+      else if (Array.isArray(v)) {
+        size += 2 + v.length;
+        for (let i = 0; i < v.length && size <= max; i++) stack.push(v[i]);
+      } else {
+        size += 2;
+        for (const key of Object.keys(v)) {
+          size += key.length + 4;
+          stack.push(v[key]);
+          if (size > max) break;
+        }
+      }
+    }
+    return size;
+  }
+  // Settles every cut in `value`'s strings (settleCuts), in place.
   function settleReply(value) {
     if (typeof value === "string") return settleCuts(value);
     const stack = [value];
@@ -788,8 +993,13 @@
     }
     return value;
   }
-  function reply(value) {
-    return value instanceof Promise ? value.then(settleReply) : settleReply(value);
+  function sealReply(value, limit) {
+    const max = Math.min(MAX_REPLY, typeof limit === "number" && limit >= 0 ? Math.floor(limit) : MAX_REPLY);
+    if (replySize(value, max) <= max) return settleReply(value);
+    return cutReply({ truncated: "size", maxSize: max });
+  }
+  function reply(value, limit) {
+    return value instanceof Promise ? value.then((v) => sealReply(v, limit)) : sealReply(value, limit);
   }
 
   // The walk descends at most MAX_DEPTH elements, over the whole stitched
@@ -803,17 +1013,26 @@
   // first child's whole subtree runs before the second child).
   const MAX_DEPTH = 1000;
   const NEST_CUT = `nested deeper than ${MAX_DEPTH} elements; snapshot this ref to read it`;
+  // The page-read budget on the work stack: a node is charged where it is
+  // scheduled (a node's children are pushed before any is read, so one
+  // element with a million children would otherwise push a million steps),
+  // and once the budget stops the walk the scheduled visits return at once
+  // while the steps that close nodes still run.
   const later = (ctx, step) => ctx.work.push(step);
+  // Past the node budget a node already charged is still read (it was
+  // scheduled within the budget; it can schedule nothing more); past the
+  // size budget or the time, the walk stops.
+  const stopped = (ctx) => !!ctx.truncated && ctx.truncated !== "nodes";
   function runWork(ctx) {
     const work = ctx.work;
     while (work.length) work.pop()();
   }
 
   function visitNode(n, out, ctx, parentVisible, parentAriaHidden, skipText) {
-    if (ctx.visited.has(n)) return;
+    if (stopped(ctx) || ctx.visited.has(n)) return;
     ctx.visited.add(n);
     if (n.nodeType === 3) {
-      if ((parentVisible || ctx.showHidden) && !skipText && n.nodeValue) out.push(n.nodeValue);
+      if ((parentVisible || ctx.showHidden) && !skipText && n.nodeValue) out.push(fit(ctx, n.nodeValue));
       return;
     }
     if (n.nodeType !== 1) return;
@@ -828,25 +1047,34 @@
 
   // Writes the ::before text now and schedules the children, the owned
   // elements and the ::after text, in that order.
+  // Every child looked at is charged before it is scheduled; the list
+  // stops where the budget does.
   function visitChildren(el, out, ctx, visible, ariaHidden, skipText) {
-    if (visible && !skipText) out.push(pseudoText(el, "::before"));
+    if (stopped(ctx)) return;
+    if (visible && !skipText) out.push(fit(ctx, pseudoText(el, "::before")));
     const kids = [];
     const assigned = tagOf(el) === "slot" ? el.assignedNodes() : [];
     if (assigned.length) {
-      for (const child of assigned) kids.push(child);
+      for (let i = 0; i < assigned.length && spend(ctx, 1); i++) kids.push(assigned[i]);
     } else {
-      for (let child = el.firstChild; child; child = child.nextSibling) {
+      for (let child = el.firstChild; child && spend(ctx, 1); child = child.nextSibling) {
         if (!child.assignedSlot) kids.push(child);
       }
       if (el.shadowRoot) {
-        for (let child = el.shadowRoot.firstChild; child; child = child.nextSibling) kids.push(child);
+        for (let child = el.shadowRoot.firstChild; child && spend(ctx, 1); child = child.nextSibling) kids.push(child);
       }
     }
-    for (const id of (el.getAttribute("aria-owns") || "").split(/\s+/).filter(Boolean)) {
-      const owned = el.ownerDocument.getElementById(id);
-      if (owned && owned !== el) kids.push(owned);
+    // Each id in aria-owns is charged, also one that names a node already
+    // read: the page sets how many there are.
+    const owns = el.getAttribute("aria-owns");
+    if (owns) {
+      const ids = /\S+/g;
+      for (let m = ids.exec(owns); m && spend(ctx, 1); m = ids.exec(owns)) {
+        const owned = el.ownerDocument.getElementById(m[0]);
+        if (owned && owned !== el) kids.push(owned);
+      }
     }
-    if (visible && !skipText) later(ctx, () => out.push(pseudoText(el, "::after")));
+    if (visible && !skipText) later(ctx, () => stopped(ctx) || out.push(fit(ctx, pseudoText(el, "::after"))));
     for (let i = kids.length - 1; i >= 0; i--) {
       const child = kids[i];
       later(ctx, () => visitNode(child, out, ctx, visible, ariaHidden, skipText));
@@ -958,7 +1186,8 @@
     // inside it has a box (Wikipedia's zero-width "Jump up" backlinks).
     if ((role === "link" || role === "button") && visible && !ctx.showHidden && !hasVisibleBox(el)) return;
     const node = { role };
-    if (name) node.name = name;
+    chargeSize(ctx, NODE_SIZE);
+    if (name) node.name = fit(ctx, name);
     if (interactive || scrollable) node.act = 1;
     if (interactive || scrollable || role === "iframe" || (name && SCOPE_ROLES.has(role))) {
       node.ref = refFor(el);
@@ -976,26 +1205,37 @@
       return;
     }
     const value = valueOf(el, role, tag);
-    if (value !== null) node.value = value;
+    if (value !== null) node.value = fit(ctx, value);
     if (role === "link") {
       const url = displayUrl(el);
-      if (url) node.url = url;
+      if (url) node.url = fit(ctx, url);
       const offsite = offsiteSummary(el);
-      if (offsite) node.offsite = offsite;
+      if (offsite) node.offsite = fit(ctx, offsite);
     }
     const placeholder = el.getAttribute("placeholder");
-    if (placeholder && normalize(placeholder) !== name && (tag === "input" || tag === "textarea")) node.placeholder = normalize(placeholder);
+    if (placeholder && normalize(placeholder) !== name && (tag === "input" || tag === "textarea")) node.placeholder = fit(ctx, normalize(placeholder));
     if (tag === "select") {
-      const option = (o) => (o.selected ? { name: normalize(o.label || o.textContent), selected: true } : { name: normalize(o.label || o.textContent) });
+      const optionName = (o) => {
+        chargeSize(ctx, NODE_SIZE);
+        return fit(ctx, normalize(o.label || o.textContent));
+      };
+      const option = (o) => (o.selected ? { name: optionName(o), selected: true } : { name: optionName(o) });
       // A list box shows its options; a drop-down shows them on request. A
       // closed drop-down prints its first INLINE_OPTIONS and a count, so only
-      // those cross to the host.
-      if (el.multiple || el.size > 1) node.children = [...el.options].map((o) => Object.assign({ role: "option" }, option(o)));
-      else if (ctx.allOptions || node.expanded === true) node.options = [...el.options].map(option);
+      // those cross to the host. Options listed whole count toward the node
+      // budget; past it the list stops.
+      const listed = (map) => {
+        const all = el.options;
+        const list = [];
+        for (let i = 0; i < all.length && !ctx.truncated && spend(ctx, 1); i++) list.push(map(all[i]));
+        return list;
+      };
+      if (el.multiple || el.size > 1) node.children = listed((o) => Object.assign({ role: "option" }, option(o)));
+      else if (ctx.allOptions || node.expanded === true) node.options = listed(option);
       else {
         const all = el.options;
         node.options = [];
-        for (let i = 0; i < all.length && i < INLINE_OPTIONS; i++) node.options.push(option(all[i]));
+        for (let i = 0; i < all.length && i < INLINE_OPTIONS && !ctx.truncated; i++) node.options.push(option(all[i]));
         if (all.length > INLINE_OPTIONS) node.optionCount = all.length;
       }
     }
@@ -1051,7 +1291,8 @@
     return out.flatMap((c) => (typeof c === "string" ? c.split("\u0000").map(normalize).filter(Boolean) : [c]));
   }
 
-  // opts: { root: handle | null, showHidden, base, nest } -> { flat, max }
+  // opts: { root: handle | null, showHidden, base, nest, maxNodes, maxSize }
+  // -> { flat, max, offscreen, ms, visited, size, truncated: "nodes" | "time" | "size" | undefined }
   function snapshot(opts) {
     return withReadCaches(() => readSnapshot(opts || {}));
   }
@@ -1062,7 +1303,7 @@
     pruneHandles();
     const root = opts.root ? element(opts.root) : document.body || document.documentElement;
     if (!root || !root.isConnected) throw agentError("stale", "The snapshot root was removed from the page");
-    const ctx = {
+    const ctx = Object.assign(readBudget(opts), {
       showHidden: !!opts.showHidden,
       focus: deepActiveElement(document),
       visited: new Set(),
@@ -1077,16 +1318,16 @@
       // Elements above the root in the stitched tree (snapshot.js MAX_NEST).
       nest: Math.min(MAX_DEPTH, Math.max(0, Math.floor(Number(opts.nest)) || 0)),
       work: [],
-    };
+    });
     const out = [];
-    visitElement(root, out, ctx, false, false);
+    if (spend(ctx, 1)) visitElement(root, out, ctx, false, false);
     runWork(ctx);
     const nodes = normalizeChildren(out);
     // `flat` is the tree in pre-order, [depth, node or text] per entry with
     // no `children`: a nested result deeper than about 300 levels fails
     // CDP's CBOR conversion (snapshot.js rebuilds the tree).
     // `ms` is the traversal time in this frame, for perf measurements.
-    return { flat: flatten(nodes), max: refCounter, offscreen: ctx.offscreen, ms: now() - started };
+    return { flat: flatten(nodes), max: refCounter, offscreen: ctx.offscreen, ms: now() - started, visited: ctx.nodes - ctx.left, size: ctx.size - ctx.sizeLeft, truncated: ctx.truncated };
   }
 
   function flatten(nodes) {
@@ -1192,11 +1433,16 @@
     return hops;
   }
 
-  function queryAll(selector, scopeHandle) {
+  // MAX_NODES handles (the page-read node budget): past that, a call
+  // without a limit is cut, and a limit above it keeps the first MAX_NODES.
+  function queryAll(selector, scopeHandle, limit) {
     const inj = requireInjected();
     const root = scopeHandle ? element(scopeHandle) : document;
     const parsed = inj.parseSelector(selector);
-    return withReadCaches(() => inj.querySelectorAll(parsed, root)).map(handleFor);
+    const found = withReadCaches(() => inj.querySelectorAll(parsed, root));
+    const asked = Number.isInteger(limit) && limit >= 0;
+    if (!asked && found.length > MAX_NODES) return cutReply({ truncated: "nodes", maxNodes: MAX_NODES });
+    return found.slice(0, asked ? Math.min(limit, MAX_NODES) : MAX_NODES).map(handleFor);
   }
 
   function describe(id) {
