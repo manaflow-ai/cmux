@@ -144,6 +144,10 @@ struct Record {
     /// The last `DRAFT_HISTORY` draft writes, newest last.
     #[serde(default)]
     drafts: Vec<DraftWrite>,
+    /// A remote device started (or retried) this handoff: its prompt on the
+    /// target is a Web turn, held to the remote floor.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    web: bool,
 }
 
 /// Draft writes remembered per handoff for `draftKey` replays.

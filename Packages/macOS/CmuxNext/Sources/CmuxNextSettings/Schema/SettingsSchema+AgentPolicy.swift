@@ -24,6 +24,8 @@ extension SettingsSchema {
     /// `appearance.surfaces.<surface>.color|opacity` row (looks only, R55).
     public static let agentSettableKeys: Set<String> = agentSettableTable.union(SurfaceBackgroundSetting.keys).union(BrowserLinkClickSchema.agentSettableKeys)
         .union(OmnibarSettingsSchema.agentSettableKeys)
+        // What sidebar rows show (looks only, SIDEBAR-ROWS-MINIMAL-AND-CUSTOMIZABLE).
+        .union(WorkspaceRowSetting.keys)
         // The diff page's display keys (looks only, diff-host S4).
         .union(DiffViewerSettingsSchema.keys)
         // Sizes and cmux-browser's own keys: cmux-browser writes them from its UI as `script`
@@ -104,7 +106,7 @@ extension SettingsSchema {
         "sidebar.sectionLook",
         "sidebar.topBandMaxShare",
         "sidebar.bottomBandMaxShare",
-        "sidebar.pinnedBandsScroll", "sidebar.showWorkspaceTabs", "sidebar.showCounts",
+        "sidebar.pinnedBandsScroll", "sidebar.showWorkspaceTabs",
         "browser.defaultEngine",
         "browser.newTabPage",
         "browser.showBookmarksBar",
@@ -152,7 +154,12 @@ extension SettingsSchema {
         "browser.remoteLocalhost": .network,
         // Whether attached photos and videos send their location.
         "home.attachments.keepLocation": .privacy,
+        // A reply's file link outside the project, and a reply's web image (D4, D5).
+        "agentPane.links.outsideRoots": .privacy,
+        "agentPane.images.remote": .network,
         "app.quitBehavior": .destructive,
+        // On, a key is taken from every other app system-wide.
+        "app.globalHotKey": .userOnly,
         // Off, a close ends running programs and agents without asking.
         "app.warnBeforeClosingTab": .destructive,
         "app.warnBeforeClosingAgentSession": .destructive,

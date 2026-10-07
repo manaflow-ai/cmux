@@ -244,6 +244,15 @@ impl InputApplier {
         self.gap_since_us = None;
     }
 
+    /// When a held event's gap times out (`tick` must run then); `None`
+    /// while no event waits behind a gap.
+    pub fn next_deadline_us(&self) -> Option<u64> {
+        if self.held.is_empty() {
+            return None;
+        }
+        self.gap_since_us.map(|since| since.saturating_add(self.gap_timeout_us))
+    }
+
     /// Advances time; after the gap timeout, skips a missing event.
     pub fn tick(&mut self, now_us: u64) -> Vec<InputEvent> {
         self.drain(now_us)
