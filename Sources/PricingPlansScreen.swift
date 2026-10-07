@@ -633,6 +633,10 @@ private struct NativePricingPlanCard: View {
                         .overlay(Rectangle().stroke(Color(nsColor: .separatorColor).opacity(0.7)))
                 }
             }
+            // One header height for every card, so a "Current plan" badge or
+            // the Pro period toggle never pushes a price or button lower than
+            // the neighboring cards'.
+            .frame(height: 24)
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text(price)
                     .font(.system(size: 34, weight: .semibold))
