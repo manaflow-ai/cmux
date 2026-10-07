@@ -14,9 +14,30 @@ run-name: >-
 #   gh workflow run ios-next-uitests.yml --repo manaflow-ai/cmux \
 #     -f ref=feat-cmux-next-ios -f test_filter=cmuxUITests/NextShellTabsUITests
 # An empty filter runs every Next*UITests class. A pull request runs the same
-# set while it carries the `ios-uitests` label.
+# set while it carries the `ios-uitests` label. Until this file is on main
+# (workflow_dispatch needs it there), dispatch it through test-ios.yml, which
+# calls it: gh workflow run test-ios.yml --ref <branch> -f ui_tests=true
+# [-f test_filter=...].
 
 on:
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        required: false
+        default: ""
+      test_filter:
+        type: string
+        required: false
+        default: ""
+      record_video:
+        type: boolean
+        required: false
+        default: true
+      device_family:
+        type: string
+        required: false
+        default: iphone
   workflow_dispatch:
     inputs:
       ref:
