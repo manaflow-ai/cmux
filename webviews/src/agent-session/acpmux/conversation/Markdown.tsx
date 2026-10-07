@@ -425,19 +425,28 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
   return out;
 }
 
-/// The data URL images `renderInline(source)` draws, in order: the same pattern and the same
-/// recursion into bold, italic, strikethrough and link text, so code never counts.
-export function inlineImages(source: string): { src: string; alt: string }[] {
-  const text = capDataUrls(source, []);
+/// The data URL images `renderInline(source)` draws, in order: the same pattern, the same
+/// recursion into bold, italic, strikethrough and link text (so code never counts), the same
+/// stand-ins for long data URLs, and none of the reply's images past its budget (`overBudget`).
+export function inlineImages(
+  source: string,
+  overBudget: ReadonlySet<string> = new Set(),
+  outerRefs: string[] = [],
+): { src: string; alt: string }[] {
+  const found: string[] = [];
+  const text = capDataUrls(source, found);
+  const refs = found.length ? found : outerRefs;
   const out: { src: string; alt: string }[] = [];
+  const inner = (part: string) => inlineImages(part, overBudget, refs);
   for (const m of text.matchAll(INLINE_RE)) {
     const t = m[0];
-    if (m[2] || m[3]) out.push(...inlineImages(t.slice(2, -2)));
-    else if (m[4]) out.push(...inlineImages(t.slice(1, -1)));
+    if (m[2] || m[3]) out.push(...inner(t.slice(2, -2)));
+    else if (m[4]) out.push(...inner(t.slice(1, -1)));
     else if (m[5]?.startsWith("!")) {
-      const [, alt = "", src = ""] = t.match(/^!\[([^\]]*)\]\((.+)\)$/) ?? [];
-      if (INLINE_IMAGE.test(src) && src.length <= MAX_DATA_URL_LENGTH) out.push({ src, alt });
-    } else if (m[5]) out.push(...inlineImages(t.match(/^\[([^\]]+)\]/)?.[1] ?? ""));
+      const [, alt = "", written = ""] = t.match(/^!\[([^\]]*)\]\((.+)\)$/) ?? [];
+      const src = written.startsWith(DATA_REF) ? (refs[Number(written.slice(DATA_REF.length))] ?? "") : written;
+      if (INLINE_IMAGE.test(src) && src.length <= MAX_DATA_URL_LENGTH && !overBudget.has(src)) out.push({ src, alt });
+    } else if (m[5]) out.push(...inner(t.match(/^\[([^\]]+)\]/)?.[1] ?? ""));
   }
   return out;
 }

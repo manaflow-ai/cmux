@@ -1,5 +1,5 @@
 import type { AcpmuxRow } from "../model";
-import { footnoteOrder, inlineImages, parseMarkdown, type MdBlock } from "./Markdown";
+import { dataUrlsOverBudget, footnoteOrder, inlineImages, parseMarkdown, type MdBlock } from "./Markdown";
 
 /// An image a reply drew inline (a data URL, as Markdown.tsx draws one), for the image viewer.
 export type ChatImage = { src: string; alt: string };
@@ -17,8 +17,10 @@ export function chatImages(rows: readonly AcpmuxRow[]): ChatImage[] {
     const rank = (block: MdBlock) =>
       block.type === "footnote" && order.includes(block.id) ? order.indexOf(block.id) : Number.MAX_SAFE_INTEGER;
     const notes = blocks.filter((block) => block.type === "footnote").sort((a, b) => rank(a) - rank(b));
+    // Images past the reply's data URL budget draw as their name (Markdown.tsx dataUrlsOverBudget).
+    const overBudget = dataUrlsOverBudget(row.text);
     for (const text of blockTexts([...blocks.filter((block) => block.type !== "footnote"), ...notes]))
-      for (const image of inlineImages(text)) {
+      for (const image of inlineImages(text, overBudget)) {
         if (seen.has(image.src)) continue;
         seen.add(image.src);
         images.push(image);
