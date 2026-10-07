@@ -216,15 +216,18 @@ import Testing
         #expect(actions == ["palette.welcomeChecklist"])
     }
 
-    /// A blank chat's generic New opens the New Tab page; a chat runs no other app action.
-    @Test func aChatCanOpenTheNewTabPageAndNothingElse() async {
+    /// A chat's location row opens the connect flows (SSH…, cmux Cloud…; Lawrence 2026-10-06).
+    /// A chat runs no other app action, and the hero's old New (`newTab.page`) is gone.
+    @Test func aChatRunsOnlyTheConnectFlows() async {
         let model = AgentPaneModel(host: MockAgentPaneHost())
         var actions: [String] = []
         model.onRunAction = { actions.append($0) }
-        #expect(await model.respond(to: .runAction("newTab.page"))["ok"] as? Bool == true)
+        #expect(await model.respond(to: .runAction("remote.connect"))["ok"] as? Bool == true)
+        #expect(await model.respond(to: .runAction("newCloudMachine"))["ok"] as? Bool == true)
+        #expect(await model.respond(to: .runAction("newTab.page"))["ok"] as? Bool == false)
         #expect(await model.respond(to: .runAction("palette.welcomeChecklist"))["ok"] as? Bool == false)
         #expect(await model.respond(to: .runAction("closeWindow"))["ok"] as? Bool == false)
-        #expect(actions == ["newTab.page"])
+        #expect(actions == ["remote.connect", "newCloudMachine"])
     }
 
     /// The "default: X" toggle: the handshake says what Cmd-T opens, and a
