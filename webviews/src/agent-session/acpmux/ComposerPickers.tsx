@@ -346,11 +346,7 @@ function AccessMenu({
   return (
     <span className={`acpmux-mode acpmux-access${current && unrestricted(current) ? " acpmux-unrestricted" : ""}`}>
       <Menu open={open} onOpenChange={setOpen}>
-        <MenuButton
-          className="acpmux-picker-button acpmux-access-trigger"
-          label={label}
-          aria-haspopup="menu"
-        >
+        <MenuButton className="acpmux-picker-button acpmux-access-trigger" label={label} aria-haspopup="menu">
           <LockIcon />
           <ChevronIcon />
         </MenuButton>
