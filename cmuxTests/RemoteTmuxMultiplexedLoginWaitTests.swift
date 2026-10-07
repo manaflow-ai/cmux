@@ -58,4 +58,81 @@ import Testing
             #expect(view?.connection != nil, "the kept view has no stream left to resume after the login")
         }
     }
+
+    @Test(.timeLimit(.minutes(2)), arguments: [true, false])
+    func callerOwnedLoginResumesOrDetachesWithoutALoginWorkspace(finishLogin: Bool) async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let root = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+                .appendingPathComponent("remote-tmux-cli-login-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+            let checked = root.appendingPathComponent("checked")
+            let authenticated = root.appendingPathComponent("authenticated")
+            let resumed = root.appendingPathComponent("resumed")
+            let ssh = root.appendingPathComponent("ssh")
+            try """
+            #!/bin/sh
+            case "$*" in
+              *'-O check'*)
+                if [ -f '\(authenticated.path)' ]; then exit 0; fi
+                touch '\(checked.path)'
+                exit 1 ;;
+              *-CC*)
+                if [ -f '\(authenticated.path)' ]; then
+                  touch '\(resumed.path)'
+                  printf '\\033P1000p%%begin 1 1 0\\n%%end 1 1 0\\n'
+                  exec cat > /dev/null
+                fi
+                echo 'Permission denied (publickey,keyboard-interactive).' >&2
+                exit 255 ;;
+              *) exit 0 ;;
+            esac
+            """.write(to: ssh, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: ssh.path)
+            let previousSSH = getenv(sshOverrideKey).map { String(cString: $0) }
+            setenv(sshOverrideKey, ssh.path, 1)
+            defer {
+                if let previousSSH { setenv(sshOverrideKey, previousSSH, 1) } else { unsetenv(sshOverrideKey) }
+            }
+
+            let controller = try #require(AppDelegate.shared).remoteTmuxController
+            let host = RemoteTmuxHost(destination: "cli-login-\(UUID().uuidString)@example.test")
+            let socket = URL(fileURLWithPath: host.controlSocketPath)
+            try FileManager.default.createDirectory(at: socket.deletingLastPathComponent(), withIntermediateDirectories: true)
+            defer {
+                controller.stopMultiplexedHost(host: host)
+                controller.cancelAuthWait(host: host.connectionHash)
+                try? FileManager.default.removeItem(at: socket)
+            }
+            let outcome = try await controller.attachHostMultiplexed(
+                host: host, windowTarget: .contextualWindow(nil), activate: false)
+            guard case .authRequired = outcome else {
+                Issue.record("expected an interactive login, got \(outcome)")
+                return
+            }
+            #expect(controller.loginOffers.openedWorkspace(host: host.connectionHash) == nil)
+            #expect(controller.sessionMirrors.values.allSatisfy { $0.host.connectionHash != host.connectionHash })
+            try await waitUntil { FileManager.default.fileExists(atPath: checked.path) }
+
+            if finishLogin {
+                // A CLI login opens the master after the waiter's first negative probe.
+                // The socket creation is the same filesystem edge produced by real ssh.
+                try Data().write(to: authenticated)
+                try Data().write(to: socket)
+                try await waitUntil { FileManager.default.fileExists(atPath: resumed.path) }
+            } else {
+                controller.stopMultiplexedHost(host: host)
+            }
+            try await waitUntil { !controller.hostsWaitingForAuth.contains(host.connectionHash) }
+            #expect(controller.authWaitTasks[host.connectionHash] == nil)
+            #expect(controller.loginOffers.openedWorkspace(host: host.connectionHash) == nil)
+        }
+    }
+
+    private func waitUntil(_ condition: () -> Bool) async throws {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while !condition(), ContinuousClock.now < deadline { await Task.yield() }
+        try #require(condition(), "the authentication lifecycle did not reach its expected state")
+    }
+
 }
