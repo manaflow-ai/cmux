@@ -8,7 +8,7 @@ export type PlanPrice = {
   lookupKey: string;
 };
 
-/** A plan sold on one billing interval only; `year` is deliberately absent. */
+type PlanPricing = Record<BillingInterval, PlanPrice>;
 type MonthlyOnlyPlanPricing = Record<"month", PlanPrice>;
 
 // Stripe Price amounts are immutable, so every price change mints a new
@@ -22,7 +22,13 @@ export const PRO_PRICING_USD = {
     discountPercent: 0,
     lookupKey: "cmux-pro-monthly-50",
   },
-} as const satisfies MonthlyOnlyPlanPricing;
+  year: {
+    billedAmount: 540,
+    monthlyEquivalent: 45,
+    discountPercent: 10,
+    lookupKey: "cmux-pro-yearly-540",
+  },
+} as const satisfies PlanPricing;
 
 /** Entry Cloud plan, billed monthly with a small capped VM allowance. */
 export const GO_PRICING_USD = {
@@ -41,12 +47,18 @@ export const TEAM_PRICING_USD = {
     discountPercent: 0,
     lookupKey: "cmux-team-monthly-60",
   },
-} as const satisfies MonthlyOnlyPlanPricing;
+  year: {
+    billedAmount: 648,
+    monthlyEquivalent: 54,
+    discountPercent: 10,
+    lookupKey: "cmux-team-yearly-648",
+  },
+} as const satisfies PlanPricing;
 
 /**
  * Max is a personal plan above Pro: the same machine count, plus the 16, 24,
- * and 32 GB machine sizes (up to 16 vCPU) Pro cannot start. It is monthly only, so there is no
- * annual price and no interval selector on its card.
+ * and 32 GB machine sizes (up to 16 vCPU) Pro cannot start. Annual billing is
+ * advertised at the rounded $180/month equivalent ($2,160 billed yearly).
  */
 export const MAX_PRICING_USD = {
   month: {
@@ -55,11 +67,17 @@ export const MAX_PRICING_USD = {
     discountPercent: 0,
     lookupKey: "cmux-max-monthly-200",
   },
-} as const satisfies MonthlyOnlyPlanPricing;
+  year: {
+    billedAmount: 2160,
+    monthlyEquivalent: 180,
+    discountPercent: 10,
+    lookupKey: "cmux-max-yearly-2160",
+  },
+} as const satisfies PlanPricing;
 
-/** Every new subscription is monthly. Historical annual subscriptions remain valid. */
+/** New subscriptions default to monthly when no interval is selected. */
 export const CHECKOUT_BILLING_INTERVAL = "month" as const;
-export const MAX_BILLING_INTERVALS: readonly BillingInterval[] = ["month"];
+export const MAX_BILLING_INTERVALS: readonly BillingInterval[] = ["month", "year"];
 export const GO_BILLING_INTERVALS: readonly BillingInterval[] = ["month"];
 
 /**

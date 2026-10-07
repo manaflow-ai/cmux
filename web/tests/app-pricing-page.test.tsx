@@ -219,7 +219,7 @@ describe("app pricing page", () => {
     );
   });
 
-  test("renders monthly pricing and preserves native checkout context", async () => {
+  test("renders annual pricing and preserves native checkout context", async () => {
     const element = await AppPricingPage({
       searchParams: Promise.resolve({
         cmux_app: "1",
@@ -233,26 +233,25 @@ describe("app pricing page", () => {
     });
     const html = (await renderSettled(element));
 
-    expect(html).toContain("$50");
-    expect(html).toContain("$60");
-    expect(html).toContain("/mo");
-    expect(html).toContain("/user/mo");
-    expect(html).not.toContain("/mo, billed yearly");
-    expect(html).not.toContain("/user/mo, billed yearly");
+    expect(html).toContain("$45");
+    expect(html).toContain("$54");
+    expect(html).toContain("/mo, billed annually");
+    expect(html).toContain("/user/mo, billed annually");
     expect(html).not.toContain("$24");
     expect(html).not.toContain("$28");
-    expect(html).toContain("$60/user/mo");
+    expect(html).toContain("$54/user/mo");
     expect(html).not.toContain("$480/year");
     expect(html).not.toContain("$576/user/year");
-    // Max ignores the annual selector: still $200 /mo, never billed yearly.
-    expect(html).toContain("$200");
-    expect(html).toContain("$200 /mo");
-    expect(html).not.toContain("$200/mo, billed yearly");
-    expect(html).not.toMatch(/plan=max[^"]*interval=/);
-    expect(html).toContain("plan%253Dpro");
-    expect(html).toContain("plan%253Dteam");
-    expect(html).not.toContain('role="radiogroup"');
-    expect(html).not.toContain('<button type="button" role="radio" aria-checked="true"');
+    expect(html).toContain("$180");
+    expect(html).toContain("/mo, billed annually");
+    // The streamed signed-out fallback links directly to checkout; a
+    // personalized signed-out render wraps the same destination in sign-in.
+    expect(html).toMatch(/plan(?:%253D|=)max/);
+    expect(html).toMatch(/interval(?:%253D|=)year/);
+    expect(html).toMatch(/plan(?:%253D|=)pro/);
+    expect(html).toMatch(/plan(?:%253D|=)team/);
+    expect(html).toContain('role="radiogroup"');
+    expect(html).toMatch(/<button[^>]*role="radio"[^>]*aria-checked="true"/);
     expect(html).not.toContain("appearance=dark&amp;interval=month");
     expect(html).toContain('data-cmux-app-theme="true"');
     expect(html).toContain("--ghostty-background:#112233");
@@ -265,7 +264,7 @@ describe("app pricing page", () => {
     expect(html).toContain('href="/enterprise?cmux_external_browser=1"');
   });
 
-  test("does not advertise annual savings", async () => {
+  test("advertises the annual savings on the billing selector", async () => {
     const element = await AppPricingPage({
       searchParams: Promise.resolve({
         cmux_app: "1",
@@ -275,7 +274,7 @@ describe("app pricing page", () => {
     });
     const html = (await renderSettled(element));
 
-    expect(html).not.toContain("Save 20%");
+    expect(html).toContain("Save 10%");
   });
 
   test("removes external purchase links in App Store distribution mode", async () => {

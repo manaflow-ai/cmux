@@ -5202,7 +5202,16 @@
     "billingUnavailable": "Оплата сейчас недоступна. Повторите попытку позже.",
     "signedOutNotice": "Вы не вошли в систему. Войдите, чтобы увидеть текущий план или восстановить существующую покупку.",
     "signedOutSignIn": "Войти",
-    "manageInAppStore": "Управлять в App Store"
+    "manageInAppStore": "Управлять в App Store",
+    "perMonthBilledYearly": "/мес., оплачивается ежегодно",
+    "perUserMonthBilledYearly": "/пользователь/мес., оплачивается ежегодно",
+    "billingPeriod": "Период оплаты",
+    "monthly": "Ежемесячно",
+    "annual": "Ежегодно",
+    "saveAnnual": "Сэкономьте {discount}%",
+    "annualComparePrice": "${monthly}/мес.",
+    "teamAnnualComparePrice": "${monthly}/пользователь/мес.",
+    "billingAnnualUnavailable": "Годовая оплата недоступна для этого тарифа. Выберите месячный тариф ниже."
   },
   "platforms": {
     "macos": "macOS",

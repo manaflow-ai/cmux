@@ -27,6 +27,8 @@ const directDevBackendAllowedHost = directDevBackendHost();
 const developmentPublicationOrigins = [
   ...(directDevBackendAllowedHost ? [directDevBackendAllowedHost] : []),
   "*.cmux.sh",
+  "127.0.0.1",
+  "localhost",
 ];
 
 // Agent landing pages moved under /agents/<agent>. Keep the old top-level

@@ -21,27 +21,41 @@ import {
 } from "../services/vms/entitlements";
 
 describe("pricing plans", () => {
-  test("prices Pro at $50/mo without a new annual offer", () => {
-    expect(PRO_PRICING_USD.month).toEqual({
-      billedAmount: 50,
-      monthlyEquivalent: 50,
-      discountPercent: 0,
-      lookupKey: "cmux-pro-monthly-50",
+  test("prices Pro at $50/mo and $45/mo billed annually", () => {
+    expect(PRO_PRICING_USD).toEqual({
+      month: {
+        billedAmount: 50,
+        monthlyEquivalent: 50,
+        discountPercent: 0,
+        lookupKey: "cmux-pro-monthly-50",
+      },
+      year: {
+        billedAmount: 540,
+        monthlyEquivalent: 45,
+        discountPercent: 10,
+        lookupKey: "cmux-pro-yearly-540",
+      },
     });
-    expect("year" in PRO_PRICING_USD).toBe(false);
   });
 
-  test("prices Team at $60/user/mo without a new annual offer", () => {
-    expect(TEAM_PRICING_USD.month).toEqual({
-      billedAmount: 60,
-      monthlyEquivalent: 60,
-      discountPercent: 0,
-      lookupKey: "cmux-team-monthly-60",
+  test("prices Team at $60/user/mo and $54/user/mo billed annually", () => {
+    expect(TEAM_PRICING_USD).toEqual({
+      month: {
+        billedAmount: 60,
+        monthlyEquivalent: 60,
+        discountPercent: 0,
+        lookupKey: "cmux-team-monthly-60",
+      },
+      year: {
+        billedAmount: 648,
+        monthlyEquivalent: 54,
+        discountPercent: 10,
+        lookupKey: "cmux-team-yearly-648",
+      },
     });
-    expect("year" in TEAM_PRICING_USD).toBe(false);
   });
 
-  test("prices Max at $200/mo, monthly only", () => {
+  test("prices Max at $200/mo or $180/mo billed annually", () => {
     expect(MAX_PRICING_USD).toEqual({
       month: {
         billedAmount: 200,
@@ -49,16 +63,23 @@ describe("pricing plans", () => {
         discountPercent: 0,
         lookupKey: "cmux-max-monthly-200",
       },
+      year: {
+        billedAmount: 2160,
+        monthlyEquivalent: 180,
+        discountPercent: 10,
+        lookupKey: "cmux-max-yearly-2160",
+      },
     });
-    expect("year" in MAX_PRICING_USD).toBe(false);
-    expect(MAX_BILLING_INTERVALS).toEqual(["month"]);
+    expect(MAX_BILLING_INTERVALS).toEqual(["month", "year"]);
   });
 
   test("lookup keys carry their amount and never reuse a grandfathered key", () => {
     const current = [
       PRO_PRICING_USD.month,
+      PRO_PRICING_USD.year,
       MAX_PRICING_USD.month,
       TEAM_PRICING_USD.month,
+      TEAM_PRICING_USD.year,
     ];
     for (const price of current) {
       expect(price.lookupKey.endsWith(`-${price.billedAmount}`)).toBe(true);

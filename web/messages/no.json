@@ -5199,7 +5199,16 @@
     "billingUnavailable": "Betaling er ikke tilgjengelig akkurat nå. Prøv igjen senere.",
     "signedOutNotice": "Du er ikke logget inn. Logg inn for å se gjeldende abonnement eller gjenopprette et eksisterende kjøp.",
     "signedOutSignIn": "Logg inn",
-    "manageInAppStore": "Administrer i App Store"
+    "manageInAppStore": "Administrer i App Store",
+    "perMonthBilledYearly": "/mnd., faktureres årlig",
+    "perUserMonthBilledYearly": "/bruker/mnd., faktureres årlig",
+    "billingPeriod": "Faktureringsperiode",
+    "monthly": "Månedlig",
+    "annual": "Årlig",
+    "saveAnnual": "Spar {discount}%",
+    "annualComparePrice": "${monthly}/mnd.",
+    "teamAnnualComparePrice": "${monthly}/bruker/mnd.",
+    "billingAnnualUnavailable": "Årlig fakturering er ikke tilgjengelig for denne planen. Velg en månedsplan nedenfor."
   },
   "platforms": {
     "macos": "macOS",

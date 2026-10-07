@@ -5272,7 +5272,16 @@
     "billingUnavailable": "Оплата зараз недоступна. Спробуйте ще раз пізніше.",
     "signedOutNotice": "Ви не ввійшли в систему. Увійдіть, щоб переглянути поточний план або відновити наявну покупку.",
     "signedOutSignIn": "Увійти",
-    "manageInAppStore": "Керувати в App Store"
+    "manageInAppStore": "Керувати в App Store",
+    "perMonthBilledYearly": "/міс., оплата щороку",
+    "perUserMonthBilledYearly": "/користувача/міс., оплата щороку",
+    "billingPeriod": "Період оплати",
+    "monthly": "Щомісяця",
+    "annual": "Щороку",
+    "saveAnnual": "Заощадьте {discount}%",
+    "annualComparePrice": "${monthly}/міс.",
+    "teamAnnualComparePrice": "${monthly}/користувача/міс.",
+    "billingAnnualUnavailable": "Щорічна оплата недоступна для цього тарифу. Виберіть місячний тариф нижче."
   },
   "platforms": {
     "macos": "macOS",

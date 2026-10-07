@@ -5200,7 +5200,16 @@
     "billingUnavailable": "ការទូទាត់មិនអាចប្រើបាននៅពេលនេះទេ។ សូមព្យាយាមម្តងទៀតនៅពេលក្រោយ។",
     "signedOutNotice": "អ្នកមិនទាន់បានចូលទេ។ ចូលដើម្បីមើលគម្រោងបច្ចុប្បន្នរបស់អ្នក ឬស្ដារការទិញដែលមានស្រាប់។",
     "signedOutSignIn": "ចូល",
-    "manageInAppStore": "គ្រប់គ្រងនៅក្នុង App Store"
+    "manageInAppStore": "គ្រប់គ្រងនៅក្នុង App Store",
+    "perMonthBilledYearly": "/ខែ ចេញវិក្កយបត្រប្រចាំឆ្នាំ",
+    "perUserMonthBilledYearly": "/អ្នកប្រើ/ខែ ចេញវិក្កយបត្រប្រចាំឆ្នាំ",
+    "billingPeriod": "រយៈពេលវិក្កយបត្រ",
+    "monthly": "ប្រចាំខែ",
+    "annual": "ប្រចាំឆ្នាំ",
+    "saveAnnual": "សន្សំ {discount}%",
+    "annualComparePrice": "${monthly}/ខែ",
+    "teamAnnualComparePrice": "${monthly}/អ្នកប្រើ/ខែ",
+    "billingAnnualUnavailable": "ការគិតថ្លៃប្រចាំឆ្នាំមិនមានសម្រាប់គម្រោងនេះទេ។ សូមជ្រើសរើសគម្រោងប្រចាំខែខាងក្រោម។"
   },
   "platforms": {
     "macos": "macOS",

@@ -1,4 +1,4 @@
-import { AppPricingContent, type AppPlanSnapshot } from "./pricing-content";
+import type { AppPlanSnapshot } from "./pricing-content";
 
 export const unknownPlan: AppPlanSnapshot = {
   authenticated: false,
@@ -9,15 +9,7 @@ export const unknownPlan: AppPlanSnapshot = {
   email: null,
 };
 
-/** Prices are immediately available. External purchase actions wait for request context. */
+/** The page-level fallback avoids rendering English copy before locale loading. */
 export function AppPricingFallback() {
-  return (
-    <AppPricingContent
-      params={{ cmux_app: "1", cmux_distribution: "appstore" }}
-      headersList={new Headers()}
-      snapshot={unknownPlan}
-      goPlanEnabled={false}
-      pending
-    />
-  );
+  return <div className="min-h-screen" aria-busy="true" />;
 }

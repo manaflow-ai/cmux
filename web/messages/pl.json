@@ -5202,7 +5202,16 @@
     "billingUnavailable": "Płatności są teraz niedostępne. Spróbuj ponownie później.",
     "signedOutNotice": "Nie jesteś zalogowany. Zaloguj się, aby zobaczyć bieżący plan lub przywrócić istniejący zakup.",
     "signedOutSignIn": "Zaloguj się",
-    "manageInAppStore": "Zarządzaj w App Store"
+    "manageInAppStore": "Zarządzaj w App Store",
+    "perMonthBilledYearly": "/mies., płatność roczna",
+    "perUserMonthBilledYearly": "/użytkownika/mies., płatność roczna",
+    "billingPeriod": "Okres rozliczeniowy",
+    "monthly": "Miesięcznie",
+    "annual": "Rocznie",
+    "saveAnnual": "Oszczędź {discount}%",
+    "annualComparePrice": "${monthly}/mies.",
+    "teamAnnualComparePrice": "${monthly}/użytkownika/mies.",
+    "billingAnnualUnavailable": "Płatność roczna nie jest dostępna dla tego planu. Wybierz poniżej plan miesięczny."
   },
   "platforms": {
     "macos": "macOS",

@@ -388,11 +388,15 @@ ensure_product_description "$team_product_id" "Up to 5 Cloud VMs per paid seat, 
 # Current catalog (web/services/billing/plans.ts). Stripe Price amounts are
 # immutable, so each price change mints a new lookup key carrying the amount.
 ensure_price "$pro_product_id" "cmux-pro-monthly-50" "5000" "month" "cmux Pro Monthly"
+ensure_price "$pro_product_id" "cmux-pro-yearly-540" "54000" "year" "cmux Pro Annual (10% off)"
 # Go is monthly only. Its included VM-hours are enforced by cmux, not Stripe.
 ensure_price "$go_product_id" "cmux-go-monthly-10" "1000" "month" "cmux Go Monthly"
-# Max is monthly only (no yearly Price on purpose).
+# Max has monthly and annual Prices; the annual offer displays a rounded
+# $180/month equivalent.
 ensure_price "$max_product_id" "cmux-max-monthly-200" "20000" "month" "cmux Max Monthly"
+ensure_price "$max_product_id" "cmux-max-yearly-2160" "216000" "year" "cmux Max Annual (\$180/mo equivalent)"
 ensure_price "$team_product_id" "cmux-team-monthly-60" "6000" "month" "cmux Team Monthly"
+ensure_price "$team_product_id" "cmux-team-yearly-648" "64800" "year" "cmux Team Annual (10% off)"
 # Grandfathered Prices stay active for the subscriptions already on them
 # (LEGACY_PRICE_LOOKUP_KEYS); no new checkout may use these keys.
 ensure_price "$pro_product_id" "cmux-pro-monthly" "3000" "month" "cmux Pro Monthly (Legacy \$30)"

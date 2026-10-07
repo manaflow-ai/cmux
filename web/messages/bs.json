@@ -5202,7 +5202,16 @@
     "billingUnavailable": "Naplata trenutno nije dostupna. Pokušajte ponovo kasnije.",
     "signedOutNotice": "Niste prijavljeni. Prijavite se da vidite trenutni plan ili vratite postojeću kupovinu.",
     "signedOutSignIn": "Prijavite se",
-    "manageInAppStore": "Upravljajte u App Storeu"
+    "manageInAppStore": "Upravljajte u App Storeu",
+    "perMonthBilledYearly": "/mj., naplaćuje se godišnje",
+    "perUserMonthBilledYearly": "/korisniku/mj., naplaćuje se godišnje",
+    "billingPeriod": "Period naplate",
+    "monthly": "Mjesečno",
+    "annual": "Godišnje",
+    "saveAnnual": "Uštedite {discount}%",
+    "annualComparePrice": "${monthly}/mj.",
+    "teamAnnualComparePrice": "${monthly}/korisniku/mj.",
+    "billingAnnualUnavailable": "Godišnja naplata nije dostupna za ovaj plan. Odaberite mjesečni plan u nastavku."
   },
   "platforms": {
     "macos": "macOS",
