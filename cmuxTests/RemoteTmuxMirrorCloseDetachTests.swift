@@ -26,7 +26,7 @@ import Testing
 /// The marker is set-then-consumed synchronously inside the real close gesture, so
 /// this test exercises the marking decision directly to observe it deterministically.
 @MainActor
-@Suite(.serialized) struct RemoteTmuxMirrorCloseDetachTests {
+@Suite(.serialized, .exclusiveAppContext) struct RemoteTmuxMirrorCloseDetachTests {
     fileprivate let sshOverrideKey = "CMUX_REMOTE_TMUX_SSH_FOR_TESTING"
     private let sshLogKey = "CMUX_PR7264_SSH_LOG"
 
@@ -353,37 +353,35 @@ import Testing
             restoreEnvironment(sshLogKey, previousValue: previousLog)
         }
 
-        try await AppContextSerialGate.withExclusiveAppContext {
-            // This route is model-only: mounting the workspaces in a real window
-            // realizes Ghostty renderers that are unrelated to the close contract
-            // and can still be drawing while the fixture frees their surfaces.
-            let previousAppDelegate = AppDelegate.shared
-            let appDelegate = AppDelegate()
-            AppDelegate.shared = appDelegate
-            defer { AppDelegate.shared = previousAppDelegate }
-            let manager = TabManager()
-            let localWorkspace = try #require(manager.selectedWorkspace)
-            let host = RemoteTmuxHost(destination: "tab-close-\(UUID().uuidString)@example.test")
-            let connection = RemoteTmuxControlConnection(host: host, sessionName: "dev")
-            let controller = appDelegate.remoteTmuxController
-            defer {
-                // Always remove the cached connection, including when setup fails
-                // before the mirror workspace is registered.
-                controller.detach(host: host, sessionName: "dev")
-            }
-            controller.cacheConnection(connection)
-            #expect(try controller.mirrorSession(host: host, sessionName: "dev", into: manager))
-            let mirrorWorkspace = try #require(manager.tabs.first(where: { $0.isRemoteTmuxMirror }))
-            #expect(manager.tabs.count == 2)
-
-            manager.closeWorkspace(mirrorWorkspace, recordHistory: false)
-
-            let log = try await waitForSSHArgument("exit", at: logURL)
-            #expect(!log.contains("kill-session"), Comment(rawValue: log))
-            #expect(manager.tabs.map(\.id) == [localWorkspace.id])
-            #expect(controller.sessionMirror(host: host, sessionName: "dev") == nil)
-            #expect(connection.exited)
+        // This route is model-only: mounting the workspaces in a real window
+        // realizes Ghostty renderers that are unrelated to the close contract
+        // and can still be drawing while the fixture frees their surfaces.
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        defer { AppDelegate.shared = previousAppDelegate }
+        let manager = TabManager()
+        let localWorkspace = try #require(manager.selectedWorkspace)
+        let host = RemoteTmuxHost(destination: "tab-close-\(UUID().uuidString)@example.test")
+        let connection = RemoteTmuxControlConnection(host: host, sessionName: "dev")
+        let controller = appDelegate.remoteTmuxController
+        defer {
+            // Always remove the cached connection, including when setup fails
+            // before the mirror workspace is registered.
+            controller.detach(host: host, sessionName: "dev")
         }
+        controller.cacheConnection(connection)
+        #expect(try controller.mirrorSession(host: host, sessionName: "dev", into: manager))
+        let mirrorWorkspace = try #require(manager.tabs.first(where: { $0.isRemoteTmuxMirror }))
+        #expect(manager.tabs.count == 2)
+
+        manager.closeWorkspace(mirrorWorkspace, recordHistory: false)
+
+        let log = try await waitForSSHArgument("exit", at: logURL)
+        #expect(!log.contains("kill-session"), Comment(rawValue: log))
+        #expect(manager.tabs.map(\.id) == [localWorkspace.id])
+        #expect(controller.sessionMirror(host: host, sessionName: "dev") == nil)
+        #expect(connection.exited)
     }
 
     @Test func windowCreationFailureUsesLocalErrorMessage() {
@@ -472,7 +470,7 @@ import Testing
 /// before this test reaches its routing assertions. CI invokes this suite
 /// separately and still requires successful execution of the original test.
 @MainActor
-@Suite(.serialized) struct RemoteTmuxMirrorFocusPolicyTests {
+@Suite(.serialized, .exclusiveAppContext) struct RemoteTmuxMirrorFocusPolicyTests {
     /// A direct socket caller must opt into focus. The CLI supplies an explicit
     /// `activate` value, but a raw `remote.tmux.window` request with no such field
     /// must leave the caller's current cmux window active.
@@ -564,7 +562,7 @@ import Testing
 /// after the close-path cases can retain renderer teardown work on headless CI
 /// runners and crash before the topology assertions execute.
 @MainActor
-@Suite(.serialized) struct RemoteTmuxMirrorDedicatedPlacementTests {
+@Suite(.serialized, .exclusiveAppContext) struct RemoteTmuxMirrorDedicatedPlacementTests {
     /// `--new-window` must consolidate every mirror for the host even when the
     /// Move Workspace action previously distributed those mirrors across several
     /// Cached control connections keep this test network-free. Source managers
