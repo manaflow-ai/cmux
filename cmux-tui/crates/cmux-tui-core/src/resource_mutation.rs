@@ -140,7 +140,9 @@ impl ResourceMutationPlan {
                 return Ok(None);
             }
             let before = self.stage(state);
-            if let Err(error) = crate::mux::ensure_permanent_columns_kept(operation, &permanent, state) {
+            if let Err(error) =
+                crate::mux::ensure_permanent_columns_kept(operation, &permanent, state)
+            {
                 *state = before;
                 return Err(error);
             }
@@ -155,7 +157,9 @@ impl ResourceMutationPlan {
         let before = self.stage(state);
         let result =
             layout::validate_layout_transition(operation, &before_model, model.as_ref(), state)
-                .and_then(|()| crate::mux::ensure_permanent_columns_kept(operation, &permanent, state));
+                .and_then(|()| {
+                    crate::mux::ensure_permanent_columns_kept(operation, &permanent, state)
+                });
         if let Err(error) = result {
             *state = before;
             return Err(error);

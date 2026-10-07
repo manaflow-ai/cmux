@@ -56,7 +56,9 @@ use agent_hook_errors::{
     agent_hook_retry_class, agent_hook_terminal_gone,
 };
 
-pub use dock_columns::{ColumnDockError, ColumnDockOutcome, PERMANENT_COLUMN_CODE, parse_column_dock};
+pub use dock_columns::{
+    ColumnDockError, ColumnDockOutcome, PERMANENT_COLUMN_CODE, parse_column_dock,
+};
 pub(crate) use dock_columns::{ensure_permanent_columns_kept, permanent_columns};
 pub use idle_close::{IDLE_CLOSE_REAP_INTERVAL, IdleTerminalReaper, start_idle_terminal_reaper};
 pub use layout_ratio_error::LayoutRatioError;

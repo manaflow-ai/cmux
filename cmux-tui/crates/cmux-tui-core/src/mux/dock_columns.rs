@@ -78,8 +78,9 @@ impl fmt::Display for ColumnDockError {
                 write!(formatter, "bad {field} {value:?} (want \"docked\" or \"overlay\")")
             }
             Self::NoSuchColumn { index } => write!(formatter, "no viewport column {index}"),
-            Self::PermanentColumn => formatter
-                .write_str("the column is permanent: it stays docked on its edge and cannot be replaced or removed"),
+            Self::PermanentColumn => formatter.write_str(
+                "the column is permanent: it stays docked on its edge and cannot be replaced or removed",
+            ),
             Self::CommitFailed => formatter.write_str("could not persist the dock column"),
         }
     }
@@ -366,6 +367,20 @@ pub(crate) fn ensure_permanent_columns_kept(
         serde_json::json!({"reason_code": PERMANENT_COLUMN_CODE}),
     )
     .into())
+}
+
+/// The close planner's guard: the projected state of a close, or the
+/// refusal when the close would remove a permanent column. A terminal that
+/// exited still closes, and closing the whole workspace is no removal.
+pub(crate) fn close_keeping_permanent(
+    operation: ResourceOperation,
+    before: &State,
+    after: State,
+) -> anyhow::Result<State> {
+    if !matches!(operation, ResourceOperation::TerminalClose | ResourceOperation::WorkspaceClose) {
+        ensure_permanent_columns_kept(operation.wire_name(), &permanent_columns(before), &after)?;
+    }
+    Ok(after)
 }
 
 #[cfg(test)]
