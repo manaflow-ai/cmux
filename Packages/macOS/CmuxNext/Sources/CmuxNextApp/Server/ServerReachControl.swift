@@ -42,9 +42,15 @@ enum ServerReachControl {
                 guard let host = call.params["host"]?.stringValue else { throw ControlError.invalidParams("needs host") }
                 var out: [String: JSONValue] = [:]
                 if let chief = call.params["chief"]?.stringValue {
-                    let archived = try await owner(services, "v1/ops", ["op": "chief.archive", "origin": "user", "idempotency_key": "test-chief-archive-\(chief)",
-                                                                        "params": ["chief": chief]])
-                    out["chief"] = archived
+                    // chief.archive needs the chief's current revision.
+                    let rev = try await chiefRevision(services, chief)
+                    if let rev {
+                        out["chief"] = try await owner(services, "v1/ops", ["op": "chief.archive", "origin": "user",
+                                                                            "idempotency_key": "test-chief-archive-\(chief)-\(rev)",
+                                                                            "params": ["chief": chief, "expected_rev": rev]])
+                    } else {
+                        out["chief"] = .string("not listed (already archived or unknown)")
+                    }
                 }
                 out["revoke"] = try await owner(services, "v1/ops", ["op": "server.revoke", "origin": "user", "idempotency_key": "test-server-revoke-\(host)",
                                                                      "params": ["host": host]])
@@ -54,6 +60,13 @@ enum ServerReachControl {
             }.withDeadline(.fixed(.seconds(60))),
         ]
         return methods
+    }
+
+    /// The chief's current revision, or nil when `chief.list` does not list it.
+    @MainActor
+    private static func chiefRevision(_ services: AppServices, _ chief: String) async throws -> Int? {
+        guard let feed = services.feed else { throw FeedServiceError.signedOut }
+        return try await CloudChiefs.list { path, body in try await feed.call(path, body) }.first { $0.id == chief }?.rev
     }
 
     @MainActor
@@ -78,11 +91,13 @@ enum ServerReachControl {
             let route: String = switch server.reach.route {
             case .ssh(let host): "ssh \(host.destination.description)"
             case .unix(let path): "unix \(path)"
+            case .overlay(let socket): "overlay \(socket)"
             }
             return .object([
                 "machine": .string(server.machineID), "host": .string(server.reach.hostID), "name": .string(server.name),
                 "route": .string(route), "status": .string(String(describing: header.status)),
                 "session": server.daemon.identity?.sessionID.map(JSONValue.string) ?? .null,
+                "reason": server.notConnectedReason.map(JSONValue.string) ?? .null,
                 "workspaces": .array(server.daemon.store.workspaces.map { .string($0.title ?? $0.name) }),
             ])
         }

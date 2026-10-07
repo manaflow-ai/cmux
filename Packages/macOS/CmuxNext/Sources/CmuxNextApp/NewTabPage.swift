@@ -334,15 +334,17 @@ extension NewTabPage {
         case .browser:
             services.newTabKinds.record(.browser(engine: nil), folder: cwd)
             let resolver = services.cache.suggestionEngine.resolver
+            let text = request.text.trimmingCharacters(in: .whitespacesAndNewlines)
             let url = request.search
-                ? resolver.searchEngine.searchURL(for: request.text.trimmingCharacters(in: .whitespacesAndNewlines))
-                : resolver.destination(for: request.text)?.url
+                ? resolver.searchEngine.searchURL(for: text)
+                : ChromiumInternalURL(typed: text)?.url ?? resolver.destination(for: request.text)?.url
+            let engine = BrowserEngineTag.engine(for: url)
             // A session-local browser tab is made and selected right away.
             if services.cache.browserTabs?.isAvailable() == true {
-                pane.newBrowserTab(url: url, then: closePage)
+                pane.newBrowserTab(url: url, engine: engine, then: closePage)
             } else {
-                pane.newBrowserTab(url: url)
-                pane.close([StripTabID(key)])
+                // A refused tab (a Chromium page without Chromium) keeps the page.
+                if pane.newBrowserTab(url: url, engine: engine) { pane.close([StripTabID(key)]) }
             }
         case .agent:
             return

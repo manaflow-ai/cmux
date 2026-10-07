@@ -9,13 +9,27 @@ const dom = new JSDOM("<!doctype html><div id=root></div>", {
 });
 const globals = globalThis as Record<string, unknown>;
 const saved = Object.fromEntries(
-  ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"].map((key) => [key, globals[key]]),
+  [
+    "window",
+    "document",
+    "navigator",
+    "HTMLElement",
+    "Element",
+    "getComputedStyle",
+    "requestAnimationFrame",
+    "cancelAnimationFrame",
+    "IS_REACT_ACT_ENVIRONMENT",
+  ].map((key) => [key, globals[key]]),
 );
 Object.assign(globals, {
   window: dom.window,
   document: dom.window.document,
   navigator: dom.window.navigator,
   HTMLElement: dom.window.HTMLElement,
+  Element: dom.window.Element,
+  getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
+  requestAnimationFrame: (callback: FrameRequestCallback) => setTimeout(() => callback(performance.now()), 0),
+  cancelAnimationFrame: (id: number) => clearTimeout(id),
   IS_REACT_ACT_ENVIRONMENT: true,
 });
 afterAll(() => Object.assign(globals, saved));
@@ -408,8 +422,10 @@ test("the project pill changes the cwd used by a new agent chat", async () => {
     ),
   );
   await act(async () => container.querySelector<HTMLButtonElement>(".acpmux-project-button")!.click());
-  const web = [...container.querySelectorAll<HTMLElement>('[role="option"]')].find(
-    (node) => node.textContent === "web",
+  expect(dom.window.document.querySelectorAll(".acpmux-project-badge")).toHaveLength(2);
+  expect(dom.window.document.querySelectorAll(".acpmux-project-check")[0]?.textContent).toBe("✓");
+  const web = [...dom.window.document.querySelectorAll<HTMLElement>('[role="option"]')].find(
+    (node) => node.querySelector(".acpmux-menu-label")?.textContent === "web",
   );
   expect(web).toBeTruthy();
   await act(async () =>

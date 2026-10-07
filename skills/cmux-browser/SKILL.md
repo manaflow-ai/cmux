@@ -132,7 +132,7 @@ have no agent surface yet.
 Some have UI actions that act on the focused browser and return no data:
 `cmux browser screenshot-page`, `browser screenshot-section`,
 `browser toggle-developer-tools`, `browser show-javascript-console`,
-`browser delete-site-data`, `browser import-data`, `browser new-profile`,
+`browser delete-site-data`, `browser new-profile`,
 `browser toggle-design-mode`, `browser toggle-focus-mode`,
 `browser toggle-react-grab`. List them with `cmux action list --noun browser`.
 Page zoom of an app browser tab is `cmux tab <tab_…> zoom in|out|reset`, which

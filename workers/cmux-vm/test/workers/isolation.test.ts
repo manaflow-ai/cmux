@@ -35,6 +35,12 @@ describe("the endpoint table", () => {
     );
     const covered = [
       "GET /healthz",
+      // No credential (the one-time code is one); test/workers/mesh-m2.test.ts covers it.
+      "POST /v1/meshes/{meshId}/device-enrollments",
+      // No credential (the device's install-key signature is one); test/workers/mesh-m3.test.ts covers them.
+      "POST /v1/devices/{deviceId}/signed/peers",
+      "POST /v1/devices/{deviceId}/signed/tunnel",
+      "POST /v1/devices/{deviceId}/signed/rotate-key",
       ...VM_ENDPOINTS.map((endpoint) => `${endpoint.method} ${endpoint.template}`),
       ...TENANT_ENDPOINTS.map((endpoint) => `${endpoint.method} ${endpoint.template}`),
       ...SNAPSHOT_ENDPOINTS.map((endpoint) => `${endpoint.method} ${endpoint.template}`),

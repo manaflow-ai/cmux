@@ -47,6 +47,7 @@ members = [
     "crates/cmux-tasks",
     "crates/cmux-server-core",
     "crates/cmux-server",
+    "crates/cmux-host",
     "crates/cmux-motion",
     "crates/cmux-theme-tokens",
     "crates/cmux-app-manifest",
@@ -57,6 +58,7 @@ members = [
     "crates/cmux-encode",
     "crates/cmux-remote-browser",
     "crates/cmux-local-auth",
+    "crates/cmux-agent-pane-policy",
     "crates/cmux-link",
     "crates/cmux-pane-protocol",
     "crates/cmux-app-host",
@@ -88,6 +90,7 @@ default-members = [
     "crates/cmux-tasks",
     "crates/cmux-server-core",
     "crates/cmux-server",
+    "crates/cmux-host",
     "crates/cmux-motion",
     "crates/cmux-theme-tokens",
     "crates/cmux-app-manifest",
@@ -139,6 +142,7 @@ cmux-remote = { path = "crates/cmux-remote", default-features = false, features 
 cmux-wg = { path = "crates/cmux-wg" }
 cmux-server = { path = "crates/cmux-server" }
 cmux-server-core = { path = "crates/cmux-server-core" }
+cmux-host = { path = "crates/cmux-host" }
 cmux-tui-machine-agent-protocol = { path = "crates/cmux-tui-machine-agent-protocol" }
 cmux-tui-machine-protocol = { path = "crates/cmux-tui-machine-protocol" }
 cmux-app-manifest = { path = "crates/cmux-app-manifest" }
@@ -159,6 +163,7 @@ crossbeam-channel = "0.5"
 ratatui = "0.30"
 unicode-width = "0.2"
 unicode-segmentation = "1"
+unicode-normalization = "0.1"
 base64 = "0.22"
 # In-process WireGuard for Cloud VM attach (crates/cmux-wg). boringtun's
 # `noise` module is the sans-IO WireGuard session; no tun device, no ffi.

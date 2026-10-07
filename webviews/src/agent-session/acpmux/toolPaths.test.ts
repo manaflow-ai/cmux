@@ -69,16 +69,20 @@ describe("editedPaths", () => {
 });
 
 describe("toolLabel", () => {
+  const ran = (command: string) => `Ran ${command}`;
+
   test("uses a Write path instead of showing its full raw input", () => {
     const tool = call("", { content: "print('hello')", file_path: "gen.py" });
-    expect(toolLabel(tool, "Write")).toBe("Write gen.py");
+    expect(toolLabel(tool, "Write", ran)).toBe("Write gen.py");
   });
 
   test("labels commands and reads, then falls back to the tool name", () => {
-    expect(toolLabel(call("", { command: "bun test" }, { kind: "execute", command: "bun test" }), "Run")).toBe(
+    expect(toolLabel(call("", { command: "bun test" }, { kind: "execute", command: "bun test" }), "Run", ran)).toBe(
       "Ran bun test",
     );
-    expect(toolLabel(call("", { file_path: "src/main.ts" }, { kind: "read" }), "Read")).toBe("Read src/main.ts");
-    expect(toolLabel(call("mcp.cua_repl", { apps: [] }, { kind: "execute" }), "mcp.cua_repl")).toBe("mcp.cua_repl");
+    expect(toolLabel(call("", { file_path: "src/main.ts" }, { kind: "read" }), "Read", ran)).toBe("Read src/main.ts");
+    expect(toolLabel(call("mcp.cua_repl", { apps: [] }, { kind: "execute" }), "mcp.cua_repl", ran)).toBe(
+      "mcp.cua_repl",
+    );
   });
 });

@@ -35,6 +35,16 @@ public struct ServerReach: Hashable, Sendable {
         case ssh(SSHHost)
         /// An absolute socket path on this Mac.
         case unix(String)
+        /// This Mac's `cmux link` socket (absolute): each connection runs the
+        /// bundled `cmux` with ``dialArguments(linkSocket:)``.
+        case overlay(linkSocket: String)
+    }
+
+    /// The fixed argv (after the bundled `cmux`) of an overlay connection's
+    /// bridge: the server's owner session through this Mac's link, which
+    /// only the server's owner may open (the server decides).
+    public func dialArguments(linkSocket: String) -> [String] {
+        ["link", "dial", "--host", installID, "--service", "owner_session", "--socket", linkSocket]
     }
 
     public struct Invalid: Error, Equatable, Sendable {
@@ -55,6 +65,7 @@ public struct ServerReach: Hashable, Sendable {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, trimmed.count <= 80 else { throw Invalid(field: "name") }
         if case .unix(let path) = route, !Self.isLocalSocket(path) { throw Invalid(field: "socket") }
+        if case .overlay(let path) = route, !Self.isLocalSocket(path) { throw Invalid(field: "link_socket") }
         self.hostID = hostID
         self.installID = installID
         self.name = trimmed
@@ -103,6 +114,9 @@ public struct ServerReach: Hashable, Sendable {
         case .unix(let path):
             fields["route"] = "unix"
             fields["socket"] = path
+        case .overlay(let path):
+            fields["route"] = "overlay"
+            fields["link_socket"] = path
         }
         return fields
     }
@@ -122,6 +136,9 @@ public struct ServerReach: Hashable, Sendable {
         case "unix":
             guard let socket = fields["socket"] else { return nil }
             route = .unix(socket)
+        case "overlay":
+            guard let socket = fields["link_socket"] else { return nil }
+            route = .overlay(linkSocket: socket)
         default:
             return nil
         }

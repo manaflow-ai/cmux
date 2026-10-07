@@ -94,6 +94,8 @@ enum Part: Codable, Hashable {
     case link(url: String, title: String?, siteName: String?, image: String?, theme: String?)
     case attachment(Attachment)
     case location(latitude: Double, longitude: Double, title: String?, subtitle: String?)
+    /// A host-defined row (CustomRows.swift, appkit-native/CUSTOM-ROWS.md).
+    case custom(CustomPart)
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: K.self)
@@ -106,6 +108,9 @@ enum Part: Codable, Hashable {
                          image: try c.decodeIfPresent(String.self, forKey: .image), theme: try c.decodeIfPresent(String.self, forKey: .theme))
         case "attachment":
             self = .attachment(try c.decode(Attachment.self, forKey: .attachment))
+        case "custom":
+            self = .custom(CustomPart(kind: try c.decode(String.self, forKey: .kind), version: try c.decodeIfPresent(Int.self, forKey: .version) ?? 0,
+                                      payload: try c.decodeIfPresent(Data.self, forKey: .payload) ?? Data()))
         default:
             self = .location(latitude: try c.decode(Double.self, forKey: .latitude), longitude: try c.decode(Double.self, forKey: .longitude),
                              title: try c.decodeIfPresent(String.self, forKey: .title), subtitle: try c.decodeIfPresent(String.self, forKey: .subtitle))
@@ -124,9 +129,12 @@ enum Part: Codable, Hashable {
         case let .location(lat, lon, title, sub):
             try c.encode("location", forKey: .type); try c.encode(lat, forKey: .latitude); try c.encode(lon, forKey: .longitude)
             try c.encodeIfPresent(title, forKey: .title); try c.encodeIfPresent(sub, forKey: .subtitle)
+        case let .custom(cp):
+            try c.encode("custom", forKey: .type); try c.encode(cp.kind, forKey: .kind); try c.encode(cp.version, forKey: .version)
+            try c.encode(cp.payload, forKey: .payload)
         }
     }
-    enum K: String, CodingKey { case type, text, runs, url, title, siteName, image, theme, attachment, latitude, longitude, subtitle }
+    enum K: String, CodingKey { case type, text, runs, url, title, siteName, image, theme, attachment, latitude, longitude, subtitle, kind, version, payload }
 
     var plainText: String? { if case let .text(t, _) = self { return t } else { return nil } }
 }

@@ -66,6 +66,10 @@ The private bootstrap pipe uses:
 | `Ready`, 34 bytes | `selected_version:u16, terminal_id:[u8;16], incarnation:[u8;16]` |
 | `LaunchFailed`, 5 to 4,100 bytes | `version:u16=1, kind:u16, message:UTF-8[1..4096]` |
 
+A replacement host started with `--adopt-pty-fd N` (see PTY custody below)
+receives `LaunchAdopt` in place of `Launch`. Its successful `Ready` carries
+the adopted incarnation, not the one the bootstrap `Ready` reported.
+
 A zero owner token is invalid. Negotiation selects the highest common version.
 `LaunchFailed.kind` is 1 for exhausted PTY capacity and 2 for another launch
 failure. The message is bounded diagnostic text for the local parent.
@@ -81,8 +85,8 @@ it may publish the snapshot or send input.
 | `HostHello`, 40 bytes | `selected_version:u16, reserved:u16=0, granted_rights:u32, terminal_id:[u8;16], incarnation:[u8;16]` |
 
 `ClientHello.sequence` is zero. Its permitted flags are
-`FLAG_VIEWER_SIZE_ACKS`, `FLAG_SMART_RENDERER`, `FLAG_TERMINAL_METADATA`, and
-`FLAG_VIEWER_SIZE_PRIORITY`. The host echoes viewer-size acknowledgements only
+`FLAG_VIEWER_SIZE_ACKS`, `FLAG_SMART_RENDERER`, `FLAG_TERMINAL_METADATA`,
+`FLAG_VIEWER_SIZE_PRIORITY`, and `FLAG_PTY_CUSTODY`. The host echoes viewer-size acknowledgements only
 when `RESIZE` was granted, and echoes smart mode only for renderer or admin
 roles negotiating protocol v3 or newer. A v4 host echoes terminal metadata
 only when the client requests it, and echoes viewer-size priority only to a
@@ -140,6 +144,8 @@ indexes are fatal.
 | 23 | `InputAck` | host to client | response | empty; confirms the authoritative PTY writer accepted and flushed `Input` |
 | 24 | `ClipboardReadRequest` | host to owner | `CLIPBOARD_READ` | `token:u64, location:u8` (0 standard, 1 selection, 2 primary) |
 | 25 | `ClipboardReadCancel` | host to owner | `CLIPBOARD_READ` | `token:u64`; the host refused that open read itself |
+| 26 | `PtyCustody` | host to owner | owner token, `FLAG_PTY_CUSTODY` | `version:u16=1, child_pid:u32, session_id:u32`, PTY master attached as `SCM_RIGHTS` |
+| 27 | `LaunchAdopt` | parent to host | private pipe | adopt-launch layout |
 | 100 | `Input` | client to host | `INPUT` | raw PTY bytes; a nonzero request id asks a supporting host for `InputAck` |
 | 101 | `Paste` | client to host | `INPUT` | raw bytes; host applies DEC 2004 wrapping |
 | 102 | `ViewerSize` | client to host | `RESIZE` | `cols:u16, rows:u16` |
@@ -201,6 +207,39 @@ kitty_limits:{image_bytes:u64,inflight_bytes:u64,images:u64,placements:u64}
 
 `argc` is from 1 through 256. `envc` is at most 1,024.
 
+`LaunchAdopt` replaces `Launch` for a host started with `--adopt-pty-fd N`.
+The fields before `seed` are limited to 1 MiB and `seed` is a blob of at most
+8 MiB:
+
+```text
+endpoint:string
+record_path:string
+term:string
+cols:u16
+rows:u16
+scrollback:u32
+defaults:DefaultColors
+cell_width_px:u16
+cell_height_px:u16
+kitty_limits:{image_bytes:u64,inflight_bytes:u64,images:u64,placements:u64}
+child_pid:u32
+session_id:u32
+incarnation:[u8;16]
+seed:blob
+```
+
+`child_pid` and `session_id` are nonzero; `incarnation` is a canonical
+UUIDv4. `seed` is VT replay of the terminal's screen; the host applies it to
+its own parser before it reads the PTY and never writes it to the PTY. It may
+be empty. There is no command, cwd, or environment: no child is spawned. The
+replay carries the title (OSC 2) and working directory (OSC 7); an owner
+appends the last OSC 9;4 progress (`ESC ] 9 ; <progress> ESC \`) after it, and
+the host also feeds the seed to its terminal-metadata parser, discarding any
+notifications and shell marks, so its snapshots report that progress. Known gap:
+the seed is applied with plain VT writes, so Kitty graphics placements and
+image-number aliases from before the replacement are not restored; programs
+redraw their images on the next update.
+
 `LaunchFailed` starts with little-endian `version:u16=1, kind:u16`, followed
 by 1 through 4,096 bytes of UTF-8 diagnostic text. Kind 1 means PTY capacity
 is exhausted. Kind 2 covers another launch failure. Unknown versions, kinds,
@@ -211,7 +250,8 @@ empty messages, invalid UTF-8, and oversized messages are malformed.
 outcomes use kind 1, zero flags, and `code:i32`. Signal outcomes use kind 2,
 flag bit 0 for `core_dumped`, and `signal:i32`; other flag bits are zero.
 Unknown outcomes use kind 3, zero flags, and a non-empty UTF-8 reason of at
-most 4,096 bytes. Kinds 1 and 2 are 16-byte payloads. Unknown payloads are
+most 4,096 bytes. The reason `exit-unobserved` means a replacement host saw
+its adopted session end without being able to read the status. Kinds 1 and 2 are 16-byte payloads. Unknown payloads are
 12 through 4,108 bytes.
 
 `Snapshot`:
@@ -345,6 +385,73 @@ not identify agents or select plugin policy.
 `HostHello`. Hosts that predate it reject a hello carrying it, so a client sets
 it only when the host record advertises `supports_viewer_size_priority`.
 
+`FLAG_PTY_CUSTODY` is bit 6 and is valid only in protocol-v4 `ClientHello` and
+`HostHello`, alone. Hosts that predate it reject a hello carrying it, so the
+owner sets it only when the host record advertises `supports_pty_custody`.
+
+## PTY custody and adoption
+
+A host normally holds the only copy of its PTY master, so the kernel hangs up
+the shell when the host dies. PTY custody gives the owner a second copy. The
+owner sends `ClientHello` with role admin, rights exactly
+`ADMIN | CLIPBOARD_READ` (only the owner token grants `CLIPBOARD_READ`, so this
+proves the owner), protocol v4 only, and `FLAG_PTY_CUSTODY` as its only flag.
+The host answers `HostHello` echoing the flag, then one `PtyCustody` frame
+with the same request id whose bytes carry the master descriptor as
+`SCM_RIGHTS`, then closes the connection. The connection takes no snapshot,
+joins no stream, and never claims the launch owner. Any other hello carrying
+the flag, a host whose child already ended, or a host without a master
+descriptor closes the connection with nothing sent. The owner applies a
+two-second timeout and marks the received descriptor close-on-exec.
+
+A replacement host is started as `__terminal-host --bootstrap-stdio
+--adopt-pty-fd N` with the master at descriptor `N` (at least 3), receives
+`Bootstrap` with the same terminal id and owner token, then `LaunchAdopt`. It
+serves the same terminal id and the same incarnation, because the shell is the
+same run; only the host process, process nonce, PID, and socket change. It
+publishes its record at the same `<terminal UUID>.json` path, replacing the
+dead host's record, and then runs like any host. The parent commits and
+activates it at once, because the terminal's topology already exists.
+
+The adopted shell is not the replacement host's child, so it cannot wait for
+or reap it. The host observes the end with a pidfd on Linux or a kqueue
+`NOTE_EXIT` filter on macOS (falling back to probing the PID) and reports
+`Unknown { reason: "exit-unobserved" }` through the normal drain, `.exit`
+sidecar, and `Exit` path. The mux classifies exactly that reason as a process
+end; every other unknown reason remains a host loss. Before signaling the
+session group for `Terminate`, the host proves the PID still leads the adopted
+session (`getsid`, or a pidfd on Linux). The adopted child must lead its
+session (`child_pid == session_id`). A replacement that fails before it
+publishes its record leaves the session running for its owner.
+
+Two hosts must never serve one incarnation. Every host holds an exclusive
+`flock` on `<root>/<terminal UUID>.<incarnation UUID>.pty.lock` (mode `0600`,
+`O_NOFOLLOW`) for its whole process lifetime, taken before it opens or touches
+a PTY and before it publishes anything. A host that cannot take it, for
+example because the old host is stopped rather than dead, returns
+`LaunchFailed` and exits without a record, sidecar, `Ready`, or PTY byte. The
+kernel releases the lock only when the holder process is gone. Exit sidecar
+acknowledgement and stale-record removal delete the file only while holding
+the lock themselves; an owner at startup and a session reset also delete every
+such file whose lock is free.
+
+The cmux-tui daemon takes custody of every connected host whose record
+advertises `supports_pty_custody` (after launch, adoption, and each reconnect)
+and keeps it with that connection, so it is released when the terminal ends,
+is closed, or its host is replaced. When its reconnect loop proves a host dead
+and there is no `.exit` sidecar for the incarnation, the daemon starts a
+replacement host on its copy, if it still holds one, it is not shutting down,
+the registry still names the incarnation running (neither exited nor
+tombstoned), and the shell still leads its session and is not a zombie. The
+seed is the daemon's replay of the terminal. On success the reconnect loop
+attaches to the replacement like any reconnect; the terminal keeps its id,
+incarnation, surface, and tab and records no end, and the daemon appends an
+`"event":"host_replaced"` line (old and new host PID, recorded signals) to
+`terminal-losses.jsonl` and removes the dead host's `.signals`. When a
+published replacement is live but not yet attached, the loop attaches to it.
+Otherwise the dead host is a host loss as before. A host that died while no
+daemon ran has no custody holder and stays a host loss.
+
 ## Viewer-size arbitration
 
 Every renderer granted `RESIZE` holds a viewer size, reserved at the snapshot
@@ -442,7 +549,8 @@ again, and consumes a fresh `Snapshot` plus same-boundary `Colors`.
 Discovery records use JSON `record_version:4`. Terminal and incarnation are
 32-character lowercase UUIDv4 hex, owner token and process nonce are
 64-character lowercase hex, the Unix-socket path is canonical, and the host
-PID is nonzero. `supports_input_ack` is an additive boolean capability; a
+PID is nonzero. `supports_pty_custody` advertises `FLAG_PTY_CUSTODY` and adopt launches.
+`supports_input_ack` is an additive boolean capability; a
 missing or false value means receipted API input must fail before sending while
 legacy fire-and-forget input remains available. Record directories are mode
 `0700`; records and sockets are
@@ -452,12 +560,31 @@ Discovery records use JSON `record_version:4`. A host that supports the
 optional snapshot tail advertises `supports_terminal_metadata:true`, and one
 that accepts `FLAG_VIEWER_SIZE_PRIORITY` advertises
 `supports_viewer_size_priority:true`; records from older hosts omit the fields
-and default them to false; the same holds for `supports_clipboard_read`,
-which records before version 4 must not set. Terminal and
+and default them to false; the same holds for `supports_clipboard_read` and
+`supports_pty_custody`, which records before version 4 must not set. Terminal and
 incarnation are 32-character lowercase UUIDv4 hex, owner token and process
 nonce are 64-character lowercase hex, the Unix-socket path is canonical, and
 the host PID is nonzero. Record directories are mode `0700`; records and
 sockets are mode `0600`.
+
+## Host process placement (Cloud scopes)
+
+A daemon started with `CMUX_TUI_HOST_SCOPES=systemd` on a systemd machine
+moves each terminal host it starts into its own transient scope
+`cmux-terminal-host-<pid>.scope` in `cmuxhosts.slice`, before the
+host receives `Launch` or `LaunchAdopt`: the daemon waits (at most 2 s)
+until the host's own cgroup names the scope, so the host's child inherits the
+scope and a stop or restart of the daemon's unit leaves the host running for
+adoption. The move is `org.freedesktop.systemd1.Manager.StartTransientUnit`
+with the host PID, run as `busctl` with a fixed argument vector (through
+`sudo -n` when the daemon is not root), and only for an unreaped child of
+the daemon, checked against `/proc/<pid>/stat` first. The move fails open:
+when the call fails, the host keeps running unscoped in the daemon's cgroup
+and the daemon logs the failure once. A scope is therefore not an isolation
+or security guarantee, only a lifetime boundary. Without the variable, or
+without systemd, hosts are not moved. A machine shutdown stops every scope;
+the host honors that `SIGTERM` from PID 1 and ends its terminal through the
+normal exit path.
 
 ## Durability boundary
 

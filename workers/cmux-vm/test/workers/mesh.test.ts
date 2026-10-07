@@ -7,6 +7,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ALL_SCOPES, allScopesExcept, bearer, MESH_ENDPOINTS } from "../support/endpoints.ts";
 import { makeHarness, type HarnessOptions } from "../support/harness.ts";
+import { enrollBody, makeInstallKey, rotateBody, type InstallKey } from "../support/mesh-signing.ts";
 
 type Harness = Awaited<ReturnType<typeof makeHarness>>;
 
@@ -15,6 +16,11 @@ const B = "team_bravo";
 /** A Curve25519 public key, base64 (any 32 bytes do for the fake provider). */
 const KEY_1 = "dGVzdC1kZXZpY2UtcHVibGljLWtleS0wMDAwMDAwMDE=";
 const KEY_2 = "dGVzdC1kZXZpY2UtcHVibGljLWtleS0wMDAwMDAwMDI=";
+const KEY_3 = "dGVzdC1kZXZpY2UtcHVibGljLWtleS0wMDAwMDAwMDM=";
+
+/** One install key per test file run; each enroll signs with it (M2: the device proves it holds its install key). */
+let install: InstallKey;
+const signedEnroll = async (meshId: string, name: string, wgPublicKey: string) => enrollBody(install ?? (install = await makeInstallKey()), meshId, { name, wgPublicKey });
 
 let h: Harness;
 const setup = async (options: HarnessOptions = {}) => {
@@ -41,7 +47,7 @@ const createMesh = async (key: string) => {
 };
 
 const enroll = async (key: string, meshId: string, wgPublicKey = KEY_1, name = "laptop") => {
-  const response = await call(`/v1/meshes/${meshId}/devices`, key, "POST", { name, wgPublicKey });
+  const response = await call(`/v1/meshes/${meshId}/devices`, key, "POST", await signedEnroll(meshId, name, wgPublicKey));
   expect(response.status).toBe(201);
   const body = await json(response);
   const device = Object.fromEntries(Object.entries(typeof body["device"] === "object" && body["device"] !== null ? body["device"] : {}));
@@ -71,7 +77,9 @@ describe("the experiment flag", () => {
         .replace("{vmId}", "vm_00000000000000000000000000");
       const body =
         endpoint.name === "enrollDevice"
-          ? { name: "laptop", wgPublicKey: KEY_1 }
+          ? await signedEnroll("mesh_00000000000000000000000000", "laptop", KEY_1)
+          : endpoint.name === "rotateDeviceKey"
+            ? await rotateBody(install ?? (install = await makeInstallKey()), "dev_00000000000000000000000000", KEY_3)
           : endpoint.name === "putMeshAcl"
             ? { expectedVersion: 0, rules: [] }
             : endpoint.method === "POST"
@@ -177,7 +185,7 @@ describe("device enrollment", () => {
     const key = await h.addKey(A, ALL_SCOPES);
     const meshId = await createMesh(key);
     h.mesh.mintKeys(true);
-    const response = await call(`/v1/meshes/${meshId}/devices`, key, "POST", { name: "laptop", wgPublicKey: KEY_1 });
+    const response = await call(`/v1/meshes/${meshId}/devices`, key, "POST", await signedEnroll(meshId, "laptop", KEY_1));
     expect(response.status).toBe(503);
     expect(h.mesh.tunnels.size).toBe(0);
     const list = await json(await call(`/v1/meshes/${meshId}/devices`, key));
@@ -187,9 +195,9 @@ describe("device enrollment", () => {
   it("refuses a malformed key and a key already in the mesh", async () => {
     const key = await h.addKey(A, ALL_SCOPES);
     const meshId = await createMesh(key);
-    expect((await call(`/v1/meshes/${meshId}/devices`, key, "POST", { name: "x", wgPublicKey: "not-a-key" })).status).toBe(400);
+    expect((await call(`/v1/meshes/${meshId}/devices`, key, "POST", await signedEnroll(meshId, "x", "not-a-key"))).status).toBe(400);
     await enroll(key, meshId);
-    expect((await call(`/v1/meshes/${meshId}/devices`, key, "POST", { name: "y", wgPublicKey: KEY_1 })).status).toBe(409);
+    expect((await call(`/v1/meshes/${meshId}/devices`, key, "POST", await signedEnroll(meshId, "y", KEY_1))).status).toBe(409);
   });
 
   it("refuses a device past the device.perMesh budget before any provider call", async () => {
@@ -199,7 +207,7 @@ describe("device enrollment", () => {
     const meshId = await createMesh(key);
     await enroll(key, meshId);
     const before = h.upstreamRequests.length;
-    const refused = await call(`/v1/meshes/${meshId}/devices`, key, "POST", { name: "second", wgPublicKey: KEY_2 });
+    const refused = await call(`/v1/meshes/${meshId}/devices`, key, "POST", await signedEnroll(meshId, "second", KEY_2));
     expect(refused.status).toBe(429);
     expect(await json(refused)).toMatchObject({ _tag: "QuotaExceeded", budget: "device.perMesh" });
     expect(h.upstreamRequests).toHaveLength(before);
@@ -376,15 +384,23 @@ describe("tenant isolation", () => {
   const pathFor = (template: string, ids: { meshId: string; vmId: string; deviceId: string; tunnelId: string }) =>
     template.replace("{meshId}", ids.meshId).replace("{vmId}", ids.vmId).replace("{deviceId}", ids.deviceId).replace("{tunnelId}", ids.tunnelId);
 
-  const bodyFor = (name: string) =>
-    name === "enrollDevice" ? { name: "intruder", wgPublicKey: KEY_2 } : name === "putMeshAcl" ? { expectedVersion: 0, rules: [] } : undefined;
+  const bodyFor = async (name: string, ids: { meshId: string; deviceId: string }) =>
+    name === "enrollDevice"
+      ? await signedEnroll(ids.meshId, "intruder", KEY_2)
+      : name === "rotateDeviceKey"
+        ? await rotateBody(install ?? (install = await makeInstallKey()), ids.deviceId, KEY_3)
+        : name === "putMeshAcl"
+          ? { expectedVersion: 0, rules: [] }
+          : name === "createEnrollmentCode"
+            ? {}
+            : undefined;
 
   describe.each(MESH_ENDPOINTS.filter((endpoint) => endpoint.target !== "tenant"))("$name", (endpoint) => {
     it("answers 404 to another tenant's key with every scope, and calls nothing upstream", async () => {
       const ids = await fixture();
       const keyB = await h.addKey(B, ALL_SCOPES);
       const before = h.upstreamRequests.length;
-      const response = await call(pathFor(endpoint.template, ids), keyB, endpoint.method, bodyFor(endpoint.name));
+      const response = await call(pathFor(endpoint.template, ids), keyB, endpoint.method, await bodyFor(endpoint.name, ids));
       expect(response.status).toBe(404);
       expect(h.upstreamRequests).toHaveLength(before);
     });
@@ -397,7 +413,7 @@ describe("tenant isolation", () => {
       const before = h.upstreamRequests.length;
       const response = await h.request(pathFor(endpoint.template, ids), { ...bearer(token), "x-cmux-team-id": B }, {
         method: endpoint.method,
-        body: bodyFor(endpoint.name),
+        body: await bodyFor(endpoint.name, ids),
       });
       expect(response.status).toBe(404);
       expect(h.upstreamRequests).toHaveLength(before);
@@ -407,7 +423,7 @@ describe("tenant isolation", () => {
       const ids = await fixture();
       const key = await h.addKey(A, allScopesExcept(endpoint.scope));
       const before = h.upstreamRequests.length;
-      const response = await call(pathFor(endpoint.template, ids), key, endpoint.method, bodyFor(endpoint.name));
+      const response = await call(pathFor(endpoint.template, ids), key, endpoint.method, await bodyFor(endpoint.name, ids));
       expect(response.status).toBe(403);
       expect(h.upstreamRequests).toHaveLength(before);
     });
@@ -494,7 +510,7 @@ describe("device ownership (M2, cx-0op.4)", () => {
     h.addAdmin(A, "user_ada");
     const session = async (user: string) => ({ ...bearer(await h.sessionToken(user)), "x-cmux-team-id": A });
     const amy = await session("user_amy");
-    const enrolled = await h.request(`/v1/meshes/${meshId}/devices`, amy, { method: "POST", body: { name: "amy-laptop", wgPublicKey: KEY_1 } });
+    const enrolled = await h.request(`/v1/meshes/${meshId}/devices`, amy, { method: "POST", body: await signedEnroll(meshId, "amy-laptop", KEY_1) });
     expect(enrolled.status).toBe(201);
     const deviceId = str(Object((await json(enrolled))["device"])["id"]);
     expect((await h.request(`/v1/devices/${deviceId}`, amy)).status).toBe(200);

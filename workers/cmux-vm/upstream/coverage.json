@@ -55,6 +55,7 @@
       "by": [
         "mesh.putMeshAcl",
         "mesh.enrollDevice",
+        "meshEnroll.codeEnrollDevice",
         "mesh.attachMeshVm"
       ]
     },
@@ -224,14 +225,16 @@
     "create_tunnel": {
       "status": "wrapped",
       "by": [
-        "mesh.enrollDevice"
+        "mesh.enrollDevice",
+        "meshEnroll.codeEnrollDevice"
       ]
     },
     "delete_tunnel": {
       "status": "wrapped",
       "by": [
         "mesh.deleteDevice",
-        "mesh.enrollDevice"
+        "mesh.enrollDevice",
+        "meshEnroll.codeEnrollDevice"
       ]
     },
     "get_tunnel": {
@@ -246,9 +249,10 @@
       "reason": "planned in cx-0op"
     },
     "rotate_tunnel_key": {
-      "status": "planned",
-      "bead": "cx-0op",
-      "reason": "planned in cx-0op"
+      "status": "wrapped",
+      "by": [
+        "mesh.rotateDeviceKey"
+      ]
     },
     "detach_vpc_from_tunnel": {
       "status": "planned",
@@ -461,7 +465,8 @@
     "get_vpc": {
       "status": "wrapped",
       "by": [
-        "mesh.enrollDevice"
+        "mesh.enrollDevice",
+        "meshEnroll.codeEnrollDevice"
       ]
     },
     "update_vpc": {

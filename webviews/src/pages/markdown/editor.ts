@@ -21,6 +21,9 @@ import { Decoration, DecorationSet, type EditorView, type NodeViewConstructor } 
 import { ParserState, type SerializerState } from "@milkdown/kit/transformer";
 import { $nodeSchema, $prose } from "@milkdown/kit/utils";
 import "../../markdown-task-checkbox.css";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { TaskCheckbox } from "../../ui/TaskCheckbox";
 import {
   brokenLinkPlugin,
   caretAt,
@@ -475,23 +478,11 @@ const taskCheckboxKey = new PluginKey<DecorationSet>("cmuxMarkdownTaskCheckbox")
  * pseudo-element so the task state is exposed to assistive technology in the rich editor. */
 function taskCheckboxPlugin() {
   const checkbox = (checked: boolean): HTMLElement => {
-    const element = document.createElement("span");
-    element.className = "cmux-markdown-checkbox md-task-checkbox";
-    element.dataset.checked = String(checked);
-    element.setAttribute("role", "checkbox");
-    element.setAttribute("aria-checked", String(checked));
-    element.setAttribute("aria-readonly", "true");
+    const template = document.createElement("template");
+    template.innerHTML = renderToStaticMarkup(createElement(TaskCheckbox, { checked }));
+    const element = template.content.firstElementChild;
+    if (!(element instanceof HTMLElement)) throw new Error("task checkbox primitive did not render an element");
     element.contentEditable = "false";
-    if (checked) {
-      const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-      svg.setAttribute("viewBox", "0 0 14 14");
-      svg.setAttribute("aria-hidden", "true");
-      svg.setAttribute("focusable", "false");
-      const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-      path.setAttribute("d", "M3 7.2 5.7 10 11 4.3");
-      svg.append(path);
-      element.append(svg);
-    }
     return element;
   };
 

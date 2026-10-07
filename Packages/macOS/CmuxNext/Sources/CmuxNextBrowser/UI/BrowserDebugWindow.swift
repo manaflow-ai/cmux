@@ -39,7 +39,7 @@ public final class BrowserDebugWindow: NSObject, BrowserTabDelegate {
             let tab: any BrowserTab = if engineName == "cef" {
                 try CEFEngine().makeCEFTab(configuration)
             } else {
-                WebKitEngine().makeWebKitTab(configuration)
+                try WebKitEngine().makeWebKitTab(configuration)
             }
             let debugWindow = BrowserDebugWindow(tab: tab, report: report, activate: environment["CMUX_NEXT_NO_ACTIVATE"] != "1")
             open.append(debugWindow)

@@ -3,6 +3,7 @@ import { SYSTEM_ACTOR, type Op } from "../src/conversation/types.ts"
 import { agent, CoreHost, human, NOW, text } from "../test/support/harness.ts"
 import { ALICE, BOB, CAROL, CHIEF, chiefHead, ADDRESS, ADDRESS2, dmHead, groupHead, INV, INV2, inviteOp, tokenHash } from "../test/support/cloud.ts"
 import type { Corpus } from "./generate.ts"
+import { questionPart } from "./question-cases.ts"
 
 /** Cloud extensions: kinds, roles, addresses, leave/remove, invites, delivery, settings. */
 export const cloudCases = (c: Corpus): void => {
@@ -112,6 +113,14 @@ export const cloudCases = (c: Corpus): void => {
   const chief = new CoreHost(chiefHead())
   c.op(chief, "chief: participants.add", ALICE, "p1", { kind: "participants.add", participant: human(BOB) }, "kind_forbids")
   c.op(chief, "chief: invite.create", ALICE, "i1", inviteOp(), "kind_forbids")
+  // Questions follow the local rules on a cloud head: the chief asks, its owner answers.
+  c.op(chief, "chief: the owner may not post a question", ALICE, "q1", { kind: "message.send", client_msg_id: "q1", parts: [questionPart()] }, "invalid_parts")
+  c.op(chief, "chief: the chief posts a question", CHIEF, "q1", { kind: "message.send", client_msg_id: "q1", parts: [questionPart()] }, "commit")
+  const asked = chief.messages.at(-1)!.id
+  const answer = (selections: unknown): Op => ({ kind: "question.answer", message_id: asked, part_index: 0, answer: { selections } }) as never
+  c.op(chief, "chief: the chief may not answer", CHIEF, "a1", answer({ q0: { option_ids: ["oauth"] } }), "human_only")
+  c.op(chief, "chief: the owner answers", ALICE, "a1", answer({ q0: { option_ids: ["oauth"] } }), "commit")
+  c.op(chief, "chief: a second answer", ALICE, "a2", answer({ q0: { option_ids: ["keys"] } }), "question_closed")
 
   const local = new CoreHost()
   c.op(local, "local head: cloud ops are unsupported", "user_local", "s1", { kind: "conversation.settings.set", wake_policy: "all" }, "unsupported_op")

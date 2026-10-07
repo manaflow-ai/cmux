@@ -8,6 +8,7 @@ public struct ChangedResponse: Decodable, Sendable, Equatable {
 public struct PinWorkspaceRequest: DaemonRequest {
     public typealias Response = ChangedResponse
     public static let command = "pin-workspace"
+    public static let requiredCapability: String? = DaemonCapabilities.shared.profiles
     public var sessionID: String
     public var workspaceKey: WorkspaceKey
     public var profile: ProfileID
@@ -21,6 +22,7 @@ public struct PinWorkspaceRequest: DaemonRequest {
 public struct UnpinWorkspaceRequest: DaemonRequest {
     public typealias Response = ChangedResponse
     public static let command = "unpin-workspace"
+    public static let requiredCapability: String? = DaemonCapabilities.shared.profiles
     public var sessionID: String
     public var workspaceKey: WorkspaceKey
     public init(sessionID: String, workspaceKey: WorkspaceKey) {

@@ -5,6 +5,10 @@ Each published build gets `notes/<build>.json` and a detached Ed25519
 signature `notes/<build>.json.sig` (base64, the `content-signing` key), plus
 a signed `notes/index.json` listing recent builds for the full history.
 
+The notes also carry the build's What's New digest ("whatsNew", decision
+WHATS-NEW-AFTER-UPDATE W3; scripts/whats-new/digest.py) built from the same
+highlight files, when they validate.
+
 Highlights are human-written: one Markdown file per highlight under
 release-notes/next/highlights/. A highlight belongs to the first build whose
 commit range adds its file, so writing the file is all a person does. Front
@@ -67,6 +71,34 @@ def change_item(subject, author):
     return {k: v for k, v in item.items() if v is not None}
 
 
+def whats_new_digest(args):
+    """The What's New nightly digest of the same highlights (scripts/whats-new/digest.py),
+    or None when it is empty or does not validate: the notes still publish."""
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "whats-new"))
+    try:
+        import digest, validate
+        document = digest.build(args.short, args.date, args.head, args.since)
+    except (ImportError, ValueError, subprocess.CalledProcessError) as error:
+        print(f"whats-new digest skipped: {error}", file=sys.stderr)
+        return None
+    problems = validate.validate_document(f"{args.short}.json", document)
+    if problems:
+        print("whats-new digest skipped:\n" + "\n".join(problems), file=sys.stderr)
+        return None
+    return document if document["entries"] else None
+
+
+def write_community_summary(digest, args):
+    """notes/community-<build>.md: a short Discord/X summary a human posts (K2); the
+    release-notes artifact keeps it and the R2 upload publishes it with the notes."""
+    import community
+    text = community.summary(digest, f"https://cmux.com/whats-new/{digest['version']}")
+    if text:
+        os.makedirs(args.out, exist_ok=True)
+        with open(os.path.join(args.out, f"community-{args.build}.md"), "w", encoding="utf-8") as out:
+            out.write(text)
+
+
 def build(args):
     span = rev_range(args.since, args.head)
     commits = [line.split("\x1f", 1) for line in git("log", "--no-merges", "--format=%s%x1f%an", span).splitlines() if line.strip()]
@@ -79,6 +111,10 @@ def build(args):
         highlights.append(parse_highlight(path, git("show", f"{args.head}:{path}")))
     notes = {"version": 1, "build": args.build, "shortVersion": args.short, "date": args.date,
              "highlights": highlights, "changes": changes, "items": items}
+    digest = whats_new_digest(args)
+    if digest is not None:
+        notes["whatsNew"] = digest
+        write_community_summary(digest, args)
     os.makedirs(args.out, exist_ok=True)
     path = os.path.join(args.out, f"{args.build}.json")
     with open(path, "w", encoding="utf-8") as out:

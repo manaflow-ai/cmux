@@ -79,6 +79,9 @@ const isBucket = Schema.is(Bucket);
 const isRecord = Schema.is(IdempotencyRecord);
 const isReservation = Schema.is(Reservation);
 
+const Lock = Schema.Struct({ holder: Schema.String, untilMs: Schema.Number });
+const isLock = Schema.is(Lock);
+
 /** A stored value of the wrong shape (from an older version) reads as absent. */
 const checked = <T>(guard: (value: unknown) => value is T, value: unknown): T | undefined => (guard(value) ? value : undefined);
 
@@ -179,6 +182,26 @@ export class TenantLedger {
     if (record === undefined) return;
     if (record.progress.phase === "pending") await this.storage.delete(storageKey);
     else await this.storage.put(storageKey, { ...record, leaseUntilMs: nowMs });
+  }
+
+  /**
+   * A named lock with a lease (mesh M4: one writer per mesh). Taken when free,
+   * expired, or already held by `holder`; the lease bounds how long a holder
+   * that died blocks the next one.
+   */
+  async lock(key: string, holder: string, leaseMs: number, nowMs: number): Promise<boolean> {
+    const storageKey = `lock:${key}`;
+    const held = checked(isLock, await this.storage.get(storageKey));
+    if (held !== undefined && held.untilMs > nowMs && held.holder !== holder) return false;
+    await this.storage.put(storageKey, { holder, untilMs: nowMs + leaseMs });
+    return true;
+  }
+
+  /** Releases the lock when `holder` still holds it. */
+  async unlock(key: string, holder: string): Promise<void> {
+    const storageKey = `lock:${key}`;
+    const held = checked(isLock, await this.storage.get(storageKey));
+    if (held !== undefined && held.holder === holder) await this.storage.delete(storageKey);
   }
 
   /** Drops a bounded number of expired idempotency records. */
