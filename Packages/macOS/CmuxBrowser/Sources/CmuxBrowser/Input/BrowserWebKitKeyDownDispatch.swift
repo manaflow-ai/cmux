@@ -240,6 +240,24 @@ extension WKWebView {
         return outcome
     }
 
+    /// Waits, at most `timeout`, until WebKit has handled every key event it
+    /// queued for the page. Call it before delivering a key-down whose
+    /// outcome is watched (``observeAutomationKeyDownOutcome(_:)``): that
+    /// watch tells the key is queued from WebKit's queue no longer being
+    /// empty, which an earlier key still in the queue (the previous
+    /// shortcut's key-up) would fake.
+    public func waitForQueuedAutomationKeyEvents(within timeout: Duration = .seconds(5)) async {
+        let selector = NSSelectorFromString("_doAfterProcessingAllPendingKeyEvents:")
+        guard responds(to: selector) else { return }
+        let drained = BrowserReplLatch()
+        let block: @convention(block) () -> Void = {
+            MainActor.assumeIsolated { drained.signal() }
+        }
+        _ = perform(selector, with: block)
+        let clock = ContinuousClock()
+        _ = await drained.wait(until: clock.now.advanced(by: timeout), clock: clock, honoringCancellation: false)
+    }
+
     /// Delivers an already-resolved AppKit key specification. The mobile
     /// browser stream and socket automation both use this seam so key-down
     /// re-entry handling and event construction cannot diverge.

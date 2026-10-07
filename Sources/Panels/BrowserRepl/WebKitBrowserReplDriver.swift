@@ -2662,6 +2662,12 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             // AppKit focus (WKWebView+AutomationFocusContainment). WebKit asks
             // for that before it answers the round trip below.
             try await webView.withAutomationFocusContainment {
+                // A shortcut's outcome is told from WebKit's key queue, so
+                // the keys before it (the previous shortcut's key-up) must
+                // have left that queue first.
+                if type == "down", stroke.editingCommand != nil {
+                    await webView.waitForQueuedAutomationKeyEvents()
+                }
                 try self.frameGate.checkTab(in: webView)
                 let result = webView.replayBrowserReplKeyStroke(stroke, keyDown: type == "down", heldBy: self.sessionID)
                 guard result == .delivered else {

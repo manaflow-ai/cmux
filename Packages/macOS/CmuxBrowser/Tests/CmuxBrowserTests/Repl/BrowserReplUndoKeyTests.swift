@@ -60,13 +60,15 @@ struct BrowserReplUndoKeyTests {
     }
 
     /// Sends Meta+Z (Shift+Meta+Z for `redo`) as the REPL driver does: the
-    /// key through WebKit, its outcome, then, for a key no page handled,
-    /// the command through the frame gate.
+    /// earlier keys out of WebKit's queue, the key through WebKit, its
+    /// outcome, then, for a key no page handled, the command through the
+    /// frame gate.
     private func replUndoKey(redo: Bool, in webView: WKWebView, gate: BrowserReplFrameGate) async throws -> BrowserReplDriverError? {
         let stroke = try #require(try BrowserReplKeyStroke.resolve(key: redo ? "Z" : "z", code: "KeyZ", text: nil, modifiers: redo ? ["Meta", "Shift"] : ["Meta"]))
         #expect(stroke.editingCommand == (redo ? "redo:" : "undo:"))
         var failure: BrowserReplDriverError?
         try await BrowserReplKeyResendTests.withAppDroppingResends {
+            await webView.waitForQueuedAutomationKeyEvents()
             #expect(webView.replayBrowserReplKeyStroke(stroke, keyDown: true, heldBy: "session") == .delivered)
             let down = try #require(webView.browserNativeInputDeliveryOwner.lastDeliveredKeyDown)
             if await webView.observeAutomationKeyDownOutcome(down).wasUnhandled() {
