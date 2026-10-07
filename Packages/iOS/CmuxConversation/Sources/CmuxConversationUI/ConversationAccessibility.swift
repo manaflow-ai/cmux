@@ -192,6 +192,12 @@ extension ConversationViewController {
                 return true
             })
         }
+        if store.canUnsend(message) {
+            actions.append(UIAccessibilityCustomAction(name: ConversationAccessibilityText.undoSendAction) { [weak self] _ in
+                self?.store.unsend(messageID: message.id)
+                return true
+            })
+        }
         if message.delivery?.isFailed == true {
             actions.append(UIAccessibilityCustomAction(name: ConversationAccessibilityText.tryAgainAction) { [weak self] _ in
                 self?.store.retry(rowID: rowID)

@@ -55,6 +55,16 @@ extension MacConversationViewController {
                 return true
             })
         }
+        if store.canUnsend(message) {
+            actions.append(NSAccessibilityCustomAction(name: ConversationAccessibilityText.undoSendAction) { [weak self] in
+                self?.store.unsend(messageID: message.id)
+                return true
+            })
+        }
+        actions.append(NSAccessibilityCustomAction(name: ConversationAccessibilityText.deleteAction) { [weak self] in
+            self?.confirmDelete(model)
+            return true
+        })
         if message.delivery?.isFailed == true {
             let rowID = model.rowID
             actions.append(NSAccessibilityCustomAction(name: ConversationAccessibilityText.tryAgainAction) { [weak self] in

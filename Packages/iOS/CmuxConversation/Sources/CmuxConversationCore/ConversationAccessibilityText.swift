@@ -88,6 +88,8 @@ public enum ConversationAccessibilityText {
     public static var openThreadAction: String { String(localized: "conversation.ax.action.openThread", defaultValue: "Open Thread", bundle: .module) }
     public static var copyAction: String { String(localized: "conversation.ax.action.copy", defaultValue: "Copy", bundle: .module) }
     public static var editAction: String { String(localized: "conversation.ax.action.edit", defaultValue: "Edit", bundle: .module) }
+    public static var undoSendAction: String { String(localized: "conversation.ax.action.undoSend", defaultValue: "Undo Send", bundle: .module) }
+    public static var deleteAction: String { String(localized: "conversation.ax.action.delete", defaultValue: "Delete", bundle: .module) }
     public static var tryAgainAction: String { String(localized: "conversation.ax.action.tryAgain", defaultValue: "Try Again", bundle: .module) }
     public static var copiedAnnouncement: String { String(localized: "conversation.ax.copied", defaultValue: "Message copied", bundle: .module) }
     public static var sendFailure: String { String(localized: "conversation.ax.sendFailure", defaultValue: "Send failure", bundle: .module) }
