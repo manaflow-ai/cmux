@@ -82,6 +82,7 @@ impl Brain {
                 (self.log)(&why);
                 self.fatal = Some(why);
             }
+            DaemonEvent::MuxWake(_) => {}
         }
     }
 
