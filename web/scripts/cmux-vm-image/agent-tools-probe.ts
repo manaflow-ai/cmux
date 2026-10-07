@@ -152,7 +152,7 @@ for n, call in enumerate(spec.get("calls", [])):
     res = rpc(10 + n, "tools/call", {"name": call["name"], "arguments": call["arguments"]}, 180)
     body = res.get("result", {})
     text = " ".join(c.get("text", "") for c in body.get("content", []) if c.get("type") == "text")
-    entry = {"name": call["name"], "isError": bool(body.get("isError")) or "error" in res, "text": (text or str(res.get("error", "")))[:1500]}
+    entry = {"name": call["name"], "isError": bool(body.get("isError")) or "error" in res, "expect_error": bool(call.get("expect_error")), "text": (text or str(res.get("error", "")))[:1500]}
     m = re.search(r"(/[^\s\"']+\.png)", text)
     if call.get("copy_png_to") and m and os.path.exists(m.group(1)):
         shutil.copy(m.group(1), call["copy_png_to"]); entry["copied"] = call["copy_png_to"]
@@ -296,6 +296,8 @@ async function callServers(vm: Vm, check: Checker, result: ProbeResult, outDir: 
       calls: [
         { name: "set_config", arguments: { capture_scope: "desktop" } },
         { name: "get_desktop_state", arguments: { screenshot_out_file: `${WORK_DIR}/cua.png` } },
+        // Role cua-video stays off: the driver must refuse to install ffmpeg (agent-tools.ts CUA_REFUSE_DIR).
+        { name: "install_ffmpeg", arguments: { confirm: true }, expect_error: true },
       ],
     },
     cmux: { calls: [{ name: "browser_repl_eval", arguments: { session: "probe", code: `await page.goto(${JSON.stringify(`http://127.0.0.1:${PAGE_PORT}/`)}); console.log(await page.title()); screenshot()` }, copy_png_to: `${WORK_DIR}/browser.png` }] },
@@ -309,7 +311,7 @@ async function callServers(vm: Vm, check: Checker, result: ProbeResult, outDir: 
   await run(vm, `chown -R ${DEVBOX_WORK_USER}:${DEVBOX_WORK_USER} ${PROBE_DIR}`);
   result.timings.mcpMs = await inTerminal(vm, "mcp", terminalScript("mcp", lines.join("\n")), 600);
   for (const name of Object.keys(calls)) {
-    let report: { tools: string[]; initialize: string; calls: Array<{ name: string; isError: boolean; text: string }> } | null = null;
+    let report: { tools: string[]; initialize: string; calls: Array<{ name: string; isError: boolean; text: string; expect_error?: boolean }> } | null = null;
     try {
       report = JSON.parse(await readGuest(vm, `${PROBE_DIR}/mcp-${name}.json`));
     } catch (error) {
@@ -319,9 +321,12 @@ async function callServers(vm: Vm, check: Checker, result: ProbeResult, outDir: 
     writeFileSync(path.join(outDir, `mcp-${name}.json`), JSON.stringify(report, null, 2));
     const missing = REQUIRED_BY_SERVER[name].filter((t) => !report.tools.includes(t));
     check(`mcp-${name}-tools`, report.initialize === "ok" && missing.length === 0, missing.length ? `missing ${missing.join(", ")}` : `${report.tools.length} tools, including ${REQUIRED_BY_SERVER[name].join(", ")}`);
-    const failed = report.calls.filter((c) => c.isError);
+    const failed = report.calls.filter((c) => c.isError !== (c.expect_error === true));
     check(`mcp-${name}-calls`, report.calls.length > 0 && failed.length === 0, report.calls.map((c) => `${c.name}: ${c.isError ? "error " : ""}${c.text.slice(0, 160)}`).join(" | "));
   }
+  const cuaReport = await readGuest(vm, `${PROBE_DIR}/mcp-cmux-cua.json`).catch(() => "");
+  const ffmpeg = await run(vm, "command -v ffmpeg; dpkg-query -W -f='${Status}' ffmpeg libx264-164 2>/dev/null | grep -c 'ok installed' || true");
+  check("cua-video-refused", cuaReport.includes("cua-video") && ffmpeg.stdout.trim() === "0", `install_ffmpeg ${cuaReport.includes("cua-video") ? "refused with the cua-video message" : "was not refused"}; ffmpeg/libx264 installed packages: ${ffmpeg.stdout.trim()}`);
   const units = await run(vm, `systemctl is-active ${DISPLAY_UNIT} ${CUA_UNIT} | tr '\\n' ' '`);
   check("display-and-cua-started-by-cmux-cua-mcp", units.stdout.trim() === "active active", units.stdout.trim());
   const mcpBrowser = await readGuest(vm, `${PROBE_DIR}/mcp-cmux.json`).catch(() => "");
