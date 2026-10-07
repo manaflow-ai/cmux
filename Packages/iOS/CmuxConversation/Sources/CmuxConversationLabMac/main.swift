@@ -64,6 +64,9 @@ if arguments.count > 3 {
                             reply = "window \(NSApp.windows.first(where: { $0.identifier?.rawValue == "cmux.conversationLab" })?.windowNumber ?? 0)"
                         } else if line.hasPrefix("search") {
                             reply = "visible " + MacConversationLab.search(String(line.dropFirst(6)).trimmingCharacters(in: .whitespaces)).joined(separator: ",")
+                        } else if line.hasPrefix("snapshot ") {
+                            // Renders the lab window's layer tree to a PNG (no Screen Recording needed).
+                            reply = labSnapshot(path: String(line.dropFirst(9)))
                         } else if line == "deactivate" {
                             app.deactivate()
                             reply = "ok"
@@ -81,4 +84,23 @@ if arguments.count > 3 {
         }
     }
 }
+@MainActor
+func labSnapshot(path: String) -> String {
+    guard let window = NSApp.windows.first(where: { $0.identifier?.rawValue == "cmux.conversationLab" }),
+          let root = window.contentView?.superview ?? window.contentView, let layer = root.layer else { return "error no window" }
+    let scale = window.backingScaleFactor
+    let size = root.bounds.size
+    guard let context = CGContext(data: nil, width: Int(size.width * scale), height: Int(size.height * scale), bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return "error context" }
+    context.scaleBy(x: scale, y: scale)
+    if layer.isGeometryFlipped {
+        context.translateBy(x: 0, y: size.height)
+        context.scaleBy(x: 1, y: -1)
+    }
+    layer.render(in: context)
+    guard let image = context.makeImage(),
+          let data = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else { return "error image" }
+    return (try? data.write(to: URL(fileURLWithPath: path))) != nil ? "ok" : "error write"
+}
+
 app.run()

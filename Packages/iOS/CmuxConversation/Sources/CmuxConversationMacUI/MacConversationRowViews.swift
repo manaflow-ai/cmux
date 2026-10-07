@@ -188,6 +188,12 @@ final class MacMessageRowView: MacFlippedView {
     private(set) var model: MacMessageRowModel?
     private(set) var rowLayout: MacMessageLayout?
     private var lastFooterRowID: String?
+    /// Send-effect state (see MacConversationEffects).
+    let replayButton = NSButton()
+    var effectLayer: CALayer?
+    var inkLayer: CAEmitterLayer?
+    var inkRowID: String?
+    var isInkRevealed = false
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -231,6 +237,7 @@ final class MacMessageRowView: MacFlippedView {
         addSubview(failedBadge)
         setAccessibilityElement(true)
         setAccessibilityRole(.staticText)
+        installEffectViews()
     }
 
     @available(*, unavailable)
@@ -370,6 +377,7 @@ final class MacMessageRowView: MacFlippedView {
         toolTip = model.message.sentAt.formatted(date: .abbreviated, time: .shortened)
         setAccessibilityLabel([model.isOutgoing ? nil : model.senderName, model.message.text].compactMap { $0 }.joined(separator: ", "))
         setAccessibilityIdentifier("conversation.message.\(model.message.id)")
+        configureEffects(model, layout: layout)
     }
 
     /// Every distinct tapback gets its own circle; circles overlap by 45%,
@@ -428,10 +436,12 @@ final class MacMessageRowView: MacFlippedView {
 
     override func mouseEntered(with event: NSEvent) {
         saveButton.isHidden = rowLayout?.imageFrames.isEmpty ?? true
+        setInkRevealed(true)
     }
 
     override func mouseExited(with event: NSEvent) {
         saveButton.isHidden = true
+        setInkRevealed(false)
     }
 
     @objc private func saveImage() {

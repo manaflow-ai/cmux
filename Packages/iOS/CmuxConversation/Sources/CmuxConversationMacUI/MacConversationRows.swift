@@ -199,6 +199,8 @@ struct MacMessageLayout {
     var repliesFrame: CGRect?
     var footerFrame: CGRect?
     var failedBadgeFrame: CGRect?
+    /// "Replay" under a message sent with an effect.
+    var replayFrame: CGRect? = nil
     var contentFrame: CGRect
 }
 
@@ -378,6 +380,11 @@ extension MacMessageLayout {
         var editedFrame: CGRect?
         var repliesFrame: CGRect?
         var footerFrame: CGRect?
+        var replayFrame: CGRect?
+        if model.message.effect?.isReplayable == true, bubbleFrame != nil || emojiFrame != nil {
+            replayFrame = footerRect(y + 2)
+            y += 2 + 14
+        }
         if model.message.editedAt != nil {
             editedFrame = footerRect(y + 2)
             y += 2 + 14
@@ -442,6 +449,7 @@ extension MacMessageLayout {
             repliesFrame: repliesFrame,
             footerFrame: footerFrame,
             failedBadgeFrame: failedBadgeFrame,
+            replayFrame: replayFrame,
             contentFrame: content
         )
     }
