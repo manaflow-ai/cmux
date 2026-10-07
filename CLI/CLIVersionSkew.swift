@@ -224,7 +224,7 @@ enum CLIVersionSkew {
     /// Orders this CLI against the app: by short version, then by build when
     /// the short versions match and both sides report a build (nightlies and
     /// dev builds share a short version). Builds that are equal, missing on
-    /// either side, or not numeric fall back to the short-version result, so
+    /// either side, or not purely numeric fall back to the short-version result, so
     /// an unknown build never invents a skew. Different numeric builds with no
     /// clear order (`1.2` vs `1.2.0`) compare as the same.
     static func versionOrder(
@@ -236,10 +236,21 @@ enum CLIVersionSkew {
         let byVersion = compare(cliShortVersion, peerVersion)
         guard byVersion == .orderedSame,
               let cliBuild, let peerBuild, cliBuild != peerBuild,
+              isNumericBuild(cliBuild), isNumericBuild(peerBuild),
               let byBuild = compare(cliBuild, peerBuild) else {
             return byVersion
         }
         return byBuild
+    }
+
+    /// A build is comparable only when it is dotted digits and nothing else.
+    /// `compare` drops `-dev` style suffixes, which is right for short
+    /// versions but would order `108-dev` against `109` by guesswork.
+    private static func isNumericBuild(_ build: String) -> Bool {
+        let parts = build.split(separator: ".", omittingEmptySubsequences: false)
+        return !parts.isEmpty && parts.allSatisfy { part in
+            !part.isEmpty && part.unicodeScalars.allSatisfy { ("0"..."9").contains($0) }
+        }
     }
 
     /// Compares dotted numeric versions (`0.64.25` < `0.65.0`). An unknown
