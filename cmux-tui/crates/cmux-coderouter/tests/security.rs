@@ -44,6 +44,7 @@ async fn api_family_scope_mismatch_is_forbidden() {
     task.abort();
 }
 fn client() -> Client {
+    let _ = rustls::crypto::ring::default_provider().install_default();
     Client::builder().redirect(reqwest::redirect::Policy::none()).build().unwrap()
 }
 async fn post(client: &Client, address: SocketAddr, key: &str) -> reqwest::Response {
@@ -135,7 +136,7 @@ async fn valid_key_reaches_phase_three_placeholder_and_body_limit_is_enforced() 
 #[test]
 fn loopback_refuses_unspecified_and_public_addresses() {
     for address in ["0.0.0.0:0", "[::]:0", "192.168.1.2:80", "[2001:db8::1]:80"] {
-        assert!(LoopbackAddr::try_from(address.parse::<std::net::SocketAddr>().unwrap()).is_err());
+        assert!(LoopbackAddr::try_from(address.parse::<SocketAddr>().unwrap()).is_err());
     }
 }
 #[test]
