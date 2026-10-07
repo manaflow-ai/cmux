@@ -146,6 +146,10 @@ jobs:
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_gh_merge_green.py
 
+      - name: Validate base-red excusal for gh-merge-green
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: python3 tests/test_base_red_excuse.py
+
       - name: Validate main compile attribution
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_main_compile_attribution.py
@@ -501,13 +505,17 @@ jobs:
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: ./tests/test_testbox_keepalive_busy.sh
 
-      - name: Test the Testbox approval helper against fake gh and blacksmith
+      - name: The retired Testbox approve helper approves nothing
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: ./tests/test_testbox_approve.sh
 
+      - name: The Testbox demo stops its box and cancels its run on every failure
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: ./tests/test_testbox_demo_cleanup.sh
+
       - name: Lint the Testbox lane helpers
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
-        run: shellcheck scripts/blacksmith-bounded-command.sh scripts/blacksmith-cmux-tui-testbox-stage.sh scripts/blacksmith-testbox-cleanup.sh scripts/blacksmith-testbox-keepalive.sh scripts/blacksmith-testbox-busy.sh tests/test_testbox_keepalive_busy.sh scripts/ci/install-actionlint.sh tests/test_ci_actionlint_download.sh
+        run: shellcheck scripts/blacksmith-bounded-command.sh scripts/blacksmith-cmux-tui-testbox-stage.sh scripts/blacksmith-testbox-cleanup.sh scripts/blacksmith-testbox-keepalive.sh scripts/blacksmith-testbox-busy.sh tests/test_testbox_keepalive_busy.sh scripts/ci/install-actionlint.sh tests/test_ci_actionlint_download.sh scripts/blacksmith-testbox-demo.sh scripts/blacksmith-testbox-approve.sh tests/test_testbox_approve.sh tests/test_testbox_demo_cleanup.sh
 
       - name: Test the actionlint downloader without a network outage
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
