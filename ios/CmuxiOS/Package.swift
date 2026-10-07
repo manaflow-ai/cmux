@@ -25,6 +25,7 @@ let package = Package(
         .package(path: "../../Packages/Shared/CmuxTerminalStream"),
         .package(path: "../../Packages/Shared/CmuxTerminalRenderCore"),
         .package(path: "../../Packages/Shared/CmuxTheme"),
+        .package(path: "../../Packages/Shared/CmuxLink"),
         .package(path: "../../Packages/Shared/CmuxGhosttyKit"),
         .package(path: "../../Packages/iOS/CmuxMobileSupport"),
         .package(path: "../../Packages/iOS/CmuxMobileSSH"),
@@ -53,6 +54,7 @@ let package = Package(
                 .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
                 "CmuxiOSOnboarding",
                 "CmuxiOSOnboardingCore",
+                "CmuxiOSSettingsCore",
                 "CmuxiOSSSH",
                 "CmuxiOSSSHCore",
                 .product(name: "CmuxFeedPushCore", package: "CmuxFeedPushCore"),
@@ -118,6 +120,7 @@ let package = Package(
             name: "CmuxiOSTerminalTests",
             dependencies: [
                 "CmuxiOSTerminal",
+                "CmuxiOSSettingsCore",
                 .product(name: "CmuxTerminalRenderCore", package: "CmuxTerminalRenderCore"),
                 .product(name: "CmuxTerminalStream", package: "CmuxTerminalStream"),
             ],
@@ -217,10 +220,39 @@ let package = Package(
             resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
+        // Lane C11 (plans/cmux-next/ios-next/c11-settings.md): Settings
+        // models, device projection, preference stores and the account,
+        // notification and link-diagnostics seams. No UIKit, so its tests
+        // also run on macOS.
+        .target(
+            name: "CmuxiOSSettingsCore",
+            dependencies: [
+                "CmuxiOSFeatureKit",
+                .product(name: "CmuxTheme", package: "CmuxTheme"),
+                .product(name: "CmuxTerminalRenderCore", package: "CmuxTerminalRenderCore"),
+                .product(name: "CmuxLink", package: "CmuxLink"),
+            ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .testTarget(
+            name: "CmuxiOSSettingsCoreTests",
+            dependencies: [
+                "CmuxiOSSettingsCore", "CmuxiOSFeatureKit",
+                .product(name: "CmuxTheme", package: "CmuxTheme"),
+                .product(name: "CmuxTerminalRenderCore", package: "CmuxTerminalRenderCore"),
+                .product(name: "CmuxLink", package: "CmuxLink"),
+            ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
         // Root navigation, placeholder screens, feature flags, DEV sources.
         .target(
             name: "CmuxiOSShell",
-            dependencies: ["CmuxiOSDesign", "CmuxiOSFeatureKit", "CmuxiOSPlatform"],
+            dependencies: [
+                "CmuxiOSDesign", "CmuxiOSFeatureKit", "CmuxiOSPlatform", "CmuxiOSSettingsCore",
+                .product(name: "CmuxLink", package: "CmuxLink"),
+                .product(name: "CmuxTheme", package: "CmuxTheme"),
+                .product(name: "CmuxTerminalRenderCore", package: "CmuxTerminalRenderCore"),
+            ],
             resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
