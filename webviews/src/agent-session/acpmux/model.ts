@@ -494,24 +494,36 @@ import { agentName } from "./agents";
 import { type Translate, translate } from "./i18n";
 import { lastBlockBoundary } from "./conversation/incrementalMarkdown";
 
-/// The pane header: the agent the session runs (its first prompt already titles the session
-/// picker and opens the transcript), and a status only when it says something to act on.
-export function paneHeader(snapshot: AcpmuxSnapshot, t: Translate = translate): { title: string; status: string } {
+/// The pane's fallback accessible name and problem-only header status.
+export function paneHeader(
+  snapshot: AcpmuxSnapshot,
+  t: Translate = translate,
+): { title: string; status: string; detail?: string } {
   const harness = snapshot.summary?.harness;
   const title = harness
     ? agentName(harness, snapshot.catalog?.find((entry) => entry.id === harness)?.name)
     : t("header.agentChat");
-  // A turn running when the connection dropped never ends, so connection trouble wins over Working.
+  // Initial connecting and normal turn events are quiet. The client includes the failure
+  // after `connecting:` while retrying, and keeps it until a successful connection.
   const connection = snapshot.connection;
+  const retrying = connection.startsWith("connecting:") || connection === "reconnecting";
+  const failed = /^(error|failed)(:|$)/i.test(connection) || connection === "fork failed";
   const status =
     connection === "disconnected"
-      ? t("header.reconnecting")
-      : connection.startsWith("connecting")
-        ? t("header.connecting")
-        : snapshot.isWorking
-          ? t("header.working")
-          : connection === "mock"
-            ? t("header.mock")
-            : "";
-  return { title, status };
+      ? t("header.disconnected")
+      : retrying
+        ? t("header.reconnecting")
+        : failed
+          ? t("header.failed")
+          : "";
+  if (!status) return { title, status };
+  const reason = connection.includes(":") ? connection.slice(connection.indexOf(":") + 1).trim() : undefined;
+  let rowError: string | undefined;
+  if (failed && !reason) {
+    for (let index = snapshot.rows.length - 1; index >= 0; index--) {
+      rowError = snapshot.rows[index]?.error;
+      if (rowError) break;
+    }
+  }
+  return { title, status, detail: reason || rowError || status };
 }
