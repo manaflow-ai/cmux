@@ -3101,6 +3101,26 @@ final class SocketClient {
         }
     }
 
+    /// The pid of the process listening on the control socket (the cmux app),
+    /// resolved locally via LOCAL_PEERPID. The tmux shim reports this as
+    /// `#{pid}`: tmux server identity probes (kill(pid, 0), start-time checks)
+    /// need a process that stays alive for the session, and the app owns the
+    /// socket the shim speaks to. Nil for relay endpoints, where no local
+    /// process owns the far end, or when the kernel lookup fails.
+    var serverProcessID: pid_t? {
+        guard relayEndpoint == nil else { return nil }
+        if socketFD < 0 {
+            try? connect()
+        }
+        guard socketFD >= 0 else { return nil }
+        var pid: pid_t = 0
+        var pidSize = socklen_t(MemoryLayout<pid_t>.size)
+        guard getsockopt(socketFD, SOL_LOCAL, LOCAL_PEERPID, &pid, &pidSize) == 0, pid > 0 else {
+            return nil
+        }
+        return pid
+    }
+
     func operationTelemetryContext() -> [String: Any] {
         lastOperationTelemetry?.context() ?? [:]
     }
@@ -24825,6 +24845,21 @@ struct CMUXCLI {
             "pane_height": "24",
             "pane_current_path": tmuxFallbackCurrentPath()
         ]
+        // Server identity formats. oh-my-claude-sisyphus >= 5.6 requires both
+        // at team startup (`tmux display-message -p '#{socket_path}\t#{pid}'`)
+        // and aborts with tmux_server_identity_unavailable when they render
+        // empty. socket_path mirrors the fake $TMUX endpoint this shim
+        // injected so it round-trips with the `-S` endpoint the caller used;
+        // pid is the control socket's owner (the cmux app), which stays alive
+        // for the caller's kill(pid, 0) liveness probes.
+        if let tmuxEnv = ProcessInfo.processInfo.environment["TMUX"], !tmuxEnv.isEmpty,
+           let socketPath = tmuxEnv.split(separator: ",", maxSplits: 1, omittingEmptySubsequences: false).first,
+           !socketPath.isEmpty {
+            context["socket_path"] = String(socketPath)
+        }
+        if let serverPid = client.serverProcessID {
+            context["pid"] = String(serverPid)
+        }
         let activeByCaller = tmuxResolvedCallerWorkspaceId(client: client) == canonicalWorkspaceId
         if activeByCaller {
             context["window_active"] = "1"
