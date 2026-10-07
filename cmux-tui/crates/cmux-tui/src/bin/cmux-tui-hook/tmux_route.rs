@@ -55,8 +55,7 @@ pub(super) fn select(
         .lines()
         .filter_map(|line| {
             let fields: Vec<&str> = line.split('\t').collect();
-            let [pid, activity, client_session, client_group, client_window] = fields[..]
-            else {
+            let [pid, activity, client_session, client_group, client_window] = fields[..] else {
                 return None;
             };
             let same_session =

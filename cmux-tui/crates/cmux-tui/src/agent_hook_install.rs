@@ -42,7 +42,7 @@ use windows_sys::Win32::System::Threading::{
 };
 
 mod message_hooks;
-use message_hooks::{hook_command, journal_hook_command};
+use message_hooks::{delivers_messages, hook_command, journal_hook_command};
 
 const COMMAND_MARKER: &str = "cmux-tui-journal-hook";
 const PLUGIN_MARKER: &str = "cmux-tui-journal-plugin";

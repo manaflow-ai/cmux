@@ -7,7 +7,7 @@ use super::{COMMAND_MARKER, shell_quote};
 /// (`cmux agent message`): the helper prints the provider's JSON itself, so
 /// the command echoes `{}` only when the helper is missing or fails, and
 /// Claude runs the hook synchronously to read that output.
-fn delivers_messages(provider: &str, event: &str) -> bool {
+pub(super) fn delivers_messages(provider: &str, event: &str) -> bool {
     matches!(
         (provider, event),
         ("claude", "UserPromptSubmit") | ("codex", "UserPromptSubmit") | ("codex", "Stop")

@@ -135,11 +135,7 @@ fn queued(socket: &Path, terminal: &str, deadline: Instant) -> anyhow::Result<Ve
     Ok(listed.as_array().cloned().unwrap_or_default())
 }
 
-fn acknowledge_delivered(
-    socket: &Path,
-    terminal: &str,
-    deadline: Instant,
-) -> anyhow::Result<()> {
+fn acknowledge_delivered(socket: &Path, terminal: &str, deadline: Instant) -> anyhow::Result<()> {
     let listed = request(
         socket,
         "agent.message.list",
