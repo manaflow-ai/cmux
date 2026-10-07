@@ -23,7 +23,7 @@ import (
 
 func TestGeneratedInventoryHasTypedMethodForEveryCommand(t *testing.T) {
 	commands := AllCommandMetadata()
-	if len(commands) != 232 {
+	if len(commands) != 235 {
 		t.Fatalf("generated commands = %d, want 232", len(commands))
 	}
 	clientType := reflect.TypeOf((*Client)(nil))
@@ -54,7 +54,7 @@ func TestGeneratedInventoryHasTypedMethodForEveryCommand(t *testing.T) {
 			t.Errorf("generated command inventory is missing %s", name)
 		}
 	}
-	if events := AllEventMetadata(); len(events) != 67 {
+	if events := AllEventMetadata(); len(events) != 69 {
 		t.Fatalf("generated events = %d, want 67", len(events))
 	}
 }

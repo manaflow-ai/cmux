@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "43d3465f155639d712ed61d32ee7d79c885cdec1df4f0f5c34e1876d54d31b7b";
+inline constexpr std::string_view kProtocolIrSha256 = "50ad745ac15be0742665d30da5813d864971d0225a7ae64814d1bd2bdf2a3089";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -2318,6 +2318,8 @@ enum class SizeDeviceKind {
     ipad,
     tui,
     browser,
+    linux_,
+    windows,
     unknown,
 };
 
