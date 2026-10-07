@@ -1,16 +1,19 @@
 //! The H.264 encoder behind one trait (cmux-encode's `H264Encoder`), so the codec is a
-//! build feature and a flag, not a code fork. Default: x264 ultrafast zerolatency (`x264`
-//! feature, on by default; GPL, so it stays in this binary): it keeps a text scroll at about
-//! 39 fps and 6 Mbit/s where openh264 fell to 28 fps (screen mode) or collapsed (camera
-//! mode). Alternative: OpenH264 from cmux-encode: Cisco's library, downloaded from Cisco
-//! by `cmux-rd openh264-install` (the host enable flow) into the per-user data directory
-//! or given with `--openh264-lib PATH`, loaded after its pinned SHA-256 matches; compiled
-//! from source in bench builds only.
+//! build feature and a flag, not a code fork. Default (`openh264` feature): Cisco's
+//! OpenH264 binary, downloaded from Cisco at run time by `cmux-rd openh264-install` (the
+//! host enable flow) into the per-user data directory or given with `--openh264-lib PATH`,
+//! loaded after its pinned SHA-256 matches (Cisco pays the H.264 patent royalties for that
+//! binary); compiled from source in bench builds only. x264 (`x264` feature, opt-in) waits
+//! for Lawrence's legal decision on H.264 patent royalties: dev and test builds only.
 
 use crate::Res;
+#[cfg(feature = "openh264")]
 use std::path::{Path, PathBuf};
 
-use cmux_encode::openh264::{load_verified, OpenH264, OpenH264Api, Platform};
+#[cfg(feature = "openh264")]
+use cmux_encode::openh264::{load_verified, Platform};
+#[cfg(any(feature = "openh264", feature = "bench"))]
+use cmux_encode::openh264::{OpenH264, OpenH264Api};
 pub use cmux_encode::H264Encoder;
 
 /// Encoder settings.
@@ -33,11 +36,13 @@ pub struct EncCfg<'a> {
     #[cfg_attr(not(feature = "x264"), allow(dead_code))]
     pub profile: &'a str,
     /// Cisco's OpenH264 library (`--openh264-lib`), checked against its pinned SHA-256.
+    #[cfg_attr(not(any(feature = "openh264", feature = "bench")), allow(dead_code))]
     pub openh264_lib: Option<&'a str>,
 }
 
 /// The copy `cmux-rd openh264-install` put in `dir` (the per-user data
 /// directory), if it is there. [`load_verified`] checks its hash on load.
+#[cfg(feature = "openh264")]
 fn installed_library(dir: Option<&Path>, platform: Platform) -> Option<PathBuf> {
     let path = cmux_encode::cisco::library_path(dir?, platform);
     path.is_file().then_some(path)
@@ -46,6 +51,7 @@ fn installed_library(dir: Option<&Path>, platform: Platform) -> Option<PathBuf> 
 /// `cmux-rd openh264-install [--dir PATH]`: the host enable flow's step that
 /// downloads Cisco's library from Cisco (never bundled, never built from
 /// source for the product). Prints the installed path.
+#[cfg(feature = "openh264")]
 pub fn install_openh264(opts: &crate::args::Opts) -> Res<()> {
     let platform = Platform::current().ok_or("Cisco publishes no OpenH264 for this platform")?;
     let dir = match opts.get("dir") {
@@ -57,19 +63,38 @@ pub fn install_openh264(opts: &crate::args::Opts) -> Res<()> {
     Ok(())
 }
 
-/// The OpenH264 entry points: Cisco's library from `--openh264-lib`, else
-/// the installer's per-user copy, else the source build (bench builds only;
-/// a shipped host never compiles OpenH264). A session never downloads.
-fn openh264_api(lib: Option<&str>) -> Res<OpenH264Api> {
+/// Cisco's library from `--openh264-lib`, else the installer's per-user copy.
+#[cfg(feature = "openh264")]
+fn cisco_api(lib: Option<&str>) -> Res<Option<OpenH264Api>> {
     let platform = Platform::current().ok_or("Cisco publishes no OpenH264 for this platform");
     if let Some(path) = lib {
-        return Ok(load_verified(path, platform?)?);
+        return Ok(Some(load_verified(path, platform?)?));
     }
     if let Ok(platform) = platform {
         let dir = cmux_encode::cisco::default_dir();
         if let Some(path) = installed_library(dir.as_deref(), platform) {
-            return Ok(load_verified(path, platform)?);
+            return Ok(Some(load_verified(path, platform)?));
         }
+    }
+    Ok(None)
+}
+
+/// Without the `openh264` feature there is no Cisco runtime path.
+#[cfg(all(feature = "bench", not(feature = "openh264")))]
+fn cisco_api(lib: Option<&str>) -> Res<Option<OpenH264Api>> {
+    match lib {
+        Some(_) => Err("--openh264-lib needs a build with the openh264 feature".into()),
+        None => Ok(None),
+    }
+}
+
+/// The OpenH264 entry points: Cisco's library (`cisco_api`), else the source
+/// build (bench builds only; a shipped host never compiles OpenH264). A
+/// session never downloads.
+#[cfg(any(feature = "openh264", feature = "bench"))]
+fn openh264_api(lib: Option<&str>) -> Res<OpenH264Api> {
+    if let Some(api) = cisco_api(lib)? {
+        return Ok(api);
     }
     #[cfg(feature = "bench")]
     return Ok(OpenH264Api::from_source());
@@ -79,6 +104,7 @@ fn openh264_api(lib: Option<&str>) -> Res<OpenH264Api> {
 
 pub fn open(cfg: &EncCfg<'_>) -> Res<Box<dyn H264Encoder>> {
     match cfg.codec {
+        #[cfg(any(feature = "openh264", feature = "bench"))]
         "openh264" => {
             let enc_cfg = cmux_encode::EncCfg {
                 width: cfg.width,
@@ -112,7 +138,7 @@ pub fn open(cfg: &EncCfg<'_>) -> Res<Box<dyn H264Encoder>> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "openh264"))]
 mod tests {
     use super::installed_library;
     use cmux_encode::openh264::{CiscoBinary, Platform};

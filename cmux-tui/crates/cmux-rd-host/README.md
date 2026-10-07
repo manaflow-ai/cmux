@@ -15,16 +15,19 @@ cmux-rd testapp --display :99 --workload marker|text|motion|idle
 ## Build
 
 This crate is its own Cargo workspace (excluded from the cmux-tui workspace) because it
-builds C code: openh264 from source, and optionally x264. Build it on Linux (a Testbox or a
+builds C code: openh264 from source (bench builds), and x264 only with `--features x264`. Build it on Linux (a Testbox or a
 VM), never on a Mac: `cargo build --release`.
 
 ## Licensing and codecs
 
-- cmux-tui, including this crate, is GPL-3.0-or-later (Lawrence, 2026-10-03). The default
-  build links x264 (GPL-2.0-or-later, compatible) statically; building needs a static
-  `libx264.a` (Ubuntu's `libx264-dev` ships one). x264 (r3108, 31e19f9) and OpenH264
-  2.6.0 are listed in THIRD_PARTY_LICENSES.md.
-- The default encoder is x264 `ultrafast` with `zerolatency` (no B-frames, no lookahead,
+- cmux-tui, including this crate, is GPL-3.0-or-later (Lawrence, 2026-10-03). x264 waits
+  for Lawrence's legal decision on H.264 patent royalties; the default encoder is Cisco's
+  OpenH264 binary downloaded from Cisco at run time (Cisco pays the royalties), feature
+  `openh264` (on by default, `--codec openh264`, below). x264 is opt-in only
+  (`--features x264`, needs a static `libx264.a`, Ubuntu's `libx264-dev`) and never in a
+  release build.
+  x264 (r3108, 31e19f9) and OpenH264 2.6.0 are listed in THIRD_PARTY_LICENSES.md.
+- x264 (opt-in) runs `ultrafast` with `zerolatency` (no B-frames, no lookahead,
   scene-cut off, infinite GOP, ABR with a one-frame VBV that follows congestion control).
   Measured on 1080p loopback (Testbox): text scroll 39 fps, G2G p50 9 ms, 6 Mbit/s;
   marker G2G p50 3.5 ms. openh264 in screen mode reached 28 fps / p50 38 ms on text and
@@ -45,7 +48,7 @@ VM), never on a Mac: `cargo build --release`.
     flushed and renamed, so a reader never sees a partial file.
   - Loading: `--openh264-lib PATH`, else the installed copy. `load_verified` hashes the
     file again and only then loads it with `dlopen`; a file with another hash is refused.
-  - x264 carries no patent coverage; shipping it to users still needs the D-RD1 decision.
+  - x264 carries no patent coverage; it ships to no one until Lawrence decides (D-RD1).
 - The encoder sits behind one trait (`encoder::H264Encoder`). Hardware encoders (VA-API,
   NVENC, and VideoToolbox on macOS hosts) are later implementations of the same trait.
 - `--profile high` (default) is for the macOS pane's VideoToolbox decoder; the Linux bench
