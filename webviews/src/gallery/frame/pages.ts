@@ -72,7 +72,10 @@ export async function mountMarkdownPage(state: MarkdownPageVariant, context: Sta
       "cmux.markdown.listFiles": () => ({ entries: [...files.keys()].map((path) => path.slice(dir.length)) }),
       "cmux.markdown.openLink": () => null,
       "cmux.markdown.recents": () => ({
-        items: Object.keys(state.files ?? {}).map((path, index) => ({ path, openedAt: Date.now() - index * 3_600_000 })),
+        items: Object.keys(state.files ?? {}).map((path, index) => ({
+          path,
+          openedAt: Date.now() - index * 3_600_000,
+        })),
       }),
     },
     ["cmux.markdown.changes", "cmux.markdown.look", "cmux.page.command"],
@@ -95,10 +98,11 @@ function filePatch(file: DiffFixtureFile): string {
         : `diff --git a/${file.path} b/${file.path}\n--- a/${file.path}\n+++ b/${file.path}\n`;
   // One hunk over the whole file: every line kept, removed or added (a line-level LCS).
   const rows: string[] = [];
-  const table = Array.from({ length: before.length + 1 }, () => new Array<number>(after.length + 1).fill(0));
+  const table = Array.from({ length: before.length + 1 }, () => Array.from({ length: after.length + 1 }, () => 0));
   for (let i = before.length - 1; i >= 0; i -= 1)
     for (let j = after.length - 1; j >= 0; j -= 1)
-      table[i]![j] = before[i] === after[j] ? table[i + 1]![j + 1]! + 1 : Math.max(table[i + 1]![j]!, table[i]![j + 1]!);
+      table[i]![j] =
+        before[i] === after[j] ? table[i + 1]![j + 1]! + 1 : Math.max(table[i + 1]![j]!, table[i]![j + 1]!);
   let i = 0;
   let j = 0;
   while (i < before.length || j < after.length) {
@@ -130,7 +134,10 @@ export async function mountDiffPage(state: DiffPageVariant, context: StageContex
   const patchPath = `/__patch/${token}/1.patch`;
   const realFetch = window.fetch.bind(window);
   window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
-    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url, location.href);
+    const url = new URL(
+      typeof input === "string" ? input : input instanceof URL ? input.href : input.url,
+      location.href,
+    );
     if (url.pathname === patchPath)
       return Promise.resolve(new Response(patch, { headers: { "Content-Type": "text/x-diff" } }));
     return realFetch(input, init);
@@ -179,7 +186,9 @@ export async function mountDiffPage(state: DiffPageVariant, context: StageContex
       "cmux.diff.sessionClose": () => ({ type: "sessionClosed" }),
       "cmux.diff.branchList": () => ({
         type: "branches",
-        value: { groups: [{ id: "suggested", label: "Suggested", rows: [{ ref: "main", label: "main", current: true }] }] },
+        value: {
+          groups: [{ id: "suggested", label: "Suggested", rows: [{ ref: "main", label: "main", current: true }] }],
+        },
       }),
       "cmux.diff.comments": (params: { method: string; params: Record<string, unknown> }) => {
         if (params.method === "viewedFiles.list") return { files: [] };

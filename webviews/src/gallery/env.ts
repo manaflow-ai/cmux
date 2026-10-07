@@ -162,7 +162,6 @@ export function writeEnv(env: GalleryEnv, params = new URLSearchParams()): URLSe
   return params;
 }
 
-
 /** What a stage frame renders: one variant of one entry, under the controls. */
 export type StageAddress = { entry: string; variant: string };
 

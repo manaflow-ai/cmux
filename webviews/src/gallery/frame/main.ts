@@ -133,5 +133,7 @@ const start = windowed
     )
   : mount().then(markReadyWhenStill);
 start.catch((error: unknown) =>
-  fail(`${entry.id}#${variantName} failed to mount:\n${error instanceof Error ? (error.stack ?? error.message) : String(error)}`),
+  fail(
+    `${entry.id}#${variantName} failed to mount:\n${error instanceof Error ? (error.stack ?? error.message) : String(error)}`,
+  ),
 );

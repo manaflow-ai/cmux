@@ -54,7 +54,13 @@ export type ManifestOptions = {
   limit?: number;
 };
 
-const list = (value: string | undefined) => (value ? value.split(",").map((item) => item.trim()).filter(Boolean) : []);
+const list = (value: string | undefined) =>
+  value
+    ? value
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean)
+    : [];
 const matches = (id: string, wanted: string[]) =>
   wanted.length === 0 || wanted.some((prefix) => id === prefix || id.startsWith(`${prefix}.`) || id.startsWith(prefix));
 
@@ -77,7 +83,8 @@ export function manifestCases(entries: GalleryEntry[], options: ManifestOptions 
           : options.themes && options.themes !== "default"
             ? list(options.themes)
             : [DEFAULT_DARK_THEME];
-  for (const name of themes) if (!byName.has(name)) throw new Error(`no shipped Ghostty theme named ${JSON.stringify(name)}`);
+  for (const name of themes)
+    if (!byName.has(name)) throw new Error(`no shipped Ghostty theme named ${JSON.stringify(name)}`);
   const widths: (WidthName | number)[] =
     options.widths === "all"
       ? ["narrow", "normal", "wide"]
@@ -94,7 +101,9 @@ export function manifestCases(entries: GalleryEntry[], options: ManifestOptions 
   for (const entry of entries.filter((candidate) => matches(candidate.id, options.entries ?? []))) {
     if (entry.host === "native") continue;
     const presets = entry.widths ?? WIDTHS;
-    for (const variant of Object.keys(entry.variants).filter((name) => (options.variants?.length ? options.variants.includes(name) : true)))
+    for (const variant of Object.keys(entry.variants).filter((name) =>
+      options.variants?.length ? options.variants.includes(name) : true,
+    ))
       for (const locale of locales)
         for (const theme of themes)
           for (const shape of shapes) {
@@ -102,12 +111,21 @@ export function manifestCases(entries: GalleryEntry[], options: ManifestOptions 
             const base = { entry: entry.id, variant, locale, theme, colorScheme };
             if ("window" in shape) {
               const size = windowSize(shape.window);
-              const id = [entry.id, variant, locale, theme, shape.window, shape.layout].join("--").replace(/[^A-Za-z0-9._-]+/g, "_");
+              const id = [entry.id, variant, locale, theme, shape.window, shape.layout]
+                .join("--")
+                .replace(/[^A-Za-z0-9._-]+/g, "_");
               // The viewport is the window at its real size; the runner renders it at device scale 2.
               cases.push({
                 id,
                 path_or_url: "frame.html",
-                params: { ...base, frame: "window", window: shape.window, layout: shape.layout, width: size.width, height: size.height },
+                params: {
+                  ...base,
+                  frame: "window",
+                  window: shape.window,
+                  layout: shape.layout,
+                  width: size.width,
+                  height: size.height,
+                },
               });
             } else {
               const px = widthPx(shape.width, presets);

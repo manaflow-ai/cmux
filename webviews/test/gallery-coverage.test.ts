@@ -55,7 +55,8 @@ function components(): Map<string, string[]> {
 function pages(): string[] {
   const ids = new Set<string>();
   for (const file of walk(SWIFT, (candidate) => candidate.endsWith(".swift")))
-    for (const match of fs.readFileSync(file, "utf8").matchAll(/PageDescriptor\(\s*id:\s*"([^"]+)"/g)) ids.add(match[1]!);
+    for (const match of fs.readFileSync(file, "utf8").matchAll(/PageDescriptor\(\s*id:\s*"([^"]+)"/g))
+      ids.add(match[1]!);
   return [...ids].sort();
 }
 
@@ -71,7 +72,9 @@ describe("gallery coverage", async () => {
   const coveredComponents = new Set(
     covers
       .filter((cover) => !cover.startsWith("page:") && !cover.startsWith("swift:"))
-      .flatMap((cover) => (cover.includes("#") ? [cover] : (byFile.get(cover) ?? []).map((name) => `${cover}#${name}`))),
+      .flatMap((cover) =>
+        cover.includes("#") ? [cover] : (byFile.get(cover) ?? []).map((name) => `${cover}#${name}`),
+      ),
   );
   const coveredPages = new Set(covers.filter((cover) => cover.startsWith("page:")).map((cover) => cover.slice(5)));
   const missing = {

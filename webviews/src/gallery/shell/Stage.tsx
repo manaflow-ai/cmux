@@ -122,11 +122,7 @@ export function Stage({
     // The window lays out at its real size; one transform scales the finished window, so its
     // aspect ratio, text and spacing stay as the user sees them.
     frame = windowSize(env.window);
-    scale = thumbnail
-      ? THUMBNAIL_WIDTH / frame.width
-      : env.zoom === "fit"
-        ? fitScale(frame, available)
-        : env.zoom;
+    scale = thumbnail ? THUMBNAIL_WIDTH / frame.width : env.zoom === "fit" ? fitScale(frame, available) : env.zoom;
   } else {
     // The pane's width; the interface scale zooms the page inside it, as pageZoom does.
     frame = {
@@ -204,6 +200,7 @@ export function Controls({ env, onChange }: { env: GalleryEnv; onChange: (env: G
             <input
               type="radio"
               name="colorScheme"
+              aria-label={`Appearance ${scheme}`}
               checked={env.colorScheme === scheme}
               onChange={() => set("colorScheme", scheme)}
             />
@@ -215,13 +212,16 @@ export function Controls({ env, onChange }: { env: GalleryEnv; onChange: (env: G
         Font
         <input
           list="gallery-fonts"
+          aria-label="Font"
           value={env.fontFamily}
           placeholder="page default"
           onChange={(event) => set("fontFamily", event.target.value)}
         />
         <datalist id="gallery-fonts">
           {FONTS.filter(Boolean).map((font) => (
-            <option key={font} value={font} />
+            <option key={font} value={font}>
+              {font}
+            </option>
           ))}
         </datalist>
       </label>
@@ -229,6 +229,7 @@ export function Controls({ env, onChange }: { env: GalleryEnv; onChange: (env: G
         Size
         <input
           type="number"
+          aria-label="Font size"
           min={0}
           max={40}
           value={env.fontSize || ""}
@@ -238,7 +239,11 @@ export function Controls({ env, onChange }: { env: GalleryEnv; onChange: (env: G
       </label>
       <label>
         Density
-        <select title="The window chrome's metrics (MetricTunables); web pages have no density input" value={env.density} onChange={(event) => set("density", event.target.value as GalleryEnv["density"])}>
+        <select
+          title="The window chrome's metrics (MetricTunables); web pages have no density input"
+          value={env.density}
+          onChange={(event) => set("density", event.target.value as GalleryEnv["density"])}
+        >
           {DENSITIES.map((density) => (
             <option key={density}>{density}</option>
           ))}
@@ -259,7 +264,13 @@ export function Controls({ env, onChange }: { env: GalleryEnv; onChange: (env: G
         <legend>Frame</legend>
         {(["window", "component"] as const).map((frame) => (
           <label key={frame}>
-            <input type="radio" name="frame" checked={env.frame === frame} onChange={() => set("frame", frame)} />
+            <input
+              type="radio"
+              name="frame"
+              aria-label={`Frame ${frame}`}
+              checked={env.frame === frame}
+              onChange={() => set("frame", frame)}
+            />
             {frame}
           </label>
         ))}
@@ -271,7 +282,12 @@ export function Controls({ env, onChange }: { env: GalleryEnv; onChange: (env: G
             <select
               value={env.window in WINDOW_PRESETS ? env.window : "custom"}
               onChange={(event) =>
-                set("window", event.target.value === "custom" ? `${windowSize(env.window).width}x${windowSize(env.window).height}` : event.target.value)
+                set(
+                  "window",
+                  event.target.value === "custom"
+                    ? `${windowSize(env.window).width}x${windowSize(env.window).height}`
+                    : event.target.value,
+                )
               }
             >
               {Object.entries(WINDOW_PRESETS).map(([name, preset]) => (
@@ -296,7 +312,9 @@ export function Controls({ env, onChange }: { env: GalleryEnv; onChange: (env: G
               value={String(env.zoom)}
               onChange={(event) => set("zoom", event.target.value === "fit" ? "fit" : Number(event.target.value))}
             >
-              {(ZOOMS as readonly (string | number)[]).includes(env.zoom) ? null : <option value={String(env.zoom)}>{env.zoom}</option>}
+              {(ZOOMS as readonly (string | number)[]).includes(env.zoom) ? null : (
+                <option value={String(env.zoom)}>{env.zoom}</option>
+              )}
               {ZOOMS.map((zoom) => (
                 <option key={zoom} value={String(zoom)}>
                   {zoom === "fit" ? "fit" : `${Math.round(zoom * 100)}%`}
@@ -317,39 +335,42 @@ export function Controls({ env, onChange }: { env: GalleryEnv; onChange: (env: G
         </>
       )}
       {env.frame === "component" && (
-      <label>
-        Width
-        <select
-          value={typeof env.width === "number" ? "custom" : env.width}
-          onChange={(event) =>
-            set(
-              "width",
-              event.target.value === "custom" ? widthPx(env.width) : (event.target.value as keyof typeof WIDTHS),
-            )
-          }
-        >
-          {Object.entries(WIDTHS).map(([name, px]) => (
-            <option key={name} value={name}>
-              {name} ({px})
-            </option>
-          ))}
-          <option value="custom">custom</option>
-        </select>
-        {typeof env.width === "number" && (
-          <input
-            type="number"
-            min={240}
-            max={3000}
-            value={env.width}
-            aria-label="Custom width"
-            onChange={(event) => set("width", Number(event.target.value) || 760)}
-          />
-        )}
-      </label>
+        <label>
+          Width
+          <select
+            value={typeof env.width === "number" ? "custom" : env.width}
+            onChange={(event) =>
+              set(
+                "width",
+                event.target.value === "custom" ? widthPx(env.width) : (event.target.value as keyof typeof WIDTHS),
+              )
+            }
+          >
+            {Object.entries(WIDTHS).map(([name, px]) => (
+              <option key={name} value={name}>
+                {name} ({px})
+              </option>
+            ))}
+            <option value="custom">custom</option>
+          </select>
+          {typeof env.width === "number" && (
+            <input
+              type="number"
+              min={240}
+              max={3000}
+              value={env.width}
+              aria-label="Custom width"
+              onChange={(event) => set("width", Number(event.target.value) || 760)}
+            />
+          )}
+        </label>
       )}
       <label title="Native only: web pages have no text size input">
         Dynamic size
-        <select value={env.dynamicSize} onChange={(event) => set("dynamicSize", event.target.value as GalleryEnv["dynamicSize"])}>
+        <select
+          value={env.dynamicSize}
+          onChange={(event) => set("dynamicSize", event.target.value as GalleryEnv["dynamicSize"])}
+        >
           {DYNAMIC_SIZES.map((size) => (
             <option key={size}>{size}</option>
           ))}
@@ -358,17 +379,28 @@ export function Controls({ env, onChange }: { env: GalleryEnv; onChange: (env: G
       <label className="gallery-check" title="Native only">
         <input
           type="checkbox"
+          aria-label="Inactive window"
           checked={env.windowKey === "inactive"}
           onChange={(event) => set("windowKey", event.target.checked ? "inactive" : "key")}
         />
         Inactive window
       </label>
       <label className="gallery-check">
-        <input type="checkbox" checked={env.reducedMotion} onChange={(event) => set("reducedMotion", event.target.checked)} />
+        <input
+          type="checkbox"
+          aria-label="Reduce motion"
+          checked={env.reducedMotion}
+          onChange={(event) => set("reducedMotion", event.target.checked)}
+        />
         Reduce motion
       </label>
       <label className="gallery-check">
-        <input type="checkbox" checked={env.highContrast} onChange={(event) => set("highContrast", event.target.checked)} />
+        <input
+          type="checkbox"
+          aria-label="Increase contrast"
+          checked={env.highContrast}
+          onChange={(event) => set("highContrast", event.target.checked)}
+        />
         Increase contrast
       </label>
       <button type="button" onClick={() => onChange(DEFAULT_ENV)}>

@@ -29,7 +29,10 @@ const galleryDir = path.join(webviewsRoot, "src/gallery");
 const FIXTURE_INDEX = path.join(repoRoot, "schemas/gallery/fixtures.json");
 const FIXTURES_ID = "virtual:cmux-gallery/fixtures";
 const METRICS_ID = "virtual:cmux-gallery/metrics";
-const METRICS_SWIFT = path.join(repoRoot, "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/MetricTunables.swift");
+const METRICS_SWIFT = path.join(
+  repoRoot,
+  "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/MetricTunables.swift",
+);
 const THEMES_ID = "virtual:cmux-gallery/themes";
 const WEB_THEME_ID = "virtual:cmux-gallery/web-theme";
 const PANE_CSS_ID = "virtual:cmux-gallery/agent-pane.css";
@@ -61,7 +64,8 @@ export function readSharedFixtures(): Record<string, unknown> {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) walk(full);
-      else if (entry.name.endsWith(".json")) out[path.relative(repoRoot, full)] = JSON.parse(fs.readFileSync(full, "utf8"));
+      else if (entry.name.endsWith(".json"))
+        out[path.relative(repoRoot, full)] = JSON.parse(fs.readFileSync(full, "utf8"));
     }
   };
   for (const root of fixtureRoots()) walk(path.join(repoRoot, root));
@@ -72,7 +76,9 @@ export function readSharedFixtures(): Record<string, unknown> {
 export function readChromeMetrics(file = METRICS_SWIFT): Record<string, { compact: number; comfortable: number }> {
   const swift = fs.readFileSync(file, "utf8");
   const out: Record<string, { compact: number; comfortable: number }> = {};
-  for (const match of swift.matchAll(/MetricTunable\.make\(\s*"(\w+)"[^)]*?compact:\s*([\d.]+),\s*comfortable:\s*([\d.]+)/g))
+  for (const match of swift.matchAll(
+    /MetricTunable\.make\(\s*"(\w+)"[^)]*?compact:\s*([\d.]+),\s*comfortable:\s*([\d.]+)/g,
+  ))
     out[match[1]!] = { compact: Number(match[2]), comfortable: Number(match[3]) };
   for (const name of ["sidebarWidth", "titlebarHeight", "tabStripHeight", "tabHeight", "columnGap"])
     if (!out[name]) throw new Error(`gallery: no ${name} in ${file}; update readChromeMetrics`);
@@ -146,12 +152,12 @@ export function galleryModules(): Plugin {
           : file === METRICS_SWIFT
             ? `\0${METRICS_ID}`
             : file.startsWith(`${THEMES_DIR}/`)
-          ? `\0${THEMES_ID}`
-          : file === WEB_THEME_SWIFT
-            ? `\0${WEB_THEME_ID}`
-            : file === PANE_BUILD_SCRIPT
-              ? PANE_CSS_PATH
-              : undefined;
+              ? `\0${THEMES_ID}`
+              : file === WEB_THEME_SWIFT
+                ? `\0${WEB_THEME_ID}`
+                : file === PANE_BUILD_SCRIPT
+                  ? PANE_CSS_PATH
+                  : undefined;
         const module = id ? server.moduleGraph.getModuleById(id) : undefined;
         if (!module) return;
         server.moduleGraph.invalidateModule(module);
