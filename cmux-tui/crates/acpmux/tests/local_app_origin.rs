@@ -163,13 +163,7 @@ async fn the_app_pane_is_local_and_the_pool_serves_it() {
     let token = d.local_token();
     let (mut ws, init) = hello(&d, Some(PANE), Some(&token)).await;
     assert_eq!(origin_of(&init), "local", "{init}");
-    let trust = call(
-        &mut ws,
-        2,
-        "acp.trust.set",
-        json!({"cwd": d.home, "level": "trusted"}),
-    )
-    .await;
+    let trust = call(&mut ws, 2, "acp.trust.set", json!({"cwd": d.home, "level": "trusted"})).await;
     assert!(trust.get("error").is_none(), "{trust}");
     let warmed = call(
         &mut ws,
