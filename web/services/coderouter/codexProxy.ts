@@ -1,6 +1,7 @@
 import { accountAccessForIdentity } from "./accountAccess";
 import {
   authenticateRouteToken,
+  hasConfiguredAccount,
   markAccountCooldown,
   nextCapacityAvailableAt,
   selectAccountForRequest,
@@ -83,6 +84,12 @@ type CodexResponsesDependencies = {
    * instead of holding for capacity.
    */
   readonly nextAvailableAt?: typeof nextCapacityAvailableAt;
+  /**
+   * Whether the caller can see any Codex-family account, in any state. When
+   * the first selection finds nothing and this is false, the request gets a
+   * terminal 403 instead of a retryable 503.
+   */
+  readonly hasConfiguredAccount?: typeof hasConfiguredAccount;
 };
 
 /** Runtime seams used by tests to exercise request-wide timeout behavior. */
@@ -175,6 +182,7 @@ export const proxyCodexRequest = createCodexResponsesProxy({
   credential: freshCredential,
   cooldown: markAccountCooldown,
   nextAvailableAt: nextCapacityAvailableAt,
+  hasConfiguredAccount,
 });
 
 /**
@@ -288,6 +296,7 @@ async function proxyCodexRequestWith(
   let failureStage: "account_selection" | "credential_refresh" | "upstream_transport" =
     "account_selection";
   let upstream: Response | null = null;
+  let noAccountConfigured = false;
   for (let attempt = 0; ; attempt++) {
     throwIfRequestAborted(request);
     if (attempted.length >= MAX_ACCOUNTS_PER_ROUND) {
@@ -344,6 +353,10 @@ async function proxyCodexRequestWith(
       attributes: { provider: "codex", attempt: attempt + 1, sticky: account?.sticky ?? false, healthy: account !== null },
     });
     if (!account) {
+      if (attempt === 0 && !await teamHasCodexAccount(dependencies, identity, request.signal)) {
+        noAccountConfigured = true;
+        break;
+      }
       if (await holdForNextRound()) continue;
       break;
     }
@@ -645,6 +658,9 @@ async function proxyCodexRequestWith(
       upstream = probed.response;
     }
     break;
+  }
+  if (noAccountConfigured) {
+    return noCodexAccountConfigured({ requestId, identity, request, startedAt });
   }
   if (!upstream) {
     captureRouteHealth({
@@ -1420,6 +1436,58 @@ function unauthorizedError(reason: RouteTokenAuthFailure): Response {
   );
 }
 
+/**
+ * Only a failed lookup or a team with an account answers true: an unknown
+ * answer keeps the retryable 503 rather than telling a client to stop.
+ */
+async function teamHasCodexAccount(
+  dependencies: Pick<CodexResponsesDependencies, "hasConfiguredAccount">,
+  identity: RouteTokenIdentity,
+  signal: AbortSignal,
+): Promise<boolean> {
+  if (!dependencies.hasConfiguredAccount) return true;
+  try {
+    return await dependencies.hasConfiguredAccount({
+      teamId: identity.teamId,
+      provider: RESPONSES_PROVIDERS,
+      access: accountAccessForIdentity(identity),
+      signal,
+    });
+  } catch (error) {
+    if (signal.aborted) throw error;
+    return true;
+  }
+}
+
+/**
+ * The team has not added a Codex account. Codex retries 429 and 5xx, so a
+ * 403 in the OpenAI error shape surfaces once with the recovery step. It is
+ * still a tenant fault: `provider_config` marks it in the route record.
+ */
+function noCodexAccountConfigured(input: {
+  readonly requestId: string;
+  readonly identity: RouteTokenIdentity;
+  readonly request: Request;
+  readonly startedAt: number;
+}): Response {
+  captureRouteHealth({
+    ...input,
+    status: 403,
+    attempted: 0,
+    refreshRetries: 0,
+    outcome: "no_usable_account",
+    failureStage: "provider_config",
+    responseStreamed: false,
+  });
+  return Response.json({
+    error: {
+      message: "No Codex account is configured for this team. Add one with `cr add codex` or at coderouter.dev.",
+      type: "invalid_request_error",
+      code: "no_account_configured",
+    },
+  }, { status: 403, headers: { "cache-control": "no-store" } });
+}
+
 function jsonError(
   error: string,
   status: number,
@@ -1460,6 +1528,7 @@ function captureRouteHealth(input: {
   readonly failureStage?:
     | "none"
     | "auth"
+    | "provider_config"
     | "account_selection"
     | "credential_refresh"
     | "upstream_transport"
