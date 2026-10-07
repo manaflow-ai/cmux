@@ -140,8 +140,9 @@ export type { FreestylePreconnectOptions } from "./freestyleWarmup";
 // workflows.ts), also after the response and never awaited by attach.
 //
 // The coderouter model plane is edge-injected: the create carries an inline
-// `tls` rule for the coderouter host whose transform overwrites `x-cmux-authorization` to every request the
-// guest makes there. The platform steers the host to its edge (/etc/hosts) and
+// `tls` rule for the coderouter host whose transform overwrites the signed
+// `x-cmux-authorization` plus compatibility bearer/VM headers on every request
+// the guest makes there. The platform steers the host to its edge (/etc/hosts) and
 // installs its CA at boot; rules added after boot never reach a running
 // guest, so the rule must be inline. The baked env file holds only base
 // URLs and placeholder keys: no token is ever written into the guest, and
@@ -615,6 +616,20 @@ export function isFreestyleNetworkFull(err: unknown): boolean {
 }
 
 /** Wraps a provider failure, keeping a full network distinguishable from an outage. */
+/**
+ * Freestyle's answer when an exec outlived its timeout and the guest reported
+ * no exit for it: 409 VM_NON_RESPONSIVE, "exec produced no exit within <t>".
+ * The machine itself still answers (the next exec returns at once), so this
+ * is the command's timeout, the same outcome as a null status (exit 124), not
+ * a provider outage. Other VM_NON_RESPONSIVE answers stay provider errors.
+ */
+function isFreestyleExecNoExit(err: unknown): boolean {
+  return err instanceof FreestyleApiError
+    && err.status === 409
+    && err.code === "VM_NON_RESPONSIVE"
+    && /exec produced no exit/i.test(err.message);
+}
+
 function freestyleOperationError(operation: string, err: unknown): ProviderError {
   return isFreestyleNetworkFull(err)
     ? new ProviderNetworkFullError("freestyle", `${operation}: private network has no free addresses`, err)
@@ -1293,6 +1308,14 @@ export class FreestyleProvider implements VMProvider {
           setSpanAttributes(span, { "cmux.exec.exit_code": exitCode });
           return { exitCode, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
         } catch (err) {
+          if (isFreestyleExecNoExit(err)) {
+            setSpanAttributes(span, { "cmux.exec.exit_code": 124, "cmux.exec.no_exit_reported": true });
+            return {
+              exitCode: 124,
+              stdout: "",
+              stderr: `cmux: the command did not exit within ${Math.round(timeoutMs / 1000)}s and its output was lost; it may still be running on the machine.\n`,
+            };
+          }
           throw new ProviderError("freestyle", `exec(${vmId})`, err);
         }
       },
