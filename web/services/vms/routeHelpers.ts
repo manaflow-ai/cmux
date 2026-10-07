@@ -1,3 +1,4 @@
+import { preauthenticatedVmUser } from "./preauthenticatedUser";
 import { cloudOperationId, CloudOperationProgress } from "../observability/cloudOperationProgress";
 import type { Span } from "@opentelemetry/api";
 import { trace } from "@opentelemetry/api";
@@ -159,11 +160,14 @@ export async function withAuthedVmApiRoute(
         const routeStartedAtMs = requestContext.startedAtMs;
         const bearer = parseBearer(request);
         const authStart = performance.now();
-        let user: AuthedUser | null;
-        try {
-          user = await verifyRequest(request, { requestedTeamId: requestedVmTeamIdFromRequest(request) });
-        } catch (error) {
-          return finalize(authProviderErrorResponse(error, `${route}.auth`));
+        const preauthenticated = preauthenticatedVmUser();
+        let user: AuthedUser | null = preauthenticated;
+        if (!user) {
+          try {
+            user = await verifyRequest(request, { requestedTeamId: requestedVmTeamIdFromRequest(request) });
+          } catch (error) {
+            return finalize(authProviderErrorResponse(error, `${route}.auth`));
+          }
         }
         const authDurationMs = performance.now() - authStart;
         recordSpanTiming(span, "auth", authDurationMs);
@@ -190,7 +194,8 @@ export async function withAuthedVmApiRoute(
           billingCustomerType: user.billingCustomerType,
           planId: user.billingPlanId ?? user.userBillingPlanId,
         });
-        const mutationForbidden = enforceBrowserMutationProtection(request, bearer);
+        // A preauthenticated caller carries no browser cookie to protect.
+        const mutationForbidden = preauthenticated ? null : enforceBrowserMutationProtection(request, bearer);
         if (mutationForbidden) return finalize(mutationForbidden);
         return finalize(await handler({ user, span, authDurationMs, routeStartedAtMs, setResponseFinalizer }));
       } catch (err) {
@@ -471,8 +476,9 @@ export async function reverifyVmRequestForTeam(input: {
 export function resolveVmRouteAccountScope(
   user: AuthedUser,
   request: Request,
+  options: VmProvisioningScopeOptions = {},
 ): VmRouteAccountScope {
-  return resolveVmAccountScope(user, request);
+  return resolveVmAccountScope(user, request, options);
 }
 
 function resolveVmAccountScope(

@@ -26,6 +26,27 @@ import type { VmRouteResult } from "../services/vms/routeWorkflow";
 import type { VmWorkflowProgram } from "../services/vms/workflows";
 
 const TERMINAL = "term_228c5e7589391886d2e22f31759e71e4";
+
+/** Gateway members the terminal tools never touch. */
+const gatewayDefaults = {
+  scopes: null,
+  profile: async () => ({ id: "cmux_profile" }),
+  account: async () => ({ planId: "pro", teamName: null, maxActiveVms: 3, activeVmCount: 0, memoryOptionsMb: [4096] }),
+  createMachine: async () => { throw new Error("unexpected create"); },
+  setMachineState: async () => { throw new Error("unexpected state change"); },
+  deleteMachine: async () => { throw new Error("unexpected delete"); },
+  readSettings: async () => ({}),
+  writeSettings: async () => {},
+} satisfies Partial<CloudMcpGateway>;
+
+/** Caller members the terminal tools never touch. */
+const callerDefaults = {
+  scopes: null,
+  profile: { id: "cmux_profile" },
+  teamName: null,
+  settings: { read: async () => ({}), write: async () => {} },
+  vmRoute: async () => { throw new Error("unexpected VM route call"); },
+} satisfies Partial<CloudMcpCaller>;
 const WORKSPACE = "ws_a2ee592c390e7fa3281014056f2103f0";
 
 type RecordedCall = { readonly machineId: string; readonly args: string };
@@ -33,6 +54,7 @@ type RecordedCall = { readonly machineId: string; readonly args: string };
 function fakeGateway(replies: Array<CloudMcpExecResult | ((call: RecordedCall) => CloudMcpExecResult)> = []) {
   const calls: RecordedCall[] = [];
   const gateway: CloudMcpGateway = {
+    ...gatewayDefaults,
     listMachines: async () => [{ id: "vm-a", name: "alpha", status: "running" }],
     runCmuxTui: async (machineId, args) => {
       const call = { machineId, args };
@@ -72,12 +94,13 @@ describe("cloud MCP protocol", () => {
   test("notifications get no reply and unknown methods are method-not-found", async () => {
     const { gateway } = fakeGateway();
     expect(await handleCloudMcpMessage(gateway, { jsonrpc: "2.0", method: "notifications/initialized" })).toBeNull();
-    expect(await handleCloudMcpMessage(gateway, { jsonrpc: "2.0", id: 3, method: "resources/list" }))
+    expect(await handleCloudMcpMessage(gateway, { jsonrpc: "2.0", id: 3, method: "prompts/list" }))
       .toMatchObject({ error: { code: -32601 } });
   });
 
   test("a batch gets one reply per request, and a defect is a -32603 for that id", async () => {
     const gateway: CloudMcpGateway = {
+      ...gatewayDefaults,
       listMachines: async () => {
         throw new Error("database down");
       },
@@ -261,6 +284,7 @@ describe("cloud MCP scoping", () => {
     };
     const gatewayFor = (caller: { userId: string; teamIds?: string[]; billingTeamId?: string; listBillingTeamId?: string }) => {
       const full: CloudMcpCaller = {
+        ...callerDefaults,
         userId: caller.userId,
         teamIds: caller.teamIds ?? [],
         listScope: async () => caller.listBillingTeamId ?? null,
@@ -318,6 +342,7 @@ describe("cloud MCP scoping", () => {
   test("initialize and tools/list never resolve a billing scope", async () => {
     let resolved = 0;
     const gateway = cloudMcpGatewayFor({
+      ...callerDefaults,
       userId: OWNER,
       teamIds: [],
       listScope: async () => { resolved += 1; throw new Error("no team chosen"); },
@@ -331,6 +356,7 @@ describe("cloud MCP scoping", () => {
   test("a scope that cannot resolve is a tool error, and nothing runs", async () => {
     let programs = 0;
     const gateway = cloudMcpGatewayFor({
+      ...callerDefaults,
       userId: OWNER,
       teamIds: [],
       listScope: async () => { throw new CloudMcpToolError("vm_billing_team_required", "Pick a team."); },

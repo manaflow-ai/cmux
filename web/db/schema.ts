@@ -2720,3 +2720,63 @@ export const appleNotifications = pgTable("apple_notifications", {
     .on(table.receivedAt)
     .where(sql`${table.processedAt} is null`),
 ]);
+
+/**
+ * OAuth 2.1 clients registered through dynamic client registration (RFC 7591)
+ * for the cmux Cloud MCP server. Clients that use a Client ID Metadata
+ * Document (ChatGPT) have no row: their `client_id` is the document URL.
+ */
+export const mcpOauthClients = pgTable("mcp_oauth_clients", {
+  clientId: text("client_id").primaryKey(),
+  clientName: text("client_name"),
+  redirectUris: jsonb("redirect_uris").$type<string[]>().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * One user's consent for one MCP client, bound to one billing team (null for
+ * an account with no team) and a fixed scope set. Revoking it ends every
+ * token issued under it.
+ */
+export const mcpOauthGrants = pgTable("mcp_oauth_grants", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  clientId: text("client_id").notNull(),
+  clientName: text("client_name"),
+  stackUserId: text("stack_user_id").notNull(),
+  teamId: text("team_id"),
+  scopes: jsonb("scopes").$type<string[]>().notNull(),
+  /** Per-connection preferences set from the host's plugin settings page. */
+  settings: jsonb("settings").$type<Record<string, unknown>>().notNull().default({}),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+}, (table) => [
+  index("mcp_oauth_grants_user_idx").on(table.stackUserId, table.createdAt),
+]);
+
+/**
+ * Authorization codes, access tokens and refresh tokens for MCP grants. Only
+ * the SHA-256 digest of a value is stored. A code or refresh token is used
+ * once: `consumed_at` is set when it is redeemed, and redeeming a consumed
+ * refresh token again revokes the whole grant (RFC 9700 reuse detection).
+ */
+export const mcpOauthTokens = pgTable("mcp_oauth_tokens", {
+  tokenHash: text("token_hash").primaryKey(),
+  grantId: uuid("grant_id").notNull(),
+  kind: text("kind").notNull(),
+  /** Authorization codes only: the exact redirect URI and PKCE challenge they were issued for. */
+  redirectUri: text("redirect_uri"),
+  codeChallenge: text("code_challenge"),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  consumedAt: timestamp("consumed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  foreignKey({
+    columns: [table.grantId],
+    foreignColumns: [mcpOauthGrants.id],
+    name: "mcp_oauth_tokens_grant_id_fk",
+  }).onDelete("cascade"),
+  index("mcp_oauth_tokens_grant_idx").on(table.grantId),
+  index("mcp_oauth_tokens_expires_idx").on(table.expiresAt),
+  check("mcp_oauth_tokens_kind", sql`${table.kind} in ('code', 'access', 'refresh')`),
+]);

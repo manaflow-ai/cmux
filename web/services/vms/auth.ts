@@ -819,6 +819,30 @@ export async function verifyRequestIdentity(
 }
 
 /**
+ * Resolve a user the server already identified by other means (an MCP OAuth
+ * grant), with the same team, plan and account-deletion rules as
+ * `verifyRequest`. The team list is complete so a grant's team is checked
+ * against real membership. Returns null for an unknown or deleting account.
+ */
+export async function verifyStackUserById(
+  userId: string,
+  options: { readonly requestedTeamId?: string | null } = {},
+): Promise<AuthedUser | null> {
+  if (!isStackConfigured()) return null;
+  const user = await stackAuthorizationCall(
+    () => getStackServerApp().getUser(userId),
+    undefined,
+    "get_user_by_id",
+  );
+  if (!user) return null;
+  const resolved = await authedUserFromStackUser(user as unknown as StackUserLike, {
+    requestedTeamId: options.requestedTeamId,
+    forceCompleteTeamList: true,
+  });
+  return resolved?.user ?? null;
+}
+
+/**
  * A user resolved from Stack, plus whether the team list backing it is the
  * user's complete membership. Only a complete list may be snapshotted.
  */
