@@ -131,8 +131,10 @@ fn the_cua_server_proxies_to_the_apps_tag_helper_socket_with_the_agent_token() {
     let bin = bin_with(&["cmux-cua"]);
     let state = Temp::new();
     let mut with_app = inputs(bin.path(), None, state.path());
-    with_app.cua =
-        crate::cua_socket::select(Some("/tmp/tag/cmux-cua.sock".into()), Some("agent-token".into()));
+    with_app.cua = crate::cua_socket::select(
+        Some("/tmp/tag/cmux-cua.sock".into()),
+        Some("agent-token".into()),
+    );
     let tools = resolve(&with_app);
     let cua = &tools.servers[0];
     assert_eq!(cua.args, ["mcp", "--socket", "/tmp/tag/cmux-cua.sock"]);
@@ -142,7 +144,9 @@ fn the_cua_server_proxies_to_the_apps_tag_helper_socket_with_the_agent_token() {
 
     // No token exported: no token env. No socket exported: cmux-cua's default.
     with_app.cua = crate::cua_socket::select(Some("/tmp/tag/cmux-cua.sock".into()), None);
-    assert!(!resolve(&with_app).servers[0].env.iter().any(|(k, _)| k == "CMUX_CUA_SOCKET_AUTH_TOKEN"));
+    assert!(
+        !resolve(&with_app).servers[0].env.iter().any(|(k, _)| k == "CMUX_CUA_SOCKET_AUTH_TOKEN")
+    );
     assert_eq!(crate::cua_socket::select(Some("  ".into()), Some("t".into())), None);
     assert_eq!(resolve(&inputs(bin.path(), None, state.path())).servers[0].args, ["mcp"]);
 }
@@ -152,21 +156,28 @@ fn a_session_scope_reaches_only_the_cua_server_and_defaults_to_empty() {
     let bin = bin_with(&["cmux-cua", "cmux"]);
     let state = Temp::new();
     let tools = resolve(&inputs(bin.path(), Some("{\"mcp\":{\"enabled\":true}}"), state.path()));
-    let scope = |tools: &AgentTools, name: &str| {
-        tools
-            .servers
-            .iter()
-            .find(|s| s.name == name)
-            .and_then(|s| s.env.iter().find(|(k, _)| k == CUA_SCOPE_ENV).map(|(_, v)| v.clone()))
-    };
+    let scope =
+        |tools: &AgentTools, name: &str| {
+            tools.servers.iter().find(|s| s.name == name).and_then(|s| {
+                s.env.iter().find(|(k, _)| k == CUA_SCOPE_ENV).map(|(_, v)| v.clone())
+            })
+        };
     let unscoped = tools.clone().scoped(&BTreeMap::new());
-    assert_eq!(scope(&unscoped, "cmux-cua").as_deref(), Some(""), "no scope unless the session sets one");
-    let env = BTreeMap::from([(CUA_SCOPE_ENV.to_owned(), "com.cmuxterm.app.debug.agt1".to_owned())]);
+    assert_eq!(
+        scope(&unscoped, "cmux-cua").as_deref(),
+        Some(""),
+        "no scope unless the session sets one"
+    );
+    let env =
+        BTreeMap::from([(CUA_SCOPE_ENV.to_owned(), "com.cmuxterm.app.debug.agt1".to_owned())]);
     let scoped = tools.scoped(&env);
     assert_eq!(scope(&scoped, "cmux-cua").as_deref(), Some("com.cmuxterm.app.debug.agt1"));
     assert_eq!(scope(&scoped, "cmux"), None, "the scope is for computer use only");
     let config: Value = serde_json::from_str(&scoped.claude_args()[1]).unwrap();
-    assert_eq!(config["mcpServers"]["cmux-cua"]["env"][CUA_SCOPE_ENV], "com.cmuxterm.app.debug.agt1");
+    assert_eq!(
+        config["mcpServers"]["cmux-cua"]["env"][CUA_SCOPE_ENV],
+        "com.cmuxterm.app.debug.agt1"
+    );
 }
 
 #[test]

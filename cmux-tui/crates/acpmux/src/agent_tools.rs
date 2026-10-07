@@ -174,7 +174,11 @@ pub fn claude_args_for(
     env: &BTreeMap<String, String>,
     args: &[String],
 ) -> Vec<String> {
-    if left_out(remote_origin, env, args) { Vec::new() } else { current().scoped(env).claude_args() }
+    if left_out(remote_origin, env, args) {
+        Vec::new()
+    } else {
+        current().scoped(env).claude_args()
+    }
 }
 
 pub fn resolve(inputs: &Inputs) -> AgentTools {
@@ -186,9 +190,15 @@ pub fn resolve(inputs: &Inputs) -> AgentTools {
         inputs.bin_dir.as_ref().map(|dir| dir.join(name)).filter(|path| is_executable(path))
     };
     if let Some(cua) = executable("cmux-cua") {
-        let args = vec!["mcp".to_owned()];
-        let socket_env: Vec<(String, String)> = Vec::new();
-        let _ = &inputs.cua; // red: the app's socket is not passed
+        let mut args = vec!["mcp".to_owned()];
+        let mut socket_env: Vec<(String, String)> = Vec::new();
+        if let Some(socket) = &inputs.cua {
+            args.push("--socket".into());
+            args.push(socket.path.to_string_lossy().into_owned());
+            if !socket.token.is_empty() {
+                socket_env.push(("CMUX_CUA_SOCKET_AUTH_TOKEN".into(), socket.token.clone()));
+            }
+        }
         servers.push(McpServer {
             name: "cmux-cua".into(),
             command: cua,
@@ -233,8 +243,14 @@ impl AgentTools {
     /// The tools for one session: its env's [`CUA_SCOPE_ENV`] reaches only
     /// the computer use server. Without one the server gets the key empty,
     /// so a value inherited from the daemon's env never widens the guard.
-    pub fn scoped(self, session_env: &BTreeMap<String, String>) -> Self {
-        let _ = session_env; // red: no scope
+    pub fn scoped(mut self, session_env: &BTreeMap<String, String>) -> Self {
+        let scope = session_env.get(CUA_SCOPE_ENV).cloned().unwrap_or_default();
+        for server in &mut self.servers {
+            server.env.retain(|(k, _)| k != CUA_SCOPE_ENV);
+            if server.name == "cmux-cua" {
+                server.env.push((CUA_SCOPE_ENV.to_owned(), scope.clone()));
+            }
+        }
         self
     }
 

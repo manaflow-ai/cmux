@@ -57,5 +57,7 @@ pub fn select(app_socket: Option<String>, app_token: Option<String>) -> Option<S
 
 /// Remove the helper tokens from a spawned agent's inherited env.
 pub fn scrub_agent_env(cmd: &mut tokio::process::Command) {
-    let _ = (cmd, AGENT_SCRUBBED_ENV); // red: nothing is removed
+    for key in AGENT_SCRUBBED_ENV {
+        cmd.env_remove(key);
+    }
 }
