@@ -290,6 +290,12 @@ impl Gate {
                     "session.configure: content rules come from the host's domain policy",
                 ));
             }
+            "session.configure" => {
+                if let Some(reason) = self.proxy_refusal(params) {
+                    return Err(proxy::refused(reason));
+                }
+                ("", None)
+            }
             _ => ("", None),
         };
         if let Some(url) = url
@@ -307,11 +313,15 @@ impl Gate {
     /// The domain policy and the range rule for a URL the agent opens or
     /// fetches (navigations and fetch never disagree).
     fn url_refusal(&self, url: &str) -> Option<String> {
-        let policy = self.policy.lock().unwrap_or_else(PoisonError::into_inner);
-        policy.navigation_refusal(url).or_else(|| {
-            let parsed = url::Url::parse(url).ok()?;
-            policy.egress_refusal(&parsed, self.grants.remote)
-        })
+        let refusal = {
+            let policy = self.policy.lock().unwrap_or_else(PoisonError::into_inner);
+            policy.navigation_refusal(url).or_else(|| {
+                let parsed = url::Url::parse(url).ok()?;
+                policy.egress_refusal(&parsed, self.grants.remote)
+            })
+        };
+        // Resolved outside the policy lock (a lookup can take a while).
+        refusal.or_else(|| self.proxied_name_refusal(url))
     }
 
     /// Replaces a `{__secret: name}` handle in `params[field]` with its text.
@@ -453,6 +463,11 @@ impl VmHost for Gate {
                 }
             }),
         };
+        if method == "session.configure"
+            && let Ok(Reply::Value(answer)) = &result
+        {
+            self.note_configured(answer);
+        }
         if method == "tabs.close"
             && result.is_ok()
             && let Some(target) = target
