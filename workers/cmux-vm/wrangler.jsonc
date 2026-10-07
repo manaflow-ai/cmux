@@ -51,10 +51,11 @@
         "UPSTREAM_API_URL": "https://api.freestyle.sh"
       }
     },
-    // vm-staging.cmux.com is attached when DNS is set up; no route here yet.
+    // vm-staging.cmux.com is attached when DNS is set up (cx-b4h.5); until
+    // then staging answers on cmux-vm-staging.<account>.workers.dev.
     "staging": {
       "name": "cmux-vm-staging",
-      "workers_dev": false,
+      "workers_dev": true,
       "durable_objects": { "bindings": [{ "name": "TENANT_LIMITS", "class_name": "TenantLimitsObject" }] },
       "migrations": [{ "tag": "v1-tenant-limits", "new_sqlite_classes": ["TenantLimitsObject"] }],
       "vars": {
