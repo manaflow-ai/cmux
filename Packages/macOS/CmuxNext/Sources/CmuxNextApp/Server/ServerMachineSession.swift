@@ -50,6 +50,8 @@ final class ServerMachineSession {
         case .ssh:
             if let link { link.connect() } else { daemon.store.markFailed(RemoteStrings.noClient) }
         case .unix(let path):
+            // Wait for the home daemon's identity (ServerReachService connects again then).
+            guard localIdentity() != nil else { return }
             guard !started else {
                 daemon.retryWake.fire()
                 return
@@ -57,17 +59,20 @@ final class ServerMachineSession {
             started = true
             let localIdentity = localIdentity
             daemon.start(remote: { path }, admit: { identity in
-                // The brain's daemon is its own session: never this Mac's home daemon.
-                guard let local = localIdentity() else { return }
-                if identity.generation == local.generation || (identity.sessionID != nil && identity.sessionID == local.sessionID) {
-                    throw CloudLinkError.unsafeSocket(CloudAppLinks.localDaemonDetail)
-                }
+                // The brain's daemon is its own session, never this Mac's home daemon (fails closed).
+                try CloudAppLinks.checkNotLocal(remote: identity, local: localIdentity())
             })
         }
     }
 
     func wake() {
         if let link { link.wake(.user) } else { daemon.retryWake.fire() }
+    }
+
+    /// Drops the connection but keeps the session listed (policy off).
+    func disconnect() {
+        if let link { link.disconnect(keepAutoConnect: true) } else { daemon.shutdownConnection() }
+        started = false
     }
 
     /// Ends the session for good (pairing removed, sign-out, quit).

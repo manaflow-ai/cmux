@@ -25,12 +25,15 @@ import Testing
         var chiefs: [[String: Any]] = []
         var hosts: [[String: Any]] = []
         var failReads = false
+        /// Replies `ok` with a value that lacks `hosts` / `chiefs`.
+        var malformed = false
         var reads: [String] = []
 
         func call(_ path: String, _ body: [String: Any]) async throws -> [String: Any] {
             let op = body["op"] as? String ?? ""
             reads.append(op)
             if failReads { throw FeedServiceError.owner(code: "owner.unreachable", message: "offline") }
+            if malformed { return ["ok": true, "value": ["team": "team_x"]] }
             switch op {
             case "chief.list": return ["ok": true, "value": ["chiefs": chiefs]]
             case "team.hosts.list": return ["ok": true, "value": ["team": "team_x", "hosts": hosts, "next_cursor": NSNull()]]
@@ -137,6 +140,10 @@ import Testing
         await service.read()
         #expect(machines.servers.count == 1, "an offline Worker must not drop a shown server")
         worker.failReads = false
+        worker.malformed = true
+        await service.read()
+        #expect(machines.servers.count == 1, "a reply without hosts or chiefs is not an empty directory")
+        worker.malformed = false
         worker.hosts = []  // server.revoke deletes the host
         await service.read()
         #expect(machines.servers.isEmpty)

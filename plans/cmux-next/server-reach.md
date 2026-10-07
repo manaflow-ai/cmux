@@ -61,3 +61,6 @@ This change adds no relay and no allowlist entry. `RemoteRelayPolicy.allowed` st
 1. The overlay route (3.1).
 2. A per-server route override in the UI (today the record's route comes from the server's name; a user whose SSH alias differs edits `~/.ssh/config`).
 3. Push removal on `server.revoke` from another device (3.1 item 7).
+4. The SSH destination follows `Host.name`; whoever can rename the host moves where the app's SSH (with the user's identity) goes. The overlay route removes this; until then it is the owner's own name.
+5. Two names that reduce to the same DNS label (`Lawrence's Mac`, `lawrences-mac`) both match this Mac; the `unix` route only ever opens this Mac's brain socket, so only the section title can be wrong.
+6. remote-link reuses a live sidecar of the `chief` carrier session without checking which mux socket it serves; only the server reach starts that session, always with the brain socket.
