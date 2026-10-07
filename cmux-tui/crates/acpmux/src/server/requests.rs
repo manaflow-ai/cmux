@@ -219,6 +219,7 @@ async fn dispatch_request(
                 model: pick("model"),
                 effort: pick("effort"),
                 adopt,
+                env: crate::session_env::parse(meta)?,
                 // LocalApp = same-user secret, equal to the unix socket for STARTING presets; writes stay unix-socket only.
                 remote: conn.origin.web_class(),
             };
@@ -341,7 +342,8 @@ async fn dispatch_request(
                 .and_then(Value::as_str)
                 .or_else(|| params.get("name").and_then(Value::as_str))
                 .map(str::to_owned);
-            let new = hub.fork(&s, name, cwd).await?;
+            let env = crate::session_env::parse(mux_meta(&params))?;
+            let new = hub.fork(&s, name, cwd, env).await?;
             attach(hub, conn, &new.id);
             let meta = new.meta();
             Ok(
@@ -747,7 +749,16 @@ async fn dispatch_request(
         }
         method::MUX_INFO => {
             let s = hub.resolve(session_key(&params)?)?;
-            Ok(hub.session_detail(&s))
+            let mut detail = hub.session_detail(&s);
+            // The session env reaches the unix socket only: no summary or
+            // event carries it, so a key added to the allowlist later never
+            // reaches another origin by default (session_env.rs).
+            if conn.origin == Origin::Local
+                && let Some(obj) = detail.as_object_mut()
+            {
+                obj.insert("sessionEnv".into(), json!(s.meta().session_env));
+            }
+            Ok(detail)
         }
         method::MUX_WAIT => wait::wait(hub, &params).await,
         method::MUX_SCHEMA => {

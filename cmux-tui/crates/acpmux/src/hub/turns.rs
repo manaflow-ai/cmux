@@ -734,6 +734,7 @@ impl Hub {
         session: &Arc<Session>,
         name: Option<String>,
         cwd: Option<PathBuf>,
+        session_env: std::collections::BTreeMap<String, String>,
     ) -> Result<Arc<Session>, RpcError> {
         let parent_meta = session.meta();
         let is_claude = self
@@ -810,6 +811,8 @@ impl Hub {
             last_turn: None,
             // A fork of a remote-origin session stays remote-origin.
             remote_origin: parent_meta.remote_origin,
+            // Never inherited: the fork request sets its own or runs without one.
+            session_env,
             harness_roots: vec![],
         };
         let new = self.make_session(meta);
