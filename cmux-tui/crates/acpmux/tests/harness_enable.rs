@@ -207,7 +207,8 @@ async fn the_cli_confirmation_is_the_enable_op_prompt_text() {
     let cfg = Config { folder_gate: Some(gate.clone()), ..Default::default() };
     let mut programs = std::collections::BTreeMap::new();
     for id in ["acme", "plain", "onpath"] {
-        let shown = c.request(method::MUX_HARNESS_ENABLE, json!({"folder": folder, "id": id})).await;
+        let shown =
+            c.request(method::MUX_HARNESS_ENABLE, json!({"folder": folder, "id": id})).await;
         let prompt = shown.unwrap()["prompt"].clone();
         let Confirmation::Ask { text, sha256 } = confirmation(&cfg, &folder, id).unwrap() else {
             panic!("{id}: the CLI found it already enabled");

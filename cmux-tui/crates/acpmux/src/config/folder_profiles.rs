@@ -450,10 +450,9 @@ pub fn resolve_for_session(
     let fp = load_one(cfg, gate, &folder, id)?;
     Some(match (fp.state, fp.profile) {
         (FolderState::Enabled, Some(profile)) => Ok((profile, folder)),
-        (FolderState::NeedsTrust, _) => Err(refuse(
-            needs_trust_message_parts(&fp.id, &fp.folder),
-            Some("harness.needs_trust"),
-        )),
+        (FolderState::NeedsTrust, _) => {
+            Err(refuse(needs_trust_message_parts(&fp.id, &fp.folder), Some("harness.needs_trust")))
+        }
         (FolderState::NeedsEnable, _) => Err(refuse(
             format!(
                 "harness {id} is a folder profile in {} that is not enabled (or changed since it was enabled); run `cmux harness enable {id} --folder {}`",

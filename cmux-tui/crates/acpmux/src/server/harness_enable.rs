@@ -40,10 +40,11 @@ pub(super) async fn handle(hub: &Hub, origin: Origin, params: &Value) -> Result<
         let gate = cfg.folder_gate.as_ref().ok_or_else(|| {
             RpcError::invalid_params("this daemon has no home: folder profiles are off")
         })?;
-        let shown = folder_profiles::prepare_enable(&cfg, gate, &folder, &id).map_err(|e| match e {
-            EnableRefusal::NotFound(m) => RpcError::not_found(m),
-            EnableRefusal::Refused(m) => RpcError::invalid_params(m),
-        })?;
+        let shown =
+            folder_profiles::prepare_enable(&cfg, gate, &folder, &id).map_err(|e| match e {
+                EnableRefusal::NotFound(m) => RpcError::not_found(m),
+                EnableRefusal::Refused(m) => RpcError::invalid_params(m),
+            })?;
         let Some(sha) = confirm else {
             return Ok(json!({"prompt": shown.prompt}));
         };

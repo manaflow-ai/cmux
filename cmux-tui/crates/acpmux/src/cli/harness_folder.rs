@@ -13,9 +13,9 @@ use std::path::{Path, PathBuf};
 use anyhow::{Result, anyhow, bail};
 use serde_json::json;
 
-use crate::config::{Config, HarnessProfile};
 use crate::config::folder_profiles::{self, FolderGate, FolderProfile, FolderState};
 use crate::config::profiles::Severity;
+use crate::config::{Config, HarnessProfile};
 
 fn gate(cfg: &Config) -> Result<&FolderGate> {
     cfg.folder_gate.as_ref().ok_or_else(|| anyhow!("no home folder: folder profiles are off"))

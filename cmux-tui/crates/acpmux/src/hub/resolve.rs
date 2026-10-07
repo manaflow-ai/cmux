@@ -119,9 +119,8 @@ pub(super) fn session_profile(
 fn folder_refusal(refusal: folder_profiles::FolderRefusal) -> RpcError {
     let error = RpcError::invalid_params(refusal.message);
     match refusal.reason {
-        Some(reason) => error.with_data(
-            json!({"reason": reason, "harness": refusal.id, "folder": refusal.folder}),
-        ),
+        Some(reason) => error
+            .with_data(json!({"reason": reason, "harness": refusal.id, "folder": refusal.folder})),
         None => error,
     }
 }

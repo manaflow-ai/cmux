@@ -232,7 +232,8 @@ fn folder_fixture(name: &str) -> (PathBuf, Config) {
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::create_dir_all(folder.join("sub")).unwrap();
     let path = dir.join("fakefolder.toml");
-    let text = format!("schema = 1\nid = \"fakefolder\"\ncommand = \"python3\"\nargs = [{FAKE:?}]\n");
+    let text =
+        format!("schema = 1\nid = \"fakefolder\"\ncommand = \"python3\"\nargs = [{FAKE:?}]\n");
     std::fs::write(&path, text).unwrap();
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
     let gate = folder_profiles::FolderGate {
