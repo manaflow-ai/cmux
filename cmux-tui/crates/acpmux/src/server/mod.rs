@@ -806,7 +806,7 @@ pub mod peer_auth;
 mod redact;
 mod remote_guard;
 mod requests;
-mod trust_gate;
+pub(crate) mod trust_gate;
 mod wait;
 use requests::handle_notification;
 
