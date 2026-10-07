@@ -66,7 +66,6 @@ impl Hub {
             "enforcement": self.session_enforcement(&m),
             "rules": m.permission_rules.is_some(),
             "tags": live_tags(&m),
-            "sessionEnv": m.session_env,
             "stateSeq": session.state_seq.load(Ordering::SeqCst),
             "unread": m.unread,
             "lastTurn": m.last_turn,

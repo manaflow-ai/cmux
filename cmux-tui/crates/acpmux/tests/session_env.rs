@@ -85,8 +85,9 @@ fn reason(reply: &Value) -> String {
 async fn the_unix_socket_sets_a_workspace_id_that_reaches_the_harness_over_the_preset() {
     let hub = hub();
     let mut local = client(&hub, Origin::Local);
-    let reply =
-        local.call("session/new", new_params(json!({"preset": "sub", "env": {"CMUX_WORKSPACE_ID": WS}}))).await;
+    let reply = local
+        .call("session/new", new_params(json!({"preset": "sub", "env": {"CMUX_WORKSPACE_ID": WS}})))
+        .await;
     assert!(reply.get("error").is_none(), "{reply}");
     let id = reply["result"]["sessionId"].as_str().unwrap().to_owned();
     assert_eq!(local.env_of(&id, "CMUX_WORKSPACE_ID").await, format!("CMUX_WORKSPACE_ID={WS}"));
@@ -101,7 +102,8 @@ async fn only_the_unix_socket_may_set_session_env() {
     let hub = hub();
     for origin in [Origin::LocalApp, Origin::Web, Origin::Peer] {
         let mut c = client(&hub, origin);
-        let reply = c.call("session/new", new_params(json!({"env": {"CMUX_WORKSPACE_ID": WS}}))).await;
+        let reply =
+            c.call("session/new", new_params(json!({"env": {"CMUX_WORKSPACE_ID": WS}}))).await;
         assert_eq!(reason(&reply), "env.origin_refused", "{origin:?}: {reply}");
     }
 }
@@ -115,8 +117,11 @@ async fn keys_off_the_allowlist_and_bad_values_are_refused() {
         assert_eq!(reason(&reply), "env.key_refused", "{key}: {reply}");
         assert!(reply.to_string().contains(key), "the refusal names {key}: {reply}");
     }
-    for bad in [json!("a".repeat(257)), json!("not-a-workspace"), json!(format!("{WS}\n")), json!(7)] {
-        let reply = local.call("session/new", new_params(json!({"env": {"CMUX_WORKSPACE_ID": bad}}))).await;
+    for bad in
+        [json!("a".repeat(257)), json!("not-a-workspace"), json!(format!("{WS}\n")), json!(7)]
+    {
+        let reply =
+            local.call("session/new", new_params(json!({"env": {"CMUX_WORKSPACE_ID": bad}}))).await;
         assert_eq!(reason(&reply), "env.value_refused", "{bad}: {reply}");
     }
     let reply = local.call("session/new", new_params(json!({"env": "CMUX_WORKSPACE_ID"}))).await;
@@ -127,8 +132,9 @@ async fn keys_off_the_allowlist_and_bad_values_are_refused() {
 async fn a_fork_inherits_no_session_env_unless_it_sets_it_again() {
     let hub = hub();
     let mut local = client(&hub, Origin::Local);
-    let reply =
-        local.call("session/new", new_params(json!({"preset": "sub", "env": {"CMUX_WORKSPACE_ID": WS}}))).await;
+    let reply = local
+        .call("session/new", new_params(json!({"preset": "sub", "env": {"CMUX_WORKSPACE_ID": WS}})))
+        .await;
     let id = reply["result"]["sessionId"].as_str().unwrap().to_owned();
     local.env_of(&id, "OTHER").await;
     let plain = local.call("session/fork", json!({"sessionId": id, "mcpServers": []})).await;
@@ -148,5 +154,30 @@ async fn a_fork_inherits_no_session_env_unless_it_sets_it_again() {
         .await;
     assert!(again.get("error").is_none(), "{again}");
     let fork2 = again["result"]["sessionId"].as_str().unwrap().to_owned();
-    assert_eq!(local.env_of(&fork2, "CMUX_WORKSPACE_ID").await, format!("CMUX_WORKSPACE_ID={other}"));
+    assert_eq!(
+        local.env_of(&fork2, "CMUX_WORKSPACE_ID").await,
+        format!("CMUX_WORKSPACE_ID={other}")
+    );
+}
+
+#[tokio::test]
+async fn only_the_unix_socket_reads_a_session_env() {
+    let hub = hub();
+    let mut local = client(&hub, Origin::Local);
+    let reply = local
+        .call("session/new", new_params(json!({"preset": "sub", "env": {"CMUX_WORKSPACE_ID": WS}})))
+        .await;
+    let id = reply["result"]["sessionId"].as_str().unwrap().to_owned();
+    assert!(!reply.to_string().contains(WS), "the session/new summary never carries it: {reply}");
+    let info = local.call("_acpmux/info", json!({"sessionId": id})).await;
+    assert_eq!(info.pointer("/result/sessionEnv/CMUX_WORKSPACE_ID"), Some(&json!(WS)), "{info}");
+    let mut web = client(&hub, Origin::Web);
+    for (m, p) in [("_acpmux/info", json!({"sessionId": id})), ("_acpmux/sessions", json!({}))] {
+        let reply = web.call(m, p).await;
+        let text = reply.to_string();
+        assert!(
+            !text.contains("sessionEnv") && !text.contains(WS),
+            "Web {m} carried the session env: {text}"
+        );
+    }
 }
