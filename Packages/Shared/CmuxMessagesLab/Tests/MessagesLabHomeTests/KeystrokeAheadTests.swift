@@ -21,11 +21,12 @@ import Testing
         // The user types: the field's change is a keystroke.
         c.dispatch(.setDraft("H"))
         #expect(c.inKeystrokeFrame)
+        let keystrokeFrames = frames.count  // the keystroke frame's own end
         // The Chief reads my message in the same frame: only a status change.
         p.apply(items: [Fixture2.item(1, them, "Hi"), mine], summary: Fixture2.summary(lastSeq: 2, read: 2), typing: [them], hasOlder: false)
         #expect(c.store.state.ui.typing.isEmpty, "typing waits for the next frame")
         if case .read = c.store.state.message("k2")?.status { Issue.record("the read status waited for the next frame") }
-        #expect(frames.count == 1)
+        #expect(frames.count == keystrokeFrames + 1, "one held commit")
         frames.forEach { $0() }
         #expect(c.store.state.ui.typing == [them.rawValue])
         if case .read = c.store.state.message("k2")?.status {} else { Issue.record("read after the frame, got \(String(describing: c.store.state.message("k2")?.status))") }
@@ -38,8 +39,9 @@ import Testing
         c.nextFrame = { frames.append($0) }
         p.apply(items: [Fixture2.item(1, them, "Hi")], summary: Fixture2.summary(lastSeq: 1), typing: [], hasOlder: false)
         c.dispatch(.setDraft("H"))
+        let keystrokeFrames = frames.count
         p.apply(items: [Fixture2.item(1, them, "Hi"), Fixture2.item(2, them, "There")], summary: Fixture2.summary(lastSeq: 2), typing: [], hasOlder: false)
         #expect(c.store.state.conversation.messages.count == 2)
-        #expect(frames.isEmpty)
+        #expect(frames.count == keystrokeFrames, "nothing held")
     }
 }
