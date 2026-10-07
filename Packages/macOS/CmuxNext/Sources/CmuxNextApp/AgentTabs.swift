@@ -125,9 +125,8 @@ final class AgentTabStore {
     /// The app shortcuts every agent page shows, kept current on rebinds.
     private var shortcuts = AgentPaneShortcuts()
     private var shortcutObservation: Task<Void, Never>?
-    /// `labs.previewFeatures`, pushed to every page like the shortcuts.
-    private var previewFeatures = false
-    private var previewObservation: Task<Void, Never>?
+    /// `labs.previewFeatures` and `agentPane.editedFiles.*`, pushed to every page like the shortcuts.
+    private let pageSettings = AgentPanePageSettings()
     weak var actionRegistry: ActionRegistry?
     var checkpointFocusTab: String?
     /// This build's URL scheme, handed to every page for the links it copies.
@@ -141,7 +140,7 @@ final class AgentTabStore {
     /// nil answers the page `native.not_connected`.
     private let git: AgentPaneGitLink?
 
-    /// `settings`, when given, is followed for `labs.previewFeatures`
+    /// `settings`, when given, is followed for the page settings (``AgentPanePageSettings``)
     /// (AppDelegate makes it before any agent tab).
     init(tag: String?, registry: ActionRegistry, environment: [String: String] = ProcessInfo.processInfo.environment,
          showcase: Bool = false, linkScheme: String? = nil, git: AgentPaneGitLink? = nil, settings: SettingsController? = nil) {
@@ -184,16 +183,12 @@ final class AgentTabStore {
         if let settings { follow(settings) }
     }
 
-    /// Follows `labs.previewFeatures` in cmux.json.
+    /// Follows the page settings in cmux.json (``AgentPanePageSettings``).
     func follow(_ settings: SettingsController) {
-        // task-owner: lives as long as the tabs; event-driven (Observation)
-        previewObservation = Task { [weak self] in
-            for await on in Observations({ settings.snapshot.previewFeatures }) {
-                guard let self else { return }
-                previewFeatures = on
-                for view in views.values { view.previewFeatures = on }
-                for view in standaloneViews.allObjects { view.previewFeatures = on }
-            }
+        pageSettings.follow(settings) { [weak self] in
+            guard let self else { return }
+            for view in views.values { pageSettings.apply(to: view) }
+            for view in standaloneViews.allObjects { pageSettings.apply(to: view) }
         }
     }
 
@@ -329,7 +324,7 @@ final class AgentTabStore {
         DebugTimings.markLaunch("agent_pane.view_created")
         view.customization = customization.current
         view.shortcuts = shortcuts
-        view.previewFeatures = previewFeatures
+        pageSettings.apply(to: view)
         customization.start()
         return view
     }

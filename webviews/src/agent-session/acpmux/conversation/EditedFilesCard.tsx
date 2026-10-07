@@ -21,6 +21,7 @@ import { turnChanges, type EditedFile, type UndoStatus } from "../turnChanges/mo
 import { SessionRowsContext, isEditRow } from "../turnChanges/sessionRows";
 import { useEditedFilesSettings } from "../turnChanges/settings";
 import { applyUndo, cancelUndo, checkUndo, useUndoState, type UndoState } from "../turnChanges/undoStore";
+import { setCardOpen, useCardOpen } from "../turnChanges/openStore";
 import { Undo } from "./icons";
 import { ToolRows } from "./TurnRows";
 
@@ -55,7 +56,10 @@ function Card({
   const t = useT();
   const settings = useEditedFilesSettings();
   const [showAll, setShowAll] = useState(false);
-  const [open, setOpen] = useState(settings.show !== "collapsed");
+  // Derived on every render: the host's setting can arrive after the card mounts.
+  const userOpened = useCardOpen(row.id);
+  const open = settings.show !== "collapsed" || userOpened;
+  const setOpen = (value: boolean) => setCardOpen(row.id, value);
   const edits = rows.flatMap((one) =>
     (one.items ?? []).filter((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange"),
   );
@@ -72,9 +76,9 @@ function Card({
   const undoState = useUndoState(row.id);
   // An edit whose tool call carried no diff still lists, without counts.
   const plain = counts.files === toolFiles ? plainEditLabels(edits) : [];
-  const entries: { key: string; file?: TurnFile; text?: string }[] = [
+  const entries: { key: string; file?: TurnFile; path?: string }[] = [
     ...files.map((file) => ({ key: file.path, file })),
-    ...plain.map((text, index) => ({ key: `plain-${index}`, text })),
+    ...plain.map((entry) => ({ key: `plain-${entry.key}`, path: entry.path })),
   ];
   const total = entries.length;
   const single = total === 1 && files.length === 1 ? files[0] : undefined;
@@ -147,12 +151,23 @@ function Card({
         <FileStatus status={status(single.path)} path={single.path} rowId={row.id} onOpenDiff={onOpenDiff} t={t} />
       )}
       {shown.map((entry) => {
-        if (!entry.file)
+        if (!entry.file) {
+          // An edit with no diff: its path (dimmed folder, bold name), or "Unknown file".
+          const path = entry.path;
+          const cut = path ? path.replace(/\/+$/, "").lastIndexOf("/") : -1;
           return (
             <div className="acpmux-edited-file" key={entry.key}>
-              <span className="acpmux-edited-path">{entry.text}</span>
+              {path ? (
+                <span className="acpmux-edited-path" title={path}>
+                  <DirPart dir={path.slice(0, cut + 1)} />
+                  <span className="acpmux-edited-base">{path.slice(cut + 1)}</span>
+                </span>
+              ) : (
+                <span className="acpmux-edited-path">{t("edited.unknownFile")}</span>
+              )}
             </div>
           );
+        }
         const file = entry.file;
         const slash = file.displayPath.lastIndexOf("/");
         const label = (

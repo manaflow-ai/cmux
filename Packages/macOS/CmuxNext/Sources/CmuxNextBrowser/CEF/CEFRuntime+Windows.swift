@@ -56,9 +56,6 @@ nonisolated struct CEFWindowRequestLog: Equatable, Sendable {
 }
 
 extension CEFRuntime {
-    /// Chromium's `IDC_NEW_INCOGNITO_WINDOW`.
-    static let newIncognitoWindowCommand: Int32 = 34001
-
     /// A pane window's store, compared with request stores.
     func storeKey(of key: CEFPaneKey) -> String {
         let context = contextKey(for: key)
@@ -83,14 +80,13 @@ extension CEFRuntime {
     }
 
     /// The shim blocked a Chromium command that opens a Chromium window.
+    /// It runs nothing: cmux's own bindings decide what a key in a page
+    /// does (Shift-Cmd-N is New Window, Option-Shift-Cmd-N New Incognito
+    /// Window, user decision 2026-10-07), so a chord the user unbound never
+    /// falls back to Chromium's meaning (its Shift-Cmd-N is incognito).
     func chromeWindowCommandBlocked(_ command: Int32, browser: Int32) {
         windowRequests.log.blocked(command: command)
         logger.notice("Blocked Chromium command \(command) (it opens a Chromium window)")
-        if command == Self.newIncognitoWindowCommand {
-            // New Incognito Window (Cmd-Shift-N in a page when cmux
-            // does not bind it): a new cmux incognito window.
-            Task { @MainActor [weak self] in self?.openOffTheRecord?(nil, nil) }
-        }
     }
 
     func refused(_ refusal: CEFWindowRefusal, source: Int32) {

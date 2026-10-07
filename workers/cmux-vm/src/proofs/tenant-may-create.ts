@@ -62,7 +62,8 @@ export type CreateDecision<C, K extends ResourceKind> =
   | { readonly _tag: "not_entitled" }
   | { readonly _tag: "over_quota"; readonly limit: number };
 
-export const tenantMayCreate = <C, const K extends ResourceKind>(
+/** VMs and snapshots; mesh kinds have their own budgets (src/proofs/mesh-may-create.ts). */
+export const tenantMayCreate = <C, const K extends "vm" | "snapshot">(
   caller: Named<C, Principal>,
   kind: K,
 ): Effect.Effect<

@@ -756,11 +756,18 @@ if ! grep -Fq "github.event.inputs.build_only == 'true' && format('nightly-measu
   exit 1
 fi
 
-# Main NIGHTLY and nightly-next use the same app identity and Sparkle build
-# ordering. Their full publish runs must share a concurrency group so an older
-# next run cannot finish after a newer main run and fail the cross-feed floor.
-if ! grep -Fq "(github.ref_name == 'main' || github.ref_name == 'nightly-next') && 'nightly-shared'" "$WORKFLOW_FILE"; then
-  echo "FAIL: main and nightly-next publishing runs must share one concurrency group"
+# nightly-next keeps its own concurrency group. A group shared with main let
+# every main push replace the pending nightly-next run (run 37579667979 was
+# cancelled before any job by main push run 37580645859), so the lower-frequency
+# track starved. The cross-feed build floor (nightly_version.py check-build)
+# still refuses a nightly-next build that is not above main's feed; that race
+# needs a main run to publish inside one nightly-next build and fails loudly.
+if grep -Fq "github.ref_name == 'nightly-next') && 'nightly-shared'" "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly-next must not share main's concurrency group (main pushes replace its pending run)"
+  exit 1
+fi
+if ! grep -Fq 'python3 scripts/ci/nightly_version.py check-build --build "$build" "${feeds[@]}"' "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly-next must keep the cross-feed build floor check"
   exit 1
 fi
 

@@ -110,8 +110,38 @@ export const ALL_SCOPES: ReadonlyArray<Scope> = [
   "domain:*",
   "deploy:*",
   "git:*",
+  "mesh:read",
+  "mesh:write",
+  "mesh:join",
+  "acl:read",
+  "acl:write",
   "admin",
 ];
+
+/**
+ * Mesh experiment endpoints (cx-0op); test/workers/mesh.test.ts runs the
+ * isolation cases. `target` says which public id the path names: the tenant
+ * (no id), a mesh, a device, a tunnel, or a mesh plus a VM.
+ */
+export const MESH_ENDPOINTS = [
+  { name: "createMesh", method: "POST", template: "/v1/meshes", scope: "mesh:write", target: "tenant" },
+  { name: "listMeshes", method: "GET", template: "/v1/meshes", scope: "mesh:read", target: "tenant" },
+  { name: "getMesh", method: "GET", template: "/v1/meshes/{meshId}", scope: "mesh:read", target: "mesh" },
+  { name: "deleteMesh", method: "DELETE", template: "/v1/meshes/{meshId}", scope: "mesh:write", target: "mesh" },
+  { name: "enrollDevice", method: "POST", template: "/v1/meshes/{meshId}/devices", scope: "mesh:join", target: "mesh" },
+  { name: "listDevices", method: "GET", template: "/v1/meshes/{meshId}/devices", scope: "mesh:read", target: "mesh" },
+  { name: "getMeshAcl", method: "GET", template: "/v1/meshes/{meshId}/acl", scope: "acl:read", target: "mesh" },
+  { name: "putMeshAcl", method: "PUT", template: "/v1/meshes/{meshId}/acl", scope: "acl:write", target: "mesh" },
+  { name: "attachMeshVm", method: "PUT", template: "/v1/meshes/{meshId}/vms/{vmId}", scope: "mesh:write", target: "member" },
+  { name: "detachMeshVm", method: "DELETE", template: "/v1/meshes/{meshId}/vms/{vmId}", scope: "mesh:write", target: "member" },
+  { name: "getDevice", method: "GET", template: "/v1/devices/{deviceId}", scope: "mesh:read", target: "device" },
+  { name: "deleteDevice", method: "DELETE", template: "/v1/devices/{deviceId}", scope: "mesh:join", target: "device" },
+  { name: "getDevicePeers", method: "GET", template: "/v1/devices/{deviceId}/peers", scope: "mesh:join", target: "device" },
+  { name: "getTunnel", method: "GET", template: "/v1/tunnels/{tunnelId}", scope: "mesh:read", target: "tunnel" },
+  // M2 (cx-0op.4). The code enrollment route has no bearer; test/workers/mesh-m2.test.ts covers it.
+  { name: "createEnrollmentCode", method: "POST", template: "/v1/meshes/{meshId}/enrollment-codes", scope: "mesh:join", target: "mesh" },
+  { name: "rotateDeviceKey", method: "POST", template: "/v1/devices/{deviceId}/rotate-key", scope: "mesh:join", target: "device" },
+] as const;
 
 /** Every scope that does not grant `scope`: the scope itself and its family scope (`snapshot:*`) are left out. */
 export const allScopesExcept = (scope: Scope): ReadonlyArray<Scope> =>

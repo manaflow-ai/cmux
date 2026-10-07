@@ -218,6 +218,9 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource {
             case let .datagram(datagram):
                 // InputAck datagrams; any other datagram is refused without a state change.
                 try? engine.input.acknowledge(datagram: datagram)
+            case .bulk:
+                // Transfers belong to the service (rb/1 uploads and downloads); the desktop has none.
+                break
             }
         }
         publishStatus()

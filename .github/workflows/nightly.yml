@@ -98,14 +98,15 @@ concurrency:
   # hold one behind a saturated runner pool. Each lane has its own group, and
   # a newer run may replace only a pending run. An in-flight nightly must always
   # finish so a 42-minute macOS build is not discarded by the next push.
-  # Main NIGHTLY and nightly-next install as the same app, so their publishing
-  # runs must share one group. This keeps the run-derived Sparkle build number
-  # ordered across both feeds; the nightly-next floor check otherwise rejects
-  # an older run that finishes after a newer main publication.
+  # nightly-next has its own group. Sharing main's group (#18150) let every
+  # main push replace the pending nightly-next run (run 37579667979, cancelled
+  # by main push run 37580645859 before any job ran), so nightly-next starved.
+  # The cross-feed floor check in build-nightly-app still refuses a nightly-next
+  # build that is not above main's feed, so the shared app never downgrades.
   # Keep scheduled and manually requested cache seeds in different groups. A
   # scheduled tick may replace an older scheduled tick, but must never cancel
   # an explicit manual refresh that happens to be running at the same time.
-  group: nightly-build-${{ (github.ref_name == 'main' || github.ref_name == 'nightly-next') && 'nightly-shared' || github.ref_name }}-${{ github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next_sha != '' && format('nightly-next-promote-{0}', github.run_id) || github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && 'cache-seed-scheduled' || inputs.seed_only && 'cache-seed-manual' || github.event_name == 'workflow_dispatch' && github.event.inputs.build_only == 'true' && format('nightly-measure-{0}', github.run_id) || (github.event_name == 'workflow_dispatch' && github.event.inputs.fast == 'true' && 'fast' || 'full') }}
+  group: nightly-build-${{ github.ref_name == 'main' && 'nightly-shared' || github.ref_name }}-${{ github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next_sha != '' && format('nightly-next-promote-{0}', github.run_id) || github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && 'cache-seed-scheduled' || inputs.seed_only && 'cache-seed-manual' || github.event_name == 'workflow_dispatch' && github.event.inputs.build_only == 'true' && format('nightly-measure-{0}', github.run_id) || (github.event_name == 'workflow_dispatch' && github.event.inputs.fast == 'true' && 'fast' || 'full') }}
   cancel-in-progress: false
 
 permissions: {}
@@ -1415,6 +1416,27 @@ jobs:
           scripts/cmux-next/ensure-cef.sh --optional
           scripts/cmux-next/ensure-cef.sh --optional --arch x86_64
 
+      # The cmux-next web bundles (agent pane, pages, Activity, palette ranker,
+      # webviews app) are built from this commit's sources, never taken from a
+      # committed copy (cx-vn5). --force: a published build never trusts a stamp.
+      - name: Set up Bun (cmux-next web bundles)
+        if: needs.decide.outputs.track == 'nightly-next'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+
+      # The webviews app's `vp build` must run on node: on bun it emits
+      # different bytes (build-web-bundles.sh).
+      - name: Setup Node (cmux-next web bundles)
+        if: needs.decide.outputs.track == 'nightly-next'
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.11.1"
+
+      - name: Build the web bundles (cmux-next)
+        if: needs.decide.outputs.track == 'nightly-next'
+        run: scripts/cmux-next/build-web-bundles.sh --force
+
       # cmux-next ships THIRD_PARTY_LICENSES.md for exactly what this nightly
       # bundles: the daemon, app host and Cloud server come from this tree
       # (pin-cmux-tui.sh tree mode), so the notices do too, with exact closures
@@ -1632,6 +1654,9 @@ jobs:
 
       - name: Upload dSYMs to Sentry
         if: needs.decide.outputs.build_only != 'true'
+        # A missing or broken uploader never blocks a publish either: run 37568319518 ran this
+        # workflow over an older build_sha checkout without the script.
+        continue-on-error: true
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           SENTRY_ORG: manaflow
@@ -2331,7 +2356,12 @@ jobs:
             "$CHANNEL_APP_PATH"
 
       - name: Notarize app ticket through final DMG
+        # The notary wait is bounded at 25m; the step adds 15m for the DMG
+        # build and the post-notary staple, smoke and mounted-DMG checks, and
+        # the job's 80m leaves about 40m for every other step (about 5m).
+        timeout-minutes: 40
         env:
+          CMUX_NOTARY_WAIT_TIMEOUT: 25m
           ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
           ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
           ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
@@ -2486,7 +2516,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           NOTES_HEAD: ${{ needs.decide.outputs.head_sha }}
-          NOTES_BRANCH: ${{ github.ref_name }}
+          # nightly-next runs are pushes to nightly-next; their PRs merge into feat-cmux-next.
+          NOTES_BRANCH: ${{ needs.decide.outputs.track == 'nightly-next' && 'feat-cmux-next' || github.ref_name }}
           NOTES_APP_NAME: ${{ needs.decide.outputs.app_name }}
           NOTES_BUNDLE_ID: ${{ needs.decide.outputs.bundle_id }}
         run: |

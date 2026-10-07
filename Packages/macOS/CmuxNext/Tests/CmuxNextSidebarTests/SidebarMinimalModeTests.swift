@@ -16,9 +16,10 @@ import Testing
         return (view, { DesignSettings.shared.sidebarSections = saved })
     }
 
-    /// The band's alpha target: 0 while minimal mode hides it, else 1.
+    /// The band's alpha target: 0 while minimal mode hides it, else 1. The
+    /// pinned footer region is the sidebar's own subview; the bands scroll.
     private func bandAlpha(_ region: SidebarRegionView) -> CGFloat {
-        guard let view = region.enclosingScrollView?.superview?.superview as? SidebarView else { return -1 }
+        guard let view = (region.enclosingScrollView?.superview?.superview ?? region.superview) as? SidebarView else { return -1 }
         let hidden = region === view.aboveRegion ? view.minimalHiddenBands.top : view.minimalHiddenBands.bottom
         return hidden ? 0 : 1
     }
@@ -27,14 +28,14 @@ import Testing
         let (view, restore) = sidebar(.bottom)
         defer { restore() }
         view.setChromeRevealed(false)
-        #expect(bandAlpha(view.belowRegion) == 0)
+        #expect(bandAlpha(view.belowRegion) == 0 && bandAlpha(view.footerRegion) == 0)
         #expect(bandAlpha(view.aboveRegion) == 1)
         view.setChromeRevealed(true)
-        #expect(bandAlpha(view.belowRegion) == 1)
-        // VoiceOver still finds Settings while the band is faded.
+        #expect(bandAlpha(view.belowRegion) == 1 && bandAlpha(view.footerRegion) == 1)
+        // VoiceOver still finds the profile control while the band is faded.
         view.setChromeRevealed(false)
-        let settings = view.belowRegion.itemView(LayoutItemID("itm_settings"))
-        #expect(settings != nil && settings?.isHiddenOrHasHiddenAncestor == false && settings?.isAccessibilityElement() == true)
+        let account = view.footerRegion.itemView(LayoutItemID("itm_account"))
+        #expect(account != nil && account?.isHiddenOrHasHiddenAncestor == false && account?.isAccessibilityElement() == true)
     }
 
     /// Lawrence (2026-10-05): "settings section border should fade if im not hovered". The

@@ -84,6 +84,17 @@ def test_ad_hoc_helper_fails_the_trust_check() -> None:
         assert missing.returncode == 1
 
 
+def test_same_team_non_developer_id_signatures_fail_the_trust_check() -> None:
+    # Apple Development and Apple Distribution signatures of team 7WLXT3NR37
+    # (tests/fixtures/cua-helper-signatures) are not the release helper's
+    # designated requirement; a grant to either replaces the release row.
+    for kind in ("apple-development", "apple-distribution"):
+        helper = ROOT / "tests" / "fixtures" / "cua-helper-signatures" / kind / "cmux Computer Use.app"
+        assert (helper / "Contents" / "MacOS" / "cmux-cua").exists(), helper
+        check = subprocess.run([str(TRUST_SCRIPT), "check", str(helper)], capture_output=True, text=True)
+        assert check.returncode == 1, (kind, check.returncode, check.stderr)
+
+
 def test_stale_ad_hoc_nested_helper_is_dropped() -> None:
     with tempfile.TemporaryDirectory(prefix="cmux-cua-drop-") as tmp:
         host = Path(tmp) / "cmux DEV test.app"
@@ -119,6 +130,7 @@ def main() -> int:
     test_dev_build_bundles_no_helper_app()
     test_release_packaging_still_assembles_on_request()
     test_ad_hoc_helper_fails_the_trust_check()
+    test_same_team_non_developer_id_signatures_fail_the_trust_check()
     test_stale_ad_hoc_nested_helper_is_dropped()
     test_bench_refuses_an_ad_hoc_helper()
     print("PASS: dev builds carry and launch no ad-hoc cmux Computer Use helper")

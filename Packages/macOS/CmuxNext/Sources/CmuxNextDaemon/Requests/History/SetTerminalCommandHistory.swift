@@ -9,6 +9,7 @@ public struct SetTerminalCommandHistoryRequest: DaemonRequest {
     }
 
     public static let command = "set-terminal-command-history"
+    public static let requiredCapability: String? = DaemonCapabilities.shared.terminalCommandJournal
     public var enabled: Bool
 
     public init(enabled: Bool) {
