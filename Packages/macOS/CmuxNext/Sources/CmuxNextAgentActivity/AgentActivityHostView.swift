@@ -1,38 +1,29 @@
-public import AppKit
-public import WebKit
+import AppKit
 import CmuxNextDesign
 
-/// Hosts the Activity renderer in a web view while keeping socket and native
-/// operation ownership in ``AgentActivityModel`` and its injected source.
+/// Hosts the native AppKit Agent activity pane.
 public final class AgentActivityHostView: NSView {
     public let model: AgentActivityModel
-    public let webView: WKWebView
+    public let nativeView: AgentActivityNativeView
     private let source: any AgentActivitySource
 
-    /// Makes an Activity web view for a model and its native data source.
+    /// Makes a native activity pane for an injected source and model.
     public init(model: AgentActivityModel, source: any AgentActivitySource) {
         self.model = model
         self.source = source
-        let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = .nonPersistent()
-        let bridge = AgentActivityBridge(model: model, source: source)
-        model.layout = AgentActivityTunables.layout.value
-        configuration.userContentController.addScriptMessageHandler(bridge, contentWorld: .page, name: AgentActivityBridge.handlerName)
-        let webView = WKWebView(frame: .zero, configuration: configuration)
-        self.webView = webView
+        nativeView = AgentActivityNativeView(model: model, source: source)
         super.init(frame: .zero)
-        webView.navigationDelegate = bridge
-        webView.autoresizingMask = [.width, .height]
-        webView.allowsBackForwardNavigationGestures = false
-        webView.allowsLinkPreview = false
-        if webView.responds(to: NSSelectorFromString("_setDrawsBackground:")) { webView.setValue(false, forKey: "drawsBackground") }
-        #if DEBUG
-        webView.isInspectable = true
-        #endif
-        bridge.view = self
-        model.onChange = { [weak self] in self?.pushState() }
-        addSubview(webView)
-        if let page = Self.bundledPage { webView.loadFileURL(page, allowingReadAccessTo: page.deletingLastPathComponent()) }
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+        nativeView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(nativeView)
+        NSLayoutConstraint.activate([
+            nativeView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            nativeView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            nativeView.topAnchor.constraint(equalTo: topAnchor),
+            nativeView.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+        model.observeChanges { [weak nativeView] in nativeView?.reload() }
     }
 
     /// Compatibility initializer for prototype snapshot callers.
@@ -41,85 +32,166 @@ public final class AgentActivityHostView: NSView {
         self.init(model: model, source: AgentActivityMockSource())
     }
 
-    /// The bundled Activity page.
-    public static var bundledPage: URL? { Bundle.module.url(forResource: "index", withExtension: "html", subdirectory: "agent-activity") }
+    /// The old prototype page remains bundled for resource compatibility.
+    public static var bundledPage: URL? {
+        Bundle.module.url(forResource: "index", withExtension: "html", subdirectory: "agent-activity")
+    }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    public override func layout() { super.layout(); webView.frame = bounds }
-
-    private func pushState() {
-        guard webView.url != nil else { return }
-        let state = AgentActivityBridge.state(model)
-        guard JSONSerialization.isValidJSONObject(state), let data = try? JSONSerialization.data(withJSONObject: state), let json = String(data: data, encoding: .utf8) else { return }
-        webView.evaluateJavaScript("window.cmuxActivityReceive && window.cmuxActivityReceive(\(json));", completionHandler: nil)
-    }
+    /// Exposes the source for composition roots that install a control adapter.
+    public var activitySource: any AgentActivitySource { source }
 }
 
-private final class AgentActivityBridge: NSObject, WKScriptMessageHandlerWithReply, WKNavigationDelegate {
-    static let handlerName = "agentActivity"
-    weak var view: AgentActivityHostView?
-    let model: AgentActivityModel
-    let source: any AgentActivitySource
+/// AppKit renderer for the activity pane. It uses native scroll views and
+/// layers, while the model remains the single source of state.
+public final class AgentActivityNativeView: NSView {
+    private let model: AgentActivityModel
+    private let sessionStack = NSStackView()
+    private let eventStack = NSStackView()
+    private let preview = NSImageView()
+    private let filmstrip = AgentActivityThumbnailFilmstrip()
+    private let title = NSTextField(labelWithString: AgentActivityStrings.title)
+    private let stopAll = NSButton()
 
-    init(model: AgentActivityModel, source: any AgentActivitySource) { self.model = model; self.source = source }
-
-    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) async -> (Any?, String?) {
-        guard let body = message.body as? [String: Any], let method = body["method"] as? String else {
-            return (["ok": false, "error": ["userMessage": "Invalid Activity request"]], nil)
-        }
-        return await reply(to: method, params: body["params"] as? [String: Any] ?? [:])
+    init(model: AgentActivityModel, source: any AgentActivitySource) {
+        self.model = model
+        super.init(frame: .zero)
+        build()
+        reload()
     }
 
-    @MainActor
-    private func reply(to method: String, params: [String: Any]) async -> (Any?, String?) {
-        do {
-            let value: Any
-            switch method {
-            case "ready": value = Self.state(model)
-            case "select": model.select(session: params["id"] as? String); value = NSNull()
-            case "filter": model.filter = params["value"] as? String ?? ""; value = NSNull()
-            case "scrub": model.scrub(to: (params["seq"] as? NSNumber).map { $0.uint64Value }); value = NSNull()
-            case "layout":
-                if let raw = params["value"] as? String, let layout = AgentActivityLayout(rawValue: raw) { model.layout = layout }
-                value = NSNull()
-            case "follow":
-                model.follow(Set((params["ids"] as? [String]) ?? [])); value = NSNull()
-            case "perform":
-                guard let op = Self.operation(params) else { throw AgentActivitySourceError.malformed }
-                model.perform(op); value = NSNull()
-            case "frame":
-                guard let blob = params["blob"] as? String else { throw AgentActivitySourceError.malformed }
-                let width = params["width"] as? Int ?? 1
-                let height = params["height"] as? Int ?? 1
-                value = try await Self.frameData(source: source, frame: AgentActivityFrameRef(blob: blob, width: width, height: height))
-            default: throw AgentActivitySourceError.refused(method)
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    func reload() {
+        guard Thread.isMainThread else { return }
+        rebuildSessions()
+        rebuildDetail()
+    }
+
+    private func build() {
+        let toolbar = NSStackView(views: [title, NSView(), stopAll])
+        toolbar.orientation = .horizontal
+        toolbar.alignment = .centerY
+        toolbar.spacing = 8
+        toolbar.edgeInsets = NSEdgeInsets(top: 8, left: 12, bottom: 8, right: 12)
+        title.font = .systemFont(ofSize: 13, weight: .semibold)
+        stopAll.title = AgentActivityStrings.stopAll
+        stopAll.image = NSImage(systemSymbolName: "stop.fill", accessibilityDescription: AgentActivityStrings.stopAll)
+        stopAll.imagePosition = .imageLeading
+        stopAll.bezelStyle = .rounded
+        stopAll.target = self
+        stopAll.action = #selector(stopAllPressed)
+
+        sessionStack.orientation = .vertical
+        sessionStack.alignment = .width
+        sessionStack.spacing = 2
+        let sessionScroll = NSScrollView()
+        sessionScroll.drawsBackground = false
+        sessionScroll.hasVerticalScroller = true
+        sessionScroll.documentView = sessionStack
+
+        eventStack.orientation = .vertical
+        eventStack.alignment = .width
+        eventStack.spacing = 0
+        let eventScroll = NSScrollView()
+        eventScroll.drawsBackground = false
+        eventScroll.hasVerticalScroller = true
+        eventScroll.documentView = eventStack
+
+        preview.imageScaling = .scaleProportionallyUpOrDown
+        preview.imageAlignment = .alignCenter
+        preview.wantsLayer = true
+        preview.layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
+        preview.layer?.cornerRadius = 8
+        filmstrip.heightAnchor.constraint(equalToConstant: 86).isActive = true
+
+        let detail = NSStackView(views: [preview, filmstrip, eventScroll])
+        detail.orientation = .vertical
+        detail.alignment = .width
+        detail.spacing = 8
+
+        let split = NSSplitView()
+        split.isVertical = true
+        split.dividerStyle = .thin
+        let left = NSView()
+        let leftStack = NSStackView(views: [sessionScroll])
+        leftStack.edgeInsets = NSEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
+        leftStack.translatesAutoresizingMaskIntoConstraints = false
+        left.addSubview(leftStack)
+        NSLayoutConstraint.activate([
+            leftStack.leadingAnchor.constraint(equalTo: left.leadingAnchor), leftStack.trailingAnchor.constraint(equalTo: left.trailingAnchor),
+            leftStack.topAnchor.constraint(equalTo: left.topAnchor), leftStack.bottomAnchor.constraint(equalTo: left.bottomAnchor),
+            left.widthAnchor.constraint(greaterThanOrEqualToConstant: 220), left.widthAnchor.constraint(equalToConstant: 280),
+        ])
+        split.addArrangedSubview(left)
+        split.addArrangedSubview(detail)
+        split.setHoldingPriority(.defaultLow, forSubviewAt: 0)
+        split.translatesAutoresizingMaskIntoConstraints = false
+
+        addSubview(toolbar)
+        addSubview(split)
+        toolbar.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            toolbar.leadingAnchor.constraint(equalTo: leadingAnchor), toolbar.trailingAnchor.constraint(equalTo: trailingAnchor),
+            toolbar.topAnchor.constraint(equalTo: topAnchor), toolbar.heightAnchor.constraint(equalToConstant: 38),
+            split.leadingAnchor.constraint(equalTo: leadingAnchor), split.trailingAnchor.constraint(equalTo: trailingAnchor),
+            split.topAnchor.constraint(equalTo: toolbar.bottomAnchor), split.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+    }
+
+    private func rebuildSessions() {
+        sessionStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        for group in model.groups {
+            let header = NSTextField(labelWithString: group.name)
+            header.font = .systemFont(ofSize: 11, weight: .semibold)
+            header.textColor = .secondaryLabelColor
+            sessionStack.addArrangedSubview(header)
+            for session in group.sessions {
+                let button = NSButton(title: "\(session.agentName)  ·  \(session.label)", target: self, action: #selector(sessionPressed(_:)))
+                button.alignment = .left
+                button.bezelStyle = .texturedRounded
+                button.identifier = NSUserInterfaceItemIdentifier(session.id)
+                button.toolTip = AgentActivityStrings.status(session.status)
+                if session.id == model.selectedSessionID { button.state = .on }
+                sessionStack.addArrangedSubview(button)
             }
-            return (["ok": true, "value": value], nil)
-        } catch {
-            return (["ok": false, "error": ["userMessage": String(describing: error)]], nil)
         }
+        stopAll.isEnabled = model.liveLocalCount > 0
     }
 
-    @MainActor static func state(_ model: AgentActivityModel) -> [String: Any] {
-        var sessions: [String: [[String: Any]]] = [:]
-        for (machine, values) in model.sessionsByMachine { sessions[machine] = values.map(session) }
-        return ["sessionsByMachine": sessions, "machineNames": model.machineNames, "connections": model.connections.mapValues(connection), "eventsBySession": model.eventsBySession.mapValues { $0.map(event) }, "selectedSessionID": model.selectedSessionID as Any, "scrubSeq": model.scrubSeq as Any, "filter": model.filter, "watching": Array(model.watching), "layout": model.layout.rawValue, "strings": ["title": AgentActivityStrings.title, "filter": AgentActivityStrings.filter, "emptyTitle": AgentActivityStrings.emptyTitle, "emptyDetail": AgentActivityStrings.emptyDetail, "noFrame": AgentActivityStrings.noFrame, "active": AgentActivityStrings.status(.active), "idle": AgentActivityStrings.status(.idle), "paused": AgentActivityStrings.status(.paused), "live": AgentActivityStrings.live, "stop": AgentActivityStrings.stop, "pause": AgentActivityStrings.pause, "resume": AgentActivityStrings.resume, "watch": AgentActivityStrings.watch, "unwatch": AgentActivityStrings.watch]]
+    private func rebuildDetail() {
+        eventStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        guard let session = model.selectedSession else {
+            preview.image = nil
+            filmstrip.configure(events: [], model: model)
+            return
+        }
+        filmstrip.configure(events: model.selectedEvents, model: model)
+        if let frame = model.currentFrameEvent?.displayFrame {
+            Task { @MainActor [weak self, model] in self?.preview.image = await model.image(for: frame) }
+        } else {
+            preview.image = nil
+        }
+        for event in model.selectedEvents.reversed() {
+            let row = NSButton(title: "\(AgentActivityFormat.time(event.time))  \(event.tool ?? event.kind.rawValue)", target: self, action: #selector(eventPressed(_:)))
+            row.alignment = .left
+            row.bezelStyle = .recessed
+            row.identifier = NSUserInterfaceItemIdentifier(String(event.seq))
+            row.toolTip = event.target
+            eventStack.addArrangedSubview(row)
+        }
+        title.stringValue = "\(AgentActivityStrings.title)  ·  \(session.agentName)"
     }
 
-    static func session(_ value: AgentActivitySession) -> [String: Any] { ["id": value.id, "machine": value.machine, "machineName": value.machineName, "label": value.label, "agentKind": value.agentKind, "agentName": value.agentName, "attribution": value.attribution.rawValue, "workspaceTitle": value.workspaceTitle as Any, "terminalTitle": value.terminalTitle as Any, "colorHex": value.colorHex, "targetApps": value.targetApps, "status": status(value.status), "startedAt": value.startedAt.timeIntervalSince1970 * 1000, "lastActionAt": value.lastActionAt.timeIntervalSince1970 * 1000, "endedAt": value.endedAt?.timeIntervalSince1970 as Any, "acts": value.acts, "observes": value.observes, "errors": value.errors, "foregroundOnly": value.foregroundOnly] }
-    static func status(_ value: AgentActivityStatus) -> Any { switch value { case .active: return "active"; case .idle: return "idle"; case .paused: return "paused"; case .ended(let reason): return ["ended": reason.rawValue] } }
-    static func connection(_ value: AgentActivityConnection) -> String { switch value { case .connected: return "connected"; case .notStarted: return "not_started"; case .notSetUp: return "not_set_up"; case .unreachable: return "unreachable" } }
-    static func frame(_ value: AgentActivityFrameRef) -> [String: Any] { ["blob": value.blob, "width": value.width, "height": value.height, "expired": value.expired] }
-    static func event(_ value: AgentActivityEvent) -> [String: Any] { ["seq": value.seq, "time": value.time.timeIntervalSince1970 * 1000, "kind": value.kind.rawValue, "tool": value.tool as Any, "target": value.target as Any, "ok": value.ok, "errorCode": value.errorCode as Any, "durationMs": value.durationMs as Any, "redactedTextLength": value.redactedTextLength as Any, "beforeFrame": value.beforeFrame.map(frame) as Any, "afterFrame": value.afterFrame.map(frame) as Any, "clickPoint": value.clickPoint.map { ["x": $0.x, "y": $0.y] } as Any] }
-    static func json(_ object: [String: Any]) -> String { guard let data = try? JSONSerialization.data(withJSONObject: object), let value = String(data: data, encoding: .utf8) else { return "{}" }; return value }
-    static func frameData(source: any AgentActivitySource, frame: AgentActivityFrameRef) async throws -> String {
-        guard let image = await source.image(for: frame), let tiff = image.tiffRepresentation,
-              let bitmap = NSBitmapImageRep(data: tiff), let data = bitmap.representation(using: .png, properties: [:]) else {
-            throw AgentActivitySourceError.malformed
-        }
-        return data.base64EncodedString()
+    @objc private func sessionPressed(_ sender: NSButton) { model.select(session: sender.identifier?.rawValue) }
+
+    @objc private func eventPressed(_ sender: NSButton) {
+        guard let raw = sender.identifier?.rawValue, let seq = UInt64(raw) else { return }
+        model.scrub(to: seq)
     }
-    static func operation(_ p: [String: Any]) -> AgentActivityUserOp? { guard let raw = p["op"] as? String else { return nil }; let session = p["session"] as? String; switch raw { case "stop": return session.map { .stop(session: $0) }; case "pause": return session.map { .pause(session: $0) }; case "resume": return session.map { .resume(session: $0) }; case "watch": return session.map { .watch(session: $0, on: p["on"] as? Bool ?? false) }; case "export": return session.map { .export(session: $0) }; case "openAgent": return session.map { .openAgent(session: $0) }; case "openTarget": return session.map { .openTarget(session: $0) }; case "stopAll": return (p["machine"] as? String).map { .stopAll(machine: $0) }; default: return nil } }
+
+    @objc private func stopAllPressed() { model.stopAll() }
 }

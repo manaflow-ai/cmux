@@ -36,6 +36,8 @@ public final class AgentActivityModel {
     public private(set) var machineNames: [String: String] = [:]
     public private(set) var connections: [String: AgentActivityConnection] = [:]
     public private(set) var eventsBySession: [String: [AgentActivityEvent]] = [:]
+    /// Unified browser, CUA, and ACP rows keyed by agent id.
+    public private(set) var timelineByAgent: [String: [AgentActivityTimelineEvent]] = [:]
     /// The selected session (view state of this client).
     public private(set) var selectedSessionID: String?
     /// Seq of the event the scrubber is on; nil means "follow the newest".
@@ -54,6 +56,7 @@ public final class AgentActivityModel {
     /// Called by a host view when the projection changes and must be sent to
     /// another renderer, such as the Activity web view.
     @ObservationIgnored public var onChange: (() -> Void)?
+    @ObservationIgnored private var changeObservers: [() -> Void] = []
 
     @ObservationIgnored private let source: any AgentActivitySource
     @ObservationIgnored private var followed: [String] = []
@@ -61,6 +64,11 @@ public final class AgentActivityModel {
 
     public init(source: any AgentActivitySource) {
         self.source = source
+    }
+
+    /// Adds a view observer without replacing the host's renderer callback.
+    public func observeChanges(_ observer: @escaping () -> Void) {
+        changeObservers.append(observer)
     }
 
     public func start() {
@@ -210,6 +218,22 @@ public final class AgentActivityModel {
         await source.image(for: frame)
     }
 
+    /// Stops every live session on a machine through the injected source.
+    public func stopAll(machine: String = AgentActivityModel.localMachine) {
+        perform(.stopAll(machine: machine))
+    }
+
+    /// Adds source-neutral rows and keeps each agent's timeline ordered.
+    public func applyTimeline(_ events: [AgentActivityTimelineEvent]) {
+        for event in events {
+            timelineByAgent[event.agentID, default: []].append(event)
+        }
+        for (agent, rows) in timelineByAgent {
+            timelineByAgent[agent] = AgentActivityTimelineMerger.merge(rows)
+        }
+        notifyChange()
+    }
+
     // MARK: Rules (pure, tested)
 
     static func matches(_ session: AgentActivitySession, filter: String) -> Bool {
@@ -255,5 +279,6 @@ public final class AgentActivityModel {
 
     private func notifyChange() {
         onChange?()
+        for observer in changeObservers { observer() }
     }
 }

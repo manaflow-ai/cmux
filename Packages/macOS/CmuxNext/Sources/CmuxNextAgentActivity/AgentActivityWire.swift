@@ -114,9 +114,10 @@ nonisolated enum AgentActivityWire {
         case let .stop(id): ("activity_session_stop", ["id": id])
         case let .pause(id): ("activity_session_pause", ["id": id])
         case let .resume(id): ("activity_session_resume", ["id": id])
-        // Live watch (`cua.surface.watch`) is not on the host yet; export,
-        // open and stop-all are App-side actions.
-        case .watch, .export, .openAgent, .openTarget, .stopAll: nil
+        // Live watch (`cua.surface.watch`) is not on the host yet; export and
+        // open are App-side actions. Stop All is a host mutation.
+        case let .stopAll(machine): ("activity_stop_all", ["machine": machine])
+        case .watch, .export, .openAgent, .openTarget: nil
         }
     }
 
