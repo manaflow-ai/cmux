@@ -55,12 +55,14 @@ final class PageClaimState {
 /// document refuses (it already ran: a released host parked again) or does not answer within
 /// ``claimAcknowledgementBudget`` does the host reload it, as every claim did before.
 extension PageWebView {
-    /// The fallback deadline for the claim acknowledgement: about one 60 Hz frame (16.7 ms),
-    /// rounded up to 20 ms. The acknowledgement is one script evaluation and one reply message:
-    /// 3-11 ms (median 5.6 ms) on a build host at load 54 (PageHostPoolClaimReadyBenchmark), so a
-    /// healthy document answers inside the budget, and a silent one costs about one frame before
-    /// the reload starts. A late answer only costs the reload that every claim paid before.
-    public static let claimAcknowledgementBudget: Duration = .milliseconds(20)
+    /// The fallback deadline for the claim acknowledgement: 50 ms, three 60 Hz frames. The
+    /// acknowledgement is one script evaluation and one reply message, but it waits for the main
+    /// thread to finish the claim's turn (the new window, the tab): 3-11 ms in the harness
+    /// (PageHostPoolClaimReadyBenchmark, build host at load 54), 16 ms and more than 20 ms in a
+    /// live app when a second and an incognito window opened Settings. A one-frame budget (20 ms
+    /// was tried) reloaded the incognito claim, and a false reload costs 50-500 ms, far more than
+    /// the 30 extra milliseconds a silent document now waits before its reload.
+    public static let claimAcknowledgementBudget: Duration = .milliseconds(50)
 
     static let claimOp = "cmux.page.claim"
     static let parkedScript = "globalThis.__cmuxPageParked = true;"
