@@ -1,4 +1,3 @@
-public import CmuxiOSFeatureKit
 import Foundation
 
 /// File names for `@` mentions (C4 `files.list` under the workspace's root).

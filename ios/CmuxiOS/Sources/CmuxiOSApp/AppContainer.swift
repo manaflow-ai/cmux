@@ -3,6 +3,7 @@ import CmuxHomeCore
 import CmuxHomeUI
 import CMUXMobileCore
 import CmuxiOSAuth
+import CmuxiOSComposerCore
 import CmuxiOSCrashReporting
 import CmuxiOSFeatureKit
 import CmuxiOSFeed
@@ -239,7 +240,8 @@ final class AppContainer {
         return factories
     }
 
-    /// C5: workspaces of the account's paired Macs over the control plane.
+    /// C5: workspaces of the account's paired Macs over the control plane;
+    /// C8: the composer over the same Macs' `task:` streams.
     private static func addingWorkspaces(to factories: RealFeatureFactories, base: URL?,
                                          identity: InstallIdentity?) -> RealFeatureFactories {
         var factories = factories
@@ -258,6 +260,17 @@ final class AppContainer {
         }
         factories.workspaces = { devices in
             ControlPlaneWorkspaceSource(directory: DeviceRegistryHostDirectory(registry: devices), channels: channels)
+        }
+        // C8: the composer's `task:<host>` streams ride the same host sockets'
+        // endpoint (one more subscription per Mac while a composer is open).
+        let taskChannels: any WorkspaceChannelFactory
+        if let controlPlane = channels as? ControlPlaneWorkspaceChannelFactory {
+            taskChannels = controlPlane.streaming("task")
+        } else {
+            taskChannels = channels
+        }
+        factories.composer = { workspaces in
+            ControlPlaneTaskComposerSink(workspaces: workspaces, channels: taskChannels)
         }
         return factories
     }

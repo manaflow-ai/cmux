@@ -70,6 +70,8 @@ let package = Package(
                 "CmuxiOSSSHCore",
                 "CmuxiOSWorkspaces",
                 "CmuxiOSWorkspacesCore",
+                "CmuxiOSComposer",
+                "CmuxiOSComposerCore",
                 .product(name: "CmuxFeedPushCore", package: "CmuxFeedPushCore"),
                 "CmuxiOSTextConfirm",
                 .product(name: "CmuxTextConfirmCore", package: "CmuxTextConfirmCore"),
@@ -343,6 +345,38 @@ let package = Package(
                 .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
                 .product(name: "CmuxControlPlane", package: "CmuxControlPlane"),
             ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // Lane C8 (plans/cmux-next/ios-next/c8-composer.md): drafts,
+        // selection rules, send gate, prompt tokens, templates, the
+        // `task:<host>` mirror and the real `TaskComposerSink` over C5's
+        // workspaces and the control plane. No UIKit, so its tests also run
+        // on macOS.
+        .target(
+            name: "CmuxiOSComposerCore",
+            dependencies: [
+                "CmuxiOSFeatureKit",
+                "CmuxiOSWorkspacesCore",
+                .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
+            ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .testTarget(
+            name: "CmuxiOSComposerCoreTests",
+            dependencies: [
+                "CmuxiOSComposerCore",
+                "CmuxiOSFeatureKit",
+                "CmuxiOSWorkspacesCore",
+                .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
+            ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // The Compose tab, the composer sheet behind the floating button,
+        // dictation and the attachment strip.
+        .target(
+            name: "CmuxiOSComposer",
+            dependencies: ["CmuxiOSComposerCore", "CmuxiOSFeatureKit", "CmuxiOSDesign"],
+            resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         // The Workspaces tab, workspace detail, machines sheet and picker.
