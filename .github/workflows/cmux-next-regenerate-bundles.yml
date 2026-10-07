@@ -1,0 +1,213 @@
+name: cmux-next regenerate bundles
+
+# Regenerates the committed agent-pane and settings-page bundles for a lane's
+# branch, so a lane without bun can still change their sources. Dispatch it
+# from feat-cmux-next:
+#
+#   gh workflow run cmux-next-regenerate-bundles.yml -R manaflow-ai/cmux \
+#     --ref feat-cmux-next -f branch=<branch> [-f sha=<40-hex commit>]
+#
+# `build` runs the branch's scripts/cmux-next/build-agent-pane-web.sh and
+# build-pages-web.sh with the bun and Node the bundle checks use
+# (cmux-next-web-bundles.yml), with no secrets, and uploads a patch of the
+# bundle paths only (artifact cmux-next-bundles-patch). `push` runs no branch
+# code: it applies only bundle paths onto the built commit and pushes a commit
+# only while the branch is still at that commit. Never main or feat-cmux-next.
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: Branch to regenerate the bundles for (not main or feat-cmux-next)
+        required: true
+        type: string
+      sha:
+        description: Commit to build (default the branch head); the push needs the branch still there
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cmux-next-regenerate-bundles-${{ inputs.branch }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: ${{ github.repository == 'manaflow-ai/cmux' }}
+    name: build the bundles
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      branch: ${{ steps.resolve.outputs.branch }}
+      sha: ${{ steps.resolve.outputs.sha }}
+      patch: ${{ steps.collect.outputs.patch }}
+    steps:
+      - name: Resolve the branch
+        id: resolve
+        env:
+          BRANCH: ${{ inputs.branch }}
+          SHA: ${{ inputs.sha }}
+        run: |
+          set -euo pipefail
+          case "$BRANCH" in
+            main|feat-cmux-next|"")
+              echo "::error::refusing to regenerate bundles on '$BRANCH': push them to a lane branch"
+              exit 1 ;;
+          esac
+          if [[ ! "$BRANCH" =~ ^[A-Za-z0-9._/-]+$ || "$BRANCH" == *..* ]]; then
+            echo "::error::refusing branch name '$BRANCH'"
+            exit 1
+          fi
+          head="$(git ls-remote "https://github.com/$GITHUB_REPOSITORY.git" "refs/heads/$BRANCH" | awk '{print $1}')"
+          if [[ -z "$head" ]]; then
+            echo "::error::no branch $BRANCH in $GITHUB_REPOSITORY"
+            exit 1
+          fi
+          if [[ -n "$SHA" && ! "$SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::sha must be a 40-character commit"
+            exit 1
+          fi
+          {
+            echo "branch=$BRANCH"
+            echo "sha=${SHA:-$head}"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ steps.resolve.outputs.sha }}
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.11.1"
+
+      - name: Build the agent pane and the pages
+        run: |
+          set -euo pipefail
+          ./scripts/cmux-next/build-agent-pane-web.sh
+          ./scripts/cmux-next/build-pages-web.sh
+
+      # The bundle paths only; anything else the scripts touch is left out.
+      - name: Collect the bundle patch
+        id: collect
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/bundles"
+          mkdir -p "$out"
+          paths=(
+            Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane
+            Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages
+            ':(glob)webviews/src/*/generated/strings.json'
+            ':(glob)webviews/src/**/generated/strings.json'
+          )
+          git add -N -- "${paths[@]}"
+          git diff --binary --no-renames HEAD -- "${paths[@]}" > "$out/bundles.patch"
+          git diff --stat --no-renames HEAD -- "${paths[@]}" | tee -a "$GITHUB_STEP_SUMMARY"
+          if [[ -s "$out/bundles.patch" ]]; then
+            echo "patch=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "The bundles at $(git rev-parse HEAD) are current; nothing to commit." | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload the bundle patch
+        if: steps.collect.outputs.patch == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-next-bundles-patch
+          path: ${{ runner.temp }}/bundles/bundles.patch
+          retention-days: 3
+
+  push:
+    needs: build
+    if: ${{ needs.build.outputs.patch == 'true' && vars.GLAEDA_ROUTE_APP_ID != '' }}
+    name: commit the bundles to the branch
+    runs-on: ubuntu-24.04 # github-hosted-required: holds a write token for a lane branch
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Mint the push token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-contents: write
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.build.outputs.sha }}
+          persist-credentials: false
+
+      - name: Download the bundle patch
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-next-bundles-patch
+          path: ${{ runner.temp }}/bundles
+
+      - name: Check the patch paths
+        env:
+          PATCH_FILE: ${{ runner.temp }}/bundles/bundles.patch
+        run: |
+          set -euo pipefail
+          bad=0
+          while IFS=$'\t' read -r _ _ path; do
+            case "$path" in
+              *..*) ;;
+              Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/*) continue ;;
+              Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/*) continue ;;
+              webviews/src/*/generated/strings.json) continue ;;
+            esac
+            echo "::error::the patch touches $path, which is not a bundle path"
+            bad=1
+          done < <(git apply --numstat "$PATCH_FILE")
+          exit "$bad"
+
+      - name: Apply and push the regenerated bundles
+        env:
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          BRANCH: ${{ needs.build.outputs.branch }}
+          HEAD_SHA: ${{ needs.build.outputs.sha }}
+          PATCH_FILE: ${{ runner.temp }}/bundles/bundles.patch
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          # Only the bundle paths, as the step above checked.
+          git apply --index \
+            --include='Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/*' \
+            --include='Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/*' \
+            --include='webviews/src/*/generated/strings.json' \
+            "$PATCH_FILE"
+          if git diff --cached --quiet; then
+            echo "The branch already has these bundles; nothing to commit." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          git config user.name "cmux CI autofix"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -qm "chore(cmux-next): regenerate the agent pane and page bundles" -m "Generated by cmux-next regenerate bundles: $RUN_URL"
+          auth="$(printf 'x-access-token:%s' "$APP_TOKEN" | base64 -w0)"
+          echo "::add-mask::$auth"
+          remote="https://github.com/$GITHUB_REPOSITORY.git"
+          current="$(GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
+            git ls-remote "$remote" "refs/heads/$BRANCH" | awk '{print $1}')"
+          if [[ "$current" != "$HEAD_SHA" ]]; then
+            echo "::error::$BRANCH moved to $current after $HEAD_SHA was built; dispatch again, or apply the cmux-next-bundles-patch artifact yourself."
+            exit 1
+          fi
+          # A plain push: it fails rather than overwrite a commit pushed meanwhile.
+          if ! GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
+            git push --quiet "$remote" "HEAD:refs/heads/$BRANCH"; then
+            echo "::error::$BRANCH moved during the push; dispatch again, or apply the cmux-next-bundles-patch artifact yourself."
+            exit 1
+          fi
+          echo "Pushed $(git rev-parse HEAD) to $BRANCH. Pull before your next push." | tee -a "$GITHUB_STEP_SUMMARY"
