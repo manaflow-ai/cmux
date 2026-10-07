@@ -438,6 +438,23 @@ class WorkflowTests(unittest.TestCase):
             "${{ needs.decide.outputs.track == 'nightly-next' && 'feat-cmux-next' || github.ref_name }}",
         )
 
+    def test_notes_cannot_spend_the_publish_budget_before_the_upload(self):
+        # Run 37611677848 spent 29 of publish-nightly's 30 minutes on the notes,
+        # so the job was cancelled mid-upload and left partial release assets.
+        # The notes step has its own bound, well inside the job's, so a slow
+        # notes run fails before any asset is uploaded.
+        workflow = (ROOT / ".github/workflows/nightly.yml").read_text(encoding="utf-8")
+        job = workflow[workflow.index("\n  publish-nightly:\n"):]
+        job = job[:re.search(r"\n  [A-Za-z0-9_-]+:\n", job[1:]).start() + 1]
+        job_timeout = int(re.search(r"^    timeout-minutes: (\d+)$", job, re.M).group(1))
+        step = job[job.index("- name: Prepare nightly release notes and appcast summaries"):]
+        step = step[:step.index("\n      - name:", 1)]
+        bound = re.search(r"^        timeout-minutes: (\d+)$", step, re.M)
+        self.assertIsNotNone(bound, "the notes step needs its own timeout-minutes")
+        self.assertLessEqual(int(bound.group(1)) + 15, job_timeout,
+                             "the job must keep 15 minutes for downloads and the asset upload after the notes")
+        self.assertLess(job.index("Prepare nightly release notes"), job.index("- name: Publish nightly release assets"))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
