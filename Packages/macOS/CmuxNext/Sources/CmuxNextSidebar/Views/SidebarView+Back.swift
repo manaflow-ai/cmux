@@ -53,6 +53,7 @@ final class SidebarBackButton: NSButton {
         action = #selector(pressed)
         refusesFirstResponder = true
         _ = hover
+        restyle()
     }
 
     @available(*, unavailable)
@@ -62,8 +63,23 @@ final class SidebarBackButton: NSButton {
 
     override var wantsUpdateLayer: Bool { true }
 
+    /// Only layer properties here: setting the image or title marks the
+    /// button for display again, which would redraw it every frame.
     override func updateLayer() {
         layer?.cornerRadius = Metrics.itemCornerRadius
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        restyle()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        restyle()
+    }
+
+    private func restyle() {
         performWithTheme {
             let color = Palette.textPrimary
             let config = NSImage.SymbolConfiguration(pointSize: Metrics.smallIconSize, weight: .semibold)
