@@ -2241,11 +2241,6 @@ img.ProseMirror-separator {
 .acpmux-empty-glyph{color:var(--acpmux-composer-placeholder)}
 .acpmux-empty-title{margin:0;max-width:560px;font-size:20px;line-height:28px;font-weight:400;color:var(--agent-text);overflow-wrap:anywhere}
 .acpmux-empty-project{text-decoration:underline;text-decoration-color:var(--acpmux-composer-placeholder);text-underline-offset:4px;text-decoration-thickness:1px}
-.acpmux-empty-actions{display:flex;align-items:center;gap:8px;margin-top:4px}
-.acpmux-empty-actions button{height:30px;padding:0 13px;border:0;border-radius:6px;font:inherit;font-size:13px;cursor:pointer}
-.acpmux-empty-new{background:var(--agent-accent);color:var(--agent-accent-text,#fff)}
-.acpmux-empty-import{background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text)}
-.acpmux-empty-actions button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
 /* A remote connection showing a chat acpmux will not let it drive (remoteEditing.ts). */
 .acpmux-composer-remote-note {
   margin: 0 18px 4px;
@@ -3588,6 +3583,91 @@ pre.cv-math-source {
   color: var(--agent-text);
   font: inherit;
   cursor: pointer;
+}
+/* Link and path chips in replies (chips/LinkChips.tsx, decision D4). */
+.cv-chip {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--cv-text);
+  cursor: pointer;
+  text-align: inherit;
+}
+.cv-chip__icon {
+  vertical-align: -3px;
+  margin: 0 3px 0 0;
+  color: var(--cv-link);
+}
+.cv-chip__label {
+  font-weight: 600;
+  text-decoration: underline dotted;
+  text-decoration-color: color-mix(in srgb, currentColor 55%, transparent);
+  text-underline-offset: 3px;
+}
+.cv-chip.is-web .cv-chip__label {
+  font-weight: inherit;
+}
+.cv-chip:hover .cv-chip__label {
+  text-decoration-style: solid;
+}
+.cv-chip:focus-visible {
+  outline: 1px solid var(--cv-link);
+  outline-offset: 1px;
+  border-radius: 3px;
+}
+.cv-chip__lock {
+  vertical-align: -1px;
+  margin: 0 0 0 3px;
+  color: var(--cv-link);
+}
+.cv-chip__favicon {
+  border-radius: 3px;
+  object-fit: contain;
+}
+/* A web image before it loads (chips/ReplyImage.tsx, decision D5). */
+.cv-image-placeholder {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 6px 10px;
+  border: 1px solid color-mix(in srgb, var(--cv-fg) 14%, transparent);
+  border-radius: 8px;
+  vertical-align: middle;
+}
+.cv-image-placeholder__host {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-image-placeholder__note {
+  color: var(--cv-link);
+}
+.cv-image-placeholder__load {
+  padding: 2px 8px;
+  border: 1px solid color-mix(in srgb, var(--cv-fg) 20%, transparent);
+  border-radius: 6px;
+  background: none;
+  color: var(--cv-text);
+  font: inherit;
+  cursor: pointer;
+}
+.cv-image-placeholder__load:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+/* The preview card's "Open in" menu (previewCard/OpenInMenu.tsx, decision D6). */
+.acpmux-open-in {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.acpmux-open-in__icon {
+  margin-right: 8px;
+  flex: none;
+  border-radius: 3px;
 }
 /* The changes view's per-file menu. Colors come from the pane's theme tokens only. */
 .acpmux-file-menu{position:relative;display:inline-flex}

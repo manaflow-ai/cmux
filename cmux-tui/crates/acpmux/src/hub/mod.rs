@@ -8,6 +8,7 @@
 //! `adoption` (resuming a harness's own session on `session/new`).
 
 mod adoption;
+mod fork;
 mod handoff;
 mod harness_view;
 mod idle;
