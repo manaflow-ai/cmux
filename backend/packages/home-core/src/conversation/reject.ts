@@ -1,6 +1,8 @@
 /**
- * Stable reject codes. The first twenty are the Rust crate's
- * `Reject::code()` values in the same order; the rest are cloud extensions.
+ * Stable reject codes. LOCAL_REJECT_CODES are the Rust crate's `Reject::code()`
+ * values in its order, except `unknown_attachment` and `attachment_mismatch`,
+ * which this core lists with the cloud extensions (a local head here has no
+ * attachment parts).
  */
 export const LOCAL_REJECT_CODES = [
   "not_participant",
@@ -22,7 +24,13 @@ export const LOCAL_REJECT_CODES = [
   "invalid_title",
   "agent_budget",
   "agent_rate",
-  "actor_mismatch"
+  "actor_mismatch",
+  /** Only a human answers a question; an agent never does. */
+  "human_only",
+  /** The question was already answered or cancelled. */
+  "question_closed",
+  /** The answer misses an item, names an unknown option, chooses too many, or types Other where the item does not allow it. */
+  "invalid_answer"
 ] as const
 
 export const CLOUD_REJECT_CODES = [

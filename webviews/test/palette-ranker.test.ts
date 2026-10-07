@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { rankPalette, rankPaletteEmpty, type PaletteFrecency, type PaletteRankEntry } from "../src/palette/ranker";
 
 const now = 800_000_000;
@@ -153,12 +156,16 @@ describe("shared palette ranker", () => {
     expect(result[0]?.rows[1]?.highlights).toEqual([]);
   });
 
-  test("the checked-in JavaScriptCore bridge exposes the same ranker", async () => {
-    const bundle = await Bun.file(
-      "../Packages/macOS/CmuxNext/Sources/CmuxNextPalette/Resources/palette-ranker.js",
-    ).text();
+  test("the built JavaScriptCore bridge exposes the same ranker", async () => {
+    // The bridge is build output (scripts/cmux-next/build-web-bundles.sh), not a committed file:
+    // build it into a scratch directory, as the app build does into the package resources.
+    const out = mkdtempSync(join(tmpdir(), "palette-ranker-"));
+    const built = Bun.spawnSync(["sh", "../scripts/cmux-next/build-palette-ranker.sh", "--out", out]);
+    expect(built.exitCode).toBe(0);
+    const bundlePath = join(out, "palette-ranker.js");
+    const bundle = await Bun.file(bundlePath).text();
     expect(bundle.length).toBeGreaterThan(0);
-    await import("../../Packages/macOS/CmuxNext/Sources/CmuxNextPalette/Resources/palette-ranker.js");
+    await import(bundlePath);
     const bridge = (globalThis as typeof globalThis & { __cmuxPaletteRank?: (request: string) => string })
       .__cmuxPaletteRank;
     expect(typeof bridge).toBe("function");

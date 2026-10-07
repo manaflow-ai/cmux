@@ -18,6 +18,7 @@ use unicode_width::UnicodeWidthStr;
 mod cache;
 mod composer;
 mod dialogs;
+mod question;
 mod sidebar;
 mod status;
 mod transcript;
@@ -437,7 +438,14 @@ pub fn draw(f: &mut ratatui::Frame, app: &mut App) {
             _ => None,
         }
     });
-    let card_h: u16 = if pending.is_some() && main.height > input_h + 8 { 4 } else { 0 };
+    // A question being answered docks its answer flow there instead.
+    let flow = app.live_answering().cloned();
+    let card_h: u16 = match (&pending, &flow) {
+        (Some(_), _) if main.height <= input_h + 8 => 0,
+        (Some(_), Some(flow)) => question::card_height(flow).min(main.height - input_h - 4),
+        (Some(_), None) => 4,
+        (None, _) => 0,
+    };
     let card = Rect {
         x: col_x + 1,
         y: composer.y.saturating_sub(card_h),
@@ -474,7 +482,10 @@ pub fn draw(f: &mut ratatui::Frame, app: &mut App) {
         app.buttons.push((r, action));
     }
     if let (Some((title, options)), true) = (pending, card_h > 0) {
-        draw_permission_card(f, card, &title, &options, app);
+        match &flow {
+            Some(flow) => question::draw_question_card(f, card, flow, app),
+            None => draw_permission_card(f, card, &title, &options, app),
+        }
     }
     let hover = app.hover;
     let kind: u8 = match &app.overlay {

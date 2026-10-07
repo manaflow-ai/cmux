@@ -71,6 +71,7 @@ enum AppActions {
         AccountsHandlers.bind(into: registry, context: context)
         ProfileMenuHandlers.bind(into: registry, context: context)
         RemoteHandlers.bind(into: registry, context: context)
+        RemoteBrowserPages.bind(into: registry, context: context)
         ResourceHandlers.bind(into: registry, context: context)
         LinkHandlers.bind(into: registry, context: context)
         TopPages.installTabTargetReasons(services)
