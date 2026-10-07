@@ -145,7 +145,7 @@ test("the summary names changed states once each and the other counts", () => {
   expect(summaryLine([outcome({ status: "unchanged" })])).toBe("No state changed");
   const feed = feedSummary(list, meta);
   expect(feed.counts.changed).toBe(3);
-  expect(feed.changed[0]).toMatchObject({ state: "agent-pane.composer/idle (Dark)", thumb: "https://raw/pr-media/18189/gallery-e574a65-agent-pane.composer--idle-chromium.png" });
+  expect(feed.changed[0]).toMatchObject({ state: "agent-pane.composer/idle (Dark)", thumb: "https://raw/pr-media/18189/gallery-e574a65-agent-pane.composer-idle-chromium.png" });
 });
 
 test("the comment is marked, links the diff page and shows thumbnails; nondeterminism is set apart", () => {
@@ -153,7 +153,7 @@ test("the comment is marked, links the diff page and shows thumbnails; nondeterm
   expect(md.startsWith(COMMENT_MARKER)).toBe(true);
   expect(md).toContain("**1 state changed: agent-pane.composer/idle**");
   expect(md).toContain("[Diff page](https://g/pr-18189/diff/)");
-  expect(md).toContain('<img src="https://raw/pr-media/18189/gallery-e574a65-agent-pane.composer--idle-chromium.png" width="480">');
+  expect(md).toContain('<img src="https://raw/pr-media/18189/gallery-e574a65-agent-pane.composer-idle-chromium.png" width="480">');
   expect(md).toContain("1 nondeterministic state differed from a second render");
 });
 
