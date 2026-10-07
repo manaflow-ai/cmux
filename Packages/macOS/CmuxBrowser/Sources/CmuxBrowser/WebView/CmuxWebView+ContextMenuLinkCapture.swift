@@ -130,10 +130,10 @@ extension CmuxWebView {
         )
     }
 
-    fileprivate func noteContextMenuCapturedLink(_ url: URL?) {
+    fileprivate func noteContextMenuCapturedLink(_ url: URL?, receivedAt: TimeInterval) {
         contextMenuCapturedLink = ContextMenuCapturedLink(
             url: url,
-            uptime: ProcessInfo.processInfo.systemUptime
+            uptime: receivedAt
         )
     }
 
@@ -315,10 +315,11 @@ private final class ContextMenuLinkCaptureMessageHandler: NSObject, WKScriptMess
         //
         // WebKit delivers script messages on the main thread, but the callback
         // is not guaranteed to carry Swift's MainActor executor token. Queue
-        // the capture with the actor and let the click lifecycle discard stale
-        // state when the web view is detached.
+        // the capture with the actor, preserving its ingress time so a later
+        // menu cannot accept a delayed report from a previous click.
+        let receivedAt = ProcessInfo.processInfo.systemUptime
         Task { @MainActor in
-            webView.noteContextMenuCapturedLink(url)
+            webView.noteContextMenuCapturedLink(url, receivedAt: receivedAt)
         }
     }
 }

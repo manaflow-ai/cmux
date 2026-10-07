@@ -64,8 +64,10 @@ struct BrowserViewportRuntimeTests {
         let view = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 240))
         let invalidator = PortalSplitDividerCacheInvalidator()
         var callbackCount = 0
+        let (callbacks, continuation) = AsyncStream<Void>.makeStream()
         invalidator.observe(geometryViews: [view], structureViews: []) {
             callbackCount += 1
+            continuation.yield(())
         }
         defer { invalidator.invalidate() }
 
@@ -73,7 +75,8 @@ struct BrowserViewportRuntimeTests {
         #expect(!invalidator.structureIsCurrent())
         #expect(callbackCount == 0)
 
-        await Task.yield()
+        var iterator = callbacks.makeAsyncIterator()
+        await iterator.next()
         #expect(callbackCount == 1)
     }
 

@@ -6185,7 +6185,8 @@ struct WebViewRepresentable: NSViewRepresentable {
 
         @discardableResult
         func promoteHostedInspectorSideDockFromCurrentLayoutIfNeeded() -> Bool {
-            guard !isHostedInspectorSideDockActive(),
+            guard !isHostedInspectorDividerDragActive,
+                  !isHostedInspectorSideDockActive(),
                   let slotView = localInlineSlotView,
                   let hit = hostedInspectorDividerCandidateUsingKnownWebViews(in: slotView) else {
                 return false
@@ -6208,7 +6209,8 @@ struct WebViewRepresentable: NSViewRepresentable {
         /// before mutating, so it is safe even if the layout changes in between.
         private func scheduleHostedInspectorSideDockPromotionIfNeeded() {
             guard hostedInspectorSideDockPromotionTask == nil else { return }
-            guard !isHostedInspectorSideDockActive(),
+            guard !isHostedInspectorDividerDragActive,
+                  !isHostedInspectorSideDockActive(),
                   let slotView = localInlineSlotView,
                   hostedInspectorDividerCandidateUsingKnownWebViews(in: slotView) != nil else {
                 return
@@ -6982,7 +6984,7 @@ struct WebViewRepresentable: NSViewRepresentable {
 
         fileprivate func scheduleHostedInspectorDividerReapply(reason: String) {
             hostedInspectorReapplyScheduler.schedule { [weak self] in
-                guard let self else { return }
+                guard let self, !self.isHostedInspectorDividerDragActive else { return }
                 _ = self.promoteHostedInspectorSideDockFromCurrentLayoutIfNeeded()
                 if self.hasStoredHostedInspectorWidthPreference {
                     self.reapplyHostedInspectorDividerToStoredWidthIfNeeded(reason: reason)
@@ -7043,7 +7045,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         }
 
         private func reapplyHostedInspectorDividerToStoredWidthIfNeeded(reason: String) {
-            guard !isApplyingHostedInspectorLayout else { return }
+            guard !isApplyingHostedInspectorLayout, !isHostedInspectorDividerDragActive else { return }
             guard let hit = hostedInspectorDividerCandidate() else { return }
             guard let preferredWidth = resolvedPreferredHostedInspectorWidth(in: hit.containerView.bounds) else {
                 return
