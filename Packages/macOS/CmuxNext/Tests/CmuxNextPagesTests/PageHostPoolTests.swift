@@ -91,6 +91,26 @@ struct PageHostPoolTests {
         pool.release(second)
     }
 
+    @Test func aThirdPartyPageIdCannotMountInAPooledHost() throws {
+        let host = try #require(PageWebView(pooledHost: .settings))
+        defer { host.close() }
+        let thirdParty = PageDescriptor(id: "com.example.page", resource: "settings", namespaces: ["com.example.page."])
+        #expect(!host.retarget(descriptor: thirdParty, routes: []))
+        #expect(host.descriptor == .settings)
+    }
+
+    @Test func pageViewsShareOneProcessPoolButKeepSeparateNonPersistentStores() throws {
+        let pooled = try #require(PageWebView(pooledHost: .settings))
+        let second = try #require(PageWebView(pooledHost: .settings))
+        let ordinary = try #require(PageWebView(descriptor: .settings, routes: []))
+        defer { pooled.close(); second.close(); ordinary.close() }
+        let views = [pooled, second, ordinary]
+        #expect(views.allSatisfy { $0.webKitView.configuration.processPool === PageProcessPool.shared })
+        let stores = views.map { $0.webKitView.configuration.websiteDataStore }
+        #expect(stores.allSatisfy { !$0.isPersistent })
+        #expect(stores[0] !== stores[1] && stores[1] !== stores[2])
+    }
+
     private static func pool() -> PageHostPool {
         var policy = PageHostPool.Policy()
         policy.idleInput = .milliseconds(5)
