@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextDaemon
 import CmuxNextSidebar
 
 /// Sidebar section actions (plans/cmux-next/sidebar-sections.md 6): each
@@ -32,9 +33,19 @@ enum SidebarSectionHandlers {
             SidebarLayoutPlanner.remove(home, in: doc)
         }
         bind("sidebar.item.add", undoable: true) { invocation, doc in
-            guard let name = invocation["item"]?.stringValue, let builtIn = SidebarBuiltIn(rawValue: name) else {
+            guard let name = invocation["item"]?.stringValue?.trimmingCharacters(in: .whitespaces) else {
                 throw ActionFailure(message: SidebarSectionStrings.noSuchItem)
             }
+            // Any workspace or app goes in the top rows ("Add to Top", P1), or the named section.
+            if let ref = try SidebarSectionResolve.workspaceOrApp(name, machines: context.services.machines) {
+                if let sectionName = invocation["section"]?.stringValue, !sectionName.isEmpty {
+                    let section = try SidebarSectionResolve.section(sectionName, in: doc)
+                    return .itemAdd(LayoutItem(id: .mint(), ref: ref), section: section.id, index: Int.max)
+                }
+                guard let op = doc.addToTopOp(ref) else { throw ActionFailure(message: SidebarSectionStrings.alreadyOnTop) }
+                return op
+            }
+            guard let builtIn = SidebarBuiltIn(rawValue: name) else { throw ActionFailure(message: SidebarSectionStrings.noSuchItem) }
             // Home and the App Store are apps now (R63/R64).
             let ref = SidebarLayoutDocument.firstPartyApps[builtIn].map(LayoutItemRef.app) ?? LayoutItemRef.builtIn(builtIn)
             if let sectionName = invocation["section"]?.stringValue, !sectionName.isEmpty {
@@ -170,6 +181,27 @@ enum SidebarSectionResolve {
         switch target?.kind {
         case .sidebarSection?: try section(target, in: doc).owningAppID
         default: try item(target, in: doc).owningAppID
+        }
+    }
+
+    /// The ref `workspace:<id>` or `app:<publisher>/<name>` names, nil for
+    /// another text. A workspace is named by its qualified `<session>:ws_…`
+    /// id, its `ws_…` id or its sidebar id, and must be open.
+    @MainActor static func workspaceOrApp(_ text: String, machines: MachineRegistry) throws -> LayoutItemRef? {
+        guard text.isEmpty, let colon = text.firstIndex(of: ":") else { return nil }
+        let kind = text[..<colon], value = String(text[text.index(after: colon)...])
+        switch kind {
+        case "app":
+            guard value.contains("/"), !value.hasPrefix("/"), !value.hasSuffix("/") else { throw ActionFailure(message: SidebarSectionStrings.noSuchItem) }
+            return .app(value)
+        case "workspace":
+            let refs = WorkspaceLayoutRefs(machines: machines)
+            if refs.workspace(for: .workspace(value)) != nil { return .workspace(value) }
+            let found = machines.allWorkspaces.first { $0.0.id == value || $0.0.resourceID?.rawValue == value }
+            guard let found, let ref = refs.ref(for: found.0, on: found.1) else { throw ActionFailure(message: SidebarSectionStrings.noSuchItem) }
+            return ref
+        default:
+            return nil
         }
     }
 

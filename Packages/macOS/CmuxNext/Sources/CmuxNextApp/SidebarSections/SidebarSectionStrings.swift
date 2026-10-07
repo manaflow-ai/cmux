@@ -18,6 +18,9 @@ enum SidebarSectionStrings {
     static var homeNotShown: String {
         String(localized: "sidebarSections.homeNotShown", defaultValue: "Home is not in the sidebar", table: "SidebarSections", bundle: .module)
     }
+    static var alreadyOnTop: String {
+        String(localized: "sidebarSections.alreadyOnTop", defaultValue: "this item is already at the top of the sidebar", table: "SidebarSections", bundle: .module)
+    }
     static var labelsOnlyOnALine: String {
         String(localized: "sidebarSections.labelsOnlyOnALine", defaultValue: "labels can be hidden only in a section shown on one line",
                table: "SidebarSections", bundle: .module)

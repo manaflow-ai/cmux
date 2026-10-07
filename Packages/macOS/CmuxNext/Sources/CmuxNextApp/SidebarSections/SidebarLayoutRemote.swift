@@ -12,6 +12,19 @@ protocol SidebarLayoutRemote: AnyObject {
     var changeToken: UInt64 { get }
     func get() async throws -> SidebarLayoutDocument
     func update(_ op: SidebarLayoutOp, key: String) async throws -> SidebarLayoutDocument
+    /// Workspaces pinned with the legacy flag (`workspace-pin-v1`) as layout
+    /// refs, per session whose tree has loaded (the one-time move into tiles).
+    var legacyPins: [LegacyPins] { get }
+}
+
+/// One session's legacy pinned workspaces, in its sidebar order.
+struct LegacyPins: Hashable {
+    var session: String
+    var refs: [LayoutItemRef]
+}
+
+extension SidebarLayoutRemote {
+    var legacyPins: [LegacyPins] { [] }
 }
 
 /// Whether an owner call failed because the connection went away (the
@@ -36,6 +49,14 @@ final class DaemonSidebarLayoutRemote: SidebarLayoutRemote {
 
     var isAvailable: Bool { daemon.connection != nil && daemon.supports(DaemonCapabilities.shared.sidebarLayout) }
     var changeToken: UInt64 { daemon.store.personal.revision }
+
+    var legacyPins: [LegacyPins] {
+        let refs = WorkspaceLayoutRefs(machines: services.machines)
+        return services.machines.daemons.compactMap { daemon in
+            guard let session = daemon.store.registryID, !daemon.store.isProvisional else { return nil }
+            return LegacyPins(session: session, refs: daemon.store.workspaces.filter(\.pinned).compactMap { refs.ref(for: $0, on: daemon) })
+        }
+    }
 
     func get() async throws -> SidebarLayoutDocument {
         guard let connection = daemon.connection else { throw DaemonError.notConnected }

@@ -131,3 +131,53 @@ struct WorkspacePinTilesTests {
         #expect(sections.first?.workspaces.map(\.id.rawValue) == [Self.id(2)])
     }
 }
+
+/// Add to Top (PINNED-ITEMS-END-TO-END P1): `sidebar.item.add` puts any
+/// workspace (`workspace:<id>`, by sidebar, `ws_…` or qualified id) or app
+/// (`app:<publisher>/<name>`) in the top rows; the tile menu names Remove
+/// from Section by where the item is.
+@MainActor
+struct WorkspaceTopRowsTests {
+    private static func add(_ services: AppServices, _ item: String) {
+        _ = services.registry.perform("sidebar.item.add", invocation: ActionInvocation(arguments: ["item": .string(item)], origin: .cli))
+    }
+
+    @Test(arguments: [WorkspacePinTilesTests.id(1), "ws_1", "\(WorkspacePinTilesTests.session):ws_1"])
+    func addToTopTakesAnyWorkspaceName(_ name: String) async {
+        let owner = SidebarLayoutServiceTests.FakeOwner()
+        let services = WorkspacePinTilesTests.services(owner: owner)
+        Self.add(services, "workspace:\(name)")
+        let top = services.sidebarLayout.document.section(SidebarLayoutDocument.topSectionID)?.items.map(\.ref)
+        #expect(top?.last == WorkspacePinTilesTests.ref(1))
+        for _ in 0..<300 { for call in owner.calls { owner.accept(call.key) }; await Task.yield() }
+    }
+
+    @Test func addToTopTakesAnAppAndRefusesUnknownNames() async {
+        let owner = SidebarLayoutServiceTests.FakeOwner()
+        let services = WorkspacePinTilesTests.services(owner: owner)
+        Self.add(services, "app:acme/notes")
+        Self.add(services, "workspace:ws_missing")
+        Self.add(services, "app:bad")
+        let top = services.sidebarLayout.document.section(SidebarLayoutDocument.topSectionID)?.items.map(\.ref)
+        #expect(top?.suffix(1) == [.app("acme/notes")])
+        #expect(top?.count == 3)
+        for _ in 0..<300 { for call in owner.calls { owner.accept(call.key) }; await Task.yield() }
+    }
+
+    @Test func removeFromSectionReadsAsUnpinOrRemoveFromTop() async throws {
+        let owner = SidebarLayoutServiceTests.FakeOwner()
+        let services = WorkspacePinTilesTests.services(owner: owner)
+        #expect(ActionBindingCoverageTests.run(services, "palette.toggleWorkspacePin",
+                                               target: ActionTargetRef(kind: .workspace, id: WorkspacePinTilesTests.id(3))) == .ran)
+        Self.add(services, "workspace:ws_1")
+        let doc = services.sidebarLayout.document
+        let tile = try #require(doc.section(SidebarLayoutDocument.pinnedSectionID)?.items.first)
+        let row = try #require(doc.section(SidebarLayoutDocument.topSectionID)?.items.last)
+        let title = { (id: LayoutItemID) in
+            services.registry.action(for: "sidebar.item.remove")?.targetTitle?(ActionInvocation(target: ActionTargetRef(kind: .sidebarItem, id: id.rawValue)))
+        }
+        #expect(title(tile.id) == PinStrings.unpinWorkspace)
+        #expect(title(row.id) == PinStrings.removeFromTop)
+        for _ in 0..<300 { for call in owner.calls { owner.accept(call.key) }; await Task.yield() }
+    }
+}
