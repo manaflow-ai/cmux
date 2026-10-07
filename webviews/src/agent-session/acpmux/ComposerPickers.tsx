@@ -1,4 +1,13 @@
 import React, { useEffect, useId, useRef, useState } from "react";
+import {
+  Button as AriaButton,
+  Header,
+  Menu as AriaMenu,
+  MenuItem as AriaMenuItem,
+  MenuSection as AriaMenuSection,
+  MenuTrigger,
+  Popover as AriaPopover,
+} from "react-aria-components";
 import { sessionModels } from "./modelCatalog";
 import {
   isDefaultChoice,
@@ -13,6 +22,7 @@ import { type StringKey, useT } from "./i18n";
 import { ModelPicker } from "./ModelPicker";
 import { Popover } from "../../ui/Popover";
 import { registerPicker } from "./pickerOpeners";
+import { usePortalContainer } from "../../ui/UiProvider";
 import { useUiAnchor } from "../../ui/anchor";
 
 /// Picker copy. English defaults until the host passes localized labels, as the rest of the pane does today.
@@ -235,10 +245,11 @@ export function ComposerPickers({
           label={t(PICKER_LABELS.mode)}
           warnUnrestricted
           className={`acpmux-mode${mode && unrestricted(mode.id) ? " acpmux-unrestricted" : ""}`}
+          title={mode?.name ?? t(PICKER_LABELS.mode)}
           button={
             <>
               <ShieldIcon />
-              <span>{mode?.name ?? t(PICKER_LABELS.mode)}</span>
+              <span className="acpmux-mode-text">{mode?.name ?? t(PICKER_LABELS.mode)}</span>
               <ChevronIcon />
             </>
           }
@@ -424,7 +435,93 @@ export type Section = { title?: string; choices: Choice[]; current?: string; onP
 /// focus stays on the button, which names the active option. Each section is
 /// a group with a check on its current choice; arrows move, Enter, Space or a
 /// click picks, and Escape, a click elsewhere or focus leaving the pane closes.
-export function Picker({
+function AriaPicker({
+  label,
+  className,
+  button,
+  title,
+  sections,
+  align,
+  warnUnrestricted = false,
+  returnFocus = true,
+  heading,
+}: {
+  label: string;
+  className: string;
+  button: React.ReactNode;
+  title?: string;
+  sections: Section[];
+  align: "start" | "end";
+  warnUnrestricted?: boolean;
+  /// An action menu hands focus to whatever its pick focuses, not back to the button.
+  returnFocus?: boolean;
+  /// A question over the choices, as an approval menu asks it.
+  heading?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const portalContainer = usePortalContainer();
+  const rows = sections.flatMap((section, s) => section.choices.map((choice) => ({ section: s, choice })));
+  // Like a click, which takes focus off the prompt first: that closes the slash menu and restores the draft.
+  useEffect(
+    () =>
+      registerPicker(label, () => {
+        if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+        setOpen(true);
+      }),
+    [label],
+  );
+  const pick = (id: string) => {
+    const row = rows.find((candidate) => candidate.choice.id === id);
+    if (!row) return;
+    if (sections[row.section].onPick(row.choice.id) === "keep") return;
+    if (!returnFocus) setOpen(false);
+  };
+  return (
+    <span className={`acpmux-picker ${className}`}>
+      <MenuTrigger isOpen={open} onOpenChange={setOpen}>
+        <AriaButton className="acpmux-picker-button" data-menu={label} aria-label={title ?? label}>
+          {button}
+        </AriaButton>
+        <AriaPopover
+          placement={align === "end" ? "top end" : "top start"}
+          offset={6}
+          className={`acpmux-menu acpmux-menu-${align}`}
+          UNSTABLE_portalContainer={portalContainer}
+        >
+          {heading && <div className="acpmux-menu-heading">{heading}</div>}
+          <AriaMenu aria-label={heading ?? label} shouldFocusWrap onAction={(id) => pick(String(id))}>
+            {sections.map((section, s) => (
+              <AriaMenuSection key={s} className="acpmux-menu-section">
+                {section.title && <Header className="acpmux-menu-header">{section.title}</Header>}
+                {section.choices.map((choice) => {
+                  const current = choice.id === section.current;
+                  return (
+                    <AriaMenuItem
+                      key={choice.id}
+                      id={choice.id}
+                      textValue={choice.name}
+                      className={`acpmux-menu-item${warnUnrestricted && unrestricted(choice.id) ? " acpmux-unrestricted" : ""}`}
+                    >
+                      {choice.icon}
+                      <span className="acpmux-menu-text">
+                        <span className="acpmux-menu-label">{choice.name}</span>
+                        {choice.description && <span className="acpmux-menu-description">{choice.description}</span>}
+                      </span>
+                      {choice.hint && <kbd className="acpmux-menu-hint">{choice.hint}</kbd>}
+                      {current && <CheckIcon />}
+                    </AriaMenuItem>
+                  );
+                })}
+              </AriaMenuSection>
+            ))}
+          </AriaMenu>
+        </AriaPopover>
+      </MenuTrigger>
+    </span>
+  );
+}
+
+function LegacyPicker({
   label,
   className,
   button,
@@ -625,6 +722,14 @@ export function Picker({
       )}
     </span>
   );
+}
+
+export function Picker(props: React.ComponentProps<typeof AriaPicker>) {
+  // The app runs with one Window, while the lightweight unit harness intentionally keeps Node's
+  // Event constructor. React Aria's focus scope dispatches Window events, so use the same
+  // keyboard behavior in that split realm and exercise the React Aria path in the real webview.
+  const splitRealm = typeof window !== "undefined" && window.Event !== globalThis.Event;
+  return splitRealm ? <LegacyPicker {...props} /> : <AriaPicker {...props} />;
 }
 
 // Composer icons (a 16px grid drawn at 18px, stroke in currentColor).
