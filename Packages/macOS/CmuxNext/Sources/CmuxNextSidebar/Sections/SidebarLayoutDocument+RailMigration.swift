@@ -35,7 +35,7 @@ extension SidebarLayoutDocument {
         ]
         if sections == Self.inlineBottomDefaults.sections || section(bottom) == Self.gridBottomSection { return profileFooter }
         // SIDEBAR-FOOTER-MINIMAL's untouched footer (avatar, then gear) loses the gear.
-        if section(bottom) == Self.minimalBottomSection { return [] }
+        if section(bottom) == Self.minimalBottomSection { return [.itemRemove(LayoutItemID("itm_settings"))] }
         guard sections == Self.railDefaults.sections else { return [] }
         return [
             .itemRemove(LayoutItemID("itm_history")),

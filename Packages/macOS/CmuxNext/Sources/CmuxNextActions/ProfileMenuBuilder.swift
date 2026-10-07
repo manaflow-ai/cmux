@@ -27,7 +27,7 @@ public nonisolated struct ProfileMenuProfile: Sendable, Hashable {
 
     public func make(profile: ProfileMenuProfile, spec: ProfileMenuSpec = ProfileMenuSpec()) -> NSMenu {
         let menu = NSMenu()
-        if menu.items.isEmpty { return menu }
+        menu.autoenablesItems = true
         menu.addItem(.sectionHeader(title: spec.sectionTitle))
         menu.addItem(profileRow(profile, actions: spec.profileActions))
         menu.addItem(.separator())

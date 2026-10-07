@@ -115,7 +115,6 @@ public nonisolated struct SidebarLayoutDocument: Hashable, Sendable, Codable {
         LayoutSection(id: bottomSectionID, region: .bottom, look: .builtIn,
                       arrangement: SectionArrangement(layout: .inline, align: .leading), items: [
                           LayoutItem(id: LayoutItemID("itm_account"), ref: .builtIn(.account), showsLabel: false),
-                          LayoutItem(id: LayoutItemID("itm_settings"), ref: .builtIn(.settings), showsLabel: false),
                       ]),
     ])
 
