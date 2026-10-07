@@ -160,13 +160,11 @@ export type AcpmuxSnapshot = {
     name: string;
     models: AcpmuxCatalogModel[];
     unavailable?: string;
+    pickable?: boolean;
     /** acpmux's family for the harness (`_acpmux/harnesses` `family`): joins it to a catalog harness. */
     family?: string;
     /** `_acpmux/harnesses` `icon`: a brand id, or a file the host serves. */
     icon?: string;
-    /** `_acpmux/harnesses` `kind`: "acp" or "claude-stdio" run as chats; "terminal" (a CLI/TUI
-     *  without ACP) and any kind this page does not know cannot be picked. */
-    kind?: string;
   }[];
   canLoadOlder: boolean;
   /** The agent's slash commands, for the composer's `/` menu. */

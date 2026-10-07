@@ -1675,7 +1675,11 @@ export class AcpmuxDirectClient {
   /// rides as `_meta.cmuxGesture`, and the host strips it before acpmux.
   async setMode(modeId: string, ticket?: string): Promise<void> {
     if (this.selectedSessionId)
-      await this.request("session/set_mode", { sessionId: this.selectedSessionId, modeId, ...gestureMeta(ticket) });
+      await this.request("session/set_mode", {
+        sessionId: this.selectedSessionId,
+        modeId,
+        ...gestureMeta(ticket),
+      });
   }
   async setConfig(configId: string, value: string, ticket?: string): Promise<void> {
     if (this.selectedSessionId)
@@ -1763,7 +1767,8 @@ export function catalogModel(model: any): AcpmuxSnapshot["catalog"][number]["mod
   if (typeof model?.unavailable === "string") entry.unavailable = model.unavailable;
   for (const key of ["shortName", "family", "defaultEffort"] as const)
     if (typeof model?.[key] === "string" && model[key]) entry[key] = model[key];
-  if (Array.isArray(model?.efforts)) entry.efforts = model.efforts.filter((value: unknown) => typeof value === "string");
+  if (Array.isArray(model?.efforts))
+    entry.efforts = model.efforts.filter((value: unknown) => typeof value === "string");
   if (typeof model?.fast === "boolean") entry.fast = model.fast;
   if (Number.isInteger(model?.contextWindow) && model.contextWindow > 0) entry.contextWindow = model.contextWindow;
   return entry;
@@ -1786,7 +1791,6 @@ export function normalizeCatalog(value: any): AcpmuxSnapshot["catalog"] {
     models: (harness.models ?? []).map((model: any) => catalogModel(model)),
     ...(typeof harness.family === "string" && harness.family ? { family: harness.family } : {}),
     ...(typeof harness.icon === "string" && harness.icon ? { icon: harness.icon } : {}),
-    ...(typeof harness.kind === "string" && harness.kind ? { kind: harness.kind } : {}),
     // Why acpmux will not start it, when it says: its launcher check (`unavailable`), else its
     // failed model probe (`probeError`).
     ...(harnessRefusal(harness) ? { unavailable: harnessRefusal(harness) } : {}),

@@ -50,6 +50,8 @@ export type CatalogHarness = {
   brand: string;
   families: string[];
   modelSource: "catalog" | "probe";
+  pickable?: boolean;
+  kind?: string;
   defaultModel?: string;
   models: HarnessModel[];
 };
@@ -97,13 +99,9 @@ export type PickerHarness = {
   /** A host-served icon an acpmux profile declared (`_acpmux/harnesses` `icon` that is not a brand). */
   iconUrl?: string;
   acpmuxHarness: string | null;
-  /** acpmux has a chat harness of this family. A catalog harness that is not installed still lists. */
+  /** acpmux has a harness of this family. A catalog harness that is not installed still lists. */
   installed: boolean;
-  /** It can run as a chat. false for a "terminal" harness (a CLI/TUI without ACP) or a kind this
-   *  page does not know: the picker shows it disabled or leaves it out, never starts it. */
   pickable: boolean;
-  /** acpmux's `kind` when it is not a chat kind ("terminal", or an unknown one). */
-  kind?: string;
   unavailable?: string;
   defaultModel?: string;
   models: PickerModel[];
@@ -117,7 +115,10 @@ type AcpmuxModel = AcpmuxHarness["models"][number];
 type ConfigOptions = NonNullable<NonNullable<AcpmuxSnapshot["summary"]>["configOptions"]>;
 
 /** The catalog bundled with the page: what the picker shows before the host answers, and offline. */
-export const BUNDLED_MODEL_CATALOG: ModelCatalog = { ...(bundledCatalog as ModelCatalog), delivery: "bundled" };
+export const BUNDLED_MODEL_CATALOG: ModelCatalog = {
+  ...(bundledCatalog as ModelCatalog),
+  delivery: "bundled",
+};
 
 const EFFORT_ORDER: readonly EffortValue[] = ["none", "minimal", "low", "medium", "high", "xhigh", "max"];
 
@@ -149,7 +150,10 @@ export function applyUserLayer(catalog: ModelCatalog, user: unknown): ModelCatal
   for (const [key, raw] of Object.entries(overrides)) {
     const slash = key.indexOf("/");
     if (slash <= 0 || slash === key.length - 1 || !isRecord(raw)) {
-      diagnostics.push({ path: `agentPane.models.overrides.${key}`, message: "expected \"<harness>/<model>\": {…}" });
+      diagnostics.push({
+        path: `agentPane.models.overrides.${key}`,
+        message: 'expected "<harness>/<model>": {…}',
+      });
       continue;
     }
     const harnessId = key.slice(0, slash);
@@ -162,7 +166,10 @@ export function applyUserLayer(catalog: ModelCatalog, user: unknown): ModelCatal
 }
 
 function withHarnessConfig(harness: CatalogHarness, config: unknown): CatalogHarness {
-  const copy: CatalogHarness = { ...harness, models: harness.models.map((model) => ({ ...model })) };
+  const copy: CatalogHarness = {
+    ...harness,
+    models: harness.models.map((model) => ({ ...model })),
+  };
   if (!isRecord(config)) return copy;
   if (typeof config.name === "string" && config.name.trim()) copy.name = config.name.trim();
   if (typeof config.defaultModel === "string" && config.defaultModel) copy.defaultModel = config.defaultModel;
@@ -170,12 +177,19 @@ function withHarnessConfig(harness: CatalogHarness, config: unknown): CatalogHar
 }
 
 function orderOf(config: unknown, index: number): number {
-  return isRecord(config) && typeof config.order === "number" && Number.isFinite(config.order) ? config.order - 0.5 : index;
+  return isRecord(config) && typeof config.order === "number" && Number.isFinite(config.order)
+    ? config.order - 0.5
+    : index;
 }
 
 /** A known model takes the fields; an unknown one is added, but only to a harness the key names
  *  directly (a "*" key never invents a model in every harness). */
-function applyModelOverride(harness: CatalogHarness, modelId: string, raw: Record<string, unknown>, add: boolean): void {
+function applyModelOverride(
+  harness: CatalogHarness,
+  modelId: string,
+  raw: Record<string, unknown>,
+  add: boolean,
+): void {
   const index = harness.models.findIndex((model) => model.id === modelId || model.aliases?.includes(modelId));
   if (raw.hidden === true) {
     if (index >= 0) harness.models.splice(index, 1);
@@ -193,7 +207,8 @@ function modelFields(raw: Record<string, unknown>): Partial<HarnessModel> {
   const fields: Partial<HarnessModel> = {};
   for (const key of ["name", "shortName", "family", "provider"] as const)
     if (typeof raw[key] === "string" && (raw[key] as string).trim()) fields[key] = (raw[key] as string).trim();
-  if (Array.isArray(raw.efforts)) fields.efforts = EFFORT_ORDER.filter((effort) => (raw.efforts as unknown[]).includes(effort));
+  if (Array.isArray(raw.efforts))
+    fields.efforts = EFFORT_ORDER.filter((effort) => (raw.efforts as unknown[]).includes(effort));
   if (typeof raw.defaultEffort === "string" && EFFORT_ORDER.includes(raw.defaultEffort as EffortValue))
     fields.defaultEffort = raw.defaultEffort as EffortValue;
   if (typeof raw.fast === "boolean") fields.fast = raw.fast;
@@ -214,20 +229,26 @@ export type PickerInputs = {
 };
 
 /** Joins the catalog with what acpmux reports (CONTRACT section 3, join rules 1-6). */
-export function buildPickerCatalog({ catalog, user, acpmux, session, provisional = false }: PickerInputs): PickerCatalog {
+export function buildPickerCatalog({
+  catalog,
+  user,
+  acpmux,
+  session,
+  provisional = false,
+}: PickerInputs): PickerCatalog {
   const layered = applyUserLayer(catalog, user);
   const join: Join = { catalog: layered, session, overrides: userOverrides(user) };
   const hidden = hiddenHarnesses(user);
   const covered = new Set<string>();
   const harnesses = layered.harnesses.map((harness) => {
-    // Only chat harnesses join a catalog entry; a terminal profile of the same family lists alone.
-    const members = acpmux.filter((entry) => isChatKind(entry) && harness.families.includes(familyOf(entry)));
+    const members = acpmux.filter((entry) => harness.families.includes(familyOf(entry)));
     for (const member of members) covered.add(member.id);
     return catalogHarness(harness, members, join);
   });
   // A profile whose family a hidden catalog harness covers stays hidden with it.
   for (const harness of catalog.harnesses)
-    if (hidden.has(harness.id)) for (const entry of acpmux) if (harness.families.includes(familyOf(entry))) covered.add(entry.id);
+    if (hidden.has(harness.id))
+      for (const entry of acpmux) if (harness.families.includes(familyOf(entry))) covered.add(entry.id);
   for (const entry of acpmux) {
     if (!covered.has(entry.id) && !hidden.has(entry.id)) harnesses.push(uncataloguedHarness(entry, join));
   }
@@ -242,27 +263,46 @@ type Join = {
 
 function userOverrides(user: unknown): Join["overrides"] {
   const overrides = isRecord(user) && isRecord(user.overrides) ? user.overrides : {};
-  return Object.fromEntries(Object.entries(overrides).filter((entry): entry is [string, Record<string, unknown>] => isRecord(entry[1])));
+  return Object.fromEntries(
+    Object.entries(overrides).filter((entry): entry is [string, Record<string, unknown>] => isRecord(entry[1])),
+  );
 }
 
 function hiddenHarnesses(user: unknown): Set<string> {
   const config = isRecord(user) && isRecord(user.harnesses) ? user.harnesses : {};
-  return new Set(Object.entries(config).filter(([, value]) => isRecord(value) && value.hidden === true).map(([id]) => id));
+  return new Set(
+    Object.entries(config)
+      .filter(([, value]) => isRecord(value) && value.hidden === true)
+      .map(([id]) => id),
+  );
 }
 
 /** Catalog values, then what the profile declared, then the user's override fields. */
-function layeredModel(model: HarnessModel, harnessId: string, probe: AcpmuxModel | undefined, join: Join): HarnessModel {
+function layeredModel(
+  model: HarnessModel,
+  harnessId: string,
+  probe: AcpmuxModel | undefined,
+  join: Join,
+): HarnessModel {
   // A profile declares metadata, not the model's identity: its name and provider stay the catalog's.
-  const { name: _name, provider: _provider, ...declared } = probe ? modelFields(probe as unknown as Record<string, unknown>) : {};
-  const user = { ...join.overrides[`*/${model.id}`], ...join.overrides[`${harnessId}/${model.id}`] };
+  const {
+    name: _name,
+    provider: _provider,
+    ...declared
+  } = probe ? modelFields(probe as unknown as Record<string, unknown>) : {};
+  const user = {
+    ...join.overrides[`*/${model.id}`],
+    ...join.overrides[`${harnessId}/${model.id}`],
+  };
   return { ...model, ...declared, ...modelFields(user) };
 }
 
 function catalogHarness(harness: CatalogHarness, members: AcpmuxHarness[], join: Join): PickerHarness {
   const { catalog, session } = join;
-  const chosen = members.find((entry) => entry.id === session?.harness)
-    ?? members.find((entry) => entry.id === harness.id)
-    ?? members[0];
+  const chosen =
+    members.find((entry) => entry.id === session?.harness) ??
+    members.find((entry) => entry.id === harness.id) ??
+    members[0];
   const probed = chosen?.models ?? [];
   const listed = harness.modelSource === "catalog" ? harness.models : [];
   const models: PickerModel[] = listed.map((model) => {
@@ -281,7 +321,11 @@ function catalogHarness(harness: CatalogHarness, members: AcpmuxHarness[], join:
     brand: harness.brand,
     acpmuxHarness: chosen?.id ?? null,
     installed: chosen !== undefined,
-    pickable: chosen !== undefined,
+    pickable:
+      harness.pickable !== false &&
+      harness.kind !== "terminal" &&
+      harness.kind !== "unknown" &&
+      (chosen === undefined || entryPickable(chosen)),
     ...(chosen?.unavailable ? { unavailable: chosen.unavailable } : {}),
     ...(harness.defaultModel ? { defaultModel: harness.defaultModel } : {}),
     models: live ? models.map((model) => withLiveOptions(model, live)) : models,
@@ -302,8 +346,7 @@ function uncataloguedHarness(entry: AcpmuxHarness, join: Join): PickerHarness {
     ...(iconUrl ? { iconUrl } : {}),
     acpmuxHarness: entry.id,
     installed: true,
-    pickable: isChatKind(entry),
-    ...(isChatKind(entry) ? {} : { kind: entry.kind }),
+    pickable: entryPickable(entry),
     ...(entry.unavailable ? { unavailable: entry.unavailable } : {}),
     models: live ? models.map((model) => withLiveOptions(model, live)) : models,
   };
@@ -371,7 +414,9 @@ function probeMatches(model: HarnessModel, id: string): boolean {
 
 /** The session's own effort and fast options are the truth for the model it runs. */
 function withLiveOptions(model: PickerModel, options: ConfigOptions): PickerModel {
-  const effort = options.find((option) => option.category === "thought_level" || option.id === "effort" || option.id === "reasoning_effort");
+  const effort = options.find(
+    (option) => option.category === "thought_level" || option.id === "effort" || option.id === "reasoning_effort",
+  );
   const efforts = effort?.options
     ?.map((choice) => choice.value)
     .filter((value): value is EffortValue => EFFORT_ORDER.includes(value as EffortValue));
@@ -383,23 +428,23 @@ function withLiveOptions(model: PickerModel, options: ConfigOptions): PickerMode
   };
 }
 
-/** A harness acpmux runs as a chat: no kind (an older daemon), "acp" or "claude-stdio". */
-function isChatKind(entry: AcpmuxHarness): boolean {
-  return entry.kind === undefined || entry.kind === "acp" || entry.kind === "claude-stdio";
-}
-
 function familyOf(entry: AcpmuxHarness): string {
   return (entry as AcpmuxHarness & { family?: string }).family ?? agentKey(entry.id) ?? entry.id;
 }
 
 function isCatalogHarness(value: unknown): value is CatalogHarness {
   return (
-    isRecord(value)
-    && typeof value.id === "string"
-    && typeof value.name === "string"
-    && Array.isArray(value.families)
-    && Array.isArray(value.models)
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.name === "string" &&
+    Array.isArray(value.families) &&
+    Array.isArray(value.models)
   );
+}
+
+function entryPickable(entry: AcpmuxHarness): boolean {
+  const value = entry as AcpmuxHarness & { pickable?: unknown; kind?: unknown };
+  return value.pickable !== false && value.kind !== "terminal" && value.kind !== "unknown";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
