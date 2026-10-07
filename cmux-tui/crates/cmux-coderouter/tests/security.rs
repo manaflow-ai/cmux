@@ -1,32 +1,55 @@
 use bytes::Bytes;
-use cmux_coderouter::{BODY_LIMIT, KeyRing, KeyScope, LoopbackAddr, Secret, handle_request};
+use cmux_coderouter::{
+    BODY_LIMIT, KeyRing, KeyScope, LoopbackAddr, Secret, StaticInstallSecretStore, handle_request,
+};
 use http::{Request, StatusCode};
 use http_body_util::Full;
 
 fn scope() -> KeyScope {
-    KeyScope { harness: "claude".into(), session: "session-1".into(), surfaces: vec!["surface-1".into()], expires_at: u64::MAX }
+    KeyScope {
+        harness: "claude".into(),
+        session: "session-1".into(),
+        surfaces: vec!["surface-1".into()],
+        expires_at: u64::MAX,
+    }
 }
 fn fixture() -> (KeyRing, Secret<String>) {
-    let mut keys = KeyRing::new(Secret::new(vec![7; 32])).unwrap();
-    let key = keys.mint(scope()).unwrap();
+    let store = std::sync::Arc::new(StaticInstallSecretStore::new("install", vec![7; 32]));
+    let mut keys = KeyRing::new(store).unwrap();
+    let key = keys.mint("key", scope()).unwrap();
     (keys, key)
 }
 fn request(key: &str) -> http::request::Builder {
-    Request::builder().method("POST").uri("/v1/messages").header("host", "127.0.0.1:31415").header("authorization", format!("Bearer {key}"))
+    Request::builder()
+        .method("POST")
+        .uri("/v1/messages")
+        .header("host", "127.0.0.1:31415")
+        .header("authorization", format!("Bearer {key}"))
 }
 #[tokio::test]
 async fn any_origin_refused() {
     let (keys, key) = fixture();
-    for origin in ["http://127.0.0.1:31415", "http://localhost:31415", "null", "", "https://evil.example"] {
-        let req = request(key.expose()).header("origin", origin).body(Full::new(Bytes::new())).unwrap();
+    for origin in
+        ["http://127.0.0.1:31415", "http://localhost:31415", "null", "", "https://evil.example"]
+    {
+        let req =
+            request(key.expose()).header("origin", origin).body(Full::new(Bytes::new())).unwrap();
         assert_eq!(handle_request(req, 31415, &keys).await, StatusCode::FORBIDDEN);
     }
 }
 #[tokio::test]
 async fn rebinding_host_refused() {
     let (keys, key) = fixture();
-    for host in ["evil.example:31415", "127.0.0.1:1", "localhost", "localhost.:31415", "[::1]:31415"] {
-        let req = Request::builder().method("POST").uri("/v1/messages").header("host", host).header("authorization", format!("Bearer {}", key.expose())).body(Full::new(Bytes::new())).unwrap();
+    for host in
+        ["evil.example:31415", "127.0.0.1:1", "localhost", "localhost.:31415", "[::1]:31415"]
+    {
+        let req = Request::builder()
+            .method("POST")
+            .uri("/v1/messages")
+            .header("host", host)
+            .header("authorization", format!("Bearer {}", key.expose()))
+            .body(Full::new(Bytes::new()))
+            .unwrap();
         assert_eq!(handle_request(req, 31415, &keys).await, StatusCode::MISDIRECTED_REQUEST);
     }
 }
@@ -34,7 +57,7 @@ async fn rebinding_host_refused() {
 async fn foreign_install_key_refused() {
     let (keys, key) = fixture();
     let parts: Vec<_> = key.expose().split('_').collect();
-    let foreign = format!("crl_{}_{}_{}", "f".repeat(32), parts[2], parts[3]);
+    let foreign = format!("crl_{}_{}_{}", "foreign", parts[2], parts[3]);
     let req = request(&foreign).body(Full::new(Bytes::new())).unwrap();
     assert_eq!(handle_request(req, 31415, &keys).await, StatusCode::UNAUTHORIZED);
 }
@@ -80,7 +103,9 @@ fn panic_payload_is_discarded() {
     }
     let output = std::process::Command::new(std::env::current_exe().unwrap())
         .args(["--exact", "panic_payload_is_discarded", "--nocapture"])
-        .env("CODEROUTER_PANIC_CHILD", "1").output().unwrap();
+        .env("CODEROUTER_PANIC_CHILD", "1")
+        .output()
+        .unwrap();
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(!stderr.contains("test-secret-canary"));

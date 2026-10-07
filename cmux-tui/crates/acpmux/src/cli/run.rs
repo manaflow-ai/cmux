@@ -939,7 +939,8 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
             }
             Ok(())
         }
-        Command::DaemonRun { .. }
+        Command::Router(_)
+        | Command::DaemonRun { .. }
         | Command::Stdio { .. }
         | Command::Session(_)
         | Command::Daemon(_)
