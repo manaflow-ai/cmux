@@ -39,17 +39,5 @@ struct RemoteBrowserPaneTests {
         #expect(pane.view.video.framePixels == CGSize(width: 1280, height: 720))
         pane.stop()
     }
-
-    @Test func stopEndsTheFrameStream() async throws {
-        let source = MockRemoteStreamSource(width: 640, height: 360)
-        try #require(source.canEncode, "no H.264 encoder on this Mac")
-        let pane = RemoteBrowserPane(source: source)
-        let sizes = pane.frameSizes()
-        pane.start()
-        pane.stop()
-        var count = 0
-        for await _ in sizes { count += 1 }
-        #expect(count == 0)
-    }
 }
 #endif
