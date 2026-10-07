@@ -392,6 +392,20 @@ struct CloudBrowserProxyIntegrationTests {
         #expect(posted["host"] == "\(server.address):8000")
         #expect(posted["body"] == "after-profile-switch")
         #expect(panel.webView.url == url)
+        panel.configureCloudBrowser(model: access, url: url)
+        let reconfigureDeadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while (panel.webView.url != url || panel.webView.isLoading) && ContinuousClock.now < reconfigureDeadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let postedAfterReconfigure = try #require(try await panel.webView.callAsyncJavaScript("""
+            const response = await fetch('http://localhost:8000/echo', {
+              method: 'POST', body: 'after-same-store-reconfigure', signal: AbortSignal.timeout(5000)
+            });
+            return await response.json();
+            """, arguments: [:], in: nil, contentWorld: .page) as? [String: String])
+        #expect(postedAfterReconfigure["machine"] == server.marker)
+        #expect(postedAfterReconfigure["host"] == "\(server.address):8000")
+        #expect(postedAfterReconfigure["body"] == "after-same-store-reconfigure")
         await access.retire()
     }
 

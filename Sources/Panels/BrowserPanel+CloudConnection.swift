@@ -93,7 +93,7 @@ extension BrowserPanel {
         controller.add(ruleList)
         cloudLoopbackContentRuleList = ruleList
         if let model = cloudAccess.model {
-            let scriptConfigurationKey = "\(model.target.host.lowercased()):\(model.target.port):\(port)"
+            let scriptConfigurationKey = "ssh:\(model.target.host.lowercased()):\(model.target.port):\(port)"
             if cloudLoopbackScriptConfigurationKey != scriptConfigurationKey {
                 let script = WKUserScript(
                     source: RemoteLoopbackRuntimeBridge.scriptSource(
@@ -116,7 +116,7 @@ extension BrowserPanel {
         cloudLoopbackScriptGeneration += 1
         let controller = webView.configuration.userContentController
         if let ruleList = cloudLoopbackContentRuleList { controller.remove(ruleList) }
-        if cloudLoopbackScriptConfigurationKey != nil {
+        if cloudLoopbackScriptConfigurationKey?.hasPrefix("ssh:") == true {
             let enabled = restoreGeneralBridge ? "true" : "false"
             let aliasHost = restoreGeneralBridge ? RemoteLoopbackProxyAlias.aliasHost : "127.0.0.1"
             webView.evaluateJavaScript("""
