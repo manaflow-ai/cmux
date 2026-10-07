@@ -109,3 +109,40 @@ input[type="submit"] {
     scroll-behavior: auto !important;
   }
 }
+
+/* Increase Contrast applies to every page through the shared theme layer. Host theme
+   tokens are inline styles; important keeps the system preference effective after theme updates. */
+@media (prefers-contrast: more) {
+  :root {
+    --cmux-text-secondary: var(--cmux-text, CanvasText) !important;
+    --cmux-text-tertiary: var(--cmux-text, CanvasText) !important;
+    --agent-muted: var(--agent-text, CanvasText) !important;
+    --agent-soft: var(--agent-text, CanvasText) !important;
+    --cmux-diff-text-dim: var(--cmux-diff-fg, CanvasText) !important;
+    --cmux-diff-text-muted: var(--cmux-diff-fg, CanvasText) !important;
+    --cmux-diff-text-subtle: var(--cmux-diff-fg, CanvasText) !important;
+    --cmux-focus-ring-width: 2px;
+  }
+
+  :root:not([data-borders="none"]) {
+    --cmux-separator: var(--cmux-text, CanvasText) !important;
+    --agent-border: var(--agent-text, CanvasText) !important;
+    --agent-border-strong: var(--agent-text, CanvasText) !important;
+    --acpmux-pill-edge: var(--agent-text, CanvasText) !important;
+    --cmux-diff-border: var(--cmux-diff-fg, CanvasText) !important;
+  }
+
+  :root:not([data-borders="none"]) :is(.acpmux-shell, .ui-positioner) {
+    --acpmux-composer-edge: var(--agent-text, CanvasText) !important;
+  }
+
+  :is(.acpmux-shell, .ui-positioner) {
+    --acpmux-composer-placeholder: var(--agent-text, CanvasText) !important;
+    --acpmux-composer-dim: var(--agent-text, CanvasText) !important;
+  }
+
+  :focus-visible {
+    outline: var(--cmux-focus-ring-width) solid currentColor !important;
+    outline-offset: 2px;
+  }
+}
