@@ -26,6 +26,13 @@ import WebKit
 /// leaves out page content other processes draw unless the app has the
 /// Screen Recording grant. `webviews: false` skips the page images (the
 /// window server's image alone).
+///
+/// The refusal HUD (`RefusalHUD`) is a Liquid Glass pill that fades in and
+/// hides after 1.8 s, so its pixels are not a reliable assertion: a capture
+/// may land before the fade or after the hide. Every reply therefore carries
+/// `refusal_hud`: the message the HUD shows now (null when hidden) and
+/// `refusal_hud_count`, the messages shown so far. Check those instead of
+/// looking for the pill in the PNG.
 enum DebugWindowSnapshot {
     static func capture(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
         guard let window = window(params, services: services) else { return .object(["error": .string("no such window")]) }
@@ -38,6 +45,7 @@ enum DebugWindowSnapshot {
                 "path": .string(path), "width": JSONValue(Int(size.width)), "height": JSONValue(Int(size.height)),
                 "kind": .string(kind), "window_number": JSONValue(window.windowNumber), "method": .string(method.rawValue),
                 "child_windows": JSONValue(method == .composited ? window.visibleChildWindows.count : 0),
+                "refusal_hud": hudMessage(services), "refusal_hud_count": JSONValue(services.refusalHUD.shownCount),
             ])
         } catch {
             return .object(["error": .string("snapshot failed: \(error.localizedDescription)")])
@@ -112,10 +120,16 @@ enum DebugWindowSnapshot {
                 "webviews_failed": JSONValue(failed), "child_windows": JSONValue(window.visibleChildWindows.count),
                 "chromium_pages": JSONValue(pages.count), "chromium_pages_composited": JSONValue(pages.count - pagesFailed),
                 "chromium_pages_failed": JSONValue(pagesFailed),
+                "refusal_hud": hudMessage(services), "refusal_hud_count": JSONValue(services.refusalHUD.shownCount),
             ])
         } catch {
             return .object(["error": .string("snapshot failed: \(error.localizedDescription)")])
         }
+    }
+
+    /// The refusal HUD's message while it shows, else null.
+    static func hudMessage(_ services: AppServices) -> JSONValue {
+        services.refusalHUD.message.map(JSONValue.string) ?? .null
     }
 
     /// What `composite` paints over the base image, bottom first.
