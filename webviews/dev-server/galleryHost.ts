@@ -28,7 +28,7 @@ export const THEMES_DIR = path.join(repoRoot, "Resources/ghostty/themes");
 const WEB_THEME_SWIFT = path.join(repoRoot, "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Windows/WebTheme.swift");
 const PANE_BUILD_SCRIPT = path.join(repoRoot, "scripts/cmux-next/build-agent-pane-web.sh");
 const SESSION = path.join(webviewsRoot, "src/agent-session");
-const galleryDir = path.join(webviewsRoot, "src/gallery");
+export const galleryDir = path.join(webviewsRoot, "src/gallery");
 
 const FIXTURE_INDEX = path.join(repoRoot, "schemas/gallery/fixtures.json");
 const FIXTURES_ID = "virtual:cmux-gallery/fixtures";
@@ -143,7 +143,8 @@ export function readRevision(root = repoRoot): Revision {
   }
 }
 
-function agentPaneCSS(): string {
+/** The pane's stylesheets as one virtual file under the gallery (PANE_CSS_PATH). */
+export function agentPaneCSS(): string {
   return agentPaneStylesheets()
     .map((file) => {
       const css = fs.readFileSync(file, "utf8");
