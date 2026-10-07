@@ -118,12 +118,16 @@ public struct AgentResumeArgv: Sendable, Equatable {
 
     /// Builds the root Codex argv for a Codex Teams app-server connection.
     ///
-    /// Codex accepts `--remote` for a fresh launch and for a session command.
+    /// Codex accepts `--remote` for a fresh launch, but rejects the permission
+    /// override when `resume` or `fork` is also selected. Keep that override on
+    /// fresh launches, where it remains valid, and remove it from the two
+    /// remote session commands.
     public func codexTeamsRootArguments(appServerURL: String, commandArgs: [String]) -> [String] {
         guard let first = commandArgs.first, first == "resume" || first == "fork" else {
             return ["--remote", appServerURL] + commandArgs
         }
-        return [first, "--remote", appServerURL] + Array(commandArgs.dropFirst())
+        let preserved = commandArgs.dropFirst().filter { $0 != "--dangerously-bypass-approvals-and-sandbox" }
+        return [first, "--remote", appServerURL] + preserved
     }
 
     /// The override tokens to inject between `resume <id>` and the preserved launch
