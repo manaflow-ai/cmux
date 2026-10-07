@@ -26,13 +26,24 @@ public nonisolated struct WorkspaceRowSetting: Sendable {
     }
 
     public func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> WorkspaceRowPreferences {
-        // RED: only the S1 keys.
         var shown = WorkspaceRowElements.minimal.shown
-        for (element, path) in Self.legacyPaths {
+        for element in WorkspaceRowElement.allCases {
+            var path = Self.path(element)
+            if root.value(at: path) == nil, let legacy = Self.legacyPaths[element], root.value(at: legacy) != nil { path = legacy }
             guard let on = flag(root, path, &diagnostics) else { continue }
             if on { shown.insert(element) } else { shown.remove(element) }
         }
-        return WorkspaceRowPreferences(base: WorkspaceRowElements(shown: shown))
+        let order = self.order(root, Self.orderPath(), &diagnostics) ?? WorkspaceRowElement.secondLine
+        var overrides: [WorkspaceRowKind: WorkspaceRowOverride] = [:]
+        for kind in WorkspaceRowKind.allCases {
+            var change = WorkspaceRowOverride()
+            for element in WorkspaceRowElement.allCases {
+                if let on = flag(root, Self.path(element, kind: kind), &diagnostics) { change.elements[element] = on }
+            }
+            change.secondLineOrder = self.order(root, Self.orderPath(kind: kind), &diagnostics)
+            if !change.isEmpty { overrides[kind] = change }
+        }
+        return WorkspaceRowPreferences(base: WorkspaceRowElements(shown: shown, secondLineOrder: order), overrides: overrides)
     }
 
     private func flag(_ root: JSONValue, _ path: [String], _ diagnostics: inout [SettingsDiagnostic]) -> Bool? {
@@ -45,7 +56,7 @@ public nonisolated struct WorkspaceRowSetting: Sendable {
     }
 
     /// A list of second-line element names; nil when absent or invalid.
-    func order(_ root: JSONValue, _ path: [String], _ diagnostics: inout [SettingsDiagnostic]) -> [WorkspaceRowElement]? {
+    private func order(_ root: JSONValue, _ path: [String], _ diagnostics: inout [SettingsDiagnostic]) -> [WorkspaceRowElement]? {
         guard let value = root.value(at: path) else { return nil }
         if case .array(let items) = value {
             let elements = items.map { $0.stringValue.flatMap(WorkspaceRowElement.init(rawValue:)) }

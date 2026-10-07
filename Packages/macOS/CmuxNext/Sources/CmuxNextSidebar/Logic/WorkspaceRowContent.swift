@@ -45,11 +45,18 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     /// The content of `ws`'s row under `preferences`; `now` decides whether
     /// the last activity shows a time (today) or a date.
     public init(_ ws: SidebarWorkspace, preferences: WorkspaceRowPreferences, now: Date = Date()) {
-        // RED: the S1 behavior (live status always, folder line, every glyph).
-        let folder = preferences.base.shows(.directory) ? ws.folderLine : nil
-        self.init(icon: ws.icon, detail: Self.nonEmpty(ws.status) ?? folder,
-                  tabCount: preferences.base.shows(.tabCount) ? ws.tabs.count : nil,
-                  activity: ws.activity, progress: ws.progress)
+        let set = preferences.resolved(for: ws.rowKind)
+        let items = set.secondLine.compactMap { Self.text(of: $0, in: ws, now: now) }
+        let working = ws.agentWorking && set.shows(.working)
+        self.init(
+            icon: set.shows(.icon) ? ws.icon : nil,
+            detail: items.isEmpty ? nil : items.joined(separator: Self.separator),
+            tabCount: set.shows(.tabCount) ? ws.tabs.count : nil,
+            badge: set.shows(.pullRequest) ? Self.nonEmpty(ws.pullRequest) : nil,
+            activity: Self.activity(ws.activity, working: working, progress: set.shows(.progress)),
+            progress: set.shows(.progress) ? ws.progress : nil,
+            showsWorking: working
+        )
     }
 
     static func activity(_ state: StatusIndicatorState, working: Bool, progress: Bool) -> StatusIndicatorState {
