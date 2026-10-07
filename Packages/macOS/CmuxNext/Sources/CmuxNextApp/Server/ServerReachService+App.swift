@@ -8,6 +8,9 @@ extension ServerReachService {
     static func app(services: AppServices) -> ServerReachService {
         let feed = services.feed, auth = services.cloud.auth
         let binary = try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment)
+        // The bundle's own CLI, never one found on PATH.
+        let bundled: URL? = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux")
+        let cli = bundled.flatMap { FileManager.default.isExecutableFile(atPath: $0.path) ? $0 : nil }
         return ServerReachService(
             machines: services.machines,
             call: { [weak feed] path, body in
@@ -21,7 +24,8 @@ extension ServerReachService {
             paths: SSHPaths.standard(bundleID: services.environment.launch.bundleID),
             binary: binary,
             local: { ServerReachService.thisMac() },
-            linkPeers: { await ServerReachService.readLinkPeers(binary: binary) })
+            linkPeers: { await ServerReachService.readLinkPeers(binary: cli) },
+            cli: cli)
     }
 }
 

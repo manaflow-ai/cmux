@@ -1,14 +1,8 @@
 import Foundation
 
-/// The dispatcher commands the app sends the page: Search chats, Continue in, Create checkpoint and
-/// the grouped-permission actions.
+/// The dispatcher commands the app sends the page: Continue in, Create checkpoint and the
+/// grouped-permission actions.
 extension AgentPaneView {
-    /// Opens the page's "Search chats" palette (Cmd-K, `agentPane.searchChats`);
-    /// a second call closes it.
-    public func showSearchChats() {
-        deliver([.command("searchChats")], scripts: ["window.cmuxAcpmuxBridge?.command?.(\"searchChats\");"])
-    }
-
     /// Opens the frontend's Continue in… chooser. The chooser owns target
     /// selection and preparation; native actions do not create a second
     /// handoff pipeline.
