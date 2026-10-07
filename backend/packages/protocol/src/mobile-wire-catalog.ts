@@ -91,6 +91,16 @@ export const mobileCatalog = {
       { name: "files.list", kind: "read", plane: "stream", dir: "c2s", owner: "mac-host", errors: ["files.not_found", "files.forbidden"] },
       { name: "files.roots", kind: "read", plane: "stream", dir: "c2s", owner: "mac-host" },
     ] },
+    { name: "tunnel", plane: "stream", owner: "mac-host", messages: [
+      { name: "tcp.forward", kind: "channel", plane: "stream", dir: "c2s", owner: "mac-host", class: "bulk", errors: ["tunnel.port_not_allowed", "tunnel.connect_refused", "tunnel.limit"] },
+      { name: "tcp.data", kind: "record", plane: "stream", dir: "both", owner: "mac-host" },
+      { name: "tunnel.ports", kind: "read", plane: "stream", dir: "c2s", owner: "mac-host" },
+    ] },
+    { name: "simulator", plane: "stream", owner: "mac-simulator-host", messages: [
+      { name: "simulator", kind: "channel", plane: "stream", dir: "c2s", owner: "mac-simulator-host", class: "interactive", errors: ["simulator.not_found", "simulator.unavailable"] },
+      { name: "simulator.rd", kind: "record", plane: "stream", dir: "both", owner: "mac-simulator-host" },
+      { name: "simulator.list", kind: "read", plane: "stream", dir: "c2s", owner: "mac-simulator-host" },
+    ] },
     { name: "feed", plane: "control", owner: "FeedDO", stream: "feed:<user>", messages: [
       { name: "feed.list", kind: "read", plane: "control", dir: "c2s", owner: "FeedDO", existing: true },
       { name: "feed.answer", kind: "op", plane: "control", dir: "c2s", owner: "FeedDO", existing: true },

@@ -60,6 +60,16 @@ extension MobileCatalog {
             MobileMessage("files.list", .read, .stream, .c2s, owner: "mac-host", errors: ["files.not_found", "files.forbidden"]),
             MobileMessage("files.roots", .read, .stream, .c2s, owner: "mac-host"),
         ]),
+        MobileFamily("tunnel", .stream, owner: "mac-host", messages: [
+            MobileMessage("tcp.forward", .channel, .stream, .c2s, owner: "mac-host", channelClass: .bulk, errors: ["tunnel.port_not_allowed", "tunnel.connect_refused", "tunnel.limit"]),
+            MobileMessage("tcp.data", .record, .stream, .both, owner: "mac-host"),
+            MobileMessage("tunnel.ports", .read, .stream, .c2s, owner: "mac-host"),
+        ]),
+        MobileFamily("simulator", .stream, owner: "mac-simulator-host", messages: [
+            MobileMessage("simulator", .channel, .stream, .c2s, owner: "mac-simulator-host", channelClass: .interactive, errors: ["simulator.not_found", "simulator.unavailable"]),
+            MobileMessage("simulator.rd", .record, .stream, .both, owner: "mac-simulator-host"),
+            MobileMessage("simulator.list", .read, .stream, .c2s, owner: "mac-simulator-host"),
+        ]),
         MobileFamily("feed", .control, owner: "FeedDO", stream: "feed:<user>", messages: [
             MobileMessage("feed.list", .read, .control, .c2s, owner: "FeedDO", existing: true),
             MobileMessage("feed.answer", .op, .control, .c2s, owner: "FeedDO", existing: true),

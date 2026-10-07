@@ -176,6 +176,8 @@ const encodePayload = (c: BinaryCase): Uint8Array | Record<string, unknown> => {
       return encodeFileChunk({ offset: BigInt(f.offset as number), data: bytes(f.data_hex as string) })
     case "rd":
       return encodeRdStreamFrame({ type: f.type as 1, data: bytes(f.data_hex as string) })
+    case "bytes":
+      return bytes(f.data_hex as string)
     case "json":
       return f
     default:
@@ -199,6 +201,7 @@ describe("cmux.mobile/1 binary records", () => {
       if (kind === "credit") expect(recordCredit(r)).toEqual({ ackSeq: BigInt(f.ack_seq as number), grantBytes: f.grant_bytes })
       if (kind === "file_chunk") expect(decodeFileChunk(r.payload)).toEqual({ offset: BigInt(f.offset as number), data: bytes(f.data_hex as string) })
       if (kind === "rd") expect(decodeRdStreamFrame(r.payload)).toEqual({ type: f.type, data: bytes(f.data_hex as string) })
+      if (kind === "bytes") expect(hex(r.payload)).toBe(f.data_hex)
       if (kind === "json") {
         expect(recordJson(r)).toEqual(f)
         expect(encodeMobileJson(decodeMobileJson(f))).toEqual(f)

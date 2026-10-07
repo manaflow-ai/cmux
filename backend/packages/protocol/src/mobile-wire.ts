@@ -160,7 +160,7 @@ export const MobileError = Schema.Struct({
   details: Schema.optionalKey(Json)
 })
 
-export const ChannelKind = Schema.Literals(["rpc", "terminal", "browser", "rd", "files.upload", "files.download"])
+export const ChannelKind = Schema.Literals(["rpc", "terminal", "browser", "rd", "files.upload", "files.download", "tcp.forward", "simulator"])
 export type ChannelKind = typeof ChannelKind.Type
 export const ChannelClass = Schema.Literals(["interactive", "bulk", "datagram"])
 export type ChannelClass = typeof ChannelClass.Type

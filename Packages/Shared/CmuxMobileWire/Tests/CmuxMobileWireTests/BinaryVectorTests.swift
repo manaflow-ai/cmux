@@ -64,6 +64,11 @@ import Testing
             #expect(Int(frame.type.rawValue) == f["type"]?.intValue)
             #expect(frame.data.hex == f["data_hex"]?.stringValue)
             rebuilt = StreamRecord(channel: record.channel, seq: record.seq, payload: frame.encoded)
+        case "bytes":
+            // tcp.data: the payload is the TCP bytes unchanged.
+            #expect(record.payload.hex == f["data_hex"]?.stringValue)
+            rebuilt = StreamRecord(channel: record.channel, seq: record.seq, flags: RecordFlags(names: flagNames),
+                                   payload: Data(hex: f["data_hex"]!.stringValue!))
         case "json":
             #expect(try record.jsonObject() == f)
             let decoded = try MobileJSON(value: f)
