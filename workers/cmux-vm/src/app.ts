@@ -18,7 +18,6 @@ import type { Entitlements } from "./proofs/tenant-may-create.ts";
 import type { UpstreamClient } from "./upstream/client.ts";
 import { snapshotsHandlers } from "./handlers/snapshots.ts";
 import { terminalsHandlers } from "./handlers/terminals.ts";
-import type { IdempotencyStore } from "./db/idempotency.ts";
 import type { SnapshotStore } from "./db/snapshots.ts";
 import type { UpstreamSnapshots } from "./upstream/snapshots.ts";
 import type { UpstreamTerminals } from "./upstream/terminals.ts";
@@ -36,7 +35,7 @@ export type Services =
   | S3aServices;
 
 /** Snapshots and terminals (slice S3a). */
-type S3aServices = SnapshotStore | IdempotencyStore | UpstreamSnapshots | UpstreamTerminals;
+type S3aServices = SnapshotStore | UpstreamSnapshots | UpstreamTerminals;
 
 /** JSON request bodies above this are refused with 413 before any handler runs. File uploads have their own limit. */
 export const MAX_JSON_BODY_BYTES = 2 * 1024 * 1024;

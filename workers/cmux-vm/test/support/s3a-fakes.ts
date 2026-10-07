@@ -1,6 +1,6 @@
 /**
- * Fakes for the snapshot and terminal slice (S3a): in-memory snapshot store
- * and idempotency store, plus the fake provider routes
+ * Fakes for the snapshot and terminal slice (S3a): an in-memory snapshot store,
+ * plus the fake provider routes
  * fake-upstream.ts (S2) does not serve: reading a snapshot and terminals.
  * Creating and deleting snapshots go to fake-upstream.ts, which owns the
  * provider's snapshot map. The terminal
@@ -8,7 +8,6 @@
  * and hand the other end to a test-supplied script.
  */
 import { Effect, Layer, Option, Redacted } from "effect";
-import { IdempotencyStore } from "../../src/db/idempotency.ts";
 import { SnapshotStore, type SnapshotRow } from "../../src/db/snapshots.ts";
 import { StoreError } from "../../src/db/sql.ts";
 import type { OwnedResource } from "../../src/db/stores.ts";
@@ -40,7 +39,6 @@ export interface FakePtySession {
 
 export function makeS3aFakes(resources: OwnedResource[], provider: FakeUpstream) {
   const meta = new Map<string, SnapshotMeta>();
-  const idempotency = new Map<string, { fingerprint: string; body: string | null }>();
   /** Raw requests this fake served (terminal and snapshot reads), for header checks. */
   const requests: Request[] = [];
   const ptySessions = new Map<string, FakePtySession[]>();
@@ -109,31 +107,6 @@ export function makeS3aFakes(resources: OwnedResource[], provider: FakeUpstream)
       Effect.sync(() => {
         const index = resources.findIndex((row) => row.tenantId === tenantId && row.kind === "snapshot" && row.cmuxId === id);
         if (index >= 0) resources.splice(index, 1);
-      }),
-  });
-
-  const idempotencyLayer = Layer.succeed(IdempotencyStore, {
-    claim: (tenantId, key, fingerprint) =>
-      Effect.sync(() => {
-        const slot = `${tenantId}\n${key}`;
-        const existing = idempotency.get(slot);
-        if (existing === undefined) {
-          idempotency.set(slot, { fingerprint, body: null });
-          return { _tag: "Started" } as const;
-        }
-        if (existing.fingerprint !== fingerprint) return { _tag: "Mismatch" } as const;
-        return existing.body === null ? ({ _tag: "InProgress" } as const) : ({ _tag: "Replay", body: existing.body } as const);
-      }),
-    complete: (tenantId, key, fingerprint, body) =>
-      Effect.sync(() => {
-        const slot = `${tenantId}\n${key}`;
-        if (idempotency.get(slot)?.fingerprint === fingerprint) idempotency.set(slot, { fingerprint, body });
-      }),
-    release: (tenantId, key, fingerprint) =>
-      Effect.sync(() => {
-        const slot = `${tenantId}\n${key}`;
-        const existing = idempotency.get(slot);
-        if (existing?.fingerprint === fingerprint && existing.body === null) idempotency.delete(slot);
       }),
   });
 
@@ -224,7 +197,6 @@ export function makeS3aFakes(resources: OwnedResource[], provider: FakeUpstream)
     const config = { baseUrl: UPSTREAM_URL, apiKey: Redacted.make(UPSTREAM_KEY), fetch };
     return Layer.mergeAll(
       snapshotStore,
-      idempotencyLayer,
       Layer.succeed(UpstreamSnapshots, makeUpstreamSnapshots(config)),
       Layer.succeed(UpstreamTerminals, makeUpstreamTerminals(config)),
     );

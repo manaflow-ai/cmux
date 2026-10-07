@@ -1,5 +1,5 @@
 /**
- * The snapshot, audit and idempotency stores against migrations 0001 and 0002
+ * The snapshot store against migrations 0001, 0002 and 0003
  * on an in-process Postgres (PGlite). No network database is involved.
  */
 import { PGlite } from "@electric-sql/pglite";
@@ -7,14 +7,13 @@ import { Effect, Layer, Option } from "effect";
 import { beforeEach, describe, expect, it } from "vitest";
 import ownership from "../../migrations/0001_cmux_vm_ownership.sql?raw";
 import s2 from "../../migrations/0002_cmux_vm_display_name_audit.sql?raw";
-import snapshots from "../../migrations/0003_cmux_vm_snapshot_parent_idempotency.sql?raw";
-import { IdempotencyStore, sqlIdempotencyStoreLayer } from "../../src/db/idempotency.ts";
+import snapshots from "../../migrations/0003_cmux_vm_snapshot_parent.sql?raw";
 import { sqlSnapshotStoreLayer, SnapshotStore, type SnapshotPage } from "../../src/db/snapshots.ts";
 import { SqlClient, StoreError } from "../../src/db/sql.ts";
 import { OwnershipStore, sqlStoresLayer, type ApiKeyStore, type AuditStore } from "../../src/db/stores.ts";
 import { newSnapshotId, newVmId, TenantId, UpstreamId } from "../../src/lib/ids.ts";
 
-type Stores = SnapshotStore | IdempotencyStore | OwnershipStore | ApiKeyStore | AuditStore;
+type Stores = SnapshotStore | OwnershipStore | ApiKeyStore | AuditStore;
 
 let pg: PGlite;
 let layer: Layer.Layer<Stores>;
@@ -36,7 +35,7 @@ beforeEach(async () => {
         catch: (cause) => new StoreError({ operation, cause }),
       }),
   });
-  layer = Layer.mergeAll(sqlSnapshotStoreLayer, sqlIdempotencyStoreLayer, sqlStoresLayer).pipe(Layer.provide(sql));
+  layer = Layer.mergeAll(sqlSnapshotStoreLayer, sqlStoresLayer).pipe(Layer.provide(sql));
 });
 
 const record = (tenantId: TenantId, minute: number, labels: Record<string, string> = {}, sourceVmId = newVmId()) =>
@@ -65,7 +64,6 @@ describe("migration 0003", () => {
     expect(tables.rows.map((row) => row.table_name)).toEqual([
       "cmux_vm.api_keys",
       "cmux_vm.audit_log",
-      "cmux_vm.idempotency_keys",
       "cmux_vm.resources",
     ]);
   });
@@ -110,34 +108,3 @@ describe("snapshot store", () => {
     expect(Option.isNone(await run(Effect.flatMap(SnapshotStore, (store) => store.describe(TENANT_A, id))))).toBe(true);
   });
 });
-
-describe("idempotency store", () => {
-  const fingerprint = "a".repeat(64);
-  const other = "b".repeat(64);
-  const claim = (tenant: TenantId, key: string, print: string, now = new Date(Date.UTC(2026, 9, 1))) =>
-    run(Effect.flatMap(IdempotencyStore, (store) => store.claim(tenant, key, print, now)));
-
-  it("starts, reports in progress, replays, rejects a different request, and is per tenant", async () => {
-    expect(await claim(TENANT_A, "k", fingerprint)).toEqual({ _tag: "Started" });
-    expect(await claim(TENANT_A, "k", fingerprint)).toEqual({ _tag: "InProgress" });
-    await run(Effect.flatMap(IdempotencyStore, (store) => store.complete(TENANT_A, "k", fingerprint, '{"id":"x"}')));
-    expect(await claim(TENANT_A, "k", fingerprint)).toEqual({ _tag: "Replay", body: '{"id":"x"}' });
-    expect(await claim(TENANT_A, "k", other)).toEqual({ _tag: "Mismatch" });
-    expect(await claim(TENANT_B, "k", other)).toEqual({ _tag: "Started" });
-  });
-
-  it("releases a failed claim and replaces an expired one", async () => {
-    expect(await claim(TENANT_A, "k", fingerprint)).toEqual({ _tag: "Started" });
-    await run(Effect.flatMap(IdempotencyStore, (store) => store.release(TENANT_A, "k", fingerprint)));
-    expect(await claim(TENANT_A, "k", other)).toEqual({ _tag: "Started" });
-    expect(await claim(TENANT_A, "k", fingerprint, new Date(Date.UTC(2026, 9, 3)))).toEqual({ _tag: "Started" });
-  });
-
-  it("frees a pending claim whose request never finished once its lease runs out", async () => {
-    const start = Date.UTC(2026, 9, 1);
-    expect(await claim(TENANT_A, "lease", fingerprint, new Date(start))).toEqual({ _tag: "Started" });
-    expect(await claim(TENANT_A, "lease", fingerprint, new Date(start + 60_000))).toEqual({ _tag: "InProgress" });
-    expect(await claim(TENANT_A, "lease", fingerprint, new Date(start + 11 * 60_000))).toEqual({ _tag: "Started" });
-  });
-});
-

@@ -33,12 +33,14 @@ export type RateDecision = typeof RateDecision.Type;
 /**
  * Progress a create or fork made under one idempotency key: pending (claimed,
  * nothing made yet), snapshotted (a fork took its snapshot, public id, but
- * has not created the VM), done (the VM, public id).
+ * has not created the VM), done (the VM, public id), snapshotDone (a snapshot
+ * create finished, public snapshot id).
  */
 const Progress = Schema.Union(
   Schema.Struct({ phase: Schema.Literal("pending") }),
   Schema.Struct({ phase: Schema.Literal("snapshotted"), snapshotId: Schema.String }),
   Schema.Struct({ phase: Schema.Literal("done"), vmId: Schema.String }),
+  Schema.Struct({ phase: Schema.Literal("snapshotDone"), snapshotId: Schema.String }),
 );
 export type IdempotencyProgress = typeof Progress.Type;
 
@@ -155,7 +157,7 @@ export class TenantLedger {
     return { state: "new" };
   }
 
-  /** Records progress under a claimed key. A `done` record also ends the claim. */
+  /** Records progress under a claimed key. A finished record (`done`, `snapshotDone`) also ends the claim. */
   async advance(key: string, progress: IdempotencyProgress, nowMs: number): Promise<void> {
     const storageKey = `idem:${key}`;
     const record = checked(isRecord, await this.storage.get(storageKey));
@@ -163,7 +165,7 @@ export class TenantLedger {
     await this.storage.put(storageKey, {
       ...record,
       progress,
-      leaseUntilMs: progress.phase === "done" ? nowMs : nowMs + IDEMPOTENCY_LEASE_MS,
+      leaseUntilMs: progress.phase === "done" || progress.phase === "snapshotDone" ? nowMs : nowMs + IDEMPOTENCY_LEASE_MS,
     });
   }
 

@@ -48,9 +48,13 @@ export interface UpstreamSnapshotsService {
   ) => Effect.Effect<CreatedSnapshot, UpstreamError>;
   /** Undoes a create whose ownership row could not be written. Accepts only a value `createSnapshot` returned. */
   readonly discardCreatedSnapshot: (created: CreatedSnapshot) => Effect.Effect<void, UpstreamError>;
+  /** Reading needs snapshot:read; a create replaying its own result reads with the snapshot:write it was proven. */
   readonly getSnapshot: <C, S>(
     snapshot: Named<S, SnapshotId>,
-    proofs: { readonly owns: TenantOwnsResource<C, S>; readonly scope: KeyHasScope<C, "snapshot:read"> },
+    proofs: {
+      readonly owns: TenantOwnsResource<C, S>;
+      readonly scope: KeyHasScope<C, "snapshot:read"> | KeyHasScope<C, "snapshot:write">;
+    },
   ) => Effect.Effect<UpstreamSnapshot, UpstreamError>;
   readonly deleteSnapshot: <C, S>(
     snapshot: Named<S, SnapshotId>,

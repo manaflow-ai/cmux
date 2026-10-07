@@ -209,6 +209,42 @@ describe("create", () => {
     expect(h.upstreamRequests).toHaveLength(0);
   });
 
+  it("has its own snapshot budget: the snapshot limit answers 429 naming it, the VM limit does not apply", async () => {
+    const limited = await makeHarness({ maxSnapshots: 2, maxVms: 1 });
+    try {
+      const first = limited.addVm(TENANT_A);
+      limited.addVm(TENANT_A);
+      const key = await limited.addKey(TENANT_A, ["snapshot:write"]);
+      const snap = () => limited.request(`/v1/vms/${first.vmId}/snapshots`, bearer(key), { method: "POST", body: {} });
+
+      // Two live VMs already exceed maxVms 1; snapshots are counted separately.
+      expect((await snap()).status).toBe(201);
+      expect((await snap()).status).toBe(201);
+      const third = await snap();
+
+      expect(third.status).toBe(429);
+      expect(await third.json()).toMatchObject({ _tag: "QuotaExceeded", budget: "snapshots" });
+      expect(limited.upstreamRequests.filter((call) => call.method === "POST")).toHaveLength(2);
+    } finally {
+      await limited.dispose();
+    }
+  });
+
+  it("frees the snapshot budget when a snapshot is deleted", async () => {
+    const limited = await makeHarness({ maxSnapshots: 1 });
+    try {
+      const { vmId } = limited.addVm(TENANT_A);
+      const key = await limited.addKey(TENANT_A, ["snapshot:write"]);
+      const created = await limited.request(`/v1/vms/${vmId}/snapshots`, bearer(key), { method: "POST", body: {} });
+      const { id } = await created.json<{ id: string }>();
+      expect((await limited.request(`/v1/vms/${vmId}/snapshots`, bearer(key), { method: "POST", body: {} })).status).toBe(429);
+      expect((await limited.request(`/v1/snapshots/${id}`, bearer(key), { method: "DELETE" })).status).toBe(204);
+      expect((await limited.request(`/v1/vms/${vmId}/snapshots`, bearer(key), { method: "POST", body: {} })).status).toBe(201);
+    } finally {
+      await limited.dispose();
+    }
+  });
+
   it("maps a VM that cannot be snapshotted to 409 and audits the failure", async () => {
     const { vmId, upstreamId } = h.addVm(TENANT_A, "stopped");
     const key = await h.addKey(TENANT_A, ["snapshot:write"]);

@@ -54,7 +54,12 @@ export class PaymentRequired extends Schema.TaggedError<PaymentRequired>()(
 /** A tenant quota or rate limit was reached. */
 export class QuotaExceeded extends Schema.TaggedError<QuotaExceeded>()(
   "QuotaExceeded",
-  { message: Schema.String, retryAfterSeconds: Schema.optional(Schema.Int) },
+  {
+    message: Schema.String,
+    retryAfterSeconds: Schema.optional(Schema.Int),
+    /** Which budget ran out, when the endpoint names it: live snapshots, live VMs, or the request rate. */
+    budget: Schema.optional(Schema.Literal("snapshots", "vms", "requests")),
+  },
   HttpApiSchema.annotations({ status: 429 }),
 ) {}
 

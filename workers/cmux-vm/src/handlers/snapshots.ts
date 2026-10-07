@@ -6,23 +6,29 @@
  * account holds thousands.
  */
 import { HttpApiBuilder } from "@effect/platform";
-import type { Named } from "@gdp-ts/core";
+import { name, type Named } from "@gdp-ts/core";
 import { Clock, Effect, Option, Schema } from "effect";
 import { CmuxVmApi } from "../api.ts";
 import { InvalidRequest } from "../api/common.ts";
 import { LABEL_KEY, LabelValue, MAX_LABELS, Snapshot, SnapshotList, SnapshotSummary } from "../api/snapshots.ts";
-import { idempotent } from "../db/idempotency.ts";
 import { SnapshotStore, type SnapshotRow } from "../db/snapshots.ts";
+import type { OwnershipStore } from "../db/stores.ts";
 import { actorRef, type Principal } from "../domain/principal.ts";
-import { Conflict, PaymentRequired, QuotaExceeded, unavailable, vmNotFound } from "../errors.ts";
+import { Conflict, PaymentRequired, QuotaExceeded, unavailable, vmNotFound, type NotFound, type ServiceUnavailable } from "../errors.ts";
 import { newSnapshotId, SnapshotId, VmId } from "../lib/ids.ts";
 import { TenantLimits } from "../limits/service.ts";
+import type { KeyHasScope } from "../proofs/key-has-scope.ts";
 import { tenantMayCreate, type TenantMayCreate } from "../proofs/tenant-may-create.ts";
+import { tenantOwnsSnapshot } from "../proofs/tenant-owns-resource.ts";
 import { UpstreamSnapshots, type UpstreamSnapshot } from "../upstream/snapshots.ts";
 import { audited, withCaller, withOwnedVm } from "./common.ts";
 import { snapshotNotFound, withOwnedSnapshot } from "./owned.ts";
 
 const DEFAULT_PAGE = 50;
+
+/** Labels in key order, so the same labels always give the same request fingerprint. */
+const sortedLabels = (labels: Readonly<Record<string, string>> | undefined) =>
+  Object.fromEntries(Object.entries(labels ?? {}).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
 
 const toSnapshot = (row: SnapshotRow, live: UpstreamSnapshot): Snapshot =>
   new Snapshot({
@@ -44,6 +50,8 @@ const toSummary = (row: SnapshotRow): SnapshotSummary =>
     labels: row.labels,
     createdAt: row.createdAt.toISOString(),
   });
+
+const parseSnapshotId = Schema.decodeUnknownOption(SnapshotId);
 
 /** Opaque page cursor: base64url of `[createdAt, id]` of the last row returned. */
 const Cursor = Schema.parseJson(Schema.Tuple(Schema.Date, SnapshotId));
@@ -102,12 +110,88 @@ const withSnapshotSlot = <C, A, E, R>(
     }
     if (decision._tag === "over_quota") {
       return yield* Effect.fail(
-        new QuotaExceeded({ message: `This team already has its limit of ${decision.limit} snapshots; delete one first`, retryAfterSeconds: 60 }),
+        new QuotaExceeded({
+          message: `This team already has its limit of ${decision.limit} snapshots; delete one first`,
+          retryAfterSeconds: 60,
+          budget: "snapshots",
+        }),
       );
     }
     const limits = yield* TenantLimits;
     return yield* k(decision.proof).pipe(Effect.ensuring(limits.release(caller.value.tenantId, decision.proof.reservationId)));
   });
+
+/** SHA-256 hex of a JSON rendering; computed exactly as the VM create does, so both share one key space. */
+const fingerprint = (value: unknown) =>
+  Effect.promise(() => crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(value)))).pipe(
+    Effect.map((digest) => Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("")),
+  );
+
+/**
+ * Runs a snapshot create under an optional Idempotency-Key, on the tenant's
+ * idempotency ledger (the same Durable Object the VM create uses). A retry
+ * with the same key and request replays the first snapshot; the same key with
+ * a different request, or while the first still runs, is 409. Keys are per
+ * tenant; a claim whose request died frees itself after the ledger's lease.
+ */
+const idempotentSnapshot = <E, R, E2, R2>(
+  principal: Principal,
+  key: string | undefined,
+  request: unknown,
+  run: Effect.Effect<Snapshot, E, R>,
+  replay: (snapshotId: string) => Effect.Effect<Snapshot, E2, R2>,
+) =>
+  Effect.gen(function* () {
+    if (key === undefined) return yield* run;
+    const limits = yield* TenantLimits;
+    const scoped = yield* fingerprint(["key", key]);
+    const claim = yield* limits
+      .begin(principal.tenantId, scoped, yield* fingerprint(request))
+      .pipe(Effect.mapError(() => unavailable()));
+    switch (claim.state) {
+      case "mismatch":
+        return yield* Effect.fail(new Conflict({ message: "This Idempotency-Key was already used with a different request" }));
+      case "in_progress":
+        return yield* Effect.fail(new Conflict({ message: "A request with this Idempotency-Key is still running; retry shortly" }));
+      case "resume":
+        if (claim.progress.phase === "snapshotDone") return yield* replay(claim.progress.snapshotId);
+        break;
+      case "new":
+        break;
+    }
+    return yield* run.pipe(
+      Effect.tap((snapshot) =>
+        limits.advance(principal.tenantId, scoped, { phase: "snapshotDone", snapshotId: snapshot.id }).pipe(Effect.ignore),
+      ),
+      Effect.tapError(() => limits.abandon(principal.tenantId, scoped)),
+    );
+  });
+
+/** The snapshot a replayed create made, read with the create's own proofs. */
+const replaySnapshot = <C>(
+  caller: Named<C, Principal>,
+  scope: KeyHasScope<C, "snapshot:write">,
+  rawId: string,
+): Effect.Effect<Snapshot, NotFound | ServiceUnavailable, SnapshotStore | UpstreamSnapshots | OwnershipStore> =>
+  Effect.gen(function* () {
+    const parsed = parseSnapshotId(rawId);
+    if (Option.isNone(parsed)) return yield* Effect.fail(snapshotNotFound());
+    const store = yield* SnapshotStore;
+    const upstream = yield* UpstreamSnapshots;
+    return yield* name(parsed.value, (snapshot) =>
+      Effect.gen(function* () {
+        const owns = yield* tenantOwnsSnapshot(caller, snapshot).pipe(Effect.mapError(() => unavailable()));
+        if (owns === null) return yield* Effect.fail(snapshotNotFound());
+        const row = yield* store.describe(caller.value.tenantId, snapshot.value).pipe(Effect.mapError(() => unavailable()));
+        if (Option.isNone(row)) return yield* Effect.fail(snapshotNotFound());
+        const live = yield* upstream
+          .getSnapshot(snapshot, { owns, scope })
+          .pipe(Effect.mapError((error) => (error.status === 404 ? snapshotNotFound() : unavailable())));
+        return toSnapshot(row.value, live);
+      }),
+    );
+  });
+
 
 export const snapshotsHandlers = HttpApiBuilder.group(CmuxVmApi, "snapshots", (handlers) =>
   handlers
@@ -119,19 +203,18 @@ export const snapshotsHandlers = HttpApiBuilder.group(CmuxVmApi, "snapshots", (h
           audited(
             "snapshot.create",
             vm.value,
-            idempotent({
-              tenantId: caller.value.tenantId,
-              key: headers["idempotency-key"],
-              operation: "createSnapshot",
-              request: {
+            idempotentSnapshot(
+              caller.value,
+              headers["idempotency-key"],
+              {
+                operation: "createSnapshot",
                 vmId: vm.value,
                 displayName: payload.displayName ?? null,
-                labels: payload.labels ?? {},
+                labels: sortedLabels(payload.labels),
                 ttlSeconds: payload.ttlSeconds ?? null,
                 autoDeleteSeconds: payload.autoDeleteSeconds ?? null,
               },
-              schema: Snapshot,
-              create: withSnapshotSlot(caller, (mayCreate) =>
+              withSnapshotSlot(caller, (mayCreate) =>
                 // Uninterruptible: a client disconnect between the provider create and
                 // the ownership row would otherwise orphan a snapshot nobody can reach.
                 Effect.uninterruptible(
@@ -184,7 +267,8 @@ export const snapshotsHandlers = HttpApiBuilder.group(CmuxVmApi, "snapshots", (h
                   }),
                 ),
               ),
-            }),
+              (snapshotId) => replaySnapshot(caller, proofs.scope, snapshotId),
+            ),
             (snapshot) => snapshot.id,
           ),
         );

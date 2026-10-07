@@ -30,6 +30,8 @@ export interface HarnessOptions {
   readonly devTestTenants?: ReadonlyArray<string>;
   /** Live VMs per tenant. */
   readonly maxVms?: number;
+  /** Live snapshots per tenant. */
+  readonly maxSnapshots?: number;
   /** Requests per minute per tenant for each limit class. */
   readonly ratePerMinute?: Partial<Record<"read" | "write" | "exec" | "files", number>>;
   /** Largest file upload accepted, in bytes. */
@@ -116,6 +118,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
     environment: options.environment ?? "local",
     ...(options.devTestTenants === undefined ? {} : { devTestTenantIds: options.devTestTenants }),
     ...(options.maxVms === undefined ? {} : { maxVms: options.maxVms }),
+    ...(options.maxSnapshots === undefined ? {} : { maxSnapshots: options.maxSnapshots }),
     ...(options.ratePerMinute === undefined ? {} : { ratePerMinute: options.ratePerMinute }),
     ...(options.maxUploadBytes === undefined ? {} : { maxUploadBytes: options.maxUploadBytes }),
   });

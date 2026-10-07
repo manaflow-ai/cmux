@@ -12,7 +12,6 @@ import { durableObjectLimitsLayer } from "./limits/service.ts";
 import { parseEnvironment, parseTenantList, parseVmQuotas, tenantPolicyLayer } from "./policy.ts";
 import { entitlementsFromPolicyLayer } from "./proofs/tenant-may-create.ts";
 import { upstreamLayer } from "./upstream/live.ts";
-import { sqlIdempotencyStoreLayer } from "./db/idempotency.ts";
 import { sqlSnapshotStoreLayer } from "./db/snapshots.ts";
 import { upstreamSnapshotsLayer } from "./upstream/live-snapshots.ts";
 import { upstreamTerminalsLayer } from "./upstream/live-terminals.ts";
@@ -43,8 +42,8 @@ const liveServices = (env: Env) => {
     vmQuotas: parseVmQuotas(env.TENANT_VM_QUOTAS),
   });
   return Layer.mergeAll(
-    // Snapshot rows and idempotency keys (slice S3a) share the request's connection with the other stores.
-    Layer.mergeAll(sqlStoresLayer, sqlSnapshotStoreLayer, sqlIdempotencyStoreLayer).pipe(
+    // Snapshot rows (slice S3a) share the request's connection with the other stores.
+    Layer.mergeAll(sqlStoresLayer, sqlSnapshotStoreLayer).pipe(
       Layer.provide(hyperdriveSqlLayer(env.HYPERDRIVE.connectionString)),
     ),
     policy,
