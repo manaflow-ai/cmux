@@ -227,6 +227,8 @@ pub struct Session {
     pub(super) web_control_ended: AtomicBool,
     /// The remote floor's per-session marks (`remote_floor.rs`).
     pub(super) floor: remote_floor::FloorState,
+    /// The subagents the agent reported, for attributing their updates.
+    pub(super) subagents: StdMutex<crate::subagents::SubagentTree>,
 }
 
 impl Session {
@@ -589,6 +591,7 @@ impl Hub {
             last_active: AtomicU64::new(self.clock_now()),
             web_control_ended: AtomicBool::new(false),
             floor: Default::default(),
+            subagents: StdMutex::new(Default::default()),
         })
     }
 
