@@ -75,7 +75,6 @@ export function makeUpstreamHttp(config: UpstreamConfig): UpstreamHttp {
         // No abort signal: it would cut the live socket, not just the handshake.
         // A handshake slower than the timeout fails, and a socket that arrives
         // after that is closed at once.
-        let timedOut = false;
         const handshake = send(
           new Request(new URL(path, base), {
             method: "GET",
@@ -83,17 +82,17 @@ export function makeUpstreamHttp(config: UpstreamConfig): UpstreamHttp {
             redirect: "manual",
           }),
         );
-        let timer: ReturnType<typeof setTimeout> | undefined;
+        let expire: () => void = () => undefined;
         const deadline = new Promise<"timeout">((resolve) => {
-          timer = setTimeout(() => resolve("timeout"), timeoutMs);
+          expire = () => resolve("timeout");
         });
+        const timer = setTimeout(() => expire(), timeoutMs);
         const first = await Promise.race([handshake, deadline]);
         clearTimeout(timer);
         if (first === "timeout") {
-          timedOut = true;
           void handshake.then(
             (late) => {
-              if (timedOut) late.webSocket?.close(1000, "");
+              late.webSocket?.close(1000, "");
             },
             () => undefined,
           );
