@@ -106,6 +106,7 @@ pub(super) fn parse(args: &[String]) -> Result<DialArgs, Failure> {
     let service = match service.as_deref() {
         None | Some("daemon") => Service::Daemon,
         Some("ssh") => Service::Ssh,
+        Some("owner_session") => Service::OwnerSession,
         Some(_) => return Err(Failure::BadUsage),
     };
     let socket = socket.map(PathBuf::from);
