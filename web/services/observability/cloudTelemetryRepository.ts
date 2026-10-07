@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { sql } from "drizzle-orm";
+import { type SQL, sql } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
 import type { CloudTelemetryBatch, CloudTelemetryClient, CloudTelemetrySpan } from "./cloudTelemetryContract";
 import { CloudTelemetryConflictError, CloudTelemetryLimitError } from "./cloudTelemetryIngest";
@@ -79,16 +79,23 @@ export async function claimCloudDiagnostics(limit = 100, onlyOwner?: string): Pr
   };
 }
 
-export async function finishCloudDiagnostics(leaseId: string, delivered: boolean): Promise<void> {
-  if (delivered) {
-    await cloudDb().execute(sql`update cloud_diagnostic_events set delivered_at = now(), lease_id = null where lease_id = ${leaseId}::uuid`);
-  } else {
-    await cloudDb().execute(sql`
-      update cloud_diagnostic_events set lease_id = null,
-      next_attempt_at = now() + least(3600, 30 * power(2, least(attempts, 7))) * interval '1 second'
-      where lease_id = ${leaseId}::uuid
-    `);
-  }
+export type CloudDiagnosticsLease = {
+  readonly leaseId: string;
+  readonly rows: readonly Pick<StoredCloudDiagnostic, "userId" | "eventId">[];
+};
+
+export async function finishCloudDiagnostics(lease: CloudDiagnosticsLease, delivered: boolean): Promise<void> {
+  if (lease.rows.length === 0) return;
+  await cloudDb().execute(cloudDiagnosticsFinishStatement(lease, delivered));
+}
+
+/** The acknowledgement for one claimed lease; exported so tests can inspect its plan. */
+export function cloudDiagnosticsFinishStatement(lease: CloudDiagnosticsLease, delivered: boolean): SQL {
+  const assignment = delivered
+    ? sql`delivered_at = now(), lease_id = null`
+    : sql`lease_id = null,
+      next_attempt_at = now() + least(3600, 30 * power(2, least(attempts, 7))) * interval '1 second'`;
+  return sql`update cloud_diagnostic_events set ${assignment} where lease_id = ${lease.leaseId}::uuid`;
 }
 
 /** Bounded retention. Return lost records so a full queue cannot disappear silently. */
