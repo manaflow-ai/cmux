@@ -4,6 +4,7 @@
 import { createPageClient, isPageError, type PageClient } from "../../pages/shared/pageClient";
 import { NativeError } from "./nativeError";
 import { receiveTransportEvent, type TransportEvent } from "./bridgeSocket";
+import { receiveModelCatalog } from "./modelCatalogHost";
 
 export const HOST_EVENTS = "cmux.agent.host.events";
 /// NewTabPage's FOCUS_LOCATION_EVENT, kept here so the transport does not load the new tab page.
@@ -86,6 +87,8 @@ export function applyHostEvent(event: HostEvent): void {
       return;
     case "transport":
       return receiveTransportEvent(event.value as TransportEvent);
+    case "models.catalog":
+      return receiveModelCatalog(event.value);
   }
 }
 
