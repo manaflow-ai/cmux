@@ -130,7 +130,13 @@ actor AcceptorState {
         live[ObjectIdentifier(transport)] = transport
         let sink = self.sink
         await transport.setHooks(
-            established: { transport in sink.yield(transport) },
+            established: { transport in
+                switch sink.yield(transport) {
+                case .enqueued: break
+                case .dropped, .terminated: await transport.close()
+                @unknown default: await transport.close()
+                }
+            },
             closed: { [weak self] transport in await self?.remove(transport) }
         )
         let token = await transport.attach(underlay, path: await underlay.path)

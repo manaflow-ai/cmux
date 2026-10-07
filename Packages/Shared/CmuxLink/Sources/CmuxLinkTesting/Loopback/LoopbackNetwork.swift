@@ -124,7 +124,10 @@ public actor LoopbackNetwork {
         )
         pipes.append(pipe)
         let host = LoopbackTransport(pipe: pipe, side: 1, events: hostInbox.events, capabilities: carrier.capabilities)
-        activeAcceptor.continuation.yield(host)
+        if case .dropped = activeAcceptor.continuation.yield(host) {
+            await host.close()
+            throw LoopbackError.refused
+        }
         return LoopbackTransport(pipe: pipe, side: 0, events: dialerInbox.events, capabilities: carrier.capabilities)
     }
 }

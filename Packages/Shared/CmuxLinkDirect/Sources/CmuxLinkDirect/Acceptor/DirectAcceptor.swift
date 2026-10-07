@@ -40,7 +40,7 @@ public final class DirectAcceptor: LinkAcceptor {
         authorizer: any DirectAuthorizer,
         faultInjector: DirectFaultInjector?
     ) {
-        (incoming, sink) = AsyncStream<any LinkTransport>.makeStream()
+        (incoming, sink) = AsyncStream<any LinkTransport>.makeStream(bufferingPolicy: .bufferingOldest(Self.pendingTransportLimit))
         self.hostID = hostID
         self.configuration = configuration
         handshake = DirectHandshake(identity: identity)
@@ -148,7 +148,11 @@ public final class DirectAcceptor: LinkAcceptor {
                 } onCancel: {
                     socket.cancel()
                 }
-                if case .terminated = sink.yield(transport) { await transport.close() }
+                switch sink.yield(transport) {
+                case .enqueued: break
+                case .dropped, .terminated: await transport.close()
+                @unknown default: await transport.close()
+                }
             } catch {
                 socket.cancel()
             }

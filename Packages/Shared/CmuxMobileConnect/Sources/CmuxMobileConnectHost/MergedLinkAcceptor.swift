@@ -6,14 +6,20 @@ public struct MergedLinkAcceptor: LinkAcceptor {
     public let incoming: AsyncStream<any LinkTransport>
 
     public init(_ acceptors: [any LinkAcceptor]) {
-        let (stream, continuation) = AsyncStream.makeStream(of: (any LinkTransport).self, bufferingPolicy: .unbounded)
+        let (stream, continuation) = AsyncStream.makeStream(of: (any LinkTransport).self, bufferingPolicy: .bufferingOldest(Self.pendingTransportLimit))
         incoming = stream
         let sources = acceptors.map(\.incoming)
         let task = Task {
             await withTaskGroup(of: Void.self) { group in
                 for source in sources {
                     group.addTask {
-                        for await transport in source { continuation.yield(transport) }
+                        for await transport in source {
+                            switch continuation.yield(transport) {
+                            case .enqueued: break
+                            case .dropped, .terminated: await transport.close()
+                            @unknown default: await transport.close()
+                            }
+                        }
                     }
                 }
             }

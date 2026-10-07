@@ -6,6 +6,6 @@ public final class LoopbackAcceptor: LinkAcceptor {
     let continuation: AsyncStream<any LinkTransport>.Continuation
 
     init() {
-        (incoming, continuation) = AsyncStream<any LinkTransport>.makeStream()
+        (incoming, continuation) = AsyncStream<any LinkTransport>.makeStream(bufferingPolicy: .bufferingOldest(Self.pendingTransportLimit))
     }
 }

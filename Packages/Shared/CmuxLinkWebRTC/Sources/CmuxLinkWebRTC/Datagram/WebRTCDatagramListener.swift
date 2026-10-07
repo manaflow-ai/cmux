@@ -6,6 +6,10 @@ import os
 /// The host side of datagram channels: answers `webrtc-wg` offers and
 /// yields each channel once `wg` is open.
 public final class WebRTCDatagramListener: Sendable {
+    /// Open channels queued for a consumer that has not taken them yet; one
+    /// past this is closed (the dialer retries).
+    public static let pendingChannelLimit = 64
+
     public let incoming: AsyncStream<WebRTCDatagramChannel>
     private let incomingSink: AsyncStream<WebRTCDatagramChannel>.Continuation
     private let router: SignalRouter
@@ -24,7 +28,7 @@ public final class WebRTCDatagramListener: Sendable {
     @_spi(Testing)
     public init(router: SignalRouter, iceServers: any ICEServerProvider, hostID: String,
                 configuration: WebRTCConfiguration, injector: WebRTCFaultInjector?) {
-        (incoming, incomingSink) = AsyncStream.makeStream(of: WebRTCDatagramChannel.self, bufferingPolicy: .unbounded)
+        (incoming, incomingSink) = AsyncStream.makeStream(of: WebRTCDatagramChannel.self, bufferingPolicy: .bufferingOldest(Self.pendingChannelLimit))
         self.router = router
         iceCache = ICEConfigurationCache(provider: iceServers)
         self.hostID = hostID
@@ -72,6 +76,11 @@ public final class WebRTCDatagramListener: Sendable {
         } catch {
             return
         }
-        incomingSink.yield(WebRTCDatagramChannel(inbox: peer.inbox, connection: connection))
+        let channel = WebRTCDatagramChannel(inbox: peer.inbox, connection: connection)
+        switch incomingSink.yield(channel) {
+        case .enqueued: break
+        case .dropped, .terminated: await channel.close()
+        @unknown default: await channel.close()
+        }
     }
 }

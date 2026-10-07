@@ -57,7 +57,7 @@ public final class WebRTCAcceptor: LinkAcceptor {
         configuration: WebRTCConfiguration,
         injector: WebRTCFaultInjector?
     ) {
-        (incoming, incomingSink) = AsyncStream.makeStream(of: (any LinkTransport).self, bufferingPolicy: .unbounded)
+        (incoming, incomingSink) = AsyncStream.makeStream(of: (any LinkTransport).self, bufferingPolicy: .bufferingOldest(Self.pendingTransportLimit))
         self.router = router
         iceCache = ICEConfigurationCache(provider: iceServers)
         self.identity = identity
@@ -119,8 +119,13 @@ public final class WebRTCAcceptor: LinkAcceptor {
             return
         }
         guard let key = await connection.remoteKey else { return }
-        incomingSink.yield(WebRTCTransport(
+        let transport = WebRTCTransport(
             events: peer.inbox.events, connection: connection, remoteKey: key, install: await connection.remoteInstall
-        ))
+        )
+        switch incomingSink.yield(transport) {
+        case .enqueued: break
+        case .dropped, .terminated: await transport.close()
+        @unknown default: await transport.close()
+        }
     }
 }

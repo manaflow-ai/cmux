@@ -37,7 +37,8 @@ public struct PathSelector: Sendable {
         }
         guard !eligible.isEmpty else { throw LinkError.allCarriersFailed([]) }
 
-        let (outcomes, sink) = AsyncStream<Outcome>.makeStream()
+        // One outcome per attempt, so the buffer never drops.
+        let (outcomes, sink) = AsyncStream<Outcome>.makeStream(bufferingPolicy: .bufferingOldest(eligible.count))
         var attempts: [Task<Void, Never>] = []
         var pending: [Int: Int] = [:]
         for (index, carrier) in eligible {

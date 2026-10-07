@@ -10,11 +10,18 @@ public final class WebRTCUnderlayListener: DatagramUnderlayListener {
 
     public init(listener: WebRTCDatagramListener) {
         self.listener = listener
-        let (incoming, sink) = AsyncStream.makeStream(of: (any DatagramUnderlay).self, bufferingPolicy: .unbounded)
+        let (incoming, sink) = AsyncStream.makeStream(of: (any DatagramUnderlay).self, bufferingPolicy: .bufferingOldest(WebRTCDatagramListener.pendingChannelLimit))
         self.incoming = incoming
         let source = listener.incoming
         pump = Task {
-            for await channel in source { sink.yield(WebRTCUnderlay(channel: channel)) }
+            for await channel in source {
+                let underlay = WebRTCUnderlay(channel: channel)
+                switch sink.yield(underlay) {
+                case .enqueued: break
+                case .dropped, .terminated: await underlay.close()
+                @unknown default: await underlay.close()
+                }
+            }
             sink.finish()
         }
     }

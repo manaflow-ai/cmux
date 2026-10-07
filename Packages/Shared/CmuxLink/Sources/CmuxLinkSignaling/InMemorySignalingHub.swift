@@ -4,6 +4,9 @@ import os
 /// rewrites `from` to the sender's endpoint id like `HostDO`, and lets a
 /// test rewrite or drop messages in flight (a hostile relay).
 public final class InMemorySignalingHub: Sendable {
+    /// Messages queued for one endpoint before the relay refuses more.
+    public static let endpointQueueLimit = 1024
+
     public typealias Interceptor = @Sendable (SignalMessage) -> SignalMessage?
 
     private struct State {
@@ -20,7 +23,7 @@ public final class InMemorySignalingHub: Sendable {
     /// A channel for one install id. A second endpoint with the same id
     /// replaces the first (one socket per identity, b1-control-do.md 2).
     public func endpoint(id: String) -> any SignalingChannel {
-        let (stream, sink) = AsyncStream.makeStream(of: SignalMessage.self, bufferingPolicy: .unbounded)
+        let (stream, sink) = AsyncStream.makeStream(of: SignalMessage.self, bufferingPolicy: .bufferingOldest(Self.endpointQueueLimit))
         state.withLock { state in
             state.endpoints[id]?.finish()
             state.endpoints[id] = sink
@@ -51,6 +54,6 @@ public final class InMemorySignalingHub: Sendable {
             return target
         }
         guard let target else { throw InMemorySignalingError.peerOffline(message.to) }
-        target.yield(message)
+        if case .dropped = target.yield(message) { throw InMemorySignalingError.peerBusy(message.to) }
     }
 }

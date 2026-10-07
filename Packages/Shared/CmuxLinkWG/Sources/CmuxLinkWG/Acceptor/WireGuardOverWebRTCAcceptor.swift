@@ -19,7 +19,7 @@ public final class WireGuardOverWebRTCAcceptor: LinkAcceptor {
         clock: LinkClock = .continuous,
         source: WireGuardHandshakeSource = WireGuardHandshakeSource()
     ) {
-        let (stream, sink) = AsyncStream.makeStream(of: (any LinkTransport).self, bufferingPolicy: .unbounded)
+        let (stream, sink) = AsyncStream.makeStream(of: (any LinkTransport).self, bufferingPolicy: .bufferingOldest(Self.pendingTransportLimit))
         incoming = stream
         self.underlays = underlays
         state = AcceptorState(

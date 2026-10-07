@@ -7,11 +7,17 @@ import Foundation
 /// listener. Fault hooks change the ICE path, roam (paths die, the next
 /// open lands on a new path) and reset (the peer is gone).
 public final class InMemoryUnderlayNetwork: DatagramUnderlayDialer, DatagramUnderlayListener {
+    /// Host underlays queued for the acceptor; an open past this is refused.
+    public static let pendingUnderlayLimit = 64
+    /// Received events queued per side. Past this the oldest datagram is lost
+    /// (a full UDP socket); `closed` is always the newest, so it is kept.
+    public static let eventQueueLimit = 4096
+
     public let incoming: AsyncStream<any DatagramUnderlay>
     private let core: Core
 
     public init(conditions: UnderlayConditions = .perfect, path: PathKind = .p2p, clock: LinkClock = .continuous) {
-        let (stream, sink) = AsyncStream.makeStream(of: (any DatagramUnderlay).self, bufferingPolicy: .unbounded)
+        let (stream, sink) = AsyncStream.makeStream(of: (any DatagramUnderlay).self, bufferingPolicy: .bufferingOldest(Self.pendingUnderlayLimit))
         incoming = stream
         core = Core(conditions: conditions, path: path, clock: clock, listener: sink)
     }
@@ -69,11 +75,12 @@ public final class InMemoryUnderlayNetwork: DatagramUnderlayDialer, DatagramUnde
             self.listener = listener
         }
 
-        func open() throws -> any DatagramUnderlay {
+        func open() async throws -> any DatagramUnderlay {
             guard !refusing else { throw InMemoryUnderlayError.refused }
             openCount += 1
-            let (dialerEvents, dialerSink) = AsyncStream.makeStream(of: UnderlayEvent.self, bufferingPolicy: .unbounded)
-            let (hostEvents, hostSink) = AsyncStream.makeStream(of: UnderlayEvent.self, bufferingPolicy: .unbounded)
+            let queue = AsyncStream<UnderlayEvent>.Continuation.BufferingPolicy.bufferingNewest(InMemoryUnderlayNetwork.eventQueueLimit)
+            let (dialerEvents, dialerSink) = AsyncStream.makeStream(of: UnderlayEvent.self, bufferingPolicy: queue)
+            let (hostEvents, hostSink) = AsyncStream.makeStream(of: UnderlayEvent.self, bufferingPolicy: queue)
             let link = InMemoryUnderlayLink(
                 path: path, conditions: conditions,
                 seed: conditions.seed &+ UInt64(openCount) &* 0x9E37_79B9,
@@ -81,7 +88,11 @@ public final class InMemoryUnderlayNetwork: DatagramUnderlayDialer, DatagramUnde
             )
             links.append(link)
             let max = conditions.maxDatagramBytes
-            listener.yield(InMemoryUnderlay(events: hostEvents, maxDatagramBytes: max, link: link, side: .host))
+            let host = InMemoryUnderlay(events: hostEvents, maxDatagramBytes: max, link: link, side: .host)
+            if case .dropped = listener.yield(host) {
+                await host.close()
+                throw InMemoryUnderlayError.refused
+            }
             return InMemoryUnderlay(events: dialerEvents, maxDatagramBytes: max, link: link, side: .dialer)
         }
 
