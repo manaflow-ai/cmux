@@ -21,7 +21,8 @@ public nonisolated struct RemoteBrowserInputEncoder {
     /// A pointer event at `point` (pane points = page CSS pixels); nil for
     /// event types that are not pointer input.
     public static func pointer(
-        type: NSEvent.EventType, button: Int, clickCount: Int, modifierFlags: NSEvent.ModifierFlags, at point: CGPoint
+        type: NSEvent.EventType, button: Int, clickCount: Int, modifierFlags: NSEvent.ModifierFlags, at point: CGPoint,
+        surface: UInt32 = 0
     ) -> RemoteRdJSON? {
         let kind: String
         switch type {
@@ -58,6 +59,14 @@ public nonisolated struct RemoteBrowserInputEncoder {
         case .otherMouseDown, .otherMouseUp, .otherMouseDragged: max(2, event.buttonNumber)
         default: 0
         }
+    }
+
+    /// A wheel event at `point`.
+    public static func wheel(
+        dx: Double, dy: Double, precise: Bool, phase: NSEvent.Phase, momentumPhase: NSEvent.Phase,
+        modifierFlags: NSEvent.ModifierFlags, at point: CGPoint
+    ) -> RemoteRdJSON {
+        .null
     }
 
     /// A key down or up; nil for other events (modifier changes ride on the

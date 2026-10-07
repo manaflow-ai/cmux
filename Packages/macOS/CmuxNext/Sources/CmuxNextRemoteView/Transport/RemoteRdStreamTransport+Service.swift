@@ -45,6 +45,11 @@ extension RemoteRdStreamTransport {
         }
     }
 
+    /// The access units of popup stream `stream` (rb/1 `rb.surface.show`).
+    public func surfaceAccessUnits(stream: UInt16) -> AsyncStream<RemoteAccessUnit> {
+        AsyncStream { $0.finish() }
+    }
+
     /// The rd cap that allows service input events (rd change C2).
     public static let inputServiceCap = "input.service"
     /// The remote browser tab service (`cmux.rb/1`, remote-tab-protocol.md).

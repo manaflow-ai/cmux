@@ -17,6 +17,9 @@ public nonisolated struct RemoteBrowserViewport: Sendable, Hashable {
         scale = backingScale > 0 ? backingScale : 1
     }
 
+    /// True when the pane had no area (no layout yet).
+    public var isEmpty: Bool { false }
+
     public var pixelWidth: Int { Int((CGFloat(cssWidth) * scale).rounded()) }
     public var pixelHeight: Int { Int((CGFloat(cssHeight) * scale).rounded()) }
 }
