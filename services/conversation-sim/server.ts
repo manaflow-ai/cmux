@@ -1008,6 +1008,10 @@ function retract(store: Store, m: Message) {
   m.text = "";
   m.attachments = [];
   m.reactions = [];
+  // Ranges and effects over the removed text go with it.
+  delete m.mentions;
+  delete m.textRuns;
+  delete m.effect;
   store.emit("message.updated", m);
 }
 
