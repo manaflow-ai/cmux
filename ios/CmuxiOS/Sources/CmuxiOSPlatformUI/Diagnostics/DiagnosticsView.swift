@@ -21,6 +21,7 @@ public struct DiagnosticsView: View {
             }
             Section {
                 LabeledContent(PlatformText.logLines, value: model.lineCount.formatted())
+                    .accessibilityIdentifier("platform.diagnostics.lines")
                 ShareLink(item: model.export, preview: SharePreview(PlatformText.diagnosticsTitle)) {
                     Label(PlatformText.shareDiagnostics, systemImage: "square.and.arrow.up")
                 }

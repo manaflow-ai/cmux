@@ -52,6 +52,8 @@ public final class TerminalViewController: UIViewController {
     public override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = terminalView.backgroundColor
+        view.accessibilityIdentifier = "terminal.screen"
+        terminalView.accessibilityIdentifier = "terminal.view"
         terminalView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(terminalView)
         badge.font = .preferredFont(forTextStyle: .caption2)

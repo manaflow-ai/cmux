@@ -12,6 +12,7 @@ struct FeedQuestionControls: View {
             ForEach(question.suggestions, id: \.self) { suggestion in
                 Button(suggestion) { actions.answer(model.item.id, .text(suggestion)) }
                     .buttonStyle(FeedChipStyle(isSelected: false))
+                    .accessibilityIdentifier("feed.suggestion." + suggestion)
             }
             Button {
                 actions.compose(.questionReply(itemID: model.item.id, prompt: question.question))
@@ -19,6 +20,7 @@ struct FeedQuestionControls: View {
                 Label(FeedText.reply, systemImage: "arrowshape.turn.up.left")
             }
             .buttonStyle(FeedButtonStyle(role: .primary))
+            .accessibilityIdentifier("feed.action.reply")
         }
         .disabled(!model.canAnswer)
     }
