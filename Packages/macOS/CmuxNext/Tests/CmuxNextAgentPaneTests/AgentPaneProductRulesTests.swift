@@ -171,6 +171,8 @@ import Testing
         let deadline = ContinuousClock.now + .seconds(5)
         while ContinuousClock.now < deadline, !rig.transport.sessions.contains("s-new") { try await Task.sleep(for: .milliseconds(5)) }
         await rig.send("acp.trust.get", ["cwd": root, "sessionId": "s-new"])
+        // Trust grants: it needs the click's gesture.
+        rig.transport.gestures.record()
         await rig.send("acp.trust.set", ["cwd": root, "level": "trusted", "sessionId": "s-new"])
         await rig.send("acp.trust.get", ["cwd": root, "sessionId": "s-other"], expect: .sessionNotInPane)
         await rig.send("acp.trust.set", ["cwd": root, "level": "trusted", "sessionId": "s-other"], expect: .sessionNotInPane)
