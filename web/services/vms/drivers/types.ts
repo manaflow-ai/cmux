@@ -2,6 +2,7 @@
 // per-provider implementations behind an interface. Callers hold a `VMProvider` and never reach
 // into specifics.
 
+import type { NetworkRulePlan } from "../networkPolicy";
 import type { GuestPromptIdentity } from "../guestPrompt";
 
 export type ProviderId = "freestyle";
@@ -77,6 +78,8 @@ export type VMHandle = {
 
 export type CreateOptions = {
   image: string; // provider-specific template/snapshot identifier
+  /** The image is a live machine snapshot (fork or checkpoint restore); create waits for this machine's own daemon. */
+  forked?: boolean;
   /** Provider-enforced lifetime runtime allowance for this allocation. */
   runtimeBudgetSeconds?: number;
   /** Human-facing machine label; providers may ignore this cosmetic field. */
@@ -118,6 +121,13 @@ export type CreateOptions = {
    * Providers without `privateNetworking` ignore it.
    */
   network?: ProviderNetworkRef;
+  /**
+   * Outbound rules compiled from the machine's network policy
+   * (services/vms/networkPolicy.ts). Absent: full public egress, the
+   * historical default. Providers without egress control must refuse a
+   * restricted plan rather than silently leave the machine open.
+   */
+  networkRules?: NetworkRulePlan;
 };
 
 /** Enough of a provider network to attach a machine or a tunnel to it. */
@@ -167,7 +177,7 @@ export type VmEdgeRule = {
 };
 
 /** Create-time inputs a restore-from-snapshot shares with a fresh create. */
-export type RestoreOptions = Pick<CreateOptions, "edgeRules" | "providerMetadata"> & {
+export type RestoreOptions = Pick<CreateOptions, "edgeRules" | "providerMetadata" | "networkRules"> & {
   /** The owner's private network; see {@link CreateOptions.network}. */
   network?: ProviderNetworkRef;
 };
@@ -478,7 +488,7 @@ export interface VMPrivateNetworking {
    * under concurrent calls with the same slug: two machines created at once
    * must land on one network, not two.
    */
-  ensureNetwork(options: { slug: string; displayName?: string; heal?: boolean; membersRule?: boolean }): Promise<ProviderNetwork>;
+  ensureNetwork(options: EnsureProviderNetworkOptions): Promise<ProviderNetwork>;
   /** Read a network back by id or slug, or null when the provider has none. */
   getNetwork(networkIdOrSlug: string): Promise<ProviderNetwork | null>;
   /** Delete a network. Must succeed when it is already gone. */
@@ -508,6 +518,19 @@ export interface VMPrivateNetworking {
   createFirewallRule?(options: VMFirewallRuleInput): Promise<VMFirewallRule>;
   deleteFirewallRule?(ruleId: string): Promise<void>;
 }
+
+export type EnsureProviderNetworkOptions = {
+  readonly slug: string;
+  readonly displayName?: string;
+  readonly heal?: boolean;
+  readonly membersRule?: boolean;
+  /**
+   * The IPv4 range for a network this call creates. Omitted means the
+   * provider's default. It never changes an existing network: a provider
+   * network's range is fixed for its life.
+   */
+  readonly cidr?: string;
+};
 
 export interface VMProvider {
   readonly id: ProviderId;
@@ -547,6 +570,8 @@ export interface VMProvider {
   getResourceStats?(vmId: string): Promise<VMResourceStatsResult | null>;
   /** Grow one or more VM resources. Freestyle currently uses storage only. */
   resize?(vmId: string, options: VMResizeOptions): Promise<void>;
+  /** Converge a live machine's outbound rules on `plan`. Must not restart or wake it. */
+  applyNetworkPolicy?(vmId: string, plan: NetworkRulePlan): Promise<void>;
 
   pause(vmId: string): Promise<void>;
   resume(vmId: string): Promise<VMHandle>;
