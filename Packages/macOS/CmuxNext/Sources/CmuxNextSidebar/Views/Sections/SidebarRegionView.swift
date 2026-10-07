@@ -25,6 +25,11 @@ final class SidebarRegionView: NSView {
     var onToggleSection: ((LayoutSectionID) -> Void)?
     /// A drag dropped `subject`: the shown sections in their new order (R77).
     var onReorder: ((SidebarRegionDragSubject, [LayoutSection]) -> Void)?
+    /// Whether a window point is over the workspace list (a workspace tile
+    /// dropped there unpins); nil point ends the drag. The sidebar outlines the list.
+    var dropToListProbe: ((NSPoint?) -> Bool)?
+    /// A workspace item was dropped on the list.
+    var onDropToList: ((LayoutItemID) -> Void)?
     var contextMenuProvider: ((SidebarContextTarget) -> NSMenu?)?
     /// The view of an app section (`SectionContent.app`), from the sidebar's provider.
     var appView: ((LayoutSection) -> NSView?)?

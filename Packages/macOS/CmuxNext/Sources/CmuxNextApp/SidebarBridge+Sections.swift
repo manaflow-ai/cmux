@@ -82,10 +82,8 @@ extension SidebarBridge {
         let store = services.machines.local.store
         let refs = WorkspaceLayoutRefs(machines: services.machines)
         sectionsObservation = Task { [weak self] in
-            // The app registry is observed too: hiding or installing an app changes its item at once.
-            // So are the unread count (Notifications' dot), the built-ins' shortcuts (their tooltips,
-            // e.g. the footer gear's "Settings (⌘,)") and the workspaces tiles and top rows name.
-            // The selected item comes from the one selection (SidebarModel.selectedItem).
+            // Also observed: the app registry, the unread count, the built-ins' shortcuts (tooltips) and the workspaces
+            // tiles and top rows name. The selected item comes from the one selection (SidebarModel.selectedItem).
             for await (layout, unread, shortcuts, workspaces) in Observations({ () -> (SidebarLayoutDocument, Int, [ActionID: String], [LayoutItemRef: SidebarItemInfo]) in
                 _ = apps.apps
                 let layout = service.document
@@ -174,6 +172,6 @@ extension SidebarBridge {
     }
 
     func applyLayoutOp(_ op: SidebarLayoutOp) {
-        do { try services.sidebarLayout.send(op) } catch { services.registry.refuse(String(describing: error)) }
+        PinCommands(context: AppActionContext(services: services)).userBandEdit(op)
     }
 }

@@ -24,6 +24,7 @@ extension SidebarView {
                 self.model.send(.layout(op))
             }
         }
+        installPinDrops()
         aboveFade = ScrollEdgeFadeView(scrollView: aboveScroll)
         belowFade = ScrollEdgeFadeView(scrollView: belowScroll)
         addSubview(aboveFade)

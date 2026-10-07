@@ -63,6 +63,31 @@ extension PinCommands {
         try sendLayout(add, title: PinStrings.addToTop, origin: origin)
     }
 
+    /// Workspace rows dropped on top section `section` at `index`
+    /// (drop-to-pin, P2): each one the section does not hold yet is added
+    /// there in order, labeled with its name; one undo step each. A row
+    /// with no layout ref is refused.
+    func dropWorkspaces(_ ids: [String], on section: LayoutSectionID, at index: Int, origin: ActionOrigin) throws {} // red
+
+    /// The sidebar's drop-to-pin (`SidebarIntent.dropOnLayoutSection`); a refusal is reported.
+    func userDrop(_ ids: [String], on section: LayoutSectionID, at index: Int) {
+        do { try dropWorkspaces(ids, on: section, at: index, origin: .user) } catch { context.services.registry.refuse(String(describing: error)) }
+    }
+
+    /// A band edit from the sidebar (`SidebarIntent.layout`): a reorder, or
+    /// an item dragged out (a tile dropped on the list unpins it), which is
+    /// an undo step (P4). A refusal is reported.
+    func userBandEdit(_ op: SidebarLayoutOp) {
+        do { try sendLayout(op, title: removalTitle(op) ?? "", origin: .user) } catch { context.services.registry.refuse(String(describing: error)) }
+    }
+
+    /// The undo title of an item removal from the top region: Unpin
+    /// Workspace for a tile, Remove from Top for a top row; nil otherwise.
+    func removalTitle(_ op: SidebarLayoutOp) -> String? {
+        guard case let .itemRemove(id) = op, let (s, _) = layout.document.locate(id) else { return nil }
+        return layout.document.sections[s].id == SidebarLayoutDocument.pinnedSectionID ? PinStrings.unpinWorkspace : PinStrings.removeFromTop
+    }
+
     /// Sends one layout change and, for the user, registers its inverse.
     func sendLayout(_ op: SidebarLayoutOp, title: String, origin: ActionOrigin) throws {
         let inverse = layout.document.inverse(of: op)

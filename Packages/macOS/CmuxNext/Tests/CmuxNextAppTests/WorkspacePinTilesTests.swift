@@ -209,6 +209,21 @@ struct WorkspaceTopRowsTests {
         for _ in 0..<300 { for call in owner.calls { owner.accept(call.key) }; await Task.yield() }
     }
 
+    @Test func aRowDroppedOnTheTilesIsPinnedAtTheDropPoint() async throws {
+        let owner = SidebarLayoutServiceTests.FakeOwner()
+        let services = WorkspacePinTilesTests.services(owner: owner)
+        #expect(ActionBindingCoverageTests.run(services, "palette.toggleWorkspacePin",
+                                               target: ActionTargetRef(kind: .workspace, id: WorkspacePinTilesTests.id(3))) == .ran)
+        let commands = PinCommands(context: AppActionContext(services: services))
+        try commands.dropWorkspaces([WorkspacePinTilesTests.id(1)], on: SidebarLayoutDocument.pinnedSectionID, at: 0, origin: .user)
+        let tiles = { services.sidebarLayout.document.section(SidebarLayoutDocument.pinnedSectionID)?.items ?? [] }
+        #expect(tiles().map(\.ref) == [WorkspacePinTilesTests.ref(1), WorkspacePinTilesTests.ref(3)], "the row lands where it was dropped")
+        #expect(tiles().first?.label == "w1")
+        try commands.dropWorkspaces([WorkspacePinTilesTests.id(1)], on: SidebarLayoutDocument.pinnedSectionID, at: 1, origin: .user)
+        #expect(tiles().count == 2, "a workspace the section holds is not added twice")
+        for _ in 0..<300 { for call in owner.calls { owner.accept(call.key) }; await Task.yield() }
+    }
+
     @Test func removeFromSectionReadsAsUnpinOrRemoveFromTop() async throws {
         let owner = SidebarLayoutServiceTests.FakeOwner()
         let services = WorkspacePinTilesTests.services(owner: owner)
