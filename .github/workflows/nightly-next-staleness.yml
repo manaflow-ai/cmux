@@ -20,8 +20,6 @@ on:
 
 permissions:
   contents: read
-  actions: read
-  issues: write
 
 concurrency:
   group: nightly-next-staleness
@@ -30,8 +28,12 @@ concurrency:
 jobs:
   check:
     if: github.repository == 'manaflow-ai/cmux'
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+      issues: write
     steps:
       - name: Check the nightly-next publication age
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
