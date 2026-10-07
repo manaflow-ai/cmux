@@ -1,0 +1,20 @@
+# Gemini CLI with its ACP mode. Sign in once by running `gemini`.
+schema = 1
+id = "gemini"
+name = "Gemini CLI"
+icon = "gemini"
+protocol = "acp"
+command = "gemini"
+args = ["--experimental-acp"]
+
+[capabilities]
+permission_modes = true
+
+[auth]
+login = "gemini"
+docs = "https://github.com/google-gemini/gemini-cli"
+
+[sessions]
+adapter = "gemini"
+[sessions.resume]
+adopt = true

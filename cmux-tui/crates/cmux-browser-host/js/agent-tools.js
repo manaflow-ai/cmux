@@ -825,7 +825,7 @@
     const contextConfig = {};
     async function configure(options) {
       if (options === null || typeof options !== "object" || Array.isArray(options)) throw new Error(`session.configure: options: expected an object, got ${JSON.stringify(options)}`);
-      const known = ["userAgent", "extraHTTPHeaders", "permissions", "proxy"];
+      const known = ["userAgent", "extraHTTPHeaders", "permissions", "proxy", "incognito"];
       const unknown = Object.keys(options).filter((k) => !known.includes(k));
       if (unknown.length) throw new Error(`session.configure: unknown option ${unknown.map((k) => JSON.stringify(k)).join(", ")}; expected ${known.join(", ")}`);
       const params = {};
@@ -848,9 +848,13 @@
         if (px !== null && (typeof px !== "object" || typeof px.server !== "string" || !px.server)) throw new Error("session.configure: proxy: expected { server, username?, password?, bypass? } or null");
         params.proxy = px;
       }
+      if ("incognito" in options) {
+        if (options.incognito !== null && typeof options.incognito !== "boolean") throw new Error("session.configure: incognito: expected a boolean or null");
+        params.incognito = options.incognito;
+      }
       const result = await session.driver.call("session.configure", params);
       for (const [k, v] of Object.entries(params)) {
-        if (v === null || (Array.isArray(v) && !v.length) || (k === "extraHTTPHeaders" && !Object.keys(v).length)) delete contextConfig[k];
+        if (v === null || v === false || (Array.isArray(v) && !v.length) || (k === "extraHTTPHeaders" && !Object.keys(v).length)) delete contextConfig[k];
         else contextConfig[k] = k === "proxy" ? Object.fromEntries(["server", "username", "bypass"].filter((f) => v[f] !== undefined).map((f) => [f, v[f]])) : v;
       }
       const out = { ...contextConfig };
@@ -1054,8 +1058,10 @@
         return policyHost("set", { blockIPs: !!on, lock: !!(options && options.lock), title: "session.blockIPAddresses" }).blockIPs;
       },
       // cmux-next: the host blocks a navigation before its request and keeps
-      // the log (policy op "log").
-      blockedNavigations: () => policyHost("log"),
+      // the log (policy op "log"). The log also records the session's
+      // cookie clears and restores (entries with an `op`, no `blocked`),
+      // which are not navigations.
+      blockedNavigations: () => policyHost("log").filter((entry) => entry && entry.blocked),
       // Playwright browser-context options for the tabs this session created:
       // { userAgent, extraHTTPHeaders, permissions, proxy }. null clears one.
       configure,

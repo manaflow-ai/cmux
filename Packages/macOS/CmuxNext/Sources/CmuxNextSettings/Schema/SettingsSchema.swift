@@ -11,8 +11,8 @@ public nonisolated enum SettingsSchema {
     public static var all: [SettingDescriptor] {
         let next = general + shortcutHints + UpdateSettingsSchema.descriptors + UpdateSettingsSchema.announcements + ColumnLayoutSettingsSchema.descriptors + PaletteSettingsSchema.descriptors
             + PickerSettingsSchema.descriptors + TaskSettingsSchema.descriptors + appearance + TerminalSettingsSchema.descriptors
-            + SidebarSectionSettingsSchema.descriptors + BrowserSettingsSchema.descriptors + HomeSettingsSchema.descriptors
-            + NotificationSettingsSchema.descriptors + LabsSettingsSchema.descriptors + FeedSettingsSchema.descriptors
+            + SidebarSectionSettingsSchema.descriptors + WorkspaceRowSetting.descriptors() + BrowserSettingsSchema.descriptors + HomeSettingsSchema.descriptors
+            + NotificationSettingsSchema.descriptors + LabsSettingsSchema.descriptors + FeedSettingsSchema.descriptors + AgentPaneSettingsSchema.descriptors
         return next.map { sharedWithBrowser.contains($0.id) ? $0.consumed(by: [.cmuxNext, .cmuxBrowser]) : $0 }
             + BrowserAppSettingsSchema.descriptors
     }
@@ -125,6 +125,15 @@ public nonisolated enum SettingsSchema {
                 ]),
                 default: .string(TitlebarButtonsSetting.fallback.rawValue),
                 keywords: ["titlebar", "buttons", "back", "forward", "hover", "hide", "traffic lights", "toolbar"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.globalHotKeyPath, section: .general, group: window,
+                title: SettingsText.keyed("settings.app.globalHotKey", "Global Hot Key"),
+                help: SettingsText.keyed("settings.app.globalHotKey.help",
+                                        "Show/Hide All Windows (⌃⌥⌘.) works while another app is in front."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.globalHotKeyFallback),
+                keywords: ["global", "hotkey", "hot key", "summon", "show", "hide", "windows", "system-wide"]
             ),
             TabSettingsSchema.newTabKind(group: tabs),
             TabSettingsSchema.plusButton(group: tabs),

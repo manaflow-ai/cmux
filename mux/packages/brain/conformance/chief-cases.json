@@ -17,6 +17,588 @@
   "mux_session_name": "mux",
   "user_local": "user_local"
  },
+ "selection": [
+  {
+   "name": "none: create home-chief",
+   "conversations": [],
+   "selected": null
+  },
+  {
+   "name": "no conversation with the Chief: create home-chief",
+   "conversations": [
+    {
+     "id": "conv_b",
+     "owner": "local",
+     "title": "conv_b",
+     "participants": [
+      {
+       "id": "user_local",
+       "kind": "human",
+       "display_name": "Me"
+      },
+      {
+       "id": "user_ana",
+       "kind": "human",
+       "display_name": "Ana"
+      }
+     ],
+     "last_seq": 0,
+     "rev": 1,
+     "created_at": "2026-10-01T00:00:00.000Z",
+     "updated_at": "2026-10-01T00:00:00.000Z",
+     "read_cursors": {}
+    }
+   ],
+   "selected": null
+  },
+  {
+   "name": "the oldest conversation with the Chief, whatever its title or list order",
+   "conversations": [
+    {
+     "id": "conv_new",
+     "owner": "local",
+     "title": "conv_new",
+     "participants": [
+      {
+       "id": "user_local",
+       "kind": "human",
+       "display_name": "Me"
+      },
+      {
+       "id": "agent_mux",
+       "kind": "agent",
+       "display_name": "mux",
+       "agent_class": "mux",
+       "acp_session": "mux"
+      }
+     ],
+     "last_seq": 0,
+     "rev": 1,
+     "created_at": "2026-10-02T00:00:00.000Z",
+     "updated_at": "2026-10-02T00:00:00.000Z",
+     "read_cursors": {}
+    },
+    {
+     "id": "conv_old",
+     "owner": "local",
+     "title": "conv_old",
+     "participants": [
+      {
+       "id": "user_local",
+       "kind": "human",
+       "display_name": "Me"
+      },
+      {
+       "id": "agent_mux",
+       "kind": "agent",
+       "display_name": "mux",
+       "agent_class": "mux",
+       "acp_session": "mux"
+      }
+     ],
+     "last_seq": 0,
+     "rev": 1,
+     "created_at": "2026-10-01T00:00:00.000Z",
+     "updated_at": "2026-10-01T00:00:00.000Z",
+     "read_cursors": {}
+    },
+    {
+     "id": "conv_ana",
+     "owner": "local",
+     "title": "conv_ana",
+     "participants": [
+      {
+       "id": "user_local",
+       "kind": "human",
+       "display_name": "Me"
+      },
+      {
+       "id": "user_ana",
+       "kind": "human",
+       "display_name": "Ana"
+      }
+     ],
+     "last_seq": 0,
+     "rev": 1,
+     "created_at": "2026-09-30T00:00:00.000Z",
+     "updated_at": "2026-09-30T00:00:00.000Z",
+     "read_cursors": {}
+    }
+   ],
+   "selected": "conv_old"
+  },
+  {
+   "name": "a tie in created_at goes to the smaller id",
+   "conversations": [
+    {
+     "id": "conv_z",
+     "owner": "local",
+     "title": "conv_z",
+     "participants": [
+      {
+       "id": "user_local",
+       "kind": "human",
+       "display_name": "Me"
+      },
+      {
+       "id": "agent_mux",
+       "kind": "agent",
+       "display_name": "mux",
+       "agent_class": "mux",
+       "acp_session": "mux"
+      }
+     ],
+     "last_seq": 0,
+     "rev": 1,
+     "created_at": "2026-10-01T00:00:00.000Z",
+     "updated_at": "2026-10-01T00:00:00.000Z",
+     "read_cursors": {}
+    },
+    {
+     "id": "conv_a",
+     "owner": "local",
+     "title": "conv_a",
+     "participants": [
+      {
+       "id": "user_local",
+       "kind": "human",
+       "display_name": "Me"
+      },
+      {
+       "id": "agent_mux",
+       "kind": "agent",
+       "display_name": "mux",
+       "agent_class": "mux",
+       "acp_session": "mux"
+      }
+     ],
+     "last_seq": 0,
+     "rev": 1,
+     "created_at": "2026-10-01T00:00:00.000Z",
+     "updated_at": "2026-10-01T00:00:00.000Z",
+     "read_cursors": {}
+    }
+   ],
+   "selected": "conv_a"
+  },
+  {
+   "name": "a conversation another owner holds is not the local Chief's",
+   "conversations": [
+    {
+     "id": "conv_cloud",
+     "owner": "cloud",
+     "title": "conv_cloud",
+     "participants": [
+      {
+       "id": "user_local",
+       "kind": "human",
+       "display_name": "Me"
+      },
+      {
+       "id": "agent_mux",
+       "kind": "agent",
+       "display_name": "mux",
+       "agent_class": "mux",
+       "acp_session": "mux"
+      }
+     ],
+     "last_seq": 0,
+     "rev": 1,
+     "created_at": "2026-09-01T00:00:00.000Z",
+     "updated_at": "2026-09-01T00:00:00.000Z",
+     "read_cursors": {}
+    },
+    {
+     "id": "conv_local",
+     "owner": "local",
+     "title": "conv_local",
+     "participants": [
+      {
+       "id": "user_local",
+       "kind": "human",
+       "display_name": "Me"
+      },
+      {
+       "id": "agent_mux",
+       "kind": "agent",
+       "display_name": "mux",
+       "agent_class": "mux",
+       "acp_session": "mux"
+      }
+     ],
+     "last_seq": 0,
+     "rev": 1,
+     "created_at": "2026-10-01T00:00:00.000Z",
+     "updated_at": "2026-10-01T00:00:00.000Z",
+     "read_cursors": {}
+    }
+   ],
+   "selected": "conv_local"
+  }
+ ],
+ "policy": [
+  {
+   "name": "remote.autoApprove defaults to true with no settings",
+   "fn": "remote_auto_approve",
+   "args": {
+    "settings": null
+   },
+   "result": true
+  },
+  {
+   "name": "remote.autoApprove defaults to true when the key is missing",
+   "fn": "remote_auto_approve",
+   "args": {
+    "settings": {
+     "remote": {}
+    }
+   },
+   "result": true
+  },
+  {
+   "name": "remote.autoApprove false is kept",
+   "fn": "remote_auto_approve",
+   "args": {
+    "settings": {
+     "remote": {
+      "autoApprove": false
+     }
+    }
+   },
+   "result": false
+  },
+  {
+   "name": "remote.autoApprove that is not a bool is the default",
+   "fn": "remote_auto_approve",
+   "args": {
+    "settings": {
+     "remote": {
+      "autoApprove": "no"
+     }
+    }
+   },
+   "result": true
+  },
+  {
+   "name": "a local turn runs with the configured policy",
+   "fn": "turn_policy",
+   "args": {
+    "remote": false,
+    "auto_approve": false,
+    "configured": "approve-all"
+   },
+   "result": "approve-all"
+  },
+  {
+   "name": "a remote turn with remote.autoApprove on runs with the configured policy",
+   "fn": "turn_policy",
+   "args": {
+    "remote": true,
+    "auto_approve": true,
+    "configured": "approve-all"
+   },
+   "result": "approve-all"
+  },
+  {
+   "name": "a remote turn with remote.autoApprove off asks",
+   "fn": "turn_policy",
+   "args": {
+    "remote": true,
+    "auto_approve": false,
+    "configured": "approve-all"
+   },
+   "result": "ask"
+  },
+  {
+   "name": "no spawn floor outside an ask turn",
+   "fn": "spawn_floor",
+   "args": {
+    "auto_approve": false,
+    "turn_ask": false,
+    "ask_child_live": false,
+    "ask_subagent_live": false
+   },
+   "result": null
+  },
+  {
+   "name": "an ask turn's children ask",
+   "fn": "spawn_floor",
+   "args": {
+    "auto_approve": false,
+    "turn_ask": true,
+    "ask_child_live": false,
+    "ask_subagent_live": false
+   },
+   "result": "ask"
+  },
+  {
+   "name": "a live ask child keeps the floor",
+   "fn": "spawn_floor",
+   "args": {
+    "auto_approve": false,
+    "turn_ask": false,
+    "ask_child_live": true,
+    "ask_subagent_live": false
+   },
+   "result": "ask"
+  },
+  {
+   "name": "a live ask subagent keeps the floor",
+   "fn": "spawn_floor",
+   "args": {
+    "auto_approve": false,
+    "turn_ask": false,
+    "ask_child_live": false,
+    "ask_subagent_live": true
+   },
+   "result": "ask"
+  },
+  {
+   "name": "remote.autoApprove on lifts the floor",
+   "fn": "spawn_floor",
+   "args": {
+    "auto_approve": true,
+    "turn_ask": true,
+    "ask_child_live": true,
+    "ask_subagent_live": true
+   },
+   "result": null
+  },
+  {
+   "name": "claude-sr routes to the claude-stdio profile that runs sr claude proxy",
+   "fn": "harness_admit",
+   "args": {
+    "requested": "claude-sr",
+    "answer": {
+     "harnesses": {
+      "claude-sr": {
+       "kind": "claude-stdio",
+       "argv": [
+        "/Users/me/bin/sr",
+        "claude",
+        "proxy"
+       ],
+       "family": "claude"
+      }
+     }
+    }
+   },
+   "result": {
+    "admitted": {
+     "profile": "claude-sr",
+     "kind": "claude-stdio",
+     "argv0": "/Users/me/bin/sr",
+     "family": "claude"
+    }
+   }
+  },
+  {
+   "name": "claude-sr refuses an external ACP adapter under its name",
+   "fn": "harness_admit",
+   "args": {
+    "requested": "claude-sr",
+    "answer": {
+     "harnesses": {
+      "claude-sr": {
+       "kind": "acp",
+       "argv": [
+        "/opt/homebrew/bin/claude-code-acp"
+       ],
+       "family": "claude",
+       "description": "imported from ~/.acpx"
+      }
+     }
+    }
+   },
+   "result": {
+    "refused": "the Chief runs Claude only through acpmux's own Claude Code adapter (kind claude-stdio), and claude-sr asks for one running `sr claude proxy`; acpmux has none: acpmux's claude-sr is kind acp (/opt/homebrew/bin/claude-code-acp), \"imported from ~/.acpx\""
+   }
+  },
+  {
+   "name": "claude-sr prefers a real sr claude proxy over a claude profile pointed at the team subrouter",
+   "fn": "harness_admit",
+   "args": {
+    "requested": "claude-sr",
+    "answer": {
+     "harnesses": {
+      "z-url": {
+       "kind": "claude-stdio",
+       "argv": [
+        "claude"
+       ],
+       "family": "claude",
+       "env": {
+        "ANTHROPIC_BASE_URL": "http://100.89.225.106:31415/"
+       }
+      },
+      "mine": {
+       "kind": "claude-stdio",
+       "argv": [
+        "/Users/me/bin/sr",
+        "claude",
+        "proxy"
+       ],
+       "family": "claude"
+      }
+     }
+    }
+   },
+   "result": {
+    "admitted": {
+     "profile": "mine",
+     "kind": "claude-stdio",
+     "argv0": "/Users/me/bin/sr",
+     "family": "claude"
+    }
+   }
+  },
+  {
+   "name": "claude-sr takes a claude profile pointed at the team subrouter when no sr runs",
+   "fn": "harness_admit",
+   "args": {
+    "requested": "claude-sr",
+    "answer": {
+     "harnesses": {
+      "z-url": {
+       "kind": "claude-stdio",
+       "argv": [
+        "claude"
+       ],
+       "family": "claude",
+       "env": {
+        "ANTHROPIC_BASE_URL": "http://100.89.225.106:31415/"
+       }
+      }
+     }
+    }
+   },
+   "result": {
+    "admitted": {
+     "profile": "z-url",
+     "kind": "claude-stdio",
+     "argv0": "claude",
+     "family": "claude"
+    }
+   }
+  },
+  {
+   "name": "claude routes to the direct claude login",
+   "fn": "harness_admit",
+   "args": {
+    "requested": "claude",
+    "answer": {
+     "harnesses": {
+      "claude": {
+       "kind": "claude-stdio",
+       "argv": [
+        "/Users/me/.local/bin/claude"
+       ],
+       "family": "claude"
+      },
+      "claude-sr": {
+       "kind": "claude-stdio",
+       "argv": [
+        "/Users/me/bin/sr",
+        "claude",
+        "proxy"
+       ],
+       "family": "claude"
+      }
+     }
+    }
+   },
+   "result": {
+    "admitted": {
+     "profile": "claude",
+     "kind": "claude-stdio",
+     "argv0": "/Users/me/.local/bin/claude",
+     "family": "claude"
+    }
+   }
+  },
+  {
+   "name": "an unavailable profile is not routed to",
+   "fn": "harness_admit",
+   "args": {
+    "requested": "claude",
+    "answer": {
+     "harnesses": {
+      "claude": {
+       "kind": "claude-stdio",
+       "argv": [
+        "/Users/me/.local/bin/claude"
+       ],
+       "family": "claude",
+       "unavailable": "not signed in"
+      }
+     }
+    }
+   },
+   "result": {
+    "refused": "the Chief runs Claude only through acpmux's own Claude Code adapter (kind claude-stdio), and claude asks for one running `claude`; acpmux has none: acpmux's claude is kind claude-stdio (/Users/me/.local/bin/claude)"
+   }
+  },
+  {
+   "name": "a codex profile is admitted as acpmux reports it, its family from the command",
+   "fn": "harness_admit",
+   "args": {
+    "requested": "codex",
+    "answer": {
+     "harnesses": {
+      "codex": {
+       "kind": "acp",
+       "argv": [
+        "/usr/local/bin/codex-acp"
+       ]
+      }
+     }
+    }
+   },
+   "result": {
+    "admitted": {
+     "profile": "codex",
+     "kind": "acp",
+     "argv0": "/usr/local/bin/codex-acp",
+     "family": "codex"
+    }
+   }
+  },
+  {
+   "name": "a Claude-family profile that is not claude-stdio is refused",
+   "fn": "harness_admit",
+   "args": {
+    "requested": "my-claude",
+    "answer": {
+     "harnesses": {
+      "my-claude": {
+       "kind": "acp",
+       "argv": [
+        "/opt/homebrew/bin/claude-code-acp"
+       ],
+       "family": "claude",
+       "description": "imported from ~/.acpx"
+      }
+     }
+    }
+   },
+   "result": {
+    "refused": "the Chief runs Claude only through acpmux's own Claude Code adapter (kind claude-stdio); acpmux's my-claude is kind acp (/opt/homebrew/bin/claude-code-acp), \"imported from ~/.acpx\""
+   }
+  },
+  {
+   "name": "an unknown profile is refused",
+   "fn": "harness_admit",
+   "args": {
+    "requested": "gemini",
+    "answer": {
+     "harnesses": {}
+    }
+   },
+   "result": {
+    "refused": "acpmux has no harness named gemini"
+   }
+  }
+ ],
  "cases": [
   {
    "name": "wake 1:1: a human message wakes the Chief; its turn is the reply, keyed by the turn, with typing",
@@ -1907,6 +2489,816 @@
     "outbox": [],
     "children": {},
     "defaultConversation": "conv_a",
+    "muxSessionId": "s_mux"
+   }
+  },
+  {
+   "name": "wake remote: the owner's paired device wakes the Chief when the owner stamped it relayed; an unstamped, mismatched or foreign device message does not",
+   "state": {
+    "acpmuxSeq": 0,
+    "prompts": {},
+    "answered": [],
+    "outbox": [],
+    "children": {}
+   },
+   "steps": [
+    {
+     "now": 1790985600001,
+     "input": {
+      "kind": "daemon_connected",
+      "conversation": {
+       "id": "conv_a",
+       "owner": "local",
+       "title": "conv_a",
+       "participants": [
+        {
+         "id": "user_local",
+         "kind": "human",
+         "display_name": "Me"
+        },
+        {
+         "id": "agent_mux",
+         "kind": "agent",
+         "display_name": "mux",
+         "agent_class": "mux",
+         "acp_session": "mux"
+        },
+        {
+         "id": "remote_inst_1",
+         "kind": "human",
+         "display_name": "Me (iPhone)",
+         "person": "user_local"
+        }
+       ],
+       "last_seq": 0,
+       "rev": 1,
+       "created_at": "2026-10-03T00:00:00.000Z",
+       "updated_at": "2026-10-03T00:00:00.000Z",
+       "read_cursors": {}
+      }
+     },
+     "effects": [
+      {
+       "kind": "persist",
+       "state": {
+        "acpmuxSeq": 0,
+        "prompts": {},
+        "answered": [],
+        "outbox": [],
+        "children": {},
+        "defaultConversation": "conv_a"
+       }
+      }
+     ]
+    },
+    {
+     "now": 1790985600002,
+     "input": {
+      "kind": "acpmux_connected",
+      "session_id": "s_mux",
+      "sessions": [],
+      "events": []
+     },
+     "effects": [
+      {
+       "kind": "persist",
+       "state": {
+        "acpmuxSeq": 0,
+        "prompts": {},
+        "answered": [],
+        "outbox": [],
+        "children": {},
+        "defaultConversation": "conv_a",
+        "muxSessionId": "s_mux"
+       }
+      },
+      {
+       "kind": "list_conversations"
+      }
+     ]
+    },
+    {
+     "now": 1790985600003,
+     "input": {
+      "kind": "conversations_listed",
+      "conversations": [
+       {
+        "id": "conv_a",
+        "owner": "local",
+        "title": "conv_a",
+        "participants": [
+         {
+          "id": "user_local",
+          "kind": "human",
+          "display_name": "Me"
+         },
+         {
+          "id": "agent_mux",
+          "kind": "agent",
+          "display_name": "mux",
+          "agent_class": "mux",
+          "acp_session": "mux"
+         },
+         {
+          "id": "remote_inst_1",
+          "kind": "human",
+          "display_name": "Me (iPhone)",
+          "person": "user_local"
+         }
+        ],
+        "last_seq": 0,
+        "rev": 1,
+        "created_at": "2026-10-03T00:00:00.000Z",
+        "updated_at": "2026-10-03T00:00:00.000Z",
+        "read_cursors": {}
+       }
+      ]
+     },
+     "effects": [
+      {
+       "kind": "fetch_snapshot",
+       "conversation": "conv_a",
+       "tail": 500
+      }
+     ]
+    },
+    {
+     "now": 1790985600004,
+     "input": {
+      "kind": "snapshot",
+      "conversation": {
+       "id": "conv_a",
+       "owner": "local",
+       "title": "conv_a",
+       "participants": [
+        {
+         "id": "user_local",
+         "kind": "human",
+         "display_name": "Me"
+        },
+        {
+         "id": "agent_mux",
+         "kind": "agent",
+         "display_name": "mux",
+         "agent_class": "mux",
+         "acp_session": "mux"
+        },
+        {
+         "id": "remote_inst_1",
+         "kind": "human",
+         "display_name": "Me (iPhone)",
+         "person": "user_local"
+        }
+       ],
+       "last_seq": 0,
+       "rev": 1,
+       "created_at": "2026-10-03T00:00:00.000Z",
+       "updated_at": "2026-10-03T00:00:00.000Z",
+       "read_cursors": {}
+      },
+      "messages": []
+     },
+     "effects": [
+      {
+       "kind": "ready"
+      }
+     ]
+    },
+    {
+     "now": 1790985600005,
+     "input": {
+      "kind": "conversation_changed",
+      "conversation": "conv_a",
+      "change": {
+       "kind": "message",
+       "message": {
+        "id": "m_conv_a_1",
+        "conversation": "conv_a",
+        "seq": 1,
+        "client_msg_id": "c_conv_a_1",
+        "author": "remote_inst_1",
+        "parts": [
+         {
+          "type": "text",
+          "text": "status?"
+         }
+        ],
+        "created_at": "2026-10-03T00:00:00.000Z",
+        "reactions": [],
+        "origin": {
+         "kind": "remote",
+         "install": "inst_1"
+        }
+       }
+      }
+     },
+     "effects": [
+      {
+       "kind": "persist",
+       "state": {
+        "acpmuxSeq": 0,
+        "prompts": {
+         "m_conv_a_1": {
+          "conversation": "conv_a",
+          "text": "[conversation conv_a from Me (iPhone)] status?",
+          "seq": 1,
+          "order": 1
+         }
+        },
+        "answered": [],
+        "outbox": [],
+        "children": {},
+        "defaultConversation": "conv_a",
+        "muxSessionId": "s_mux"
+       }
+      },
+      {
+       "kind": "prompt",
+       "prompt_id": "m_conv_a_1",
+       "text": "[conversation conv_a from Me (iPhone)] status?"
+      }
+     ]
+    },
+    {
+     "now": 1790985600006,
+     "input": {
+      "kind": "prompt_settled",
+      "prompt_id": "m_conv_a_1"
+     },
+     "effects": [
+      {
+       "kind": "conversation_op",
+       "conversation": "conv_a",
+       "idempotency_key": "cursor:agent_mux:1",
+       "op": {
+        "kind": "read_cursor.set",
+        "seq": 1
+       }
+      }
+     ]
+    },
+    {
+     "now": 1790985600007,
+     "input": {
+      "kind": "conversation_changed",
+      "conversation": "conv_a",
+      "change": {
+       "kind": "message",
+       "message": {
+        "id": "m_conv_a_2",
+        "conversation": "conv_a",
+        "seq": 2,
+        "client_msg_id": "c_conv_a_2",
+        "author": "remote_inst_1",
+        "parts": [
+         {
+          "type": "text",
+          "text": "not stamped"
+         }
+        ],
+        "created_at": "2026-10-03T00:00:00.000Z",
+        "reactions": []
+       }
+      }
+     },
+     "effects": [
+      {
+       "kind": "conversation_op",
+       "conversation": "conv_a",
+       "idempotency_key": "cursor:agent_mux:2",
+       "op": {
+        "kind": "read_cursor.set",
+        "seq": 2
+       }
+      }
+     ]
+    },
+    {
+     "now": 1790985600008,
+     "input": {
+      "kind": "conversation_changed",
+      "conversation": "conv_a",
+      "change": {
+       "kind": "message",
+       "message": {
+        "id": "m_conv_a_3",
+        "conversation": "conv_a",
+        "seq": 3,
+        "client_msg_id": "c_conv_a_3",
+        "author": "user_local",
+        "parts": [
+         {
+          "type": "text",
+          "text": "stamped for another author"
+         }
+        ],
+        "created_at": "2026-10-03T00:00:00.000Z",
+        "reactions": [],
+        "origin": {
+         "kind": "remote",
+         "install": "inst_1"
+        }
+       }
+      }
+     },
+     "effects": [
+      {
+       "kind": "conversation_op",
+       "conversation": "conv_a",
+       "idempotency_key": "cursor:agent_mux:3",
+       "op": {
+        "kind": "read_cursor.set",
+        "seq": 3
+       }
+      }
+     ]
+    },
+    {
+     "now": 1790985600009,
+     "input": {
+      "kind": "conversation_changed",
+      "conversation": "conv_a",
+      "change": {
+       "kind": "message",
+       "message": {
+        "id": "m_conv_a_4",
+        "conversation": "conv_a",
+        "seq": 4,
+        "client_msg_id": "c_conv_a_4",
+        "author": "remote_inst_9",
+        "parts": [
+         {
+          "type": "text",
+          "text": "not a participant"
+         }
+        ],
+        "created_at": "2026-10-03T00:00:00.000Z",
+        "reactions": [],
+        "origin": {
+         "kind": "remote",
+         "install": "inst_9"
+        }
+       }
+      }
+     },
+     "effects": [
+      {
+       "kind": "conversation_op",
+       "conversation": "conv_a",
+       "idempotency_key": "cursor:agent_mux:4",
+       "op": {
+        "kind": "read_cursor.set",
+        "seq": 4
+       }
+      }
+     ]
+    },
+    {
+     "now": 1790985600010,
+     "input": {
+      "kind": "conversation_changed",
+      "conversation": "conv_a",
+      "change": {
+       "kind": "message",
+       "message": {
+        "id": "m_conv_a_5",
+        "conversation": "conv_a",
+        "seq": 5,
+        "client_msg_id": "c_conv_a_5",
+        "author": "remote_inst_1",
+        "parts": [
+         {
+          "type": "text",
+          "text": "retracted"
+         }
+        ],
+        "created_at": "2026-10-03T00:00:00.000Z",
+        "reactions": [],
+        "origin": {
+         "kind": "remote",
+         "install": "inst_1"
+        },
+        "retracted_at": "2026-10-03T00:00:00.000Z"
+       }
+      }
+     },
+     "effects": [
+      {
+       "kind": "conversation_op",
+       "conversation": "conv_a",
+       "idempotency_key": "cursor:agent_mux:5",
+       "op": {
+        "kind": "read_cursor.set",
+        "seq": 5
+       }
+      }
+     ]
+    }
+   ],
+   "state_after": {
+    "acpmuxSeq": 0,
+    "prompts": {
+     "m_conv_a_1": {
+      "conversation": "conv_a",
+      "text": "[conversation conv_a from Me (iPhone)] status?",
+      "seq": 1,
+      "order": 1
+     }
+    },
+    "answered": [],
+    "outbox": [],
+    "children": {},
+    "defaultConversation": "conv_a",
+    "muxSessionId": "s_mux"
+   }
+  },
+  {
+   "name": "wake remote group: a relayed device message in a group needs a mention, like the person's own; another person's device never wakes it",
+   "state": {
+    "acpmuxSeq": 0,
+    "prompts": {},
+    "answered": [],
+    "outbox": [],
+    "children": {}
+   },
+   "steps": [
+    {
+     "now": 1790985600001,
+     "input": {
+      "kind": "daemon_connected",
+      "conversation": {
+       "id": "conv_g",
+       "owner": "local",
+       "title": "conv_g",
+       "participants": [
+        {
+         "id": "user_local",
+         "kind": "human",
+         "display_name": "Me"
+        },
+        {
+         "id": "user_ana",
+         "kind": "human",
+         "display_name": "Ana"
+        },
+        {
+         "id": "agent_mux",
+         "kind": "agent",
+         "display_name": "mux",
+         "agent_class": "mux",
+         "acp_session": "mux"
+        },
+        {
+         "id": "remote_inst_1",
+         "kind": "human",
+         "display_name": "Me (iPhone)",
+         "person": "user_local"
+        },
+        {
+         "id": "remote_inst_9",
+         "kind": "human",
+         "display_name": "Bo (iPhone)",
+         "person": "user_bo"
+        }
+       ],
+       "last_seq": 0,
+       "rev": 1,
+       "created_at": "2026-10-03T00:00:00.000Z",
+       "updated_at": "2026-10-03T00:00:00.000Z",
+       "read_cursors": {}
+      }
+     },
+     "effects": [
+      {
+       "kind": "persist",
+       "state": {
+        "acpmuxSeq": 0,
+        "prompts": {},
+        "answered": [],
+        "outbox": [],
+        "children": {},
+        "defaultConversation": "conv_g"
+       }
+      }
+     ]
+    },
+    {
+     "now": 1790985600002,
+     "input": {
+      "kind": "acpmux_connected",
+      "session_id": "s_mux",
+      "sessions": [],
+      "events": []
+     },
+     "effects": [
+      {
+       "kind": "persist",
+       "state": {
+        "acpmuxSeq": 0,
+        "prompts": {},
+        "answered": [],
+        "outbox": [],
+        "children": {},
+        "defaultConversation": "conv_g",
+        "muxSessionId": "s_mux"
+       }
+      },
+      {
+       "kind": "list_conversations"
+      }
+     ]
+    },
+    {
+     "now": 1790985600003,
+     "input": {
+      "kind": "conversations_listed",
+      "conversations": [
+       {
+        "id": "conv_g",
+        "owner": "local",
+        "title": "conv_g",
+        "participants": [
+         {
+          "id": "user_local",
+          "kind": "human",
+          "display_name": "Me"
+         },
+         {
+          "id": "user_ana",
+          "kind": "human",
+          "display_name": "Ana"
+         },
+         {
+          "id": "agent_mux",
+          "kind": "agent",
+          "display_name": "mux",
+          "agent_class": "mux",
+          "acp_session": "mux"
+         },
+         {
+          "id": "remote_inst_1",
+          "kind": "human",
+          "display_name": "Me (iPhone)",
+          "person": "user_local"
+         },
+         {
+          "id": "remote_inst_9",
+          "kind": "human",
+          "display_name": "Bo (iPhone)",
+          "person": "user_bo"
+         }
+        ],
+        "last_seq": 0,
+        "rev": 1,
+        "created_at": "2026-10-03T00:00:00.000Z",
+        "updated_at": "2026-10-03T00:00:00.000Z",
+        "read_cursors": {}
+       }
+      ]
+     },
+     "effects": [
+      {
+       "kind": "fetch_snapshot",
+       "conversation": "conv_g",
+       "tail": 500
+      }
+     ]
+    },
+    {
+     "now": 1790985600004,
+     "input": {
+      "kind": "snapshot",
+      "conversation": {
+       "id": "conv_g",
+       "owner": "local",
+       "title": "conv_g",
+       "participants": [
+        {
+         "id": "user_local",
+         "kind": "human",
+         "display_name": "Me"
+        },
+        {
+         "id": "user_ana",
+         "kind": "human",
+         "display_name": "Ana"
+        },
+        {
+         "id": "agent_mux",
+         "kind": "agent",
+         "display_name": "mux",
+         "agent_class": "mux",
+         "acp_session": "mux"
+        },
+        {
+         "id": "remote_inst_1",
+         "kind": "human",
+         "display_name": "Me (iPhone)",
+         "person": "user_local"
+        },
+        {
+         "id": "remote_inst_9",
+         "kind": "human",
+         "display_name": "Bo (iPhone)",
+         "person": "user_bo"
+        }
+       ],
+       "last_seq": 0,
+       "rev": 1,
+       "created_at": "2026-10-03T00:00:00.000Z",
+       "updated_at": "2026-10-03T00:00:00.000Z",
+       "read_cursors": {}
+      },
+      "messages": []
+     },
+     "effects": [
+      {
+       "kind": "ready"
+      }
+     ]
+    },
+    {
+     "now": 1790985600005,
+     "input": {
+      "kind": "conversation_changed",
+      "conversation": "conv_g",
+      "change": {
+       "kind": "message",
+       "message": {
+        "id": "m_conv_g_1",
+        "conversation": "conv_g",
+        "seq": 1,
+        "client_msg_id": "c_conv_g_1",
+        "author": "remote_inst_1",
+        "parts": [
+         {
+          "type": "text",
+          "text": "hi all"
+         }
+        ],
+        "created_at": "2026-10-03T00:00:00.000Z",
+        "reactions": [],
+        "origin": {
+         "kind": "remote",
+         "install": "inst_1"
+        }
+       }
+      }
+     },
+     "effects": [
+      {
+       "kind": "conversation_op",
+       "conversation": "conv_g",
+       "idempotency_key": "cursor:agent_mux:1",
+       "op": {
+        "kind": "read_cursor.set",
+        "seq": 1
+       }
+      }
+     ]
+    },
+    {
+     "now": 1790985600006,
+     "input": {
+      "kind": "conversation_changed",
+      "conversation": "conv_g",
+      "change": {
+       "kind": "message",
+       "message": {
+        "id": "m_conv_g_2",
+        "conversation": "conv_g",
+        "seq": 2,
+        "client_msg_id": "c_conv_g_2",
+        "author": "remote_inst_1",
+        "parts": [
+         {
+          "type": "text",
+          "text": "@mux status?",
+          "runs": [
+           {
+            "start": 0,
+            "length": 4,
+            "mention": "agent_mux"
+           }
+          ]
+         }
+        ],
+        "created_at": "2026-10-03T00:00:00.000Z",
+        "reactions": [],
+        "origin": {
+         "kind": "remote",
+         "install": "inst_1"
+        }
+       }
+      }
+     },
+     "effects": [
+      {
+       "kind": "persist",
+       "state": {
+        "acpmuxSeq": 0,
+        "prompts": {
+         "m_conv_g_2": {
+          "conversation": "conv_g",
+          "text": "[conversation conv_g from Me (iPhone)] @mux status?",
+          "seq": 2,
+          "order": 1
+         }
+        },
+        "answered": [],
+        "outbox": [],
+        "children": {},
+        "defaultConversation": "conv_g",
+        "muxSessionId": "s_mux"
+       }
+      },
+      {
+       "kind": "prompt",
+       "prompt_id": "m_conv_g_2",
+       "text": "[conversation conv_g from Me (iPhone)] @mux status?"
+      }
+     ]
+    },
+    {
+     "now": 1790985600007,
+     "input": {
+      "kind": "prompt_settled",
+      "prompt_id": "m_conv_g_2"
+     },
+     "effects": [
+      {
+       "kind": "conversation_op",
+       "conversation": "conv_g",
+       "idempotency_key": "cursor:agent_mux:2",
+       "op": {
+        "kind": "read_cursor.set",
+        "seq": 2
+       }
+      }
+     ]
+    },
+    {
+     "now": 1790985600008,
+     "input": {
+      "kind": "conversation_changed",
+      "conversation": "conv_g",
+      "change": {
+       "kind": "message",
+       "message": {
+        "id": "m_conv_g_3",
+        "conversation": "conv_g",
+        "seq": 3,
+        "client_msg_id": "c_conv_g_3",
+        "author": "remote_inst_9",
+        "parts": [
+         {
+          "type": "text",
+          "text": "@mux run this",
+          "runs": [
+           {
+            "start": 0,
+            "length": 4,
+            "mention": "agent_mux"
+           }
+          ]
+         }
+        ],
+        "created_at": "2026-10-03T00:00:00.000Z",
+        "reactions": [],
+        "origin": {
+         "kind": "remote",
+         "install": "inst_9"
+        }
+       }
+      }
+     },
+     "effects": [
+      {
+       "kind": "conversation_op",
+       "conversation": "conv_g",
+       "idempotency_key": "cursor:agent_mux:3",
+       "op": {
+        "kind": "read_cursor.set",
+        "seq": 3
+       }
+      }
+     ]
+    }
+   ],
+   "state_after": {
+    "acpmuxSeq": 0,
+    "prompts": {
+     "m_conv_g_2": {
+      "conversation": "conv_g",
+      "text": "[conversation conv_g from Me (iPhone)] @mux status?",
+      "seq": 2,
+      "order": 1
+     }
+    },
+    "answered": [],
+    "outbox": [],
+    "children": {},
+    "defaultConversation": "conv_g",
     "muxSessionId": "s_mux"
    }
   },
@@ -13787,6 +15179,801 @@
       }
      }
     ],
+    "children": {},
+    "defaultConversation": "conv_a",
+    "muxSessionId": "s_mux"
+   }
+  },
+  {
+   "name": "prompts: a refused prompt that acpmux then accepts and runs: its pending retry timer sends nothing",
+   "state": {
+    "acpmuxSeq": 0,
+    "prompts": {},
+    "answered": [],
+    "outbox": [],
+    "children": {}
+   },
+   "steps": [
+    {
+     "now": 1790985600001,
+     "input": {
+      "kind": "daemon_connected",
+      "conversation": {
+       "id": "conv_a",
+       "owner": "local",
+       "title": "conv_a",
+       "participants": [
+        {
+         "id": "user_local",
+         "kind": "human",
+         "display_name": "Me"
+        },
+        {
+         "id": "agent_mux",
+         "kind": "agent",
+         "display_name": "mux",
+         "agent_class": "mux",
+         "acp_session": "mux"
+        }
+       ],
+       "last_seq": 0,
+       "rev": 1,
+       "created_at": "2026-10-03T00:00:00.000Z",
+       "updated_at": "2026-10-03T00:00:00.000Z",
+       "read_cursors": {}
+      }
+     },
+     "effects": [
+      {
+       "kind": "persist",
+       "state": {
+        "acpmuxSeq": 0,
+        "prompts": {},
+        "answered": [],
+        "outbox": [],
+        "children": {},
+        "defaultConversation": "conv_a"
+       }
+      }
+     ]
+    },
+    {
+     "now": 1790985600002,
+     "input": {
+      "kind": "acpmux_connected",
+      "session_id": "s_mux",
+      "sessions": [],
+      "events": []
+     },
+     "effects": [
+      {
+       "kind": "persist",
+       "state": {
+        "acpmuxSeq": 0,
+        "prompts": {},
+        "answered": [],
+        "outbox": [],
+        "children": {},
+        "defaultConversation": "conv_a",
+        "muxSessionId": "s_mux"
+       }
+      },
+      {
+       "kind": "list_conversations"
+      }
+     ]
+    },
+    {
+     "now": 1790985600003,
+     "input": {
+      "kind": "conversations_listed",
+      "conversations": [
+       {
+        "id": "conv_a",
+        "owner": "local",
+        "title": "conv_a",
+        "participants": [
+         {
+          "id": "user_local",
+          "kind": "human",
+          "display_name": "Me"
+         },
+         {
+          "id": "agent_mux",
+          "kind": "agent",
+          "display_name": "mux",
+          "agent_class": "mux",
+          "acp_session": "mux"
+         }
+        ],
+        "last_seq": 0,
+        "rev": 1,
+        "created_at": "2026-10-03T00:00:00.000Z",
+        "updated_at": "2026-10-03T00:00:00.000Z",
+        "read_cursors": {}
+       }
+      ]
+     },
+     "effects": [
+      {
+       "kind": "fetch_snapshot",
+       "conversation": "conv_a",
+       "tail": 500
+      }
+     ]
+    },
+    {
+     "now": 1790985600004,
+     "input": {
+      "kind": "snapshot",
+      "conversation": {
+       "id": "conv_a",
+       "owner": "local",
+       "title": "conv_a",
+       "participants": [
+        {
+         "id": "user_local",
+         "kind": "human",
+         "display_name": "Me"
+        },
+        {
+         "id": "agent_mux",
+         "kind": "agent",
+         "display_name": "mux",
+         "agent_class": "mux",
+         "acp_session": "mux"
+        }
+       ],
+       "last_seq": 0,
+       "rev": 1,
+       "created_at": "2026-10-03T00:00:00.000Z",
+       "updated_at": "2026-10-03T00:00:00.000Z",
+       "read_cursors": {}
+      },
+      "messages": []
+     },
+     "effects": [
+      {
+       "kind": "ready"
+      }
+     ]
+    },
+    {
+     "now": 1790985600005,
+     "input": {
+      "kind": "conversation_changed",
+      "conversation": "conv_a",
+      "change": {
+       "kind": "message",
+       "message": {
+        "id": "m_conv_a_1",
+        "conversation": "conv_a",
+        "seq": 1,
+        "client_msg_id": "c_conv_a_1",
+        "author": "user_local",
+        "parts": [
+         {
+          "type": "text",
+          "text": "hello"
+         }
+        ],
+        "created_at": "2026-10-03T00:00:00.000Z",
+        "reactions": []
+       }
+      }
+     },
+     "effects": [
+      {
+       "kind": "persist",
+       "state": {
+        "acpmuxSeq": 0,
+        "prompts": {
+         "m_conv_a_1": {
+          "conversation": "conv_a",
+          "text": "[conversation conv_a from Me] hello",
+          "seq": 1,
+          "order": 1
+         }
+        },
+        "answered": [],
+        "outbox": [],
+        "children": {},
+        "defaultConversation": "conv_a",
+        "muxSessionId": "s_mux"
+       }
+      },
+      {
+       "kind": "prompt",
+       "prompt_id": "m_conv_a_1",
+       "text": "[conversation conv_a from Me] hello"
+      }
+     ]
+    },
+    {
+     "now": 1790985600006,
+     "input": {
+      "kind": "prompt_settled",
+      "prompt_id": "m_conv_a_1",
+      "rejected": true,
+      "error": "busy"
+     },
+     "effects": [
+      {
+       "kind": "conversation_op",
+       "conversation": "conv_a",
+       "idempotency_key": "cursor:agent_mux:1",
+       "op": {
+        "kind": "read_cursor.set",
+        "seq": 1
+       }
+      },
+      {
+       "kind": "log",
+       "line": "prompt m_conv_a_1 rejected; sending again in 1000 ms"
+      },
+      {
+       "kind": "arm_timer",
+       "key": "prompt:m_conv_a_1",
+       "at": 1790985601006
+      }
+     ]
+    },
+    {
+     "now": 1790985600007,
+     "input": {
+      "kind": "acpmux_event",
+      "event": {
+       "sessionId": "s_mux",
+       "seq": 1,
+       "dir": "mux",
+       "kind": "user_message",
+       "msg": {
+        "promptId": "m_conv_a_1"
+       }
+      }
+     },
+     "effects": []
+    },
+    {
+     "now": 1790985600008,
+     "input": {
+      "kind": "acpmux_event",
+      "event": {
+       "sessionId": "s_mux",
+       "seq": 2,
+       "dir": "mux",
+       "kind": "turn_started",
+       "msg": {}
+      }
+     },
+     "effects": [
+      {
+       "kind": "typing",
+       "conversation": "conv_a",
+       "on": true
+      }
+     ]
+    },
+    {
+     "now": 1790985601008,
+     "input": {
+      "kind": "timer",
+      "key": "prompt:m_conv_a_1"
+     },
+     "effects": []
+    }
+   ],
+   "state_after": {
+    "acpmuxSeq": 0,
+    "prompts": {
+     "m_conv_a_1": {
+      "conversation": "conv_a",
+      "text": "[conversation conv_a from Me] hello",
+      "seq": 1,
+      "order": 1
+     }
+    },
+    "answered": [],
+    "outbox": [],
+    "children": {},
+    "defaultConversation": "conv_a",
+    "muxSessionId": "s_mux"
+   }
+  },
+  {
+   "name": "prompts: a refusal of a prompt acpmux accepted and queued is ignored",
+   "state": {
+    "acpmuxSeq": 0,
+    "prompts": {},
+    "answered": [],
+    "outbox": [],
+    "children": {}
+   },
+   "steps": [
+    {
+     "now": 1790985600001,
+     "input": {
+      "kind": "daemon_connected",
+      "conversation": {
+       "id": "conv_a",
+       "owner": "local",
+       "title": "conv_a",
+       "participants": [
+        {
+         "id": "user_local",
+         "kind": "human",
+         "display_name": "Me"
+        },
+        {
+         "id": "agent_mux",
+         "kind": "agent",
+         "display_name": "mux",
+         "agent_class": "mux",
+         "acp_session": "mux"
+        }
+       ],
+       "last_seq": 0,
+       "rev": 1,
+       "created_at": "2026-10-03T00:00:00.000Z",
+       "updated_at": "2026-10-03T00:00:00.000Z",
+       "read_cursors": {}
+      }
+     },
+     "effects": [
+      {
+       "kind": "persist",
+       "state": {
+        "acpmuxSeq": 0,
+        "prompts": {},
+        "answered": [],
+        "outbox": [],
+        "children": {},
+        "defaultConversation": "conv_a"
+       }
+      }
+     ]
+    },
+    {
+     "now": 1790985600002,
+     "input": {
+      "kind": "acpmux_connected",
+      "session_id": "s_mux",
+      "sessions": [],
+      "events": []
+     },
+     "effects": [
+      {
+       "kind": "persist",
+       "state": {
+        "acpmuxSeq": 0,
+        "prompts": {},
+        "answered": [],
+        "outbox": [],
+        "children": {},
+        "defaultConversation": "conv_a",
+        "muxSessionId": "s_mux"
+       }
+      },
+      {
+       "kind": "list_conversations"
+      }
+     ]
+    },
+    {
+     "now": 1790985600003,
+     "input": {
+      "kind": "conversations_listed",
+      "conversations": [
+       {
+        "id": "conv_a",
+        "owner": "local",
+        "title": "conv_a",
+        "participants": [
+         {
+          "id": "user_local",
+          "kind": "human",
+          "display_name": "Me"
+         },
+         {
+          "id": "agent_mux",
+          "kind": "agent",
+          "display_name": "mux",
+          "agent_class": "mux",
+          "acp_session": "mux"
+         }
+        ],
+        "last_seq": 0,
+        "rev": 1,
+        "created_at": "2026-10-03T00:00:00.000Z",
+        "updated_at": "2026-10-03T00:00:00.000Z",
+        "read_cursors": {}
+       }
+      ]
+     },
+     "effects": [
+      {
+       "kind": "fetch_snapshot",
+       "conversation": "conv_a",
+       "tail": 500
+      }
+     ]
+    },
+    {
+     "now": 1790985600004,
+     "input": {
+      "kind": "snapshot",
+      "conversation": {
+       "id": "conv_a",
+       "owner": "local",
+       "title": "conv_a",
+       "participants": [
+        {
+         "id": "user_local",
+         "kind": "human",
+         "display_name": "Me"
+        },
+        {
+         "id": "agent_mux",
+         "kind": "agent",
+         "display_name": "mux",
+         "agent_class": "mux",
+         "acp_session": "mux"
+        }
+       ],
+       "last_seq": 0,
+       "rev": 1,
+       "created_at": "2026-10-03T00:00:00.000Z",
+       "updated_at": "2026-10-03T00:00:00.000Z",
+       "read_cursors": {}
+      },
+      "messages": []
+     },
+     "effects": [
+      {
+       "kind": "ready"
+      }
+     ]
+    },
+    {
+     "now": 1790985600005,
+     "input": {
+      "kind": "conversation_changed",
+      "conversation": "conv_a",
+      "change": {
+       "kind": "message",
+       "message": {
+        "id": "m_conv_a_1",
+        "conversation": "conv_a",
+        "seq": 1,
+        "client_msg_id": "c_conv_a_1",
+        "author": "user_local",
+        "parts": [
+         {
+          "type": "text",
+          "text": "first"
+         }
+        ],
+        "created_at": "2026-10-03T00:00:00.000Z",
+        "reactions": []
+       }
+      }
+     },
+     "effects": [
+      {
+       "kind": "persist",
+       "state": {
+        "acpmuxSeq": 0,
+        "prompts": {
+         "m_conv_a_1": {
+          "conversation": "conv_a",
+          "text": "[conversation conv_a from Me] first",
+          "seq": 1,
+          "order": 1
+         }
+        },
+        "answered": [],
+        "outbox": [],
+        "children": {},
+        "defaultConversation": "conv_a",
+        "muxSessionId": "s_mux"
+       }
+      },
+      {
+       "kind": "prompt",
+       "prompt_id": "m_conv_a_1",
+       "text": "[conversation conv_a from Me] first"
+      }
+     ]
+    },
+    {
+     "now": 1790985600006,
+     "input": {
+      "kind": "acpmux_event",
+      "event": {
+       "sessionId": "s_mux",
+       "seq": 1,
+       "dir": "mux",
+       "kind": "user_message",
+       "msg": {
+        "promptId": "m_conv_a_1"
+       }
+      }
+     },
+     "effects": [
+      {
+       "kind": "conversation_op",
+       "conversation": "conv_a",
+       "idempotency_key": "cursor:agent_mux:1",
+       "op": {
+        "kind": "read_cursor.set",
+        "seq": 1
+       }
+      }
+     ]
+    },
+    {
+     "now": 1790985600007,
+     "input": {
+      "kind": "acpmux_event",
+      "event": {
+       "sessionId": "s_mux",
+       "seq": 2,
+       "dir": "mux",
+       "kind": "turn_started",
+       "msg": {}
+      }
+     },
+     "effects": [
+      {
+       "kind": "typing",
+       "conversation": "conv_a",
+       "on": true
+      }
+     ]
+    },
+    {
+     "now": 1790985600008,
+     "input": {
+      "kind": "conversation_changed",
+      "conversation": "conv_a",
+      "change": {
+       "kind": "message",
+       "message": {
+        "id": "m_conv_a_2",
+        "conversation": "conv_a",
+        "seq": 2,
+        "client_msg_id": "c_conv_a_2",
+        "author": "user_local",
+        "parts": [
+         {
+          "type": "text",
+          "text": "second"
+         }
+        ],
+        "created_at": "2026-10-03T00:00:00.000Z",
+        "reactions": []
+       }
+      }
+     },
+     "effects": [
+      {
+       "kind": "persist",
+       "state": {
+        "acpmuxSeq": 0,
+        "prompts": {
+         "m_conv_a_1": {
+          "conversation": "conv_a",
+          "text": "[conversation conv_a from Me] first",
+          "seq": 1,
+          "order": 1
+         },
+         "m_conv_a_2": {
+          "conversation": "conv_a",
+          "text": "[conversation conv_a from Me] second",
+          "seq": 2,
+          "order": 2
+         }
+        },
+        "answered": [],
+        "outbox": [],
+        "children": {},
+        "defaultConversation": "conv_a",
+        "muxSessionId": "s_mux"
+       }
+      },
+      {
+       "kind": "prompt",
+       "prompt_id": "m_conv_a_2",
+       "text": "[conversation conv_a from Me] second"
+      }
+     ]
+    },
+    {
+     "now": 1790985600009,
+     "input": {
+      "kind": "acpmux_event",
+      "event": {
+       "sessionId": "s_mux",
+       "seq": 3,
+       "dir": "mux",
+       "kind": "queued",
+       "msg": {
+        "promptId": "m_conv_a_2"
+       }
+      }
+     },
+     "effects": [
+      {
+       "kind": "conversation_op",
+       "conversation": "conv_a",
+       "idempotency_key": "cursor:agent_mux:2",
+       "op": {
+        "kind": "read_cursor.set",
+        "seq": 2
+       }
+      }
+     ]
+    },
+    {
+     "now": 1790985600010,
+     "input": {
+      "kind": "prompt_settled",
+      "prompt_id": "m_conv_a_2",
+      "rejected": true,
+      "error": "duplicate"
+     },
+     "effects": []
+    }
+   ],
+   "state_after": {
+    "acpmuxSeq": 0,
+    "prompts": {
+     "m_conv_a_1": {
+      "conversation": "conv_a",
+      "text": "[conversation conv_a from Me] first",
+      "seq": 1,
+      "order": 1
+     },
+     "m_conv_a_2": {
+      "conversation": "conv_a",
+      "text": "[conversation conv_a from Me] second",
+      "seq": 2,
+      "order": 2
+     }
+    },
+    "answered": [],
+    "outbox": [],
+    "children": {},
+    "defaultConversation": "conv_a",
+    "muxSessionId": "s_mux"
+   }
+  },
+  {
+   "name": "prompts: a prompt accepted only in the attach replay and refused after the resend retries on the clock",
+   "state": {
+    "acpmuxSeq": 0,
+    "prompts": {
+     "m_conv_a_1": {
+      "conversation": "conv_a",
+      "text": "[conversation conv_a from Me] hi",
+      "seq": 1,
+      "order": 1
+     }
+    },
+    "answered": [],
+    "outbox": [],
+    "children": {},
+    "defaultConversation": "conv_a",
+    "muxSessionId": "s_mux"
+   },
+   "steps": [
+    {
+     "now": 1790985600001,
+     "input": {
+      "kind": "daemon_connected",
+      "conversation": {
+       "id": "conv_a",
+       "owner": "local",
+       "title": "conv_a",
+       "participants": [
+        {
+         "id": "user_local",
+         "kind": "human",
+         "display_name": "Me"
+        },
+        {
+         "id": "agent_mux",
+         "kind": "agent",
+         "display_name": "mux",
+         "agent_class": "mux",
+         "acp_session": "mux"
+        }
+       ],
+       "last_seq": 0,
+       "rev": 1,
+       "created_at": "2026-10-03T00:00:00.000Z",
+       "updated_at": "2026-10-03T00:00:00.000Z",
+       "read_cursors": {
+        "agent_mux": 1
+       }
+      }
+     },
+     "effects": []
+    },
+    {
+     "now": 1790985600002,
+     "input": {
+      "kind": "acpmux_connected",
+      "session_id": "s_mux",
+      "sessions": [],
+      "events": [
+       {
+        "sessionId": "s_mux",
+        "seq": 1,
+        "dir": "mux",
+        "kind": "turn_started",
+        "msg": {}
+       },
+       {
+        "sessionId": "s_mux",
+        "seq": 2,
+        "dir": "mux",
+        "kind": "queued",
+        "msg": {
+         "promptId": "m_conv_a_1"
+        }
+       }
+      ]
+     },
+     "effects": [
+      {
+       "kind": "typing",
+       "conversation": "conv_a",
+       "on": true
+      },
+      {
+       "kind": "prompt",
+       "prompt_id": "m_conv_a_1",
+       "text": "[conversation conv_a from Me] hi"
+      },
+      {
+       "kind": "list_conversations"
+      }
+     ]
+    },
+    {
+     "now": 1790985600003,
+     "input": {
+      "kind": "prompt_settled",
+      "prompt_id": "m_conv_a_1",
+      "rejected": true,
+      "error": "busy"
+     },
+     "effects": [
+      {
+       "kind": "log",
+       "line": "prompt m_conv_a_1 rejected; sending again in 1000 ms"
+      },
+      {
+       "kind": "arm_timer",
+       "key": "prompt:m_conv_a_1",
+       "at": 1790985601003
+      }
+     ]
+    }
+   ],
+   "state_after": {
+    "acpmuxSeq": 0,
+    "prompts": {
+     "m_conv_a_1": {
+      "conversation": "conv_a",
+      "text": "[conversation conv_a from Me] hi",
+      "seq": 1,
+      "order": 1
+     }
+    },
+    "answered": [],
+    "outbox": [],
     "children": {},
     "defaultConversation": "conv_a",
     "muxSessionId": "s_mux"

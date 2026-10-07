@@ -103,6 +103,10 @@ public struct SettingsSchemaExport {
             row["range"] = range(number)
         case .stringMap: row["kind"] = "string_map"
         case .stringList: row["kind"] = "string_list"
+        case .orderedChoices(let list):
+            row["kind"] = "string_list"
+            row["choices"] = choices(list)
+            row["ordered"] = true
         }
         // Kinds whose valid values only the app knows (theme names, installed
         // fonts, system sounds): another validator checks them against the

@@ -104,9 +104,13 @@ extension SidebarBridge {
         case .activateItem(let id, let opensWorkspace):
             activateLayoutItem(id, opensWorkspace: opensWorkspace)
         case .installUpdate:
-            // The footer pill: install the staged update and relaunch; the
-            // relaunch keeps every session (SIDEBAR-FOOTER-MINIMAL).
+            // The update card's button: install the staged update and
+            // relaunch; the relaunch keeps every session (UPDATE-CARD).
             services.updater.installClicked()
+        case .setAutomaticUpdates(let on):
+            services.updater.setAutomaticUpdates(on)
+        case .openUpdateLink(let url):
+            SidebarCardFeed.openUpdateLink(url, services: services)
         case .layout(let op):
             applyLayoutOp(op)
         case .toggleLayoutSection:
@@ -193,7 +197,7 @@ extension SidebarBridge {
         model.ungroupedFirst = !usesMixedOrder
         model.sections = Self.sections(services.machines, members: services.windows.registry.members(of: state.id),
                                        profile: state.profileID, hidesHome: Self.hidesHome(services.sidebarLayout.document),
-                                       selection: state.selection)
+                                       selection: state.selection, newTabPages: services.agentTabs.pageTabs.ids)
         model.profiles = Self.profiles(services.machines.local.store)
     }
 

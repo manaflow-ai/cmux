@@ -1,4 +1,5 @@
 import AppKit
+import CmuxHomeCore
 import CmuxNextActions
 import CmuxNextHome
 
@@ -7,13 +8,33 @@ import CmuxNextHome
 /// handler), so the menu adds no second code path.
 @MainActor
 enum HomePageMenus {
-    /// Archive Chief for one of my cloud Chiefs that is not the default.
-    static func chiefMenu(chief: String, registry: ActionRegistry) -> NSMenu {
+    /// A row's menu: Pin or Unpin (kept per account on this Mac, `HomeSidebarSource`),
+    /// and Archive Chief for one of my cloud Chiefs that is not the default.
+    static func rowMenu(_ row: InboxRow, sidebar: HomeSidebarSource, archivableChief: String?, registry: ActionRegistry) -> NSMenu {
         let menu = NSMenu()
-        let item = HomeMenuTarget.item(title: NSMenuItem.homeArchiveChiefTitle, symbol: "archivebox") {
-            _ = registry.perform("home.archiveChief", invocation: ActionInvocation(arguments: ["chief": .string(chief)], origin: .user))
+        let pinned = sidebar.pins.isPinned(row)
+        menu.addItem(HomeMenuTarget.item(title: pinned ? NSMenuItem.homeUnpinTitle : NSMenuItem.homePinTitle,
+                                         symbol: pinned ? "pin.slash" : "pin") {
+            sidebar.setPinned(!pinned, row.id)
+        })
+        if let chief = archivableChief {
+            menu.addItem(HomeMenuTarget.item(title: NSMenuItem.homeArchiveChiefTitle, symbol: "archivebox") {
+                _ = registry.perform("home.archiveChief", invocation: ActionInvocation(arguments: ["chief": .string(chief)], origin: .user))
+            })
         }
-        menu.addItem(item)
+        return menu
+    }
+
+    /// The menu around the conversations: New Message, New Chief and Invite,
+    /// each its catalog action (the toolbar's compose button runs New Message).
+    static func backgroundMenu(registry: ActionRegistry) -> NSMenu {
+        let menu = NSMenu()
+        for (id, symbol): (ActionID, String) in [("home.newMessage", "square.and.pencil"), ("home.newChief", "sparkles"), ("home.invite", "envelope")] {
+            guard let title = registry.descriptor(for: id)?.title else { continue }
+            menu.addItem(HomeMenuTarget.item(title: title, symbol: symbol) {
+                _ = registry.perform(id, invocation: ActionInvocation(origin: .user))
+            })
+        }
         return menu
     }
 }
