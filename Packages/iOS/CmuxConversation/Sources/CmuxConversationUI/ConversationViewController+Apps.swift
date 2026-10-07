@@ -24,6 +24,7 @@ final class AppsMenuOverlay: UIView {
         self.anchor = anchor
         super.init(frame: frame)
         accessibilityIdentifier = "conversation.appsMenu"
+        accessibilityViewIsModal = true
         backdrop.frame = bounds
         addSubview(backdrop)
         addSubview(panel)
@@ -70,7 +71,7 @@ final class AppsMenuOverlay: UIView {
         blurAnimator = animator
         backdrop.alpha = 0
         panel.alpha = 0
-        panel.transform = CGAffineTransform(translationX: -width * 0.25, y: height * 0.3).scaledBy(x: 0.5, y: 0.5)
+        panel.transform = UIAccessibility.isReduceMotionEnabled ? .identity : CGAffineTransform(translationX: -width * 0.25, y: height * 0.3).scaledBy(x: 0.5, y: 0.5)
         UIView.animate(withDuration: 0.45, delay: 0, usingSpringWithDamping: 0.82, initialSpringVelocity: 0) {
             self.backdrop.alpha = 1
             self.panel.alpha = 1
@@ -82,13 +83,18 @@ final class AppsMenuOverlay: UIView {
         UIView.animate(withDuration: 0.25, delay: 0, usingSpringWithDamping: 1, initialSpringVelocity: 0) {
             self.backdrop.alpha = 0
             self.panel.alpha = 0
-            self.panel.transform = CGAffineTransform(scaleX: 0.6, y: 0.6)
+            self.panel.transform = UIAccessibility.isReduceMotionEnabled ? .identity : CGAffineTransform(scaleX: 0.6, y: 0.6)
         } completion: { _ in
             self.blurAnimator?.stopAnimation(true)
             self.blurAnimator = nil
             self.removeFromSuperview()
             completion?()
         }
+    }
+
+    override func accessibilityPerformEscape() -> Bool {
+        dismiss()
+        return true
     }
 
     @objc private func tapped(_ tap: UITapGestureRecognizer) {

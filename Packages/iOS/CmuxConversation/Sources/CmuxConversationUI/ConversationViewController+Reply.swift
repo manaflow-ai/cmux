@@ -71,7 +71,7 @@ extension ConversationViewController {
         collectionView.accessibilityElementsHidden = true
         UIAccessibility.post(notification: .screenChanged, argument: overlay.content)
         overlay.content.alpha = 0
-        overlay.content.transform = CGAffineTransform(translationX: 0, y: 24)
+        overlay.content.transform = UIAccessibility.isReduceMotionEnabled ? .identity : CGAffineTransform(translationX: 0, y: 24)
         composer.textView.becomeFirstResponder()
         UIView.animate(withDuration: 0.37, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0) {
             overlay.blur.effect = UIBlurEffect(style: .systemUltraThinMaterial)

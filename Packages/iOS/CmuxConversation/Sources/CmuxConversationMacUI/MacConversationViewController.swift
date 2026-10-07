@@ -370,6 +370,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
                 if case let .message(model) = row, !model.isOutgoing { arrivingRowIDs.insert(model.rowID) }
             }
         }
+        announceArrivals(newRows.filter { !oldIDs.contains($0.id) }, change: change)
         // A typing indicator that stops without a message collapses first, so
         // the rows above glide down instead of jumping.
         let typingLeft = oldRows.last.map { if case .typing = $0 { return true } else { return false } } ?? false
@@ -642,6 +643,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             guard let view = view as? MacMessageContainerView else { return }
             view.topSpacing = topSpacing(at: row, model)
             view.row.configure(model, layout: layoutCache.layout(model, width: transcriptWidth), text: layoutCache.text(model))
+            configureAccessibility(view.row, model: model)
             view.timestampReveal = timestampsRevealed
         case let .timestamp(_, date):
             (view as? MacTimestampRowView)?.configure(date: date)
@@ -1343,7 +1345,7 @@ final class MacTapbackBarController: NSViewController {
             if reaction == current { button.layer?.backgroundColor = NSColor.systemBlue.withAlphaComponent(0.85).cgColor }
             button.widthAnchor.constraint(equalToConstant: 30).isActive = true
             button.heightAnchor.constraint(equalToConstant: 30).isActive = true
-            button.setAccessibilityLabel(reaction.rawValue)
+            button.setAccessibilityLabel(ConversationAccessibilityText.tapbackName(reaction))
             button.setAccessibilityIdentifier("conversation.tapback.\(reaction.rawValue)")
             stack.addArrangedSubview(button)
         }
@@ -1757,7 +1759,7 @@ final class MacReactionPickerView: MacFlippedView {
             if reaction == current { button.layer?.backgroundColor = NSColor.systemBlue.cgColor }
             button.widthAnchor.constraint(equalToConstant: 32).isActive = true
             button.heightAnchor.constraint(equalToConstant: 32).isActive = true
-            button.setAccessibilityLabel(reaction.rawValue)
+            button.setAccessibilityLabel(ConversationAccessibilityText.tapbackName(reaction))
             button.setAccessibilityIdentifier("conversation.tapback.\(reaction.rawValue)")
             stack.addArrangedSubview(button)
         }

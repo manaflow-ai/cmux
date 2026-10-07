@@ -106,7 +106,9 @@ extension MessageCellLayout {
         let outgoingBodyTrailing = width - margin - (isFailed ? 32 : 0)
         // Outgoing measures against the full width; incoming against the
         // space right of the avatar column (282 pt max on a 440 pt screen).
-        let maxBubbleWidth = floor(min(width - 2 * margin - avatarColumn, (model.isOutgoing ? width : width - (model.isGroup ? t.avatarSize + t.avatarGap : 0)) * t.maxBubbleWidthFraction * t.maxWidthBoost))
+        let maxBubbleWidth = t.isAccessibilitySize
+            ? floor(width - 2 * margin - avatarColumn - t.accessibilityBubbleInset)
+            : floor((model.isOutgoing ? width : width - (model.isGroup ? t.avatarSize + t.avatarGap : 0)) * t.maxBubbleWidthFraction)
         let hasReactions = !model.reactionKinds.isEmpty
 
         /// Frame (tail area included) for a bubble whose body is `w` wide.
@@ -177,14 +179,14 @@ extension MessageCellLayout {
             let maxTextWidth = maxBubbleWidth - 2 * t.bubbleHorizontalPadding
             let size = measure(text, maxWidth: maxTextWidth)
             let textHeight = max(size.height, t.lineHeight)
-            let bodyWidth = max(size.width + 2 * t.bubbleHorizontalPadding, t.lineHeight + 2 * t.bubbleVerticalPadding)
-            let h = textHeight + 2 * t.bubbleVerticalPadding
+            let bodyWidth = max(size.width + 2 * t.bubbleHorizontalPadding, t.lineHeight + 2 * t.scaledBubbleVerticalPadding)
+            let h = textHeight + 2 * t.scaledBubbleVerticalPadding
             let frame = bubbleRect(bodyWidth: bodyWidth, y: y, height: h)
             bubbleFrame = frame
             let bodyMinX = model.isOutgoing ? frame.minX : frame.minX + t.tailWidth
             textFrame = CGRect(
                 x: bodyMinX + (bodyWidth - size.width) / 2,
-                y: frame.minY + t.bubbleVerticalPadding - t.bodyGlyphLift,
+                y: frame.minY + t.scaledBubbleVerticalPadding - t.bodyGlyphLift,
                 width: size.width,
                 height: textHeight
             )

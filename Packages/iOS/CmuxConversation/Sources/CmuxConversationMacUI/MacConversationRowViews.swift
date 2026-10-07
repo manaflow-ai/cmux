@@ -368,7 +368,10 @@ final class MacMessageRowView: MacFlippedView {
         if let frame = layout.failedBadgeFrame { failedBadge.frame = frame }
 
         toolTip = model.message.sentAt.formatted(date: .abbreviated, time: .shortened)
-        setAccessibilityLabel([model.isOutgoing ? nil : model.senderName, model.message.text].compactMap { $0 }.joined(separator: ", "))
+        // The controller adds tapbacks (it knows reactor names) and actions.
+        var spoken = model.message
+        spoken.reactions = []
+        setAccessibilityLabel(ConversationAccessibilityText.messageLabel(spoken, isOutgoing: model.isOutgoing, senderName: model.senderName, reactorName: { _ in nil }))
         setAccessibilityIdentifier("conversation.message.\(model.message.id)")
     }
 
@@ -567,7 +570,10 @@ final class MacMessageRowView: MacFlippedView {
             if let layer = view.layer { targets.append((layer, view.frame.origin)) }
         }
         for (layer, origin) in targets {
-            layer.add(spring("transform", from: scaled(0.6, origin: origin), to: NSValue(caTransform3D: CATransform3DIdentity)), forKey: "arrive")
+            // Reduce Motion keeps the fade and drops the grow.
+            if !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+                layer.add(spring("transform", from: scaled(0.6, origin: origin), to: NSValue(caTransform3D: CATransform3DIdentity)), forKey: "arrive")
+            }
             let fade = CABasicAnimation(keyPath: "opacity")
             fade.fromValue = 0
             fade.toValue = 1

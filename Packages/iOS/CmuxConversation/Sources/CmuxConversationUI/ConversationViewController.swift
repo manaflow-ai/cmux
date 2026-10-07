@@ -534,7 +534,8 @@ public final class ConversationViewController: UIViewController {
                 runs.append([item])
             }
         }
-        let startScale: CGFloat = 0.8
+        // Reduce Motion keeps the fade and drops the grow (HIG: replace zooms with dissolves).
+        let startScale: CGFloat = UIAccessibility.isReduceMotionEnabled ? 1 : 0.8
         let shift = max(0, scrollShift)
         for run in runs {
             guard let runTop = run.compactMap({ layout.frame(at: $0)?.minY }).min() else { continue }

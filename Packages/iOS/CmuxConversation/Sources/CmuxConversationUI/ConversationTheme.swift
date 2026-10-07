@@ -17,28 +17,25 @@ enum ConversationTheme {
         UIFontMetrics(forTextStyle: style).scaledValue(for: value)
     }
 
-    /// A system font scaled like `style`, a weight step heavier with Bold Text.
+    /// A system font scaled like `style`. Bold Text needs nothing here: UIKit
+    /// already returns the heavier face (.SFUI-Semibold for regular) when it
+    /// is on, so bumping the weight again would double it.
     static func font(_ size: CGFloat, _ weight: UIFont.Weight = .regular, style: UIFont.TextStyle = .body, maximum: CGFloat? = nil) -> UIFont {
         var pointSize = scaled(size, style)
         if let maximum { pointSize = min(pointSize, maximum) }
-        return .systemFont(ofSize: pointSize, weight: UIAccessibility.isBoldTextEnabled ? boldTextWeight(weight) : weight)
+        return .systemFont(ofSize: pointSize, weight: weight)
     }
 
-    private static func boldTextWeight(_ weight: UIFont.Weight) -> UIFont.Weight {
-        switch weight {
-        case .ultraLight, .thin, .light: return .regular
-        case .regular: return .semibold
-        case .medium, .semibold: return .bold
-        default: return .heavy
-        }
-    }
+    /// Whether the content size is an accessibility size (body 28 pt or more).
+    static var isAccessibilitySize: Bool { scaled(17) >= 28 }
 
-    /// Accessibility sizes widen the bubble column (ChatKit: max width 314.5
-    /// at Large and up to XXXL, 346.7 at AX3 on a 402 pt transcript).
-    static var maxWidthBoost: CGFloat {
-        // Body reaches 28 pt at the first accessibility size.
-        scaled(17) >= 28 ? 1.1023 : 1
-    }
+    /// At accessibility sizes ChatKit drops the 85% cap: the bubble column is
+    /// the transcript width less both margins and 23.33 pt (346.7 on a 402 pt
+    /// transcript with 16 pt margins, 376.7 on 440/20), at every AX size.
+    static let accessibilityBubbleInset: CGFloat = 70.0 / 3.0
+
+    /// Bubble text inset above and below; ChatKit uses 12 pt at accessibility sizes.
+    static var scaledBubbleVerticalPadding: CGFloat { isAccessibilitySize ? bubbleVerticalPadding + 2 : bubbleVerticalPadding }
 
     static var bodyFont: UIFont { font(17) }
     static var bodyFontSize: CGFloat { bodyFont.pointSize }
@@ -47,7 +44,11 @@ enum ConversationTheme {
     static let bubbleHorizontalPadding: CGFloat = 14.5
     /// (44 pt single-line body - 24 pt line) / 2.
     static let bubbleVerticalPadding: CGFloat = 10
-    static var bubbleCornerRadius: CGFloat { scaled(19) }
+    /// A single-line bubble stays a pill: the corner follows the one-line
+    /// height (ChatKit: 20.1 at Large, 23.7 XXXL, 35.9 AX3, 43.6 AX5).
+    static var bubbleCornerRadius: CGFloat {
+        19 * (lineHeight + 2 * scaledBubbleVerticalPadding) / (24 + 2 * bubbleVerticalPadding)
+    }
     /// Width the tail adds beyond the bubble body.
     static let tailWidth: CGFloat = 5
     /// Max bubble width as a fraction of the view width.
@@ -83,21 +84,37 @@ enum ConversationTheme {
     // MARK: Colors
 
     /// iMessage blue. iOS 26 tints it slightly brighter in dark mode.
-    static let outgoingBubble = UIColor.systemBlue
+    static let outgoingBubble = UIColor { traits in
+        // Increase Contrast: ChatKit's blue goes flat and darker (sampled
+        // 0,105,233 light / 0,98,219 dark).
+        guard traits.accessibilityContrast == .high else { return UIColor.systemBlue.resolvedColor(with: traits) }
+        return traits.userInterfaceStyle == .dark
+            ? UIColor(red: 0, green: 98 / 255, blue: 219 / 255, alpha: 1)
+            : UIColor(red: 0, green: 105 / 255, blue: 233 / 255, alpha: 1)
+    }
 
     static let incomingBubble = UIColor { traits in
-        traits.userInterfaceStyle == .dark
+        if traits.accessibilityContrast == .high {
+            // ChatKit's high-contrast gray (CKBalloonShapeLayer fill).
+            return traits.userInterfaceStyle == .dark
+                ? UIColor(red: 0.188, green: 0.188, blue: 0.201, alpha: 1)
+                : UIColor(red: 0.873, green: 0.873, blue: 0.880, alpha: 1)
+        }
+        return traits.userInterfaceStyle == .dark
             ? UIColor(red: 34 / 255, green: 33 / 255, blue: 38 / 255, alpha: 1)
             : UIColor(red: 0.914, green: 0.914, blue: 0.922, alpha: 1)
     }
 
-    static let failedBubble = UIColor.systemBlue
+    static let failedBubble = outgoingBubble
 
     static let outgoingText = UIColor.white
     static let incomingText = UIColor.label
     static let background = UIColor.systemBackground
     static let secondaryText = UIColor { traits in
-        traits.userInterfaceStyle == .dark
+        // Increase Contrast: Messages' captions use the system's high-contrast
+        // secondary label (99,99,105 on white, measured).
+        if traits.accessibilityContrast == .high { return UIColor.secondaryLabel.resolvedColor(with: traits) }
+        return traits.userInterfaceStyle == .dark
             ? UIColor(red: 133 / 255, green: 132 / 255, blue: 136 / 255, alpha: 1)
             : UIColor(red: 124 / 255, green: 124 / 255, blue: 128 / 255, alpha: 1)
     }
@@ -128,7 +145,7 @@ enum ConversationTheme {
         style.maximumLineHeight = lineHeight
         style.lineBreakMode = .byWordWrapping
         // At accessibility sizes Messages hyphenates long words ("din-ner").
-        if maxWidthBoost > 1 { style.hyphenationFactor = 1 }
+        if isAccessibilitySize { style.hyphenationFactor = 1 }
         return style
     }
 

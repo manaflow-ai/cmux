@@ -242,7 +242,8 @@ final class MessageActionOverlay: UIView {
             let dx = (isOutgoing ? 1 : -1) * view.bounds.width * 0.2
             let dy = (view === menu ? -1 : 1) * view.bounds.height * 0.2
             view.alpha = 0
-            view.transform = CGAffineTransform(translationX: dx, y: dy).scaledBy(x: 0.6, y: 0.6)
+            // Reduce Motion: the bar and menu fade in place, as system context menus do.
+            view.transform = UIAccessibility.isReduceMotionEnabled ? .identity : CGAffineTransform(translationX: dx, y: dy).scaledBy(x: 0.6, y: 0.6)
         }
         // A partial blur: the transcript stays faintly legible behind the menu.
         let animator = UIViewPropertyAnimator(duration: 1, curve: .linear) {
@@ -257,7 +258,7 @@ final class MessageActionOverlay: UIView {
         UIView.animate(withDuration: 0.5, delay: 0, usingSpringWithDamping: 0.82, initialSpringVelocity: 0, options: [.allowUserInteraction]) {
             self.dim.alpha = 1
             self.snapshotClip.frame = target
-            self.snapshotClip.transform = CGAffineTransform(scaleX: 1.02, y: 1.02)
+            self.snapshotClip.transform = UIAccessibility.isReduceMotionEnabled ? .identity : CGAffineTransform(scaleX: 1.02, y: 1.02)
             for view in [self.reactionBar, self.menu, self.emojiButton] + (self.detailCard.map { [$0] } ?? []) {
                 view.alpha = 1
                 view.transform = .identity
@@ -274,7 +275,7 @@ final class MessageActionOverlay: UIView {
             self.snapshotClip.transform = .identity
             for view in [self.reactionBar, self.menu, self.emojiButton] + (self.detailCard.map { [$0] } ?? []) {
                 view.alpha = 0
-                view.transform = CGAffineTransform(scaleX: 0.6, y: 0.6)
+                view.transform = UIAccessibility.isReduceMotionEnabled ? .identity : CGAffineTransform(scaleX: 0.6, y: 0.6)
             }
         } completion: { _ in
             self.blurAnimator?.stopAnimation(true)
