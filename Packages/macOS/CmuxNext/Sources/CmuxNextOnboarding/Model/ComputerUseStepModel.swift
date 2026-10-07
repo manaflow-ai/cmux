@@ -11,6 +11,10 @@ public final class ComputerUseStepModel {
     public private(set) var permissions: ComputerUsePermissions = .none
     /// The list the drag tile is helping with, while it shows.
     public private(set) var helping: ComputerUsePermissionPane?
+    /// Allow found no Developer ID signed helper: computer use is
+    /// unavailable in this build, and the step says so instead of
+    /// offering an ad-hoc helper for a grant.
+    public private(set) var unavailable = false
     @ObservationIgnored let source: (any ComputerUsePermissionSource)?
     @ObservationIgnored private(set) var task: Task<Void, Never>?
 

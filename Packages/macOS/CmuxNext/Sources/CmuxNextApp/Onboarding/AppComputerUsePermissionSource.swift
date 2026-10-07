@@ -12,7 +12,7 @@ final class AppComputerUsePermissionSource: ComputerUsePermissionSource {
     static let installedHelper = URL(fileURLWithPath: "/Applications/cmux Computer Use.app")
     private let configuration: AgentActivitySocketSource.Configuration
     /// The installed helper until the daemon says which app it runs in.
-    private(set) var helperAppURL = AppComputerUsePermissionSource.installedHelper
+    private(set) var helperAppURL: URL? = AppComputerUsePermissionSource.installedHelper
 
     init(configuration: AgentActivitySocketSource.Configuration) {
         self.configuration = configuration
