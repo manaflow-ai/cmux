@@ -6,9 +6,13 @@
 //! folder that holds the user folder is watched too, so a user folder that
 //! `cmux harness add` creates later is picked up; nothing is created here.
 //! No timers and no polling: the event thread blocks until an event comes,
-//! gathers the burst (debounce), reloads the catalog (`reload_catalog`,
-//! which keeps sessions) and tells `_acpmux/watch` connections with
-//! `_acpmux/harnesses_changed {harnesses, diagnostics}`.
+//! gathers the burst (debounce) and only signals. One task on the runtime
+//! takes the signals and reloads the catalog one reload at a time
+//! (`reload_catalog`, which keeps sessions), then tells `_acpmux/watch`
+//! connections with `_acpmux/harnesses_changed {harnesses, diagnostics}`.
+//! The thread never blocks on the runtime, so a runtime or hub that ends
+//! during a burst ends both cleanly: the task stops with the runtime or when
+//! the hub's watch state drops, and the thread ends when the watcher drops.
 
 use super::*;
 
@@ -30,11 +34,27 @@ const MAX_BURST: Duration = Duration::from_secs(2);
 pub(crate) struct HarnessWatchState {
     watcher: StdMutex<Option<Arc<HarnessWatcher>>>,
     changes: broadcast::Sender<Value>,
+    /// The task that runs the reloads the watcher thread signals.
+    reloader: StdMutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
 impl Default for HarnessWatchState {
     fn default() -> Self {
-        Self { watcher: StdMutex::new(None), changes: broadcast::channel(64).0 }
+        Self {
+            watcher: StdMutex::new(None),
+            changes: broadcast::channel(64).0,
+            reloader: StdMutex::new(None),
+        }
+    }
+}
+
+impl Drop for HarnessWatchState {
+    fn drop(&mut self) {
+        // The task holds the hub only while it reloads, so here it waits for
+        // a signal: stop it.
+        if let Some(task) = self.reloader.get_mut().unwrap_or_else(|p| p.into_inner()).take() {
+            task.abort();
+        }
     }
 }
 
@@ -79,13 +99,26 @@ impl Hub {
         });
         watch.refresh(&sources);
         *self.harness_watch.watcher.lock().unwrap_or_else(|p| p.into_inner()) = Some(watch.clone());
+        // The thread signals, this task reloads: one reload at a time, and
+        // signals that come during a reload make one more. It ends when the
+        // thread ends (the channel closes), the hub is gone, or the runtime
+        // stops; the hub's watch state aborts it when the hub drops.
+        let (signal, mut wake) = tokio::sync::mpsc::unbounded_channel::<()>();
         let hub = Arc::downgrade(self);
+        let reloader = handle.spawn(async move {
+            while wake.recv().await.is_some() {
+                while wake.try_recv().is_ok() {}
+                let Some(hub) = hub.upgrade() else { break };
+                hub.reload_and_announce().await;
+            }
+        });
+        *self.harness_watch.reloader.lock().unwrap_or_else(|p| p.into_inner()) = Some(reloader);
         // Weak: dropping the hub drops the watcher, which closes the channel
         // and ends the thread.
         let watch = Arc::downgrade(&watch);
         let thread = std::thread::Builder::new()
             .name("acpmux-harness-watch".into())
-            .spawn(move || run(&rx, &hub, &watch, &sources, &handle));
+            .spawn(move || run(&rx, &watch, &sources, &signal));
         if let Err(e) = thread {
             tracing::warn!("harness watch thread cannot start: {e}");
         }
@@ -179,13 +212,13 @@ fn real_sources(sources: &ProfileSources) -> ProfileSources {
     }
 }
 
-/// Ends when the watcher is dropped (the channel closes) or the hub is gone.
+/// Ends when the watcher is dropped (the channel closes), or when the reload
+/// task is gone (the runtime stopped or the hub dropped).
 fn run(
     rx: &std::sync::mpsc::Receiver<notify::Result<notify::Event>>,
-    hub: &std::sync::Weak<Hub>,
     watch: &std::sync::Weak<HarnessWatcher>,
     sources: &ProfileSources,
-    handle: &tokio::runtime::Handle,
+    signal: &tokio::sync::mpsc::UnboundedSender<()>,
 ) {
     // FSEvents reports real paths: a symlinked ~/.config must still match.
     let real = real_sources(sources);
@@ -219,12 +252,13 @@ fn run(
             }
         }
         if changed {
-            let (Some(hub), Some(watch)) = (hub.upgrade(), watch.upgrade()) else { return };
+            let Some(watch) = watch.upgrade() else { return };
             watch.refresh(sources);
             drop(watch);
-            // A plain thread, not a runtime worker: block_on is allowed, and
-            // reloads run one at a time.
-            handle.block_on(hub.reload_and_announce());
+            // Only a signal: the reload runs on the runtime, never here.
+            if signal.send(()).is_err() {
+                return;
+            }
         }
         if closed {
             return;

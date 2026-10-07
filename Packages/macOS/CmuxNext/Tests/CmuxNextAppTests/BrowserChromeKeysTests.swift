@@ -54,6 +54,8 @@ struct BrowserChromeKeysTests {
         let shiftG = try Self.key("g", 5, [.command, .shift])
         #expect(M.owner(services, shiftG, M.Surface(name: "page", focus: M.page)) == .action("browser.findPrevious"))
         #expect(M.owner(services, shiftG, Self.findBar) == .action("browser.findPrevious"))
-        #expect(M.owner(services, shiftG, M.Surface(name: "terminal", focus: M.terminal)) == .action("groupSelectedWorkspaces"))
+        // A focused terminal gives it to Ghostty (its previous match), as in Ghostty and the
+        // shipping cmux (`KeyBindingDefaults.yieldsToTerminal`, f28642f0be43).
+        #expect(M.owner(services, shiftG, M.Surface(name: "terminal", focus: M.terminal)) == .surface)
     }
 }
