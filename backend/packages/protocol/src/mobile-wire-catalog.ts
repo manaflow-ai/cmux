@@ -91,6 +91,10 @@ export const mobileCatalog = {
       { name: "files.list", kind: "read", plane: "stream", dir: "c2s", owner: "mac-host", errors: ["files.not_found", "files.forbidden"] },
       { name: "files.roots", kind: "read", plane: "stream", dir: "c2s", owner: "mac-host" },
     ] },
+    { name: "git", plane: "stream", owner: "mac-host", messages: [
+      { name: "git.status", kind: "read", plane: "stream", dir: "c2s", owner: "mac-host", errors: ["git.not_a_repo", "git.forbidden", "git.failed", "files.not_found"] },
+      { name: "git.diff", kind: "read", plane: "stream", dir: "c2s", owner: "mac-host", errors: ["git.not_a_repo", "git.forbidden", "git.failed", "files.not_found"] },
+    ] },
     { name: "feed", plane: "control", owner: "FeedDO", stream: "feed:<user>", messages: [
       { name: "feed.list", kind: "read", plane: "control", dir: "c2s", owner: "FeedDO", existing: true },
       { name: "feed.answer", kind: "op", plane: "control", dir: "c2s", owner: "FeedDO", existing: true },
