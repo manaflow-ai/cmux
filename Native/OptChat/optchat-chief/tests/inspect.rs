@@ -433,7 +433,9 @@ fn the_tools_socket_inspect_tool_is_read_only_by_construction() {
         ("/api/date", serde_json::json!({"id": "3"})),
         ("/api/search", serde_json::json!({"q": "context"})),
     ] {
-        let got = ask(serde_json::json!({"tool": "inspect", "method": "GET", "path": path, "query": query}));
+        let got = ask(
+            serde_json::json!({"tool": "inspect", "method": "GET", "path": path, "query": query}),
+        );
         assert_eq!(got["status"], 200, "{path}: {got}");
         let pairs: Vec<(String, String)> = query
             .as_object()
@@ -447,16 +449,23 @@ fn the_tools_socket_inspect_tool_is_read_only_by_construction() {
         }
     }
     // Only the seven paths; GET only; an unknown tool path is refused.
-    for path in ["/api/ticket", "/", "/index.html", "/api/../etc", "/api/write"] {
+    for path in [
+        "/api/ticket",
+        "/",
+        "/index.html",
+        "/api/../etc",
+        "/api/write",
+    ] {
         let got = ask(serde_json::json!({"tool": "inspect", "path": path}));
         assert_eq!(got["status"], 404, "{path}: {got}");
     }
     for method in ["POST", "PUT", "DELETE"] {
-        let got = ask(serde_json::json!({"tool": "inspect", "method": method, "path": "/api/status"}));
+        let got =
+            ask(serde_json::json!({"tool": "inspect", "method": method, "path": "/api/status"}));
         assert_eq!(got["status"], 405, "{method}");
     }
     // Answers above the cap are refused, not cut.
-    assert!(optchat_chief::inspect::INSPECT_MAX_BYTES <= 8 * 1024 * 1024);
+    const { assert!(optchat_chief::inspect::INSPECT_MAX_BYTES <= 8 * 1024 * 1024) };
     let big = optchat_chief::inspect::tool_answer(
         &insp,
         &serde_json::json!({"tool": "inspect", "path": "/api/turn", "query": {"key": "now"}}),
@@ -464,5 +473,8 @@ fn the_tools_socket_inspect_tool_is_read_only_by_construction() {
     );
     assert_eq!(big["status"], 413);
     assert!(big.get("body").is_none());
-    assert!(std::fs::read(&db).unwrap() == before, "the tool never writes the memory");
+    assert!(
+        std::fs::read(&db).unwrap() == before,
+        "the tool never writes the memory"
+    );
 }
