@@ -98,6 +98,15 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
   `rename-workspace` by key); it runs again, the mark goes. Closing the
   workspace or tab only detaches; the session is never killed by the host.
   `OPTCHAT_SUBAGENT_WORKSPACES=0` turns workspaces off.
+- A host with no app (`CMUX_SOCKET_PATH` unset) and a cloud install (the
+  always-on brain on a server) makes each workspace in its OWN session
+  daemon instead (`DaemonWorkspaces`: `create-workspace` by key,
+  `create-terminal` in the subagent's directory, `new-conversation-tab` with
+  `agent_session {host: install:<id>, host_name, session, harness}`). The
+  subagent runs on that machine, so its workspace belongs to that machine's
+  session (data-model.md 1.2); an app shows it while connected to that
+  session, and an app on another machine shows the chat tab as running on
+  that host until it can attach to that host's acpmux.
 - The spawn answer says, per subagent, the workspace it got and where it
   lives (`workspace "a1 · task" in the cmux app on this Mac`), or `no cmux
   workspace (<why>)`: no app socket, workspaces turned off, or the open
@@ -872,7 +881,16 @@ the turn wins until it ends.
 - Codex harnesses run `chief zoom` and `chief date` as shell commands, so on
   codex those need an approval too.
 
-`remote.autoApprove` (per Chief, `optchat/settings.json`, default false; the
+**Default (Lawrence, 2026-10-06: "i dont want stuff to require my
+approval since it is annoying"): `remote.autoApprove` is true.** A turn from
+the owner's own paired device then runs with the normal policy
+(`MUX_POLICY`, approve-all), and nothing it spawns gets the ask floor. The
+gate itself is unchanged: only the owner's own paired installs wake the
+Chief; another account, a forged or missing origin, and a group message
+without a mention never do. The approvals, the spawn floor and the approval
+trace above are what `remote.autoApprove` false turns back on (from the Mac).
+
+`remote.autoApprove` (per Chief, `optchat/settings.json`, default true; the
 Chief settings sidebar shows it later; `optchat-chief settings set
 remote.autoApprove true|false` today) runs remote-origin turns with
 `MUX_POLICY` instead. The host owns the value: it reads the file at start and
@@ -888,10 +906,17 @@ Policy analysis (the relay rules of this repository's CLAUDE.md):
   allowlist entry and no parameter: the device still uses only the relay's
   existing conversation commands (`message.send` with text parts), whose gate
   refuses command-bearing params and non-text parts. A device message reaches
-  a turn as the user's words, and that turn runs with policy `ask`: no local
-  effect happens without an approval the user sees in the Chief chat, with
-  the command or input shown. Only the owner's own person reaches a turn at
-  all; a second account never does.
+  a turn as the user's words. By default that turn runs with the normal
+  policy, like a message typed on the Mac; with `remote.autoApprove` false
+  it runs with policy `ask`: no local effect happens without an approval the
+  user sees in the Chief chat, with the command or input shown. Only the
+  owner's own person reaches a turn at all; a second account never does.
+- Accepted risk (the default): a stolen or compromised paired phone can run
+  local commands on the Mac through the Chief, with no approval, until its
+  pairing is revoked. Revoke it in cmux Settings > Server > Devices (the
+  relay refuses its new streams at once on `host.revoke`). Turning
+  `remote.autoApprove` off on the Mac puts approvals back, which stops a
+  prompt injection but not the phone's holder (next item).
 - Residual risk: the paired device approves its own requests. Any person
   the gate admits answers the approvals, and that includes the device that
   started the turn. So `ask` stops a prompt injection (content the turn
@@ -904,8 +929,8 @@ Policy analysis (the relay rules of this repository's CLAUDE.md):
   files. The host refuses to turn it on during remote-origin work, but any
   local process of the user, and any approve-all local turn, can write
   `optchat/settings.json` directly (the host reads it at its next start).
-  With it on, remote-origin turns are as powerful as local ones; it is off
-  by default.
+  With it on (the default), remote-origin turns are as powerful as local
+  ones.
 - Residual risk: an approval is full authority for the shown call. An
   approved command can start a background process that outlives the turn,
   or start an acpmux session directly with another policy (outside `chief
