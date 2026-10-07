@@ -75,6 +75,14 @@ public struct StatusMapping {
                                    honoring: honored)
     }
 
+    /// Some tab of a workspace has agent work (an acpmux turn, a hook or an
+    /// OSC 7501 `working` record), even while a stronger state (waiting)
+    /// wins the row's merged status: the row's working slot
+    /// (`WorkspaceRowContent.showsWorking`).
+    public func isWorking(tabs: [TabModel]) -> Bool {
+        tabs.contains { tab in reports(tab).contains { $0.state.isWorking } }
+    }
+
     /// A workspace's merged status over its tabs.
     public func summary(tabs: [TabModel]) -> StatusSummary {
         StatusStack.resolve(tabs.flatMap(reports), honoring: honored)
