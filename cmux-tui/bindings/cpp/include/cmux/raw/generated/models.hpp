@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "a12acc481313eced97f8c489168cac258fd1b9c8b5b4fde33476bcaeaaf0e11b";
+inline constexpr std::string_view kProtocolIrSha256 = "50ad745ac15be0742665d30da5813d864971d0225a7ae64814d1bd2bdf2a3089";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -245,6 +245,9 @@ struct CloudConversationUnsubscribeRequest;
 struct CloudInboxListRequest;
 struct CloudInboxSubscribeRequest;
 struct CloudInboxUnsubscribeRequest;
+struct CloudMuxAckRequest;
+struct CloudMuxSubscribeRequest;
+struct CloudMuxUnsubscribeRequest;
 struct CloudSessionClearRequest;
 struct CloudSessionSetRequest;
 struct CloudSessionStatusRequest;
@@ -476,6 +479,8 @@ struct CloudConversationChangedEvent;
 struct CloudConversationResyncedEvent;
 struct CloudInboxChangedEvent;
 struct CloudInboxResetEvent;
+struct CloudMuxResyncedEvent;
+struct CloudMuxWakeEvent;
 struct CloudSessionNeededEvent;
 struct CloudSubscriptionStateEvent;
 struct ColorsChangedEvent;
@@ -1427,6 +1432,34 @@ struct CloudInboxUnsubscribeRequest {
     friend bool operator==(const CloudInboxUnsubscribeRequest&, const CloudInboxUnsubscribeRequest&) = default;
 };
 
+struct CloudMuxAckRequest {
+    std::string conversation{};
+    std::uint64_t seq{};
+    friend bool operator==(const CloudMuxAckRequest&, const CloudMuxAckRequest&) = default;
+};
+
+struct CloudMuxResyncedEvent {
+    std::optional<std::string> account{};
+    std::optional<JsonValue> pending{};
+    std::uint64_t seq{};
+    friend bool operator==(const CloudMuxResyncedEvent&, const CloudMuxResyncedEvent&) = default;
+};
+
+struct CloudMuxSubscribeRequest {
+    friend bool operator==(const CloudMuxSubscribeRequest&, const CloudMuxSubscribeRequest&) = default;
+};
+
+struct CloudMuxUnsubscribeRequest {
+    friend bool operator==(const CloudMuxUnsubscribeRequest&, const CloudMuxUnsubscribeRequest&) = default;
+};
+
+struct CloudMuxWakeEvent {
+    std::optional<std::string> account{};
+    std::uint64_t seq{};
+    std::optional<JsonValue> wakes{};
+    friend bool operator==(const CloudMuxWakeEvent&, const CloudMuxWakeEvent&) = default;
+};
+
 struct CloudSessionClearRequest {
     friend bool operator==(const CloudSessionClearRequest&, const CloudSessionClearRequest&) = default;
 };
@@ -2285,6 +2318,8 @@ enum class SizeDeviceKind {
     ipad,
     tui,
     browser,
+    linux_,
+    windows,
     unknown,
 };
 
@@ -6227,6 +6262,24 @@ struct Codec<CloudInboxUnsubscribeRequest> {
 };
 
 template <>
+struct Codec<CloudMuxAckRequest> {
+    static Result<Json> encode(const CloudMuxAckRequest& value);
+    static Result<CloudMuxAckRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudMuxSubscribeRequest> {
+    static Result<Json> encode(const CloudMuxSubscribeRequest& value);
+    static Result<CloudMuxSubscribeRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudMuxUnsubscribeRequest> {
+    static Result<Json> encode(const CloudMuxUnsubscribeRequest& value);
+    static Result<CloudMuxUnsubscribeRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<CloudSessionClearRequest> {
     static Result<Json> encode(const CloudSessionClearRequest& value);
     static Result<CloudSessionClearRequest> decode(const Json& value);
@@ -7610,6 +7663,18 @@ template <>
 struct Codec<CloudInboxResetEvent> {
     static Result<Json> encode(const CloudInboxResetEvent& value);
     static Result<CloudInboxResetEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudMuxResyncedEvent> {
+    static Result<Json> encode(const CloudMuxResyncedEvent& value);
+    static Result<CloudMuxResyncedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudMuxWakeEvent> {
+    static Result<Json> encode(const CloudMuxWakeEvent& value);
+    static Result<CloudMuxWakeEvent> decode(const Json& value);
 };
 
 template <>

@@ -28,6 +28,9 @@ public final class ThemeStore {
     public private(set) var input: ThemeInput
     /// Bumps on every applied change (tests, diagnostics).
     public private(set) var generation = 0
+    /// The app theme when `appearance.appTheme` names one; nil follows each scope's terminal
+    /// theme (`ThemeTokens.app`). Web pages read it through `WebTheme`.
+    public private(set) var appTheme: AppTheme?
 
     @ObservationIgnored private let publishesGlobally: Bool
     @ObservationIgnored private let responders = NSHashTable<AnyObject>.weakObjects()
@@ -67,6 +70,17 @@ public final class ThemeStore {
         for responder in responders.allObjects {
             (responder as? any ThemeResponsive)?.themeDidChange()
         }
+        return true
+    }
+
+    /// Sets the app theme apart from the terminal theme (nil: follow it), and repaints so every
+    /// page re-applies its `--cmux-app-*` tokens. Returns false when nothing changed.
+    @discardableResult
+    public func setAppTheme(_ theme: AppTheme?) -> Bool {
+        guard theme != appTheme else { return false }
+        appTheme = theme
+        generation += 1
+        if publishesGlobally { repaintAll() }
         return true
     }
 
