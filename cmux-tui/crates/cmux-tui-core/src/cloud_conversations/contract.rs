@@ -34,6 +34,8 @@ pub(crate) const MAX_PAGE: u32 = 200;
 /// home-core `TABLE_MSG` and `TABLE_INV`, inbox `TABLE_ENTRY`.
 const TABLE_MSG: &str = "msg";
 const TABLE_INV: &str = "inv";
+/// MuxDO's wake rows (home-core mux/domain.ts `TABLE_WAKE`).
+const TABLE_WAKE: &str = "wake";
 const TABLE_ENTRY: &str = "entry";
 
 /// An upstream stream the daemon can subscribe to.
@@ -41,6 +43,10 @@ const TABLE_ENTRY: &str = "entry";
 pub enum Target {
     Inbox,
     Conversation(String),
+    /// The leased chief's MuxDO wake queue (`mux:<agent>`). The agent comes
+    /// from the lease's chief token (`CloudSession::agent`), never from a
+    /// request.
+    Mux(String),
 }
 
 impl Target {
@@ -48,6 +54,7 @@ impl Target {
         match self {
             Self::Inbox => "inbox",
             Self::Conversation(_) => "conversation",
+            Self::Mux(_) => "mux",
         }
     }
 
@@ -56,8 +63,48 @@ impl Target {
         match self {
             Self::Inbox => "/v1/wire/user".to_string(),
             Self::Conversation(id) => format!("/v1/wire/conv/{id}"),
+            Self::Mux(agent) => format!("/v1/wire/mux/{agent}"),
         }
     }
+}
+
+/// A chief id as the Worker writes it: `agent_` and 1-64 characters of
+/// `[A-Za-z0-9_-]`. Checked before an id enters a URL path.
+pub fn valid_agent_id(id: &str) -> bool {
+    id.strip_prefix("agent_").is_some_and(|rest| {
+        !rest.is_empty()
+            && rest.len() <= 64
+            && rest.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+    })
+}
+
+/// One wake as the brain gets it: ids only (`conversation`, `seq`, `reason`),
+/// never message text; the brain reads the message through its own
+/// authorized conversation read.
+pub(crate) fn wake_ids(row: &Value) -> Option<Value> {
+    let conversation = row.get("conversation")?.as_str().filter(|c| valid_conversation_id(c))?;
+    let seq = row.get("seq")?.as_u64()?;
+    let reason = row.get("reason")?.as_str()?;
+    Some(json!({"conversation": conversation, "seq": seq, "reason": reason}))
+}
+
+/// The wakes a MuxDO event frame wrote (`mux.wake` upserts of table `wake`).
+pub(crate) fn mux_wakes(frame: &Value) -> Vec<Value> {
+    frame
+        .get("effects")
+        .map(|effects| upserts(effects, TABLE_WAKE).filter_map(wake_ids).collect())
+        .unwrap_or_default()
+}
+
+/// The pending wakes of a MuxDO snapshot frame (its `wake` rows).
+pub(crate) fn mux_pending(frame: &Value) -> Vec<Value> {
+    frame
+        .get("rows")
+        .filter(|rows| rows.get("table").and_then(Value::as_str) == Some(TABLE_WAKE))
+        .and_then(|rows| rows.get("rows"))
+        .and_then(Value::as_array)
+        .map(|rows| rows.iter().filter_map(|row| row.get("row")).filter_map(wake_ids).collect())
+        .unwrap_or_default()
 }
 
 /// `conv_<26>` or `conv_dm_<26>` in Crockford base32 (the Worker's

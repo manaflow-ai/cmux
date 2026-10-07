@@ -219,7 +219,10 @@ jobs:
   react-apps-check:
     needs: web-subarea-scope
     if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # `bun test` grows memory across the suite and was SIGKILLed (exit 137) on the
+    # 4 vCPU runner (run 37666132324), so this job takes the 8 vCPU size, which
+    # has twice the memory. Fork pull requests run the same suite on it.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-8vcpu-ubuntu-2404' }}
     # Matches the 10-minute siblings in this workflow.
     timeout-minutes: 10
     steps:
@@ -262,9 +265,11 @@ jobs:
         working-directory: webviews
         run: bun run check
 
+      # One bun process per test file with a per-file timeout: a single
+      # `bun test` stalled in a different file each run (scripts/ci/run-webviews-tests.sh).
       - name: Test webviews
         working-directory: webviews
-        run: bun run test
+        run: ../scripts/ci/run-webviews-tests.sh
 
       - name: React Doctor
         working-directory: webviews

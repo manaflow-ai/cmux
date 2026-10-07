@@ -85,4 +85,13 @@ impl<R: Rpc> ConversationPort for CloudPort<R> {
     fn typing(&mut self, _conversation: &str, _on: bool) -> Result<(), OpError> {
         Ok(())
     }
+
+    fn mux_ack(&mut self, conversation: &str, seq: u64) -> Result<(), OpError> {
+        self.rpc
+            .call(
+                "cloud-mux-ack",
+                json!({"conversation": conversation, "seq": seq}),
+            )
+            .map(|_| ())
+    }
 }
