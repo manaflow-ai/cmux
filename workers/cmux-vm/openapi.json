@@ -3375,6 +3375,14 @@
           "retryAfterSeconds": {
             "$ref": "#/components/schemas/Int"
           },
+          "budget": {
+            "type": "string",
+            "enum": [
+              "snapshots",
+              "vms",
+              "requests"
+            ]
+          },
           "_tag": {
             "type": "string",
             "enum": [

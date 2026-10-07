@@ -140,7 +140,7 @@ export class TenantLedger {
     const record = checked(isRecord, await this.storage.get(storageKey));
     if (record !== undefined && record.expiresMs > nowMs) {
       if (record.fingerprint !== fingerprint) return { state: "mismatch" };
-      if (record.progress.phase === "done") return { state: "resume", progress: record.progress };
+      if (record.progress.phase === "done" || record.progress.phase === "snapshotDone") return { state: "resume", progress: record.progress };
       if (record.leaseUntilMs > nowMs) return { state: "in_progress" };
       if (record.progress.phase === "snapshotted") {
         await this.storage.put(storageKey, { ...record, leaseUntilMs: nowMs + IDEMPOTENCY_LEASE_MS });
