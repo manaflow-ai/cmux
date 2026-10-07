@@ -13,6 +13,8 @@ OUT="${1:-$ROOT/artifacts/icon-picker-bench}"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$OUT"
+# The page bundle is build output (cx-vn5): build it from the sources at this commit.
+sh "$ROOT/scripts/cmux-next/build-web-bundles.sh"
 swiftc -O -parse-as-library "$ROOT/webviews/bench/icon-picker/wk-bench.swift" -o "$WORK/wk-bench"
 "$WORK/wk-bench" --dump-catalog "$OUT/catalog.json"
 "$WORK/wk-bench" "$ROOT/Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/icon-picker/index.html" \
