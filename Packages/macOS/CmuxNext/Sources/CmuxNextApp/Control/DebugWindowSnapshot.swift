@@ -203,8 +203,11 @@ enum DebugWindowSnapshot {
         guard !layers.isEmpty, size.width > 0, size.height > 0 else { return nil }
         let width = base.width
         let height = base.height
-        guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
-                                      bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+        // sRGB, the space the PNG is tagged with: a device RGB context
+        // shifted page colors (#ff00aa came out as rgb(255, 53, 184)).
+        guard let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
+                                      bytesPerRow: width * 4, space: space,
                                       bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
         let scaleX = CGFloat(width) / size.width
         let scaleY = CGFloat(height) / size.height
