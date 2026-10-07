@@ -1,7 +1,7 @@
 // l10n-allow-file: gallery fixtures, not shipped UI.
 import { settingsPageEntry, type PageFixtureStep, type SettingsPageVariant } from "../../gallery/format";
 import type { AccountsRow, AccountsState, HostLists } from "./ops";
-import { categories } from "./categories";
+import { categories, homes } from "./categories";
 import { schema } from "./schema";
 
 const button = (id: string, title: string, disabled = false) => ({
@@ -356,8 +356,47 @@ for (const look of ["quiet", "dense"] as const) {
   });
 }
 
+// The Reset control never moves the row (P1 fix, Lawrence 2026-10-07): for a row of each editor
+// kind, start customized and press its Reset; the matrix measures layout shift (strict 0) and the
+// anchors (the row's title, the next row's title) on each.
+const RESET_SAMPLES: Record<string, string> = {
+  toggle: "history.terminalCommands",
+  segmented: "navigation.historyScope",
+  menu: "tabs.newTabKind",
+  number: "layout.defaultColumnWidth",
+  url: "browser.newTabPage",
+  "choice-or-number": "browser.hibernation",
+  color: "layout.paneBorderColor",
+  sound: "notifications.sound",
+  "time-range": "notifications.quietHours",
+  font: "terminal.fontFamily",
+};
+for (const [kind, key] of Object.entries(RESET_SAMPLES))
+  variants[`play-reset-${kind}`] = variant(homes.get(key)!.category, {
+    focus: key,
+    options: { values: customValues },
+    note: `Reset on a ${kind} row: the control fades out in its reserved slot.`,
+    play: async (ctx) => {
+      await ctx.click({ selector: `${row(key)} [data-reset]` });
+      await ctx.waitFor(() => !ctx.document.querySelector(`${row(key)} [data-reset]`));
+    },
+  });
+variants["play-section-change"] = variant("general", {
+  note: "Changing category: the column fades in; the sidebar never moves.",
+  play: async (ctx) => {
+    await ctx.click({ selector: '[data-section-link="browser"]' });
+    await ctx.waitFor(() => ctx.document.querySelector('[data-section="browser"]'));
+  },
+});
+
+const resetAnchors = Object.values(RESET_SAMPLES).flatMap((key) => [
+  { selector: `${row(key)} .row-title` },
+  { selector: `${row(key)} + [data-row-key] .row-title` },
+]);
+
 export default settingsPageEntry({
   id: "pages.settings",
+  anchors: [{ selector: "[data-settings-search]" }, { selector: '[data-section-link="general"]' }, ...resetAnchors],
   title: "Settings",
   area: "Settings",
   height: 760,

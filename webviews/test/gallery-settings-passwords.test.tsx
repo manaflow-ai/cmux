@@ -51,7 +51,8 @@ for (const [name, state] of Object.entries(settings.variants)) {
         });
         await settle();
       }
-      if (name === "search-empty") expect(page.container.querySelectorAll("[data-row-key]").length).toBe(0);
+      if (name === "search-empty")
+        expect(page.container.querySelectorAll("[data-row-key]:not([data-filtered])").length).toBe(0);
       if (name === "search-results") expect(page.container.querySelectorAll("mark").length).toBeGreaterThan(0);
     } finally {
       page.unmount();

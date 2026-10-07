@@ -17,6 +17,14 @@
   --row-min: 38px;
   --card-radius: 10px;
   --sidebar-width: 208px;
+  /* Motion: the app's MotionTunables (hover 80 ms, focus 100 ms, fade in 120 ms, fade out 80 ms),
+     overridable by the host (--cmux-motion-*). Only opacity, transform and a collapsing row's
+     own height animate, so nothing else on the page moves. */
+  --motion-hover: var(--cmux-motion-hover, 80ms);
+  --motion-focus: var(--cmux-motion-focus, 100ms);
+  --motion-in: var(--cmux-motion-in, 120ms);
+  --motion-out: var(--cmux-motion-out, 80ms);
+  --motion-ease: cubic-bezier(0.2, 0, 0, 1);
   font-size: 12.5px;
 }
 
@@ -420,6 +428,99 @@
   margin-top: 4px;
   font-size: 11px;
   color: var(--muted-text);
+}
+
+/* The Reset slot: every row reserves it, so the control fades and scales in place. */
+.reset-slot {
+  display: inline-flex;
+  flex: none;
+  width: 22px;
+  height: 22px;
+}
+
+.reset-button {
+  opacity: 0;
+  transform: scale(0.8);
+  transition:
+    opacity var(--motion-out) var(--motion-ease),
+    transform var(--motion-out) var(--motion-ease),
+    background var(--motion-hover);
+}
+
+.reset-slot[data-shown] .reset-button {
+  opacity: 1;
+  transform: none;
+  transition-duration: var(--motion-in), var(--motion-in), var(--motion-hover);
+}
+
+/* A category fades in when it opens; a transform never moves anything else. */
+@keyframes settings-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+@keyframes settings-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+}
+
+.section,
+.host-form,
+.domain-panel {
+  animation: settings-enter var(--motion-in) var(--motion-ease) both;
+}
+
+/* Inline override notes, MDM locks, section badges and the changed count arrive, not appear. */
+.row-note,
+.row-managed,
+.badge,
+.filter-count {
+  animation: settings-pop var(--motion-in) var(--motion-ease) both;
+}
+
+/* Search and Show Only Changed: rows outside the filter collapse in place (their own height and
+   opacity), so the list never jumps between keystrokes. */
+.collapse {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-rows var(--motion-out) var(--motion-ease),
+    opacity var(--motion-out) var(--motion-ease),
+    margin var(--motion-out) var(--motion-ease);
+}
+
+.collapse[data-open] {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transition-duration: var(--motion-in);
+}
+
+.collapse-body {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.group.collapse:not([data-open]),
+.result-section.collapse:not([data-open]),
+.empty.collapse:not([data-open]) {
+  margin-bottom: 0;
+}
+
+.empty.collapse {
+  margin-top: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+  }
 }
 
 @media (max-width: 600px) {

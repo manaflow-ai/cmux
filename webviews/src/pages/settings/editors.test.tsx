@@ -17,7 +17,9 @@ afterEach(() => {
 
 /** What the editor of each kind must contain; returns a failure description or null. */
 function editorProblem(row: SchemaRow, control: Element): string | null {
-  const has = (selector: string, count = 1) => control.querySelectorAll(selector).length === count;
+  // The editor's own controls, not the Reset control in the slot every row reserves.
+  const has = (selector: string, count = 1) =>
+    [...control.querySelectorAll(selector)].filter((element) => !element.closest(".reset-slot")).length === count;
   const choices = row.choices?.length ?? 0;
   switch (row.kind) {
     case "toggle":
@@ -168,6 +170,27 @@ describe("editors", () => {
     await click(row().querySelector("[data-reset]")!);
     expect(ops(page.provider, "cmux.settings.reset")).toEqual([{ key: "history.terminalCommands" }]);
     expect(row().querySelector("[data-reset]")).toBeNull();
+  });
+
+  test("every row reserves its Reset slot, so showing Reset moves no other control", async () => {
+    page = await renderPage({ path: "/settings/privacy" });
+    for (const element of page.container.querySelectorAll("[data-row-key]")) {
+      const slot = element.querySelector(".row-control > .reset-slot");
+      expect({ key: element.getAttribute("data-row-key"), slot: slot !== null }).toEqual({
+        key: element.getAttribute("data-row-key"),
+        slot: true,
+      });
+      // At the default the control is in place but inert and hidden from assistive technology.
+      const button = slot!.querySelector("button")!;
+      expect(button.hasAttribute("inert")).toBe(true);
+      expect(button.getAttribute("aria-hidden")).toBe("true");
+    }
+    const row = () => rowElement(page!.container, "history.terminalCommands");
+    const before = [...row().querySelector(".row-control")!.children].map((child) => child.className);
+    await click(row().querySelector("[role=switch]")!);
+    const after = [...row().querySelector(".row-control")!.children].map((child) => child.className);
+    expect(after).toEqual(before);
+    expect(row().querySelector(".reset-slot button")!.hasAttribute("inert")).toBe(false);
   });
 
   test("a refused value shows a localized error on the row, the daemon's text as detail", async () => {

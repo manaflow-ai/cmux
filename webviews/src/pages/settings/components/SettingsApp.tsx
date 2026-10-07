@@ -96,7 +96,7 @@ export function SettingsApp() {
           {searching ? (
             <SearchResults query={query} changedOnly={changedOnly} />
           ) : (
-            <SectionView section={location.section} focus={location.focus} />
+            <SectionView key={location.section} section={location.section} focus={location.focus} />
           )}
         </div>
       </main>

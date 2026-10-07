@@ -14,7 +14,7 @@ afterEach(() => {
 
 const search = (page: Rendered) => page.container.querySelector<HTMLInputElement>("[data-settings-search]")!;
 const resultKeys = (page: Rendered) =>
-  [...page.container.querySelectorAll("[data-search-results] [data-row-key]")].map((row) =>
+  [...page.container.querySelectorAll("[data-search-results] [data-row-key]:not([data-filtered])")].map((row) =>
     row.getAttribute("data-row-key"),
   );
 
@@ -48,7 +48,7 @@ test("search finds rows by current value", async () => {
   await changeValue(search(page), "clear glass");
   expect(resultKeys(page)).toContain("appearance.backgroundBlur");
   await changeValue(search(page), "zzzz-no-match");
-  expect(page.container.querySelector(".empty")).not.toBeNull();
+  expect(page.container.querySelector(".empty[data-open]")).not.toBeNull();
 });
 
 test("Return reveals the row in its section and focuses its control; Esc clears, then focuses the list", async () => {
