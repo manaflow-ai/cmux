@@ -176,3 +176,12 @@ final class GatedReplDriver: BrowserReplDriver, @unchecked Sendable {
 
     func detach() {}
 }
+
+/// A working directory for test sessions. Not the temporary directory
+/// itself: that holds every session's private storage (`cmux-browser-repl`)
+/// and is refused as a REPL root.
+let browserReplTestWorkingDirectory: String = {
+    let path = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-repl-test-cwd").path
+    try? FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: true)
+    return path
+}()

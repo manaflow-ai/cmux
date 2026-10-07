@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { loadRuntime, runDevRepl, createFsOp } from "../lib/dev-driver.mjs";
+import { loadRuntime, runDevRepl, createFsOp, createDevBrowser, createDevRepl, createNodeHost } from "../lib/dev-driver.mjs";
 import { startFixtureServers } from "../lib/fixture-server.mjs";
 import { makeTestDir, removeTestDir, removeTestDirIfEmpty } from "../lib/test-dirs.mjs";
 
@@ -126,6 +126,26 @@ test("diff: changes carry their unchanged ancestors as context", () => {
   ]);
   assert.deepEqual(diffLines(before, before), []);
   assert.deepEqual(diffLines([], ["- a"]), ["+ - a"]);
+});
+
+test("diff: page text that reads like a ref never pairs with a real ref", () => {
+  // The text sits before the button, so a key read from anywhere in a line
+  // would pair the text's removal with the button's change and hide it.
+  const before = ['- text: "[ref=e1]"', '- button "Save" [ref=e1]'];
+  const after = ['- button "Save" [ref=e1] [disabled]'];
+  assert.deepEqual(diffLines(before, after), [
+    '- - text: "[ref=e1]"',
+    '~ - button "Save" [ref=e1] [disabled]',
+  ]);
+  // A name or value that reads like a ref is page text too.
+  assert.deepEqual(diffLines(['- link "x [ref=e2]"', '- link "Go" [ref=e2]'], ['- link "Go" [ref=e2] [focused]']), [
+    '- - link "x [ref=e2]"',
+    '~ - link "Go" [ref=e2] [focused]',
+  ]);
+  // Added text that contains a ref marker is still text for an interactive diff.
+  const full = ["- main:", '  - textbox "Email" [ref=e1]'];
+  const fullAfter = ["- main:", '  - textbox "Email" [ref=e1]', '  - text: "Saved [ref=e9]"'];
+  assert.deepEqual(textChanges(diffLines(full, fullAfter)), ["  - main:", '+   - text: "Saved [ref=e9]"']);
 });
 
 test("print choice: a small tree prints its diff when shorter; a large one needs 30%", () => {
@@ -311,6 +331,73 @@ async function settledState(promise) {
   return probe.state;
 }
 
+// A file chooser answer the driver refuses (its frame is blocked or stale
+// by now) leaves the chooser open in the page; the session must still be
+// able to answer it (cancel), so the runtime keeps it pending until the
+// driver confirms an answer. A chooser the driver says is gone is settled.
+test("file chooser: a refused answer keeps the chooser answerable; a confirmed one settles it", async () => {
+  const listeners = new Map();
+  const calls = [];
+  let refuse = "blocked";
+  const host = { setTimeout: () => 0, clearTimeout: () => {}, now: Date.now, print: () => {} };
+  const driver = {
+    call: async (method, params) => {
+      calls.push({ method, params });
+      if (method === "filechooser.respond" && refuse) {
+        const e = new Error(`file chooser answer refused (${refuse})`);
+        e.code = refuse;
+        throw e;
+      }
+      return null;
+    },
+    on: (event, handler) => (listeners.set(event, handler), () => {}),
+    capabilities: () => [],
+  };
+  const session = new ns.core.Session({ driver, host });
+  const page = session.pageFor("t1");
+  listeners.get("filechooser.opened")({ targetId: "t1", chooserId: "c1", frameId: "main", element: "h1", multiple: false });
+  const held = page.fileChooser();
+  assert.ok(held, "the chooser is pending");
+  await assert.rejects(held.setFiles([]), /refused \(blocked\)/);
+  assert.ok(page.fileChooser(), "a blocked answer left the chooser pending");
+  refuse = "stale";
+  await assert.rejects(page.fileChooser().cancel(), /refused \(stale\)/);
+  assert.ok(page.fileChooser(), "a stale answer left the chooser pending");
+  refuse = null;
+  await page.fileChooser().cancel();
+  assert.equal(page.fileChooser(), null, "a confirmed answer settles the chooser");
+  assert.equal(calls.filter((c) => c.method === "filechooser.respond").length, 3);
+  // A chooser the driver no longer has is settled, not offered again.
+  listeners.get("filechooser.opened")({ targetId: "t1", chooserId: "c2", frameId: "main", element: "h2", multiple: false });
+  refuse = "not_found";
+  await assert.rejects(page.fileChooser().cancel(), /not_found/);
+  assert.equal(page.fileChooser(), null);
+});
+
+// As Playwright's FileChooser.setFiles, the files are read before the
+// chooser is answered: a path outside the REPL's directories fails with
+// the file error (EACCES, so `denied`) even on an answered chooser, and an
+// answered chooser is refused only for files that could be read.
+test("file chooser: setFiles reports a file it cannot read before an answered chooser", async () => {
+  const listeners = new Map();
+  const host = { setTimeout: () => 0, clearTimeout: () => {}, now: Date.now, print: () => {} };
+  const driver = { call: async () => null, on: (event, handler) => (listeners.set(event, handler), () => {}), capabilities: () => [] };
+  const session = new ns.core.Session({ driver, host });
+  session.files = {
+    read: async (p) => {
+      if (p.startsWith("/nonexistent/")) throw Object.assign(new Error(`EACCES: permission denied, '${p}' is outside the REPL's directories`), { code: "EACCES" });
+      return new Uint8Array([104, 105]);
+    },
+  };
+  const page = session.pageFor("t1");
+  listeners.get("filechooser.opened")({ targetId: "t1", chooserId: "c1", frameId: "main", element: "h1", multiple: false });
+  const chooser = page.fileChooser();
+  await chooser.setFiles("/work/a.txt");
+  assert.equal(page.fileChooser(), null, "the confirmed answer settled the chooser");
+  await assert.rejects(chooser.setFiles("/nonexistent/parity.txt"), (e) => e.code === "EACCES");
+  await assert.rejects(chooser.setFiles("/work/a.txt"), /already answered/);
+});
+
 // cmux replaces a tab's web view when it unloads a hidden page to save
 // memory and later restores it: the new page has new frame ids. Seen live: a
 // call after a forced unload addressed the old main frame and timed out with
@@ -368,6 +455,131 @@ test("handled events: after a dropped update removing the last listener, the emp
   assert.equal(await settledState(call), "answered");
   const updates = calls.filter((c) => c.method === "tab.handleEvents").map((c) => c.params.events);
   assert.deepEqual(updates.at(-1), [], JSON.stringify(updates));
+});
+
+// r17 native#2: a cancelled (timed-out) cell is over. Its suspended code
+// can resume when something settles a promise it awaited, and a page
+// listener it registered can fire later; neither does host work then.
+function cancelFixture() {
+  const ops = [];
+  const listeners = new Map();
+  const host = {
+    workDir: "/work",
+    tmpdir: "/work/tmp",
+    homedir: "/home",
+    sessionId: "cancel-test",
+    setTimeout,
+    clearTimeout,
+    now: Date.now,
+    print: () => {},
+    console: { error: () => {} },
+    fsOp: (op) => (ops.push(op), op === "exists" ? false : null),
+    readResource: (path) => (ops.push("readResource"), path === "guide.md" ? "# guide" : null),
+  };
+  const driver = {
+    call: async (method) => (ops.push(method), method === "tabs.list" ? [] : null),
+    on: (event, handler) => {
+      if (!listeners.has(event)) listeners.set(event, []);
+      listeners.get(event).push(handler);
+      return () => {};
+    },
+    capabilities: () => [],
+  };
+  const repl = ns.replHost.createBrowserRepl({ host, driver });
+  const emit = (event, payload) => (listeners.get(event) || []).forEach((h) => h(payload));
+  return { repl, ops, emit };
+}
+
+test("cancel: a cancelled cell that resumes later is refused host work", async () => {
+  const { repl, ops } = cancelFixture();
+  const hung = repl.evaluate(
+    "await new Promise((r) => { globalThis.resumeCell = r; }); try { fs.writeFileSync('late.txt', 'x'); globalThis.lateOutcome = 'wrote'; } catch (e) { globalThis.lateOutcome = e.code; }",
+    { id: 1 },
+  );
+  for (let turn = 0; turn < 100 && !globalThis.resumeCell; turn++) await new Promise((r) => setImmediate(r));
+  assert.equal(repl.cancel("timed out", 1), true);
+  await hung;
+  globalThis.resumeCell();
+  for (let turn = 0; turn < 100 && globalThis.lateOutcome === undefined; turn++) await new Promise((r) => setImmediate(r));
+  const outcome = globalThis.lateOutcome;
+  delete globalThis.resumeCell;
+  delete globalThis.lateOutcome;
+  assert.equal(outcome, "cancelled");
+  assert.deepEqual(ops.filter((op) => op === "writeFile"), []);
+});
+
+// r20 native#1: the guarded host and driver are the only capability objects
+// agent code reaches; their prototypes are not the raw ones, so a cancelled
+// cell's continuation cannot call around the cancellation check.
+test("cancel: a cancelled cell cannot reach the raw host or driver through a prototype", async () => {
+  const { repl, ops } = cancelFixture();
+  const hung = repl.evaluate(
+    "const h = page._session.host, d = page._session.driver; await new Promise((r) => { globalThis.resumeCell = r; });" +
+      " const late = []; for (const o of [h, d]) { let p = o; while ((p = Object.getPrototypeOf(p))) late.push(p); }" +
+      " globalThis.lateOutcome = []; for (const p of late) { for (const [fn, args] of [['fsOp', ['writeFile', { path: 'late.txt' }]], ['call', ['page.goto', {}]], ['setTimeout', [() => {}, 1]]]) {" +
+      " if (typeof p[fn] !== 'function') continue; try { await p[fn](...args); globalThis.lateOutcome.push(fn + ':ran'); } catch (e) { globalThis.lateOutcome.push(fn + ':' + e.code); } } }" +
+      " try { h.fsOp('writeFile', { path: 'late.txt' }); } catch (e) { globalThis.lateOutcome.push('own:' + e.code); }" +
+      " globalThis.frozen = [Object.isFrozen(h), Object.isFrozen(d)];",
+    { id: 1 },
+  );
+  for (let turn = 0; turn < 100 && !globalThis.resumeCell; turn++) await new Promise((r) => setImmediate(r));
+  assert.equal(repl.cancel("timed out", 1), true);
+  await hung;
+  const before = ops.length;
+  globalThis.resumeCell();
+  for (let turn = 0; turn < 100 && globalThis.frozen === undefined; turn++) await new Promise((r) => setImmediate(r));
+  const { lateOutcome, frozen } = globalThis;
+  delete globalThis.resumeCell;
+  delete globalThis.lateOutcome;
+  delete globalThis.frozen;
+  assert.deepEqual(lateOutcome, ["own:cancelled"]);
+  assert.deepEqual(frozen, [true, true]);
+  assert.deepEqual(ops.slice(before), []);
+});
+
+// r26 native#6: readResource is a host call like fs and secrets: a
+// cancelled cell's leftover work is refused it, and a live cell reaches it.
+test("cancel: a cancelled cell that resumes later is refused readResource", async () => {
+  const { repl, ops } = cancelFixture();
+  const hung = repl.evaluate(
+    "const h = page._session.host; await new Promise((r) => { globalThis.resumeCell = r; });" +
+      " try { h.readResource('guide.md'); globalThis.lateOutcome = 'read'; } catch (e) { globalThis.lateOutcome = e.code; }",
+    { id: 1 },
+  );
+  for (let turn = 0; turn < 100 && !globalThis.resumeCell; turn++) await new Promise((r) => setImmediate(r));
+  assert.equal(repl.cancel("timed out", 1), true);
+  await hung;
+  const before = ops.length;
+  globalThis.resumeCell();
+  for (let turn = 0; turn < 100 && globalThis.lateOutcome === undefined; turn++) await new Promise((r) => setImmediate(r));
+  const outcome = globalThis.lateOutcome;
+  delete globalThis.resumeCell;
+  delete globalThis.lateOutcome;
+  assert.equal(outcome, "cancelled");
+  assert.deepEqual(ops.slice(before), []);
+  const live = await repl.evaluate("page._session.host.readResource('guide.md')", { id: 2 });
+  assert.equal(live.ok, true, live.error);
+  assert.deepEqual(ops.slice(before), ["readResource"]);
+});
+
+test("cancel: a page listener a cancelled cell registered never runs later", async () => {
+  const { repl, ops, emit } = cancelFixture();
+  const hung = repl.evaluate("page.on('console', () => fs.writeFileSync('late.txt', 'x')); globalThis.listening = true; await new Promise(() => {})", { id: 1 });
+  for (let turn = 0; turn < 100 && !globalThis.listening; turn++) await new Promise((r) => setImmediate(r));
+  delete globalThis.listening;
+  assert.equal(repl.cancel("timed out", 1), true);
+  await hung;
+  const targetId = [...repl.session.pages.keys()][0];
+  assert.ok(targetId, "the cell made no page");
+  emit("console", { targetId, type: "log", text: "late", args: [] });
+  for (let turn = 0; turn < 20; turn++) await new Promise((r) => setImmediate(r));
+  assert.deepEqual(ops.filter((op) => op === "writeFile"), []);
+  // A listener a later cell registers on that page still runs.
+  const ok = await repl.evaluate("page.on('console', () => fs.writeFileSync('ok.txt', 'x'))", { id: 2 });
+  assert.equal(ok.ok, true, ok.error);
+  emit("console", { targetId, type: "log", text: "again", args: [] });
+  for (let turn = 0; turn < 20; turn++) await new Promise((r) => setImmediate(r));
+  assert.deepEqual(ops.filter((op) => op === "writeFile"), ["writeFile"]);
 });
 
 test("cancel: a function a cancelled cell defined still prints when a later cell calls it", async () => {
@@ -566,6 +778,347 @@ test("frames: without the driver's frame identity, an iframe is not matched to a
   assert.equal(await main._contentFrame("h1"), null);
 });
 
+test("frames: a click in a nested frame never lands on another element: a transformed <iframe> is refused, a covering element in the parent intercepts", async () => {
+  // The frame's point in the tab is its owner <iframe>'s box plus the point
+  // in the frame. A scale (or rotation, zoom) on the <iframe> or an ancestor
+  // moves the frame's content away from that sum, and an element of the
+  // parent can cover the <iframe>: the trusted click would land there.
+  const server = await startFixtureServers();
+  try {
+    const out = await runDevRepl(`
+      const scene = async (frameStyle, extra) => {
+        await page.goto(${JSON.stringify(server.origins.primary + "/")});
+        await page.evaluate(([frameStyle, extra]) => {
+          window.clicked = [];
+          document.body.style.margin = "0";
+          document.body.innerHTML = extra + '<iframe style="position:absolute;left:0;top:0;width:600px;height:600px;border:0;' + frameStyle + '" srcdoc="<body style=margin:0><button style=position:absolute;left:400px;top:400px;width:100px;height:40px onclick=parent.clicked.push(&quot;target&quot;)>Target</button><button style=position:absolute;left:100px;top:160px;width:100px;height:40px onclick=parent.clicked.push(&quot;other&quot;)>Other</button></body>"></iframe>';
+          for (const b of document.querySelectorAll("[data-decoy]")) b.onclick = () => window.clicked.push(b.dataset.decoy);
+        }, [frameStyle, extra]);
+        await page.waitForFunction(() => { const d = document.querySelector("iframe").contentDocument; return !!(d && d.querySelector("button")); });
+        let error = null;
+        try {
+          await page.frameLocator("iframe").getByRole("button", { name: "Target" }).click({ timeout: 1500 });
+        } catch (e) {
+          error = String(e.message || e).split("\\n").slice(0, 2).join(" ");
+        }
+        return { clicked: await page.evaluate(() => window.clicked), error };
+      };
+      const decoy = (name, left, top) => '<button data-decoy="' + name + '" style="position:absolute;left:' + left + 'px;top:' + top + 'px;width:200px;height:200px;z-index:0">' + name + '</button>';
+      const r = {
+        scaled: await scene("transform:scale(0.5);transform-origin:0 0", decoy("decoy", 350, 350)),
+        rotated: await scene("transform:rotate(180deg)", decoy("decoy", 350, 350)),
+        covered: await scene("", '<div data-decoy="overlay" style="position:absolute;left:0;top:0;width:700px;height:700px;z-index:5"></div>'),
+        translated: await scene("transform:translate(30px, 20px)", ""),
+      };
+      console.log("@@" + JSON.stringify(r));
+    `);
+    const line = out.split("\n").find((l) => l.startsWith("@@"));
+    assert.ok(line, out.slice(0, 2000));
+    const r = JSON.parse(line.slice(2));
+    for (const name of ["scaled", "rotated"]) {
+      assert.deepEqual(r[name].clicked, [], `${name}: the click landed on ${JSON.stringify(r[name].clicked)}`);
+      assert.match(r[name].error || "", /transform/, `${name}: ${r[name].error}`);
+    }
+    assert.deepEqual(r.covered.clicked, [], `covered: the click landed on ${JSON.stringify(r.covered.clicked)}`);
+    assert.match(r.covered.error || "", /intercepts pointer events/, r.covered.error);
+    // A translation keeps the frame's geometry: the click reaches the target.
+    assert.deepEqual(r.translated, { clicked: ["target"], error: null });
+  } finally {
+    await server.close();
+  }
+});
+
+test("frames: the error for a transformed <iframe> names the CSS property and its value type, never the page's value text", async () => {
+  // The page writes the computed geometry value: its text can carry what
+  // the page chose (a path, numbers that encode a secret). The input error
+  // reaches the session, and a cut prefix of a secret-bearing value would
+  // pass native whole-value masking, so no part of the value is returned.
+  const server = await startFixtureServers();
+  try {
+    const out = await runDevRepl(`
+      const scene = async (frameStyle) => {
+        await page.goto(${JSON.stringify(server.origins.primary + "/")});
+        await page.evaluate((frameStyle) => {
+          document.body.style.margin = "0";
+          document.body.innerHTML = '<iframe style="position:absolute;left:0;top:0;width:600px;height:600px;border:0;' + frameStyle + '" srcdoc="<body style=margin:0><button style=position:absolute;left:40px;top:40px;width:100px;height:40px>Target</button></body>"></iframe>';
+        }, frameStyle);
+        await page.waitForFunction(() => { const d = document.querySelector("iframe").contentDocument; return !!(d && d.querySelector("button")); });
+        try {
+          await page.frameLocator("iframe").getByRole("button", { name: "Target" }).click({ timeout: 1500 });
+          return null;
+        } catch (e) {
+          return String(e.message || e);
+        }
+      };
+      const r = {
+        path: await scene("offset-path:path('M 0 0 L 4242424242 7373737373')"),
+        matrix: await scene("transform:matrix(0.5, 0.25, 0.125, 0.5, 0, 0)"),
+        rotate: await scene("rotate:13.5deg"),
+      };
+      console.log("@@" + JSON.stringify(r));
+    `);
+    const line = out.split("\n").find((l) => l.startsWith("@@"));
+    assert.ok(line, out.slice(0, 2000));
+    const r = JSON.parse(line.slice(2));
+    assert.match(r.path || "", /offset-path/, r.path);
+    assert.doesNotMatch(r.path || "", /4242|7373|M 0 0/, `the error carried the page's offset-path text: ${r.path}`);
+    assert.match(r.matrix || "", /transform/, r.matrix);
+    assert.doesNotMatch(r.matrix || "", /0\.25|0\.125/, `the error carried the page's transform text: ${r.matrix}`);
+    assert.match(r.rotate || "", /rotate/, r.rotate);
+    assert.doesNotMatch(r.rotate || "", /13\.5/, `the error carried the page's rotate text: ${r.rotate}`);
+  } finally {
+    await server.close();
+  }
+});
+
+test("pointer: a page that moves another frame over the target when the click's pointer arrives gets no press in that frame", async () => {
+  // The click checks the hit target after the pointer moves there, then
+  // moves it once more and presses. A page that puts another frame (or
+  // element) over the point on that last move would get the trusted press:
+  // the target is checked again right before the press, and the click fails.
+  const server = await startFixtureServers();
+  try {
+    const out = await runDevRepl(`
+      await page.goto(${JSON.stringify(server.origins.primary + "/")});
+      await page.evaluate(() => {
+        window.clicked = [];
+        document.body.style.margin = "0";
+        document.body.innerHTML = '<button id="t" style="position:absolute;left:100px;top:100px;width:120px;height:40px">Target</button>' +
+          '<iframe id="f" style="position:absolute;left:-1000px;top:0;width:400px;height:300px;border:0;z-index:5" srcdoc="<body style=margin:0;height:300px onmousedown=parent.clicked.push(&quot;frame-down&quot;) onclick=parent.clicked.push(&quot;frame-click&quot;)></body>"></iframe>';
+        const t = document.getElementById("t");
+        t.onclick = () => window.clicked.push("target");
+        let moves = 0;
+        t.addEventListener("mousemove", () => {
+          if (++moves === 2) document.getElementById("f").style.left = "0px";
+        });
+      });
+      await page.waitForFunction(() => { const d = document.getElementById("f").contentDocument; return !!(d && d.body); });
+      let error = null;
+      try {
+        await page.locator("#t").click({ timeout: 1500 });
+      } catch (e) {
+        error = String(e.message || e).split("\\n")[0];
+      }
+      console.log("@@" + JSON.stringify({ clicked: await page.evaluate(() => window.clicked), error }));
+    `);
+    const line = out.split("\n").find((l) => l.startsWith("@@"));
+    assert.ok(line, out.slice(0, 2000));
+    const r = JSON.parse(line.slice(2));
+    assert.deepEqual(r.clicked, [], `the press landed on ${JSON.stringify(r.clicked)}`);
+    assert.match(r.error || "", /intercepts pointer events|frame/, r.error);
+  } finally {
+    await server.close();
+  }
+});
+
+// Runs `code` in a dev session whose driver calls the page's
+// `onPressWindow()` right before it handles each input.mouse down, after
+// the runtime's last check: what a page can do in the driver round trip
+// between that check and the press.
+async function runWithPressWindow(code) {
+  const browser = await createDevBrowser();
+  const dir = fs.realpathSync(makeTestDir("cmux-repl-"));
+  const lines = [];
+  let host = null;
+  try {
+    const raw = browser.driver({ sessionId: "press-window" });
+    const driver = Object.create(raw);
+    driver.call = async (method, params = {}) => {
+      if ((method === "input.mouse" && params.type === "down") || method === "input.drag") {
+        await raw.call("frame.evaluate", {
+          targetId: params.targetId,
+          world: "page",
+          source: "() => { if (typeof window.onPressWindow === 'function') window.onPressWindow(); }",
+          args: [],
+          handles: [],
+          awaitPromise: true,
+        });
+      }
+      return raw.call(method, params);
+    };
+    host = createNodeHost({ workDir: dir, sessionId: "press-window", print: (level, text) => lines.push(text) });
+    const repl = createDevRepl({ host, driver });
+    const r = await repl.evaluate(code);
+    repl.dispose();
+    await raw.detach();
+    return r.ok ? lines.join("\n") : `${lines.join("\n")}\nUncaught ${r.error}`;
+  } finally {
+    await browser.close();
+    removeTestDir(dir);
+    if (host) removeTestDirIfEmpty(host.tmpdir);
+  }
+}
+
+test("pointer: the driver refuses a click's press when the page changes the point in the round trip after the runtime's last check", async () => {
+  // The runtime checks the target and each parent frame's <iframe> right
+  // before the press, but the press is another driver call: the page runs
+  // between the two. The driver checks again where it sends the press, so
+  // a frame moved over the target, or a frame moved away from under the
+  // pointer, gets no press.
+  const server = await startFixtureServers();
+  try {
+    const out = await runWithPressWindow(`
+      const click = async (locator) => {
+        try {
+          await locator.click({ timeout: 1500 });
+          return null;
+        } catch (e) {
+          return String(e.message || e).split("\\n")[0];
+        }
+      };
+      await page.goto(${JSON.stringify(server.origins.primary + "/")});
+      await page.evaluate(() => {
+        window.clicked = [];
+        document.body.style.margin = "0";
+        document.body.innerHTML = '<button id="t" style="position:absolute;left:100px;top:100px;width:120px;height:40px">Target</button>' +
+          '<iframe id="f" style="position:absolute;left:-1000px;top:0;width:400px;height:300px;border:0;z-index:5" srcdoc="<body style=margin:0;height:300px onmousedown=parent.clicked.push(&quot;frame-down&quot;) onclick=parent.clicked.push(&quot;frame-click&quot;)></body>"></iframe>';
+        document.getElementById("t").onclick = () => window.clicked.push("target");
+        window.onPressWindow = () => { document.getElementById("f").style.left = "0px"; };
+      });
+      await page.waitForFunction(() => { const d = document.getElementById("f").contentDocument; return !!(d && d.body); });
+      const covered = { error: await click(page.locator("#t")), clicked: await page.evaluate(() => window.clicked) };
+
+      await page.evaluate(() => {
+        window.clicked = [];
+        document.body.innerHTML = '<button data-decoy style="position:absolute;left:300px;top:300px;width:400px;height:400px;z-index:0" onclick="clicked.push(&quot;decoy&quot;)">Decoy</button>' +
+          '<iframe id="g" style="position:absolute;left:0;top:0;width:600px;height:600px;border:0;z-index:1" srcdoc="<body style=margin:0><button style=position:absolute;left:400px;top:400px;width:100px;height:40px onclick=parent.clicked.push(&quot;target&quot;)>Target</button></body>"></iframe>';
+        window.onPressWindow = () => { document.getElementById("g").style.left = "700px"; };
+      });
+      await page.waitForFunction(() => { const d = document.getElementById("g").contentDocument; return !!(d && d.querySelector("button")); });
+      const moved = { error: await click(page.frameLocator("#g").getByRole("button", { name: "Target" })), clicked: await page.evaluate(() => window.clicked) };
+
+      await page.evaluate(() => {
+        window.clicked = [];
+        document.getElementById("g").style.left = "0px";
+        window.onPressWindow = null;
+      });
+      const still = { error: await click(page.frameLocator("#g").getByRole("button", { name: "Target" })), clicked: await page.evaluate(() => window.clicked) };
+      console.log("@@" + JSON.stringify({ covered, moved, still }));
+    `);
+    const line = out.split("\n").find((l) => l.startsWith("@@"));
+    assert.ok(line, out.slice(0, 2000));
+    const r = JSON.parse(line.slice(2));
+    assert.deepEqual(r.covered.clicked, [], `covered: the press landed on ${JSON.stringify(r.covered.clicked)}`);
+    assert.match(r.covered.error || "", /no press was sent: .*intercepts pointer events/, r.covered.error);
+    assert.deepEqual(r.moved.clicked, [], `moved: the press landed on ${JSON.stringify(r.moved.clicked)}`);
+    assert.match(r.moved.error || "", /no press was sent: .*(moved|intercepts pointer events)/, r.moved.error);
+    // A page that leaves the point alone still gets the click.
+    assert.deepEqual(r.still, { error: null, clicked: ["target"] });
+  } finally {
+    await server.close();
+  }
+});
+
+test("pointer: a locator drag starts and drops only on the elements the runtime checked, also after the page changes the points", async () => {
+  // dragTo is two points, and the page runs between the runtime's checks
+  // and the driver's drag, and during the drag itself: it can put another
+  // element or another (allowed) frame over the source before the press,
+  // or over the target once the drag started. The driver checks the source
+  // right before the press and the target right before the release, as it
+  // does a click's press, and makes no drop when either changed.
+  const server = await startFixtureServers();
+  try {
+    const out = await runWithPressWindow(`
+      const drag = async () => {
+        try {
+          await page.locator("#s").dragTo(page.locator("#t"), { timeout: 1500 });
+          return null;
+        } catch (e) {
+          return String(e.message || e).split("\\n")[0];
+        }
+      };
+      const setUp = (mode) => page.evaluate((mode) => {
+        window.events = [];
+        document.body.style.margin = "0";
+        const decoy = (left, top) => '<iframe id="d" style="position:absolute;left:' + left + 'px;top:' + top + 'px;width:200px;height:120px;border:0;z-index:5" ' +
+          'srcdoc="<body style=margin:0;height:120px ondragover=event.preventDefault() ondrop=event.preventDefault();parent.events.push(&quot;decoy-drop&quot;) onmousedown=parent.events.push(&quot;decoy-down&quot;)></body>"></iframe>';
+        document.body.innerHTML =
+          '<div id="s" draggable="true" style="position:absolute;left:20px;top:20px;width:100px;height:60px;background:#ccc">source</div>' +
+          '<div id="t" style="position:absolute;left:300px;top:300px;width:120px;height:80px;background:#eee">target</div>' +
+          decoy(-1000, 0);
+        const s = document.getElementById("s");
+        const t = document.getElementById("t");
+        s.addEventListener("dragstart", (e) => {
+          e.dataTransfer.setData("text/plain", "x");
+          window.events.push("dragstart");
+          if (mode === "drop") { const d = document.getElementById("d"); d.style.left = "250px"; d.style.top = "280px"; }
+        });
+        t.addEventListener("dragenter", (e) => e.preventDefault());
+        t.addEventListener("dragover", (e) => e.preventDefault());
+        t.addEventListener("drop", (e) => { e.preventDefault(); window.events.push("target-drop"); });
+        window.onPressWindow = mode === "start" ? () => { const d = document.getElementById("d"); d.style.left = "0px"; d.style.top = "0px"; } : null;
+      }, mode);
+      const ready = () => page.waitForFunction(() => { const d = document.getElementById("d").contentDocument; return !!(d && d.body); });
+      const result = {};
+      for (const mode of ["start", "drop", "still"]) {
+        await setUp(mode);
+        await ready();
+        const error = await drag();
+        result[mode] = { error, events: await page.evaluate(() => window.events) };
+      }
+      console.log("@@" + JSON.stringify(result));
+    `);
+    const line = out.split("\n").find((l) => l.startsWith("@@"));
+    assert.ok(line, out.slice(0, 2000));
+    const r = JSON.parse(line.slice(2));
+    assert.ok(!r.start.events.includes("decoy-down") && !r.start.events.includes("decoy-drop"), `start: the drag reached the frame over the source: ${JSON.stringify(r.start)}`);
+    assert.match(r.start.error || "", /no press was sent: /, JSON.stringify(r.start));
+    assert.ok(!r.drop.events.includes("decoy-drop") && !r.drop.events.includes("target-drop"), `drop: the drop landed on ${JSON.stringify(r.drop.events)}`);
+    assert.match(r.drop.error || "", /no drop was made: /, JSON.stringify(r.drop));
+    // A page that leaves the points alone still gets the drop.
+    assert.deepEqual(r.still, { error: null, events: ["dragstart", "target-drop"] });
+  } finally {
+    await server.close();
+  }
+});
+
+test("frames: finding a frame's <iframe> for an action walks at most the node budget of the parent frame", async () => {
+  // The parent frame is the page's: it can hold millions of elements, and a
+  // walk of all of them before every action in a child frame would let it
+  // stall the session. An <iframe> in the light DOM is found through the
+  // frame's own place in window.frames; one in a shadow tree past the
+  // snapshot's node budget (250000 elements) is not looked for.
+  const server = await startFixtureServers();
+  try {
+    const out = await runDevRepl(`
+      await page.goto(${JSON.stringify(server.origins.primary + "/")});
+      await page.evaluate(() => {
+        window.clicked = [];
+        const button = (name) => '<button onclick=parent.clicked.push(&quot;' + name + '&quot;)>' + name + '</button>';
+        document.body.innerHTML = '<div style="display:none">' + "<i></i>".repeat(260000) + '</div>' +
+          '<iframe name="light" style="position:absolute;left:0;top:0;width:300px;height:100px" srcdoc="' + button("light") + '"></iframe>' +
+          '<div id="host" style="position:absolute;left:0;top:200px"></div>';
+        document.getElementById("host").attachShadow({ mode: "open" }).innerHTML = '<iframe name="shadow" style="width:300px;height:100px" srcdoc="' + button("shadow") + '"></iframe>';
+      });
+      await page.waitForFunction(() => {
+        const ready = (f) => { const d = f && f.contentDocument; return !!(d && d.querySelector("button")); };
+        return ready(document.querySelector("iframe")) && ready(document.getElementById("host").shadowRoot.querySelector("iframe"));
+      });
+      // An action refreshes the page's frame list.
+      await page.mouse.click(1200, 700);
+      const result = {};
+      for (const name of ["light", "shadow"]) {
+        try {
+          await page.frame(name).getByRole("button").click({ timeout: 3000 });
+          result[name] = "clicked";
+        } catch (e) {
+          result[name] = String(e.message || e).split("\\n").slice(0, 2).join(" ");
+        }
+      }
+      result.clicked = await page.evaluate(() => window.clicked);
+      console.log("@@" + JSON.stringify(result));
+    `);
+    const line = out.split("\n").find((l) => l.startsWith("@@"));
+    assert.ok(line, out.slice(0, 2000));
+    const r = JSON.parse(line.slice(2));
+    assert.equal(r.light, "clicked", r.light);
+    assert.match(r.shadow, /node budget/, `the shadow-tree <iframe> past the budget was looked for: ${r.shadow}`);
+    assert.deepEqual(r.clicked, ["light"]);
+  } finally {
+    await server.close();
+  }
+});
+
 test("network: requests that never finish are not kept without bound", () => {
   const { session } = fakeSession();
   const page = session.pageFor("t1");
@@ -590,4 +1143,267 @@ test("snapshot header: page text reaches the caller without controls or escape s
   assert.ok(first.startsWith("title: InboxRedttt"), JSON.stringify(first.slice(0, 40)));
   assert.ok(first.length <= 600, `title line is ${first.length} characters`);
   assert.match(text, /\nurl: https:\/\/example\.com\/\n- button "Go" \[ref=e1\]$/);
+});
+
+test("snapshot: the page walk stops at its node budget with a note, and frames past the budget are not read", async () => {
+  // A hostile page can hold millions of nodes; the walk must not read them all
+  // before the output limits apply. `_maxNodes` lowers the budget for the test.
+  const server = await startFixtureServers();
+  try {
+    const out = await runDevRepl(`
+      await page.goto(${JSON.stringify(server.origins.primary + "/")});
+      await page.evaluate(() => {
+        document.body.innerHTML = '<iframe title="inner" srcdoc="<button>Inner</button>"></iframe><button>First</button>' + "<p>filler</p>".repeat(2000) + "<button>Last</button>";
+      });
+      await page.waitForFunction(() => { const d = document.querySelector("iframe").contentDocument; return !!(d && d.querySelector("button")); });
+      const whole = await snapshot({ maxChars: Infinity });
+      const cut = await snapshot({ maxChars: Infinity, _maxNodes: 500 });
+      const keep = (s) => s.tree.split("\\n").filter((l) => /button|iframe|^#/.test(l));
+      console.log("@@" + JSON.stringify({ whole: keep(whole), cut: keep(cut) }));
+    `);
+    const line = out.split("\n").find((l) => l.startsWith("@@"));
+    assert.ok(line, out.slice(0, 2000));
+    const { whole, cut } = JSON.parse(line.slice(2));
+    assert.ok(whole.some((l) => /button "Inner"/.test(l)), whole.slice(0, 6).join("\n"));
+    assert.ok(whole.some((l) => /button "Last"/.test(l)));
+    assert.ok(cut.some((l) => /button "First"/.test(l)), cut.slice(0, 6).join("\n"));
+    assert.ok(!cut.some((l) => /button "Last"/.test(l)), "the walk read past its budget");
+    assert.ok(!cut.some((l) => /button "Inner"/.test(l)), "a frame past the budget was read");
+    assert.ok(cut.some((l) => /iframe "inner".*\[not read: the snapshot's node budget is used up\]/.test(l)), cut.slice(0, 6).join("\n"));
+    assert.match(cut[cut.length - 1], /^# the page is too large to read whole: the snapshot stopped after 500 nodes/);
+  } finally {
+    await server.close();
+  }
+});
+
+test("snapshot: one huge text or value is cut at the snapshot's size budget with a note, per frame and in total", async () => {
+  // The node budget does not bound one node: a hostile page can put
+  // megabytes in one text node or field value, which would cross to the
+  // session, be kept as the diff baseline and be diffed. The walk stops at
+  // a size budget (characters), per frame and over all frames, and says so.
+  // `_maxSize` lowers it for the test.
+  const server = await startFixtureServers();
+  try {
+    const out = await runDevRepl(`
+      await page.goto(${JSON.stringify(server.origins.primary + "/")});
+      await page.evaluate(() => {
+        document.body.innerHTML = '<button>First</button><p id="big"></p><textarea aria-label="Field"></textarea><button>Last</button><iframe title="inner" srcdoc="<button>Inner</button>"></iframe>';
+        document.getElementById("big").textContent = "A".repeat(5000000);
+        document.querySelector("textarea").value = "V".repeat(5000000);
+      });
+      await page.waitForFunction(() => { const d = document.querySelector("iframe").contentDocument; return !!(d && d.querySelector("button")); });
+      const whole = await snapshot({ maxChars: Infinity });
+      const small = await snapshot({ maxChars: Infinity, _maxSize: 3000 });
+      const keep = (s) => s.tree.split("\\n").filter((l) => /button|iframe|^#/.test(l));
+      console.log("@@" + JSON.stringify({ wholeLength: whole.tree.length, whole: keep(whole), smallLength: small.tree.length, small: keep(small) }));
+    `);
+    const line = out.split("\n").find((l) => l.startsWith("@@"));
+    assert.ok(line, out.slice(0, 2000));
+    const { wholeLength, whole, smallLength, small } = JSON.parse(line.slice(2));
+    assert.ok(wholeLength < 2200000, `a 10,000,000-character page printed a ${wholeLength}-character tree`);
+    assert.match(whole[whole.length - 1], /^# the page is too large to read whole: the snapshot stopped after [\d,]+ characters/, whole.join("\n"));
+    assert.ok(smallLength < 3600, `the tree is ${smallLength} characters`);
+    assert.ok(small.some((l) => /button "First"/.test(l)), small.join("\n"));
+    assert.ok(!small.some((l) => /button "Last"|button "Inner"/.test(l)), small.join("\n"));
+    assert.match(small[small.length - 1], /^# the page is too large to read whole: the snapshot stopped after 3,000 characters/, small.join("\n"));
+  } finally {
+    await server.close();
+  }
+});
+
+test("snapshot: reading outside the walk (offscreen counts, table shape) stays within the walk's bounds", async () => {
+  // Counting the interactive elements outside the viewport, and telling a
+  // layout table from a data table, read DOM the walk does not visit. Both
+  // read lazily and stop at a bound: the offscreen count reads at most the
+  // walk's node budget of elements and then says it is a lower bound, and a
+  // table's shape is judged from its first 50 rows (a later row of another
+  // length does not make a 60,000-row table a layout table).
+  // `_maxNodes` lowers the budget for the test.
+  const server = await startFixtureServers();
+  try {
+    const out = await runDevRepl(`
+      await page.goto(${JSON.stringify(server.origins.primary + "/")});
+      await page.evaluate(() => {
+        document.body.innerHTML = '<button>Seen</button><div id="off" style="position:absolute;top:100000px"></div>';
+        const off = document.getElementById("off");
+        const b = document.createElement("button");
+        b.textContent = "x";
+        for (let i = 0; i < 5000; i++) off.appendChild(b.cloneNode(true));
+      });
+      const offscreen = (await snapshot({ viewport: true, maxChars: Infinity, _maxNodes: 1000 })).tree.split("\\n").filter((l) => /outside the viewport/.test(l));
+      await page.evaluate(() => {
+        const t = document.createElement("table");
+        const tb = t.appendChild(document.createElement("tbody"));
+        const row = document.createElement("tr");
+        for (let j = 0; j < 3; j++) row.appendChild(document.createElement("td")).textContent = "c" + j;
+        for (let i = 0; i < 60000; i++) tb.appendChild(row.cloneNode(true));
+        tb.lastChild.appendChild(document.createElement("td")).textContent = "extra";
+        document.body.replaceChildren(t);
+      });
+      const table = (await snapshot({ maxChars: Infinity, _maxNodes: 200 })).tree.split("\\n").slice(2, 6);
+      console.log("@@" + JSON.stringify({ offscreen, table }));
+    `);
+    const line = out.split("\n").find((l) => l.startsWith("@@"));
+    assert.ok(line, out.slice(0, 2000));
+    const { offscreen, table } = JSON.parse(line.slice(2));
+    assert.equal(offscreen.length, 1, JSON.stringify(offscreen));
+    const m = /^# at least ([\d,]+) interactive elements outside the viewport are not shown/.exec(offscreen[0]);
+    assert.ok(m, offscreen[0]);
+    assert.ok(Number(m[1].replace(/,/g, "")) <= 1000, offscreen[0]);
+    assert.ok(table.some((l) => /^- table/.test(l)) && table.some((l) => /row: "c0 \| c1 \| c2"/.test(l)), table.join("\n"));
+  } finally {
+    await server.close();
+  }
+});
+
+// Page text reaches the caller's terminal. Escape sequences and other C0,
+// C1 and DEL controls a page puts in its text, title, option labels, URLs or
+// error messages print as visible escapes (`\u001b`), never raw, whichever
+// path prints them: console.log, the auto-printed value, a snapshot, page
+// tools, or an error. Newlines and tabs stay.
+test("printing: control characters from the page never reach the output raw", async () => {
+  const servers = await startFixtureServers();
+  const { primary } = servers.origins;
+  try {
+    const hostile = "A\u001b]0;pwned\u0007B\u001b[2JC\u009b31mD\u0090dcs\u009cE\u007fF\rG\u0000H";
+    const out = await runDevRepl(`
+await page.goto(${JSON.stringify(primary)} + "/index.html?controls");
+await page.evaluate((t) => {
+  document.title = t;
+  document.body.innerHTML = '<p id="p"></p><select aria-label="Pick"><option></option></select><a id="a" href="#">link</a>';
+  document.getElementById("p").textContent = t;
+  document.querySelector("option").textContent = t;
+  document.getElementById("a").href = "https://example.com/" + encodeURIComponent(t) + "#" + t;
+}, ${JSON.stringify(hostile)});
+console.log(await page.textContent("#p"));
+console.log([await page.title()]);
+console.log(await snapshot({ urls: true }));
+console.log(await page.evaluate(() => ({ text: document.title })));
+await page.evaluate((t) => { throw new Error(t); }, ${JSON.stringify(hostile)});`);
+    const raw = out.match(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/gu) || [];
+    assert.deepEqual(raw, [], `raw controls in output:\n${JSON.stringify(out)}`);
+    assert.match(out, /A\\u001b\]0;pwned\\u0007B/, out);
+    assert.match(out, /Uncaught .*A\\u001b/, out);
+  } finally {
+    await servers.close();
+  }
+});
+
+// A native input the driver refuses (a blocked frame has focus, or sits
+// under the pointer) was never delivered, so the runtime must not keep it:
+// a refused Shift down must not ride on the next key or click, and a
+// refused move must not become the point the next press is sent at.
+test("input: a refused key down or mouse move leaves no modifier or coordinate for the next event", async () => {
+  const calls = [];
+  let refuse = () => false;
+  const host = { setTimeout: () => 0, clearTimeout: () => {}, now: Date.now, print: () => {} };
+  const driver = {
+    call: async (method, params) => {
+      calls.push({ method, params });
+      if (refuse(method, params)) throw Object.assign(new Error("blocked: the focused frame is blocked by the domain policy"), { code: "blocked" });
+      if (method === "tab.info") return { url: "https://example.com/", title: "T", viewport: { width: 800, height: 600 } };
+      return null;
+    },
+    on: () => () => {},
+    capabilities: () => [],
+  };
+  const session = new ns.core.Session({ driver, host });
+  const page = session.pageFor("t1");
+  await page.mouse.move(10, 20);
+  refuse = (method, params) => method === "input.key" && params.key === "Shift";
+  await assert.rejects(page.keyboard.down("Shift"));
+  refuse = (method) => method === "input.mouse" && calls.at(-1).params.type === "move";
+  await assert.rejects(page.mouse.move(300, 400));
+  refuse = () => false;
+  await page.keyboard.press("a");
+  await page.mouse.down();
+  const key = calls.filter((c) => c.method === "input.key").at(-1);
+  assert.deepEqual(key.params.modifiers, [], JSON.stringify(key.params));
+  const press = calls.filter((c) => c.method === "input.mouse").at(-1);
+  assert.equal(press.params.type, "down");
+  assert.deepEqual([press.params.x, press.params.y, press.params.modifiers], [10, 20, []], JSON.stringify(press.params));
+});
+
+// A shortcut the driver refuses (Undo or Redo in a tab that shows a blocked
+// frame, Copy in a user's tab, a timeout or any other error) must release
+// the modifiers it pressed, as a delivered one does: a Meta left held turns
+// the next key into Meta+key (seen live: a refused Meta+z, then "y" typed
+// Meta+y).
+test("input: a refused shortcut releases the modifiers it pressed", async () => {
+  const calls = [];
+  let refuse = () => false;
+  const host = { setTimeout: () => 0, clearTimeout: () => {}, now: Date.now, print: () => {} };
+  const driver = {
+    call: async (method, params) => {
+      calls.push({ method, params });
+      if (refuse(method, params)) throw Object.assign(new Error("blocked: Undo is refused"), { code: "blocked" });
+      if (method === "tab.info") return { url: "https://example.com/", title: "T", viewport: { width: 800, height: 600 } };
+      return null;
+    },
+    on: () => () => {},
+    capabilities: () => [],
+  };
+  const session = new ns.core.Session({ driver, host });
+  const page = session.pageFor("t1");
+  for (const combo of ["Meta+z", "Control+Meta+c"]) {
+    calls.length = 0;
+    const last = combo.split("+").at(-1);
+    refuse = (method, params) => method === "input.key" && params.type === "down" && params.key === last;
+    await assert.rejects(page.keyboard.press(combo), /refused/);
+    refuse = () => false;
+    const ups = calls.filter((c) => c.method === "input.key" && c.params.type === "up").map((c) => c.params.key);
+    assert.deepEqual(ups, combo.split("+").slice(0, -1).reverse(), `${combo}: ${JSON.stringify(calls.map((c) => c.params))}`);
+    await page.keyboard.press("y");
+    const key = calls.filter((c) => c.method === "input.key" && c.params.type === "down").at(-1);
+    assert.deepEqual([key.params.key, key.params.modifiers], ["y", []], `${combo}: ${JSON.stringify(key.params)}`);
+  }
+  // A modifier the driver refuses mid-combo: the ones pressed before it are released.
+  calls.length = 0;
+  refuse = (method, params) => method === "input.key" && params.type === "down" && params.key === "Shift";
+  await assert.rejects(page.keyboard.press("Meta+Shift+z"));
+  refuse = () => false;
+  assert.deepEqual(calls.filter((c) => c.params.type === "up").map((c) => c.params.key), ["Meta"]);
+  await page.keyboard.press("y");
+  assert.deepEqual(calls.filter((c) => c.params.type === "down").at(-1).params.modifiers, []);
+});
+
+test("diagnostics: hit-target and strict-mode errors name elements by tag and role, never the page's text or attributes", async () => {
+  // Playwright's previews cut page text at 50 characters and attributes at
+  // 500, and its "aka" locators cut text at word boundaries. Secrets are
+  // masked natively by whole value after the error leaves the page, so a
+  // cut secret would pass as its unmasked prefix. The errors name only the
+  // elements' tags, roles and count.
+  const server = await startFixtureServers();
+  try {
+    const out = await runDevRepl(`
+      const secret = "SECRETPREFIX" + "x".repeat(80);
+      await page.goto(${JSON.stringify(server.origins.primary + "/")});
+      await page.evaluate((secret) => {
+        document.body.style.margin = "0";
+        document.body.innerHTML = '<button id="t" style="position:absolute;left:10px;top:10px;width:100px;height:40px">Target</button>' +
+          '<div id="cover" style="position:absolute;left:0;top:0;width:300px;height:300px;z-index:5"></div>' +
+          '<p class="dup">a</p><p class="dup">b</p>';
+        const cover = document.getElementById("cover");
+        cover.setAttribute("data-s", secret + "y".repeat(600));
+        cover.textContent = secret;
+        for (const p of document.querySelectorAll(".dup")) { p.setAttribute("title", secret + " tail"); p.textContent = secret + " more words here " + secret; }
+      }, secret);
+      const err = async (f) => { try { await f(); return null; } catch (e) { return String(e.message || e); } };
+      const r = {
+        covered: await err(() => page.locator("#t").click({ timeout: 800 })),
+        strict: await err(() => page.locator("p.dup").click({ timeout: 800 })),
+      };
+      console.log("@@" + JSON.stringify(r));
+    `);
+    const line = out.split("\n").find((l) => l.startsWith("@@"));
+    assert.ok(line, out.slice(0, 2000));
+    const r = JSON.parse(line.slice(2));
+    assert.match(r.covered || "", /<div> intercepts pointer events/, r.covered);
+    assert.doesNotMatch(r.covered || "", /SECRET|data-s|cover/, `the hit-target error carried page text: ${r.covered}`);
+    assert.match(r.strict || "", /strict mode violation: .* resolved to 2 elements/, r.strict);
+    assert.match(r.strict || "", /1\) <p> \(paragraph\)/, r.strict);
+    assert.doesNotMatch(r.strict || "", /SECRET|more words|title=/, `the strict-mode error carried page text: ${r.strict}`);
+  } finally {
+    await server.close();
+  }
 });

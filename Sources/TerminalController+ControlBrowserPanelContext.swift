@@ -18,6 +18,10 @@ extension TerminalController: ControlBrowserPanelContext {
               let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
             return nil
         }
+        // A tab a browser REPL session drives or typed a secret into is
+        // neither read, navigated nor reloaded by another socket client
+        // (``browserReplTabRefusalMessage(_:)``).
+        guard browserReplTabRefusalMessage(panelID) == nil else { return nil }
         return tab.browserPanel(for: panelID)
     }
 

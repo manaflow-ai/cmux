@@ -1,4 +1,5 @@
 import Foundation
+import Network
 import Testing
 
 @testable import CmuxBrowser
@@ -22,12 +23,16 @@ const fetchOnce = (url) => new Promise((resolve, reject) => {
   const id = nextCall++; pending.set(id, { resolve, reject });
   __cmuxNative.fetch(id, JSON.stringify({ url }));
 });
+const driverOnce = (method) => new Promise((resolve, reject) => {
+  const id = nextCall++; pending.set(id, { resolve, reject });
+  __cmuxNative.driverCall(id, method, "{}");
+});
 const sleep = (ms) => new Promise((r) => { const id = nextTimer++; timers.set(id, r); __cmuxNative.setTimer(id, ms, false); });
 const console = { log: (...a) => __cmuxNative.print("log", a.map(String).join(" ")) };
 const AsyncFunction = (async () => {}).constructor;
 globalThis.__cmuxFormatError = (e) => `${e.name}: ${e.message}`;
 globalThis.__cmuxReplEval = (code) =>
-  new AsyncFunction("console", "fetchOnce", "sleep", "native", code)(console, fetchOnce, sleep, __cmuxNative);
+  new AsyncFunction("console", "fetchOnce", "driverOnce", "sleep", "native", code)(console, fetchOnce, driverOnce, sleep, __cmuxNative);
 """#
 
 /// Holds every `cookies.get` (the fetcher's first step for a cookie-bearing
@@ -118,6 +123,28 @@ final class HeldCookiesDriver: BrowserReplDriver, @unchecked Sendable {
     func detach() {}
 }
 
+/// Passes calls to `inner` and counts the finished ones in `completed`.
+final class BrowserReplCountingDriver: BrowserReplDriver, @unchecked Sendable {
+    private let inner: any BrowserReplDriver
+    private let completed: BrowserReplResponseCounter
+
+    init(_ inner: any BrowserReplDriver, completed: BrowserReplResponseCounter) {
+        self.inner = inner
+        self.completed = completed
+    }
+
+    var capabilities: [String] { inner.capabilities }
+
+    func call(method: String, paramsJSON: String) async -> Result<String, BrowserReplDriverError> {
+        let result = await inner.call(method: method, paramsJSON: paramsJSON)
+        completed.increment()
+        return result
+    }
+
+    func attach(eventSink: @escaping BrowserReplDriverEventSink) {}
+    func detach() {}
+}
+
 /// Counts what a test server answered.
 final class BrowserReplResponseCounter: @unchecked Sendable {
     private let lock = NSLock()
@@ -128,65 +155,135 @@ final class BrowserReplResponseCounter: @unchecked Sendable {
     func increment() { lock.withLock { value += 1 } }
 }
 
+/// A driver whose typed-secret store, which the session reads every time
+/// it redacts, can be made to block once: it stands in for a redaction
+/// that takes a long time, and records whether it ran on the session's
+/// JavaScript thread.
+final class SlowRedactionDriver: BrowserReplDriver, @unchecked Sendable {
+    private let lock = NSLock()
+    private var sink: BrowserReplDriverEventSink?
+    private var armed = false
+    private var blockedWaiters: [CheckedContinuation<Void, Never>] = []
+    private var isBlocked = false
+    private let release = DispatchSemaphore(value: 0)
+    private(set) var blockedThreadName: String?
+
+    var capabilities: [String] { [] }
+
+    func call(method: String, paramsJSON: String) async -> Result<String, BrowserReplDriverError> {
+        if method == "emitThenReturn" {
+            // The event's redaction blocks, so a result that did not wait
+            // for the events before it would arrive first.
+            armBlockingRedaction()
+            emit("console", #"{"targetId":"t1","type":"log","text":"before the result"}"#)
+            await waitUntilBlocked()
+        }
+        return .success("null")
+    }
+
+    func attach(eventSink: @escaping BrowserReplDriverEventSink) { lock.withLock { sink = eventSink } }
+
+    func detach() { lock.withLock { sink = nil } }
+
+    func emit(_ name: String, _ payload: String) {
+        let sink = lock.withLock { self.sink }
+        sink?(name, payload)
+    }
+
+    /// The next redaction blocks until `releaseRedaction()`.
+    func armBlockingRedaction() { lock.withLock { armed = true } }
+
+    func releaseRedaction() { release.signal() }
+
+    /// Returns once the armed redaction is blocked.
+    func waitUntilBlocked() async {
+        await withCheckedContinuation { continuation in
+            let resumeNow: Bool = lock.withLock {
+                if isBlocked { return true }
+                blockedWaiters.append(continuation)
+                return false
+            }
+            if resumeNow { continuation.resume() }
+        }
+    }
+
+    func typedSecretRedaction() -> BrowserReplSecretStore? {
+        let waiters: [CheckedContinuation<Void, Never>]? = lock.withLock {
+            guard armed else { return nil }
+            armed = false
+            isBlocked = true
+            blockedThreadName = Thread.current.name
+            defer { blockedWaiters = [] }
+            return blockedWaiters
+        }
+        guard let waiters else { return nil }
+        for waiter in waiters { waiter.resume() }
+        release.wait()
+        return nil
+    }
+}
+
 @Suite("Browser REPL session resources", .serialized)
 struct BrowserReplSessionResourceTests {
     private func makeSession(_ driver: any BrowserReplDriver) -> BrowserReplSession {
         BrowserReplSession(
             id: "resources-\(UUID().uuidString)",
-            cwd: FileManager.default.temporaryDirectory.path,
+            cwd: browserReplTestWorkingDirectory,
             bundle: BrowserReplRuntimeBundle(replScripts: [.init(name: "resources.js", source: resourceRuntime)], agentScripts: []),
             driver: driver
         )
     }
 
-    @Test("A session holds at most 10,000 pending timers, also while their callbacks wait for a busy thread")
+    /// The cap is lowered to 100 so the test does not depend on how fast the
+    /// machine schedules 10,000 timers; production keeps
+    /// `BrowserReplSession.maxPendingTimers`. That fired timers count until
+    /// their callback runs is covered by `BrowserReplTimerSchedulerTests`.
+    @Test("A session's pending timers are bounded, and slots free once their callbacks ran")
     func pendingTimersAreBounded() async throws {
+        let cap = 100
         let session = BrowserReplSession(
             id: "timers-\(UUID().uuidString)",
-            cwd: FileManager.default.temporaryDirectory.path,
+            cwd: browserReplTestWorkingDirectory,
             bundle: try browserReplRepositoryBundle(),
-            driver: HeldCookiesDriver()
+            driver: HeldCookiesDriver(),
+            maxPendingTimers: cap
         )
         defer { session.close() }
 
-        // Zero-delay timers fire at once, but this loop keeps the JS thread
-        // busy, so every callback is still waiting to run. The last callback
-        // to run settles `floodRan`.
-        let flood = await browserReplWithDeadline(seconds: 60) {
-            await session.evaluate(code: """
-            let n = 0;
-            globalThis.floodRan = new Promise((resolve) => {
-              let ran = 0;
-              try {
-                for (let i = 0; i < 20001; i++) { setTimeout(() => { if (++ran === n) resolve(ran); }, 0); n++; }
-              } catch (e) {
-                console.log(e.name, n);
-              }
-            });
-            // The cell's value is not the promise, so the cell does not wait for it.
-            undefined;
-            """)
-        }
-        #expect(flood?.error == nil)
-        #expect(flood?.lines.map(\.text) == ["RangeError 10000"])
+        // The callbacks cannot run before this cell ends (it holds the JS
+        // thread), so every timer stays pending. The last callback to run
+        // settles `floodRan`.
+        let flood = await session.evaluate(code: """
+        let n = 0;
+        globalThis.floodRan = new Promise((resolve) => {
+          let ran = 0;
+          try {
+            for (let i = 0; i < \(2 * cap + 1); i++) { setTimeout(() => { if (++ran === n) resolve(ran); }, 0); n++; }
+          } catch (e) {
+            console.log(e.name, n);
+          }
+        });
+        // The cell's value is not the promise, so the cell does not wait for it.
+        undefined;
+        """)
+        #expect(flood.error == nil, "\(String(describing: flood.error))")
+        #expect(flood.lines.map(\.text) == ["RangeError \(cap)"])
 
-        let ran = await browserReplWithDeadline(seconds: 60) {
-            await session.evaluate(code: "console.log(await globalThis.floodRan)")
-        }
-        #expect(ran?.lines.map(\.text) == ["10000"])
+        // Settles once every callback ran; the cell's own timeout is the only bound.
+        let ran = await session.evaluate(code: "console.log(await globalThis.floodRan)")
+        #expect(ran.error == nil, "\(String(describing: ran.error))")
+        #expect(ran.lines.map(\.text).last == "\(cap)")
 
         // Once those callbacks ran, every slot is free again: the session
-        // takes 10,000 timers (none of which comes due) once more.
-        let refill = await browserReplWithDeadline(seconds: 60) {
-            await session.evaluate(code: """
-            const ids = [];
-            for (let i = 0; i < 10000; i++) ids.push(setTimeout(() => {}, 3600000));
-            ids.forEach(clearTimeout);
-            console.log(ids.length);
-            """)
-        }
-        #expect(refill?.error == nil, "\(String(describing: refill?.error))")
-        #expect(refill?.lines.map(\.text) == ["10000"])
+        // takes `cap` timers (none of which comes due) once more.
+        let refill = await session.evaluate(code: """
+        const ids = [];
+        for (let i = 0; i < \(cap); i++) ids.push(setTimeout(() => {}, 3600000));
+        ids.forEach(clearTimeout);
+        console.log(ids.length);
+        """)
+        #expect(refill.error == nil, "\(String(describing: refill.error))")
+        #expect(refill.lines.map(\.text).last == "\(cap)")
     }
 
     @Test("Output past the native ceiling goes to a file in the session's temporary directory")
@@ -212,6 +309,340 @@ struct BrowserReplSessionResourceTests {
         let spilled = try String(contentsOfFile: path, encoding: .utf8)
         #expect(spilled.hasSuffix("last\n"))
         #expect(lines.contains { $0.text.hasPrefix("# output continues in ") })
+    }
+
+    /// Output that reaches the native print past what the session keeps in
+    /// memory goes to a spill file, but the runtime's output gate is not the
+    /// only way there (the runtime's own error reports, a script holding the
+    /// host): the spill stops at 64 MiB per cell and counts against the
+    /// session's fs budget, so a script cannot fill the disk through it.
+    @Test("Native output past the spill ceiling is dropped instead of written")
+    func nativeSpillIsBounded() async throws {
+        let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-repl-spill-\(UUID().uuidString)").path
+        try FileManager.default.createDirectory(atPath: scratch + "/work", withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: scratch) }
+        let session = BrowserReplSession(
+            id: "spill-\(UUID().uuidString)",
+            cwd: scratch + "/work",
+            bundle: BrowserReplRuntimeBundle(replScripts: [.init(name: "resources.js", source: resourceRuntime)], agentScripts: []),
+            driver: HeldCookiesDriver(),
+            temporaryDirectory: scratch
+        )
+        defer { session.close() }
+
+        // 112 MiB straight to the native host: 16 MiB kept, the rest spilled.
+        let result = await browserReplWithDeadline(seconds: 180) {
+            await session.evaluate(code: """
+            const line = "x".repeat(1 << 20);
+            for (let i = 0; i < 112; i++) native.print("log", line);
+            native.print("log", "last");
+            """, timeout: .seconds(170))
+        }
+        let lines = try #require(result?.lines)
+        let continues = try #require(lines.first { $0.text.hasPrefix("# output continues in ") }?.text)
+        let path = String(continues.dropFirst("# output continues in ".count))
+        let size = try #require(try FileManager.default.attributesOfItem(atPath: path)[.size] as? NSNumber).intValue
+        #expect(size <= 64 << 20, "the spill file grew to \(size) bytes")
+        #expect(lines.contains { $0.text.contains("dropped") }, "\(lines.suffix(3).map(\.text))")
+    }
+
+    /// A page controls its events (console messages, errors, requests),
+    /// and they queue for the session's thread while it is busy. They are
+    /// bounded where they arrive, by count and bytes, not only once they
+    /// wait for the callback budget, so a page cannot fill memory with them.
+    @Test("Page events queued for a busy session are bounded by bytes where they arrive")
+    func queuedPageEventsAreBounded() async throws {
+        let driver = RecordingReplDriver()
+        let runtime = resourceRuntime + #"""
+        globalThis.__cmuxHostOnEvent = (name, payload) => { globalThis.eventCount = (globalThis.eventCount || 0) + 1; };
+        """#
+        let session = BrowserReplSession(
+            id: "events-\(UUID().uuidString)",
+            cwd: browserReplTestWorkingDirectory,
+            bundle: BrowserReplRuntimeBundle(replScripts: [.init(name: "events.js", source: runtime)], agentScripts: []),
+            driver: driver
+        )
+        defer { session.close() }
+        // The first cell makes the context and attaches the driver's events.
+        #expect(await session.evaluate(code: "globalThis.eventCount = 0;").error == nil)
+
+        let busy = DispatchSemaphore(value: 0)
+        #expect(session.thread.perform { busy.wait() })
+        // Each just under the 1 MiB one event may carry (a larger one is
+        // withheld on arrival and holds only its notice).
+        let payload = "\"" + String(repeating: "x", count: (1 << 20) - 16) + "\""
+        for _ in 0..<100 { driver.emit("console", payload) }
+        busy.signal()
+
+        // A driver call's result follows the events that arrived before it.
+        let result = await session.evaluate(code: "await driverOnce('tabs.list'); console.log(globalThis.eventCount);")
+        let texts = result.lines.map(\.text)
+        let delivered = Int(texts.last ?? "") ?? -1
+        #expect(delivered >= 1 && delivered <= 64, "\(delivered) of 100 one-MiB events were queued: \(texts)")
+        #expect(texts.contains { $0.contains("page events were dropped") }, "\(texts)")
+    }
+
+    /// A page controls its events' size, and the session masks secrets in
+    /// each before agent code sees it. That work must not hold the session's
+    /// JavaScript thread: a cell started meanwhile runs.
+    @Test("Masking secrets in a page event does not hold up the session's cells")
+    func eventRedactionRunsOffTheJavaScriptThread() async throws {
+        let driver = SlowRedactionDriver()
+        let session = makeSession(driver)
+        defer {
+            driver.releaseRedaction()
+            session.close()
+        }
+        #expect(await session.evaluate(code: "1;").error == nil)
+
+        driver.armBlockingRedaction()
+        driver.emit("console", #"{"targetId":"t1","type":"log","text":"page text"}"#)
+        await driver.waitUntilBlocked()
+        let result = await session.evaluate(code: "console.log(1 + 1);", timeout: .seconds(5))
+        driver.releaseRedaction()
+
+        #expect(result.error == nil, "\(result.error ?? "")")
+        #expect(result.lines.map(\.text) == ["2"])
+        #expect(driver.blockedThreadName != "com.cmux.browser-repl.\(session.id)", "the event was masked on the session's thread")
+    }
+
+    /// Events are masked off the session's thread, but an event the driver
+    /// sent before a call returned still reaches the runtime first: the
+    /// runtime acts on it (a cancelled navigation fails the action that
+    /// caused it) when the call's result arrives.
+    @Test("An event sent before a driver call returns reaches the runtime before the call's result")
+    func eventsStayAheadOfLaterResults() async throws {
+        let driver = SlowRedactionDriver()
+        let runtime = resourceRuntime + #"""
+        globalThis.events = [];
+        globalThis.__cmuxHostOnEvent = (name, payload) => { globalThis.events.push(JSON.parse(payload).text); };
+        """#
+        let session = BrowserReplSession(
+            id: "ordered-\(UUID().uuidString)",
+            cwd: browserReplTestWorkingDirectory,
+            bundle: BrowserReplRuntimeBundle(replScripts: [.init(name: "ordered.js", source: runtime)], agentScripts: []),
+            driver: driver
+        )
+        defer {
+            driver.releaseRedaction()
+            session.close()
+        }
+        #expect(await session.evaluate(code: "globalThis.events = [];").error == nil)
+
+        async let evaluated = session.evaluate(
+            code: "await driverOnce('emitThenReturn'); console.log(JSON.stringify(globalThis.events));",
+            timeout: .seconds(30)
+        )
+        await driver.waitUntilBlocked()
+        driver.releaseRedaction()
+        let result = await evaluated
+
+        #expect(result.error == nil, "\(result.error ?? "")")
+        #expect(result.lines.map(\.text) == [#"["before the result"]"#])
+    }
+
+    /// Masking secrets can grow an event many times over (a mask is longer
+    /// than a one-character value), so the bytes events hold while they wait
+    /// for the session's thread are counted as they will reach JavaScript:
+    /// an event whose masked payload would pass the budget arrives withheld.
+    @Test("Page events waiting for a busy session are bounded by their masked size")
+    func maskedPageEventsAreBounded() async throws {
+        let driver = RecordingReplDriver()
+        let runtime = resourceRuntime + #"""
+        globalThis.seen = { bytes: 0, withheld: 0 };
+        globalThis.__cmuxHostOnEvent = (name, payload) => {
+          globalThis.seen.bytes += payload.length;
+          if (JSON.parse(payload).withheld) globalThis.seen.withheld += 1;
+        };
+        """#
+        let session = BrowserReplSession(
+            id: "masked-events-\(UUID().uuidString)",
+            cwd: browserReplTestWorkingDirectory,
+            bundle: BrowserReplRuntimeBundle(replScripts: [.init(name: "events.js", source: runtime)], agentScripts: []),
+            driver: driver
+        )
+        defer { session.close() }
+        let armed = await session.evaluate(code: #"native.secrets("set", JSON.stringify({ name: "s", value: "q", domains: ["example.com"] }));"#)
+        #expect(armed.error == nil, "\(armed.error ?? "")")
+
+        // Each event is 800 KiB, the secret in every other byte, under the
+        // 1 MiB per-event limit; masked, each grows to about 4.4 MiB, twenty
+        // of them past 64 MiB.
+        let busy = DispatchSemaphore(value: 0)
+        #expect(session.thread.perform { busy.wait() })
+        let text = String(repeating: "q ", count: 400 << 10)
+        for _ in 0..<20 { driver.emit("console", #"{"targetId":"t1","type":"log","text":"\#(text)"}"#) }
+        // Every event is masked and waiting for the thread before it runs again.
+        session.eventQueue.sync {}
+        busy.signal()
+
+        let result = await session.evaluate(code: "await driverOnce('tabs.list'); console.log(JSON.stringify(globalThis.seen));")
+        let seen = JSONSerialization.browserReplObject(result.lines.last?.text ?? "{}")
+        let bytes = (seen["bytes"] as? NSNumber)?.intValue ?? -1
+        let withheld = (seen["withheld"] as? NSNumber)?.intValue ?? -1
+        #expect(bytes > 0 && bytes <= BrowserReplSession.maxQueuedEventBytes, "\(bytes) bytes of masked events waited at once")
+        #expect(withheld >= 1, "\(result.lines.map { $0.text.prefix(200) })")
+    }
+
+    /// A driver call's parameters wait in the session's queue, or with the
+    /// driver, until the call ends; one call's parameters are bounded where
+    /// it is made, and so are those all its waiting and running calls hold.
+    @Test("A driver call's parameters are bounded per call and across the calls a session holds")
+    func driverCallParametersAreBounded() async throws {
+        let driver = HeldCookiesDriver()
+        let runtime = resourceRuntime + #"""
+        globalThis.driverWith = (method, params) => new Promise((resolve, reject) => {
+          const id = nextCall++; pending.set(id, { resolve, reject });
+          __cmuxNative.driverCall(id, method, params);
+        });
+        """#
+        let session = BrowserReplSession(
+            id: "params-\(UUID().uuidString)",
+            cwd: browserReplTestWorkingDirectory,
+            bundle: BrowserReplRuntimeBundle(replScripts: [.init(name: "params.js", source: runtime)], agentScripts: []),
+            driver: driver
+        )
+        defer {
+            session.close()
+            driver.releaseAll()
+        }
+        let result = await browserReplWithDeadline(seconds: 120) {
+            await session.evaluate(code: """
+            const big = JSON.stringify({ pad: "x".repeat(65 << 20) });
+            const oversized = await driverWith("tabs.list", big).then(() => "ran", (e) => e.message);
+            console.log(oversized);
+            // Held by the driver: 60 MiB each, past 512 MiB on the ninth
+            // (sooner, since the session's JavaScript heap, which holds
+            // these strings, counts toward its memory too).
+            const held = JSON.stringify({ pad: "x".repeat(60 << 20) });
+            const outcomes = [];
+            for (let i = 0; i < 9; i++) driverWith("cookies.get", held).then(() => {}, (e) => outcomes.push(e.message));
+            await Promise.resolve();
+            console.log(outcomes.length, outcomes[0]);
+            """, timeout: .seconds(100))
+        }
+        let lines = result?.lines.map { String($0.text.prefix(300)) } ?? []
+        #expect(result?.error == nil, "\(String(describing: result?.error))")
+        #expect(lines.first?.contains("MiB") == true && lines.first?.contains("ran") == false, "\(lines)")
+        let refused = Int(lines.last?.split(separator: " ").first ?? "") ?? 0
+        #expect((1...8).contains(refused) && lines.last?.contains("MiB") == true, "\(lines)")
+    }
+
+    /// One `input.drag` becomes a native event for each step of its path
+    /// (five a segment, plus the press, release and first move), each a
+    /// main-actor round trip through AppKit and WebKit. Its parameters
+    /// alone allow millions of points, so the call is refused before the
+    /// driver sees it when its path makes more events than one call may
+    /// send; a path within the limit reaches the driver.
+    @Test("A drag path past the native input event limit is refused before the driver sees it")
+    func anOversizedDragPathIsRefused() async throws {
+        let driver = RecordingDriver()
+        let runtime = resourceRuntime + #"""
+        globalThis.driverWith = (method, params) => new Promise((resolve, reject) => {
+          const id = nextCall++; pending.set(id, { resolve, reject });
+          __cmuxNative.driverCall(id, method, params);
+        });
+        """#
+        let session = BrowserReplSession(
+            id: "drag-\(UUID().uuidString)",
+            cwd: browserReplTestWorkingDirectory,
+            bundle: BrowserReplRuntimeBundle(replScripts: [.init(name: "drag.js", source: runtime)], agentScripts: []),
+            driver: driver
+        )
+        defer { session.close() }
+        let result = await browserReplWithDeadline(seconds: 120) {
+            await session.evaluate(code: """
+            const path = (n) => JSON.stringify({ targetId: "t", path: Array.from({ length: n }, (_, i) => ({ x: i % 500, y: 1 })) });
+            const huge = await driverWith("input.drag", path(400000)).then(() => "ran", (e) => e.message);
+            console.log(huge);
+            const small = await driverWith("input.drag", path(3)).then(() => "ran", (e) => e.message);
+            console.log(small);
+            """, timeout: .seconds(100))
+        }
+        let lines = result?.lines.map { String($0.text.prefix(300)) } ?? []
+        #expect(result?.error == nil, "\(String(describing: result?.error))")
+        #expect(lines.first?.contains("native input events") == true, "\(lines)")
+        #expect(lines.last == "ran", "\(lines)")
+        #expect(driver.methods == ["input.drag"], "the oversized drag reached the driver: \(driver.methods.count) calls")
+    }
+
+    /// An event larger than the per-event limit arrives without its
+    /// content, as other outputs past their limits do, and still names its
+    /// tab, so masking never has to read it.
+    @Test("A page event past the per-event limit arrives withheld, naming its tab")
+    func oversizedEventIsWithheld() async throws {
+        let driver = RecordingReplDriver()
+        let runtime = resourceRuntime + #"""
+        globalThis.events = [];
+        globalThis.__cmuxHostOnEvent = (name, payload) => { globalThis.events.push([name, JSON.parse(payload)]); };
+        """#
+        let session = BrowserReplSession(
+            id: "events-\(UUID().uuidString)",
+            cwd: browserReplTestWorkingDirectory,
+            bundle: BrowserReplRuntimeBundle(replScripts: [.init(name: "events.js", source: runtime)], agentScripts: []),
+            driver: driver
+        )
+        defer { session.close() }
+        #expect(await session.evaluate(code: "globalThis.events = [];").error == nil)
+        let text = String(repeating: "x", count: 1 << 20)
+        driver.emit("console", #"{"targetId":"t1","type":"log","text":"\#(text)"}"#)
+        driver.emit("console", #"{"targetId":"t1","type":"log","text":"small"}"#)
+
+        let result = await session.evaluate(code: """
+        await driverOnce("tabs.list");
+        console.log(JSON.stringify(globalThis.events.map(([name, p]) => [name, p.targetId, p.text ?? null, typeof p.withheld])));
+        """)
+        let shown = try #require(result.lines.last?.text)
+        #expect(shown == #"[["console","t1",null,"string"],["console","t1","small","undefined"]]"#, "\(shown.prefix(300))")
+    }
+
+    /// A page event past the per-event limit is withheld where it arrives:
+    /// it holds only its notice of the queue's budget, never its raw size,
+    /// so oversized events cannot fill the queue and push out the events
+    /// after them. The tab it names is found without parsing the payload,
+    /// wherever `targetId` sits in it.
+    @Test("A page event past the per-event limit holds only its notice of the queue's budget")
+    func oversizedEventsHoldOnlyTheirNotice() async throws {
+        let driver = SlowRedactionDriver()
+        let runtime = resourceRuntime + #"""
+        globalThis.seen = { count: 0, withheld: 0, t1: 0 };
+        globalThis.__cmuxHostOnEvent = (name, payload) => {
+          const p = JSON.parse(payload);
+          globalThis.seen.count += 1;
+          if (typeof p.withheld === "string") globalThis.seen.withheld += 1;
+          if (p.targetId === "t1") globalThis.seen.t1 += 1;
+        };
+        """#
+        let session = BrowserReplSession(
+            id: "events-\(UUID().uuidString)",
+            cwd: browserReplTestWorkingDirectory,
+            bundle: BrowserReplRuntimeBundle(replScripts: [.init(name: "events.js", source: runtime)], agentScripts: []),
+            driver: driver
+        )
+        defer {
+            driver.releaseRedaction()
+            session.close()
+        }
+        #expect(await session.evaluate(code: "1;").error == nil)
+
+        // The first event's masking blocks, so every later event stays
+        // queued, holding its share of the queue's budget, until released.
+        driver.armBlockingRedaction()
+        driver.emit("console", #"{"targetId":"t1","type":"log","text":"first"}"#)
+        await driver.waitUntilBlocked()
+        // 100 events of 2 MiB: 200 MiB raw, past the 64 MiB the queue holds.
+        let text = String(repeating: "x", count: 2 << 20)
+        let payload = #"{"type":"log","text":"\#(text)","targetId":"t1"}"#
+        for _ in 0..<100 { driver.emit("console", payload) }
+        driver.releaseRedaction()
+
+        let result = await session.evaluate(code: """
+        await driverOnce("tabs.list");
+        console.log(JSON.stringify(globalThis.seen));
+        """)
+        let texts = result.lines.map(\.text)
+        #expect(!texts.contains { $0.contains("page events were dropped") }, "\(texts.map { $0.prefix(200) })")
+        #expect(texts.last == #"{"count":101,"withheld":100,"t1":101}"#, "\(texts.map { $0.prefix(200) })")
     }
 
     @Test("A cell that times out cancels the fetches it started")
@@ -266,4 +697,726 @@ struct BrowserReplSessionResourceTests {
             #expect(responses >= index - 15, "fetch \(index + 1) started after \(responses) responses: \(arrivals)")
         }
     }
+
+    /// Cells run one at a time; callers that share a session wait for the
+    /// running one. The waiting cells and their source are bounded, so a
+    /// caller past either bound gets an error at once instead of waiting.
+    @Test("A session holds at most 64 waiting cells; one more is refused at once")
+    func waitingCellsAreBounded() async {
+        let driver = HeldCookiesDriver()
+        let session = makeSession(driver)
+        defer {
+            session.close()
+            driver.releaseAll()
+        }
+        let running = Task { await session.evaluate(code: "await driverOnce('cookies.get'); console.log('first');", timeout: .seconds(60)) }
+        let started = await browserReplWithDeadline(seconds: 30) { await driver.waitForEntries(1) }
+        #expect(started != nil)
+
+        let waiting = 64  // the documented bound
+        let (results, sink) = AsyncStream.makeStream(of: BrowserReplEvalResult.self)
+        for _ in 0...waiting {
+            Task { sink.yield(await session.evaluate(code: "console.log('ran');", timeout: .seconds(60))) }
+        }
+        // The running cell holds every other one, so the first result is
+        // the refusal of the one past the bound.
+        let first = await browserReplWithDeadline(seconds: 30) { () -> BrowserReplEvalResult? in
+            for await result in results { return result }
+            return nil
+        }
+        #expect(first??.error?.contains("cells waiting to run at most 64 at once") == true, "\(String(describing: first))")
+
+        driver.releaseAll()
+        #expect(await running.value.lines.map(\.text) == ["first"])
+        let rest = await browserReplWithDeadline(seconds: 60) { () -> [BrowserReplEvalResult] in
+            var collected: [BrowserReplEvalResult] = []
+            for await result in results {
+                collected.append(result)
+                if collected.count == waiting { break }
+            }
+            return collected
+        }
+        #expect(rest?.count == waiting)
+        #expect(rest?.allSatisfy { $0.error == nil && $0.lines.map(\.text) == ["ran"] } == true)
+    }
+
+    @Test("Cells waiting to run hold at most 64 MiB of source; more is refused at once")
+    func waitingCellSourceIsBounded() async {
+        let driver = HeldCookiesDriver()
+        let session = makeSession(driver)
+        defer {
+            session.close()
+            driver.releaseAll()
+        }
+        let running = Task { await session.evaluate(code: "await driverOnce('cookies.get');", timeout: .seconds(60)) }
+        let started = await browserReplWithDeadline(seconds: 30) { await driver.waitForEntries(1) }
+        #expect(started != nil)
+
+        let large = "//" + String(repeating: "x", count: 64 << 20)
+        let refused = await browserReplWithDeadline(seconds: 30) { await session.evaluate(code: large, timeout: .seconds(60)) }
+        #expect(refused?.error?.contains("64 MiB") == true, "\(String(describing: refused?.error))")
+        driver.releaseAll()
+        _ = await running.value
+    }
+
+    @Test("A cell that times out cancels the driver calls it started")
+    func timeoutCancelsTheCellsDriverCalls() async {
+        let driver = HeldCookiesDriver()
+        let session = makeSession(driver)
+        defer {
+            session.close()
+            driver.releaseAll()
+        }
+
+        let result = await session.evaluate(
+            code: "driverOnce('cookies.get'); await new Promise(() => {});",
+            timeout: .milliseconds(100)
+        )
+        #expect(result.error?.contains("timed out") == true)
+
+        // The call is still held by the driver; the timeout cancels it, not close().
+        let cancelled = await browserReplWithDeadline(seconds: 10) { await driver.waitForCancellation() }
+        #expect(cancelled != nil, "the timed-out cell's driver call kept running")
+        #expect(!session.isClosed)
+    }
+
+    @Test("A session runs at most 256 driver calls at once; the rest start as earlier ones finish")
+    func driverCallConcurrencyIsBounded() async {
+        let completed = BrowserReplResponseCounter()
+        let held = HeldCookiesDriver(responses: { completed.count })
+        let session = makeSession(BrowserReplCountingDriver(held, completed: completed))
+        defer {
+            session.close()
+            held.releaseAll()
+        }
+
+        let evaluation = Task {
+            await session.evaluate(code: """
+            const all = await Promise.all(Array.from({ length: 300 }, () => driverOnce("cookies.get")));
+            console.log(all.length);
+            """, timeout: .seconds(60))
+        }
+        let started = await browserReplWithDeadline(seconds: 30) { await held.waitForEntries(256) }
+        #expect(started != nil)
+        held.releaseAll()
+        let result = await browserReplWithDeadline(seconds: 60) { await evaluation.value }
+
+        #expect(result?.error == nil, "\(String(describing: result?.error))")
+        #expect(result?.lines.map(\.text) == ["300"])
+        // The 257th call starts only after one has finished, the 258th after two, and so on.
+        let arrivals = held.responsesAtEntry
+        #expect(arrivals.count == 300)
+        for (index, finished) in arrivals.enumerated() where index >= 256 {
+            #expect(finished >= index - 255, "driver call \(index + 1) started after \(finished) finished")
+        }
+    }
+
+    @Test("A fetch past the queue bound fails at once with an error that says why")
+    func fetchQueueIsBounded() async {
+        let driver = HeldCookiesDriver()
+        let session = makeSession(driver)
+        defer {
+            session.close()
+            driver.releaseAll()
+        }
+
+        // The first 16 wait for their cookies in the running slots, the next
+        // ones wait in the queue; past its bound a fetch fails at once.
+        let admitted = BrowserReplSession.maxConcurrentFetches + 256  // the documented queue bound
+        let result = await browserReplWithDeadline(seconds: 60) {
+            await session.evaluate(code: """
+            const all = Array.from({ length: \(admitted + 5) }, () => fetchOnce("http://127.0.0.1:9/held").then(() => "ok", (e) => e.message));
+            const refused = await Promise.all(all.slice(\(admitted)));
+            console.log(refused.length);
+            console.log(refused[0]);
+            """, timeout: .seconds(10))
+        }
+        #expect(result?.error == nil, "\(String(describing: result?.error))")
+        #expect(result?.lines.first?.text == "5")
+        #expect(result?.lines.last?.text.contains("fetches waiting for a slot at most 256 at once") == true, "\(String(describing: result?.lines))")
+    }
+
+    @Test("Fetches whose headers arrived and whose bodies never end do not hold the running slots")
+    func streamingFetchesReleaseTheirSlots() async throws {
+        let streams = try await (0..<4).asyncMap { _ in try await BrowserReplHeldResponseServer.started(bodyPrefix: Data(repeating: 0x61, count: 1024)) }
+        defer { streams.forEach { $0.stop() } }
+        let plain = try BrowserReplTestHTTPServer { _, _, _ in (200, ["Content-Type": "text/plain"], Data("ok".utf8)) }
+        try await plain.start()
+        defer { plain.stop() }
+        let driver = HeldCookiesDriver()
+        driver.releaseAll()
+        let session = makeSession(driver)
+        defer { session.close() }
+
+        // 16 fetches of event streams nobody awaits (four per server, under
+        // URLSession's six connections per host).
+        let urls = streams.flatMap { server in (0..<4).map { "\"http://127.0.0.1:\(server.port)/stream?\($0)\"" } }
+        let started = await session.evaluate(code: "[\(urls.joined(separator: ","))].forEach((url) => fetchOnce(url).catch(() => {}));")
+        #expect(started.error == nil)
+
+        let next = await browserReplWithDeadline(seconds: 60) {
+            await session.evaluate(code: "console.log((await fetchOnce('http://127.0.0.1:\(plain.port)/')).status)", timeout: .seconds(15))
+        }
+        #expect(next?.error == nil, "\(String(describing: next?.error))")
+        #expect(next?.lines.map(\.text) == ["200"])
+    }
+
+    @Test("The response bodies a session's fetches buffer at once are bounded")
+    func fetchBodyBuffersAreBoundedPerSession() async throws {
+        // Three bodies of 50 MiB each fit the per-fetch limit; together they
+        // pass the session's budget, so one fails while the others still wait.
+        let chunk = Data(repeating: 0x62, count: 50 << 20)
+        let server = try await BrowserReplHeldResponseServer.started(bodyPrefix: chunk, declaredLength: 60 << 20)
+        defer { server.stop() }
+        let driver = HeldCookiesDriver()
+        driver.releaseAll()
+        let session = makeSession(driver)
+        defer { session.close() }
+
+        let result = await browserReplWithDeadline(seconds: 120) {
+            await session.evaluate(code: """
+            const all = [0, 1, 2].map((i) => fetchOnce("http://127.0.0.1:\(server.port)/body?" + i).then(() => "ok", (e) => e.message));
+            console.log(await Promise.race(all));
+            """, timeout: .seconds(60))
+        }
+        #expect(result?.error == nil, "\(String(describing: result?.error))")
+        #expect(result?.lines.first?.text.contains("response bodies the session's fetches hold at most 128 MiB") == true, "\(String(describing: result?.lines))")
+    }
+    /// A page value a driver call returns (`frame.evaluate`, a capture) is
+    /// built by the page; past what one call may return it fails before
+    /// the session masks or queues it.
+    @Test("A driver result past 64 MiB fails with an error that says why")
+    func oversizedDriverResultFails() async throws {
+        let driver = LargeResultDriver(resultCharacters: 65 << 20)
+        driver.releaseAll()
+        let session = makeSession(driver)
+        defer { session.close() }
+        let result = await browserReplWithDeadline(seconds: 120) {
+            await session.evaluate(code: """
+            console.log(await driverOnce("big").then((r) => "returned " + r.length, (e) => e.message));
+            """, timeout: .seconds(100))
+        }
+        let text = result?.lines.first?.text ?? ""
+        #expect(result?.error == nil, "\(String(describing: result?.error))")
+        #expect(text.contains("64 MiB") && !text.hasPrefix("returned"), "\(text.prefix(300))")
+    }
+
+    /// Results a busy JavaScript thread has not taken yet stay with the
+    /// session; together they hold at most 512 MiB, and one past it fails
+    /// instead of waiting. Each result is reserved before it is masked, and
+    /// the driver counts the maskings, so every reservation is made before
+    /// the thread runs again.
+    @Test("Driver results waiting for a busy session are bounded together")
+    func waitingDriverResultsAreBounded() async throws {
+        let driver = LargeResultDriver(resultCharacters: 60 << 20)
+        let runtime = resourceRuntime + #"""
+        globalThis.settled = null;
+        """#
+        let session = BrowserReplSession(
+            id: "results-\(UUID().uuidString)",
+            cwd: browserReplTestWorkingDirectory,
+            bundle: BrowserReplRuntimeBundle(replScripts: [.init(name: "results.js", source: runtime)], agentScripts: []),
+            driver: driver
+        )
+        defer {
+            driver.releaseAll()
+            session.close()
+        }
+        // Nine results of 60 MiB: eight fit in 512 MiB, the ninth does not.
+        let started = await session.evaluate(code: """
+        globalThis.settled = Promise.all(Array.from({ length: 9 }, () =>
+          driverOnce("big").then((r) => "ok " + r.length, (e) => e.message)));
+        """)
+        #expect(started.error == nil, "\(started.error ?? "")")
+        #expect(await browserReplWithDeadline(seconds: 30) { await driver.waitForEntries(9) } != nil)
+
+        let busy = DispatchSemaphore(value: 0)
+        #expect(session.thread.perform { busy.wait() })
+        driver.countRedactions()
+        driver.releaseAll()
+        let masked = await browserReplWithDeadline(seconds: 60) { await driver.waitForRedactions(9) }
+        busy.signal()
+        #expect(masked != nil)
+
+        let result = await browserReplWithDeadline(seconds: 120) {
+            await session.evaluate(code: "console.log(JSON.stringify(await globalThis.settled));", timeout: .seconds(100))
+        }
+        let outcomes = (try? JSONSerialization.jsonObject(with: Data((result?.lines.first?.text ?? "[]").utf8))) as? [String] ?? []
+        #expect(result?.error == nil, "\(String(describing: result?.error))")
+        #expect(outcomes.count == 9, "\(outcomes.map { $0.prefix(200) })")
+        #expect(outcomes.filter { $0 == "ok \(60 << 20)" }.count == 8, "\(outcomes.map { $0.prefix(200) })")
+        #expect(outcomes.filter { $0.contains("512 MiB") }.count == 1, "\(outcomes.map { $0.prefix(200) })")
+    }
+
+    /// A synchronous host call (`fs`, `secrets`, `policy`) parses and
+    /// decodes its arguments on the session's thread before any of its own
+    /// limits apply, so they are reserved in the session's memory first:
+    /// one that cannot fit is refused before it is parsed, and nothing
+    /// stays reserved once the call returns.
+    @Test("Synchronous host call arguments are reserved before they are parsed")
+    func hostCallArgumentsAreReservedBeforeParsing() async throws {
+        let session = BrowserReplSession(
+            id: "host-args-\(UUID().uuidString)",
+            cwd: nil,
+            bundle: BrowserReplRuntimeBundle(replScripts: [.init(name: "host-args.js", source: resourceRuntime)], agentScripts: []),
+            driver: HeldCookiesDriver(),
+            limits: BrowserReplResourceLimits.standard.with(.sessionMemoryBytes, 64 << 20),
+            executionTimeLimitSupported: BrowserReplWatchdog.isSupported
+        )
+        defer { session.close() }
+        let result = await browserReplWithDeadline(seconds: 120) {
+            await session.evaluate(code: """
+            const pad = "eHh4".repeat(20 << 20);
+            for (const [name, call] of [
+              ["fs", () => native.fs("writeFile", JSON.stringify({ path: "big.bin", base64: pad }))],
+              ["secrets", () => native.secrets("set", JSON.stringify({ name: "n", value: pad, domains: ["example.com"] }))],
+              ["policy", () => native.policy("set", JSON.stringify({ allowed: [pad] }))],
+            ]) console.log(name, JSON.stringify(JSON.parse(call()).error || "ok").slice(0, 300));
+            """, timeout: .seconds(100))
+        }
+        let lines = result?.lines.map(\.text) ?? []
+        #expect(result?.error == nil, "\(String(describing: result?.error))")
+        #expect(lines.count == 3 && lines.allSatisfy { $0.contains("REPL session limit") }, "\(lines)")
+        #expect(session.ledger.held(.sessionMemoryBytes) == session.ledger.held(.scriptHeapBytes))
+    }
+
+    /// r18 native#2: driver call parameters and host call arguments are
+    /// parsed on the session's thread, which no timeout can interrupt, and
+    /// their byte limits still admit tens of millions of JSON values (about
+    /// a second of parsing and a gigabyte of objects). A call whose JSON
+    /// holds more elements than one call may, or nests deeper than the
+    /// parser takes, is refused with a clear error before it is parsed.
+    @Test("Driver and host call JSON past its structural limits is refused before it is parsed")
+    func callJSONPastItsStructuralLimitsIsRefused() async throws {
+        let driver = HeldCookiesDriver()
+        let runtime = resourceRuntime + #"""
+        globalThis.driverWith = (method, params) => new Promise((resolve, reject) => {
+          const id = nextCall++; pending.set(id, { resolve, reject });
+          __cmuxNative.driverCall(id, method, params);
+        });
+        """#
+        let session = BrowserReplSession(
+            id: "json-shape-\(UUID().uuidString)",
+            cwd: browserReplTestWorkingDirectory,
+            bundle: BrowserReplRuntimeBundle(replScripts: [.init(name: "shape.js", source: runtime)], agentScripts: []),
+            driver: driver
+        )
+        defer {
+            session.close()
+            driver.releaseAll()
+        }
+        let result = await browserReplWithDeadline(seconds: 120) {
+            await session.evaluate(code: """
+            const many = JSON.stringify({ path: "x", pad: new Array(3000000).fill(0) });
+            const deep = '{"pad":' + "[".repeat(600) + "]".repeat(600) + "}";
+            console.log(await driverWith("tabs.list", many).then(() => "ran", (e) => e.message));
+            console.log(await driverWith("tabs.list", deep).then(() => "ran", (e) => e.message));
+            console.log(JSON.parse(native.fs("stat", many)).error?.message ?? "ran");
+            console.log(JSON.parse(native.policy("get", many)).error?.message ?? "ran");
+            // Within the limits a call still runs.
+            console.log(await driverWith("tabs.list", JSON.stringify({ pad: new Array(1000).fill(0) })).then(() => "ran", (e) => e.message));
+            """, timeout: .seconds(100))
+        }
+        let lines = result?.lines.map { String($0.text.prefix(300)) } ?? []
+        #expect(result?.error == nil, "\(String(describing: result?.error))")
+        #expect(lines.count == 5, "\(lines)")
+        #expect(lines.prefix(4).allSatisfy { $0.contains("JSON") && $0.contains("most one call") }, "\(lines)")
+        #expect(lines.last == "ran", "\(lines)")
+    }
+
+    /// r24 native#3: a fetch request's JSON had only the coarse size check
+    /// before it was queued and parsed, so it could hold millions of
+    /// elements or nest past the parser. It is refused like a driver or
+    /// host call's JSON, before it is admitted or parsed.
+    @Test("Fetch request JSON past the call structural limits is refused before it is parsed")
+    func fetchRequestJSONPastItsStructuralLimitsIsRefused() async throws {
+        let driver = HeldCookiesDriver()
+        driver.releaseAll()
+        let runtime = resourceRuntime + #"""
+        globalThis.fetchRaw = (json) => new Promise((resolve, reject) => {
+          const id = nextCall++; pending.set(id, { resolve, reject });
+          __cmuxNative.fetch(id, json);
+        });
+        """#
+        let session = BrowserReplSession(
+            id: "fetch-shape-\(UUID().uuidString)",
+            cwd: browserReplTestWorkingDirectory,
+            bundle: BrowserReplRuntimeBundle(replScripts: [.init(name: "fetch-shape.js", source: runtime)], agentScripts: []),
+            driver: driver
+        )
+        defer { session.close() }
+        let result = await browserReplWithDeadline(seconds: 120) {
+            await session.evaluate(code: """
+            const many = JSON.stringify({ url: "http://127.0.0.1:9/", headers: [], pad: new Array(3000000).fill(0) });
+            const deep = '{"url":"http://127.0.0.1:9/","pad":' + "[".repeat(600) + "]".repeat(600) + "}";
+            console.log(await fetchRaw(many).then(() => "ran", (e) => e.message));
+            console.log(await fetchRaw(deep).then(() => "ran", (e) => e.message));
+            """, timeout: .seconds(100))
+        }
+        let lines = result?.lines.map { String($0.text.prefix(300)) } ?? []
+        #expect(result?.error == nil, "\(String(describing: result?.error))")
+        #expect(lines.count == 2 && lines.allSatisfy { $0.hasPrefix("fetch:") && $0.contains("JSON") && $0.contains("most one call") }, "\(lines)")
+        #expect(session.ledger.held(.requestBytes) == 0)
+    }
+
+    /// r24 native#2: a fetch result was held at its size before masking,
+    /// and masking a secret's value into its longer `<secret:name>` mark
+    /// grew it, unreserved, while it waited for the session's thread. The
+    /// masked result is held at its own size, and one that does not fit
+    /// the session's fetch body limit is refused.
+    @Test("A fetch result is held at its masked size, and refused when that does not fit")
+    func maskedFetchResultsAreHeldAtTheirMaskedSize() async throws {
+        let value = "Zq7Wk2pX"
+        let server = try BrowserReplTestHTTPServer { path, _, _ in
+            let count = path == "/small" ? 4 : 2000
+            return (200, ["Content-Type": "application/octet-stream"], Data(String(repeating: value + " ", count: count).utf8))
+        }
+        try await server.start()
+        defer { server.stop() }
+        let bundle = try browserReplRepositoryBundle()
+        // The raw result of /large (18 KB of body, about 24 KB as Base64)
+        // fits 64 KiB; masked (about 130 KB) it does not.
+        let session = BrowserReplSession(
+            id: "masked-fetch-\(UUID().uuidString)",
+            cwd: browserReplTestWorkingDirectory,
+            bundle: bundle,
+            driver: ScriptedPageDriver(),
+            limits: BrowserReplResourceLimits.standard.with(.fetchBodyBytes, 64 << 10),
+            executionTimeLimitSupported: BrowserReplWatchdog.isSupported
+        )
+        defer { session.close() }
+        let name = String(repeating: "n", count: 40)
+        let result = await browserReplWithDeadline(seconds: 120) {
+            await session.evaluate(code: """
+            secrets.set("\(name)", "\(value)", { domains: ["example.com"] });
+            for (const path of ["/small", "/large"]) {
+              const outcome = await fetch("http://127.0.0.1:\(server.port)" + path)
+                .then(async (r) => "ok " + (await r.text()).includes("<secret:\(name)>"), (e) => "refused " + e.message);
+              console.log(path, outcome);
+            }
+            """, timeout: .seconds(100))
+        }
+        let lines = result?.lines.map { String($0.text.prefix(400)) } ?? []
+        #expect(result?.error == nil, "\(String(describing: result?.error))")
+        #expect(lines.first == "/small ok true", "\(lines)")
+        #expect(lines.dropFirst().first?.hasPrefix("/large refused") == true && lines.dropFirst().first?.contains("REPL session limit") == true, "\(lines)")
+        #expect(session.ledger.held(.fetchBodyBytes) == 0)
+    }
+
+    /// r18 lane e5: one session protects at most its quota of distinct
+    /// files with `secrets.load` (512 by default), so one session cannot
+    /// fill the app-wide set alone. Past it the load fails with `limit`,
+    /// naming the quota; loading a file it already protects takes nothing.
+    @Test("secrets.load protects at most the session's quota of distinct files")
+    func secretSourceFilesAreBoundedPerSession() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("brepl-source-quota-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        for index in 1...3 {
+            try Data(#"{"https://example.com":{"pw\#(index)":"quota-test-value-\#(index)"}}"#.utf8)
+                .write(to: directory.appendingPathComponent("s\(index).json"))
+        }
+        let session = BrowserReplSession(
+            id: "source-quota-\(UUID().uuidString)",
+            cwd: directory.path,
+            bundle: BrowserReplRuntimeBundle(replScripts: [.init(name: "quota.js", source: resourceRuntime)], agentScripts: []),
+            driver: HeldCookiesDriver(),
+            limits: BrowserReplResourceLimits.standard.with(.secretSourceFiles, 2),
+            executionTimeLimitSupported: BrowserReplWatchdog.isSupported
+        )
+        defer { session.close() }
+        let result = await browserReplWithDeadline(seconds: 120) {
+            await session.evaluate(code: """
+            for (const name of ["s1.json", "s2.json", "s3.json", "s1.json"]) {
+              const error = JSON.parse(native.secrets("load", JSON.stringify({ path: name }))).error;
+              console.log(name, error ? error.code + " " + error.message : "ok");
+            }
+            """, timeout: .seconds(100))
+        }
+        let lines = result?.lines.map { String($0.text.prefix(400)) } ?? []
+        #expect(result?.error == nil, "\(String(describing: result?.error))")
+        #expect(lines.count == 4, "\(lines)")
+        #expect(lines.first == "s1.json ok" && lines.dropFirst().first == "s2.json ok", "\(lines)")
+        #expect(lines.dropFirst(2).first?.hasPrefix("s3.json limit") == true && lines.dropFirst(2).first?.contains("at most 2") == true, "\(lines)")
+        #expect(lines.last == "s1.json ok", "a file the session already protects took more of its quota: \(lines)")
+        #expect(BrowserReplResourceLimits.standard[.secretSourceFiles] == 512)
+    }
+
+    /// The running cell's source is parsed and compiled (several times its
+    /// size) before the cell can measure its heap, so it is reserved in the
+    /// session's memory first: a cell whose parse cannot fit is refused
+    /// before it is parsed, and a small one still runs.
+    @Test("The running cell's source is reserved before it is parsed")
+    func runningCellSourceIsReservedBeforeParsing() async throws {
+        let session = BrowserReplSession(
+            id: "parse-\(UUID().uuidString)",
+            cwd: nil,
+            bundle: BrowserReplRuntimeBundle(replScripts: [.init(name: "parse.js", source: resourceRuntime)], agentScripts: []),
+            driver: HeldCookiesDriver(),
+            limits: BrowserReplResourceLimits.standard.with(.sessionMemoryBytes, 64 << 20),
+            executionTimeLimitSupported: BrowserReplWatchdog.isSupported
+        )
+        defer { session.close() }
+        let large = "console.log('ran');//" + String(repeating: "x", count: 2 << 20)
+        let refused = await browserReplWithDeadline(seconds: 60) { await session.evaluate(code: large, timeout: .seconds(50)) }
+        #expect(refused?.lines.isEmpty == true, "\(String(describing: refused?.lines))")
+        #expect(refused?.error?.contains("REPL session limit") == true, "\(String(describing: refused?.error))")
+        let small = await browserReplWithDeadline(seconds: 60) { await session.evaluate(code: "console.log('ran')", timeout: .seconds(50)) }
+        #expect(small?.lines.map(\.text) == ["ran"], "\(String(describing: small))")
+        #expect(session.ledger.held(.sessionMemoryBytes) == session.ledger.held(.scriptHeapBytes))
+    }
+
+    /// JavaScriptCore cannot refuse an allocation, so a cell that keeps
+    /// allocating and never returns to the session would hold the app's
+    /// memory until its timeout. The heap is also measured while a run goes
+    /// on (on the watchdog's check), so the cell ends with the heap limit
+    /// long before its timeout, and the session with it.
+    @Test("A running cell past the heap limit ends before it returns")
+    func aRunningCellPastTheHeapLimitEndsBeforeItReturns() async throws {
+        let session = BrowserReplSession(
+            id: "heap-run-\(UUID().uuidString)",
+            cwd: nil,
+            bundle: BrowserReplRuntimeBundle(replScripts: [.init(name: "heap-run.js", source: resourceRuntime)], agentScripts: []),
+            driver: HeldCookiesDriver(),
+            limits: BrowserReplResourceLimits.standard.with(.scriptHeapBytes, 32 << 20),
+            executionTimeLimitSupported: BrowserReplWatchdog.isSupported
+        )
+        defer { session.close() }
+        let result = await browserReplWithDeadline(seconds: 120) {
+            await session.evaluate(code: """
+            const keep = [];
+            for (let i = 0; i < 96; i++) keep.push(new Uint8Array(1 << 20).fill(i & 255));
+            for (;;) {}
+            """, timeout: .seconds(30))
+        }
+        let error = result?.error ?? ""
+        #expect(error.contains("the session's JavaScript heap"), "\(error)")
+        #expect(!error.contains("timed out"), "\(error)")
+        #expect(session.endedReason?.contains("the session's JavaScript heap") == true)
+    }
+
+    /// r42 native: a browser call's parameters and a fetch's request are
+    /// JavaScript strings the session copies into native memory. The copy
+    /// is reserved in the session's ledger (``BrowserReplResource/hostCallBytes``)
+    /// by the string's length before it is made, so one that does not fit
+    /// the session's memory is refused with nothing copied.
+    @Test("Browser call parameters and fetch requests are reserved before they are copied out of JavaScript")
+    func callArgumentsAreReservedBeforeConversion() async throws {
+        let session = BrowserReplSession(
+            id: "call-admission-\(UUID().uuidString)",
+            cwd: browserReplTestWorkingDirectory,
+            bundle: BrowserReplRuntimeBundle(replScripts: [.init(name: "admission.js", source: resourceRuntime)], agentScripts: []),
+            driver: HeldCookiesDriver(),
+            limits: BrowserReplResourceLimits.standard.with(.hostCallBytes, 1 << 20),
+            executionTimeLimitSupported: BrowserReplWatchdog.isSupported
+        )
+        defer { session.close() }
+        let result = await browserReplWithDeadline(seconds: 120) {
+            await session.evaluate(code: """
+            // The runtime's own table of calls waiting for their answer.
+            const answer = (id) => new Promise((resolve) => pending.set(id, { resolve: () => resolve("ok"), reject: (e) => resolve("refused " + e.message) }));
+            const pad = "x".repeat(2 << 20);
+            const call = answer(90001);
+            native.driverCall(90001, "tabs.list", JSON.stringify({ pad }));
+            const request = answer(90002);
+            native.fetch(90002, JSON.stringify({ url: "http://127.0.0.1:9/", method: "POST", credentials: "omit", bodyBase64: pad }));
+            console.log("call", await call);
+            console.log("fetch", await request);
+            const small = answer(90003);
+            native.driverCall(90003, "tabs.list", "{}");
+            console.log("small", await small);
+            """, timeout: .seconds(100))
+        }
+        let lines = result?.lines.map { String($0.text.prefix(400)) } ?? []
+        #expect(result?.error == nil, "\(String(describing: result?.error))")
+        #expect(lines.count == 3, "\(lines)")
+        for prefix in ["call refused", "fetch refused"] {
+            let line = lines.first { $0.hasPrefix(prefix) }
+            #expect(line?.contains("REPL session limit") == true && line?.contains("at most 1 MiB at once") == true, "\(prefix): \(lines)")
+        }
+        #expect(lines.last == "small ok", "\(lines)")
+        #expect(session.ledger.held(.hostCallBytes) == 0)
+    }
+}
+
+/// Answers `big` with a JSON string of `resultCharacters` characters once
+/// `releaseAll()` ran (one shared string, so the test holds one copy), and
+/// counts the maskings the session asks it for after `countRedactions()`.
+final class LargeResultDriver: BrowserReplDriver, @unchecked Sendable {
+    private let lock = NSLock()
+    private let result: String
+    private var released = false
+    private var held: [CheckedContinuation<Void, Never>] = []
+    private var entries = 0
+    private var entryWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+    private var counting = false
+    private var redactions = 0
+    private var redactionWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+
+    init(resultCharacters: Int) {
+        result = "\"" + String(repeating: "r", count: resultCharacters) + "\""
+    }
+
+    var capabilities: [String] { [] }
+
+    func call(method: String, paramsJSON: String) async -> Result<String, BrowserReplDriverError> {
+        guard method == "big" else { return .success("null") }
+        let ready: [CheckedContinuation<Void, Never>] = lock.withLock {
+            entries += 1
+            let satisfied = entryWaiters.filter { $0.count <= entries }.map(\.continuation)
+            entryWaiters.removeAll { $0.count <= entries }
+            return satisfied
+        }
+        for waiter in ready { waiter.resume() }
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let now: Bool = lock.withLock {
+                if released { return true }
+                held.append(continuation)
+                return false
+            }
+            if now { continuation.resume() }
+        }
+        return .success(result)
+    }
+
+    func waitForEntries(_ count: Int) async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let now: Bool = lock.withLock {
+                if entries >= count { return true }
+                entryWaiters.append((count, continuation))
+                return false
+            }
+            if now { continuation.resume() }
+        }
+    }
+
+    func releaseAll() {
+        let pending: [CheckedContinuation<Void, Never>] = lock.withLock {
+            released = true
+            defer { held.removeAll() }
+            return held
+        }
+        for continuation in pending { continuation.resume() }
+    }
+
+    func countRedactions() { lock.withLock { counting = true } }
+
+    func waitForRedactions(_ count: Int) async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let now: Bool = lock.withLock {
+                if redactions >= count { return true }
+                redactionWaiters.append((count, continuation))
+                return false
+            }
+            if now { continuation.resume() }
+        }
+    }
+
+    func typedSecretRedaction() -> BrowserReplSecretStore? {
+        let ready: [CheckedContinuation<Void, Never>] = lock.withLock {
+            guard counting else { return [] }
+            redactions += 1
+            let satisfied = redactionWaiters.filter { $0.count <= redactions }.map(\.continuation)
+            redactionWaiters.removeAll { $0.count <= redactions }
+            return satisfied
+        }
+        for waiter in ready { waiter.resume() }
+        return nil
+    }
+
+    func attach(eventSink: @escaping BrowserReplDriverEventSink) {}
+    func detach() {}
+}
+
+/// Answers every request with its headers and the first part of a body,
+/// then holds the connection open until `stop()`, like an event stream or
+/// a slow download.
+final class BrowserReplHeldResponseServer: @unchecked Sendable {
+    private let listener: NWListener
+    private let queue = DispatchQueue(label: "cmux.browser-repl.test-held-http")
+    private let bodyPrefix: Data
+    private let declaredLength: Int
+    private let lock = NSLock()
+    private var connections: [NWConnection] = []
+    private(set) var port: UInt16 = 0
+
+    private init(bodyPrefix: Data, declaredLength: Int) throws {
+        self.bodyPrefix = bodyPrefix
+        self.declaredLength = declaredLength
+        let parameters = NWParameters.tcp
+        parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
+        listener = try NWListener(using: parameters)
+    }
+
+    static func started(bodyPrefix: Data, declaredLength: Int? = nil) async throws -> BrowserReplHeldResponseServer {
+        let server = try BrowserReplHeldResponseServer(bodyPrefix: bodyPrefix, declaredLength: declaredLength ?? (bodyPrefix.count + (1 << 20)))
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let box = BrowserReplOnceBox<Void>()
+            box.set(continuation)
+            server.listener.stateUpdateHandler = { [weak server] state in
+                if case .ready = state {
+                    server?.port = server?.listener.port?.rawValue ?? 0
+                    box.resume(())
+                }
+            }
+            server.listener.newConnectionHandler = { [weak server] connection in server?.serve(connection) }
+            server.listener.start(queue: server.queue)
+        }
+        return server
+    }
+
+    func stop() {
+        listener.cancel()
+        let open = lock.withLock {
+            defer { connections.removeAll() }
+            return connections
+        }
+        for connection in open { connection.cancel() }
+    }
+
+    private func serve(_ connection: NWConnection) {
+        lock.withLock { connections.append(connection) }
+        connection.start(queue: queue)
+        receive(connection, buffer: Data())
+    }
+
+    private func receive(_ connection: NWConnection, buffer: Data) {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, done, _ in
+            guard let self else { return }
+            var buffer = buffer
+            if let data { buffer.append(data) }
+            guard buffer.range(of: Data("\r\n\r\n".utf8)) != nil else {
+                if !done { self.receive(connection, buffer: buffer) }
+                return
+            }
+            var out = Data("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: \(self.declaredLength)\r\n\r\n".utf8)
+            out.append(self.bodyPrefix)
+            connection.send(content: out, completion: .contentProcessed { _ in })
+        }
+    }
+}
+
+private extension Sequence {
+    func asyncMap<T>(_ transform: (Element) async throws -> T) async rethrows -> [T] {
+        var values: [T] = []
+        for element in self { values.append(try await transform(element)) }
+        return values
+    }
+}
+
+/// Answers every call with `null` and records the methods it was asked.
+final class RecordingDriver: BrowserReplDriver, @unchecked Sendable {
+    private let lock = NSLock()
+    private var recorded: [String] = []
+    var methods: [String] { lock.withLock { recorded } }
+    var capabilities: [String] { [] }
+
+    func call(method: String, paramsJSON: String) async -> Result<String, BrowserReplDriverError> {
+        lock.withLock { recorded.append(method) }
+        return .success("null")
+    }
+
+    func attach(eventSink: @escaping BrowserReplDriverEventSink) {}
+    func detach() {}
 }

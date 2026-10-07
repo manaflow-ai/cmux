@@ -17,6 +17,28 @@
   const NAME_LIMIT = 100;
   // Longest URL printed without { urls: true }.
   const URL_LIMIT = 100;
+  // Longest cross-origin URL printed with { urls: true }, and longest
+  // off-site link summary ("host/first-segment/…").
+  const CROSS_ORIGIN_URL_LIMIT = 300;
+  const OFFSITE_LIMIT = 48;
+  const cap = (s, limit) => (s.length > limit ? s.slice(0, limit - 1) + "…" : s);
+  // Link URL summaries, made from the URL as it arrived (masked whole by
+  // the egress gate), never in the page agent: a summary drops part of the
+  // URL, and with it part of a secret masking would no longer see whole.
+  const URL_PARTS = /^[a-z][a-z0-9+.-]*:\/\/([^/?#]*)([^?#]*)(\?[^#]*)?/i;
+  // An on-site link's path, query and fragment, without its origin.
+  const onSitePath = (url) => {
+    const m = URL_PARTS.exec(url);
+    return m ? url.slice(m[0].length - m[2].length - (m[3] || "").length) || "/" : url;
+  };
+  // "host/first-segment/…" for an off-site link.
+  const offsiteSummary = (url) => {
+    const m = URL_PARTS.exec(url);
+    if (!m) return url;
+    const host = m[1].replace(/^[^@]*@/, "").replace(/:\d*$/, "").replace(/^www\./, "");
+    const segments = m[2].split("/").filter(Boolean);
+    return host + (segments.length ? "/" + segments[0] : "") + (segments.length > 1 || (m[3] && m[3].length > 1) ? "/…" : "");
+  };
   // Unnamed wrappers that print as their only element child.
   const TRANSPARENT_WRAPPERS = new Set(["listitem", "cell", "gridcell"]);
   // Printing prefers the diff whenever it is shorter than the tree; above
@@ -201,10 +223,14 @@
     if (n.scrollable) head += " [scrollable]";
     // An iframe whose frame did not answer in time.
     if (n.unread) head += ` [not read: ${n.unread}]`;
-    if (n.url && options.urls) head += ` [url=${n.url}]`;
-    else if (n.offsite) head += ` [url=${n.offsite}]`;
-    // An unnamed link's on-site URL, capped: enough to tell such links apart.
-    else if (n.url && n.showUrl) head += ` [url=${n.url.length > URL_LIMIT ? n.url.slice(0, URL_LIMIT - 1) + "…" : n.url}]`;
+    // The page agent sends link URLs whole, so a secret in one is masked
+    // whole before these caps cut it (a cross-origin URL at
+    // CROSS_ORIGIN_URL_LIMIT, an off-site summary at OFFSITE_LIMIT).
+    if (n.url && options.urls) head += ` [url=${n.sameOrigin ? onSitePath(n.url) : cap(n.url, CROSS_ORIGIN_URL_LIMIT)}]`;
+    else if (n.url && n.offsite) head += ` [url=${cap(offsiteSummary(n.url), OFFSITE_LIMIT)}]`;
+    // An unnamed link's URL (on-site without its origin), capped: enough
+    // to tell such links apart.
+    else if (n.url && n.showUrl) head += ` [url=${cap(n.sameOrigin ? onSitePath(n.url) : n.url, URL_LIMIT)}]`;
     if (n.placeholder) head += ` [placeholder=${q(n.placeholder)}]`;
     if (n.inlineOptions && n.inlineOptions.length) {
       const shown = n.inlineOptions.slice(0, INLINE_OPTIONS).join(", ");
@@ -743,11 +769,20 @@
     return out;
   }
 
+  // A line's ref: only where nodeHead() puts one, after the role, the
+  // header mark and the quoted name. Page text (a text line, a quoted name
+  // or value) can read "[ref=e1]" too, and is never taken for one.
+  const REF_HEAD = /^ *- [\w-]+(?: \[header\])?(?: "(?:[^"\\]|\\.)*")? \[ref=(\w+)\]/;
+  function lineRef(line) {
+    const ref = REF_HEAD.exec(line);
+    return ref ? ref[1] : null;
+  }
+
   // Identity of a snapshot line across a change: its ref, else its indent,
   // role and name. Unnamed lines without a ref have none.
   function lineKey(line) {
-    const ref = /\[ref=(\w+)\]/.exec(line);
-    if (ref) return ref[1];
+    const ref = lineRef(line);
+    if (ref) return ref;
     const m = /^( *- [\w-]+ "(?:[^"\\]|\\.)*")/.exec(line);
     return m ? m[1] : null;
   }
@@ -774,7 +809,7 @@
         ancestors.push(line);
         continue;
       }
-      if ((line.startsWith("+ ") || line.startsWith("~ ")) && !/\[ref=/.test(body) && !/:$/.test(body)) {
+      if ((line.startsWith("+ ") || line.startsWith("~ ")) && !lineRef(body) && !/:$/.test(body)) {
         out.push(...ancestors, line);
         ancestors = [];
       }
@@ -787,15 +822,22 @@
   // Header text comes from the page and reaches the caller's terminal, so
   // escape sequences (CSI, and OSC, DCS, SOS, PM and APC up to their
   // terminator, in 7- and 8-bit forms) and every other C0 or C1 control go,
-  // and a long line is cut with its length.
+  // and a long line is cut with its length. Only the first
+  // HEADER_SCAN_MAX characters are cleaned (a page sets how long its title
+  // is); a sequence cut there goes with the rest, which is counted.
+  const HEADER_SCAN_MAX = HEADER_LINE_MAX * 8;
   function headerLine(text) {
-    const clean = String(text)
+    const raw = String(text);
+    const scanned = raw.length > HEADER_SCAN_MAX ? raw.slice(0, HEADER_SCAN_MAX) : raw;
+    const clean = scanned
       .replace(/(?:\u001b\[|\u009b)[0-?]*[ -/]*[@-~]?/g, "")
       .replace(/(?:\u001b[\]PX^_]|[\u0090\u0098\u009d\u009e\u009f])[\s\S]*?(?:\u0007|\u009c|\u001b\\|$)/g, "")
       .replace(/[\t\n\r]/g, " ")
       .replace(/[\u0000-\u001f\u007f-\u009f]/g, "");
-    if (clean.length <= HEADER_LINE_MAX) return clean;
-    return `${clean.slice(0, HEADER_LINE_MAX)}… (${commas(clean.length - HEADER_LINE_MAX)} more characters)`;
+    const unscanned = raw.length - scanned.length;
+    if (clean.length <= HEADER_LINE_MAX && !unscanned) return clean;
+    const shown = clean.slice(0, HEADER_LINE_MAX);
+    return `${shown}… (${commas(clean.length - shown.length + unscanned)} more characters)`;
   }
 
   class Snapshot {
@@ -917,13 +959,52 @@
     });
   }
 
+  // The most page nodes one snapshot reads, over all its frames (the page
+  // agent's own bound per read is the same). A hostile page can hold
+  // millions; the walk stops here instead of pinning the page and the
+  // session, and the snapshot says so. `_maxNodes` lowers it (tests).
+  const MAX_SNAPSHOT_NODES = 250000;
+  // The most characters of page text, names, values and URLs one snapshot
+  // reads, over all its frames (the page agent's own bound per frame is the
+  // same): one text node or value can hold megabytes, which the node budget
+  // does not bound, and the tree is kept as the diff baseline. `_maxSize`
+  // lowers it (tests).
+  const MAX_SNAPSHOT_SIZE = 2000000;
+  function nodeBudget(options) {
+    if (!options._nodes) {
+      const asked = options._maxNodes > 0 ? Math.floor(options._maxNodes) : MAX_SNAPSHOT_NODES;
+      const size = Math.min(options._maxSize > 0 ? Math.floor(options._maxSize) : MAX_SNAPSHOT_SIZE, MAX_SNAPSHOT_SIZE);
+      options._nodes = { left: Math.min(asked, MAX_SNAPSHOT_NODES), total: Math.min(asked, MAX_SNAPSHOT_NODES), sizeLeft: size, sizeTotal: size, truncated: null };
+    }
+    return options._nodes;
+  }
+
   // Reads a frame's tree and, a few at a time, the trees of the frames
-  // inside it.
-  async function frameTree(page, frame, rootHandle, options, inner) {
+  // inside it. `share` is the part of the node budget this frame and the
+  // frames inside it may read, reserved for it before any of them is read:
+  // the frames inside split what this frame left of its own share, never
+  // the snapshot's remaining budget, which siblings still being read hold
+  // shares of. So frames read together never pass the budget.
+  // The page agent's walk depth bound (page-agent.js MAX_DEPTH), here for
+  // the whole stitched tree: a frame's tree goes under its iframe, so
+  // iframes nested inside each other would otherwise stack each frame's
+  // depth, and stitching, diffing and printing recurse per level.
+  const MAX_NEST = 1000;
+  const NEST_CUT = `nested deeper than ${MAX_NEST} elements; snapshot this ref to read it`;
+
+  async function frameTree(page, frame, rootHandle, options, inner, share, sizeShare, nest = 0) {
     const limit = options._limit || (options._limit = limiter(FRAME_CONCURRENCY));
+    const budget = nodeBudget(options);
+    const maxNodes = Math.max(1, share === undefined ? budget.left : share);
+    const maxSize = Math.max(1, sizeShare === undefined ? budget.sizeLeft : sizeShare);
     let called = 0;
-    const read = () => frame._agent("snapshot", { root: rootHandle || null, showHidden: !!options.showHidden, viewport: !!options.viewport, options: !!options.options, base: page._refMaxFor(frame) });
+    const read = () => frame._agent("snapshot", { root: rootHandle || null, showHidden: !!options.showHidden, viewport: !!options.viewport, options: !!options.options, base: page._refMaxFor(frame), maxNodes, maxSize, nest });
     const r = await limit(() => ((called = clock()), inner ? withDeadline(page, read(), options._frameTimeout) : read()));
+    const usedNodes = Math.min(maxNodes, Math.max(0, Number(r.visited) || 0));
+    const usedSize = Math.min(maxSize, Math.max(0, Number(r.size) || 0));
+    budget.left -= usedNodes;
+    budget.sizeLeft -= usedSize;
+    if (r.truncated && !budget.truncated) budget.truncated = r.truncated;
     // Where the time goes, for tests/browser-parity/perf: in-page traversal
     // and the whole agent call (traversal plus transport).
     const timing = options._timing;
@@ -933,16 +1014,29 @@
       timing.callMs += clock() - called;
     }
     page._noteRefMax(frame, r.max);
-    if (options.viewport) options._offscreen = (options._offscreen || 0) + (r.offscreen || 0);
+    const issued = [];
+    if (options.viewport) {
+      options._offscreen = (options._offscreen || 0) + (r.offscreen || 0);
+      if (r.offscreenMore) options._offscreenMore = true;
+    }
     const iframes = [];
-    const collect = (list) => {
+    // `level` is the node's depth in the stitched tree; an iframe whose
+    // frame would start at the depth bound is not read (stitch notes it).
+    const collect = (list, level) => {
       for (const n of list) {
         if (typeof n === "string") continue;
-        if (n.role === "iframe") iframes.push(n);
-        else if (n.children) collect(n.children);
+        if (n.ref) issued.push(n.ref);
+        if (n.role === "iframe") {
+          if (level + 1 >= MAX_NEST) n._child = { deep: true };
+          else iframes.push(n), (n._nest = level + 1);
+        } else if (n.children) collect(n.children, level + 1);
       }
     };
-    collect(r.nodes);
+    collect(r.nodes, nest);
+    // Each ref is bound to the document that issued it (Page._checkRef).
+    page._noteRefDocs(frame, r.doc, issued);
+    // The document that issued this read's refs, for annotate.
+    if (options._docs) options._docs.set(frame, r.doc);
     // All iframes of this frame resolve to their frames in one driver call
     // (frame.contentFrames); a driver without it answers per iframe.
     const handles = iframes.map((n) => n.frame).filter(Boolean);
@@ -955,12 +1049,19 @@
         if (e && e.code === "unsupported") page._batchContentFrames = false;
       }
     }
+    // The frames inside split what this frame left of its share, so
+    // reading them together cannot pass it.
+    const childShare = iframes.length ? Math.floor((maxNodes - usedNodes) / iframes.length) : 0;
+    const childSizeShare = iframes.length ? Math.floor((maxSize - usedSize) / iframes.length) : 0;
     await Promise.all(iframes.map(async (node) => {
       let child = null;
       try {
         if (batch) child = batch.get(node.frame) || null;
         else child = node.frame ? await limit(() => withDeadline(page, frame._contentFrame(node.frame), options._frameTimeout)) : null;
-        if (child && !child._detached) node._child = { frame: child, tree: await frameTree(page, child, null, options, true) };
+        if (child && !child._detached && (childShare < 1 || childSizeShare < 1)) {
+          node._child = { frame: child, overBudget: childShare < 1 ? "node" : "size" };
+          budget.truncated = budget.truncated || (childShare < 1 ? "nodes" : "size");
+        } else if (child && !child._detached) node._child = { frame: child, tree: await frameTree(page, child, null, options, true, childShare, childSizeShare, node._nest) };
       } catch (e) {
         if (e instanceof FrameTimeout) node._child = { frame: child, timedOut: true };
         // The driver does not read a frame that shows a page the domain
@@ -992,8 +1093,11 @@
           delete node.frame;
           delete node.frameFocused;
           delete node._child;
+          delete node._nest;
+          if (child && child.deep) node.unread = NEST_CUT;
           if (child && child.timedOut) node.unread = "timed out";
           if (child && child.blocked) node.unread = "blocked by the domain policy";
+          if (child && child.overBudget) node.unread = `the snapshot's ${child.overBudget} budget is used up`;
           if (child && child.tree) {
             const inner = stitch(page, child.tree, focusChain && focused, shown);
             if (inner.length) node.children = inner;
@@ -1050,7 +1154,12 @@
     if (options.interactive) nodes = interactiveOnly(nodes);
     const full = options.interactive ? render(shaped, options) : null;
     const body = render(nodes, options);
-    const trailer = options.viewport ? [`# ${options._offscreen || 0} interactive elements outside the viewport are not shown; snapshot() shows the whole page`] : [];
+    const trailer = options.viewport ? [`# ${options._offscreenMore ? "at least " : ""}${commas(options._offscreen || 0)} interactive elements outside the viewport are not shown; snapshot() shows the whole page`] : [];
+    const budget = nodeBudget(options);
+    if (budget.truncated) {
+      const note = core.readCutNote("the snapshot", { truncated: budget.truncated, maxNodes: budget.total, maxSize: budget.sizeTotal });
+      trailer.push(`# ${note}; the rest of the page is not shown. Snapshot a part of it (snapshot(ref) or snapshot(locator)) to read further`);
+    }
     body.push(...trailer);
     return { header, body, nodes, full, trailer };
   }
@@ -1091,7 +1200,10 @@
 
   // Interactive refs in the viewport, drawn with their labels for a screenshot.
   async function annotate(page, target) {
-    const { nodes } = await capture(page, target, { interactive: true });
+    // Each frame's labels go to the document that issued its refs: a frame
+    // that navigated since numbers its refs again, and draws none of these.
+    const docs = new Map();
+    const { nodes } = await capture(page, target, { interactive: true, _docs: docs });
     const byPrefix = new Map();
     const walk = (list) => {
       for (const n of list) {
@@ -1109,8 +1221,8 @@
     const drawn = [];
     for (const [prefix, refs] of byPrefix) {
       const frame = page._frameForPrefix(prefix);
-      if (!frame) continue;
-      await frame._agent("annotate", refs);
+      if (!frame || typeof docs.get(frame) !== "string") continue;
+      await frame._agent("annotate", refs, docs.get(frame));
       drawn.push(frame);
     }
     return async () => {

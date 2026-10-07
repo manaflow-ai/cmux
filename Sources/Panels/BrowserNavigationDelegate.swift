@@ -341,12 +341,86 @@ import WebKit
             label: "BrowserNavigationDelegate.navigationAction"
         ).closure
 
+        // Who makes each opaque document (data:, about:, an opaque blob:):
+        // a browser REPL session's domain policy judges it by its maker.
+        BrowserReplDocumentProvenance.note(navigationAction, in: webView)
+
+        // While a browser REPL session's guarded input or capture is in
+        // flight in this web view, no child frame loads a new document: the
+        // frame gate judged the frames before it started
+        // (BrowserReplSubframeLoadHold). The navigation is decided once
+        // that ends.
+        if BrowserReplSubframeLoadHold.shared.holdsBack(navigationAction.targetFrame, in: webView, until: { [weak self, weak webView] in
+            // A dropped decision cancels (the guard's fallback).
+            guard let self, let webView else { return }
+            self.webView(webView, decidePolicyFor: navigationAction, decisionHandler: decisionHandler)
+        }) {
+            return
+        }
+
+        // A download this navigation becomes goes to a browser REPL session
+        // only when that session's own input started it (a user's tab); the
+        // claim is bound to this navigation, not its URL.
+        if let owner {
+            BrowserReplTabAttachments.shared.noteNavigationAction(navigationAction, panelID: owner.id)
+        }
+
+        // A tab a browser REPL session created loads nothing while the
+        // session's content rules for its latest policy compile: the page
+        // would load its subresources under the previous rules. The
+        // navigation is judged once they are on the tab, and refused when
+        // WebKit refused them (BrowserReplNavigationGuard.hold).
+        if let owner {
+            switch BrowserReplNavigationGuard.shared.hold(panelID: owner.id, url: navigationAction.request.url) {
+            case .none:
+                break
+            case .refused:
+                decisionHandler(.cancel)
+                return
+            case .untilRulesSettle(let sessionID):
+                BrowserReplNavigationGuard.shared.whenRulesSettle(sessionID: sessionID) { [weak self, weak webView] in
+                    // A dropped decision cancels (the guard's fallback).
+                    guard let self, let webView else { return }
+                    self.webView(webView, decidePolicyFor: navigationAction, decisionHandler: decisionHandler)
+                }
+                return
+            }
+        }
+
+        // A tab a browser REPL session created (and its popups) loads local
+        // files, in any frame, only from the session's own directories.
+        if let url = navigationAction.request.url,
+           let owner,
+           BrowserReplNavigationGuard.shared.cancelsLocalFile(panelID: owner.id, url: url) {
+            decisionHandler(.cancel)
+            return
+        }
+
+        // A load of a file a browser REPL session governs, in any frame,
+        // also one WebKit starts itself (back/forward, a reload, a restored
+        // page, a link, a child frame), is checked now, before the browser
+        // opens the file, and its response commits only while the file is
+        // still where this check found it (BrowserReplPinnedFileLoads).
+        if let targetFrame = navigationAction.targetFrame,
+           let url = navigationAction.request.url,
+           url.isFileURL,
+           let owner,
+           !BrowserReplNavigationGuard.shared.pinsFileNavigation(
+               panelID: owner.id,
+               url: url,
+               isMainFrame: targetFrame.isMainFrame,
+               in: webView
+           ) {
+            decisionHandler(.cancel)
+            return
+        }
+
         // A browser REPL session's domain policy: a tab the session created
         // never loads a page the policy blocks (links, redirects, scripts).
         if navigationAction.targetFrame?.isMainFrame == true,
            let url = navigationAction.request.url,
            let owner,
-           BrowserReplNavigationGuard.shared.cancels(panelID: owner.id, url: url) {
+           BrowserReplNavigationGuard.shared.cancels(panelID: owner.id, url: url, initiator: navigationAction.browserReplSourceDocument) {
             decisionHandler(.cancel)
             return
         }
@@ -373,6 +447,8 @@ import WebKit
         // Authenticated cmux app links carry an in-process handoff action.
         // Consume them before generic URL rules so a broad external pattern
         // cannot divert the signed-in split placement to LaunchServices.
+        // In a tab a browser REPL session drives, only the user's own click
+        // opens the split; any other activation loads the link in the tab.
         if navigationAction.navigationType == .linkActivated,
            navigationAction.targetFrame?.isMainFrame != false,
            let url = navigationAction.request.url,
@@ -380,6 +456,7 @@ import WebKit
                url: url,
                webOrigin: AuthEnvironment.appSessionHandoffOrigin
            ),
+           BrowserReplNavigationGuard.shared.allowsExternal(panelID: owner?.id, action: navigationAction, target: .appLink),
            openAppLinkInBrowserSplit?(appLink.destinationURL) == true {
             clearAttemptedRequest(discardPendingBypasses: true)
             let reportTerminalCancellation: @MainActor () -> Void = terminalPolicyCancellationReporter?(
@@ -397,7 +474,11 @@ import WebKit
             return
         }
 
-        if let url = navigationAction.request.url {
+        // A tab a browser REPL session drives hands a link to the external
+        // browser only when the user activated it there: an agent's click
+        // or the page's own activation loads in the tab, under its guards.
+        if let url = navigationAction.request.url,
+           BrowserReplNavigationGuard.shared.allowsExternal(panelID: owner?.id, action: navigationAction, target: .configuredBrowser) {
             let openResult = externalNavigationHandler.openConfiguredExternallyResult(
                 url,
                 navigationType: navigationAction.navigationType,
@@ -477,11 +558,12 @@ import WebKit
 
         let replAttachment = owner.flatMap { BrowserReplTabAttachments.shared.attachment(for: $0.id) }
         let ownerID = owner?.id
+        let opener = replAttachment == nil ? nil : navigationAction.browserReplSourceDocument
         let openRequestInNewTab: (URLRequest) -> Void = { [requestNavigation, openInNewTab] request in
             // A REPL session sees the new tab as a popup it can attach to,
             // when it passes as an untrusted navigation (popupRoute).
             if let replAttachment, let ownerID {
-                switch BrowserReplNavigationGuard.shared.popupRoute(panelID: ownerID, url: request.url) {
+                switch BrowserReplNavigationGuard.shared.popupRoute(panelID: ownerID, url: request.url, opener: opener) {
                 case .refused:
                     return
                 case .browser:
@@ -489,11 +571,18 @@ import WebKit
                     if replAttachment.opensPopupsInBackground,
                        replAttachment.handlePopup(request: request, announce: false) { return }
                 case .session:
-                    if replAttachment.handlePopup(request: request) { return }
+                    // A tab that could not open (for example, the user
+                    // turned the browser off) refuses the new tab: it never
+                    // falls through to the user's new tab or the system
+                    // browser.
+                    _ = replAttachment.handlePopup(request: request)
+                    return
                 case .inputSession(let sessionID):
                     // A user's tab opening a tab for an agent's click: a
-                    // background tab for that agent, never a focused one.
-                    if replAttachment.handlePopup(request: request, forInputSession: sessionID) { return }
+                    // background tab for that agent, never a focused one,
+                    // and refused when it could not open.
+                    _ = replAttachment.handlePopup(request: request, forInputSession: sessionID)
+                    return
                 }
             }
             if let requestNavigation {
@@ -534,7 +623,8 @@ import WebKit
 #endif
 
         if let url = navigationAction.request.url,
-           shouldOpenInSystemBrowser(navigationAction, url: url) {
+           shouldOpenInSystemBrowser(navigationAction, url: url),
+           BrowserReplNavigationGuard.shared.allowsExternal(panelID: owner?.id, action: navigationAction, target: .systemBrowser) {
             clearAttemptedRequest(discardPendingBypasses: true)
             let reportTerminalCancellation: @MainActor () -> Void = terminalPolicyCancellationReporter?(navigationAction, webView) ?? {}
             let opened = NSWorkspace.shared.open(url)
@@ -585,6 +675,14 @@ import WebKit
            browserShouldRouteExternalNavigation(url) {
             clearAttemptedRequest(discardPendingBypasses: true)
             let reportTerminalCancellation: @MainActor () -> Void = terminalPolicyCancellationReporter?(navigationAction, webView) ?? {}
+            // Another app's scheme in a tab a browser REPL session drives
+            // opens nothing (no prompt over the user's work) unless the user
+            // clicked it there.
+            guard BrowserReplNavigationGuard.shared.allowsExternal(panelID: owner?.id, action: navigationAction, target: .otherApp) else {
+                reportTerminalCancellation()
+                decisionHandler(.cancel)
+                return
+            }
             // WKNavigationAction has no public WKNavigation identity. Keep the replacement
             // unbound so the exact original policy cancellation terminates automation.
             browserHandleExternalNavigation(
@@ -893,6 +991,34 @@ import WebKit
             label: "BrowserNavigationDelegate.navigationResponse"
         ).closure
 
+        // A child frame's document does not commit while a browser REPL
+        // session's guarded input or capture is in flight
+        // (BrowserReplSubframeLoadHold); its response is decided after.
+        if BrowserReplSubframeLoadHold.shared.holdsBack(response: navigationResponse.isForMainFrame, in: webView, until: { [weak self, weak webView] in
+            guard let self, let webView else { return }
+            self.webView(webView, decidePolicyFor: navigationResponse, decisionHandler: decisionHandler)
+        }) {
+            return
+        }
+
+        // A browser REPL session's file load commits only while the file
+        // is still where the session's check found it: before macOS 27,
+        // WebKit follows a link swapped in after the check into the user's
+        // temporary and cache directories (BrowserReplPinnedFileLoads). A
+        // governed file response of any frame that no check pinned is
+        // refused.
+        if !BrowserReplPinnedFileLoads.shared.admitsResponse(
+            navigationResponse.response,
+            isForMainFrame: navigationResponse.isForMainFrame,
+            governed: owner.map {
+                BrowserReplNavigationGuard.shared.governsFileLoad(panelID: $0.id, url: navigationResponse.response.url)
+            } ?? false,
+            in: webView
+        ) {
+            decisionHandler(.cancel)
+            return
+        }
+
         if let url = navigationResponse.response.url {
             let isMainFrame = navigationResponse.isForMainFrame
             let isTrustedInternal = trustedInternalNavigation(for: url, in: webView)
@@ -1091,6 +1217,9 @@ import WebKit
         NSLog("BrowserPanel download didBecome from navigationAction")
         didBecomeDownload?(webView, isMainFrame, restoreAttemptID)
         if isMainFrame { pendingMainFrameDownloadRestoreAttemptID = nil }
+        if let owner {
+            BrowserReplTabAttachments.shared.claimDownload(download, panelID: owner.id, fromNavigationAction: navigationAction)
+        }
         download.delegate = downloadDelegate
     }
 
@@ -1102,6 +1231,9 @@ import WebKit
         NSLog("BrowserPanel download didBecome from navigationResponse")
         didBecomeDownload?(webView, navigationResponse.isForMainFrame, restoreAttemptID)
         if navigationResponse.isForMainFrame { pendingMainFrameDownloadRestoreAttemptID = nil }
+        if let owner {
+            BrowserReplTabAttachments.shared.claimDownload(download, panelID: owner.id, fromResponse: navigationResponse)
+        }
         download.delegate = downloadDelegate
     }
 }

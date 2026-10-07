@@ -154,8 +154,12 @@ extension BrowserPanel {
     /// - Returns: Whether the state started a load. False leaves the caller
     ///   to load the URL instead.
     private func restoreDiscardedPage(using strategy: BrowserDiscardRestoreStrategy, displayURL url: URL) -> Bool {
+        // WebKit's back/forward replay grants a file the directory recorded
+        // with its entry, resolved now and unchecked: a browser REPL
+        // session's file loads by URL instead, through its pinned root.
         guard case .restoreInteractionState(let interactionState) = strategy,
-              !url.isFileURL || BrowserURLAllowlistPolicy(defaults: .standard).allowsTrustedInternalURL(url) else {
+              !url.isFileURL || BrowserURLAllowlistPolicy(defaults: .standard).allowsTrustedInternalURL(url),
+              BrowserReplTabAttachments.shared.fileLoadSession(panelID: id, url: url) == nil else {
             return false
         }
         let documentURL = pageRestoration.discardedCapture?.documentURL ?? url

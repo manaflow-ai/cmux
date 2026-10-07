@@ -9,30 +9,43 @@
     "googleDrive",
     (t) => {
       const g = S.shared.google;
-      const created = new Set();
-      async function trashNow(ref) {
-        return t.withTab(`https://docs.google.com/${ref.kind}/d/${ref.id}/edit`, async (page) => {
-          await t.waitIn(page, () => !!document.querySelector("#docs-file-menu"), undefined, { signIn: [/^https:\/\/accounts\.google\.com\//], name: "googleDrive.trash", what: "the editor's File menu", timeout: 45000 });
+      const ed = S.shared.editors.create(t);
+      // Moves the file open in `page` (its editor) to the trash. The menu
+      // item is pressed through the commit's press (the file and account
+      // read again right before the click).
+      async function trashIn(page, ref, press) {
+        await t.waitIn(page, () => !!document.querySelector("#docs-file-menu"), undefined, { signIn: [/^https:\/\/accounts\.google\.com\//], name: "googleDrive.trash", what: "the editor's File menu", timeout: 45000 });
+        await t.sleep(1500);
+        // File > Move to trash: the item is pressed only inside the one
+        // menu the File button opened (the one visible role=menu), by its
+        // label; an item with that text anywhere else on the page (page
+        // content, another menu) is never pressed, and a second open menu
+        // or a second such item presses nothing. Retried once if the menu
+        // did not open.
+        const unverified = (what) => new S.SiteError("target_unverified", `googleDrive.trash: ${what}; nothing was trashed`);
+        const fileButton = page.locator("#docs-file-menu");
+        const menu = page.locator('[role="menu"]').filter({ visible: true });
+        const item = menu.locator('[role="menuitem"]').filter({ hasText: /^(Move to trash|Move to bin)/ });
+        for (let attempt = 0; ; attempt++) {
+          const buttons = await fileButton.count();
+          if (buttons !== 1) throw unverified(`expected one File menu button, found ${buttons}`);
+          await fileButton.click();
+          if (await item.first().waitFor({ timeout: 5000 }).then(() => true, () => false)) break;
+          if (attempt) throw new S.SiteError("timeout", "googleDrive.trash: the File menu has no Move to trash item");
+          await page.keyboard.press("Escape").catch(() => {});
           await t.sleep(1500);
-          // File > Move to trash (matched by the item's text; retried once if the menu did not open).
-          const item = page.locator('[role="menuitem"]').filter({ hasText: /^(Move to trash|Move to bin)/ }).first();
-          for (let attempt = 0; ; attempt++) {
-            await page.locator("#docs-file-menu").click();
-            if (await item.waitFor({ timeout: 5000 }).then(() => true, () => false)) break;
-            if (attempt) throw new S.SiteError("timeout", "googleDrive.trash: the File menu has no Move to trash item");
-            await page.keyboard.press("Escape").catch(() => {});
-            await t.sleep(1500);
-          }
-          await item.click();
-          await t.waitIn(page, () => /moved to (the )?(trash|bin)|in (the )?(trash|bin)/i.test(document.body.innerText), undefined, { name: "googleDrive.trash", what: "the trash confirmation", timeout: 15000 }).catch(() => {});
-          created.delete(ref.id);
-        }).then(() =>
-          // A trashed file still opens for its owner, with "File is in trash".
-          t.withTab(`https://docs.google.com/${ref.kind}/d/${ref.id}/edit`, async (page) => {
-            const verified = await t.waitIn(page, () => /\b(is|moved to) (in )?(the )?(trash|bin)\b/i.test(document.body.innerText), undefined, { timeout: 20000, what: "the trash notice" }).then(() => true, () => false);
-            return { status: "trashed", verified };
-          }),
-        );
+        }
+        const menus = await menu.count();
+        if (menus !== 1) throw unverified(`expected the one open File menu, found ${menus} open menus`);
+        const items = await item.count();
+        if (items !== 1) throw unverified(`expected one Move to trash item in the File menu, found ${items}`);
+        await press(item);
+        await t.waitIn(page, () => /moved to (the )?(trash|bin)|in (the )?(trash|bin)/i.test(document.body.innerText), undefined, { name: "googleDrive.trash", what: "the trash confirmation", timeout: 15000 }).catch(() => {});
+        // A trashed file still opens for its owner, with "File is in trash".
+        return t.withTab(ed.editURL(ref), async (check) => {
+          const verified = await t.waitIn(check, () => /\b(is|moved to) (in )?(the )?(trash|bin)\b/i.test(document.body.innerText), undefined, { timeout: 20000, what: "the trash notice" }).then(() => true, () => false);
+          return { status: "trashed", verified };
+        });
       }
       // Rows of a Drive list view (Recent, search) in a background tab.
       async function driveRows(name, view, options) {
@@ -90,13 +103,20 @@
           if (typeof query !== "string" || !query.trim()) throw new S.SiteError("invalid", `googleDrive.search: query: expected Drive search text, got ${JSON.stringify(query)}`);
           return driveRows("googleDrive.search", `search?q=${encodeURIComponent(query)}`, options);
         },
-        // Creates a private Google file and names it: create("spreadsheets" | "document" | "presentation", title)
-        // -> { id, url, title }. Files made this way can be trashed without a draft.
+        // Creates a private Google file and names it: create("spreadsheets" | "document" | "presentation", title, { uid })
+        // -> { id, url, title, account }. The new file is private to the
+        // account, so this is not a draft (nobody else sees it).
         async create(kind, title, options = {}) {
           if (!["document", "spreadsheets", "presentation"].includes(kind)) throw new S.SiteError("invalid", `googleDrive.create: kind: expected document, spreadsheets or presentation, got ${JSON.stringify(kind)}`);
           if (typeof title !== "string" || !title.trim()) throw new S.SiteError("invalid", "googleDrive.create: title: expected a name");
-          const q = options.uid !== undefined ? `?authuser=${options.uid}` : "";
-          return t.withTab(`https://docs.google.com/${kind}/create${q}`, async (page) => {
+          const uid = options.uid === undefined ? 0 : options.uid;
+          if (!Number.isInteger(uid) || uid < 0) throw new S.SiteError("invalid", `googleDrive.create: uid: expected a non-negative integer, got ${JSON.stringify(options.uid)}`);
+          // Loading /create makes the file, as the account authuser names.
+          // The /u/ index is positional (another session's sign-in moves
+          // accounts to other indexes), so the URL names the account by the
+          // email at that index now, which Google accepts as authuser.
+          const account = (await g.accountAt(t, "googleDrive.create", uid)).email;
+          return t.withTab(`https://docs.google.com/${kind}/create?${new URLSearchParams({ authuser: account })}`, async (page) => {
             await t.waitIn(page, () => /\/d\/[\w-]+\/edit/.test(location.pathname) && !!document.querySelector(".docs-title-input"), undefined, { signIn: [/^https:\/\/accounts\.google\.com\//], name: "googleDrive.create", what: "the new file's editor", timeout: 45000 });
             const id = /\/d\/([\w-]+)\//.exec(new URL(page.url()).pathname)[1];
             // A rename typed while the editor loads is lost: rename once it
@@ -127,22 +147,27 @@
               } catch (e) {}
             }
             if (!saved) throw new S.SiteError("rename_failed", `googleDrive.create: created ${kind} ${id} but its new name did not save`);
-            created.add(id);
-            return { id, url: `https://docs.google.com/${kind}/d/${id}/edit`, title };
+            return { id, url: `https://docs.google.com/${kind}/d/${id}/edit`, title, account };
           });
         },
-        // Moves a Google file to the trash through its editor's File menu.
-        // A file made by googleDrive.create in this session is trashed at
-        // once; any other file needs a draft (deleting data, [1]).
+        // Moves a Google file to the trash through its editor's File menu:
+        // a draft (deleting data, [1]) that shows the file, its sharing and
+        // the account; trash(draftId, { confirm: true }) reads all of it
+        // back in a fresh editor right before the File menu.
         trash(file, options) {
-          if (typeof file === "string" && !/^draft-/.test(file)) {
-            const ref = g.parse(file, "googleDrive.trash");
-            if (created.has(ref.id)) return trashNow(ref);
-          }
-          return t.write("googleDrive", "trash", file, options, (f) => {
-            const ref = g.parse(f, "googleDrive.trash");
-            if (!g.FORMATS[ref.kind]) throw new S.SiteError("invalid", "googleDrive.trash: expected a Google Docs, Sheets or Slides URL");
-            return { category: "[1] delete data", summary: `Move Google file ${ref.id} to the trash`, preview: { file: f }, run: () => trashNow(ref) };
+          const name = "googleDrive.trash";
+          if ((typeof file === "string" && /^draft-\d+-[0-9a-f]+$/.test(file)) || (options && options.confirm)) return t.write("googleDrive", "trash", file, options);
+          const input = S.copyInput(file, `sites.${name}`);
+          const ref = g.parse(input, name);
+          if (!g.FORMATS[ref.kind]) throw new S.SiteError("invalid", `${name}: expected a Google Docs, Sheets or Slides URL`);
+          return ed.edit("googleDrive", "trash", name, ref, {}, undefined, async (page) => {
+            const title = await page.evaluate(() => { const i = document.querySelector(".docs-title-input"); return i ? i.value : null; });
+            return {
+              category: "[1] delete data",
+              summary: `Move Google file ${ref.id}${title ? ` ("${title}")` : ""} to the trash`,
+              observe: async () => ({}),
+              act: (p, press) => trashIn(p, ref, press),
+            };
           });
         },
         // Exports a Docs/Sheets/Slides file given by any Drive or Docs URL; { path, title, format }.
@@ -154,6 +179,6 @@
         },
       };
     },
-    { summary: "Download Drive files; export Google files found by Drive URL" },
+    { summary: "Download Drive files; export Google files found by Drive URL; create private files; confirmed-draft trash", writes: ["trash"] },
   );
 })(typeof globalThis !== "undefined" ? globalThis : this);

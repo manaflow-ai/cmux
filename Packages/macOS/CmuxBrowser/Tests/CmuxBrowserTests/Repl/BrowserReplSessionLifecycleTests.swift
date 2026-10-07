@@ -35,7 +35,7 @@ struct BrowserReplSessionLifecycleTests {
     ) -> BrowserReplSession {
         BrowserReplSession(
             id: "lifecycle-\(UUID().uuidString)",
-            cwd: FileManager.default.temporaryDirectory.path,
+            cwd: browserReplTestWorkingDirectory,
             bundle: bundle ?? BrowserReplRuntimeBundle(
                 replScripts: [.init(name: "lifecycle.js", source: lifecycleRuntime)],
                 agentScripts: []
@@ -144,17 +144,95 @@ struct BrowserReplSessionLifecycleTests {
         defer { session.close() }
         let hung = await browserReplWithDeadline(seconds: 30) {
             await session.evaluate(
-                code: "function hello() { console.log('hello'); } globalThis.lateDone = new Promise((done) => setTimeout(() => { console.log('late from cell 1'); done(); }, 400)); await new Promise(() => {})",
+                code: "function hello() { console.log('hello'); } setTimeout(() => console.log('late from cell 1'), 400); await new Promise(() => {})",
                 timeout: .milliseconds(200)
             )
         }
         #expect(hung?.error?.contains("timed out") == true)
         let next = await browserReplWithDeadline(seconds: 30) {
-            // Cell 2 runs until cell 1's timer has printed.
-            await session.evaluate(code: "hello(); await lateDone; console.log('cell 2')", timeout: .seconds(10))
+            // Cell 2 outlasts cell 1's timer, whose output (if it ran) is dropped.
+            await session.evaluate(code: "hello(); await new Promise((r) => setTimeout(r, 800)); console.log('cell 2')", timeout: .seconds(10))
         }
         #expect(next?.error == nil)
         #expect(next?.lines.map(\.text) == ["hello", "cell 2"])
+    }
+
+    /// r16 native#3: a cell that times out is over, so the timers it set
+    /// (and the timers they set, an interval re-arming itself) are cancelled
+    /// with it, as its fetches and driver calls are; none can act in a later
+    /// cell. Timers fire in deadline order, so cell 2's longer timer firing
+    /// shows cell 1's would have fired by then.
+    @Test("A timed-out cell's timers and intervals are cancelled and never run in later cells")
+    func timedOutCellTimersAreCancelled() async throws {
+        let session = makeSession(driver: RecordingReplDriver(), bundle: try browserReplRepositoryBundle())
+        defer { session.close() }
+        let hung = await browserReplWithDeadline(seconds: 30) {
+            await session.evaluate(
+                code: """
+                globalThis.ran = [];
+                setTimeout(() => ran.push("timeout"), 400);
+                setInterval(() => ran.push("interval"), 50);
+                setTimeout(() => setTimeout(() => ran.push("nested"), 100), 0);
+                await new Promise(() => {});
+                """,
+                timeout: .milliseconds(200)
+            )
+        }
+        #expect(hung?.error?.contains("timed out") == true)
+        let next = await browserReplWithDeadline(seconds: 30) {
+            await session.evaluate(
+                code: "ran.length = 0; await new Promise((r) => setTimeout(r, 800)); console.log(JSON.stringify(ran))",
+                timeout: .seconds(10)
+            )
+        }
+        #expect(next?.error == nil, "\(String(describing: next?.error))")
+        #expect(next?.lines.map(\.text) == ["[]"], "\(String(describing: next?.lines.map(\.text)))")
+    }
+
+    /// r17 native#2: a cell that times out while it awaits a promise
+    /// something else settles later (a page event, a value another cell
+    /// provides) is over; when that promise settles during a later cell,
+    /// the old cell's code resumes, but it does no native work (fs, driver
+    /// calls), in its own body or in an async function it awaits.
+    @Test("A timed-out cell that resumes later is refused native work")
+    func resumedTimedOutCellIsRefusedNativeWork() async throws {
+        let driver = RecordingReplDriver()
+        let session = makeSession(driver: driver, bundle: try browserReplRepositoryBundle())
+        defer { session.close() }
+        let hung = await browserReplWithDeadline(seconds: 30) {
+            await session.evaluate(
+                code: """
+                await new Promise((r) => { globalThis.resume = r; });
+                const results = [];
+                try { fs.writeFileSync(os.tmpdir() + "/stale.txt", "x"); results.push("fs ran"); } catch (e) { results.push("fs " + e.code); }
+                async function helper() {
+                  await new Promise((r) => { globalThis.resumeHelper = r; });
+                  try { await tabs.list(); return "driver ran"; } catch (e) { return "driver " + e.code; }
+                }
+                results.push(await helper());
+                globalThis.outcome = results;
+                """,
+                timeout: .milliseconds(200)
+            )
+        }
+        #expect(hung?.error?.contains("timed out") == true)
+        let callsBefore = driver.calls.filter { $0 == "tabs.list" }.count
+        let next = await browserReplWithDeadline(seconds: 30) {
+            await session.evaluate(
+                code: """
+                resume();
+                for (let i = 0; i < 400 && !globalThis.resumeHelper; i++) await new Promise((r) => setTimeout(r, 5));
+                resumeHelper();
+                for (let i = 0; i < 400 && !globalThis.outcome; i++) await new Promise((r) => setTimeout(r, 5));
+                console.log(JSON.stringify(globalThis.outcome));
+                console.log(fs.existsSync(os.tmpdir() + "/stale.txt"));
+                """,
+                timeout: .seconds(10)
+            )
+        }
+        #expect(next?.error == nil, "\(String(describing: next?.error))")
+        #expect(next?.lines.map(\.text) == [#"["fs cancelled","driver cancelled"]"#, "false"], "\(String(describing: next?.lines.map(\.text)))")
+        #expect(driver.calls.filter { $0 == "tabs.list" }.count == callsBefore, "the resumed cell reached the driver")
     }
 
     @Test("close() cancels in-flight driver calls and the evaluation returns")
@@ -331,7 +409,7 @@ struct BrowserReplSessionWatchdogTests {
     ) throws -> BrowserReplSession {
         BrowserReplSession(
             id: "watchdog-\(UUID().uuidString)",
-            cwd: FileManager.default.temporaryDirectory.path,
+            cwd: browserReplTestWorkingDirectory,
             bundle: try browserReplRepositoryBundle(),
             driver: RecordingReplDriver(),
             sleeper: sleeper,
@@ -381,7 +459,9 @@ struct BrowserReplSessionWatchdogTests {
             await session.evaluate(code: "1 + 1", timeout: .seconds(30))
         }
         #expect(next?.error == nil, "\(String(describing: next?.error))")
-        #expect(next?.lines.map(\.text) == ["2"])
+        // The next cell says the callback was stopped, then prints its value.
+        #expect(next?.lines.map(\.text).last == "2")
+        #expect(next?.lines.first.map { $0.level == "error" && $0.text.contains("was stopped") } == true, "\(String(describing: next?.lines))")
     }
 
     /// The next cell is current as soon as it is submitted, but it runs only
@@ -410,7 +490,34 @@ struct BrowserReplSessionWatchdogTests {
 
         let result = await next
         #expect(result?.error == nil, "\(String(describing: result?.error))")
-        #expect(result?.lines.map(\.text) == ["2"])
+        #expect(result?.lines.map(\.text).last == "2")
+        #expect(result?.lines.first?.text.contains("was stopped") == true, "\(String(describing: result?.lines))")
+    }
+
+    /// Each callback stays under the per-run limit, but together they would
+    /// hold the thread for minutes ahead of the next cell.
+    @Test("A stream of slow timer callbacks between cells cannot starve the next cell, which says why they waited")
+    func slowCallbacksCannotStarveTheNextCell() async throws {
+        let session = try makeSession(callbackTimeLimit: .seconds(1))
+        defer { session.close() }
+        let armed = await browserReplWithDeadline(seconds: 30) {
+            await session.evaluate(code: """
+            for (let i = 0; i < 100; i++) setTimeout(() => { const end = Date.now() + 900; while (Date.now() < end) {} }, 0);
+            // The timers come due while this loop holds the thread, so their
+            // callbacks are queued ahead of the next cell.
+            const until = Date.now() + 300;
+            while (Date.now() < until) {}
+            """, timeout: .seconds(20))
+        }
+        #expect(armed?.error == nil, "\(String(describing: armed?.error))")
+
+        let next = await browserReplWithDeadline(seconds: 30) {
+            await session.evaluate(code: "console.log('ran')", timeout: .seconds(20))
+        }
+        let lines = try #require(next?.lines, "the next cell waited behind the callbacks")
+        #expect(next?.error == nil, "\(String(describing: next?.error))")
+        #expect(lines.last?.text == "ran")
+        #expect(lines.contains { $0.level == "error" && $0.text.contains("callbacks outside a cell may use at most 10%") }, "\(lines)")
     }
 
     @Test("close() ends the session's thread even when agent code loops in the timed-out cell's cleanup")

@@ -6,6 +6,17 @@ import WebKit
 /// already carries `targetId`.
 typealias BrowserReplTabEventSink = @MainActor (_ name: String, _ payload: [String: Any]) -> Void
 
+/// Why a client outside the browser REPL is refused a tab
+/// (``BrowserReplTabAttachments/outsideClientRefusal(panelID:)``).
+enum BrowserReplOutsideClientRefusal: Sendable, Equatable {
+    /// A session drives the tab: one it opened, or a user's tab it drives
+    /// with `tabs.use()`.
+    case drivenBySession
+    /// A session typed a secret into the tab, or the user typed into the
+    /// sign-in sheet for it; the page may still show the value.
+    case holdsTypedSecrets
+}
+
 /// Tabs that REPL sessions are driving, keyed by browser surface id.
 ///
 /// `BrowserPanel`'s UI and download delegates consult this registry: in a tab
@@ -23,9 +34,18 @@ final class BrowserReplTabAttachments {
     /// list. A tab carries those of the session that created it
     /// (``BrowserReplTabAttachment/contextOptions``).
     private var sessionContexts: [String: BrowserReplContextOptions] = [:]
+    /// The policy generation whose compiled rule list each session's
+    /// context carries (``setContext(_:forSession:rulesGeneration:)``).
+    private var contextRuleGenerations: [String: Int] = [:]
+    /// ``BrowserReplContentRuleLists/failClosedRules`` compiled, once
+    /// (``prepareFailClosedRules()``).
+    private(set) var failClosedRuleList: WKContentRuleList?
+    private var failClosedCompile: Task<WKContentRuleList?, Never>?
     /// Secrets sessions typed into tabs, by tab, masked for every other
     /// session's reads until the tab closes (``BrowserReplTypedSecrets``).
-    var typedSecrets = BrowserReplTypedSecrets()
+    /// Sessions read it off the main thread (their fetch responses, files
+    /// and output), so it is not main-actor state.
+    nonisolated static let typedSecrets = BrowserReplTypedSecrets()
 
     /// The live attachment for `panelID`, if any session is attached.
     func attachment(for panelID: UUID) -> BrowserReplTabAttachment? {
@@ -33,25 +53,124 @@ final class BrowserReplTabAttachments {
         return attachment
     }
 
-    /// Attaches `sessionID` to `panel`, creating the attachment on first use.
+    /// The attachment that records `panelID`'s navigations for the downloads
+    /// they may become: the live one, or one no session drives any more
+    /// that still holds a navigation a departed session's input started
+    /// (``BrowserReplTabAttachment/holdsDepartedNavigations``). Such a
+    /// download is claimed for that session and cancelled, never kept for
+    /// the user as one nobody started.
+    private func navigationRecorder(for panelID: UUID) -> BrowserReplTabAttachment? {
+        guard let attachment = attachments[panelID] else { return nil }
+        guard attachment.isAttached || attachment.holdsDepartedNavigations else {
+            attachments.removeValue(forKey: panelID)
+            return nil
+        }
+        return attachment
+    }
+
+    /// Drops `panelID`'s attachment once no session drives it and it holds
+    /// no departed session's navigation.
+    private func dropIfUnused(_ panelID: UUID) {
+        guard let attachment = attachments[panelID], !attachment.isAttached, !attachment.holdsDepartedNavigations else { return }
+        attachments.removeValue(forKey: panelID)
+    }
+
+    /// Records a navigation of `panelID` WebKit asks about
+    /// (``BrowserReplTabAttachment/noteNavigationAction(_:)``).
+    func noteNavigationAction(_ action: WKNavigationAction, panelID: UUID) {
+        navigationRecorder(for: panelID)?.noteNavigationAction(action)
+        dropIfUnused(panelID)
+    }
+
+    /// Binds `download`, which WebKit made of `action` in `panelID`, to the
+    /// session whose input started it
+    /// (``BrowserReplTabAttachment/claimDownload(_:fromNavigationAction:)``).
+    func claimDownload(_ download: WKDownload, panelID: UUID, fromNavigationAction action: WKNavigationAction) {
+        navigationRecorder(for: panelID)?.claimDownload(download, fromNavigationAction: action)
+        dropIfUnused(panelID)
+    }
+
+    /// Binds `download`, which WebKit made of `response` in `panelID`, to
+    /// the session whose input started that frame's latest navigation
+    /// (``BrowserReplTabAttachment/claimDownload(_:fromResponse:)``).
+    func claimDownload(_ download: WKDownload, panelID: UUID, fromResponse response: WKNavigationResponse) {
+        navigationRecorder(for: panelID)?.claimDownload(download, fromResponse: response)
+        dropIfUnused(panelID)
+    }
+
+    /// Why a client outside the browser REPL (the older `browser.*` socket
+    /// methods: `cmux browser eval`, `click`, `snapshot`, `screenshot`,
+    /// `navigate` and the rest) may not use tab `panelID`, or nil. Those
+    /// methods carry no session, so no ownership check, domain policy or
+    /// secret masking applies to them: they are refused every tab a session
+    /// drives (``BrowserReplTabOwnership/refusesOutsideClients``) and every
+    /// tab that holds a value a session or the sign-in sheet typed, until it
+    /// closes (``BrowserReplTypedSecrets/holdsValues(inTab:)``). The legacy
+    /// socket resolvers ask it for every tab they hand a method.
+    func outsideClientRefusal(panelID: UUID) -> BrowserReplOutsideClientRefusal? {
+        if attachment(for: panelID)?.refusesOutsideClients == true { return .drivenBySession }
+        if Self.typedSecrets.holdsValues(inTab: panelID.uuidString) { return .holdsTypedSecrets }
+        return nil
+    }
+
+    /// Attaches `sessionID`, whose page agent lives in `world`, to `panel`,
+    /// creating the attachment on first use.
+    /// - Throws: `limit` when the tab already has as many sessions as
+    ///   ``BrowserReplTabSessionLimit/standard`` allows.
     @discardableResult
     func attach(
         panel: BrowserPanel,
         sessionID: String,
+        world: WKContentWorld,
+        ledger: BrowserReplResourceLedger? = nil,
         sink: @escaping BrowserReplTabEventSink
-    ) -> BrowserReplTabAttachment {
+    ) throws -> BrowserReplTabAttachment {
         let attachment = attachments[panel.id] ?? BrowserReplTabAttachment(panel: panel)
+        try attachment.addSink(sessionID: sessionID, world: world, ledger: ledger, sink: sink)
         attachments[panel.id] = attachment
-        attachment.addSink(sessionID: sessionID, sink: sink)
-        panel.downloadDelegate?.refreshScriptedDownloadRouting()
         return attachment
     }
 
     /// Sets `sessionID`'s browser-context options and puts them on the
     /// tabs that carry them: the tabs that session created.
-    func setContext(_ options: BrowserReplContextOptions, forSession sessionID: String) {
+    /// `rulesGeneration` is the policy generation (``BrowserReplPolicyBoard``)
+    /// whose rules `options.ruleList` holds, when it is a new list.
+    func setContext(_ options: BrowserReplContextOptions, forSession sessionID: String, rulesGeneration: Int? = nil) {
         sessionContexts[sessionID] = options
+        if let rulesGeneration { contextRuleGenerations[sessionID] = rulesGeneration }
         for attachment in attachments(forSession: sessionID) { attachment.applyContextToWebView() }
+    }
+
+    /// Puts each tab `sessionID` created under its current rules again: the
+    /// fail-closed list while its rules for a new policy or new directories
+    /// compile (``rulesInForce(forSession:)``).
+    func applyRules(forSession sessionID: String) {
+        for attachment in attachments(forSession: sessionID) { attachment.applyContextToWebView() }
+    }
+
+    /// Whether the rule list in `sessionID`'s context is the one for its
+    /// latest policy and directories: they compiled, or the list is already
+    /// that generation's. Otherwise its tabs carry the fail-closed list, so
+    /// no page loads anything under the previous rules meanwhile.
+    func rulesInForce(forSession sessionID: String) -> Bool {
+        let board = BrowserReplPolicyBoard.shared
+        if board.ruleState(for: sessionID) == .installed { return true }
+        guard let latest = board.generation(for: sessionID) else { return true }
+        return contextRuleGenerations[sessionID] == latest && board.ruleState(for: sessionID) == .pending
+    }
+
+    /// Compiles the fail-closed list once, before any session's tab can
+    /// need it (the driver awaits this before each call, and a session's
+    /// tabs exist only through its calls).
+    func prepareFailClosedRules() async {
+        if failClosedRuleList != nil { return }
+        let compile = failClosedCompile ?? Task { @MainActor in
+            guard let store = WKContentRuleListStore.default() else { return nil }
+            return try? await BrowserReplContentRuleLists.failClosedList(in: store)
+        }
+        failClosedCompile = compile
+        failClosedRuleList = await compile.value
+        if failClosedRuleList == nil { failClosedCompile = nil }
     }
 
     /// `sessionID`'s browser-context options, if it set any.
@@ -62,23 +181,58 @@ final class BrowserReplTabAttachments {
     /// Detaches `sessionID` from every tab.
     func detach(sessionID: String) {
         sessionContexts.removeValue(forKey: sessionID)
-        typedSecrets.sessionLeft(sessionID)
+        contextRuleGenerations.removeValue(forKey: sessionID)
+        Self.typedSecrets.sessionLeft(sessionID)
         for (panelID, attachment) in attachments {
-            attachment.removeSink(sessionID: sessionID)
-            attachment.panel?.downloadDelegate?.refreshScriptedDownloadRouting()
-            if !attachment.isAttached {
-                attachments.removeValue(forKey: panelID)
-            }
+            // One no session drives keeps only departed navigations; there
+            // is nothing of the session's to remove.
+            if attachment.isAttached { attachment.removeSink(sessionID: sessionID) }
+            dropIfUnused(panelID)
         }
+    }
+
+    /// The session whose directories govern a load of the local file `url`
+    /// in `panelID` that cmux starts itself (a recovery, a restore, a
+    /// reload, the page's own navigation), or nil for the user's own load
+    /// (``BrowserReplPolicyBoard/fileLoadSession(_:creator:attached:)``).
+    func fileLoadSession(panelID: UUID, url: URL) -> String? {
+        guard url.isFileURL, let attachment = attachment(for: panelID) else { return nil }
+        return BrowserReplPolicyBoard.shared.fileLoadSession(url, creator: attachment.creatorSessionID, attached: attachment.sessionIDs)
+    }
+
+    /// `panelID` moved to another workspace: the sessions that may no
+    /// longer use it there leave it (``BrowserReplTabAttachment/workspaceDidChange()``).
+    func panelDidChangeWorkspace(_ panelID: UUID) {
+        guard let attachment = attachments[panelID], attachment.isAttached else { return }
+        if !attachment.workspaceDidChange() {
+            dropIfUnused(panelID)
+        }
+    }
+
+    /// `webView` became `panelID`'s web view (``BrowserPanel/bindWebView(_:)``):
+    /// the first, or one that replaced it (a restore of a page cmux unloaded,
+    /// a crash recovery), with fresh preferences and user content controller.
+    /// A tab a session created gets its page clipboard guard again before
+    /// it loads, for the tab's whole life, also after the session left
+    /// (``BrowserReplPageClipboard/reinstall(on:tab:)``); the sessions
+    /// attached to it instrument it.
+    func webViewDidBind(_ webView: WKWebView, panelID: UUID) {
+        if pageClipboard?.reinstall(on: webView, tab: panelID) == false {
+            // As ``BrowserReplTabAttachment``'s guard: no page there keeps
+            // the system clipboard in reach.
+            webView.stopLoading()
+            webView.loadHTMLString("", baseURL: nil)
+        }
+        attachment(for: panelID)?.instrumentCurrentWebView()
     }
 
     /// Detaches everything from a panel that is closing.
     func panelDidClose(_ panelID: UUID) {
-        typedSecrets.tabClosed(panelID.uuidString)
+        pageClipboard?.tabClosed(panelID)
+        Self.typedSecrets.tabClosed(panelID.uuidString)
         guard let attachment = attachments.removeValue(forKey: panelID) else { return }
-        attachment.emit("tab.closed", [:])
+        attachment.emit(.tabClosed, [:])
         attachment.detachAll()
-        attachment.panel?.downloadDelegate?.refreshScriptedDownloadRouting()
     }
 
     /// Live attachments `sessionID` is attached to.
@@ -109,10 +263,16 @@ final class BrowserReplTabAttachment {
 
     private var sinks: [String: BrowserReplTabEventSink] = [:]
     /// Dialogs and file choosers waiting for the session each was routed
-    /// to; only that session answers one.
-    private var dialogs = BrowserReplRoutedRequests<(Bool, String?) -> Void>()
+    /// to; only that session answers one. Each dialog keeps the document of
+    /// the frame that opened it, judged again when the session answers.
+    private var dialogs = BrowserReplRoutedRequests<(respond: (Bool, String?) -> Void, document: BrowserReplFrameDocument)>()
     /// Each chooser's responder and the frame it opened from.
     private var fileChoosers = BrowserReplRoutedRequests<(respond: ([URL]?) -> Void, frame: WKFrameInfo)>()
+    /// Navigations sessions started in this tab that have not committed
+    /// yet, each with how to stop it: a session that leaves the tab (the
+    /// user moved it to another workspace, the session ended) stops its
+    /// own before they commit (``whileNavigating(sessionID:stop:_:)``).
+    private var navigations = BrowserReplRoutedRequests<@MainActor () -> Void>()
     private var nextID = 0
     private var resourceObserver: BrowserReplResourceLoadObserver?
     private var consoleHandler: BrowserReplConsoleMessageHandler?
@@ -123,6 +283,8 @@ final class BrowserReplTabAttachment {
 
     /// An automated left-button press and the HTML5 drag it may have started.
     struct DragState {
+        /// The session whose press armed it; no other session's input uses it.
+        let sessionID: String
         let capture: BrowserAutomationDragCapture
         var drop: BrowserAutomationDraggingInfo?
         var operation: NSDragOperation = []
@@ -141,7 +303,8 @@ final class BrowserReplTabAttachment {
 
     /// Mouse buttons held by automation, for drag event types.
     var mouseState = BrowserReplMouseState()
-    /// Keys held by automation, released when the last session leaves.
+    /// Keys held by automation, by the session that pressed each; a session
+    /// releases its own when it leaves (``takeHeldInput(of:)``).
     var heldKeys = BrowserReplHeldKeys()
     /// The session whose press is in progress: from its button down to its
     /// button up no other session's mouse event reaches the page, so two
@@ -160,9 +323,14 @@ final class BrowserReplTabAttachment {
     /// Runs a whole drag as one press of `sessionID`: it waits for another
     /// session's press to end, and no other session's mouse input reaches
     /// the page until the drag ends.
+    /// When the gesture ends, also when it throws partway, its press and
+    /// drag end without a drop before another session gets the pointer.
     func performPointerGesture<T>(sessionID: String, _ gesture: () async throws -> T) async throws -> T {
         do {
-            return try await pointer.performGesture(sessionID: sessionID, gesture)
+            return try await pointer.performGesture(sessionID: sessionID, ending: { [self] in
+                mouseState.reset()
+                discardDrag()
+            }, gesture)
         } catch let held as BrowserReplPointerOwner.Held {
             throw Self.pointerHeldError(held)
         }
@@ -177,19 +345,37 @@ final class BrowserReplTabAttachment {
 
     func pointerPressed(sessionID: String) { pointer.pressed(sessionID: sessionID) }
 
+    /// Whether `sessionID`'s press is in progress on this tab.
+    func holdsPointer(sessionID: String) -> Bool { pointer.owner == sessionID }
+
     func pointerReleased(sessionID: String) { pointer.released(sessionID: sessionID) }
     /// The drag in progress, between a left press and its release.
     var drag: DragState?
     /// Last automated mouse position in CSS pixels.
     var mousePosition = CGPoint.zero
-    /// Per-tab virtual clipboard (`clipboard.read` / `clipboard.write`).
-    var clipboardItems: [[String: Any]] = []
+    /// Per-tab virtual clipboard (`clipboard.read` / `clipboard.write`,
+    /// Meta+C, Meta+X and Meta+V, and the page's own writes in a tab a
+    /// session created): the live creator's alone (``BrowserReplTabClipboard``).
+    /// Its owner follows ``creatorSessionID`` (``syncClipboardOwner()``).
+    /// What it holds is charged to the creator's ledger (``ledgers``).
+    var clipboard = BrowserReplTabClipboard<[String: Any]>(measure: BrowserReplPageClipboard.bytes(of:))
+
+    /// Each attached session's resource ledger, which this tab's clipboard
+    /// is charged to while that session created and holds the tab.
+    private var ledgers: [String: BrowserReplResourceLedger] = [:]
+
+    /// Hands the clipboard to the tab's live creator, or takes it away from
+    /// a creator that left: it empties, and nothing begun before lands.
+    private func syncClipboardOwner() {
+        clipboard.setOwner(creatorSessionID, ledger: creatorSessionID.flatMap { ledgers[$0] })
+    }
     /// Target id of the tab that opened this one, for popups.
     var openerTargetID: String?
     /// Credentials from `user:password@` in URLs a session navigated to, by
-    /// `host:port`. HTTP auth challenges in a driven tab answer from these
-    /// instead of showing a prompt nobody can answer.
-    private var httpCredentials: [String: URLCredential] = [:]
+    /// session and `host:port`. HTTP auth challenges in a driven tab answer
+    /// from the acting session's or the creator's own, instead of showing a
+    /// prompt nobody can answer (``BrowserReplHTTPCredentials``).
+    private var httpCredentials = BrowserReplHTTPCredentials()
 
     private var authenticationFailure: String?
 
@@ -199,19 +385,17 @@ final class BrowserReplTabAttachment {
         return authenticationFailure
     }
 
-    func rememberCredentials(in url: URL) {
-        guard let user = url.user, !user.isEmpty, let host = url.host else { return }
-        let port = url.port ?? (url.scheme == "https" ? 443 : 80)
-        httpCredentials["\(host.lowercased()):\(port)"] = URLCredential(
-            user: user.removingPercentEncoding ?? user,
-            password: (url.password ?? "").removingPercentEncoding ?? url.password ?? "",
-            persistence: .forSession
-        )
+    /// Remembers the credentials in `url`, which `sessionID` navigates to,
+    /// as that session's alone.
+    func rememberCredentials(in url: URL, sessionID: String) {
+        httpCredentials.remember(url, sessionID: sessionID)
     }
 
     /// The answer to an HTTP authentication challenge in a driven tab: the
-    /// URL's credentials once, then the unauthenticated response (a 401
-    /// page the session sees) instead of a prompt.
+    /// acting session's (or, in a tab a session created, the creator's)
+    /// URL credentials once, then the unauthenticated response (a 401 page
+    /// the session sees) instead of a prompt. Another session's credentials
+    /// never answer it.
     func answerAuthenticationChallenge(_ challenge: URLAuthenticationChallenge) -> (URLSession.AuthChallengeDisposition, URLCredential?)? {
         let space = challenge.protectionSpace
         let httpMethods: Set<String> = [
@@ -222,8 +406,13 @@ final class BrowserReplTabAttachment {
             NSURLAuthenticationMethodNegotiate,
         ]
         guard httpMethods.contains(space.authenticationMethod), !space.isProxy() else { return nil }
-        let key = "\(space.host.lowercased()):\(space.port)"
-        if challenge.previousFailureCount == 0, let credential = httpCredentials[key] {
+        if challenge.previousFailureCount == 0,
+           let credential = httpCredentials.credential(
+               host: space.host,
+               port: space.port,
+               actingSession: inputSessionID,
+               creator: creatorSessionID
+           ) {
             return (.useCredential, credential)
         }
         // A user's tab keeps its sign-in prompt.
@@ -242,8 +431,10 @@ final class BrowserReplTabAttachment {
     /// Increments on every request start, so `networkidle` can tell a quiet
     /// period from one where requests started and finished.
     private(set) var requestGeneration = 0
-    /// The page agent's document-start user script in the tab's controller.
-    private let agentUserScript = BrowserReplAgentUserScript()
+    /// Each attached session's agent world (``BrowserReplSessionWorld``)
+    /// and its page agent's document-start user script in the tab's
+    /// controller.
+    private var agentWorlds: [String: (world: WKContentWorld, script: BrowserReplAgentUserScript)] = [:]
 
     init(panel: BrowserPanel) {
         panelID = panel.id
@@ -251,6 +442,9 @@ final class BrowserReplTabAttachment {
     }
 
     var isAttached: Bool { !sinks.isEmpty }
+    /// Whether a navigation recorded here was started by a session that
+    /// left (``BrowserReplTabOwnership/holdsDepartedNavigations``).
+    var holdsDepartedNavigations: Bool { ownership.holdsDepartedNavigations }
     var sessionIDs: [String] { Array(sinks.keys).sorted() }
     var targetID: String { panelID.uuidString }
 
@@ -261,23 +455,60 @@ final class BrowserReplTabAttachment {
     /// a tab it created): the session's behaviors apply to it.
     func markCreated(by sessionID: String) {
         ownership.markCreated(by: sessionID)
+        syncClipboardOwner()
         applyContextToWebView()
-        panel?.downloadDelegate?.refreshScriptedDownloadRouting()
     }
 
     /// `tab.handleEvents`: the events `sessionID` has a handler for here.
     func setHandledEvents(_ events: Set<BrowserReplTabEvent>, sessionID: String) {
         ownership.setHandledEvents(events, for: sessionID)
-        panel?.downloadDelegate?.refreshScriptedDownloadRouting()
     }
 
     /// Runs `body`, a session's input or navigation on this tab: a dialog or
     /// file chooser the page opens meanwhile goes to that session, also in
     /// a user's tab (``BrowserReplTabOwnership/beginInput(sessionID:)``).
-    func withInput<T>(sessionID: String, _ body: () async throws -> T) async rethrows -> T {
+    ///
+    /// Script paste is off in the tab meanwhile, and for as long after as
+    /// the page can still use the gesture the input gave it
+    /// (``BrowserReplPageClipboard/holdScriptPasteOff(in:sleeper:lingering:)``):
+    /// in a user's tab, which has no page clipboard guard, agent code must
+    /// not read the system clipboard with that gesture.
+    func withInput<T>(sessionID: String, _ body: () async throws -> T) async throws -> T {
+        let hold = try holdScriptPasteOff()
+        defer { hold?.release() }
         ownership.beginInput(sessionID: sessionID)
         defer { ownership.endInput(sessionID: sessionID) }
         return try await body()
+    }
+
+    /// Turns script paste off in the tab's web view for a session's input or
+    /// page script; fails with `unsupported` where WebKit cannot.
+    private func holdScriptPasteOff() throws -> BrowserReplScriptPasteHold? {
+        guard let webView = panel?.webView else { return nil }
+        guard let hold = BrowserReplPageClipboard.holdScriptPasteOff(in: webView) else {
+            throw BrowserReplDriverError(
+                code: "unsupported",
+                message: "This WebKit cannot turn script paste off, so the page could read the system clipboard with the gesture of the session's input or page script; the call is refused"
+            )
+        }
+        return hold
+    }
+
+    /// Runs `wait`, the wait for a navigation `sessionID` started in this
+    /// tab until it commits, so that the session leaving the tab meanwhile
+    /// (``removeSink(sessionID:)``: the user moved the tab to another
+    /// workspace, the session ended) calls `stop`, which stops the
+    /// navigation before it commits and ends the wait.
+    func whileNavigating<T>(
+        sessionID: String,
+        stop: @escaping @MainActor () -> Void,
+        _ wait: () async throws -> T
+    ) async rethrows -> T {
+        nextID += 1
+        let id = "navigation-\(nextID)"
+        navigations.add(id: id, owner: sessionID, respond: stop)
+        defer { _ = navigations.take(id: id, sessionID: sessionID) }
+        return try await wait()
     }
 
     /// Like ``withInput(sessionID:_:)``, but the window closes after `limit`
@@ -289,8 +520,12 @@ final class BrowserReplTabAttachment {
         atMost limit: Duration,
         sleeper: any BrowserReplSleeping,
         _ body: () async throws -> T
-    ) async rethrows -> T {
-        try await BrowserReplBoundedWindow(limit: limit, sleeper: sleeper).run(
+    ) async throws -> T {
+        // Script paste stays off for the whole script, not only the window:
+        // the script holds its gesture until it returns.
+        let hold = try holdScriptPasteOff()
+        defer { hold?.release() }
+        return try await BrowserReplBoundedWindow(limit: limit, sleeper: sleeper).run(
             begin: { ownership.beginInput(sessionID: sessionID) },
             end: { [weak self] in self?.ownership.endInput(sessionID: sessionID) },
             body
@@ -316,7 +551,24 @@ final class BrowserReplTabAttachment {
         return false
     }
 
-    /// The attached session whose input the page is handling now, if any.
+    /// What a link activated in this tab that would leave the browser for
+    /// `target` does (``BrowserReplTabOwnership/externalDecision(_:_:now:)``):
+    /// it leaves always in a tab no session drives; in one a session
+    /// drives, only for an activation WebKit marks as the user's gesture in
+    /// a user's tab the user is working in, while no session's input runs
+    /// or may still lend the page its gesture.
+    func externalDecision(_ target: BrowserReplExternalTarget, isUserInitiated: Bool) -> BrowserReplExternalDecision {
+        guard isAttached else { return .handOff }
+        return ownership.externalDecision(
+            target,
+            BrowserReplLinkActivation(userIsWorkingInTab: !opensPopupsInBackground, isUserInitiated: isUserInitiated),
+            now: .now
+        )
+    }
+
+    /// The attached session whose input the page is handling now, if
+    /// exactly one session's input is in flight
+    /// (``BrowserReplTabOwnership/inputSessionID``).
     var inputSessionID: String? {
         guard let sessionID = ownership.inputSessionID, sinks[sessionID] != nil else { return nil }
         return sessionID
@@ -327,11 +579,34 @@ final class BrowserReplTabAttachment {
         recipient(for: event) != nil
     }
 
-    /// The one attached session `event` goes to (``BrowserReplTabOwnership/recipient(for:)``).
+    /// The one attached session `event` goes to (``BrowserReplTabOwnership/route(for:)``).
     /// Only it receives the event and may answer it.
     private func recipient(for event: BrowserReplTabEvent) -> String? {
-        guard isAttached, let sessionID = ownership.recipient(for: event), sinks[sessionID] != nil else { return nil }
-        return sessionID
+        if case .session(let sessionID) = route(for: event) { return sessionID }
+        return nil
+    }
+
+    /// Where `event` goes; ``BrowserReplEventRoute/user`` when the tab has
+    /// no attached session or the chosen one has no sink.
+    private func route(for event: BrowserReplTabEvent) -> BrowserReplEventRoute {
+        guard isAttached else { return .user }
+        return deliverable(ownership.route(for: event))
+    }
+
+    /// Where a dialog or file chooser `frame` opened goes: never to a
+    /// session whose authority refuses that frame's document in this tab
+    /// (its domain policy, or in a tab it did not create a local file
+    /// outside its directories; ``BrowserReplTabOwnership/route(for:from:in:authority:)``).
+    private func route(for event: BrowserReplTabEvent, from frame: WKFrameInfo) -> BrowserReplEventRoute {
+        guard isAttached else { return .user }
+        return deliverable(ownership.route(for: event, from: BrowserReplFrameDocument(info: frame), in: authorityFacts) {
+            Self.authority(for: $0)
+        })
+    }
+
+    private func deliverable(_ route: BrowserReplEventRoute) -> BrowserReplEventRoute {
+        if case .session(let sessionID) = route, sinks[sessionID] == nil { return .user }
+        return route
     }
 
     /// Whether a session created this tab, so permission requests answer
@@ -346,10 +621,36 @@ final class BrowserReplTabAttachment {
         isAttached && ownership.isSessionOwned ? ownership.creatorSessionID : nil
     }
 
-    func addSink(sessionID: String, sink: @escaping BrowserReplTabEventSink) {
+    /// Whether a client outside the browser REPL is refused this tab
+    /// (``BrowserReplTabOwnership/refusesOutsideClients``).
+    var refusesOutsideClients: Bool {
+        isAttached && ownership.refusesOutsideClients
+    }
+
+    /// The live session that created this tab when it is not `sessionID`,
+    /// which then may not drive it (``BrowserReplTabOwnership/ownerRefusing(_:)``).
+    func ownerRefusing(_ sessionID: String) -> String? {
+        guard isAttached, let owner = ownership.ownerRefusing(sessionID), sinks[owner] != nil else { return nil }
+        return owner
+    }
+
+    func addSink(
+        sessionID: String,
+        world: WKContentWorld,
+        ledger: BrowserReplResourceLedger?,
+        sink: @escaping BrowserReplTabEventSink
+    ) throws {
+        // Each session runs its own page agent in every frame the tab
+        // loads, so the sessions on one tab are capped.
+        try BrowserReplTabSessionLimit.standard.admit(sessionID, attached: sinks.keys)
         let wasAttached = isAttached
         sinks[sessionID] = sink
+        ledgers[sessionID] = ledger
+        if agentWorlds[sessionID] == nil {
+            agentWorlds[sessionID] = (world, BrowserReplAgentUserScript())
+        }
         ownership.attach(sessionID: sessionID)
+        syncClipboardOwner()
         instrumentCurrentWebView()
         if !wasAttached {
             panel?.reevaluateHiddenWebViewDiscardScheduling(reason: "browser.repl.attach")
@@ -529,13 +830,35 @@ final class BrowserReplTabAttachment {
     }
 
     func removeSink(sessionID: String) {
+        // Input the session still holds was released through the session's
+        // guards when it ended (the driver's `releaseHeldInput`); what is
+        // left (a release the guards refused) is dropped without a native
+        // event, so no other session inherits it and no unguarded trusted
+        // event reaches the page.
+        dropHeldInput(of: sessionID)
         pointerReleased(sessionID: sessionID)
+        // Its navigations that have not committed stop here: the tab is no
+        // longer the session's to change.
+        for stop in navigations.removeAll(ownedBy: sessionID) { stop() }
         // Dialogs and choosers routed to the leaving session are answered as
         // unhandled ones are; no other session may answer them.
-        for respond in dialogs.removeAll(ownedBy: sessionID) { respond(false, nil) }
+        for dialog in dialogs.removeAll(ownedBy: sessionID) { dialog.respond(false, nil) }
         for chooser in fileChoosers.removeAll(ownedBy: sessionID) { chooser.respond(nil) }
+        // Its unfinished downloads end with it: cancelled, their partial
+        // files removed, never handed to the user's download location.
+        panel?.downloadDelegate?.discardSessionDownloads(sessionDownloads.sessionLeft(sessionID))
         sinks.removeValue(forKey: sessionID)
+        ledgers.removeValue(forKey: sessionID)
+        // The session's agent stops loading into the tab's documents; what
+        // it left in loaded ones stays in its world, which no later session
+        // gets (BrowserReplSessionWorld).
+        agentWorlds.removeValue(forKey: sessionID)?.script.release()
+        httpCredentials.sessionLeft(sessionID)
+        // What the creating session copied or wrote is its own; a session
+        // that drives the kept tab later never reads it, and a Copy still
+        // running for it never lands.
         ownership.detach(sessionID: sessionID)
+        syncClipboardOwner()
         if sinks.isEmpty {
             detachAll()
         } else {
@@ -565,11 +888,14 @@ final class BrowserReplTabAttachment {
     private var installedRuleList: WKContentRuleList?
     private weak var ruleListWebView: WKWebView?
 
-    /// Whether the creating session granted `permission` (`camera`,
-    /// `microphone`, `geolocation`, `notifications`). Grants apply only to
-    /// tabs the session created; a user's tab keeps cmux's own answer.
-    func grants(_ permission: String) -> Bool {
-        contextOptions.permissions.contains(permission)
+    /// Whether the creating session granted `request` (`camera`,
+    /// `microphone`, `geolocation`, `notifications`) to the origin and frame
+    /// that ask: only those its current domain policy allows
+    /// (``BrowserReplPermissionRequest/isGranted(by:authority:in:)``). Grants apply
+    /// only to tabs the session created; a user's tab keeps cmux's own answer.
+    func grants(_ request: BrowserReplPermissionRequest) -> Bool {
+        guard let creator = creatorSessionID else { return false }
+        return request.isGranted(by: contextOptions.permissions, authority: Self.authority(for: creator), in: authorityFacts)
     }
 
     /// Puts ``contextOptions`` (user agent, headers, domain rule list) on
@@ -584,7 +910,16 @@ final class BrowserReplTabAttachment {
             webView.automationUserAgentOverride = contextOptions.userAgent
         }
         webView.automationExtraHTTPHeaders = contextOptions.extraHTTPHeaders
-        let wanted = contextOptions.ruleList
+        // While the creating session's rules for its latest policy or
+        // directories compile (or after WebKit refused them), the tab
+        // carries the fail-closed list: its live page loads nothing under
+        // the previous rules.
+        var wanted = contextOptions.ruleList
+        if appliesSessionPolicies, let creator = ownership.creatorSessionID,
+           !BrowserReplTabAttachments.shared.rulesInForce(forSession: creator),
+           let failClosed = BrowserReplTabAttachments.shared.failClosedRuleList {
+            wanted = failClosed
+        }
         if let installed = installedRuleList, let owner = ruleListWebView,
            installed !== wanted || owner !== webView {
             owner.configuration.userContentController.remove(installed)
@@ -598,13 +933,17 @@ final class BrowserReplTabAttachment {
         }
     }
 
-    /// Keeps the page's scripts from writing the system clipboard in a tab a
-    /// session created (``BrowserReplPageClipboard``): WebKit's asynchronous
-    /// Clipboard API is off and `page-clipboard.js` sends the page's Clipboard
-    /// API and `execCommand("copy" | "cut")` writes to the tab's clipboard
-    /// (``clipboardItems``). The guard stays on the web view for its life,
-    /// also after the session leaves: a page loaded while the session drove
-    /// the tab never gets the system clipboard. Writes after that fail.
+    /// Keeps the page's scripts off the system clipboard in a tab a session
+    /// created (``BrowserReplPageClipboard``): WebKit's asynchronous
+    /// Clipboard API and script paste are off and `page-clipboard.js` sends
+    /// the page's Clipboard API and `execCommand("copy" | "cut")` writes to
+    /// the tab's clipboard (``clipboard``). The guard also marks the web view
+    /// as one whose `cmux browser press` Meta+C, Meta+X and Meta+V run
+    /// nothing. The guard stays for the tab's life, also after the session
+    /// leaves, and a web view that replaces the tab's gets it again before
+    /// it loads (``BrowserReplTabAttachments/webViewDidBind(_:panelID:)``):
+    /// a page in a tab a session created never gets the system clipboard.
+    /// Writes after the session left fail.
     ///
     /// The guard fails closed: `tabs.open` refuses to open a tab when WebKit
     /// cannot turn its Clipboard API off (``BrowserReplPageClipboard/isSupported``),
@@ -613,11 +952,26 @@ final class BrowserReplTabAttachment {
     /// stopped and replaced by an empty document with no script, so no page
     /// there holds the agent's gestures with the system clipboard in reach.
     private func guardPageClipboard(_ webView: WKWebView) {
-        let installed = BrowserReplTabAttachments.shared.pageClipboard?.install(on: webView) { webView, items in
-            guard let attachment = BrowserReplTabAttachments.shared.attachment(showing: webView) else { return false }
-            attachment.clipboardItems = items
-            return true
-        } ?? false
+        let installed = BrowserReplTabAttachments.shared.pageClipboard?.install(
+            on: webView,
+            tab: panelID,
+            refusing: { webView, frame in
+                // A frame the creating session's policy blocks can still run
+                // here (it loaded before the policy tightened); what it
+                // writes must not reach the agent through clipboard.read.
+                guard let creator = BrowserReplTabAttachments.shared.attachment(showing: webView)?.creatorSessionID else { return nil }
+                let document = BrowserReplFrameDocument(info: frame)
+                return BrowserReplTabAttachment.authority(for: creator).verdict(BrowserReplAccess(.document(document))).reason
+            },
+            onWrite: { webView, items in
+                // Only while the creating session holds the tab: a kept tab's
+                // page writes nowhere once its creator left.
+                // A write past the creator's ledger is rejected like one
+                // with no owner, and the clipboard keeps what it held.
+                guard let attachment = BrowserReplTabAttachments.shared.attachment(showing: webView) else { return false }
+                return (try? attachment.clipboard.writeFromPage(items)) ?? false
+            }
+        ) ?? false
         guard !installed else { return }
         webView.stopLoading()
         webView.loadHTMLString("", baseURL: nil)
@@ -625,15 +979,23 @@ final class BrowserReplTabAttachment {
 
     /// Releases held dialogs and choosers and removes page instrumentation.
     func detachAll() {
+        panel?.downloadDelegate?.discardSessionDownloads(sessionDownloads.removeAll())
         sinks.removeAll()
-        ownership = BrowserReplTabOwnership()
+        ledgers.removeAll()
+        // What a departed session's input started is kept: the download it
+        // may still become is that session's, and cancelled.
+        ownership = ownership.departedNavigations()
+        syncClipboardOwner()
+        httpCredentials = BrowserReplHTTPCredentials()
         // Playwright dismisses dialogs nobody handles; do the same so a page
         // is never left blocked on a dialog after its session goes away.
-        for respond in dialogs.removeAll() { respond(false, nil) }
+        for dialog in dialogs.removeAll() { dialog.respond(false, nil) }
         for chooser in fileChoosers.removeAll() { chooser.respond(nil) }
-        releaseHeldInput()
+        for stop in navigations.removeAll() { stop() }
+        resetHeldInput()
         uninstrument()
-        agentUserScript.release()
+        for (_, agent) in agentWorlds { agent.script.release() }
+        agentWorlds.removeAll()
         applyContextToWebView()
         releaseRenderHost()
         if let webView = occlusionDisabledWebView {
@@ -646,29 +1008,61 @@ final class BrowserReplTabAttachment {
         for waiter in waiters { waiter.resume() }
     }
 
-    /// Hands the tab back with no automated input in progress: keys and
-    /// buttons the sessions left pressed get their key-up and mouse-up (or
-    /// the drag they started ends), and automated right clicks whose menu
-    /// never opened stop suppressing the user's next context menu.
-    private func releaseHeldInput() {
-        let keys = heldKeys.releaseAll()
-        let buttons = mouseState.pressedButtons
-        mouseState.reset()
-        let dragState = drag
-        drag = nil
-        guard let webView = panel?.webView as? CmuxWebView else { return }
-        webView.cancelPendingAutomationContextMenus()
-        webView.automationDragCapture = nil
+    /// Keys and buttons one session holds down in this tab.
+    struct HeldInput {
+        /// The session that holds it.
+        var sessionID = ""
+        var keys: [BrowserReplKeyStroke] = []
+        var buttons: [BrowserReplMouseButton] = []
+        var drag: DragState?
+        /// The web view they were pressed in; the release goes only there.
+        var target = BrowserReplInputTarget<CmuxWebView>(nil)
+
+        var isEmpty: Bool { keys.isEmpty && buttons.isEmpty && drag == nil }
+    }
+
+    /// What `sessionID` holds down here, forgotten: its keys (last pressed
+    /// first), and its mouse buttons and drag when its press is the one in
+    /// progress (``BrowserReplPointerOwner``: only one session presses at a
+    /// time). Another session's keys and press stay.
+    func takeHeldInput(of sessionID: String) -> HeldInput {
+        var held = HeldInput(sessionID: sessionID, keys: heldKeys.releaseAll(heldBy: sessionID))
+        // Held input is always the instrumented web view's: a replacement
+        // forgets what was held in the one before (instrumentCurrentWebView).
+        held.target = BrowserReplInputTarget(instrumentedWebView as? CmuxWebView)
+        if pointer.owner == sessionID {
+            held.buttons = mouseState.pressedButtons
+            held.drag = drag
+            mouseState.reset()
+            drag = nil
+            pointerReleased(sessionID: sessionID)
+        }
+        return held
+    }
+
+    /// Delivers the key-up of each held key and the button-up of each held
+    /// button at the last mouse position (or ends the drag), as trusted
+    /// events. Only the driver calls this, for a session that ends, inside
+    /// that session's input guard, the frame gate
+    /// (`WebKitBrowserReplDriver.releaseHeldInput`).
+    func deliverRelease(_ held: HeldInput) {
+        guard !held.isEmpty else { return }
+        // Only into the web view that got the press: after a replacement
+        // the release is forgotten, never sent to the new page.
+        guard let webView = held.target.deliverable(to: panel?.webView as? CmuxWebView) else {
+            forgetReleased(held)
+            return
+        }
+        if held.drag != nil { webView.automationDragCapture = nil }
         if webView.window != nil {
-            for stroke in keys {
-                _ = webView.replayBrowserReplKeyStroke(stroke, keyDown: false)
+            for stroke in held.keys {
+                _ = webView.replayBrowserReplKeyStroke(stroke, keyDown: false, heldBy: held.sessionID)
             }
         }
-        webView.releaseBrowserReplModifiers()
         guard let window = webView.window else { return }
         let location = BrowserReplNativeInput.windowPoint(webView: webView, cssPoint: mousePosition)
-        for button in buttons.reversed() {
-            if button == .left, let drop = dragState?.drop {
+        for button in held.buttons.reversed() {
+            if button == .left, let drop = held.drag?.drop {
                 drop.draggingLocation = location
                 webView.draggingExited(drop)
                 webView.endAutomationDrag(at: location, operation: [])
@@ -693,19 +1087,205 @@ final class BrowserReplTabAttachment {
         }
     }
 
-    /// Sends an event to every attached session.
-    func emit(_ name: String, _ payload: [String: Any]) {
+    /// Forgets what `sessionID` still holds without sending the page any
+    /// event (its release was refused by its guards, or never ran): its
+    /// modifier keys stop applying to later input, a drag it started ends
+    /// without a drop, and no other session inherits its keys or press.
+    private func dropHeldInput(of sessionID: String) {
+        forgetReleased(takeHeldInput(of: sessionID))
+    }
+
+    /// Forgets `held` (from ``takeHeldInput(of:)``) without sending the page
+    /// any event: a release its session's guards refused.
+    func forgetReleased(_ held: HeldInput) {
+        guard !held.isEmpty, let webView = held.target.target ?? (panel?.webView as? CmuxWebView) else { return }
+        for stroke in held.keys {
+            webView.forgetBrowserReplModifier(stroke, heldBy: held.sessionID)
+        }
+        endDragSilently(held.drag, in: webView)
+    }
+
+    /// Hands the tab back with no automated input in progress, without
+    /// sending the page an unguarded trusted event: every session's held
+    /// keys and buttons are forgotten (each session released its own
+    /// through its guards when it ended), a drag in progress ends without a
+    /// drop, and automated right clicks whose menu never opened stop
+    /// suppressing the user's next context menu.
+    private func resetHeldInput() {
+        _ = heldKeys.releaseAll()
+        mouseState.reset()
+        let dragState = drag
+        drag = nil
+        guard let webView = panel?.webView as? CmuxWebView else { return }
+        webView.cancelPendingAutomationContextMenus()
+        endDragSilently(dragState, in: webView)
+        webView.releaseBrowserReplModifiers()
+    }
+
+    /// Forgets every session's held keys, buttons and drag, all held in
+    /// `webView`, which the tab no longer shows; nothing is sent.
+    private func forgetHeldInput(in webView: CmuxWebView?) {
+        _ = heldKeys.releaseAll()
+        mouseState.reset()
+        let dragState = drag
+        drag = nil
+        guard let webView else { return }
+        endDragSilently(dragState, in: webView)
+        webView.releaseBrowserReplModifiers()
+    }
+
+    /// Ends the drag in progress, if any, without a drop and without a
+    /// mouse event (``endDragSilently(_:in:)``): its press failed partway,
+    /// or another session's input found it.
+    func discardDrag() {
+        let dragState = drag
+        drag = nil
+        guard let dragState, let webView = panel?.webView as? CmuxWebView else { return }
+        endDragSilently(dragState, in: webView)
+    }
+
+    /// Ends the automated drag session `dragState` started, if any: WebKit's
+    /// drag source is told it ended with no operation (the page gets
+    /// `dragend`, which grants no user gesture). No mouse, key or drop
+    /// event reaches the page.
+    private func endDragSilently(_ dragState: DragState?, in webView: CmuxWebView) {
+        guard let dragState else { return }
+        webView.automationDragCapture = nil
+        if dragState.drop != nil, webView.window != nil {
+            let location = BrowserReplNativeInput.windowPoint(webView: webView, cssPoint: mousePosition)
+            webView.endAutomationDrag(at: location, operation: [])
+        }
+    }
+
+    /// Sends an event to every attached session, when the guard table
+    /// delivers it that way (``BrowserReplEventSpec/Delivery/everyAttached(_:)``).
+    func emit(_ event: BrowserReplDriverEvent, _ payload: [String: Any]) {
+        guard event.isDelivered(through: .everyAttached) else { return }
         var body = payload
         body["targetId"] = targetID
-        for sink in sinks.values { sink(name, body) }
+        for sink in sinks.values { sink(event.rawValue, body) }
+    }
+
+    /// The live session that created this tab (attached, with a sink), or nil.
+    var liveCreatorSessionID: String? {
+        guard let creator = creatorSessionID, sinks[creator] != nil else { return nil }
+        return creator
+    }
+
+    /// This tab as ``BrowserReplDocumentAuthority`` judges its documents.
+    var authorityFacts: BrowserReplTabFacts {
+        BrowserReplTabFacts(
+            id: panelID,
+            mainFrameURL: panel?.webView.url,
+            creatorSessionID: liveCreatorSessionID,
+            attachedSessionIDs: Set(sinks.keys),
+            workspaceID: panel?.workspaceId
+        )
+    }
+
+    /// The tab moved to another workspace: every attached session that may
+    /// no longer use it there (``BrowserReplTabCapability/use``: a session
+    /// uses only its own workspace's tabs and the tabs it created) leaves
+    /// it, as it would when it ended, so no event, dialog, file chooser,
+    /// download or network event of the tab reaches it any more.
+    /// - Returns: Whether a session is still attached.
+    func workspaceDidChange() -> Bool {
+        let facts = authorityFacts
+        for sessionID in sinks.keys.sorted()
+        where Self.authority(for: sessionID).verdict(BrowserReplAccess(in: facts, capability: .use)) != .allowed {
+            removeSink(sessionID: sessionID)
+        }
+        return isAttached
+    }
+
+    /// The authority of `sessionID` as the policy board publishes it.
+    static func authority(for sessionID: String) -> BrowserReplDocumentAuthority {
+        BrowserReplPolicyBoard.shared.authority(for: sessionID)
+    }
+
+    /// Sends a console message or page error from `document` only to the
+    /// sessions whose authority allows that document
+    /// (``BrowserReplPageTelemetry``).
+    /// Its text (`text`, `message`, `stack`) is the page's and can name
+    /// URLs, the document's own among them (``BrowserReplPageText``): only
+    /// the tab's live creator reads their credential values.
+    private func emitTelemetry(_ event: BrowserReplDriverEvent, _ payload: [String: Any], from document: BrowserReplFrameDocument) {
+        guard event.isDelivered(through: .fromDocument) else { return }
+        var body = payload
+        body["targetId"] = targetID
+        for key in ["text", "message", "stack"] {
+            if let text = payload[key] as? String { body[key] = BrowserReplPageText(text, creator: liveCreator) }
+        }
+        let recipients = BrowserReplPageTelemetry().recipients(of: document, in: authorityFacts, among: Array(sinks.keys)) {
+            Self.authority(for: $0)
+        }
+        for sessionID in recipients { sinks[sessionID]?(event.rawValue, body) }
+    }
+
+    /// Sends a network event only to the sessions it belongs to
+    /// (``BrowserReplTabOwnership/networkRecipients(event:requestID:)``)
+    /// whose authority allows the document that sent the request
+    /// (``BrowserReplNetworkGate``, the table's ``BrowserReplEventSpec/Delivery/network``).
+    /// Its URL and headers are the page's (``BrowserReplPageURL``,
+    /// ``BrowserReplPageHeaders``): only the tab's live creator reads their
+    /// credentials.
+    private func emitNetwork(_ name: String, _ payload: [String: Any], from sender: BrowserReplNetworkSender) {
+        guard let event = BrowserReplDriverEvent(rawValue: name), event.isDelivered(through: .network) else { return }
+        let requestID = payload["requestId"] as? String ?? ""
+        var body = payload
+        body["targetId"] = targetID
+        if let url = payload["url"] as? String { body["url"] = pageURL(url) }
+        // WebKit's error text can name URLs (a redirect's target among them).
+        if let failure = payload["failure"] as? String { body["failure"] = BrowserReplPageText(failure, creator: liveCreator) }
+        if let headers = payload["headers"] as? [String: String] {
+            body["headers"] = BrowserReplPageHeaders(headers, creator: liveCreator)
+        }
+        let recipients = ownership.networkRecipients(event: name, requestID: requestID).map(\.sessionID)
+        networkGate.send(NetworkEvent(name: name, body: body), from: sender, to: recipients)
+    }
+
+    /// A network event on its way through ``networkGate``.
+    private struct NetworkEvent {
+        let name: String
+        let body: [String: Any]
+    }
+
+    /// Judges each network event by the document that sent it, in order,
+    /// reading the tab's frame tree for a document it does not know yet.
+    private lazy var networkGate = BrowserReplNetworkGate<NetworkEvent>(
+        tab: { [weak self] in self?.authorityFacts },
+        authority: { BrowserReplTabAttachment.authority(for: $0) },
+        readDocuments: { [weak self] in
+            guard let webView = self?.panel?.webView else { return [:] }
+            let frames = await BrowserReplFrameTree.frames(of: webView)
+            return BrowserReplFrameDocument.byDocumentID(frames, in: webView)
+        },
+        deliver: { [weak self] event, sessionIDs in
+            guard let self else { return }
+            for sessionID in sessionIDs { self.sinks[sessionID]?(event.name, event.body) }
+        }
+    )
+
+    /// The session that created the tab while it stays attached; `nil` for
+    /// a user's tab.
+    private var liveCreator: String? {
+        ownership.isSessionOwned ? ownership.creatorSessionID : nil
+    }
+
+    /// `url`, which the page or the tab gave, as a page URL only the tab's
+    /// live creator reads as written (``BrowserReplPageURL``).
+    func pageURL(_ url: String) -> BrowserReplPageURL {
+        BrowserReplPageURL(url, creator: liveCreator)
     }
 
     /// Sends a routed event (dialog, file chooser, download) to the one
-    /// session it was routed to.
-    private func emit(_ name: String, _ payload: [String: Any], to sessionID: String) {
+    /// session it was routed to, when the guard table routes it
+    /// (``BrowserReplEventSpec/Delivery``).
+    private func emit(_ event: BrowserReplDriverEvent, _ payload: [String: Any], to sessionID: String) {
+        guard event.isDelivered(through: .routedFromDocument) || event.isDelivered(through: .download) else { return }
         var body = payload
         body["targetId"] = targetID
-        sinks[sessionID]?(name, body)
+        sinks[sessionID]?(event.rawValue, body)
     }
 
     private func makeID(_ prefix: String) -> String {
@@ -720,14 +1300,21 @@ final class BrowserReplTabAttachment {
     func instrumentCurrentWebView() {
         if isAttached { applyContextToWebView() }
         guard let webView = panel?.webView, webView !== instrumentedWebView, isAttached else { return }
+        let previous = instrumentedWebView as? CmuxWebView
         uninstrument()
         // A web view after the first is a replacement (a restore of a page
         // cmux unloaded, a crash recovery): its frames have new ids.
         let isReplacement = hasInstrumentedWebView
+        if isReplacement {
+            // Keys and buttons held in the replaced web view are its own:
+            // forgotten there, with no event, so no release ever reaches
+            // the replacement's page.
+            forgetHeldInput(in: previous)
+        }
         hasInstrumentedWebView = true
         instrumentedWebView = webView
-        if isReplacement { emit("tab.replaced", [:]) }
-        let observer = BrowserReplResourceLoadObserver { [weak self] event, payload in
+        if isReplacement { emit(.tabReplaced, [:]) }
+        let observer = BrowserReplResourceLoadObserver { [weak self] event, payload, sender in
             guard let self else { return }
             if event == "request" { self.requestGeneration += 1 }
             if event == "response", payload["resourceType"] as? String == "document",
@@ -735,7 +1322,7 @@ final class BrowserReplTabAttachment {
                let status = payload["status"] as? Int {
                 self.mainDocumentStatus = status
             }
-            self.emit(event, payload)
+            self.emitNetwork(event, payload, from: sender)
         }
         observer.onInflightChange = { [weak self] count in
             guard let self, count == 0 else { return }
@@ -746,8 +1333,8 @@ final class BrowserReplTabAttachment {
         if observer.install(on: webView) {
             resourceObserver = observer
         }
-        let handler = BrowserReplConsoleMessageHandler { [weak self] event, payload in
-            self?.emit(event, payload)
+        let handler = BrowserReplConsoleMessageHandler { [weak self] event, payload, document in
+            self?.emitTelemetry(event, payload, from: document)
         }
         webView.configuration.userContentController.add(
             handler,
@@ -755,11 +1342,6 @@ final class BrowserReplTabAttachment {
             name: BrowserReplConsoleMessageHandler.name
         )
         consoleHandler = handler
-        webView.configuration.userContentController.add(
-            BrowserReplAgentPresenceHandler(),
-            contentWorld: BrowserReplAgentWorld.world,
-            name: BrowserReplAgentPresenceHandler.name
-        )
     }
 
     private func uninstrument() {
@@ -771,28 +1353,27 @@ final class BrowserReplTabAttachment {
                 contentWorld: .page
             )
         }
-        if let webView = instrumentedWebView {
-            webView.configuration.userContentController.removeScriptMessageHandler(
-                forName: BrowserReplAgentPresenceHandler.name,
-                contentWorld: BrowserReplAgentWorld.world
-            )
-        }
         consoleHandler = nil
         instrumentedWebView = nil
     }
 
-    /// Adds the page agent as a document-start user script in every frame's
-    /// agent world, so documents loaded from now on have it before their own
-    /// scripts run. Frames already loaded get it on their first evaluation.
-    func installAgentUserScriptIfNeeded(source: String) {
-        guard let webView = panel?.webView else { return }
-        agentUserScript.install(
+    /// Adds `sessionID`'s page agent as a document-start user script in
+    /// every frame, in that session's agent world, so documents loaded from
+    /// now on have it before their own scripts run. Frames already loaded
+    /// get it on their first evaluation.
+    func installAgentUserScriptIfNeeded(source: String, sessionID: String) {
+        guard let webView = panel?.webView, let agent = agentWorlds[sessionID] else { return }
+        agent.script.install(
             source: source,
-            presenceHandlerName: BrowserReplAgentPresenceHandler.name,
-            world: BrowserReplAgentWorld.world,
+            presenceHandlerName: Self.agentPresenceHandlerName,
+            world: agent.world,
             in: webView.configuration.userContentController
         )
     }
+
+    /// The agent-world message handler whose presence lets an agent's
+    /// document-start script run.
+    private static let agentPresenceHandlerName = "cmuxReplAgent"
 
     /// Requests in flight, or `nil` when the resource load SPI is unavailable.
     var inflightRequestCount: Int? {
@@ -815,15 +1396,27 @@ final class BrowserReplTabAttachment {
         type: String,
         message: String,
         defaultValue: String?,
+        frame: WKFrameInfo,
         respond: @escaping (Bool, String?) -> Void
     ) -> Bool {
-        guard let owner = recipient(for: .dialog) else { return false }
+        let owner: String
+        switch route(for: .dialog, from: frame) {
+        case .user:
+            return false
+        case .refused:
+            // Inputs of two sessions were in flight: the dialog may be
+            // either's, so neither answers it, and the user is not asked.
+            respond(false, nil)
+            return true
+        case .session(let sessionID):
+            owner = sessionID
+        }
         let id = makeID("d")
         if let command = clipboardCommandsInFlight.last {
-            // Held, the dialog would keep WebKit's Copy, Cut or Paste open.
+            // Held, the dialog would keep the clipboard shortcut open.
             // Answer it as a dialog nobody handles is answered, and report it.
             respond(false, nil)
-            emit("dialog.opened", [
+            emit(.dialogOpened, [
                 "dialogId": id,
                 "type": type,
                 "message": message,
@@ -832,8 +1425,8 @@ final class BrowserReplTabAttachment {
             ], to: owner)
             return true
         }
-        dialogs.add(id: id, owner: owner, respond: respond)
-        emit("dialog.opened", [
+        dialogs.add(id: id, owner: owner, respond: (respond, BrowserReplFrameDocument(info: frame)))
+        emit(.dialogOpened, [
             "dialogId": id,
             "type": type,
             "message": message,
@@ -842,10 +1435,10 @@ final class BrowserReplTabAttachment {
         return true
     }
 
-    /// Copy, Cut and Paste commands (`copy`, `cut`, `paste`) WebKit is running
-    /// in this tab, until WebKit reports each done. A JavaScript dialog that
-    /// opens meanwhile is dismissed at once and reported with
-    /// `dismissedDuring`, never held.
+    /// Virtual Copy, Cut and Paste shortcuts (`copy`, `cut`, `paste`) running
+    /// in this tab, until each returns. A JavaScript dialog that opens
+    /// meanwhile is dismissed at once and reported with `dismissedDuring`,
+    /// never held, so a handler's dialog cannot hold the shortcut.
     var clipboardCommandsInFlight: [String] = []
 
     func clipboardCommandFinished(_ command: String) {
@@ -862,9 +1455,19 @@ final class BrowserReplTabAttachment {
     var lastInfo: [String: Any]?
 
     /// Answers dialog `id` when `sessionID` is the session it was routed to.
-    func respondToDialog(id: String, sessionID: String, accept: Bool, promptText: String?) -> Bool {
-        guard let respond = dialogs.take(id: id, sessionID: sessionID) else { return false }
-        respond(accept, promptText)
+    /// - Returns: `false` when the dialog is gone or another session's.
+    /// - Throws: `blocked` when `sessionID`'s authority now refuses the
+    ///   document that opened the dialog in this tab (its policy changed
+    ///   since the dialog opened, or the document is a local file outside
+    ///   its directories): the dialog is dismissed, as an unhandled one is,
+    ///   and the session's answer never reaches that page.
+    func respondToDialog(id: String, sessionID: String, accept: Bool, promptText: String?) throws -> Bool {
+        guard let dialog = dialogs.take(id: id, sessionID: sessionID) else { return false }
+        if let reason = Self.authority(for: sessionID).verdict(BrowserReplAccess(.document(dialog.document), in: authorityFacts)).reason {
+            dialog.respond(false, nil)
+            throw WebKitBrowserReplDriver.error("blocked", "Dialog \(id) came from a frame showing \(dialog.document.origin ?? dialog.document.place), which the domain policy blocks: \(reason); it was dismissed")
+        }
+        dialog.respond(accept, promptText)
         return true
     }
 
@@ -877,13 +1480,26 @@ final class BrowserReplTabAttachment {
         frame: WKFrameInfo,
         respond: @escaping ([URL]?) -> Void
     ) -> Bool {
-        guard let owner = recipient(for: .fileChooser) else { return false }
+        let owner: String
+        switch route(for: .fileChooser, from: frame) {
+        case .user:
+            return false
+        case .refused:
+            // As for a dialog: no session may pick files for another's input.
+            respond(nil)
+            return true
+        case .session(let sessionID):
+            owner = sessionID
+        }
         let id = makeID("c")
         fileChoosers.add(id: id, owner: owner, respond: (respond, frame))
         let frameID = frame.isMainFrame ? nil : BrowserReplFrameTree.frameID(of: frame)
+        let world = agentWorlds[owner]?.world
         Task { @MainActor [weak self] in
-            let element = await self?.chooserElementHandle(in: frame)
-            self?.emit("filechooser.opened", [
+            // The handle is the owner's: its agent, in its own world, knows it.
+            var element: String?
+            if let world { element = await self?.chooserElementHandle(in: frame, world: world) }
+            self?.emit(.fileChooserOpened, [
                 "chooserId": id,
                 "frameId": frameID ?? NSNull(),
                 "element": element ?? NSNull(),
@@ -907,14 +1523,15 @@ final class BrowserReplTabAttachment {
     }
 
     /// The agent handle of the file input that opened the chooser.
-    private func chooserElementHandle(in frame: WKFrameInfo) async -> String? {
+    private func chooserElementHandle(in frame: WKFrameInfo, world: WKContentWorld) async -> String? {
         guard let webView = panel?.webView else { return nil }
         let source = "const a = globalThis[\(BrowserReplRuntimeBundle.agentGlobalKeyExpression)]; return a ? a.chooserHandle() : null;"
-        let value = try? await webView.callAsyncJavaScript(
+        let value = try? await webView.browserReplCallAsyncJavaScript(
             source,
             arguments: [:],
             in: frame,
-            contentWorld: BrowserReplAgentWorld.world
+            contentWorld: world,
+            userGesture: false
         )
         return value as? String
     }
@@ -936,8 +1553,12 @@ final class BrowserReplTabAttachment {
     ///     tab, was handling: the popup goes to that session only and stays
     ///     the user's (`BrowserReplPopupRoute.inputSession`).
     ///   - announce: `false` opens a user's popup as a background tab and
-    ///     tells no session (``opensPopupsInBackground``).
+    ///     tells no session (``opensPopupsInBackground``). It never applies
+    ///     to a tab a session created, whose popups are always handed to
+    ///     that session before they load (``handsPopupsOverFirst(forInputSession:)``).
     func adoptPopup(request: URLRequest, configuration: WKWebViewConfiguration, forInputSession: String? = nil, announce: Bool = true) -> PopupAdoption? {
+        let handsOver = handsPopupsOverFirst(forInputSession: forInputSession)
+        let announce = announce || handsOver
         guard isAttached, let panel,
               let workspace = AppDelegate.shared?.tabManagerFor(tabId: panel.workspaceId)?
                 .tabs.first(where: { $0.id == panel.workspaceId }),
@@ -965,12 +1586,40 @@ final class BrowserReplTabAttachment {
             focus: false,
             preferredProfileID: panel.profileID,
             creationPolicy: .automationPreload,
+            // The page controls this URL: a disabled browser refuses the
+            // popup, never hands it to the system browser outside the
+            // session's domain policy.
+            allowsExternalBrowserFallback: false,
             websiteDataStore: panel.websiteDataStore
         ) else {
             return nil
         }
+        guard created.webView === webView else {
+            // The panel did not take WebKit's web view, so it loads the URL
+            // itself, and it started before the session's content rules and
+            // page clipboard guard are on it. Close it on this main-actor
+            // turn, before WebKit decides that navigation, and let the
+            // caller open the popup blank first (`handlePopup`).
+            if handsOver {
+                created.webView.stopLoading()
+                _ = workspace.closePanel(created.id, force: true)
+                return nil
+            }
+            if announce { announcePopup(created, url: url, forInputSession: forInputSession) }
+            return .opened(nil)
+        }
+        // WebKit loads the popup's request into the adopted web view only
+        // after `createWebViewWith` returns, so the hand-over below puts the
+        // session's content rules and clipboard guard on it first.
         if announce { announcePopup(created, url: url, forInputSession: forInputSession) }
-        return .opened(created.webView === webView ? webView : nil)
+        return .opened(webView)
+    }
+
+    /// Whether a popup becomes the creating session's tab, under its content
+    /// rules and page clipboard guard, which must be on it before it loads.
+    /// Whether the sessions are told of it (`announce`) never changes this.
+    private func handsPopupsOverFirst(forInputSession: String?) -> Bool {
+        forInputSession == nil && ownership.isSessionOwned && ownership.creatorSessionID != nil
     }
 
     private func announcePopup(_ created: BrowserPanel, url: URL, forInputSession: String? = nil) {
@@ -980,7 +1629,11 @@ final class BrowserReplTabAttachment {
         let recipients = forInputSession.map { id in sinks.filter { $0.key == id } } ?? sinks
         var child: BrowserReplTabAttachment?
         for (sessionID, sink) in recipients {
-            child = BrowserReplTabAttachments.shared.attach(panel: created, sessionID: sessionID, sink: sink)
+            // The popup gets the opener's sessions, each in its own agent
+            // world; they are no more than the opener has, so within the
+            // per-tab limit.
+            guard let world = agentWorlds[sessionID]?.world else { continue }
+            child = (try? BrowserReplTabAttachments.shared.attach(panel: created, sessionID: sessionID, world: world, ledger: ledgers[sessionID], sink: sink)) ?? child
         }
         child?.openerTargetID = targetID
         // A popup of a tab a session created is that session's too.
@@ -990,85 +1643,368 @@ final class BrowserReplTabAttachment {
         var payload: [String: Any] = [
             "targetId": created.id.uuidString,
             "openerTargetId": targetID,
-            "url": url.absoluteString,
+            // The page chose it: only the opener's live creator reads its
+            // credentials.
+            "url": pageURL(url.absoluteString),
         ]
         if forInputSession != nil { payload["userOwned"] = true }
+        guard BrowserReplDriverEvent.tabCreated.isDelivered(through: .oneSession) else { return }
         for sink in recipients.values {
-            sink("tab.created", payload)
+            sink(BrowserReplDriverEvent.tabCreated.rawValue, payload)
         }
     }
 
     func handlePopup(request: URLRequest, forInputSession: String? = nil, announce: Bool = true) -> Bool {
+        let handsOver = handsPopupsOverFirst(forInputSession: forInputSession)
+        let announce = announce || handsOver
         guard isAttached, let panel, let url = request.url,
               let workspace = AppDelegate.shared?.tabManagerFor(tabId: panel.workspaceId)?
                 .tabs.first(where: { $0.id == panel.workspaceId }),
               let pane = workspace.paneId(forPanelId: panel.id) else {
             return false
         }
+        // The page controls the URL, and `navigate` loads a local file with
+        // read access to its directory: a window a page opens from a tab a
+        // session drives never loads one (handled: nothing opens).
+        if url.scheme?.lowercased() == "file" { return true }
         // The new tab stays in the opener's profile and data store, as a
         // user's Cmd-click does (`BrowserPanel` new-tab requests): a session
         // tab on a private `session.configure({ proxy })` store keeps it.
-        guard let created = workspace.newBrowserSurface(
-            inPane: pane,
-            url: url,
-            focus: false,
-            preferredProfileID: panel.profileID,
-            creationPolicy: .automationPreload,
-            websiteDataStore: panel.explicitEphemeralWebsiteDataStoreForSibling
-        ) else {
-            return false
-        }
-        if announce { announcePopup(created, url: url, forInputSession: forInputSession) }
-        return true
+        // A session's popup opens blank and loads only once the session's
+        // content rules and clipboard guard are on it (BrowserReplPopupOpening).
+        let store = panel.explicitEphemeralWebsiteDataStoreForSibling
+        let profileID = panel.profileID
+        let opening = BrowserReplPopupOpening<BrowserPanel>(
+            create: { initialURL in
+                workspace.newBrowserSurface(
+                    inPane: pane,
+                    url: initialURL,
+                    focus: false,
+                    preferredProfileID: profileID,
+                    creationPolicy: .automationPreload,
+                    allowsExternalBrowserFallback: false,
+                    websiteDataStore: store
+                )
+            },
+            handOver: { [self] created in
+                if announce { announcePopup(created, url: url, forInputSession: forInputSession) }
+            },
+            load: { created, url in created.navigate(to: url) }
+        )
+        return opening.open(url, handOverFirst: handsOver) != nil
     }
 
     // MARK: - Downloads
 
-    /// Downloads reported to a session, by id, with that session.
-    private var sessionDownloads: [String: String] = [:]
+    /// Downloads reported to a session, by id, with that session and where
+    /// each came from, judged again at each later redirect and at the end.
+    /// Its teardown hands back their ids. Where a download goes is the
+    /// download's own record (``BrowserReplDownloadClaim/route``), which
+    /// outlives this attachment; a session's download this ledger no longer
+    /// holds is cancelled (``BrowserReplDownloadClaim/end(_:)``).
+    private var sessionDownloads = BrowserReplSessionDownloads()
 
-    /// Whether download `id` went to a session. Those stay in cmux's
-    /// temporary download directory, so `download.path()` can read them;
-    /// every other download takes the user's normal path.
-    func keepsDownloadInTemporaryDirectory(id: String) -> Bool {
-        sessionDownloads[id] != nil
+    private static var navigationTokenKey: UInt8 = 0
+    /// Read from WebKit's download delegate, which is not main-actor bound;
+    /// only its address is used.
+    nonisolated(unsafe) private static var downloadClaimKey: UInt8 = 0
+    private var lastNavigationToken = 0
+
+    /// Records a navigation WebKit asks about (its navigation action) as its
+    /// frame's latest, with the session whose input started it, for the
+    /// download it may become
+    /// (``BrowserReplTabOwnership/noteNavigationAction(_:frame:continuing:at:)``).
+    /// The claim is bound to this navigation, never to its URL: a later
+    /// navigation in the frame, also to the same URL, replaces it. A
+    /// navigation decided again (after a hold) keeps its first record.
+    func noteNavigationAction(_ action: WKNavigationAction) {
+        guard let frame = Self.frameKey(action.targetFrame),
+              objc_getAssociatedObject(action, &Self.navigationTokenKey) == nil else { return }
+        lastNavigationToken += 1
+        let token = lastNavigationToken
+        objc_setAssociatedObject(action, &Self.navigationTokenKey, NSNumber(value: token), .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        let redirectSelector = NSSelectorFromString("_isRedirect")
+        let continuing = action.responds(to: redirectSelector) && (action.value(forKey: "_isRedirect") as? Bool) == true
+        ownership.noteNavigationAction(
+            token,
+            frame: frame,
+            url: action.request.url?.absoluteString,
+            initiator: action.browserReplSourceDocument,
+            continuing: continuing
+        )
     }
 
-    /// Reports a download to the one session that takes downloads in this
-    /// tab; the decision, and that session, hold for the download's life.
-    func downloadDidStart(id: String, url: URL?, suggestedFilename: String) {
-        guard let owner = recipient(for: .download) else { return }
-        sessionDownloads[id] = owner
-        emit("download.started", [
-            "downloadId": id,
-            "url": url?.absoluteString ?? "",
-            "suggestedFilename": suggestedFilename,
-        ], to: owner)
+    /// Binds to `download`, which WebKit made of navigation action
+    /// `action`, the session whose input started that navigation, if any,
+    /// and where the navigation went.
+    func claimDownload(_ download: WKDownload, fromNavigationAction action: WKNavigationAction) {
+        guard let token = (objc_getAssociatedObject(action, &Self.navigationTokenKey) as? NSNumber)?.intValue else { return }
+        bind(download, to: ownership.takeDownloadClaim(navigation: token))
     }
 
-    func downloadDidFinish(id: String, path: String?, error: String?) {
-        guard let owner = sessionDownloads.removeValue(forKey: id) else { return }
-        if let path { downloadPaths[id] = path }
-        var payload: [String: Any] = ["downloadId": id]
-        if let path { payload["path"] = path }
-        if let error { payload["error"] = error }
-        emit("download.finished", payload, to: owner)
+    /// Binds to `download`, which WebKit made of a navigation response in
+    /// `frame`, the session whose input started that frame's latest
+    /// navigation, if any, and where the navigation went.
+    func claimDownload(_ download: WKDownload, fromResponse response: WKNavigationResponse) {
+        let frameSelector = NSSelectorFromString("_frame")
+        let info = response.responds(to: frameSelector) ? response.value(forKey: "_frame") as? WKFrameInfo : nil
+        let frame = response.isForMainFrame ? "main" : Self.frameKey(info)
+        guard let frame else { return }
+        bind(download, to: ownership.takeDownloadClaim(responseInFrame: frame))
+    }
+
+    /// Binds to `download`, a scripted download WebKit made of `url` for
+    /// the request the frame `initiator` sent, that frame's document
+    /// (WebKit's record of the message's frame): a `data:` download is that
+    /// document's writing, judged by it. No session's input started it.
+    static func claimScriptedDownload(_ download: WKDownload, url: URL, initiator: WKFrameInfo) {
+        let source = BrowserReplDownloadSource(hops: [url.absoluteString], initiator: BrowserReplFrameDocument(info: initiator))
+        objc_setAssociatedObject(download, &downloadClaimKey, BrowserReplDownloadClaimBox(BrowserReplDownloadClaim(sessionID: nil, source: source)), .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+    }
+
+    private func bind(_ download: WKDownload, to claim: BrowserReplDownloadClaim?) {
+        guard let claim else { return }
+        objc_setAssociatedObject(download, &Self.downloadClaimKey, BrowserReplDownloadClaimBox(claim), .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+    }
+
+    /// The claim bound to `download` (``claimDownload(_:fromNavigationAction:)``).
+    nonisolated private static func claimBox(of download: WKDownload) -> BrowserReplDownloadClaimBox? {
+        objc_getAssociatedObject(download, &downloadClaimKey) as? BrowserReplDownloadClaimBox
+    }
+
+    /// The session whose input started the navigation `download` came from
+    /// (``claimDownload(_:fromNavigationAction:)``), or `nil`.
+    nonisolated static func downloadStarter(of download: WKDownload) -> String? {
+        claimBox(of: download)?.claim.sessionID
+    }
+
+    /// `download`'s record: its starter, where it came from, and the route
+    /// decided when WebKit picked its destination (``decideDownloadRoute(_:of:)``).
+    nonisolated static func downloadClaim(of download: WKDownload) -> BrowserReplDownloadClaim {
+        claimBox(of: download)?.claim ?? BrowserReplDownloadClaim(sessionID: nil, source: .unclaimed())
+    }
+
+    /// Records the route decided for `download` when WebKit picked its
+    /// destination (``downloadDidStart(id:startedBy:source:url:suggestedFilename:)``);
+    /// its redirects and its end read it from then on.
+    nonisolated static func decideDownloadRoute(_ route: BrowserReplDownloadRoute, of download: WKDownload) {
+        let box = claimBox(of: download) ?? {
+            let box = BrowserReplDownloadClaimBox(BrowserReplDownloadClaim(sessionID: nil, source: .unclaimed()))
+            objc_setAssociatedObject(download, &downloadClaimKey, box, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+            return box
+        }()
+        box.decide(route)
+    }
+
+    /// Whether `download` follows a redirect WebKit reports after its
+    /// start, given what its session still holds of it (`check`), and its
+    /// record updated (``BrowserReplDownloadClaim/redirect(_:)``).
+    nonisolated static func downloadFollowsRedirect(_ download: WKDownload, _ check: BrowserReplDownloadClaim.SessionCheck) -> Bool {
+        guard let box = claimBox(of: download) else { return downloadClaim(of: download).route == nil }
+        return box.redirect(check)
+    }
+
+    /// Where `download` came from: its navigation's URLs and starter (when
+    /// a navigation became it), then each redirect of the download itself
+    /// (``downloadRedirected(_:to:)``).
+    /// With no claim (no navigation or scripted-download message made it),
+    /// the source is unclaimed: who wrote a `data:` one is unknown, and a
+    /// domain policy refuses it (``BrowserReplDownloadSource/unclaimed(hops:)``).
+    nonisolated static func downloadSource(of download: WKDownload) -> BrowserReplDownloadSource {
+        claimBox(of: download)?.claim.source ?? .unclaimed()
+    }
+
+    /// Records that `download` was redirected to `url`.
+    nonisolated static func downloadRedirected(_ download: WKDownload, to url: URL?) {
+        guard let url else { return }
+        if let box = claimBox(of: download) {
+            box.went(to: url.absoluteString)
+        } else {
+            objc_setAssociatedObject(
+                download,
+                &downloadClaimKey,
+                BrowserReplDownloadClaimBox(BrowserReplDownloadClaim(sessionID: nil, source: .unclaimed(hops: [url.absoluteString]))),
+                .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+            )
+        }
+    }
+
+    /// A frame's key for its latest navigation: `main`, or WebKit's frame id.
+    private static func frameKey(_ info: WKFrameInfo?) -> String? {
+        guard let info else { return nil }
+        return info.isMainFrame ? "main" : BrowserReplFrame.frameID(of: info)
+    }
+
+    /// Reports a download to the one session it goes to
+    /// (``BrowserReplTabOwnership/downloadRoute(startedBy:source:policy:fileRoots:)``):
+    /// in a user's tab only one the session's own input started, never a
+    /// file the user downloads, and in any tab only one from places the
+    /// session's domain policy and directories allow. The decision, and that
+    /// session, hold for the download's life; any other download takes the
+    /// user's normal path.
+    /// - Parameters:
+    ///   - startedBy: The session whose input started the navigation the
+    ///     download came from (``downloadStarter(of:)``).
+    ///   - source: Where the download came from (``downloadSource(of:)``),
+    ///     with the response's URL last.
+    ///   - url: The response's URL.
+    /// - Returns: The route, which the caller records on the download
+    ///   (``decideDownloadRoute(_:of:)``). It is cancelled (or refused) when
+    ///   the tab's creating session may not read where it came from, or the
+    ///   session whose input started it left the tab, or the session it
+    ///   would go to is leaving.
+    func downloadDidStart(id: String, startedBy starter: String?, source: BrowserReplDownloadSource, url: URL?, suggestedFilename: String) -> BrowserReplDownloadRoute {
+        guard isAttached else { return Self.routeWithoutSessions(startedBy: starter) }
+        let route = ownership.downloadRoute(
+            startedBy: starter,
+            source: source,
+            policy: { BrowserReplPolicyBoard.shared.policy(for: $0) },
+            fileRoots: { BrowserReplPolicyBoard.shared.fileRoots(for: $0) }
+        )
+        switch route {
+        case .user, .cancelled:
+            return route
+        case .refused(let refusal):
+            // Every attached session hears of it; only the tab's creator
+            // gets the URLs as written (the reason names the refused hop),
+            // the others their credential values replaced.
+            for (sessionID, sink) in sinks {
+                guard BrowserReplDriverEvent.navigationBlocked.isDelivered(through: .everyAttached) else { continue }
+                sink(BrowserReplDriverEvent.navigationBlocked.rawValue, [
+                    "url": pageURL(url?.absoluteString ?? ""),
+                    "reason": refusal.reason(seesCredentials: isLiveCreator(sessionID)),
+                    "targetId": targetID,
+                ])
+            }
+            return route
+        case .session(let delivery):
+            // A session without a sink is leaving: its teardown would not
+            // see this download, so nobody gets it.
+            guard sinks[delivery.sessionID] != nil else { return .cancelled }
+            let owner = delivery.sessionID
+            sessionDownloads.add(id, to: delivery, source: source)
+            // Only the tab's creator gets the URL's credential values.
+            emit(.downloadStarted, [
+                "downloadId": id,
+                "url": pageURL(url?.absoluteString ?? ""),
+                "suggestedFilename": suggestedFilename,
+            ], to: owner)
+            return route
+        }
+    }
+
+    /// Download `id`, which its record routed to `recipient`'s session,
+    /// went on to `url` after WebKit picked its destination: whether that
+    /// session still holds it and may read that place. When it may not, the
+    /// session gets `download.finished` with the reason, and the record
+    /// decides what follows (``BrowserReplDownloadClaim/redirect(_:)``).
+    func downloadRedirectCheck(id: String, to url: URL?, recipient: BrowserReplNetworkRecipient) -> BrowserReplDownloadClaim.SessionCheck {
+        guard sessionDownloads.sessionID(of: id) == recipient.sessionID else { return .gone }
+        guard let url, let refusal = sessionDownloads.redirect(
+            id,
+            to: url.absoluteString,
+            policy: { BrowserReplPolicyBoard.shared.policy(for: $0) },
+            fileRoots: { BrowserReplPolicyBoard.shared.fileRoots(for: $0) }
+        ) else { return .keeps }
+        emit(.downloadFinished, ["downloadId": id, "error": "refused: \(refusal.reason)"], to: refusal.sessionID)
+        return .refuses
+    }
+
+    /// Whether a download that has no destination yet may follow a redirect,
+    /// given its claim (`startedBy`, and `source` with the redirect's place
+    /// last): not when it would be refused once it starts
+    /// (``BrowserReplTabOwnership/downloadRoute(startedBy:source:policy:fileRoots:)``),
+    /// so the request never reaches a place the tab's creating session's
+    /// policy or directories refuse.
+    func allowsDownloadRedirect(startedBy starter: String?, source: BrowserReplDownloadSource) -> Bool {
+        guard isAttached else { return starter == nil }
+        let route = ownership.downloadRoute(
+            startedBy: starter,
+            source: source,
+            policy: { BrowserReplPolicyBoard.shared.policy(for: $0) },
+            fileRoots: { BrowserReplPolicyBoard.shared.fileRoots(for: $0) }
+        )
+        switch route {
+        case .refused, .cancelled: return false
+        case .user, .session: return true
+        }
+    }
+
+    /// The route of a download in a tab no session drives (no attached
+    /// session, or no attachment at all): the user's for one no session's
+    /// input started. One a session's input started outlived that session,
+    /// whose teardown never saw it, so it is cancelled, never saved for the
+    /// user.
+    nonisolated static func routeWithoutSessions(startedBy starter: String?) -> BrowserReplDownloadRoute {
+        starter == nil ? .user : .cancelled
+    }
+
+    /// Download `id` failed: its session, if it still holds it, gets
+    /// `download.finished` with the error. WebKit's error text can name the
+    /// download's URL: only the tab's live creator reads its credential
+    /// values, as with `download.started`'s URL.
+    func downloadDidFail(id: String, error: String) {
+        guard let owner = sessionDownloads.remove(id) else { return }
+        let text = isLiveCreator(owner) ? error : error.redactingBrowserReplEmbeddedURLCredentials()
+        emit(.downloadFinished, ["downloadId": id, "error": text], to: owner)
+    }
+
+    /// Reports download `id`'s end to the session that still holds it, and
+    /// returns what that session's record says
+    /// (``BrowserReplSessionDownloads/finish(_:policy:fileRoots:)``). A
+    /// finished file's every source is judged again first, under the
+    /// session's policy and directories now: one they refuse gives the
+    /// session no path. The download's own record decides where the file
+    /// goes (``BrowserReplDownloadClaim/end(_:)``).
+    func downloadDidFinish(id: String, path: String) -> BrowserReplSessionDownloads.Finish {
+        let finish = sessionDownloads.finish(
+            id,
+            policy: { BrowserReplPolicyBoard.shared.policy(for: $0) },
+            fileRoots: { BrowserReplPolicyBoard.shared.fileRoots(for: $0) }
+        )
+        switch finish {
+        case .notSessions:
+            break
+        case .session(let owner):
+            downloadPaths[id] = path
+            emit(.downloadFinished, ["downloadId": id, "path": path], to: owner)
+        case .refused(let owner, let reason):
+            emit(.downloadFinished, ["downloadId": id, "error": "refused: \(reason)"], to: owner)
+        }
+        return finish
+    }
+
+    /// Whether `sessionID` is the tab's live creator, whose tab never keeps
+    /// what its policy refuses (``BrowserReplTabOwnership/downloadRoute(startedBy:source:policy:fileRoots:)``).
+    private func isLiveCreator(_ sessionID: String) -> Bool {
+        ownership.isSessionOwned && ownership.creatorSessionID == sessionID
     }
 }
 
-/// The isolated content world the REPL page agent lives in.
-///
-/// The world is configured to see closed shadow roots
-/// (`_WKContentWorldConfiguration.allowAccessToClosedShadowRoots`, the switch
-/// WebKit gives web extension worlds): in it `element.shadowRoot` returns a
-/// closed root too, so the snapshot, refs and Playwright's selector engines
-/// reach closed components the way an accessibility tree does. Page scripts
-/// in other worlds still see `null`. Without the SPI the world is a plain
-/// named world and closed roots stay hidden.
-enum BrowserReplAgentWorld {
-    static let name = "cmux-agent"
+/// The claim bound to a download, which its redirects extend. WebKit calls
+/// the download delegate on the main thread, but the box is read from code
+/// that is not main-actor bound, so it locks.
+final class BrowserReplDownloadClaimBox: NSObject, @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: BrowserReplDownloadClaim
 
-    @MainActor static let world = WKContentWorld.browserReplWorld(seeingClosedShadowRoots: name)
+    init(_ claim: BrowserReplDownloadClaim) {
+        stored = claim
+    }
+
+    var claim: BrowserReplDownloadClaim { lock.withLock { stored } }
+
+    func went(to url: String) {
+        lock.withLock { stored.source.went(to: url) }
+    }
+
+    func decide(_ route: BrowserReplDownloadRoute) {
+        lock.withLock { stored.decide(route) }
+    }
+
+    func redirect(_ check: BrowserReplDownloadClaim.SessionCheck) -> Bool {
+        lock.withLock { stored.redirect(check) }
+    }
 }
 
 /// Receives console and page error reports from the page telemetry script.
@@ -1076,9 +2012,11 @@ enum BrowserReplAgentWorld {
 final class BrowserReplConsoleMessageHandler: NSObject, WKScriptMessageHandler {
     static let name = "cmuxReplConsole"
 
-    private let emit: (String, [String: Any]) -> Void
+    /// Called with the event, its payload and the document that sent it,
+    /// as WebKit recorded it (the sessions whose policy blocks it get none).
+    private let emit: (BrowserReplDriverEvent, [String: Any], BrowserReplFrameDocument) -> Void
 
-    init(emit: @escaping (String, [String: Any]) -> Void) {
+    init(emit: @escaping (BrowserReplDriverEvent, [String: Any], BrowserReplFrameDocument) -> Void) {
         self.emit = emit
     }
 
@@ -1089,33 +2027,22 @@ final class BrowserReplConsoleMessageHandler: NSObject, WKScriptMessageHandler {
         guard message.frameInfo.isMainFrame,
               let body = message.body as? [String: Any],
               let kind = body["kind"] as? String else { return }
+        let document = BrowserReplFrameDocument(info: message.frameInfo)
         switch kind {
         case "console":
-            emit("console", [
+            emit(.console, [
                 "type": body["type"] as? String ?? "log",
                 "text": body["text"] as? String ?? "",
-            ])
+            ], document)
         case "pageerror":
-            emit("pageerror", [
+            emit(.pageError, [
                 "message": body["message"] as? String ?? "",
                 "stack": body["stack"] as? String ?? "",
-            ])
+            ], document)
         default:
             break
         }
     }
-}
-
-/// Marks, in the agent world, that a REPL session is attached; the agent's
-/// document-start script installs itself only while this handler exists.
-@MainActor
-final class BrowserReplAgentPresenceHandler: NSObject, WKScriptMessageHandler {
-    static let name = "cmuxReplAgent"
-
-    func userContentController(
-        _ userContentController: WKUserContentController,
-        didReceive message: WKScriptMessage
-    ) {}
 }
 
 /// Playwright browser-context options a REPL session applies to the tabs it
@@ -1130,19 +2057,4 @@ struct BrowserReplContextOptions {
     /// Compiled `session.allowedDomains` / `prohibitedDomains` rules that
     /// block subresource loads.
     var ruleList: WKContentRuleList?
-}
-
-/// Data stores created for `session.configure({ proxy })`. Their proxy is
-/// fixed; panel proxy mirroring leaves them alone.
-@MainActor
-enum BrowserReplProxyStores {
-    private static let stores = NSHashTable<WKWebsiteDataStore>.weakObjects()
-
-    static func register(_ store: WKWebsiteDataStore) {
-        stores.add(store)
-    }
-
-    static func owns(_ store: WKWebsiteDataStore) -> Bool {
-        stores.contains(store)
-    }
 }

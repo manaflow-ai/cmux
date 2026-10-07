@@ -1,6 +1,5 @@
 import AppKit
 import CmuxBrowser
-import UniformTypeIdentifiers
 import WebKit
 
 /// Builds the AppKit events the REPL driver sends to WebKit.
@@ -81,20 +80,17 @@ enum BrowserReplNativeInput {
         webView: WKWebView,
         window: NSWindow,
         cssPoint: CGPoint,
-        deltaX: Double,
-        deltaY: Double,
+        delta: BrowserReplWheelDelta,
         modifierFlags: NSEvent.ModifierFlags
     ) -> NSEvent? {
         let location = windowPoint(webView: webView, cssPoint: cssPoint)
-        // Page-space deltas scroll content down/right; wheel deltas are the
-        // finger direction, so they flip sign.
         return aligned(window: window, location: location) { point in
             guard let event = CGEvent(
                 scrollWheelEvent2Source: nil,
                 units: .pixel,
                 wheelCount: 2,
-                wheel1: Int32(clamping: Int(-deltaY.rounded())),
-                wheel2: Int32(clamping: Int(-deltaX.rounded())),
+                wheel1: delta.vertical,
+                wheel2: delta.horizontal,
                 wheel3: 0
             ) else { return nil }
             event.location = point
@@ -139,15 +135,24 @@ enum BrowserReplNativeInput {
     /// marked text, is not current within `stateTimeout`. The sequence is
     /// `BrowserReplTextCommitTarget.commit(_:checkTarget:)`; `checkTarget` throws to refuse the focused
     /// element, and then nothing is inserted.
+    /// `world` is the agent world of the session that types: the focus is
+    /// read there, where closed shadow roots are visible.
+    ///
+    /// `checkTarget` gets the web view the text goes to, and judges that
+    /// one; `isCurrent` says whether the tab still shows it, asked on the
+    /// commit's turn after the check (a tab that replaced its web view
+    /// meanwhile gets nothing, `stale`).
     static func insertText(
         _ text: String,
         into webView: WKWebView,
+        world: WKContentWorld,
         stateTimeout: Duration = .milliseconds(500),
-        checkTarget: @MainActor @Sendable () async throws -> Void = {}
+        isCurrent: @escaping @MainActor () -> Bool = { true },
+        checkTarget: @MainActor @Sendable (WKWebView) async throws -> Void = { _ in }
     ) async throws {
         guard let client = webView as? any NSTextInputClient else { return }
-        let target = WebViewTextTarget(webView: webView, client: client, stateTimeout: stateTimeout)
-        try await target.commit(text, checkTarget: checkTarget)
+        let target = WebViewTextTarget(webView: webView, client: client, world: world, stateTimeout: stateTimeout, isCurrent: isCurrent)
+        try await target.commit(text) { try await checkTarget(webView) }
     }
 
     /// A web view's text input client as `commit(_:checkTarget:)` drives it.
@@ -155,19 +160,25 @@ enum BrowserReplNativeInput {
     private final class WebViewTextTarget: BrowserReplTextCommitTarget {
         let webView: WKWebView
         let client: any NSTextInputClient
+        let world: WKContentWorld
         let stateTimeout: Duration
+        private let isCurrentWebView: @MainActor () -> Bool
         private let noReplacement = NSRange(location: NSNotFound, length: 0)
 
-        init(webView: WKWebView, client: any NSTextInputClient, stateTimeout: Duration) {
+        init(webView: WKWebView, client: any NSTextInputClient, world: WKContentWorld, stateTimeout: Duration, isCurrent: @escaping @MainActor () -> Bool) {
             self.webView = webView
             self.client = client
+            self.world = world
             self.stateTimeout = stateTimeout
+            isCurrentWebView = isCurrent
         }
 
         var hasMarkedText: Bool { client.hasMarkedText() }
 
+        var isCurrent: Bool { isCurrentWebView() }
+
         func prepareComposition() async -> Bool {
-            guard await BrowserReplNativeInput.focusIsRichTextEditor(webView) else { return false }
+            guard await BrowserReplNativeInput.focusIsRichTextEditor(webView, world: world) else { return false }
             return await BrowserReplNativeInput.afterPresentationUpdate(webView, timeout: stateTimeout)
         }
 
@@ -188,8 +199,8 @@ enum BrowserReplNativeInput {
     /// Whether the focused element, followed through same-origin frames and
     /// shadow roots, is a `contenteditable` editor (not a form field) in a
     /// frame the agent world can read.
-    fileprivate static func focusIsRichTextEditor(_ webView: WKWebView) async -> Bool {
-        let result = try? await webView.callAsyncJavaScript(
+    fileprivate static func focusIsRichTextEditor(_ webView: WKWebView, world: WKContentWorld) async -> Bool {
+        let result = try? await webView.browserReplCallAsyncJavaScript(
             """
             let doc = document;
             let el = doc.activeElement;
@@ -211,7 +222,8 @@ enum BrowserReplNativeInput {
             """,
             arguments: [:],
             in: nil,
-            contentWorld: BrowserReplAgentWorld.world
+            contentWorld: world,
+            userGesture: false
         )
         return (result as? Bool) ?? false
     }
@@ -276,13 +288,15 @@ enum BrowserReplNativeInput {
     }
 
     /// One JavaScript round trip: WebKit answers after the web process has
-    /// handled every message sent before it on the same connection.
+    /// handled every message sent before it on the same connection. It runs
+    /// in the driver's own world, which no session's code reaches.
     static func roundTrip(_ webView: WKWebView) async {
-        _ = try? await webView.callAsyncJavaScript(
+        _ = try? await webView.browserReplCallAsyncJavaScript(
             "return 0;",
             arguments: [:],
             in: nil,
-            contentWorld: BrowserReplAgentWorld.world
+            contentWorld: BrowserReplDriverWorld.world,
+            userGesture: false
         )
     }
 
@@ -320,50 +334,5 @@ final class BrowserReplOnce {
         guard let continuation else { return }
         self.continuation = nil
         continuation.resume(returning: value)
-    }
-}
-
-/// Converts a REPL tab's virtual clipboard (`clipboard.read` /
-/// `clipboard.write` items) to and from the private pasteboard that
-/// `BrowserReplPasteboardRedirect` (CmuxBrowser) runs WebKit's Copy, Cut and
-/// Paste against.
-@MainActor
-enum BrowserReplClipboardItems {
-    /// Writes the tab's clipboard items (`{ type, base64 }`, MIME types or
-    /// raw pasteboard types) to `pasteboard` as one item.
-    static func write(_ items: [[String: Any]], to pasteboard: NSPasteboard) {
-        pasteboard.writeBrowserReplClipboardItems(items)
-    }
-
-    /// Reads `pasteboard`'s first item back as tab clipboard items. Types
-    /// with a MIME type use it; WebKit's custom web data keeps its pasteboard
-    /// type so a later paste in a page restores it.
-    static func read(_ pasteboard: NSPasteboard) -> [[String: Any]] {
-        guard let item = pasteboard.pasteboardItems?.first else { return [] }
-        var result: [[String: Any]] = []
-        var seen = Set<String>()
-        for type in item.types {
-            guard let mime = mimeType(for: type), !seen.contains(mime), let data = item.data(forType: type) else { continue }
-            seen.insert(mime)
-            result.append(["type": mime, "base64": data.base64EncodedString()])
-        }
-        return result
-    }
-
-    private static let customWebData = "com.apple.WebKit.custom-pasteboard-data"
-
-    private static func mimeType(for type: NSPasteboard.PasteboardType) -> String? {
-        switch type {
-        case .string: return "text/plain"
-        case .html: return "text/html"
-        case .rtf: return "text/rtf"
-        case .URL: return "text/uri-list"
-        case .png: return "image/png"
-        case .tiff: return "image/tiff"
-        default:
-            if type.rawValue == customWebData { return customWebData }
-            guard let uti = UTType(type.rawValue), !uti.isDynamic else { return nil }
-            return uti.preferredMIMEType
-        }
     }
 }

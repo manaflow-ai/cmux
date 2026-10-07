@@ -256,6 +256,30 @@ struct BrowserReplCaptureMaskTests {
         #expect(captured)
     }
 
+    /// WebKit's frame tree can come back without some child frames (no
+    /// tree at all, only the main frame, or a child it cannot describe). A
+    /// frame missing from the list is never masked, so a secret in it would
+    /// show: the capture is refused instead.
+    @Test func aChildFrameMissingFromTheFrameListRefusesTheCapture() async throws {
+        let webView = await load("""
+            <iframe id=child srcdoc="<p>\(Self.value)</p><script>webkit.messageHandlers.frame.postMessage('child')</script>"></iframe>
+            \(Self.post)
+            """, posting: ["main", "child"])
+        let main = try #require(frames.infos["main"])
+        var captured = false
+        let error = await BrowserReplFrameGateTests.error {
+            try await mask.run(in: webView, frames: { [main] }) { captured = true }
+        }
+        #expect(error != nil, "a capture was taken while a child frame holding a secret was missing from the frame list")
+        #expect(!captured)
+        // The whole list lets it through.
+        let child = try #require(frames.infos["child"])
+        #expect(await BrowserReplFrameGateTests.error {
+            try await mask.run(in: webView, frames: { [main, child] }) { captured = true }
+        } == nil)
+        #expect(captured)
+    }
+
     // MARK: Blocked child frames
 
     /// A frame keeps its id when it navigates, so a child frame can show a
@@ -286,6 +310,30 @@ struct BrowserReplCaptureMaskTests {
         }
         #expect(handed[blocked.frameID] != nil, "the blocked child frame was not handed to the screenshot: \(handed)")
         #expect(handed[allowed.frameID] == nil, "an allowed child frame was handed to the screenshot as blocked")
+    }
+
+    /// A child frame the mask marked can show a page the policy blocks
+    /// during the capture (a response WebKit accepted before the load hold
+    /// commits) and be removed before the check after it, which then finds
+    /// no frame to refuse the capture for. A marked frame missing after the
+    /// capture refuses it.
+    @Test func aMarkedFrameRemovedDuringTheCaptureRefusesIt() async throws {
+        let page = try await FramePage.load()
+        let webView = page.webView
+        let mask = BrowserReplCaptureMask(secretMasks: [], policy: Self.policy(prohibiting: "cmux-test://blocked.test"), blockedChildFrames: .handToCapture)
+        var captured = false
+        let error = await BrowserReplFrameGateTests.error {
+            try await mask.run(in: webView, frames: { await BrowserReplFrame.readTree(of: webView).map(\.info) }) { _ in
+                _ = try await page.run(#"document.getElementById("a").src = "cmux-test://blocked.test/late"; return true"#, in: page.main)
+                _ = try await FramePage.settle(webView) { frames in frames.contains { $0.url == "cmux-test://blocked.test/late" } }
+                captured = true
+                _ = try await page.run(#"document.getElementById("a").remove(); return true"#, in: page.main)
+                _ = try await FramePage.settle(webView) { frames in !frames.contains { $0.url == "cmux-test://blocked.test/late" } }
+                return true
+            }
+        }
+        #expect(captured)
+        #expect(error?.code == "stale", "a capture that showed a blocked page in a frame removed before the check was returned: \(String(describing: error))")
     }
 
     // MARK: Scripts that never answer
