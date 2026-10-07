@@ -21,8 +21,9 @@
   font-size: 12px;
   line-height: 16px;
 }
-.acpmux-composer-context > .acpmux-location-leading { display: flex; align-items: center; gap: 2px; min-width: 0; margin-right: auto; }
-.acpmux-composer-context > .acpmux-location-picker { flex: none; }
+.acpmux-composer-context > .acpmux-location-leading { display: flex; align-items: center; gap: 2px; min-width: 0; margin-right: auto; flex: 1 1 0; }
+.acpmux-composer-context > .acpmux-location-leading > .acpmux-location-picker,
+.acpmux-composer-context > .acpmux-location-picker { flex: 1 1 0; min-width: 0; }
 .acpmux-location-picker {
   position: relative;
   display: inline-flex;
@@ -36,6 +37,7 @@
   align-items: center;
   gap: 4px;
   min-width: 0;
+  width: 100%;
   max-width: 220px;
   height: 22px;
   margin: 0;

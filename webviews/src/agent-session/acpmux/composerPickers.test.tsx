@@ -874,13 +874,13 @@ describe("acpmux composer context", () => {
       await ready();
     };
     try {
-      await render({ cwd: "/Users/me/code/cmux", host: "hearty-beige-elk", hostKind: "cloud" });
+      await render({ cwd: "/Users/me/code/cmux", host: "hearty-beige-elk", hostKind: "cloud", branch: "main" });
       expect(doc.querySelectorAll(".acpmux-context-chip")).toHaveLength(0);
       expect([...doc.querySelectorAll(".acpmux-location-readonly")].map((node) => node.textContent)).toEqual([
         "cmux",
         "hearty-beige-elk",
       ]);
-      await render({ cwd: "/Users/me/code/cmux", host: "hearty-beige-elk", hostKind: "cloud" }, [
+      await render({ cwd: "/Users/me/code/cmux", host: "hearty-beige-elk", hostKind: "cloud", branch: "main" }, [
         { id: "u", version: 1, at: 0, kind: "user", text: "hello" },
       ]);
       expect(doc.querySelector(".acpmux-composer-context")?.getAttribute("data-readonly")).toBe("true");

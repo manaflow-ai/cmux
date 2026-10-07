@@ -92,7 +92,7 @@ const render = (
   );
 
 test("renders the attached folder, computer and branch tray without context chips", async () => {
-  await render();
+  await render({ branch: "main" });
   expect(doc.querySelectorAll(".acpmux-context-chip")).toHaveLength(0);
   expect([...doc.querySelectorAll(".acpmux-location-button")].map((button) => button.textContent)).toEqual([
     "cmux",
@@ -122,7 +122,7 @@ test("offers Cloud computers and sends the selected computer with its folder", a
 });
 
 test("locks both location labels after the first turn", async () => {
-  await render({ turnCount: 1 }, true);
+  await render({ turnCount: 1, branch: "main" }, true);
   expect(doc.querySelectorAll(".acpmux-location-button")).toHaveLength(1);
   expect(doc.querySelector('.acpmux-location-button[aria-label="Branch"]')).not.toBeNull();
   expect(doc.querySelectorAll(".acpmux-location-readonly")).toHaveLength(2);

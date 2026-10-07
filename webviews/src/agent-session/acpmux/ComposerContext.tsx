@@ -84,7 +84,7 @@ export function ComposerContext({
   if (!currentComputer && !currentFolder && !projectChoices) return null;
   const readOnly = started || onProject === undefined;
   const moves = started && onMove !== undefined && !busy;
-  const branch = summary?.branch ?? "main";
+  const branch = summary?.branch;
   return (
     <div className="acpmux-composer-context" data-readonly={readOnly ? "true" : undefined}>
       <div className="acpmux-location-leading">
@@ -130,7 +130,7 @@ export function ComposerContext({
           }}
         />
       </div>
-      <BranchPicker branch={branch} />
+      {branch && <BranchPicker branch={branch} />}
     </div>
   );
 }
