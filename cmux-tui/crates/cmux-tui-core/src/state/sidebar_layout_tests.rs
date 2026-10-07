@@ -466,6 +466,37 @@ fn remove_ref_matches_kind_and_value_only() {
     assert_eq!(find(&doc, "sec_top").items.len(), 1);
 }
 
+#[test]
+fn workspace_refs_are_qualified_session_ids_compared_verbatim() {
+    // sidebar-sections.md 1: a workspace item's value is the qualified public
+    // id `<session>:ws_...`. The store keeps refs opaque (kind + value): the
+    // same local id on two sessions is two pins, and nothing is normalized.
+    let pin = |id: &str, value: &str| {
+        json!({"kind": "item.add", "section": "sec_top", "index": 99,
+               "item": {"id": id, "ref": {"kind": "workspace", "value": value}}})
+    };
+    let one = ok(&defaults(), pin("itm_a", "alpha:ws_1"));
+    let two = ok(&one, pin("itm_b", "beta:ws_1"));
+    let bare = ok(&two, pin("itm_c", "ws_1"));
+    let refs = |d: &Document| {
+        find(d, "sec_top")
+            .items
+            .iter()
+            .filter(|i| i.reference.kind == "workspace")
+            .map(|i| i.reference.value.clone())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(refs(&bare), ["alpha:ws_1", "beta:ws_1", "ws_1"]);
+    // L3: the same qualified ref twice in one section is a no-op.
+    assert_eq!(ok(&bare, pin("itm_d", "alpha:ws_1")), bare);
+    // Remove from Sidebar drops only that session's pin.
+    let removed = ok(
+        &bare,
+        json!({"kind": "item.remove_ref", "ref": {"kind": "workspace", "value": "alpha:ws_1"}}),
+    );
+    assert_eq!(refs(&removed), ["beta:ws_1", "ws_1"]);
+}
+
 /// SplitMix64, so a failure reproduces from its seed (no proptest
 /// dependency in this crate).
 struct Rng(u64);

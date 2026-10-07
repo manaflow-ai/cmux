@@ -181,6 +181,10 @@ impl Arrangement {
 
 /// What an item points at; unknown kinds and built-in ids are kept
 /// verbatim (L5). Two refs are the same reference when kind and value match.
+/// A `workspace` value is the qualified public id `<session>:ws_...` and a
+/// `tab` value `<session>:tab_...` (sidebar-sections.md 1); the store keeps
+/// both opaque: it does not parse them, normalize them or check that the
+/// target exists, so one local id on two sessions is two references.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ItemRef {
     pub kind: String,
