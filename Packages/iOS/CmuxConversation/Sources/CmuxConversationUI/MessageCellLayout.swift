@@ -175,7 +175,7 @@ extension MessageCellLayout {
             y += nameHeight + 3
         }
 
-        if hasReactions { y += 18 }
+        if hasReactions { y += t.reactionRowGrowth }
 
         // Messages stacks each photo at the full image width, 4 pt apart; a
         // tall photo is capped in height and aspect-fills (it never narrows).
