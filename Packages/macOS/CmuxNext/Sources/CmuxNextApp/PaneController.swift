@@ -140,6 +140,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
                 }
                 browserIcon(key: tab.id, recordFavicon: incognito ? nil : tab.faviconURL, recordURL: tab.url).apply(to: &item)
             }
+            TabItemMapping.shared.applyUserIcon(tab, to: &item)
             return item
         }
         for local in state?.localBrowserTabs[paneKey] ?? [] where !pendingClosed.contains(local.id) {
