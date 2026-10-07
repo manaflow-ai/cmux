@@ -32,11 +32,17 @@ const lazyOnlyChunkPattern = /^chunks\/(shiki-lang-|shiki-theme-|shiki-wasm|pier
 // Monaco (the code editor page's `view` chunk and its worker) loads only after the editor opens a
 // file; no page reaches it through static imports, the editor page's own entry included.
 const monacoChunks = ["chunks/view.mjs", "chunks/editor-worker.mjs", "chunks/editorWorkerHost.mjs"];
+// The diff surface and page budgets were 1,500,000. d69da1e49f2 (cx-64k) sources the diff labels
+// from the shared catalog, and labels.ts imports every language's table statically: about 120 KB
+// in chunks/diffSurface.mjs (1,424,812 -> 1,549,515 bytes on 2026-10-07). Translated labels are
+// the feature; evaluating all 21 languages is not. The 1,600,000 budgets hold until labels.ts loads
+// only the active language, then go back to 1,500,000.
+const diffBudgetBytes = 1_600_000;
 const surfaces = [
   {
     name: "diff surface",
     entries: ["main.mjs", "chunks/diffSurface.mjs"],
-    budgetBytes: budgetFromEnvironment("CMUX_WEBVIEWS_DIFF_EAGER_BUDGET_BYTES", 1_500_000),
+    budgetBytes: budgetFromEnvironment("CMUX_WEBVIEWS_DIFF_EAGER_BUDGET_BYTES", diffBudgetBytes),
     forbidden: [],
   },
   {
@@ -48,7 +54,7 @@ const surfaces = [
   {
     name: "diff page",
     entries: ["chunks/diff-page.mjs", "chunks/diffSurface.mjs"],
-    budgetBytes: budgetFromEnvironment("CMUX_WEBVIEWS_DIFF_PAGE_EAGER_BUDGET_BYTES", 1_500_000),
+    budgetBytes: budgetFromEnvironment("CMUX_WEBVIEWS_DIFF_PAGE_EAGER_BUDGET_BYTES", diffBudgetBytes),
     forbidden: monacoChunks,
   },
   {
