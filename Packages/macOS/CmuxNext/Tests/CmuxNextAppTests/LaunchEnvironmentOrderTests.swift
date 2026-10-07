@@ -16,7 +16,7 @@ import CmuxNextProcessEnvironment
         let environmentGuard = ProcessEnvironmentGuard(performsWrites: false) { _ in
             violations.count.add(1, ordering: .relaxed)
         }
-        LaunchEnvironment.prepare(environmentGuard: environmentGuard)
+        CmuxNextApp.prepareLaunchEnvironment(environmentGuard: environmentGuard)
         #expect(environmentGuard.isFrozen)
         #expect(environmentGuard.writesBeforeFreeze == 3)
         #expect(violations.count.load(ordering: .relaxed) == 0)

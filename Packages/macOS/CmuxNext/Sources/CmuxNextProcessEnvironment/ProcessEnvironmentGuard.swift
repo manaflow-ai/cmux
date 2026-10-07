@@ -54,6 +54,14 @@ public final class ProcessEnvironmentGuard: Sendable {
     /// first violation is logged as a fault and every violation reaches
     /// `onViolation`.
     public func write(_ site: StaticString, _ body: () -> Void) {
+        guard !isFrozen else {
+            let message = "environment write after the freeze at \(site): libghostty holds a copy of environ"
+            if !reported.exchange(true, ordering: .acquiringAndReleasing) {
+                Self.logger.fault("\(message, privacy: .public)")
+            }
+            onViolation(message)
+            return
+        }
         checkedWrites.add(1, ordering: .acquiringAndReleasing)
         if performsWrites { body() }
     }
