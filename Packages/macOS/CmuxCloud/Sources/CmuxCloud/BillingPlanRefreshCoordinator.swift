@@ -96,6 +96,9 @@ public struct BillingPlanRefreshCoordinator: Sendable {
     ) {
         guard let generation = consumeGeneration(requestID, scope: scope),
               generation >= latestAppliedGeneration else { return }
+        // A failure must not advance the applied generation: an overlapping
+        // older success may still be the first confirmed answer for this
+        // scope, and should win over a later request that failed transiently.
         state = state.applyingFailure(for: scope.accountID, teamID: scope.teamID)
     }
 

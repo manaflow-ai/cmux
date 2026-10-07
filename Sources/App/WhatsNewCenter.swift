@@ -152,12 +152,12 @@ final class WhatsNewCenter {
         // No highlights published for this version (yet): leave the record
         // alone so a later launch can still announce them.
         guard !releases.isEmpty else { return }
-        pendingReleases = releases
         // The setting may have changed while the catalog was loading. Read it
         // again so a launch that was switched Off never presents or sets the
-        // quiet indicator.
+        // the quiet indicator or leaves releases for a later on-demand open.
         let liveMode = mode
         guard liveMode != .off else { return }
+        pendingReleases = releases
         // The launch recap only ever attaches to a main terminal window and
         // never activates cmux. With no window to attach to (all closed or
         // minimized by the time the catalog arrives), keep the dot instead.

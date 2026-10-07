@@ -562,31 +562,6 @@ final class WorkspaceContentViewVisibilityTests {
     }
 
     @Test
-    func proUpgradeVisibilityWaitsForAuthenticatedBillingStatus() {
-        #expect(
-            !SidebarFooterPresentationPolicy.isUpgradeVisible(
-                featureFlagEnabled: true,
-                isProActive: false,
-                isProStatusKnown: false
-            )
-        )
-        #expect(
-            SidebarFooterPresentationPolicy.isUpgradeVisible(
-                featureFlagEnabled: true,
-                isProActive: false,
-                isProStatusKnown: true
-            )
-        )
-        #expect(
-            !SidebarFooterPresentationPolicy.isUpgradeVisible(
-                featureFlagEnabled: true,
-                isProActive: true,
-                isProStatusKnown: true
-            )
-        )
-    }
-
-    @Test
     func upgradeVisibilityRequiresKnownFreeEntitlement() {
         #expect(
             SidebarFooterPresentationPolicy.isUpgradeVisible(
