@@ -404,6 +404,13 @@ struct DetectedSSHSession: Equatable, Sendable {
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
 
+#if DEBUG
+        cmuxDebugLog(
+            "terminal.remotePasteProcess.start " +
+                "executable=\(executable) args=\(arguments.joined(separator: " | "))"
+        )
+#endif
+
         try operation?.throwIfCancelled()
         try process.run()
         operation?.installCancellationHandler {
@@ -450,6 +457,13 @@ struct DetectedSSHSession: Equatable, Sendable {
             data: stderrPipe.fileHandleForReading.readDataToEndOfFileOrEmpty(),
             encoding: .utf8
         ) ?? ""
+#if DEBUG
+        cmuxDebugLog(
+            "terminal.remotePasteProcess.end " +
+                "executable=\(executable) status=\(process.terminationStatus) " +
+                "stdout=\(stdout.debugLogSnippet()) stderr=\(stderr.debugLogSnippet())"
+        )
+#endif
         if operation?.isCancelled == true {
             throw TerminalImageTransferExecutionError.cancelled
         }
