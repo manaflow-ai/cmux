@@ -3682,7 +3682,8 @@
             "enum": [
               "snapshots",
               "vms",
-              "requests"
+              "rate",
+              "capacity"
             ]
           },
           "_tag": {
