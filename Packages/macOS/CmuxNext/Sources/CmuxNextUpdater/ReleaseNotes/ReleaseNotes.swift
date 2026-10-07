@@ -15,14 +15,20 @@ nonisolated public struct ReleaseNotes: Codable, Equatable, Sendable {
     public var highlights: [Highlight]
     /// Commit-subject lines for the full history.
     public var changes: [String]
+    /// The same changes as structured items (newest first): title, author
+    /// and pull request. Optional: older notes have only `changes`, and
+    /// ``changeItems`` then reads the PR number from each subject.
+    public var items: [ChangeItem]?
 
-    public init(version: Int, build: String, shortVersion: String, date: String, highlights: [Highlight], changes: [String]) {
+    public init(version: Int, build: String, shortVersion: String, date: String, highlights: [Highlight], changes: [String],
+                items: [ChangeItem]? = nil) {
         self.version = version
         self.build = build
         self.shortVersion = shortVersion
         self.date = date
         self.highlights = highlights
         self.changes = changes
+        self.items = items
     }
 
     public struct Highlight: Codable, Equatable, Sendable {

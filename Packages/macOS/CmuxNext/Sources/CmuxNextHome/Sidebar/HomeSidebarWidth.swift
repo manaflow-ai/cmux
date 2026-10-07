@@ -1,23 +1,20 @@
 public import Foundation
 
-/// The Home sidebar's width: between the sidebar's minimum and half the
-/// window, Messages' 300 pt to start, kept per window. The column model's
+/// The Home sidebar's width: between the list's minimum (MessagesLab's
+/// compact, avatar-only list) and half the window, the list's preferred width
+/// to start, kept per window. The column model's
 /// width (the docked column, `column.update`) takes this value over when the
 /// daemon owns the column.
 public struct HomeSidebarWidth: Sendable {
-    public static let minimum: CGFloat = 220
-    public static let standard: CGFloat = 300
+    /// MessagesLab's `SidebarController.minimumWidth` and `preferredWidth`
+    /// (HomeSidebarView reads them from the list; these match v1).
+    public static let minimum: CGFloat = 76
+    public static let standard: CGFloat = 320
 
-    /// `width` kept between the minimum and half of `window` (a window
+    /// `width` kept between `minimum` and half of `window` (a window
     /// narrower than twice the minimum keeps the minimum).
-    public static func clamp(_ width: CGFloat, window: CGFloat) -> CGFloat {
+    public static func clamp(_ width: CGFloat, window: CGFloat, minimum: CGFloat = minimum) -> CGFloat {
         max(minimum, min(width, window / 2))
-    }
-
-    /// The pinned grid's columns at `width`: as many tiles as fit, one to three.
-    public static func gridColumns(width: CGFloat, tileWidth: CGFloat) -> Int {
-        guard tileWidth > 0 else { return 1 }
-        return max(1, min(3, Int(width / tileWidth)))
     }
 
     private let defaults: UserDefaults

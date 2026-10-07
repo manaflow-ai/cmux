@@ -183,6 +183,7 @@ final class RemoteTerminalService {
             return { service?.reconnect(ssh) }
         }
         if let cloud = machines.session(daemon.machineID) { return { cloud.connect(origin: .user) } }
+        if let server = machines.server(daemon.machineID) { return { server.connect() } }
         return nil
     }
 
