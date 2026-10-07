@@ -73,7 +73,9 @@ struct RbClientTests {
 }
 
 /// AppKit events to rb/1 input events, and the record URL of a remote tab.
+/// AppKit events and cursors are main-thread objects.
 @Suite(.timeLimit(.minutes(1)))
+@MainActor
 struct RemoteBrowserInputEncoderTests {
     @Test func rightClickIsDOMButtonTwoAndCmdClickCarriesTheCommandBit() throws {
         let right = try #require(RemoteBrowserInputEncoder.pointer(type: .rightMouseDown, button: 1, clickCount: 1, modifierFlags: [], at: CGPoint(x: 12, y: 30)))
@@ -126,10 +128,12 @@ struct RemoteBrowserInputEncoderTests {
         #expect(RemoteBrowserTabRecord(url: file)?.initialURL == nil)
     }
 
-    @Test @MainActor func cssCursorsMapToAppKitCursors() {
-        #expect(RemoteBrowserNativeUI.cursor("pointer") === NSCursor.pointingHand)
-        #expect(RemoteBrowserNativeUI.cursor("text") === NSCursor.iBeam)
-        #expect(RemoteBrowserNativeUI.cursor("no-such-cursor") === NSCursor.arrow)
+    @Test func cssCursorsMapToAppKitCursors() {
+        // #expect evaluates off the main actor: read the main-actor cursors first.
+        let mapped = ["pointer", "text", "no-such-cursor"].map(RemoteBrowserNativeUI.cursor)
+        let expected = [NSCursor.pointingHand, NSCursor.iBeam, NSCursor.arrow]
+        let same = zip(mapped, expected).map { $0 === $1 }
+        #expect(same == [true, true, true])
     }
 }
 #endif
