@@ -144,7 +144,11 @@ struct CloudBrowserProxyIntegrationTests {
         panel.cloudAccess.configure(model: model, url: url, resourceID: resourceID)
         #expect(panel.navigate(to: url) == nil, "The request must wait while its SSH proxy starts")
         model.connect()
-        #expect(await wait { model.isReady })
+        let readyDeadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while !model.isReady && ContinuousClock.now < readyDeadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(model.isReady, "The managed SSH proxy must become ready before replaying the request")
         #expect(panel.webView.window != nil)
         #expect(panel.websiteDataStore.proxyConfigurations.count == 1)
         #expect(panel.navigate(to: url) != nil)
