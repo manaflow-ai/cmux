@@ -93,8 +93,7 @@ extension PaneController {
     /// gets after `typing`, drained until nothing new arrived (NewTabTypeAhead).
     /// `then` runs once the new tab is selected. `daemonResolvesCwd`: the daemon picks the cwd (NEW-TERMINAL-INHERITS-CWD).
     func newTerminalTab(cwd: String? = nil, typing text: String? = nil, typingAhead page: String? = nil, keep: Bool? = nil,
-                        fromSelectedTab: Bool = false, daemonResolvesCwd: Bool = false,
-                        then: (@MainActor (SurfaceID) -> Void)? = nil) {
+                        fromSelectedTab: Bool = false, daemonResolvesCwd: Bool = false, then: (@MainActor (SurfaceID) -> Void)? = nil) {
         let handle = pane.handle
         // From an agent tab, the agent's cwd (#16620), asked when the tab is made.
         let agent = cwd == nil && fromSelectedTab && !daemonResolvesCwd ? selectedAgentView : nil
