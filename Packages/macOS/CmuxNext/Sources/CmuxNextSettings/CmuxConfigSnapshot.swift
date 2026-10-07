@@ -84,10 +84,10 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// (every surface shows the window's backdrop) when unset or invalid.
     public var surfaceBackgrounds = SurfaceBackgrounds.none
     /// The bundled art of ``backdropSelection``; nil for none or another source.
-    public var backdropArt: BackdropArt? = BackdropArt.defaultSelection
-    /// `appearance.background`: a figure drawing (``BackdropArt/defaultSelection``) when unset,
+    public var backdropArt: BackdropArt? = BackdropSelectionSetting.defaultArt
+    /// `appearance.background`: ``BackdropSelectionSetting/defaultSelection`` (off) when unset,
     /// nil for `none`.
-    public var backdropSelection: BackdropSelection? = .art(BackdropArt.defaultSelection)
+    public var backdropSelection: BackdropSelection? = BackdropSelectionSetting.defaultSelection
     /// `appearance.experimentalControls`; off unless explicitly enabled.
     public var experimentalAppearance = false
     /// `appearance.glassTransparency`, `appearance.hue` and

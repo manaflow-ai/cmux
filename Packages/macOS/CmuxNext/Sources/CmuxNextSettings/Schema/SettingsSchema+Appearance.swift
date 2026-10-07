@@ -15,7 +15,7 @@ nonisolated enum AppearanceSettingsSchema {
         let appTheme = SettingsText.keyed("settings.group.appTheme", "App Theme")
         let tuning = SettingsText.keyed("settings.group.appearanceTuning", "Appearance Tuning")
         let artChoices = BackdropArt.allCases.map { SettingChoice($0.rawValue, $0.title) }
-        // The background picker lists figure drawings first: the default is one.
+        // The background picker lists figure drawings first.
         let backgroundChoices = [BackdropArtCollection.figureDrawings, .paintings].flatMap { collection in
             BackdropArt.allCases.filter { $0.collection == collection }.map { SettingChoice($0.rawValue, $0.title) }
         } + [SettingChoice(BackdropSelection.desktopID, SettingsText.keyed("settings.choice.desktopWallpaper", "Desktop Wallpaper"))]
@@ -42,7 +42,7 @@ nonisolated enum AppearanceSettingsSchema {
                 help: SettingsText.keyed("settings.appearance.background.help",
                                         "Choose a public-domain figure drawing or painting, your desktop wallpaper, or a macOS system wallpaper behind the window material."),
                 kind: .choice([SettingChoice("none", SettingsText.keyed("settings.choice.none", "None"))] + backgroundChoices),
-                default: .string(BackdropArt.defaultSelection.rawValue),
+                default: .string(BackdropSelectionSetting.defaultSelection?.id ?? "none"),
                 keywords: ["painting", "art", "wallpaper", "backdrop", "desktop", "attribution", "drawing", "figure", "sketch"]
             ),
             SettingDescriptor(

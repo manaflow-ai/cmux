@@ -18,9 +18,6 @@ public nonisolated enum BackdropArt: String, CaseIterable, Sendable {
     case rubensBattle = "nga-rubens-battle-of-nude-men-63034"
     case teniersMarket = "nga-teniers-market-figures-62615"
 
-    /// The art a window shows when `appearance.background` is unset.
-    public static let defaultSelection = BackdropArt.degasHalevy
-
     /// The group the art belongs to in the background picker.
     public var collection: BackdropArtCollection {
         switch self {

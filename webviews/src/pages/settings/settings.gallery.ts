@@ -125,7 +125,7 @@ Object.assign(variants, {
     note: "The real wallpaper picker with a public-safe sample thumbnail.",
   }),
   // The bundled figure drawings (cx-t2x.1): the real grayscale files as thumbnails, with the
-  // credit lines the app sends, and the default selected.
+  // credit lines the app sends, and one drawing picked (the background is off until the user picks).
   "figure-drawings": variant("appearance", {
     options: {
       values: { "appearance.experimentalControls": true, "appearance.background": "nga-degas-halevy-standing-66489" },
@@ -177,7 +177,7 @@ Object.assign(variants, {
       wait('[data-card="backdrop"]'),
       { selector: '[data-card="backdrop"] button[aria-pressed="true"]', action: "focus" },
     ],
-    note: "The background picker with the bundled CC0 figure drawings, credited, the default selected.",
+    note: "The background picker with the bundled CC0 figure drawings, credited, one picked.",
   }),
   "theme-level-selected": variant("appearance", { steps: [click('input[name="theme-level"][value="workspace"]')] }),
   "theme-custom-spec": variant("appearance", {
