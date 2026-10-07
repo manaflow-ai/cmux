@@ -5,7 +5,8 @@ mod agent_hook_errors;
 mod browser_tab_create;
 mod closed_workspace_replay;
 pub(crate) use browser_tab_create::{
-    FRONTEND_BROWSER_ACTIVATE_CAPABILITY, frontend_fields as frontend_browser_fields,
+    FRONTEND_BROWSER_ACTIVATE_CAPABILITY, FRONTEND_BROWSER_INSERT_AFTER_CAPABILITY,
+    FrontendTabPlacement, frontend_fields as frontend_browser_fields,
 };
 pub(crate) mod app_terminals;
 mod cloud_conversations;

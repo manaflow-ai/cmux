@@ -313,6 +313,56 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.window",
+        "text" : "Window"
+      },
+      "help" : {
+        "key" : "settings.app.globalHotKey.help",
+        "text" : "Show/Hide All Windows (⌃⌥⌘.) works while another app is in front."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "app.globalHotKey",
+      "keywords" : [
+        "global",
+        "hotkey",
+        "hot key",
+        "summon",
+        "show",
+        "hide",
+        "windows",
+        "system-wide"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "app",
+        "globalHotKey"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.app.globalHotKey",
+        "text" : "Global Hot Key"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "same-kind",
         "terminal",
         "browser",
@@ -6864,100 +6914,6 @@
         "text" : "Loading Indicator"
       },
       "help" : {
-        "key" : "settings.statusIndicator.showAgentWorkingOnTabs.help",
-        "text" : "Three dots take the tab's icon place while an agent works."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "appearance.statusIndicator.showAgentWorkingOnTabs",
-      "keywords" : [
-        "agent",
-        "working",
-        "thinking",
-        "dots"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "appearance",
-        "statusIndicator",
-        "showAgentWorkingOnTabs"
-      ],
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "appearance",
-      "title" : {
-        "key" : "settings.statusIndicator.showAgentWorkingOnTabs",
-        "text" : "Show Agent Working on Tabs"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : true,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.statusIndicator",
-        "text" : "Loading Indicator"
-      },
-      "help" : {
-        "key" : "settings.statusIndicator.showPageLoading.help",
-        "text" : "A spinner takes a browser tab's icon place while its page loads."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "appearance.statusIndicator.showPageLoading",
-      "keywords" : [
-        "browser",
-        "loading",
-        "spinner",
-        "page"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "appearance",
-        "statusIndicator",
-        "showPageLoading"
-      ],
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "appearance",
-      "title" : {
-        "key" : "settings.statusIndicator.showPageLoading",
-        "text" : "Show Page Loading on Tabs"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : true,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.statusIndicator",
-        "text" : "Loading Indicator"
-      },
-      "help" : {
         "key" : "settings.statusIndicator.honorStatusStyle.help",
         "text" : "A status that asks for a style (cmux status set --style) uses it."
       },
@@ -11943,7 +11899,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "67b0d43640556cdd0f69a55d2c42dcb6fd83dc84eca7870a1bce64c391af1a34",
+  "schema_hash" : "ab525d7049c62d35e3ecb86ea9cbe18ef8f12b8bfa096ea09a164c1e0c1c6a79",
   "sections" : [
     {
       "id" : "general",

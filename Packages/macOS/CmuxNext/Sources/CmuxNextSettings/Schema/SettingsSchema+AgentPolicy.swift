@@ -156,6 +156,8 @@ extension SettingsSchema {
         // Whether attached photos and videos send their location.
         "home.attachments.keepLocation": .privacy,
         "app.quitBehavior": .destructive,
+        // On, a key is taken from every other app system-wide.
+        "app.globalHotKey": .userOnly,
         // Off, a close ends running programs and agents without asking.
         "app.warnBeforeClosingTab": .destructive,
         "app.warnBeforeClosingAgentSession": .destructive,

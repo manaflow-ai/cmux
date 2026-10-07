@@ -14,8 +14,8 @@ use crate::workspace_registry::WorkspacePresentationUpdate;
 use crate::workspace_registry::WorkspaceRegistry;
 
 pub(super) struct Session {
-    root: PathBuf,
-    name: &'static str,
+    pub(super) root: PathBuf,
+    pub(super) name: &'static str,
 }
 
 impl Session {

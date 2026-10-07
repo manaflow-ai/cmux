@@ -27,9 +27,11 @@ const TITLE_CHARS: usize = 40;
 
 /// Where subagents' workspaces are made.
 pub trait Workspaces: Send + Sync {
-    /// Opens a workspace named `name` whose tab is acpmux session
-    /// `session`'s chat (a terminal in `cwd` beside it); returns its key.
-    fn open(&self, session: &str, name: &str, cwd: &Path) -> Result<String, String>;
+    /// Opens workspace `key` (a fresh `new_key`, chosen before the session
+    /// starts so the session can carry it as CMUX_WORKSPACE_ID) named `name`,
+    /// whose tab is acpmux session `session`'s chat (a terminal in `cwd`
+    /// beside it); returns its key.
+    fn open(&self, key: &str, session: &str, name: &str, cwd: &Path) -> Result<String, String>;
     /// Renames the workspace `key`.
     fn rename(&self, key: &str, name: &str) -> Result<(), String>;
     /// Where its workspaces live, for the Chief to tell the user (for
@@ -50,6 +52,12 @@ pub fn name(id: &str, task: &str) -> String {
 /// The name of a finished subagent's workspace.
 pub fn done_name(name: &str) -> String {
     format!("{DONE_MARK} {name}")
+}
+
+/// `key` as CMUX_WORKSPACE_ID: the uppercase UUID form a cmux terminal
+/// carries (the app's `DaemonConnection.uuidForm`).
+pub fn env_id(key: &str) -> String {
+    key.to_uppercase()
 }
 
 /// A fresh workspace key in the daemon's canonical form (a lowercase UUID v4).
@@ -145,8 +153,8 @@ pub fn control_call(socket: &Path, request: &Value, timeout: Duration) -> Result
 }
 
 impl Workspaces for AppWorkspaces {
-    fn open(&self, session: &str, name: &str, cwd: &Path) -> Result<String, String> {
-        let key = new_key();
+    fn open(&self, key: &str, session: &str, name: &str, cwd: &Path) -> Result<String, String> {
+        let key = key.to_owned();
         match control_call(
             &self.control,
             &open_request(session, name, &key, cwd),
@@ -199,7 +207,7 @@ impl DaemonWorkspaces {
 }
 
 impl Workspaces for DaemonWorkspaces {
-    fn open(&self, session: &str, name: &str, cwd: &Path) -> Result<String, String> {
+    fn open(&self, key: &str, session: &str, name: &str, cwd: &Path) -> Result<String, String> {
         use cmux::raw::{
             AgentSessionSource, CreateTerminalRequest, CreateWorkspaceRequest,
             NewConversationTabRequest, Optional,
@@ -224,13 +232,14 @@ impl Workspaces for DaemonWorkspaces {
                 return Err(format!("identify: {e}"));
             }
         }
-        let key = new_key();
+        let key = key.to_owned();
         let result = (|| {
             let workspace = client
                 .create_workspace(CreateWorkspaceRequest {
                     key: Optional::Value(key.clone()),
                     name: Optional::Value(name.to_owned()),
                     mutation_id: Optional::Value(format!("optchat-subagent-ws-{key}")),
+                    origin: Optional::Value(MUTATION_ORIGIN.to_owned()),
                     ..Default::default()
                 })
                 .map_err(|e| format!("create-workspace: {e}"))?
@@ -240,6 +249,7 @@ impl Workspaces for DaemonWorkspaces {
                     workspace: Optional::Value(workspace),
                     cwd: Optional::Value(cwd.display().to_string()),
                     mutation_id: Optional::Value(format!("optchat-subagent-term-{key}")),
+                    origin: Optional::Value(MUTATION_ORIGIN.to_owned()),
                     ..Default::default()
                 })
                 .map_err(|e| format!("create-terminal: {e}"))?;
@@ -260,6 +270,7 @@ impl Workspaces for DaemonWorkspaces {
                             .map_or(Optional::Missing, Optional::Value),
                     }),
                     mutation_id: Optional::Value(format!("optchat-subagent-tab-{key}")),
+                    origin: Optional::Value(MUTATION_ORIGIN.to_owned()),
                     ..Default::default()
                 })
                 .map_err(|e| format!("new-conversation-tab: {e}"))?;
@@ -296,6 +307,10 @@ pub fn host_name() -> String {
 pub fn still_running(error: &str) -> bool {
     error.contains("did not finish within")
 }
+
+/// The origin of this host's workspace mutations: the session daemon needs one with every
+/// mutation_id (server.rs workspace_mutation), so a retried create replays instead of doubling.
+const MUTATION_ORIGIN: &str = "optchat-chief";
 
 /// `rename-workspace` by key on the session daemon at `daemon`.
 fn rename_by_key(daemon: &Path, key: &str, name: &str) -> Result<(), String> {
@@ -359,8 +374,12 @@ mod tests {
             control,
             daemon: dir.path().join("daemon.sock"),
         };
-        assert_eq!(w.open("s", "n", Path::new("/w")).map(|k| k.len()), Ok(36));
-        assert!(w.open("s", "n", Path::new("/w")).is_err());
+        assert_eq!(
+            w.open(&new_key(), "s", "n", Path::new("/w"))
+                .map(|k| k.len()),
+            Ok(36)
+        );
+        assert!(w.open(&new_key(), "s", "n", Path::new("/w")).is_err());
         server.join().unwrap();
     }
 
