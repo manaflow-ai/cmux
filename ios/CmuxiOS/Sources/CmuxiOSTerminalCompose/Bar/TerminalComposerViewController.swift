@@ -16,12 +16,13 @@ final class TerminalComposerViewController: UIViewController, UITextViewDelegate
     private let picker: FilePickerCoordinator?
     private weak var screen: TerminalViewController?
     private let textView = ComposerTextView()
+    private let strings = TerminalComposeText()
     private let chips = UIStackView()
     private let chipsScroll = UIScrollView()
     private let attachButton = UIButton(type: .system)
     private let dictateButton = UIButton(type: .system)
     private let sendButton = UIButton(type: .system)
-    private var textHeight: NSLayoutConstraint!
+    private lazy var textHeight = textView.heightAnchor.constraint(equalToConstant: 36)
     private let dictation = DictationController()
     /// The text before dictation started; transcriptions append to it.
     private var dictationPrefix = ""
@@ -47,19 +48,20 @@ final class TerminalComposerViewController: UIViewController, UITextViewDelegate
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        let content = (view as? UIVisualEffectView)?.contentView ?? view!
+        let root: UIView = view
+        let content = (root as? UIVisualEffectView)?.contentView ?? root
         let hairline = UIView()
         hairline.backgroundColor = .separator
         hairline.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(hairline)
 
-        configure(attachButton, symbol: "paperclip", label: TerminalComposeText.attach)
+        configure(attachButton, symbol: "paperclip", label: strings.attach)
         attachButton.isHidden = !model.canAttach || picker == nil
         attachButton.showsMenuAsPrimaryAction = true
         attachButton.menu = attachMenu()
-        configure(dictateButton, symbol: "mic", label: TerminalComposeText.dictate)
+        configure(dictateButton, symbol: "mic", label: strings.dictate)
         dictateButton.addAction(UIAction { [weak self] _ in self?.toggleDictation() }, for: .primaryActionTriggered)
-        configure(sendButton, symbol: "arrow.up.circle.fill", label: TerminalComposeText.send)
+        configure(sendButton, symbol: "arrow.up.circle.fill", label: strings.send)
         sendButton.accessibilityIdentifier = "terminal.composer.send"
         sendButton.addAction(UIAction { [weak self] _ in self?.send(submits: true) }, for: .primaryActionTriggered)
         sendButton.menu = sendMenu()
@@ -89,7 +91,6 @@ final class TerminalComposerViewController: UIViewController, UITextViewDelegate
         column.spacing = 6
         column.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(column)
-        textHeight = textView.heightAnchor.constraint(equalToConstant: 36)
         NSLayoutConstraint.activate([
             hairline.topAnchor.constraint(equalTo: content.topAnchor),
             hairline.leadingAnchor.constraint(equalTo: content.leadingAnchor),
@@ -137,11 +138,11 @@ final class TerminalComposerViewController: UIViewController, UITextViewDelegate
         if dictation.isRunning { dictation.stop() }
         guard let submission = model.submission(submits: submits) else { return }
         guard let screen, screen.sendComposed(text: submission.text, submits: submission.submits) else {
-            showNotice(TerminalComposeText.notConnected)
+            showNotice(strings.notConnected)
             return
         }
         model.didSend(submission)
-        UIAccessibility.post(notification: .announcement, argument: TerminalComposeText.send)
+        UIAccessibility.post(notification: .announcement, argument: strings.send)
     }
 
     private func setAcceptsInput(_ accepts: Bool) {
@@ -154,21 +155,21 @@ final class TerminalComposerViewController: UIViewController, UITextViewDelegate
         sendButton.isEnabled = model.canSend
         sendButton.tintColor = model.canSend && acceptsInput ? .label : .tertiaryLabel
         dictateButton.configuration?.image = UIImage(systemName: dictation.isRunning ? "stop.circle.fill" : "mic")
-        dictateButton.accessibilityLabel = dictation.isRunning ? TerminalComposeText.stopDictation : TerminalComposeText.dictate
+        dictateButton.accessibilityLabel = dictation.isRunning ? strings.stopDictation : strings.dictate
         sendButton.menu = sendMenu()
         renderChips()
     }
 
     private func sendMenu() -> UIMenu {
         var children: [UIMenuElement] = [
-            UIAction(title: TerminalComposeText.insertWithoutSending, image: UIImage(systemName: "text.insert"),
+            UIAction(title: strings.insertWithoutSending, image: UIImage(systemName: "text.insert"),
                      attributes: model.canSend ? [] : .disabled) { [weak self] _ in self?.send(submits: false) },
         ]
         let history = model.history.suffix(10).reversed().map { entry in
             UIAction(title: String(entry.prefix(80))) { [weak self] _ in self?.model.useHistory(entry) }
         }
         if !history.isEmpty {
-            children.append(UIMenu(title: TerminalComposeText.history, image: UIImage(systemName: "clock.arrow.circlepath"),
+            children.append(UIMenu(title: strings.history, image: UIImage(systemName: "clock.arrow.circlepath"),
                                    children: Array(history)))
         }
         return UIMenu(children: children)
@@ -317,9 +318,9 @@ final class TerminalComposerViewController: UIViewController, UITextViewDelegate
             do {
                 try await self.dictation.start()
             } catch DictationController.Failure.denied {
-                self.showNotice(TerminalComposeText.dictationDenied)
+                self.showNotice(self.strings.dictationDenied)
             } catch {
-                self.showNotice(TerminalComposeText.dictationUnavailable)
+                self.showNotice(self.strings.dictationUnavailable)
             }
             self.refresh()
         }
@@ -346,7 +347,7 @@ final class TerminalComposerViewController: UIViewController, UITextViewDelegate
 
     private func showNotice(_ message: String) {
         let alert = UIAlertController(title: nil, message: message, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: TerminalComposeText.ok, style: .default))
+        alert.addAction(UIAlertAction(title: strings.ok, style: .default))
         present(alert, animated: true)
     }
 }

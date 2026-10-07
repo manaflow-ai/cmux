@@ -7,8 +7,16 @@ import Foundation
 /// errors) and `_acpmux/models` (the ACP harnesses with their models).
 /// Terminal harnesses have no ACP session and peer harnesses run on another
 /// machine, so neither is offered. Pure.
-public enum AcpmuxCatalog {
-    public static func agents(harnesses: JSONValue, models: JSONValue) -> [MobileAgent] {
+public struct AcpmuxCatalog: Sendable {
+    public let harnesses: JSONValue
+    public let models: JSONValue
+
+    public init(harnesses: JSONValue, models: JSONValue) {
+        self.harnesses = harnesses
+        self.models = models
+    }
+
+    public var agents: [MobileAgent] {
         let profiles = harnesses["harnesses"]?.objectValue ?? [:]
         let preferred = harnesses["defaultHarness"]?.stringValue
         var agents: [MobileAgent] = []

@@ -6,6 +6,7 @@ import UIKit
 @MainActor
 final class ComposerUploadChip: UIView {
     let upload: ComposerUpload
+    private let strings = TerminalComposeText()
     var onRemove: ((UUID) -> Void)?
 
     init(upload: ComposerUpload) {
@@ -22,7 +23,7 @@ final class ComposerUploadChip: UIView {
         label.adjustsFontForContentSizeCategory = true
         label.textColor = upload.phase == .failed ? .secondaryLabel : .label
         label.lineBreakMode = .byTruncatingMiddle
-        label.text = upload.phase == .failed ? TerminalComposeText.failed(upload.name) : TerminalComposeText.uploading(upload.name)
+        label.text = upload.phase == .failed ? strings.failed(upload.name) : strings.uploading(upload.name)
         var arranged: [UIView] = [icon, label]
         switch upload.phase {
         case .uploading:
@@ -36,7 +37,7 @@ final class ComposerUploadChip: UIView {
             })
             remove.setImage(UIImage(systemName: "xmark.circle.fill"), for: .normal)
             remove.tintColor = .secondaryLabel
-            remove.accessibilityLabel = TerminalComposeText.removeAttachment
+            remove.accessibilityLabel = strings.removeAttachment
             arranged.append(remove)
         }
         let stack = UIStackView(arrangedSubviews: arranged)

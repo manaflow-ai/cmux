@@ -15,6 +15,7 @@ final class ComposerTextView: UITextView {
     /// Pasted images or files (item providers to stage).
     var onPasteItems: (([NSItemProvider]) -> Void)?
     private let placeholderLabel = UILabel()
+    private let strings = TerminalComposeText()
 
     init() {
         super.init(frame: .zero, textContainer: nil)
@@ -31,9 +32,9 @@ final class ComposerTextView: UITextView {
         smartDashesType = .no
         smartInsertDeleteType = .no
         tintColor = .label
-        accessibilityLabel = TerminalComposeText.fieldLabel
+        accessibilityLabel = strings.fieldLabel
         accessibilityIdentifier = "terminal.composer.field"
-        placeholderLabel.text = TerminalComposeText.placeholder
+        placeholderLabel.text = strings.placeholder
         placeholderLabel.font = .preferredFont(forTextStyle: .body)
         placeholderLabel.adjustsFontForContentSizeCategory = true
         placeholderLabel.textColor = .placeholderText
@@ -50,6 +51,7 @@ final class ComposerTextView: UITextView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    // crash-allow: UIKit declares `UITextView.text` as `String!`; an override must keep the type.
     override var text: String! {
         didSet { updatePlaceholder() }
     }
@@ -74,7 +76,7 @@ final class ComposerTextView: UITextView {
             let action: Selector = rule.action(for: modifiers) == .send ? #selector(sendFromKeyboard) : #selector(insertNewline)
             let command = UIKeyCommand(input: "\r", modifierFlags: flags, action: action)
             command.wantsPriorityOverSystemBehavior = true
-            if flags == .command { command.discoverabilityTitle = TerminalComposeText.send }
+            if flags == .command { command.discoverabilityTitle = strings.send }
             return command
         }
     }

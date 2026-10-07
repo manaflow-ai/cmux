@@ -35,7 +35,7 @@ public struct DaemonTaskWorkspaces: MobileTaskWorkspaces {
 
     public func directory(of workspace: String) async throws -> String {
         let tree = try await daemon.currentTree()
-        if let root = MobileWorkspaceRoots.roots(in: tree).first(where: { $0.id == workspace }) { return root.url.path }
+        if let root = tree.mobileFileRoots.first(where: { $0.id == workspace }) { return root.url.path }
         guard Self.isSafeID(workspace) else {
             throw MobileDaemonError(code: "workspace.not_found", message: "\(workspace) names no folder")
         }

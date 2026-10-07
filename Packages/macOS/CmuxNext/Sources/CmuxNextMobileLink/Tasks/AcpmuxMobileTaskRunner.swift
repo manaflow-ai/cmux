@@ -61,7 +61,7 @@ public actor AcpmuxMobileTaskRunner: MobileTaskRunner {
         let rpc = try await connection()
         let harnesses = try await rpc.call("_acpmux/harnesses", params: .object([:]))
         let models = try await rpc.call("_acpmux/models", params: .object([:]))
-        return AcpmuxCatalog.agents(harnesses: harnesses, models: models)
+        return AcpmuxCatalog(harnesses: harnesses, models: models).agents
     }
 
     public func tasks() async throws -> [MobileTask] {

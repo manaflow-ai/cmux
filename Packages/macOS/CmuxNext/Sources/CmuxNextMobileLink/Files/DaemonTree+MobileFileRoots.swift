@@ -7,10 +7,10 @@ import Foundation
 /// its launch directory), one root per workspace, keyed by its `ws_…` id.
 /// `MobileFilePolicy` still drops roots that are home, above home or
 /// protected. Pure.
-public enum MobileWorkspaceRoots {
-    public static func roots(in tree: DaemonTree) -> [MobileFileRoot] {
+extension DaemonTree {
+    public var mobileFileRoots: [MobileFileRoot] {
         var roots: [MobileFileRoot] = []
-        for workspace in tree.workspaces where !workspace.isHome {
+        for workspace in workspaces where !workspace.isHome {
             guard let id = workspace.resourceID?.rawValue else { continue }
             let tabs = workspace.screens.flatMap(\.panes).filter { !$0.dead }.flatMap(\.tabs)
             guard let cwd = tabs.first(where: { $0.kind == .pty && !$0.dead && ($0.cwd?.hasPrefix("/") ?? false) })?.cwd else {

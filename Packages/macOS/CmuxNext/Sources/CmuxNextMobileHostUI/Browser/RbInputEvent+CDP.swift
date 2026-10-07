@@ -1,46 +1,11 @@
 public import CmuxBrowserStream
 
-/// One DevTools `Input.*` command.
-public struct CDPCall: Hashable, Sendable {
-    public var method: String
-    public var params: [String: CDPValue]
-
-    public init(method: String, params: [String: CDPValue]) {
-        self.method = method
-        self.params = params
-    }
-
-    /// The params as the engine's DevTools API takes them.
-    public var foundationParams: [String: any Sendable] {
-        params.mapValues(\.foundation)
-    }
-}
-
-/// A DevTools parameter value.
-public enum CDPValue: Hashable, Sendable {
-    case string(String)
-    case int(Int)
-    case double(Double)
-    case bool(Bool)
-    case strings([String])
-
-    var foundation: any Sendable {
-        switch self {
-        case .string(let value): return value
-        case .int(let value): return value
-        case .double(let value): return value
-        case .bool(let value): return value
-        case .strings(let value): return value
-        }
-    }
-}
-
 /// rb input in page CSS pixels to DevTools `Input` commands
 /// (`dispatchMouseEvent`, `dispatchKeyEvent`, `insertText`,
 /// `imeSetComposition`): trusted events, like the person's own. Pure.
-public enum BrowserCDPInput {
-    public static func calls(for input: RbInputEvent) -> [CDPCall] {
-        switch input {
+extension RbInputEvent {
+    public var cdpCalls: [CDPCall] {
+        switch self {
         case .pointer(let kind, let x, let y, let button, let buttons, let clickCount, let modifiers, let pointerType):
             let type: String = switch kind {
             case .down: "mousePressed"
@@ -50,26 +15,26 @@ public enum BrowserCDPInput {
             let pressed = kind == .down || kind == .up
             return [CDPCall(method: "Input.dispatchMouseEvent", params: [
                 "type": .string(type), "x": .double(x), "y": .double(y),
-                "button": .string(pressed ? buttonName(button) : (buttons == 0 ? "none" : buttonName(firstButton(buttons)))),
+                "button": .string(pressed ? Self.buttonName(button) : (buttons == 0 ? "none" : Self.buttonName(Self.firstButton(buttons)))),
                 "buttons": .int(Int(buttons)), "clickCount": .int(pressed ? max(1, Int(clickCount)) : 0),
-                "modifiers": .int(cdpModifiers(modifiers)), "pointerType": .string(pointerType == "pen" ? "pen" : "mouse"),
+                "modifiers": .int(Self.cdpModifiers(modifiers)), "pointerType": .string(pointerType == "pen" ? "pen" : "mouse"),
             ])]
         case .wheel(let x, let y, let dx, let dy, _, _, _, let modifiers):
             return [CDPCall(method: "Input.dispatchMouseEvent", params: [
                 "type": .string("mouseWheel"), "x": .double(x), "y": .double(y), "deltaX": .double(dx), "deltaY": .double(dy),
-                "modifiers": .int(cdpModifiers(modifiers)),
+                "modifiers": .int(Self.cdpModifiers(modifiers)),
             ])]
         case .key(let key):
             var params: [String: CDPValue] = [
                 "type": .string(key.down ? (key.text.isEmpty ? "rawKeyDown" : "keyDown") : "keyUp"),
-                "key": .string(key.key), "code": .string(key.code), "modifiers": .int(cdpModifiers(key.modifiers)),
+                "key": .string(key.key), "code": .string(key.code), "modifiers": .int(Self.cdpModifiers(key.modifiers)),
                 "autoRepeat": .bool(key.isRepeat), "location": .int(Int(key.location)),
             ]
             if key.down, !key.text.isEmpty {
                 params["text"] = .string(key.text)
                 params["unmodifiedText"] = .string(key.unmodifiedText.isEmpty ? key.text : key.unmodifiedText)
             }
-            if let code = virtualKeyCode(key.code) { params["windowsVirtualKeyCode"] = .int(code) }
+            if let code = Self.virtualKeyCode(key.code) { params["windowsVirtualKeyCode"] = .int(code) }
             if key.down, !key.editCommands.isEmpty { params["commands"] = .strings(key.editCommands.map(\.name)) }
             return [CDPCall(method: "Input.dispatchKeyEvent", params: params)]
         case .imeCommit(let text, _):
@@ -89,7 +54,7 @@ public enum BrowserCDPInput {
     }
 
     /// DOM button numbers (0 main, 1 auxiliary, 2 secondary) to DevTools names.
-    static func buttonName(_ button: UInt8) -> String {
+    private static func buttonName(_ button: UInt8) -> String {
         switch button {
         case 1: "middle"
         case 2: "right"
@@ -100,7 +65,7 @@ public enum BrowserCDPInput {
     }
 
     /// The first pressed button of a DOM `buttons` mask (1 main, 2 secondary, 4 auxiliary).
-    static func firstButton(_ buttons: UInt8) -> UInt8 {
+    private static func firstButton(_ buttons: UInt8) -> UInt8 {
         if buttons & 1 != 0 { return 0 }
         if buttons & 2 != 0 { return 2 }
         if buttons & 4 != 0 { return 1 }
@@ -108,7 +73,7 @@ public enum BrowserCDPInput {
     }
 
     /// DevTools modifiers: Alt 1, Ctrl 2, Meta 4, Shift 8.
-    static func cdpModifiers(_ modifiers: RbModifiers) -> Int {
+    private static func cdpModifiers(_ modifiers: RbModifiers) -> Int {
         var value = 0
         if modifiers.contains(.option) { value |= 1 }
         if modifiers.contains(.control) { value |= 2 }
@@ -118,7 +83,7 @@ public enum BrowserCDPInput {
     }
 
     /// Windows virtual key codes Chromium needs for keys without text.
-    static func virtualKeyCode(_ code: String) -> Int? {
+    private static func virtualKeyCode(_ code: String) -> Int? {
         switch code {
         case "Backspace": return 8
         case "Tab": return 9

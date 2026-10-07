@@ -6,7 +6,7 @@ public import Foundation
 /// One phone on one Mac tab: pixels from the tab's window through
 /// ScreenCaptureKit and VideoToolbox (`CapturedVideoSource`), page state and
 /// geometry from the tab, input as DevTools `Input` commands
-/// (`BrowserCDPInput`), navigation through the tab. The page owner (the tab)
+/// (`RbInputEvent.cdpCalls`), navigation through the tab. The page owner (the tab)
 /// applies everything.
 public actor TabBrowserPageAttachment: BrowserPageAttachment {
     public nonisolated let video: any BrowserVideoSource
@@ -59,7 +59,7 @@ public actor TabBrowserPageAttachment: BrowserPageAttachment {
 
     public func apply(_ input: RbInputEvent) async {
         let tab = tab
-        for call in BrowserCDPInput.calls(for: input) {
+        for call in input.cdpCalls {
             let params = call.foundationParams
             try? await tab.devTools(method: call.method, params: params)
         }

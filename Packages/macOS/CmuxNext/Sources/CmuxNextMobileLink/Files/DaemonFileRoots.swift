@@ -17,6 +17,6 @@ public struct DaemonFileRoots: MobileFileRootsProvider {
 
     public func roots(for principal: MobileDevicePrincipal) async -> [MobileFileRoot] {
         guard let tree = try? await tree() else { return [] }
-        return MobileWorkspaceRoots.roots(in: tree)
+        return tree.mobileFileRoots
     }
 }
