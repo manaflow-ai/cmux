@@ -29,18 +29,28 @@
 # request. A pull request passes its merge commit's first parent (HEAD^1). An
 # unknown REF checks every file, as without --base.
 #
-# Usage: scripts/cmux-next/check-no-godfiles.sh [--update-baseline | --only swift|rust] [--base REF] [package-root]
+# --file PATH (repeatable, repository-relative) measures only those files: a
+# Rust or Swift file's own limits, and each Swift type of the named Swift
+# files' modules (a type spans all its extensions in its module). safe-push
+# passes the files a push changes; CI scans everything.
+#
+# Usage: scripts/cmux-next/check-no-godfiles.sh [--update-baseline | --only swift|rust] [--base REF] [--file PATH]... [package-root]
 set -euo pipefail
 
 update=0
 only=all
 base_ref=""
+files=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --update-baseline) update=1; shift ;;
     --base)
       [[ -n "${2:-}" ]] || { echo "--base takes a commit" >&2; exit 2; }
       base_ref="$2"
+      shift 2 ;;
+    --file)
+      [[ -n "${2:-}" ]] || { echo "--file takes a repository-relative path" >&2; exit 2; }
+      files+="$2"$'\n'
       shift 2 ;;
     --only)
       case "${2:-}" in
@@ -51,8 +61,8 @@ while [[ $# -gt 0 ]]; do
     *) break ;;
   esac
 done
-if (( update )) && [[ "$only" != all || -n "$base_ref" ]]; then
-  echo "--update-baseline rewrites every entry; run it without --only or --base" >&2
+if (( update )) && [[ "$only" != all || -n "$base_ref" || -n "$files" ]]; then
+  echo "--update-baseline rewrites every entry; run it without --only, --base or --file" >&2
   exit 2
 fi
 check_swift=0; check_rust=0
@@ -80,6 +90,37 @@ status=0
 # Rows: "kind<TAB>key<TAB>lines<TAB>fns<TAB>line-limit<TAB>fn-limit"; for a
 # swift-file row, fns is its top-level type count and fn-limit the type limit
 # (0: no type limit, in tests).
+# --file scoping. in_files keeps the stdin paths that are named (all without --file).
+pkg_rel() { # root repo -> the package path relative to the repository (symlinks resolved)
+  local r p
+  r="$(cd "$1" && pwd -P)"; p="$(cd "$2" && pwd -P)"
+  echo "${r#"$p"/}"
+}
+in_files() { if [[ -z "$files" ]]; then cat; else grep -xF -f <(printf '%s' "$files") || true; fi; }
+swift_files() { # root repo -> NUL-separated Swift files to measure
+  local root="$1" repo="$2" pkg rel
+  if [[ -z "$files" ]]; then
+    find "$root/Sources" "$root/Tests" -name '*.swift' -print0 2>/dev/null
+    return 0
+  fi
+  pkg="$(pkg_rel "$root" "$repo")"
+  while IFS= read -r rel; do
+    [[ "$rel" == "$pkg"/Sources/*.swift || "$rel" == "$pkg"/Tests/*.swift ]] || continue
+    [[ -f "$repo/$rel" ]] && printf '%s\0' "$repo/$rel"
+  done <<<"$files"
+  return 0
+}
+type_dirs() { # root repo -> module directories whose types to measure
+  local root="$1" repo="$2" pkg rel module
+  if [[ -z "$files" ]]; then echo "$root/Sources"; return 0; fi
+  pkg="$(pkg_rel "$root" "$repo")"
+  while IFS= read -r rel; do
+    [[ "$rel" == "$pkg"/Sources/*.swift ]] || continue
+    module="${rel#"$pkg"/Sources/}"; module="${module%%/*}"
+    [[ -d "$root/Sources/$module" ]] && echo "$root/Sources/$module"
+  done <<<"$files" | sort -u
+  return 0
+}
 measure() {
   local root="$1" repo="$2" rev="${3:-}" file lines limit types tlimit rel fns
   # 1. Swift files: absolute limits.
@@ -91,12 +132,12 @@ measure() {
     # Top-level primary declarations (extensions and small nested helpers are fine).
     types=$(grep -cE '^(public |internal |package |fileprivate |private |final |nonisolated |indirect |@MainActor |@Observable |@frozen )*(final )?(class|struct|enum|actor|protocol) ' "$file" || true)
     printf 'swift-file\t%s\t%d\t%d\t%d\t%d\n' "${file#"$root"/}" "$lines" "$types" "$limit" "$tlimit"
-  done < <(find "$root/Sources" "$root/Tests" -name '*.swift' -print0 2>/dev/null)
+  done < <(swift_files "$root" "$repo")
 
   # 2. Ratcheted entries. Swift types: a top-level declaration starts at column 0
   # and ends at the next line that starts with "}" (the package is formatted that way).
-  if (( check_swift )) && [[ -d "$root/Sources" ]]; then
-    find "$root/Sources" -name '*.swift' -print0 | xargs -0 awk '
+  if (( check_swift )) && [[ -d "$root/Sources" ]] && [[ -n "$(type_dirs "$root" "$repo")" ]]; then
+    type_dirs "$root" "$repo" | tr '\n' '\0' | xargs -0 -I{} find {} -name '*.swift' -print0 | xargs -0 awk '
       FNR == 1 {
         in_decl = 0
         module = FILENAME
@@ -141,7 +182,7 @@ measure() {
       printf 'rust-file\t%s\t%d\t%d\t%d\t%d\n' "$rel" "$lines" "$fns" "$rust_file_limit" "$rust_fn_limit"
     fi
   done < <(if [[ -n "$rev" ]]; then git -C "$script_repo" ls-tree -r --name-only "$rev" -- cmux-tui; else git -C "$repo" ls-files 'cmux-tui/*.rs'; fi \
-    | grep -E '\.rs$' | grep -vE '^cmux-tui/(vendor/|bindings/rust/src/generated/)')
+    | grep -E '\.rs$' | grep -vE '^cmux-tui/(vendor/|bindings/rust/src/generated/)' | in_files)
   return 0
 }
 
@@ -157,7 +198,7 @@ measure "$root" "$repo" > "$measurements"
 # (ARGV[2]; empty until it is measured). A swift-file row's fns is its type count.
 [[ -f "$baseline" ]] || : > "$baseline"
 evaluate() { # scoped (0 or 1) -> report lines
-  awk -F'\t' -v update="$update" -v only="$only" -v scoped="$1" '
+  awk -F'\t' -v update="$update" -v only="$only" -v scoped="$1" -v filescoped="${files:+1}" '
   FILENAME == ARGV[1] {
     if ($0 ~ /^#/ || NF < 4) next
     if (only == "swift" && $1 != "swift-type") next
@@ -217,7 +258,7 @@ evaluate() { # scoped (0 or 1) -> report lines
     }
   }
   END {
-    for (key in base_lines) if (!(key in seen)) printf "NOTE\t%s is gone; run --update-baseline to drop it\n", key
+    if (!filescoped) for (key in base_lines) if (!(key in seen)) printf "NOTE\t%s is gone; run --update-baseline to drop it\n", key
     if (update) for (key in keep_lines) printf "KEEP\t%s\t%d\t%d\n", key, keep_lines[key], keep_fns[key]
   }
 ' "$baseline" "$base_measurements" "$measurements"
