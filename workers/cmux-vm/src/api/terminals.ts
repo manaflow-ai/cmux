@@ -12,7 +12,7 @@
  */
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
 import { Schema } from "effect";
-import { Conflict, NotFound } from "../errors.ts";
+import { Conflict, NotFound, QuotaExceeded } from "../errors.ts";
 import { describe, GroupTeamHeaders, UpgradeRequired } from "./common.ts";
 
 /** A guest Linux user name. */
@@ -87,6 +87,7 @@ export class TerminalsGroupDefinition extends HttpApiGroup.make("terminals")
       .addError(NotFound)
       .addError(Conflict)
       .addError(UpgradeRequired)
+      .addError(QuotaExceeded)
       .annotateContext(
         describe(
           "Open a terminal on the VM over a WebSocket",
@@ -102,6 +103,7 @@ export class TerminalsGroupDefinition extends HttpApiGroup.make("terminals")
       .setHeaders(GroupTeamHeaders)
       .addSuccess(TerminalSessionList)
       .addError(NotFound)
+      .addError(QuotaExceeded)
       .annotateContext(describe("List the VM's terminal sessions, running and recently exited", "vm:terminal")),
   )
   .add(
@@ -113,6 +115,7 @@ export class TerminalsGroupDefinition extends HttpApiGroup.make("terminals")
       .addError(NotFound)
       .addError(Conflict)
       .addError(UpgradeRequired)
+      .addError(QuotaExceeded)
       .annotateContext(
         describe(
           "Reattach to a terminal session over a WebSocket",
@@ -129,5 +132,6 @@ export class TerminalsGroupDefinition extends HttpApiGroup.make("terminals")
       .addSuccess(ClosedTerminal)
       .addError(NotFound)
       .addError(Conflict)
+      .addError(QuotaExceeded)
       .annotateContext(describe("Kill a terminal session and remove it", "vm:terminal")),
   ) {}

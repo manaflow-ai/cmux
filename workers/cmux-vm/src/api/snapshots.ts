@@ -12,14 +12,24 @@ import { describe, DisplayName, GroupCreateHeaders, GroupTeamHeaders, InvalidReq
 const MAX_RETENTION_SECONDS = 365 * 24 * 60 * 60;
 const RetentionSeconds = Schema.Int.pipe(Schema.between(60, MAX_RETENTION_SECONDS));
 
-export const LabelKey = Schema.String.pipe(Schema.pattern(/^[a-z0-9][a-z0-9._/-]{0,62}$/));
-export const LabelValue = Schema.String.pipe(Schema.pattern(/^[A-Za-z0-9._:/-]{0,63}$/));
+/**
+ * Snapshot labels follow the VM label rules in src/api.ts exactly (that module
+ * composes this one, so the schema cannot be imported from it).
+ */
+export const LABEL_KEY = /^[a-z0-9]([a-z0-9._/-]{0,61}[a-z0-9])?$/u;
+export const LabelValue = Schema.String.pipe(Schema.pattern(/^[A-Za-z0-9._:/@-]{0,63}$/));
 export const MAX_LABELS = 16;
-
-/** Caller-chosen key/value labels, at most 16. Keys: lowercase letters, digits, `._/-`; values: no `,` or `=`. */
-export const Labels = Schema.Record({ key: LabelKey, value: LabelValue }).pipe(
-  Schema.filter((labels) => Object.keys(labels).length <= MAX_LABELS, { message: () => `at most ${MAX_LABELS} labels` }),
-);
+// Record key schemas only drop keys that do not match, so keys are checked by a filter that rejects.
+export const Labels = Schema.Record({ key: Schema.String, value: LabelValue })
+  .pipe(
+    Schema.filter((labels) => Object.keys(labels).length <= MAX_LABELS && Object.keys(labels).every((key) => LABEL_KEY.test(key)), {
+      message: () => `at most ${MAX_LABELS} labels, keys of lowercase letters, digits and . _ / -`,
+    }),
+  )
+  .annotations({
+    identifier: "SnapshotLabels",
+    description: `Up to ${MAX_LABELS} key/value labels for finding snapshots (list filters by them). Same rules as VM labels. Stored by cmux, not secret.`,
+  });
 
 const RESTORE_NOTE =
   "A VM booted from a snapshot resumes from the captured memory. Whether the guest kernel's random number generator is " +
@@ -103,6 +113,7 @@ export class SnapshotsGroupDefinition extends HttpApiGroup.make("snapshots")
       .setHeaders(GroupTeamHeaders)
       .addSuccess(SnapshotList)
       .addError(InvalidRequest)
+      .addError(QuotaExceeded)
       .annotateContext(describe("List the tenant's snapshots, newest first", "snapshot:read")),
   )
   .add(
@@ -111,6 +122,7 @@ export class SnapshotsGroupDefinition extends HttpApiGroup.make("snapshots")
       .setHeaders(GroupTeamHeaders)
       .addSuccess(Snapshot)
       .addError(NotFound)
+      .addError(QuotaExceeded)
       .annotateContext(describe("Get a snapshot", "snapshot:read")),
   )
   .add(
@@ -120,6 +132,7 @@ export class SnapshotsGroupDefinition extends HttpApiGroup.make("snapshots")
       .addSuccess(HttpApiSchema.NoContent)
       .addError(NotFound)
       .addError(Conflict)
+      .addError(QuotaExceeded)
       .annotateContext(
         describe("Delete a snapshot permanently", "snapshot:write", "VMs already created from it keep running."),
       ),

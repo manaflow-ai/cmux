@@ -9,12 +9,11 @@ import { Effect, Schema } from "effect";
 import { CmuxVmApi } from "../api.ts";
 import { UpgradeRequired } from "../api/common.ts";
 import { ClosedTerminal, TerminalName, TerminalSession, TerminalSessionList } from "../api/terminals.ts";
-import { audit } from "../db/audit.ts";
 import { Conflict, NotFound, unavailable, vmNotFound } from "../errors.ts";
 import { bridgeTerminal } from "../lib/terminal-bridge.ts";
 import type { UpstreamError } from "../upstream/client.ts";
 import { UpstreamTerminals, type UpstreamPtySession } from "../upstream/terminals.ts";
-import { OwnedVm, withOwned } from "./owned.ts";
+import { audited, withOwnedVm } from "./common.ts";
 
 const terminalNotFound = () => new NotFound({ message: "Terminal session not found" });
 
@@ -58,24 +57,23 @@ export const terminalsHandlers = HttpApiBuilder.group(CmuxVmApi, "terminals", (h
       Effect.gen(function* () {
         const upstream = yield* UpstreamTerminals;
         const request = yield* HttpServerRequest.HttpServerRequest;
-        return yield* withOwned(OwnedVm, path.vmId, "vm:terminal", (caller, vm, proofs) =>
+        return yield* withOwnedVm(path.vmId, "vm:terminal", "exec", (_caller, vm, proofs) =>
           Effect.gen(function* () {
             if (!isWebSocketUpgrade(request)) return yield* Effect.fail(upgradeRequired());
-            const principal = caller.value;
-            const socket = yield* upstream
-              .openTerminal(vm, proofs, {
-                command: urlParams.command,
-                cols: urlParams.cols,
-                rows: urlParams.rows,
-                user: urlParams.user,
-                name: urlParams.name,
-                restartOnExit: urlParams.restartOnExit,
-              })
-              .pipe(
-                Effect.tapError(() => audit(principal, "terminal.open", vm.value, "failed")),
-                Effect.mapError(mapUpstream(vmNotFound)),
-              );
-            yield* audit(principal, "terminal.open", vm.value, "succeeded");
+            const socket = yield* audited(
+              "terminal.open",
+              vm.value,
+              upstream
+                .openTerminal(vm, proofs, {
+                  command: urlParams.command,
+                  cols: urlParams.cols,
+                  rows: urlParams.rows,
+                  user: urlParams.user,
+                  name: urlParams.name,
+                  restartOnExit: urlParams.restartOnExit,
+                })
+                .pipe(Effect.mapError(mapUpstream(vmNotFound))),
+            );
             return switchingProtocols(bridgeTerminal(socket));
           }),
         );
@@ -85,17 +83,16 @@ export const terminalsHandlers = HttpApiBuilder.group(CmuxVmApi, "terminals", (h
       Effect.gen(function* () {
         const upstream = yield* UpstreamTerminals;
         const request = yield* HttpServerRequest.HttpServerRequest;
-        return yield* withOwned(OwnedVm, path.vmId, "vm:terminal", (caller, vm, proofs) =>
+        return yield* withOwnedVm(path.vmId, "vm:terminal", "exec", (_caller, vm, proofs) =>
           Effect.gen(function* () {
             const selector = parseSelector(path.terminal);
             if (selector === null) return yield* Effect.fail(terminalNotFound());
             if (!isWebSocketUpgrade(request)) return yield* Effect.fail(upgradeRequired());
-            const principal = caller.value;
-            const socket = yield* upstream.attachTerminal(vm, proofs, selector, urlParams.user).pipe(
-              Effect.tapError(() => audit(principal, "terminal.attach", vm.value, "failed")),
-              Effect.mapError(mapUpstream(terminalNotFound)),
+            const socket = yield* audited(
+              "terminal.attach",
+              vm.value,
+              upstream.attachTerminal(vm, proofs, selector, urlParams.user).pipe(Effect.mapError(mapUpstream(terminalNotFound))),
             );
-            yield* audit(principal, "terminal.attach", vm.value, "succeeded");
             return switchingProtocols(bridgeTerminal(socket));
           }),
         );
@@ -104,7 +101,7 @@ export const terminalsHandlers = HttpApiBuilder.group(CmuxVmApi, "terminals", (h
     .handle("listTerminals", ({ path, urlParams }) =>
       Effect.gen(function* () {
         const upstream = yield* UpstreamTerminals;
-        return yield* withOwned(OwnedVm, path.vmId, "vm:terminal", (_caller, vm, proofs) =>
+        return yield* withOwnedVm(path.vmId, "vm:terminal", "read", (_caller, vm, proofs) =>
           upstream.listTerminals(vm, proofs, urlParams.user).pipe(
             Effect.map((sessions) => new TerminalSessionList({ items: sessions.map(toSession) })),
             Effect.mapError((error) => (error.status === 404 ? vmNotFound() : unavailable())),
@@ -115,16 +112,15 @@ export const terminalsHandlers = HttpApiBuilder.group(CmuxVmApi, "terminals", (h
     .handle("closeTerminal", ({ path, urlParams }) =>
       Effect.gen(function* () {
         const upstream = yield* UpstreamTerminals;
-        return yield* withOwned(OwnedVm, path.vmId, "vm:terminal", (caller, vm, proofs) =>
+        return yield* withOwnedVm(path.vmId, "vm:terminal", "exec", (_caller, vm, proofs) =>
           Effect.gen(function* () {
             const selector = parseSelector(path.terminal);
             if (selector === null) return yield* Effect.fail(terminalNotFound());
-            const principal = caller.value;
-            const closed = yield* upstream.closeTerminal(vm, proofs, selector, urlParams.user).pipe(
-              Effect.tapError(() => audit(principal, "terminal.close", vm.value, "failed")),
-              Effect.mapError(mapUpstream(terminalNotFound)),
+            const closed = yield* audited(
+              "terminal.close",
+              vm.value,
+              upstream.closeTerminal(vm, proofs, selector, urlParams.user).pipe(Effect.mapError(mapUpstream(terminalNotFound))),
             );
-            yield* audit(principal, "terminal.close", vm.value, "succeeded");
             return new ClosedTerminal({ sessionId: closed.sessionId, exitCode: closed.exitCode ?? null });
           }),
         );

@@ -63,7 +63,7 @@ describe("cross-tenant isolation", () => {
       expect(await response.json()).toEqual({ _tag: "NotFound", message: "VM not found" });
     }
     expect(h.upstreamRequests).toHaveLength(0);
-    expect(h.s3a.auditLog).toHaveLength(0);
+    expect(h.audit).toHaveLength(0);
   });
 
   it("returns 404 for a session in tenant B opening tenant A's VM", async () => {
@@ -149,7 +149,7 @@ describe("terminal proxy", () => {
     expect(url.pathname).toBe(`/v5/vms/${upstreamId}/pty`);
     expect(Object.fromEntries(url.searchParams)).toEqual({ cols: "120", rows: "40", slug: "main" });
     expect(upstreamRequest?.headers.get("authorization")).toBe("Bearer upstream-test-key");
-    expect(h.s3a.auditLog).toMatchObject([{ action: "terminal.open", resourceId: vmId, outcome: "succeeded" }]);
+    expect(h.audit).toMatchObject([{ action: "terminal.open", cmuxId: vmId, outcome: "ok" }]);
   });
 
   it("closes the upstream socket when the client disconnects", async () => {
@@ -220,7 +220,7 @@ describe("sessions over REST", () => {
     const closed = await h.request(`/v1/vms/${vmId}/terminals/3`, bearer(key), { method: "DELETE" });
     expect(closed.status).toBe(200);
     expect(await closed.json()).toEqual({ sessionId: 3, exitCode: null });
-    expect(h.s3a.auditLog).toMatchObject([{ action: "terminal.close", resourceId: vmId, outcome: "succeeded" }]);
+    expect(h.audit).toMatchObject([{ action: "terminal.close", cmuxId: vmId, outcome: "ok" }]);
 
     const again = await h.request(`/v1/vms/${vmId}/terminals/3`, bearer(key), { method: "DELETE" });
     expect(again.status).toBe(404);

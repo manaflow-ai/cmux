@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 // Writes wrangler.generated.json: wrangler.jsonc with the deploy target's
 // Hyperdrive binding filled in from its resolved id, so no Hyperdrive id is
-// committed. Usage: node scripts/wrangler-config.mjs <preview|staging|production> <hyperdrive-id>
+// committed. For preview, an optional third argument names the lane, and the
+// Worker becomes cmux-vm-preview-<lane> so lanes do not overwrite each other.
+// Usage: node scripts/wrangler-config.mjs <preview|staging|production> <hyperdrive-id> [lane]
 import { readFileSync, writeFileSync } from "node:fs";
 
-const [target, hyperdriveId] = process.argv.slice(2);
+const [target, hyperdriveId, lane] = process.argv.slice(2);
 if (!["preview", "staging", "production"].includes(target ?? "") || !/^[0-9a-f]{32}$/.test(hyperdriveId ?? "")) {
   console.error("usage: wrangler-config.mjs <preview|staging|production> <32-hex hyperdrive id>");
   process.exit(2);
@@ -40,6 +42,13 @@ if (!env) {
   process.exit(1);
 }
 env.hyperdrive = [{ binding: "HYPERDRIVE", id: hyperdriveId }];
+if (target === "preview" && lane) {
+  if (!/^[a-z0-9][a-z0-9-]{0,30}$/.test(lane)) {
+    console.error("lane must be 1-31 lowercase letters, digits or '-'");
+    process.exit(2);
+  }
+  env.name = `cmux-vm-preview-${lane}`;
+}
 delete config.$schema;
 writeFileSync(new URL("wrangler.generated.json", root), `${JSON.stringify(config, null, 2)}\n`);
-console.log(`wrote wrangler.generated.json for ${target}`);
+console.log(`wrote wrangler.generated.json for ${target} (Worker ${env.name})`);

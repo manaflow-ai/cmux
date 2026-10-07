@@ -35,6 +35,8 @@ export interface SnapshotPage {
   readonly sourceVmId: string | null;
   /** Only rows carrying every one of these labels. */
   readonly labels: Readonly<Record<string, string>> | null;
+  /** When set, only these public ids (a key's resource allowlist). */
+  readonly only: ReadonlyArray<string> | null;
 }
 
 export interface SnapshotStoreService {
@@ -118,6 +120,7 @@ export const sqlSnapshotStoreLayer: Layer.Layer<SnapshotStore, never, SqlClient>
                 AND ($2::text IS NULL OR parent_cmux_id = $2::text)
                 AND ($3::timestamptz IS NULL OR (created_at, cmux_id) < ($3::timestamptz, $4::text))
                 AND ($6::jsonb IS NULL OR labels @> $6::jsonb)
+                AND ($7::jsonb IS NULL OR $7::jsonb ? cmux_id)
               ORDER BY created_at DESC, cmux_id DESC
               LIMIT $5`,
             [
@@ -127,6 +130,7 @@ export const sqlSnapshotStoreLayer: Layer.Layer<SnapshotStore, never, SqlClient>
               page.after === null ? null : page.after.id,
               page.limit,
               page.labels === null ? null : JSON.stringify(page.labels),
+              page.only === null ? null : JSON.stringify(page.only),
             ],
           )
           .pipe(Effect.flatMap(decodeRows("snapshots.list"))),

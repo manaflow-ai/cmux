@@ -146,7 +146,8 @@
     "delete_snapshot": {
       "status": "wrapped",
       "by": [
-        "snapshots.deleteSnapshot"
+        "snapshots.deleteSnapshot",
+        "vms.forkVm"
       ]
     },
     "get_snapshot": {
@@ -276,19 +277,23 @@
       "reason": "planned in cx-b4h.6"
     },
     "list_vms": {
-      "status": "planned",
-      "bead": "cx-b4h.2",
-      "reason": "planned in cx-b4h.2"
+      "status": "wrapped",
+      "by": [
+        "vms.listVms"
+      ]
     },
     "create_vm": {
-      "status": "planned",
-      "bead": "cx-b4h.2",
-      "reason": "planned in cx-b4h.2"
+      "status": "wrapped",
+      "by": [
+        "vms.createVm",
+        "vms.forkVm"
+      ]
     },
     "delete_vm": {
-      "status": "planned",
-      "bead": "cx-b4h.2",
-      "reason": "planned in cx-b4h.2"
+      "status": "wrapped",
+      "by": [
+        "vms.deleteVm"
+      ]
     },
     "get_vm": {
       "status": "wrapped",
@@ -302,14 +307,17 @@
       "reason": "planned in cx-b4h.2"
     },
     "exec_vm": {
-      "status": "planned",
-      "bead": "cx-b4h.2",
-      "reason": "planned in cx-b4h.2"
+      "status": "wrapped",
+      "by": [
+        "exec.execVm",
+        "vms.stopVm"
+      ]
     },
     "read_dir": {
-      "status": "planned",
-      "bead": "cx-b4h.2",
-      "reason": "planned in cx-b4h.2"
+      "status": "wrapped",
+      "by": [
+        "files.listFiles"
+      ]
     },
     "path_exists": {
       "status": "planned",
@@ -322,9 +330,10 @@
       "reason": "planned in cx-b4h.2"
     },
     "read_file": {
-      "status": "planned",
-      "bead": "cx-b4h.2",
-      "reason": "planned in cx-b4h.2"
+      "status": "wrapped",
+      "by": [
+        "files.readFile"
+      ]
     },
     "remove_path": {
       "status": "planned",
@@ -362,9 +371,10 @@
       "reason": "planned in cx-b4h.2"
     },
     "write_file": {
-      "status": "planned",
-      "bead": "cx-b4h.2",
-      "reason": "planned in cx-b4h.2"
+      "status": "wrapped",
+      "by": [
+        "files.writeFile"
+      ]
     },
     "update_vm_networks": {
       "status": "planned",
@@ -372,9 +382,10 @@
       "reason": "planned in cx-b4h.6"
     },
     "pause_vm": {
-      "status": "planned",
-      "bead": "cx-b4h.2",
-      "reason": "planned in cx-b4h.2"
+      "status": "wrapped",
+      "by": [
+        "vms.pauseVm"
+      ]
     },
     "open_pty": {
       "status": "wrapped",
@@ -408,13 +419,16 @@
     "snapshot_vm": {
       "status": "wrapped",
       "by": [
-        "snapshots.createSnapshot"
+        "snapshots.createSnapshot",
+        "vms.forkVm"
       ]
     },
     "start_vm": {
-      "status": "planned",
-      "bead": "cx-b4h.2",
-      "reason": "planned in cx-b4h.2"
+      "status": "wrapped",
+      "by": [
+        "vms.startVm",
+        "vms.resumeVm"
+      ]
     },
     "list_vpcs": {
       "status": "planned",

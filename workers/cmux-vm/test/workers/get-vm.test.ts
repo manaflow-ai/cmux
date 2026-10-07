@@ -115,9 +115,13 @@ describe("owner reads", () => {
     const text = await response.text();
     expect(JSON.parse(text)).toEqual({
       id: vmId,
+      displayName: null,
+      labels: {},
       state: "paused",
       resources: { vcpus: 4, memoryMib: 8192, diskMib: 16384 },
       idleTimeoutSeconds: 300,
+      maxRunSeconds: null,
+      autoDeleteSeconds: null,
       createdAt: "2026-10-01T00:00:00Z",
       updatedAt: "2026-10-02T00:00:00Z",
     });

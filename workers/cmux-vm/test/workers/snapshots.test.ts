@@ -37,7 +37,7 @@ describe("cross-tenant isolation", () => {
     expect(await response.json()).toEqual({ _tag: "NotFound", message: "VM not found" });
     expect(h.upstreamRequests).toHaveLength(0);
     expect(h.s3a.snapshotRows(TENANT_B)).toHaveLength(0);
-    expect(h.s3a.auditLog).toHaveLength(0);
+    expect(h.audit).toHaveLength(0);
   });
 
   it("returns 404 when tenant B reads tenant A's snapshot", async () => {
@@ -75,6 +75,16 @@ describe("cross-tenant isolation", () => {
     expect(body.items.map((item) => item.id)).toEqual([mine.snapshotId]);
     expect(body.nextCursor).toBeNull();
     expect(h.upstreamRequests).toHaveLength(0);
+  });
+
+  it("lists only the snapshots in the key's resource allowlist", async () => {
+    const allowed = h.s3a.addSnapshot(TENANT_A);
+    h.s3a.addSnapshot(TENANT_A);
+    const key = await h.addKey(TENANT_A, ["snapshot:read"], { allowlist: [allowed.snapshotId] });
+
+    const body = await (await h.request("/v1/snapshots", bearer(key))).json<{ items: Array<{ id: string }> }>();
+
+    expect(body.items.map((item) => item.id)).toEqual([allowed.snapshotId]);
   });
 
   it("filters by another tenant's VM id to an empty list", async () => {
@@ -143,10 +153,8 @@ describe("create", () => {
     const rows = h.s3a.snapshotRows(TENANT_A);
     expect(rows.map((row) => row.cmuxId)).toEqual([body["id"]]);
     expect(h.upstream.snapshots.has(String(rows.at(0)?.upstreamId))).toBe(true);
-    expect(h.s3a.auditLog).toMatchObject([
-      { tenantId: TENANT_A, action: "snapshot.create", resourceId: body["id"], outcome: "succeeded" },
-    ]);
-    expect(h.s3a.auditLog.at(0)?.actor).toMatch(/^key:vmk_/);
+    expect(h.audit).toMatchObject([{ tenantId: TENANT_A, action: "snapshot.create", cmuxId: body["id"], outcome: "ok" }]);
+    expect(h.audit.at(0)?.actor).toMatch(/^key:vmk_/);
   });
 
   it("replays the first result for a repeated Idempotency-Key and creates once", async () => {
@@ -192,7 +200,7 @@ describe("create", () => {
 
   it("refuses with 402 when the tenant is not entitled, before calling upstream", async () => {
     const { vmId } = h.addVm(TENANT_A);
-    h.s3a.denySnapshots(TENANT_A);
+    h.setBilling(TENANT_A, false);
     const key = await h.addKey(TENANT_A, ["snapshot:write"]);
 
     const response = await create(vmId, bearer(key));
@@ -209,7 +217,7 @@ describe("create", () => {
 
     expect(response.status).toBe(409);
     expect(await response.text()).not.toContain(upstreamId);
-    expect(h.s3a.auditLog).toMatchObject([{ action: "snapshot.create", resourceId: vmId, outcome: "failed" }]);
+    expect(h.audit).toMatchObject([{ action: "snapshot.create", cmuxId: vmId, outcome: "Conflict" }]);
   });
 
   it("deletes the upstream snapshot again when its ownership row cannot be written", async () => {
@@ -243,7 +251,7 @@ describe("create", () => {
     const response = await create(vmId, { ...bearer(token), "x-cmux-team-id": TENANT_A });
 
     expect(response.status).toBe(201);
-    expect(h.s3a.auditLog.at(0)?.actor).toBe("user:user_alice");
+    expect(h.audit.at(0)?.actor).toBe("user:user_alice");
   });
 });
 
@@ -318,7 +326,7 @@ describe("read, list and delete", () => {
     expect(response.status).toBe(204);
     expect(h.upstream.snapshots.has(upstreamId)).toBe(false);
     expect(h.s3a.snapshotRows(TENANT_A)).toHaveLength(0);
-    expect(h.s3a.auditLog).toMatchObject([{ action: "snapshot.delete", resourceId: snapshotId, outcome: "succeeded" }]);
+    expect(h.audit).toMatchObject([{ action: "snapshot.delete", cmuxId: snapshotId, outcome: "ok" }]);
     expect((await h.request(`/v1/snapshots/${snapshotId}`, bearer(key))).status).toBe(404);
   });
 

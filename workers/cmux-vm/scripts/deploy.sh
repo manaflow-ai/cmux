@@ -24,7 +24,17 @@ fi
 
 bash scripts/hyperdrive.sh ensure "cmux-vm-$TARGET"
 hyperdrive_id="$(bash scripts/hyperdrive.sh resolve "cmux-vm-$TARGET")"
-node scripts/wrangler-config.mjs "$TARGET" "$hyperdrive_id"
+# Each lane branch (feat-cmux-vm-<lane>) gets its own preview Worker,
+# cmux-vm-preview-<lane>; all previews share the cmux-vm-preview Hyperdrive config.
+lane=""
+if [ "$TARGET" = preview ]; then
+  lane="$(printf '%s' "${GITHUB_REF_NAME:-}" | sed -e 's/^feat-cmux-vm-//' | tr 'A-Z' 'a-z' | tr -c 'a-z0-9-' '-' | cut -c1-31 | sed -e 's/^-*//' -e 's/-*$//')"
+  if [ -z "$lane" ]; then
+    echo "::error::preview deploys need a feat-cmux-vm-<lane> branch (GITHUB_REF_NAME)"
+    exit 1
+  fi
+fi
+node scripts/wrangler-config.mjs "$TARGET" "$hyperdrive_id" $lane
 
 umask 077
 secrets="$(mktemp)"

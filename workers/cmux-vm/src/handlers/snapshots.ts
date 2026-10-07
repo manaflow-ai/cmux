@@ -6,19 +6,21 @@
  * account holds thousands.
  */
 import { HttpApiBuilder } from "@effect/platform";
+import type { Named } from "@gdp-ts/core";
 import { Clock, Effect, Option, Schema } from "effect";
 import { CmuxVmApi } from "../api.ts";
 import { InvalidRequest } from "../api/common.ts";
-import { LabelKey, LabelValue, MAX_LABELS, Snapshot, SnapshotList, SnapshotSummary } from "../api/snapshots.ts";
-import { audit } from "../db/audit.ts";
+import { LABEL_KEY, LabelValue, MAX_LABELS, Snapshot, SnapshotList, SnapshotSummary } from "../api/snapshots.ts";
 import { idempotent } from "../db/idempotency.ts";
 import { SnapshotStore, type SnapshotRow } from "../db/snapshots.ts";
-import { actorRef } from "../domain/principal.ts";
-import { Conflict, PaymentRequired, unavailable, vmNotFound } from "../errors.ts";
+import { actorRef, type Principal } from "../domain/principal.ts";
+import { Conflict, PaymentRequired, QuotaExceeded, unavailable, vmNotFound } from "../errors.ts";
 import { newSnapshotId, SnapshotId, VmId } from "../lib/ids.ts";
-import { tenantMayCreate } from "../proofs/tenant-may-create.ts";
+import { TenantLimits } from "../limits/service.ts";
+import { tenantMayCreate, type TenantMayCreate } from "../proofs/tenant-may-create.ts";
 import { UpstreamSnapshots, type UpstreamSnapshot } from "../upstream/snapshots.ts";
-import { OwnedSnapshot, OwnedVm, snapshotNotFound, withOwned, withScope } from "./owned.ts";
+import { audited, withCaller, withOwnedVm } from "./common.ts";
+import { snapshotNotFound, withOwnedSnapshot } from "./owned.ts";
 
 const DEFAULT_PAGE = 50;
 
@@ -59,7 +61,7 @@ const decodeCursor = (cursor: string): Option.Option<{ readonly createdAt: Date;
   return Schema.decodeUnknownOption(Cursor)(json).pipe(Option.map(([createdAt, id]) => ({ createdAt, id })));
 };
 
-const isLabelKey = Schema.is(LabelKey);
+const isLabelKey = (key: string) => LABEL_KEY.test(key);
 const isLabelValue = Schema.is(LabelValue);
 
 /** Parses a `key=value,key=value` label filter; none when any pair is malformed. */
@@ -84,94 +86,114 @@ const logEvent = (event: string, snapshotId: string) =>
 
 const invalidCursor = () => new InvalidRequest({ message: "The cursor is not valid; start again without it" });
 
+/**
+ * Asks for a snapshot slot: billing first (402), then the tenant's quota
+ * (429). Runs `k` with the proof and releases the reservation afterwards, by
+ * which time a created snapshot is counted in the ownership table.
+ */
+const withSnapshotSlot = <C, A, E, R>(
+  caller: Named<C, Principal>,
+  k: (proof: TenantMayCreate<C, "snapshot">) => Effect.Effect<A, E, R>,
+) =>
+  Effect.gen(function* () {
+    const decision = yield* tenantMayCreate(caller, "snapshot").pipe(Effect.mapError(() => unavailable()));
+    if (decision._tag === "not_entitled") {
+      return yield* Effect.fail(new PaymentRequired({ message: "This team's plan does not include snapshots" }));
+    }
+    if (decision._tag === "over_quota") {
+      return yield* Effect.fail(
+        new QuotaExceeded({ message: `This team already has its limit of ${decision.limit} snapshots; delete one first`, retryAfterSeconds: 60 }),
+      );
+    }
+    const limits = yield* TenantLimits;
+    return yield* k(decision.proof).pipe(Effect.ensuring(limits.release(caller.value.tenantId, decision.proof.reservationId)));
+  });
+
 export const snapshotsHandlers = HttpApiBuilder.group(CmuxVmApi, "snapshots", (handlers) =>
   handlers
     .handle("createSnapshot", ({ path, payload, headers }) =>
       Effect.gen(function* () {
         const upstream = yield* UpstreamSnapshots;
         const store = yield* SnapshotStore;
-        return yield* withOwned(OwnedVm, path.vmId, "snapshot:write", (caller, vm, proofs) =>
-          idempotent({
-            tenantId: caller.value.tenantId,
-            key: headers["idempotency-key"],
-            operation: "createSnapshot",
-            request: {
-              vmId: vm.value,
-              displayName: payload.displayName ?? null,
-              labels: payload.labels ?? {},
-              ttlSeconds: payload.ttlSeconds ?? null,
-              autoDeleteSeconds: payload.autoDeleteSeconds ?? null,
-            },
-            schema: Snapshot,
-            // Uninterruptible: a client disconnect between the provider create and
-            // the ownership row would otherwise orphan a snapshot nobody can reach.
-            create: Effect.uninterruptible(Effect.gen(function* () {
-              const principal = caller.value;
-              const mayCreate = yield* tenantMayCreate(caller, "snapshot").pipe(Effect.mapError(() => unavailable()));
-              if (mayCreate === null) {
-                return yield* Effect.fail(new PaymentRequired({ message: "Your plan does not allow another snapshot" }));
-              }
-              const snapshotId = newSnapshotId();
-              const created = yield* upstream
-                .createSnapshot(
-                  vm,
-                  { owns: proofs.owns, scope: proofs.scope, mayCreate },
-                  {
-                    tenantId: principal.tenantId,
-                    snapshotId,
-                    ttlSeconds: payload.ttlSeconds,
-                    autoDeleteSeconds: payload.autoDeleteSeconds,
-                  },
-                )
-                .pipe(
-                  Effect.tapError((error) =>
-                    // No response: the provider may still finish. Its display name carries this id for reconciliation.
-                    error.status === null ? logEvent("snapshot_create_unknown_outcome", snapshotId) : Effect.void,
-                  ),
-                  Effect.tapError(() => audit(principal, "snapshot.create", vm.value, "failed")),
-                  Effect.mapError((error) =>
-                    error.status === 404
-                      ? vmNotFound()
-                      : error.status === 409
-                        ? new Conflict({ message: "The VM must be running or paused to snapshot it" })
-                        : unavailable(),
-                  ),
-                );
-              const row: SnapshotRow = {
-                id: snapshotId,
-                sourceVmId: vm.value,
+        return yield* withOwnedVm(path.vmId, "snapshot:write", "write", (caller, vm, proofs) =>
+          audited(
+            "snapshot.create",
+            vm.value,
+            idempotent({
+              tenantId: caller.value.tenantId,
+              key: headers["idempotency-key"],
+              operation: "createSnapshot",
+              request: {
+                vmId: vm.value,
                 displayName: payload.displayName ?? null,
                 labels: payload.labels ?? {},
-                createdAt: new Date(yield* Clock.currentTimeMillis),
-              };
-              yield* store
-                .record({
-                  ...row,
-                  tenantId: principal.tenantId,
-                  upstreamId: created.upstreamId,
-                  createdBy: actorRef(principal.actor),
-                })
-                .pipe(
-                  // Without its ownership row nobody could reach or delete the snapshot: undo the create.
-                  Effect.tapError(() =>
-                    upstream
-                      .discardCreatedSnapshot(created)
-                      .pipe(Effect.catchAll(() => logEvent("snapshot_discard_failed", snapshotId))),
-                  ),
-                  Effect.tapError(() => audit(principal, "snapshot.create", vm.value, "failed")),
-                  Effect.mapError(() => unavailable()),
-                );
-              yield* audit(principal, "snapshot.create", snapshotId, "succeeded");
-              return toSnapshot(row, created.snapshot);
-            })),
-          }),
+                ttlSeconds: payload.ttlSeconds ?? null,
+                autoDeleteSeconds: payload.autoDeleteSeconds ?? null,
+              },
+              schema: Snapshot,
+              create: withSnapshotSlot(caller, (mayCreate) =>
+                // Uninterruptible: a client disconnect between the provider create and
+                // the ownership row would otherwise orphan a snapshot nobody can reach.
+                Effect.uninterruptible(
+                  Effect.gen(function* () {
+                    const principal = caller.value;
+                    const snapshotId = newSnapshotId();
+                    const created = yield* upstream
+                      .createSnapshot(
+                        vm,
+                        { owns: proofs.owns, scope: proofs.scope, mayCreate },
+                        {
+                          tenantId: principal.tenantId,
+                          snapshotId,
+                          ttlSeconds: payload.ttlSeconds,
+                          autoDeleteSeconds: payload.autoDeleteSeconds,
+                        },
+                      )
+                      .pipe(
+                        Effect.tapError((error) =>
+                          // No response: the provider may still finish. Its display name carries this id for reconciliation.
+                          error.status === null ? logEvent("snapshot_create_unknown_outcome", snapshotId) : Effect.void,
+                        ),
+                        Effect.mapError((error) =>
+                          error.status === 404
+                            ? vmNotFound()
+                            : error.status === 409
+                              ? new Conflict({ message: "The VM must be running or paused to snapshot it" })
+                              : unavailable(),
+                        ),
+                      );
+                    const row: SnapshotRow = {
+                      id: snapshotId,
+                      sourceVmId: vm.value,
+                      displayName: payload.displayName ?? null,
+                      labels: payload.labels ?? {},
+                      createdAt: new Date(yield* Clock.currentTimeMillis),
+                    };
+                    yield* store
+                      .record({ ...row, tenantId: principal.tenantId, upstreamId: created.upstreamId, createdBy: actorRef(principal.actor) })
+                      .pipe(
+                        // Without its ownership row nobody could reach or delete the snapshot: undo the create.
+                        Effect.tapError(() =>
+                          upstream
+                            .discardCreatedSnapshot(created)
+                            .pipe(Effect.catchAll(() => logEvent("snapshot_discard_failed", snapshotId))),
+                        ),
+                        Effect.mapError(() => unavailable()),
+                      );
+                    return toSnapshot(row, created.snapshot);
+                  }),
+                ),
+              ),
+            }),
+            (snapshot) => snapshot.id,
+          ),
         );
       }),
     )
     .handle("listSnapshots", ({ urlParams }) =>
       Effect.gen(function* () {
         const store = yield* SnapshotStore;
-        return yield* withScope("snapshot:read", (caller) =>
+        return yield* withCaller("snapshot:read", "read", (caller) =>
           Effect.gen(function* () {
             const limit = urlParams.limit ?? DEFAULT_PAGE;
             let after: { readonly createdAt: Date; readonly id: string } | null = null;
@@ -194,8 +216,15 @@ export const snapshotsHandlers = HttpApiBuilder.group(CmuxVmApi, "snapshots", (h
               }
               labels = parsed.value;
             }
+            const allowlist = caller.value.resourceAllowlist;
             const rows = yield* store
-              .list(caller.value.tenantId, { limit: limit + 1, after, sourceVmId, labels })
+              .list(caller.value.tenantId, {
+                limit: limit + 1,
+                after,
+                sourceVmId,
+                labels,
+                only: allowlist === null ? null : [...allowlist],
+              })
               .pipe(Effect.mapError(() => unavailable()));
             const page = rows.slice(0, limit);
             const last = page.at(-1);
@@ -211,7 +240,7 @@ export const snapshotsHandlers = HttpApiBuilder.group(CmuxVmApi, "snapshots", (h
       Effect.gen(function* () {
         const upstream = yield* UpstreamSnapshots;
         const store = yield* SnapshotStore;
-        return yield* withOwned(OwnedSnapshot, path.snapshotId, "snapshot:read", (caller, snapshot, proofs) =>
+        return yield* withOwnedSnapshot(path.snapshotId, "snapshot:read", "read", (caller, snapshot, proofs) =>
           Effect.gen(function* () {
             const row = yield* store.describe(caller.value.tenantId, snapshot.value).pipe(Effect.mapError(() => unavailable()));
             if (Option.isNone(row)) return yield* Effect.fail(snapshotNotFound());
@@ -227,24 +256,22 @@ export const snapshotsHandlers = HttpApiBuilder.group(CmuxVmApi, "snapshots", (h
       Effect.gen(function* () {
         const upstream = yield* UpstreamSnapshots;
         const store = yield* SnapshotStore;
-        return yield* withOwned(OwnedSnapshot, path.snapshotId, "snapshot:write", (caller, snapshot, proofs) =>
-          Effect.gen(function* () {
-            const principal = caller.value;
-            yield* upstream.deleteSnapshot(snapshot, proofs).pipe(
-              // Already gone upstream (for example, its retention expired): finish the delete here.
-              Effect.catchIf((error) => error.status === 404, () => Effect.void),
-              Effect.tapError(() => audit(principal, "snapshot.delete", snapshot.value, "failed")),
-              Effect.mapError((error) =>
-                error.status === 409 ? new Conflict({ message: "This snapshot cannot be deleted right now" }) : unavailable(),
-              ),
-            );
-            const now = new Date(yield* Clock.currentTimeMillis);
-            yield* store.markDeleted(principal.tenantId, snapshot.value, now).pipe(
-              Effect.tapError(() => audit(principal, "snapshot.delete", snapshot.value, "failed")),
-              Effect.mapError(() => unavailable()),
-            );
-            yield* audit(principal, "snapshot.delete", snapshot.value, "succeeded");
-          }),
+        return yield* withOwnedSnapshot(path.snapshotId, "snapshot:write", "write", (caller, snapshot, proofs) =>
+          audited(
+            "snapshot.delete",
+            snapshot.value,
+            Effect.gen(function* () {
+              yield* upstream.deleteSnapshot(snapshot, proofs).pipe(
+                // Already gone upstream (for example, its retention expired): finish the delete here.
+                Effect.catchIf((error) => error.status === 404, () => Effect.void),
+                Effect.mapError((error) =>
+                  error.status === 409 ? new Conflict({ message: "This snapshot cannot be deleted right now" }) : unavailable(),
+                ),
+              );
+              const now = new Date(yield* Clock.currentTimeMillis);
+              yield* store.markDeleted(caller.value.tenantId, snapshot.value, now).pipe(Effect.mapError(() => unavailable()));
+            }),
+          ),
         );
       }),
     ),

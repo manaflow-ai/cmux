@@ -94,7 +94,14 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/HttpApiDecodeError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BadRequest"
+                    }
+                  ]
                 }
               }
             }
@@ -159,16 +166,6 @@
               }
             }
           },
-          "501": {
-            "description": "NotImplemented",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/NotImplemented"
-                }
-              }
-            }
-          },
           "503": {
             "description": "ServiceUnavailable",
             "content": {
@@ -180,7 +177,7 @@
             }
           }
         },
-        "description": "Create a VM. Requires the vm:write scope.",
+        "description": "Create a VM. Requires the vm:write scope. Refused with 402 when the tenant's plan does not include VMs and 429 at the tenant's VM quota. Dev/test tenants may not ask for an idle timeout over 300 seconds and default to 300; other tenants default to -1 (never pause for idleness). A retry with the same Idempotency-Key returns the first VM instead of creating another; the same key with a different body is 409. Keys with a resource allowlist cannot create. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.",
         "summary": "Create a VM",
         "requestBody": {
           "content": {
@@ -246,9 +243,28 @@
                 "paused",
                 "stopped",
                 "unknown"
-              ]
+              ],
+              "description": "Keeps only VMs in this state. A filtered page can hold fewer than `limit` items; follow `nextCursor`."
             },
-            "required": false
+            "required": false,
+            "description": "Keeps only VMs in this state. A filtered page can hold fewer than `limit` items; follow `nextCursor`."
+          },
+          {
+            "name": "label",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "description": "a string matching the pattern ^[a-z0-9]([a-z0-9._/-]{0,61}[a-z0-9])?=[A-Za-z0-9._:/@-]{0,63}$",
+                "pattern": "^[a-z0-9]([a-z0-9._/-]{0,61}[a-z0-9])?=[A-Za-z0-9._:/@-]{0,63}$"
+              },
+              "description": "`key=value`; repeat for several. Keeps only VMs that carry every given label.",
+              "title": "maxItems(16)",
+              "maxItems": 16
+            },
+            "required": false,
+            "description": "`key=value`; repeat for several. Keeps only VMs that carry every given label."
           }
         ],
         "security": [
@@ -272,7 +288,14 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/HttpApiDecodeError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BadRequest"
+                    }
+                  ]
                 }
               }
             }
@@ -297,12 +320,12 @@
               }
             }
           },
-          "501": {
-            "description": "NotImplemented",
+          "429": {
+            "description": "QuotaExceeded",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/NotImplemented"
+                  "$ref": "#/components/schemas/QuotaExceeded"
                 }
               }
             }
@@ -318,8 +341,8 @@
             }
           }
         },
-        "description": "List the tenant's VMs. Requires the vm:read scope.",
-        "summary": "List the tenant's VMs"
+        "description": "List the tenant's VMs, newest first. Requires the vm:read scope. A key with a resource allowlist sees only those VMs. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.",
+        "summary": "List the tenant's VMs, newest first"
       }
     },
     "/v1/vms/{vmId}": {
@@ -407,6 +430,16 @@
               }
             }
           },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
           "503": {
             "description": "ServiceUnavailable",
             "content": {
@@ -418,7 +451,7 @@
             }
           }
         },
-        "description": "Get a VM. Requires the vm:read scope.",
+        "description": "Get a VM. Requires the vm:read scope. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.",
         "summary": "Get a VM"
       },
       "delete": {
@@ -508,12 +541,12 @@
               }
             }
           },
-          "501": {
-            "description": "NotImplemented",
+          "429": {
+            "description": "QuotaExceeded",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/NotImplemented"
+                  "$ref": "#/components/schemas/QuotaExceeded"
                 }
               }
             }
@@ -529,7 +562,7 @@
             }
           }
         },
-        "description": "Delete a VM permanently. Requires the vm:write scope.",
+        "description": "Delete a VM permanently. Requires the vm:write scope. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.",
         "summary": "Delete a VM permanently"
       }
     },
@@ -628,12 +661,12 @@
               }
             }
           },
-          "501": {
-            "description": "NotImplemented",
+          "429": {
+            "description": "QuotaExceeded",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/NotImplemented"
+                  "$ref": "#/components/schemas/QuotaExceeded"
                 }
               }
             }
@@ -649,8 +682,8 @@
             }
           }
         },
-        "description": "Start a stopped VM. Requires the vm:write scope.",
-        "summary": "Start a stopped VM"
+        "description": "Start a VM. Requires the vm:write scope. Boots a stopped VM, or resumes a paused one exactly where it was (on a paused VM, start and resume do the same thing). Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.",
+        "summary": "Start a VM"
       }
     },
     "/v1/vms/{vmId}/stop": {
@@ -748,12 +781,12 @@
               }
             }
           },
-          "501": {
-            "description": "NotImplemented",
+          "429": {
+            "description": "QuotaExceeded",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/NotImplemented"
+                  "$ref": "#/components/schemas/QuotaExceeded"
                 }
               }
             }
@@ -769,7 +802,7 @@
             }
           }
         },
-        "description": "Stop a running VM. Requires the vm:write scope.",
+        "description": "Stop a running VM. Requires the vm:write scope. Shuts the guest down from inside (memory is discarded, the disk is kept); start boots it again. Stopping a stopped VM changes nothing; a paused or starting VM is 409. The answer can still say running while the guest shuts down; read the VM until it says stopped. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.",
         "summary": "Stop a running VM"
       }
     },
@@ -868,12 +901,12 @@
               }
             }
           },
-          "501": {
-            "description": "NotImplemented",
+          "429": {
+            "description": "QuotaExceeded",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/NotImplemented"
+                  "$ref": "#/components/schemas/QuotaExceeded"
                 }
               }
             }
@@ -889,8 +922,8 @@
             }
           }
         },
-        "description": "Pause a running VM, keeping its memory. Requires the vm:write scope.",
-        "summary": "Pause a running VM, keeping its memory"
+        "description": "Pause a running VM. Requires the vm:write scope. Freezes the VM with its memory kept; resume or start continues it exactly. A VM that is not running is 409. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.",
+        "summary": "Pause a running VM"
       }
     },
     "/v1/vms/{vmId}/resume": {
@@ -988,12 +1021,12 @@
               }
             }
           },
-          "501": {
-            "description": "NotImplemented",
+          "429": {
+            "description": "QuotaExceeded",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/NotImplemented"
+                  "$ref": "#/components/schemas/QuotaExceeded"
                 }
               }
             }
@@ -1009,7 +1042,7 @@
             }
           }
         },
-        "description": "Resume a paused VM. Requires the vm:write scope.",
+        "description": "Resume a paused VM. Requires the vm:write scope. Resume is start of a paused VM: it continues exactly where the pause left it. A VM that is not paused is 409; use start to boot a stopped VM. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.",
         "summary": "Resume a paused VM"
       }
     },
@@ -1076,7 +1109,14 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/HttpApiDecodeError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BadRequest"
+                    }
+                  ]
                 }
               }
             }
@@ -1141,12 +1181,139 @@
               }
             }
           },
-          "501": {
-            "description": "NotImplemented",
+          "503": {
+            "description": "ServiceUnavailable",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/NotImplemented"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ServiceUnavailable"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ForkIncomplete"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "description": "Fork a VM into a new VM with the same memory and disk. Requires the vm:write scope. Fork is a snapshot of the source followed by a create from that snapshot, so it costs more than a create and is not atomic. The source must be running or paused (409 otherwise). On success the intermediate snapshot is deleted. If the snapshot succeeds and the create fails, the answer is 503 ForkIncomplete with the kept snapshot's id, which belongs to the caller's tenant; a retry with the same Idempotency-Key creates from that snapshot without taking a second one. Billing, quota, idle-timeout and idempotency rules are those of create. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.",
+        "summary": "Fork a VM into a new VM with the same memory and disk",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ForkVmRequest"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/v1/vms/{vmId}/exec": {
+      "post": {
+        "tags": [
+          "exec"
+        ],
+        "operationId": "exec.execVm",
+        "parameters": [
+          {
+            "name": "vmId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ExecResult",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conflict"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
                 }
               }
             }
@@ -1162,13 +1329,13 @@
             }
           }
         },
-        "description": "Fork a VM into a new VM with the same memory and disk. Requires the vm:write scope.",
-        "summary": "Fork a VM into a new VM with the same memory and disk",
+        "description": "Run a command in a running VM and wait for it. Requires the vm:exec scope. A non-zero exit is still 200; read exitCode. The response streams as the VM sends it and is not buffered. 409 when the VM is not running or stopped answering mid-command (the command may have run; do not retry blindly). The command and its output are never audited. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.",
+        "summary": "Run a command in a running VM and wait for it",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ForkVmRequest"
+                "$ref": "#/components/schemas/ExecRequest"
               }
             }
           },
@@ -1176,12 +1343,12 @@
         }
       }
     },
-    "/v1/vms/{vmId}/snapshots": {
-      "post": {
+    "/v1/vms/{vmId}/files/content": {
+      "get": {
         "tags": [
-          "snapshots"
+          "files"
         ],
-        "operationId": "snapshots.createSnapshot",
+        "operationId": "files.readFile",
         "parameters": [
           {
             "name": "vmId",
@@ -1205,195 +1372,23 @@
             "description": "a string at most 128 character(s) long"
           },
           {
-            "name": "idempotency-key",
+            "name": "range",
             "in": "header",
             "schema": {
               "type": "string",
-              "description": "a string at most 255 character(s) long",
-              "title": "maxLength(255)",
-              "minLength": 1,
-              "maxLength": 255
+              "description": "a string matching the pattern ^bytes=\\d{1,19}-\\d{0,19}$",
+              "pattern": "^bytes=\\d{1,19}-\\d{0,19}$"
             },
             "required": false,
-            "description": "a string at most 255 character(s) long"
-          }
-        ],
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "responses": {
-          "201": {
-            "description": "A VM's memory and disk, captured. A VM booted from a snapshot resumes from the captured memory. Whether the guest kernel's random number generator is reseeded, and whether the machine id, hostname and clock change on restore, is not documented by the platform and is not yet verified: assume every VM booted from one snapshot starts with identical RNG state, machine id and hostname, and reseed, regenerate and resync them in the guest when that matters.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Snapshot"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "The request did not match the expected schema",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HttpApiDecodeError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Unauthorized"
-                }
-              }
-            }
-          },
-          "402": {
-            "description": "PaymentRequired",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PaymentRequired"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Forbidden"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "NotFound",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/NotFound"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Conflict",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Conflict"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "QuotaExceeded",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/QuotaExceeded"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "ServiceUnavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ServiceUnavailable"
-                }
-              }
-            }
-          }
-        },
-        "description": "Snapshot a running or paused VM. Requires the snapshot:write scope. The snapshot captures memory and disk; VMs can boot from it as soon as this returns. A VM booted from a snapshot resumes from the captured memory. Whether the guest kernel's random number generator is reseeded, and whether the machine id, hostname and clock change on restore, is not documented by the platform and is not yet verified: assume every VM booted from one snapshot starts with identical RNG state, machine id and hostname, and reseed, regenerate and resync them in the guest when that matters.",
-        "summary": "Snapshot a running or paused VM",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateSnapshotRequest"
-              }
-            }
-          },
-          "required": true
-        }
-      }
-    },
-    "/v1/snapshots": {
-      "get": {
-        "tags": [
-          "snapshots"
-        ],
-        "operationId": "snapshots.listSnapshots",
-        "parameters": [
-          {
-            "name": "x-cmux-team-id",
-            "in": "header",
-            "schema": {
-              "type": "string",
-              "description": "a string at most 128 character(s) long",
-              "title": "maxLength(128)",
-              "minLength": 1,
-              "maxLength": 128
-            },
-            "required": false,
-            "description": "a string at most 128 character(s) long"
+            "description": "a string matching the pattern ^bytes=\\d{1,19}-\\d{0,19}$"
           },
           {
-            "name": "limit",
+            "name": "path",
             "in": "query",
             "schema": {
-              "type": "string",
-              "description": "a string to be decoded into a number"
+              "$ref": "#/components/schemas/GuestPath"
             },
-            "required": false,
-            "description": "a string to be decoded into a number"
-          },
-          {
-            "name": "cursor",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "description": "a string at most 512 character(s) long",
-              "title": "maxLength(512)",
-              "maxLength": 512
-            },
-            "required": false,
-            "description": "a string at most 512 character(s) long"
-          },
-          {
-            "name": "sourceVmId",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "description": "a string at most 64 character(s) long",
-              "title": "maxLength(64)",
-              "maxLength": 64
-            },
-            "required": false,
-            "description": "a string at most 64 character(s) long"
-          },
-          {
-            "name": "labels",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "description": "a string at most 2048 character(s) long",
-              "title": "maxLength(2048)",
-              "maxLength": 2048
-            },
-            "required": false,
-            "description": "a string at most 2048 character(s) long"
+            "required": true
           }
         ],
         "security": [
@@ -1403,11 +1398,12 @@
         ],
         "responses": {
           "200": {
-            "description": "SnapshotList",
+            "description": "Success",
             "content": {
-              "application/json": {
+              "application/octet-stream": {
                 "schema": {
-                  "$ref": "#/components/schemas/SnapshotList"
+                  "type": "string",
+                  "format": "binary"
                 }
               }
             }
@@ -1422,7 +1418,7 @@
                       "$ref": "#/components/schemas/HttpApiDecodeError"
                     },
                     {
-                      "$ref": "#/components/schemas/InvalidRequest"
+                      "$ref": "#/components/schemas/BadRequest"
                     }
                   ]
                 }
@@ -1449,96 +1445,6 @@
               }
             }
           },
-          "503": {
-            "description": "ServiceUnavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ServiceUnavailable"
-                }
-              }
-            }
-          }
-        },
-        "description": "List the tenant's snapshots, newest first. Requires the snapshot:read scope.",
-        "summary": "List the tenant's snapshots, newest first"
-      }
-    },
-    "/v1/snapshots/{snapshotId}": {
-      "get": {
-        "tags": [
-          "snapshots"
-        ],
-        "operationId": "snapshots.getSnapshot",
-        "parameters": [
-          {
-            "name": "snapshotId",
-            "in": "path",
-            "schema": {
-              "type": "string"
-            },
-            "required": true
-          },
-          {
-            "name": "x-cmux-team-id",
-            "in": "header",
-            "schema": {
-              "type": "string",
-              "description": "a string at most 128 character(s) long",
-              "title": "maxLength(128)",
-              "minLength": 1,
-              "maxLength": 128
-            },
-            "required": false,
-            "description": "a string at most 128 character(s) long"
-          }
-        ],
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "A VM's memory and disk, captured. A VM booted from a snapshot resumes from the captured memory. Whether the guest kernel's random number generator is reseeded, and whether the machine id, hostname and clock change on restore, is not documented by the platform and is not yet verified: assume every VM booted from one snapshot starts with identical RNG state, machine id and hostname, and reseed, regenerate and resync them in the guest when that matters.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Snapshot"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "The request did not match the expected schema",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HttpApiDecodeError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Unauthorized"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Forbidden"
-                }
-              }
-            }
-          },
           "404": {
             "description": "NotFound",
             "content": {
@@ -1549,6 +1455,26 @@
               }
             }
           },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conflict"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
           "503": {
             "description": "ServiceUnavailable",
             "content": {
@@ -1560,17 +1486,17 @@
             }
           }
         },
-        "description": "Get a snapshot. Requires the snapshot:read scope.",
-        "summary": "Get a snapshot"
+        "description": "Read a file from a VM. Requires the vm:files scope. Streams the file's bytes. With a Range header the answer is 206 with Content-Range. A missing file is 404 \"File not found\". Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.",
+        "summary": "Read a file from a VM"
       },
-      "delete": {
+      "put": {
         "tags": [
-          "snapshots"
+          "files"
         ],
-        "operationId": "snapshots.deleteSnapshot",
+        "operationId": "files.writeFile",
         "parameters": [
           {
-            "name": "snapshotId",
+            "name": "vmId",
             "in": "path",
             "schema": {
               "type": "string"
@@ -1589,6 +1515,35 @@
             },
             "required": false,
             "description": "a string at most 128 character(s) long"
+          },
+          {
+            "name": "content-length",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string matching the pattern ^\\d{1,19}$",
+              "pattern": "^\\d{1,19}$"
+            },
+            "required": false,
+            "description": "a string matching the pattern ^\\d{1,19}$"
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/GuestPath"
+            },
+            "required": true
+          },
+          {
+            "name": "mode",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "description": "a string to be decoded into a number"
+            },
+            "required": false,
+            "description": "a string to be decoded into a number"
           }
         ],
         "security": [
@@ -1605,7 +1560,14 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/HttpApiDecodeError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BadRequest"
+                    }
+                  ]
                 }
               }
             }
@@ -1650,6 +1612,26 @@
               }
             }
           },
+          "413": {
+            "description": "PayloadTooLarge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PayloadTooLarge"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
           "503": {
             "description": "ServiceUnavailable",
             "content": {
@@ -1661,16 +1643,27 @@
             }
           }
         },
-        "description": "Delete a snapshot permanently. Requires the snapshot:write scope. VMs already created from it keep running.",
-        "summary": "Delete a snapshot permanently"
+        "description": "Write a file in a VM. Requires the vm:files scope. The body is the file's raw bytes with Content-Length set; it is streamed to the VM and replaces the file atomically. Uploads over the size limit are 413. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.",
+        "summary": "Write a file in a VM",
+        "requestBody": {
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          },
+          "required": true
+        }
       }
     },
-    "/v1/vms/{vmId}/terminal": {
+    "/v1/vms/{vmId}/files/entries": {
       "get": {
         "tags": [
-          "terminals"
+          "files"
         ],
-        "operationId": "terminals.openTerminal",
+        "operationId": "files.listFiles",
         "parameters": [
           {
             "name": "vmId",
@@ -1694,191 +1687,12 @@
             "description": "a string at most 128 character(s) long"
           },
           {
-            "name": "command",
+            "name": "path",
             "in": "query",
             "schema": {
-              "type": "string",
-              "description": "a string at most 8192 character(s) long",
-              "title": "maxLength(8192)",
-              "minLength": 1,
-              "maxLength": 8192
-            },
-            "required": false,
-            "description": "a string at most 8192 character(s) long"
-          },
-          {
-            "name": "cols",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "description": "a string to be decoded into a number"
-            },
-            "required": false,
-            "description": "a string to be decoded into a number"
-          },
-          {
-            "name": "rows",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "description": "a string to be decoded into a number"
-            },
-            "required": false,
-            "description": "a string to be decoded into a number"
-          },
-          {
-            "name": "user",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "description": "a string matching the pattern ^[a-z_][a-z0-9_-]{0,31}$",
-              "pattern": "^[a-z_][a-z0-9_-]{0,31}$"
-            },
-            "required": false,
-            "description": "a string matching the pattern ^[a-z_][a-z0-9_-]{0,31}$"
-          },
-          {
-            "name": "name",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "description": "a string matching the pattern ^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
-              "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
-            },
-            "required": false,
-            "description": "a string matching the pattern ^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
-          },
-          {
-            "name": "restartOnExit",
-            "in": "query",
-            "schema": {
-              "$ref": "#/components/schemas/BooleanFromString"
-            },
-            "required": false
-          }
-        ],
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "responses": {
-          "101": {
-            "description": "Success"
-          },
-          "400": {
-            "description": "The request did not match the expected schema",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HttpApiDecodeError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Unauthorized"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Forbidden"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "NotFound",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/NotFound"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Conflict",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Conflict"
-                }
-              }
-            }
-          },
-          "426": {
-            "description": "UpgradeRequired",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/UpgradeRequired"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "ServiceUnavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ServiceUnavailable"
-                }
-              }
-            }
-          }
-        },
-        "description": "Open a terminal on the VM over a WebSocket. Requires the vm:terminal scope. Send `Upgrade: websocket`. Frames pass through unbuffered; see the TerminalSession schema for the session fields.",
-        "summary": "Open a terminal on the VM over a WebSocket"
-      }
-    },
-    "/v1/vms/{vmId}/terminals": {
-      "get": {
-        "tags": [
-          "terminals"
-        ],
-        "operationId": "terminals.listTerminals",
-        "parameters": [
-          {
-            "name": "vmId",
-            "in": "path",
-            "schema": {
-              "type": "string"
+              "$ref": "#/components/schemas/GuestPath"
             },
             "required": true
-          },
-          {
-            "name": "x-cmux-team-id",
-            "in": "header",
-            "schema": {
-              "type": "string",
-              "description": "a string at most 128 character(s) long",
-              "title": "maxLength(128)",
-              "minLength": 1,
-              "maxLength": 128
-            },
-            "required": false,
-            "description": "a string at most 128 character(s) long"
-          },
-          {
-            "name": "user",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "description": "a string matching the pattern ^[a-z_][a-z0-9_-]{0,31}$",
-              "pattern": "^[a-z_][a-z0-9_-]{0,31}$"
-            },
-            "required": false,
-            "description": "a string matching the pattern ^[a-z_][a-z0-9_-]{0,31}$"
           }
         ],
         "security": [
@@ -1888,11 +1702,11 @@
         ],
         "responses": {
           "200": {
-            "description": "TerminalSessionList",
+            "description": "FileList",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TerminalSessionList"
+                  "$ref": "#/components/schemas/FileList"
                 }
               }
             }
@@ -1902,119 +1716,14 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HttpApiDecodeError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Unauthorized"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Forbidden"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "NotFound",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/NotFound"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "ServiceUnavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ServiceUnavailable"
-                }
-              }
-            }
-          }
-        },
-        "description": "List the VM's terminal sessions, running and recently exited. Requires the vm:terminal scope.",
-        "summary": "List the VM's terminal sessions, running and recently exited"
-      }
-    },
-    "/v1/vms/{vmId}/terminals/{terminal}": {
-      "get": {
-        "tags": [
-          "terminals"
-        ],
-        "operationId": "terminals.attachTerminal",
-        "parameters": [
-          {
-            "name": "vmId",
-            "in": "path",
-            "schema": {
-              "type": "string"
-            },
-            "required": true
-          },
-          {
-            "name": "terminal",
-            "in": "path",
-            "schema": {
-              "type": "string"
-            },
-            "required": true
-          },
-          {
-            "name": "x-cmux-team-id",
-            "in": "header",
-            "schema": {
-              "type": "string",
-              "description": "a string at most 128 character(s) long",
-              "title": "maxLength(128)",
-              "minLength": 1,
-              "maxLength": 128
-            },
-            "required": false,
-            "description": "a string at most 128 character(s) long"
-          },
-          {
-            "name": "user",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "description": "a string matching the pattern ^[a-z_][a-z0-9_-]{0,31}$",
-              "pattern": "^[a-z_][a-z0-9_-]{0,31}$"
-            },
-            "required": false,
-            "description": "a string matching the pattern ^[a-z_][a-z0-9_-]{0,31}$"
-          }
-        ],
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "responses": {
-          "101": {
-            "description": "Success"
-          },
-          "400": {
-            "description": "The request did not match the expected schema",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/HttpApiDecodeError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BadRequest"
+                    }
+                  ]
                 }
               }
             }
@@ -2059,12 +1768,12 @@
               }
             }
           },
-          "426": {
-            "description": "UpgradeRequired",
+          "429": {
+            "description": "QuotaExceeded",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/UpgradeRequired"
+                  "$ref": "#/components/schemas/QuotaExceeded"
                 }
               }
             }
@@ -2080,125 +1789,8 @@
             }
           }
         },
-        "description": "Reattach to a terminal session over a WebSocket. Requires the vm:terminal scope. Send `Upgrade: websocket`. Retained scrollback replays first, then live output follows.",
-        "summary": "Reattach to a terminal session over a WebSocket"
-      },
-      "delete": {
-        "tags": [
-          "terminals"
-        ],
-        "operationId": "terminals.closeTerminal",
-        "parameters": [
-          {
-            "name": "vmId",
-            "in": "path",
-            "schema": {
-              "type": "string"
-            },
-            "required": true
-          },
-          {
-            "name": "terminal",
-            "in": "path",
-            "schema": {
-              "type": "string"
-            },
-            "required": true
-          },
-          {
-            "name": "x-cmux-team-id",
-            "in": "header",
-            "schema": {
-              "type": "string",
-              "description": "a string at most 128 character(s) long",
-              "title": "maxLength(128)",
-              "minLength": 1,
-              "maxLength": 128
-            },
-            "required": false,
-            "description": "a string at most 128 character(s) long"
-          },
-          {
-            "name": "user",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "description": "a string matching the pattern ^[a-z_][a-z0-9_-]{0,31}$",
-              "pattern": "^[a-z_][a-z0-9_-]{0,31}$"
-            },
-            "required": false,
-            "description": "a string matching the pattern ^[a-z_][a-z0-9_-]{0,31}$"
-          }
-        ],
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "ClosedTerminal",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ClosedTerminal"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "The request did not match the expected schema",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HttpApiDecodeError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Unauthorized"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Forbidden"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "NotFound",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/NotFound"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "ServiceUnavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ServiceUnavailable"
-                }
-              }
-            }
-          }
-        },
-        "description": "Kill a terminal session and remove it. Requires the vm:terminal scope.",
-        "summary": "Kill a terminal session and remove it"
+        "description": "List a directory in a VM. Requires the vm:files scope. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.",
+        "summary": "List a directory in a VM"
       }
     }
   },
@@ -2326,31 +1918,95 @@
           },
           "snapshotId": {
             "type": "string",
-            "description": "a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "description": "Boot from one of the tenant's snapshots; omit for the base image.",
             "pattern": "^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+          },
+          "resources": {
+            "$ref": "#/components/schemas/RequestedResources"
           },
           "idleTimeoutSeconds": {
             "$ref": "#/components/schemas/Int",
-            "description": "a number between -1 and 604800",
+            "description": "Seconds without network activity before the VM pauses itself (memory kept; start or resume continues it). Only network traffic to or from the VM counts as activity: CPU work and disk I/O alone do not keep it awake. A long job without traffic needs -1 or a larger value. -1 never pauses for idleness. Dev/test tenants: 1 to 300, default 300. Other tenants: default -1 (the cmux app pauses product machines itself).",
             "title": "between(-1, 604800)",
             "minimum": -1,
             "maximum": 604800
+          },
+          "maxRunSeconds": {
+            "$ref": "#/components/schemas/Int",
+            "description": "Pause the VM once a single run has lasted this many seconds, however busy it is; each start gives a fresh budget. -1 or omitted: no cap.",
+            "title": "between(-1, 2592000)",
+            "minimum": -1,
+            "maximum": 2592000
+          },
+          "autoDeleteSeconds": {
+            "$ref": "#/components/schemas/Int",
+            "description": "Delete the VM once it has gone this many seconds without running; each start resets the clock, and a running VM is never deleted for this. 0 deletes it as soon as it stops. -1 or omitted: never.",
+            "title": "between(-1, 31536000)",
+            "minimum": -1,
+            "maximum": 31536000
+          },
+          "labels": {
+            "$ref": "#/components/schemas/Labels"
           }
         },
-        "additionalProperties": false
+        "additionalProperties": false,
+        "description": "Without snapshotId the VM boots the cmux base image, Ubuntu 24.04 LTS, with 4 vCPUs, 8192 MiB memory and 32768 MiB disk unless resources says otherwise."
+      },
+      "RequestedResources": {
+        "type": "object",
+        "required": [],
+        "properties": {
+          "vcpus": {
+            "$ref": "#/components/schemas/Int",
+            "description": "a number between 2 and 32",
+            "title": "between(2, 32)",
+            "minimum": 2,
+            "maximum": 32
+          },
+          "memoryMib": {
+            "$ref": "#/components/schemas/Int",
+            "description": "a number between 4096 and 65536",
+            "title": "between(4096, 65536)",
+            "minimum": 4096,
+            "maximum": 65536
+          },
+          "diskMib": {
+            "$ref": "#/components/schemas/Int",
+            "description": "a number between 16384 and 131072",
+            "title": "between(16384, 131072)",
+            "minimum": 16384,
+            "maximum": 131072
+          }
+        },
+        "additionalProperties": false,
+        "description": "Size of the new VM. Omitted axes keep the base image's size. The VM boots from the largest base size that fits within the request on every axis, then grows to the exact request. Growing is a second step after the create and is not atomic: if it fails, the new VM is deleted and the create answers 409. Sizes can only grow, so a VM booted from a snapshot cannot be made smaller than the snapshot."
       },
       "Int": {
         "type": "integer",
         "description": "an integer",
         "title": "int"
       },
+      "Labels": {
+        "type": "object",
+        "required": [],
+        "properties": {},
+        "additionalProperties": {
+          "type": "string",
+          "description": "a string matching the pattern ^[A-Za-z0-9._:/@-]{0,63}$",
+          "pattern": "^[A-Za-z0-9._:/@-]{0,63}$"
+        }
+      },
       "Vm": {
         "type": "object",
         "required": [
           "id",
+          "displayName",
+          "labels",
           "state",
           "resources",
           "idleTimeoutSeconds",
+          "maxRunSeconds",
+          "autoDeleteSeconds",
           "createdAt",
           "updatedAt"
         ],
@@ -2359,6 +2015,20 @@
             "type": "string",
             "description": "a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
             "pattern": "^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+          },
+          "displayName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The name given at create or fork; null when none was given."
+          },
+          "labels": {
+            "$ref": "#/components/schemas/Labels"
           },
           "state": {
             "type": "string",
@@ -2369,27 +2039,11 @@
               "paused",
               "stopped",
               "unknown"
-            ]
+            ],
+            "description": "starting: booting. running: up. pausing/paused: frozen with memory kept; resume continues it exactly. stopped: shut down, disk kept, memory gone; start boots it again. unknown: a state this API version does not name."
           },
           "resources": {
-            "type": "object",
-            "required": [
-              "vcpus",
-              "memoryMib",
-              "diskMib"
-            ],
-            "properties": {
-              "vcpus": {
-                "type": "number"
-              },
-              "memoryMib": {
-                "type": "number"
-              },
-              "diskMib": {
-                "type": "number"
-              }
-            },
-            "additionalProperties": false
+            "$ref": "#/components/schemas/VmResources"
           },
           "idleTimeoutSeconds": {
             "anyOf": [
@@ -2399,13 +2053,75 @@
               {
                 "type": "null"
               }
-            ]
+            ],
+            "description": "Seconds without network activity before the VM pauses itself (memory kept; start or resume continues it). Only network traffic to or from the VM counts as activity: CPU work and disk I/O alone do not keep it awake. A long job without traffic needs -1 or a larger value. -1 never pauses for idleness."
+          },
+          "maxRunSeconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pauses the VM once a single run lasts this long; each start resets it. Null: no cap."
+          },
+          "autoDeleteSeconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Deletes the VM once it has gone this long without running; each start resets the clock. Null: never."
           },
           "createdAt": {
             "type": "string"
           },
           "updatedAt": {
             "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "VmResources": {
+        "type": "object",
+        "required": [
+          "vcpus",
+          "memoryMib",
+          "diskMib"
+        ],
+        "properties": {
+          "vcpus": {
+            "type": "number"
+          },
+          "memoryMib": {
+            "type": "number"
+          },
+          "diskMib": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": false
+      },
+      "BadRequest": {
+        "type": "object",
+        "required": [
+          "message",
+          "_tag"
+        ],
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "_tag": {
+            "type": "string",
+            "enum": [
+              "BadRequest"
+            ]
           }
         },
         "additionalProperties": false
@@ -2448,8 +2164,6 @@
               "vm:files",
               "vm:terminal",
               "snapshot:*",
-              "snapshot:read",
-              "snapshot:write",
               "domain:*",
               "deploy:*",
               "git:*",
@@ -2563,25 +2277,6 @@
         },
         "additionalProperties": false
       },
-      "NotImplemented": {
-        "type": "object",
-        "required": [
-          "message",
-          "_tag"
-        ],
-        "properties": {
-          "message": {
-            "type": "string"
-          },
-          "_tag": {
-            "type": "string",
-            "enum": [
-              "NotImplemented"
-            ]
-          }
-        },
-        "additionalProperties": false
-      },
       "VmList": {
         "type": "object",
         "required": [
@@ -2603,7 +2298,8 @@
               {
                 "type": "null"
               }
-            ]
+            ],
+            "description": "Pass as `cursor` to read the next page; null on the last page."
           }
         },
         "additionalProperties": false
@@ -2621,384 +2317,200 @@
           },
           "idleTimeoutSeconds": {
             "$ref": "#/components/schemas/Int",
-            "description": "a number between -1 and 604800",
+            "description": "Seconds without network activity before the VM pauses itself (memory kept; start or resume continues it). Only network traffic to or from the VM counts as activity: CPU work and disk I/O alone do not keep it awake. A long job without traffic needs -1 or a larger value. -1 never pauses for idleness. Dev/test tenants: 1 to 300, default 300. Other tenants: default -1 (the cmux app pauses product machines itself).",
             "title": "between(-1, 604800)",
             "minimum": -1,
             "maximum": 604800
-          }
-        },
-        "additionalProperties": false
-      },
-      "CreateSnapshotRequest": {
-        "type": "object",
-        "required": [],
-        "properties": {
-          "displayName": {
-            "type": "string",
-            "description": "a string at most 100 character(s) long",
-            "title": "maxLength(100)",
-            "minLength": 1,
-            "maxLength": 100
+          },
+          "maxRunSeconds": {
+            "$ref": "#/components/schemas/Int",
+            "description": "Pause the VM once a single run has lasted this many seconds, however busy it is; each start gives a fresh budget. -1 or omitted: no cap.",
+            "title": "between(-1, 2592000)",
+            "minimum": -1,
+            "maximum": 2592000
+          },
+          "autoDeleteSeconds": {
+            "$ref": "#/components/schemas/Int",
+            "description": "Delete the VM once it has gone this many seconds without running; each start resets the clock, and a running VM is never deleted for this. 0 deletes it as soon as it stops. -1 or omitted: never.",
+            "title": "between(-1, 31536000)",
+            "minimum": -1,
+            "maximum": 31536000
           },
           "labels": {
             "type": "object",
             "required": [],
             "properties": {},
-            "patternProperties": {
-              "": {
-                "type": "string",
-                "description": "a string matching the pattern ^[A-Za-z0-9._:/-]{0,63}$",
-                "pattern": "^[A-Za-z0-9._:/-]{0,63}$"
-              }
-            },
-            "propertyNames": {
+            "additionalProperties": {
               "type": "string",
-              "description": "a string matching the pattern ^[a-z0-9][a-z0-9._/-]{0,62}$",
-              "pattern": "^[a-z0-9][a-z0-9._/-]{0,62}$"
+              "description": "a string matching the pattern ^[A-Za-z0-9._:/@-]{0,63}$",
+              "pattern": "^[A-Za-z0-9._:/@-]{0,63}$"
             }
-          },
-          "ttlSeconds": {
-            "$ref": "#/components/schemas/Int",
-            "description": "a number between 60 and 31536000",
-            "title": "between(60, 31536000)",
-            "minimum": 60,
-            "maximum": 31536000
-          },
-          "autoDeleteSeconds": {
-            "$ref": "#/components/schemas/Int",
-            "description": "a number between 60 and 31536000",
-            "title": "between(60, 31536000)",
-            "minimum": 60,
-            "maximum": 31536000
           }
         },
         "additionalProperties": false
       },
-      "Snapshot": {
+      "ForkIncomplete": {
         "type": "object",
         "required": [
-          "id",
-          "sourceVmId",
-          "displayName",
-          "labels",
-          "createdAt",
-          "lastUsedAt",
-          "ttlSeconds",
-          "autoDeleteSeconds"
+          "message",
+          "snapshotId",
+          "_tag"
         ],
         "properties": {
-          "id": {
+          "message": {
+            "type": "string"
+          },
+          "snapshotId": {
             "type": "string",
             "description": "a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
             "pattern": "^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
           },
-          "sourceVmId": {
-            "anyOf": [
-              {
-                "type": "string",
-                "description": "a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
-                "pattern": "^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "displayName": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "labels": {
-            "type": "object",
-            "required": [],
-            "properties": {},
-            "patternProperties": {
-              "": {
-                "type": "string",
-                "description": "a string matching the pattern ^[A-Za-z0-9._:/-]{0,63}$",
-                "pattern": "^[A-Za-z0-9._:/-]{0,63}$"
-              }
-            },
-            "propertyNames": {
-              "type": "string",
-              "description": "a string matching the pattern ^[a-z0-9][a-z0-9._/-]{0,62}$",
-              "pattern": "^[a-z0-9][a-z0-9._/-]{0,62}$"
-            }
-          },
-          "createdAt": {
-            "type": "string"
-          },
-          "lastUsedAt": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "ttlSeconds": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "autoDeleteSeconds": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
+          "_tag": {
+            "type": "string",
+            "enum": [
+              "ForkIncomplete"
             ]
           }
         },
         "additionalProperties": false,
-        "description": "A VM's memory and disk, captured. A VM booted from a snapshot resumes from the captured memory. Whether the guest kernel's random number generator is reseeded, and whether the machine id, hostname and clock change on restore, is not documented by the platform and is not yet verified: assume every VM booted from one snapshot starts with identical RNG state, machine id and hostname, and reseed, regenerate and resync them in the guest when that matters."
+        "description": "The fork's snapshot was taken but the new VM was not created. The snapshot is kept in the caller's tenant; retry with the same Idempotency-Key to create from it without a second snapshot."
       },
-      "SnapshotList": {
+      "ExecRequest": {
         "type": "object",
         "required": [
-          "items",
-          "nextCursor"
+          "command"
         ],
         "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/SnapshotSummary"
-            }
-          },
-          "nextCursor": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          }
-        },
-        "additionalProperties": false
-      },
-      "SnapshotSummary": {
-        "type": "object",
-        "required": [
-          "id",
-          "sourceVmId",
-          "displayName",
-          "labels",
-          "createdAt"
-        ],
-        "properties": {
-          "id": {
+          "command": {
             "type": "string",
-            "description": "a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
-            "pattern": "^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+            "description": "The command line, run by the guest's shell. Never recorded in the audit log.",
+            "title": "maxLength(65536)",
+            "minLength": 1,
+            "maxLength": 65536
           },
-          "sourceVmId": {
-            "anyOf": [
-              {
-                "type": "string",
-                "description": "a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
-                "pattern": "^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "displayName": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "labels": {
+          "env": {
             "type": "object",
             "required": [],
             "properties": {},
-            "patternProperties": {
-              "": {
-                "type": "string",
-                "description": "a string matching the pattern ^[A-Za-z0-9._:/-]{0,63}$",
-                "pattern": "^[A-Za-z0-9._:/-]{0,63}$"
-              }
-            },
-            "propertyNames": {
+            "additionalProperties": {
               "type": "string",
-              "description": "a string matching the pattern ^[a-z0-9][a-z0-9._/-]{0,62}$",
-              "pattern": "^[a-z0-9][a-z0-9._/-]{0,62}$"
+              "description": "a string at most 32768 character(s) long",
+              "title": "maxLength(32768)",
+              "maxLength": 32768
             }
           },
-          "createdAt": {
-            "type": "string"
+          "stdinBase64": {
+            "type": "string",
+            "description": "Standard input, base64, at most 1 MiB decoded.",
+            "title": "maxLength(1398104)",
+            "maxLength": 1398104,
+            "pattern": "^[A-Za-z0-9+/]*={0,2}$"
+          },
+          "timeoutMs": {
+            "$ref": "#/components/schemas/Int",
+            "description": "Wall-clock limit in milliseconds, 1 to 300000 (5 minutes); default 30000. The command is killed at the deadline and exitCode is null.",
+            "title": "between(1, 300000)",
+            "minimum": 1,
+            "maximum": 300000
+          },
+          "linuxUser": {
+            "type": "string",
+            "description": "Guest Linux user to run as; default is the image's default user.",
+            "pattern": "^[a-z_][a-z0-9_-]{0,31}$"
           }
         },
         "additionalProperties": false
       },
-      "InvalidRequest": {
+      "ExecResult": {
         "type": "object",
         "required": [
-          "message",
-          "_tag"
+          "exitCode",
+          "stdout",
+          "stderr"
         ],
         "properties": {
-          "message": {
+          "exitCode": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Int"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Exit status; null when the command was killed by its timeout."
+          },
+          "stdout": {
             "type": "string"
           },
-          "_tag": {
-            "type": "string",
-            "enum": [
-              "InvalidRequest"
-            ]
+          "stderr": {
+            "type": "string"
           }
         },
         "additionalProperties": false
       },
-      "BooleanFromString": {
+      "GuestPath": {
         "type": "string",
-        "enum": [
-          "true",
-          "false"
-        ],
-        "description": "a string to be decoded into a boolean"
+        "description": "a string at most 4096 character(s) long",
+        "title": "maxLength(4096)",
+        "minLength": 1,
+        "maxLength": 4096
       },
-      "UpgradeRequired": {
+      "PayloadTooLarge": {
         "type": "object",
         "required": [
           "message",
+          "maxBytes",
           "_tag"
         ],
         "properties": {
           "message": {
             "type": "string"
           },
+          "maxBytes": {
+            "$ref": "#/components/schemas/Int"
+          },
           "_tag": {
             "type": "string",
             "enum": [
-              "UpgradeRequired"
+              "PayloadTooLarge"
             ]
           }
         },
         "additionalProperties": false
       },
-      "TerminalSessionList": {
+      "FileList": {
         "type": "object",
         "required": [
-          "items"
+          "entries"
         ],
         "properties": {
-          "items": {
+          "entries": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/TerminalSession"
+              "$ref": "#/components/schemas/FileEntry"
             }
           }
         },
         "additionalProperties": false
       },
-      "TerminalSession": {
+      "FileEntry": {
         "type": "object",
         "required": [
-          "sessionId",
           "name",
-          "state",
-          "user",
-          "cols",
-          "rows",
-          "exitCode",
-          "createdAt"
+          "kind"
         ],
         "properties": {
-          "sessionId": {
-            "$ref": "#/components/schemas/Int"
-          },
           "name": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
+            "type": "string"
           },
-          "state": {
+          "kind": {
             "type": "string",
             "enum": [
-              "running",
-              "exited",
-              "unknown"
-            ]
-          },
-          "user": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "cols": {
-            "$ref": "#/components/schemas/Int"
-          },
-          "rows": {
-            "$ref": "#/components/schemas/Int"
-          },
-          "exitCode": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/Int"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "createdAt": {
-            "type": "string"
-          }
-        },
-        "additionalProperties": false
-      },
-      "ClosedTerminal": {
-        "type": "object",
-        "required": [
-          "sessionId",
-          "exitCode"
-        ],
-        "properties": {
-          "sessionId": {
-            "$ref": "#/components/schemas/Int"
-          },
-          "exitCode": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/Int"
-              },
-              {
-                "type": "null"
-              }
+              "file",
+              "directory",
+              "symlink",
+              "other"
             ]
           }
         },
@@ -3022,10 +2534,10 @@
       "name": "vms"
     },
     {
-      "name": "snapshots"
+      "name": "exec"
     },
     {
-      "name": "terminals"
+      "name": "files"
     }
   ],
   "servers": [

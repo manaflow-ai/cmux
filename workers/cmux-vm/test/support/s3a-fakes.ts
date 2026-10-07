@@ -1,6 +1,6 @@
 /**
- * Fakes for the snapshot and terminal slice (S3a): in-memory snapshot store,
- * audit log, idempotency store and entitlements, plus the fake provider routes
+ * Fakes for the snapshot and terminal slice (S3a): in-memory snapshot store
+ * and idempotency store, plus the fake provider routes
  * fake-upstream.ts (S2) does not serve: reading a snapshot and terminals.
  * Creating and deleting snapshots go to fake-upstream.ts, which owns the
  * provider's snapshot map. The terminal
@@ -8,13 +8,11 @@
  * and hand the other end to a test-supplied script.
  */
 import { Effect, Layer, Option, Redacted } from "effect";
-import { AuditLog, type AuditEntry } from "../../src/db/audit.ts";
 import { IdempotencyStore } from "../../src/db/idempotency.ts";
 import { SnapshotStore, type SnapshotRow } from "../../src/db/snapshots.ts";
 import { StoreError } from "../../src/db/sql.ts";
 import type { OwnedResource } from "../../src/db/stores.ts";
 import { newSnapshotId, SnapshotId, TenantId, UpstreamId, type VmId } from "../../src/lib/ids.ts";
-import { Entitlements } from "../../src/proofs/tenant-may-create.ts";
 import { makeUpstreamSnapshots } from "../../src/upstream/live-snapshots.ts";
 import { makeUpstreamTerminals } from "../../src/upstream/live-terminals.ts";
 import { UpstreamSnapshots } from "../../src/upstream/snapshots.ts";
@@ -42,9 +40,7 @@ export interface FakePtySession {
 
 export function makeS3aFakes(resources: OwnedResource[], provider: FakeUpstream) {
   const meta = new Map<string, SnapshotMeta>();
-  const auditLog: AuditEntry[] = [];
   const idempotency = new Map<string, { fingerprint: string; body: string | null }>();
-  const deniedTenants = new Set<string>();
   /** Raw requests this fake served (terminal and snapshot reads), for header checks. */
   const requests: Request[] = [];
   const ptySessions = new Map<string, FakePtySession[]>();
@@ -80,6 +76,8 @@ export function makeS3aFakes(resources: OwnedResource[], provider: FakeUpstream)
               upstreamId: snapshot.upstreamId,
               createdBy: snapshot.createdBy,
               createdAt: snapshot.createdAt,
+              displayName: snapshot.displayName,
+              labels: snapshot.labels,
             });
             meta.set(snapshot.id, { sourceVmId: snapshot.sourceVmId, displayName: snapshot.displayName, labels: snapshot.labels });
           }),
@@ -97,6 +95,7 @@ export function makeS3aFakes(resources: OwnedResource[], provider: FakeUpstream)
           .map(rowOf)
           .filter((row) => page.sourceVmId === null || row.sourceVmId === page.sourceVmId)
           .filter((row) => Object.entries(page.labels ?? {}).every(([key, value]) => row.labels[key] === value))
+          .filter((row) => page.only === null || page.only.includes(row.id))
           .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0))
           .filter(
             (row) =>
@@ -112,8 +111,6 @@ export function makeS3aFakes(resources: OwnedResource[], provider: FakeUpstream)
         if (index >= 0) resources.splice(index, 1);
       }),
   });
-
-  const auditLayer = Layer.succeed(AuditLog, { record: (entry) => Effect.sync(() => void auditLog.push(entry)) });
 
   const idempotencyLayer = Layer.succeed(IdempotencyStore, {
     claim: (tenantId, key, fingerprint) =>
@@ -138,10 +135,6 @@ export function makeS3aFakes(resources: OwnedResource[], provider: FakeUpstream)
         const existing = idempotency.get(slot);
         if (existing?.fingerprint === fingerprint && existing.body === null) idempotency.delete(slot);
       }),
-  });
-
-  const entitlementsLayer = Layer.succeed(Entitlements, {
-    mayCreate: (tenantId) => Effect.sync(() => !deniedTenants.has(tenantId)),
   });
 
   const snapshotJson = (snapshot: { readonly id: string; readonly sourceVmId: string; readonly autoDeleteSeconds: number | null }) => ({
@@ -231,9 +224,7 @@ export function makeS3aFakes(resources: OwnedResource[], provider: FakeUpstream)
     const config = { baseUrl: UPSTREAM_URL, apiKey: Redacted.make(UPSTREAM_KEY), fetch };
     return Layer.mergeAll(
       snapshotStore,
-      auditLayer,
       idempotencyLayer,
-      entitlementsLayer,
       Layer.succeed(UpstreamSnapshots, makeUpstreamSnapshots(config)),
       Layer.succeed(UpstreamTerminals, makeUpstreamTerminals(config)),
     );
@@ -242,7 +233,6 @@ export function makeS3aFakes(resources: OwnedResource[], provider: FakeUpstream)
   return {
     upstream,
     layer,
-    auditLog,
     requests,
     /** Records a snapshot owned by `tenant` and backed by a fake upstream snapshot. */
     addSnapshot(
@@ -265,6 +255,8 @@ export function makeS3aFakes(resources: OwnedResource[], provider: FakeUpstream)
         upstreamId: UpstreamId.make(upstreamId),
         createdBy: "user:test",
         createdAt: options.createdAt ?? new Date(),
+        displayName: options.displayName ?? null,
+        labels: options.labels ?? {},
       });
       meta.set(snapshotId, {
         sourceVmId: options.sourceVmId ?? null,
@@ -275,9 +267,6 @@ export function makeS3aFakes(resources: OwnedResource[], provider: FakeUpstream)
     },
     snapshotRows(tenant: string): ReadonlyArray<OwnedResource> {
       return resources.filter((row) => row.tenantId === tenant && row.kind === "snapshot");
-    },
-    denySnapshots(tenant: string) {
-      deniedTenants.add(tenant);
     },
     failNextSnapshotRecord() {
       state.failSnapshotRecord = true;
