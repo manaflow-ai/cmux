@@ -206,7 +206,10 @@ time the command runs, gets no command (`blocked`). Undo and redo take the
 tab's undo stack, which holds every frame's edits and does not tell whose a
 step is, so a tab that shows a frame the policy blocks refuses them
 (`blocked`); elsewhere, from an allowed focused document, they undo the
-tab's last edit. The app's web views undo a person's Command-Z themselves, but an
+tab's last edit. One Meta+Z is one step of that stack, as one Command-Z of a
+person: WebKit keeps typed text and a Backspace right after it in one open
+typing step, so one Meta+Z takes both back (the page gets one `beforeinput`
+and one `input`, both `historyUndo`). The app's web views undo a person's Command-Z themselves, but an
 automated Meta+Z or Shift+Meta+Z is never undone that way: it reaches the
 page first, as every other key does. In a tab a
 session created (one with the page clipboard guard), `cmux browser press`
@@ -318,6 +321,17 @@ All input is delivered as native, trusted events (`isTrusted === true`).
 
 `modifiers` is an array of `Alt`, `Control`, `Meta`, `Shift`. Key names follow
 Playwright (`KeyboardEvent.key` values plus `Meta+a` style parsed by the runtime).
+As in Playwright, a shortcut's command is chosen by the key's code and the
+modifiers held, and an uppercase letter adds no Shift of its own: with `Meta`
+or `Control` held and no `Shift`, `A` is the `a` key (`Meta+A` is Select All,
+`shiftKey` false, as `Meta+a`). Only a `Shift` in the combo makes it
+`Shift+Meta+A`. Without `Meta` or `Control`, `A` types `A` with Shift.
+`cmux browser press` follows the same rule for the modifiers it holds.
+`keyboard.press` releases the modifiers it pressed on every exit: a refused
+shortcut (`blocked`, `unsupported`), a timeout or any other error leaves no
+modifier held for the next key. A key-down the driver delivered whose Edit
+command is then refused gets its key-up from the driver, and a modifier's
+key-up the frame gate refuses still ends that modifier's hold.
 
 A mouse `down` that opens a context menu (the right button, or the left with
 `Control`) fires the page's `contextmenu` event but never shows cmux's

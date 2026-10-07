@@ -2673,19 +2673,43 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 // delivery's turn, since WebKit reports whether a page
                 // handled the key on a later one. The frame gate judges the
                 // live page right before the key goes out.
-                let outcome = try await webView.deliverAutomationKeyDown(watchingOutcome: type == "down" && stroke.editingCommand != nil) {
-                    try self.frameGate.checkTab(in: webView)
-                    let result = webView.replayBrowserReplKeyStroke(stroke, keyDown: type == "down", heldBy: self.sessionID)
-                    guard result == .delivered else {
-                        throw Self.error("invalid", "Could not deliver key \"\(keyName)\"")
+                let outcome: BrowserAutomationKeyDownOutcome?
+                do {
+                    outcome = try await webView.deliverAutomationKeyDown(watchingOutcome: type == "down" && stroke.editingCommand != nil) {
+                        try self.frameGate.checkTab(in: webView)
+                        let result = webView.replayBrowserReplKeyStroke(stroke, keyDown: type == "down", heldBy: self.sessionID)
+                        guard result == .delivered else {
+                            throw Self.error("invalid", "Could not deliver key \"\(keyName)\"")
+                        }
+                        return result
+                    }.outcome
+                } catch {
+                    // A modifier's key-up that cannot reach the page (the
+                    // tab now shows a blocked page) still ends the hold: the
+                    // session's later keys must not carry it.
+                    if type == "up", stroke.modifierKey != nil {
+                        webView.forgetBrowserReplModifier(stroke, heldBy: self.sessionID)
+                        self.attachment(panel).heldKeys.record(stroke, keyDown: false, sessionID: self.sessionID)
                     }
-                    return result
-                }.outcome
+                    throw error
+                }
                 self.attachment(panel).heldKeys.record(stroke, keyDown: type == "down", sessionID: self.sessionID)
                 // The editing command runs only for a key no page handled (it
                 // did not cancel the keydown), as a browser's Edit menu does.
                 if type == "down", let command = stroke.editingCommand, let outcome, await outcome.wasUnhandled() {
-                    try await self.performEditingCommand(command, panel: panel, webView: webView)
+                    do {
+                        try await self.performEditingCommand(command, panel: panel, webView: webView)
+                    } catch {
+                        // A refused or failed command releases its key, as a
+                        // delivered shortcut does; the runtime then releases
+                        // the shortcut's modifiers. A tab that now shows a
+                        // blocked page gets no key-up; the key is forgotten.
+                        if (try? self.frameGate.checkTab(in: webView)) != nil {
+                            _ = webView.replayBrowserReplKeyStroke(stroke, keyDown: false, heldBy: self.sessionID)
+                        }
+                        self.attachment(panel).heldKeys.record(stroke, keyDown: false, sessionID: self.sessionID)
+                        throw error
+                    }
                 }
                 await BrowserReplNativeInput.roundTrip(webView)
             }

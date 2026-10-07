@@ -112,6 +112,112 @@ struct BrowserReplUndoKeyTests {
         #expect(keys == 2, "the page did not get the keydown of each agent undo or redo chord: \(String(describing: keys))")
     }
 
+    /// Two edits in two editables (a focus change between them, so WebKit
+    /// keeps them as two undo steps), then the focus back in the first.
+    /// The page logs each history input it gets.
+    private func loadWithTwoEdits() async throws -> Setup {
+        let setup = try await load(blockedFrame: false)
+        _ = try await setup.page.run("""
+            const e2 = document.createElement('div'); e2.id = 'e2'; e2.contentEditable = 'true'; e2.textContent = 'second'; document.body.prepend(e2);
+            window.history_ = []; addEventListener('input', (ev) => { if (ev.inputType.startsWith('history')) window.history_.push(ev.inputType); }, true);
+            const e = document.getElementById('e'); e.focus(); getSelection().selectAllChildren(e); document.execCommand('insertText', false, 'one');
+            return true
+            """, in: setup.page.main)
+        _ = try await setup.page.run("e2.focus(); getSelection().selectAllChildren(e2); document.execCommand('insertText', false, 'two'); return true", in: setup.page.main)
+        try await waitForEditableFocus(setup.webView)
+        #expect(try await texts(setup) == ["one", "two"])
+        return setup
+    }
+
+    private func texts(_ setup: Setup) async throws -> [String] {
+        try await setup.page.run("return [document.getElementById('e').textContent, document.getElementById('e2').textContent]", in: setup.page.main) as? [String] ?? []
+    }
+
+    private func historyInputs(_ setup: Setup) async throws -> [String] {
+        try await setup.page.run("return window.history_", in: setup.page.main) as? [String] ?? []
+    }
+
+    /// One agent Meta+Z undoes one step and one Shift+Meta+Z redoes one
+    /// step. Seen on the real app (gate on da48df7b6ee6): one Meta+Z after
+    /// an edit undid two steps (two `historyUndo` inputs).
+    @Test func oneReplUndoKeyUndoesOneStepAndOneRedoKeyRedoesOneStep() async throws {
+        let setup = try await loadWithTwoEdits()
+        defer { setup.window.close() }
+        let gate = BrowserReplFrameGateTests.gate()
+        #expect(try await replUndoKey(redo: false, in: setup.webView, gate: gate) == nil)
+        #expect(try await texts(setup) == ["one", "second"], "one Meta+Z did not undo exactly the last edit")
+        #expect(try await historyInputs(setup) == ["historyUndo"], "one Meta+Z ran more than one undo")
+        #expect(try await replUndoKey(redo: true, in: setup.webView, gate: gate) == nil)
+        #expect(try await texts(setup) == ["one", "two"], "one Shift+Meta+Z did not redo exactly one edit")
+        #expect(try await historyInputs(setup) == ["historyUndo", "historyRedo"], "one Shift+Meta+Z ran more than one redo")
+    }
+
+    /// The same through `cmux browser press`: Meta down, z (Z) pressed,
+    /// Meta up, one socket call each.
+    @Test func oneCmuxBrowserPressUndoKeyUndoesOneStepAndOneRedoKeyRedoesOneStep() async throws {
+        let setup = try await loadWithTwoEdits()
+        defer { setup.window.close() }
+        func press(_ keys: [String]) async throws {
+            let events = try keys.map { try #require(BrowserKeyboardEvent(rawKey: $0)) }
+            try await BrowserReplKeyResendTests.withAppDroppingResends {
+                for event in events.dropLast() { #expect(await setup.webView.replayBrowserKeyboardEvent(event, action: .keyDown) == .delivered) }
+                #expect(await setup.webView.replayBrowserKeyboardEvent(events[events.count - 1], action: .press) == .delivered)
+                for event in events.dropLast().reversed() { #expect(await setup.webView.replayBrowserKeyboardEvent(event, action: .keyUp) == .delivered) }
+                await setup.webView.waitForQueuedAutomationKeyEvents()
+                _ = try await setup.webView.evaluateJavaScript("0")
+            }
+        }
+        try await press(["Meta", "z"])
+        #expect(try await texts(setup) == ["one", "second"], "one Meta+Z did not undo exactly the last edit")
+        #expect(try await historyInputs(setup) == ["historyUndo"], "one Meta+Z ran more than one undo")
+        try await press(["Meta", "Shift", "z"])
+        #expect(try await texts(setup) == ["one", "two"], "one Shift+Meta+Z did not redo exactly one edit")
+        #expect(try await historyInputs(setup) == ["historyUndo", "historyRedo"], "one Shift+Meta+Z ran more than one redo")
+    }
+
+    /// Typed text and a Backspace right after it are one undo step in
+    /// WebKit (its open typing command takes the deletion), so one Meta+Z
+    /// takes both back: the same as one Command-Z of a person (the web
+    /// view's own undo stack, one `undo()`), with one `historyUndo` input
+    /// (a `beforeinput` and an `input` both carry that type).
+    @Test func oneReplUndoKeyAfterTypingAndBackspaceUndoesWhatOnePersonsUndoDoes() async throws {
+        var results: [[String]] = []
+        for viaRepl in [false, true] {
+            let setup = try await load(blockedFrame: false)
+            defer { setup.window.close() }
+            _ = try await setup.page.run("""
+                const e = document.getElementById('e'); e.focus(); getSelection().selectAllChildren(e); getSelection().collapseToEnd();
+                window.history_ = []; addEventListener('input', (ev) => { if (ev.inputType.startsWith('history')) window.history_.push(ev.inputType); }, true);
+                return true
+                """, in: setup.page.main)
+            try await waitForEditableFocus(setup.webView)
+            try await BrowserReplKeyResendTests.withAppDroppingResends {
+                for key in ["a", "b", "c", "Backspace"] {
+                    let stroke = try #require(try BrowserReplKeyStroke.resolve(key: key, code: key == "Backspace" ? "Backspace" : "Key\(key.uppercased())", text: key == "Backspace" ? nil : key, modifiers: []))
+                    _ = setup.webView.replayBrowserReplKeyStroke(stroke, keyDown: true, heldBy: "session")
+                    _ = setup.webView.replayBrowserReplKeyStroke(stroke, keyDown: false, heldBy: "session")
+                    await setup.webView.waitForQueuedAutomationKeyEvents()
+                }
+            }
+            // WebKit hands each key to the input method first: wait until
+            // the page has all four.
+            let deadline = ContinuousClock.now.advanced(by: .seconds(30))
+            while ContinuousClock.now < deadline, try await text(setup) != "edit meab" {
+                await setup.webView.waitForQueuedAutomationKeyEvents()
+            }
+            #expect(try await text(setup) == "edit meab")
+            if viaRepl {
+                #expect(try await replUndoKey(redo: false, in: setup.webView, gate: BrowserReplFrameGateTests.gate()) == nil)
+            } else {
+                (setup.webView as? CmuxUndoableWebView)?.performWebContentUndoRedo(redo: false)
+            }
+            _ = try await setup.webView.evaluateJavaScript("0")
+            results.append([try await text(setup) ?? ""] + (try await historyInputs(setup)))
+        }
+        #expect(results[1] == results[0], "one Meta+Z (\(results[1])) did not do what one person's undo does (\(results[0]))")
+        #expect(results[1] == ["edit me", "historyUndo"])
+    }
+
     @Test func aReplUndoThePageCancelledRunsNothing() async throws {
         let setup = try await load(cancellingMetaKeys: true)
         defer { setup.window.close() }
