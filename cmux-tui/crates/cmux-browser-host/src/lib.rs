@@ -31,6 +31,7 @@ pub mod lease;
 pub mod locality;
 pub mod observe;
 pub mod policy;
+pub mod private_data_log;
 pub mod protocol;
 pub mod provider;
 #[cfg(unix)]

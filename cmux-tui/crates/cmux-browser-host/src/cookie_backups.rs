@@ -38,10 +38,17 @@ const KEY_FILE: &str = "cookie-backup.key";
 const BACKUPS: &str = "cookie-backups";
 const NONCE_LEN: usize = 24;
 
+/// At most this many backups per state directory.
+pub const MAX_BACKUPS: usize = 50;
+/// At most this many bytes of backup files per state directory.
+pub const MAX_BACKUP_BYTES: u64 = 64 * 1024 * 1024;
+
 /// The encrypted cookie backups of one host state directory.
 #[derive(Debug)]
 pub struct CookieBackups {
     dir: PathBuf,
+    max_backups: usize,
+    max_bytes: u64,
 }
 
 fn random<const N: usize>() -> Result<[u8; N], String> {
@@ -90,7 +97,14 @@ impl CookieBackups {
         let dir = dir.into();
         private_dir(&dir.join(BACKUPS))?;
         private_dir(&dir)?;
-        Ok(CookieBackups { dir })
+        Ok(CookieBackups { dir, max_backups: MAX_BACKUPS, max_bytes: MAX_BACKUP_BYTES })
+    }
+
+    /// The same store with other bounds (tests).
+    pub fn with_limits(mut self, max_backups: usize, max_bytes: u64) -> CookieBackups {
+        self.max_backups = max_backups;
+        self.max_bytes = max_bytes;
+        self
     }
 
     pub fn dir(&self) -> &Path {

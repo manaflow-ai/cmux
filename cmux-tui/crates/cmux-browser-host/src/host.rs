@@ -121,6 +121,8 @@ pub struct Host {
     cookie_backups: Option<Arc<crate::cookie_backups::CookieBackups>>,
     /// The one purge waiting for the person's confirmation.
     purge_pending: Mutex<Option<cookie_purge::Pending>>,
+    /// Every private-data op of this host (crate::private_data_log).
+    private_data: Arc<crate::private_data_log::PrivateDataLog>,
 }
 
 impl Host {
@@ -137,6 +139,7 @@ impl Host {
             tab_secrets: Arc::default(),
             cookie_backups: None,
             purge_pending: Mutex::new(None),
+            private_data: Arc::default(),
         }
     }
 

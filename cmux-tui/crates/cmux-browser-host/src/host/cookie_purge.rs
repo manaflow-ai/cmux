@@ -189,4 +189,30 @@ mod tests {
         assert!(backups.ids().is_empty());
         let _ = std::fs::remove_dir_all(dir);
     }
+
+    #[test]
+    fn a_purge_is_logged_where_the_person_reads_it() {
+        let (host, backups, dir) = host("log");
+        let (a, _b) = (backup(&backups), backup(&backups));
+        let user = caller("user");
+        let purge = |params: Value| host.dispatch(&user, "browser.cookieBackups.purge", &params);
+        let token = purge(json!({"restoreId": a})).unwrap()["confirm"].as_str().unwrap().to_owned();
+        let log = |host: &Host| {
+            host.dispatch(&user, "browser.cookieBackups.list", &json!({})).unwrap()["log"].clone()
+        };
+        assert_eq!(log(&host), json!([]), "asking deletes nothing and logs nothing");
+        purge(json!({"restoreId": a, "confirm": token})).unwrap();
+        let entries = log(&host);
+        let entries = entries.as_array().unwrap();
+        assert_eq!(entries.len(), 1, "{entries:?}");
+        let entry = &entries[0];
+        assert_eq!(entry["op"], "cookieBackups.purge");
+        assert_eq!(entry["restoreIds"], json!([a]));
+        assert_eq!(entry["deleted"], 1);
+        assert_eq!(entry["origin"], "user");
+        assert_eq!(entry["actor"], "t");
+        assert!(entry["at"].as_u64().is_some());
+        assert!(!entry.to_string().contains("\"v\""), "no cookie value: {entry}");
+        let _ = std::fs::remove_dir_all(dir);
+    }
 }

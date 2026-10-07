@@ -81,13 +81,16 @@ fn a_cookie_clear_is_backed_up_encrypted_and_restored() {
          await page.evaluate(() => {{ document.cookie = 'sid=s3cret-cookie-1; max-age=3600'; document.cookie = 'keep=old; max-age=3600'; }});
          const r = await page.context().clearCookies();
          console.log('CLEAR:' + JSON.stringify(r));
-         console.log('AFTER:' + await page.evaluate(() => document.cookie));"
+         console.log('AFTER:' + await page.evaluate(() => document.cookie));
+         console.log('NAV:' + JSON.stringify(session.blockedNavigations()));"
     ));
     let result: Value = serde_json::from_str(&line(&cleared, "CLEAR:")).unwrap();
     let ids = result["restoreIds"].as_array().cloned().unwrap_or_default();
     assert_eq!(ids.len(), 1, "one restore id: {cleared}");
     assert!(ids[0].as_str().unwrap().starts_with("host:"), "{cleared}");
     assert_eq!(line(&cleared, "AFTER:"), "", "the site's cookies are cleared");
+    // The clear's policy-log entry is not a blocked navigation.
+    assert_eq!(line(&cleared, "NAV:"), "[]", "{cleared}");
 
     // The backup: one 0600 file that holds no cookie value in the clear,
     // and a separate 0600 key file.
