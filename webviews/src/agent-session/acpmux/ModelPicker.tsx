@@ -237,7 +237,6 @@ export function ModelPicker(props: ModelPickerProps) {
       <button
         ref={trigger}
         type="button"
-        role="combobox"
         className="acpmux-picker-button"
         data-menu={modelText}
         aria-label={modelText}
@@ -266,6 +265,7 @@ export function ModelPicker(props: ModelPickerProps) {
           ref={menu}
           id={menuId}
           className="acpmux-menu acpmux-menu-end acpmux-mp acpmux-mp-t3"
+          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- the popover is positioned by the shared anchor helper.
           role="dialog"
           aria-label={modelText}
           style={menuStyle}
@@ -278,6 +278,7 @@ export function ModelPicker(props: ModelPickerProps) {
             <input
               ref={search}
               type="search"
+              // oxlint-disable-next-line jsx-a11y/no-redundant-roles -- the combobox role exposes the inline model list.
               role="combobox"
               aria-label={searchText}
               aria-autocomplete="list"
@@ -294,10 +295,12 @@ export function ModelPicker(props: ModelPickerProps) {
             />
           </div>
           <div className="acpmux-mp-columns">
+            {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- rich harness rows need icons and prewarm states. */}
             <div className="acpmux-mp-harnesses" role="listbox" aria-label={harnessText}>
               {harnesses.map((entry, index) => (
                 <button
                   type="button"
+                  // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a rich button row is the selectable option.
                   role="option"
                   key={entry.name}
                   aria-selected={entry.ids.includes(selectedHarness ?? "")}
@@ -310,7 +313,7 @@ export function ModelPicker(props: ModelPickerProps) {
                       const next = (index + step + harnesses.length) % harnesses.length;
                       setActiveHarness(next);
                       setSelectedHarness(harnesses[next]?.id);
-                      harnesses[next] && setQuery("");
+                      setQuery("");
                       (event.currentTarget.parentElement?.children[next] as HTMLElement | undefined)?.focus();
                     } else if (event.key === "ArrowRight" || event.key === "Enter") {
                       event.preventDefault();
@@ -334,6 +337,7 @@ export function ModelPicker(props: ModelPickerProps) {
             <div
               id={`${menuId}-models`}
               className="acpmux-mp-models"
+              // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- model rows carry marks, status and keyboard state.
               role="listbox"
               aria-label={selected?.name ?? modelText}
             >
@@ -343,6 +347,7 @@ export function ModelPicker(props: ModelPickerProps) {
                 visible.map((model, index) => (
                   <button
                     type="button"
+                    // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a rich button row is the selectable option.
                     role="option"
                     key={model.id}
                     id={modelRowId(model.id)}
