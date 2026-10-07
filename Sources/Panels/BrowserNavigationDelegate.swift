@@ -382,7 +382,7 @@ import WebKit
            ),
            openAppLinkInBrowserSplit?(appLink.destinationURL) == true {
             clearAttemptedRequest(discardPendingBypasses: true)
-            let reportTerminalCancellation = terminalPolicyCancellationReporter?(
+            let reportTerminalCancellation: @MainActor () -> Void = terminalPolicyCancellationReporter?(
                 navigationAction,
                 webView
             ) ?? {}
@@ -404,7 +404,7 @@ import WebKit
                 targetFrameIsMain: navigationAction.targetFrame?.isMainFrame,
                 onOpened: { [self] in
                     clearAttemptedRequest(discardPendingBypasses: true)
-                    let reportTerminalCancellation = terminalPolicyCancellationReporter?(
+                    let reportTerminalCancellation: @MainActor () -> Void = terminalPolicyCancellationReporter?(
                         navigationAction,
                         webView
                     ) ?? {}
@@ -414,7 +414,7 @@ import WebKit
             switch openResult {
             case .failed:
                 clearAttemptedRequest(discardPendingBypasses: true)
-                let reportTerminalCancellation = terminalPolicyCancellationReporter?(
+                let reportTerminalCancellation: @MainActor () -> Void = terminalPolicyCancellationReporter?(
                     navigationAction,
                     webView
                 ) ?? {}
@@ -536,7 +536,7 @@ import WebKit
         if let url = navigationAction.request.url,
            shouldOpenInSystemBrowser(navigationAction, url: url) {
             clearAttemptedRequest(discardPendingBypasses: true)
-            let reportTerminalCancellation = terminalPolicyCancellationReporter?(navigationAction, webView) ?? {}
+            let reportTerminalCancellation: @MainActor () -> Void = terminalPolicyCancellationReporter?(navigationAction, webView) ?? {}
             let opened = NSWorkspace.shared.open(url)
 #if DEBUG
             cmuxDebugLog(
@@ -584,7 +584,7 @@ import WebKit
         if let url = navigationAction.request.url,
            browserShouldRouteExternalNavigation(url) {
             clearAttemptedRequest(discardPendingBypasses: true)
-            let reportTerminalCancellation = terminalPolicyCancellationReporter?(navigationAction, webView) ?? {}
+            let reportTerminalCancellation: @MainActor () -> Void = terminalPolicyCancellationReporter?(navigationAction, webView) ?? {}
             // WKNavigationAction has no public WKNavigation identity. Keep the replacement
             // unbound so the exact original policy cancellation terminates automation.
             browserHandleExternalNavigation(
@@ -633,7 +633,7 @@ import WebKit
             )
 #endif
             clearAttemptedRequest(discardPendingBypasses: true)
-            let reportTerminalCancellation = terminalPolicyCancellationReporter?(navigationAction, webView) ?? {}
+            let reportTerminalCancellation: @MainActor () -> Void = terminalPolicyCancellationReporter?(navigationAction, webView) ?? {}
             openRequestInNewTab(navigationAction.request)
             reportTerminalCancellation()
             decisionHandler(.cancel)
@@ -650,7 +650,7 @@ import WebKit
             )
 #endif
             clearAttemptedRequest(discardPendingBypasses: true)
-            let reportTerminalCancellation = terminalPolicyCancellationReporter?(navigationAction, webView) ?? {}
+            let reportTerminalCancellation: @MainActor () -> Void = terminalPolicyCancellationReporter?(navigationAction, webView) ?? {}
             openRequestInNewTab(navigationAction.request)
             reportTerminalCancellation()
             decisionHandler(.cancel)
@@ -743,7 +743,7 @@ import WebKit
                 decisionHandler(.cancel)
             },
             reportTerminalCancellation: { [self] in
-                let report = terminalPolicyCancellationReporter?(navigationAction, webView) ?? {}
+                let report: @MainActor () -> Void = terminalPolicyCancellationReporter?(navigationAction, webView) ?? {}
                 report()
             },
             deliver: authCallbackNavigationPolicy.deliverAuthCallbackInApp,
