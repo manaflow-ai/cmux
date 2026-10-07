@@ -38,6 +38,12 @@ public final class ComputerUseRuntimeService {
     public let stateAuthenticationKey: Data
 
     private let bundledHelperAppURL: URL?
+    /// Which helper this build may install and launch (Developer ID only).
+    private let helperTrust: ComputerUseHelperTrust
+    /// True after an install attempt found no Developer ID signed helper: a
+    /// dev build without an installed cmux NIGHTLY, RC or release. Computer Use
+    /// is unavailable; nothing is installed, launched or offered for a grant.
+    public private(set) var helperUnavailableInThisBuild = false
     let transport: SocketTransport
     public let daemonAdmission: ComputerUseDaemonAdmissionService
     private var installedHelperURL: URL?
@@ -88,8 +94,10 @@ public final class ComputerUseRuntimeService {
         isDisabledByPolicy: @escaping () -> Bool = {
             ManagedDevicePolicy().isEnforced(.disableComputerUse)
         },
-        permissionStatusDeadline: Duration = .seconds(5)
+        permissionStatusDeadline: Duration = .seconds(5),
+        helperTrust: ComputerUseHelperTrust = ComputerUseHelperTrust()
     ) {
+        self.helperTrust = helperTrust
         self.isDisabledByPolicy = isDisabledByPolicy
         self.permissionStatusDeadline = permissionStatusDeadline
         self.paths = paths
