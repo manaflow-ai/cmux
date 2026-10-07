@@ -134,6 +134,10 @@ extension WKWebView {
     /// pipeline so the page receives a trusted DOM event and its default
     /// editing behavior can run (for example vertical contenteditable motion).
     ///
+    /// For an Edit menu shortcut (``menuEditingCommands``) the key goes
+    /// through ``deliverAutomationKeyDown(watchingOutcome:_:)``, as the
+    /// REPL's do, and this returns once its command ran or was skipped.
+    ///
     /// - Parameters:
     ///   - event: Canonical W3C/Playwright key metadata.
     ///   - action: Whether to send a press, key-down, or key-up.
@@ -143,7 +147,7 @@ extension WKWebView {
     public func replayBrowserKeyboardEvent(
         _ event: BrowserKeyboardEvent,
         action: BrowserKeyboardAction
-    ) -> BrowserKeyboardReplayResult {
+    ) async -> BrowserKeyboardReplayResult {
         guard let nativeKey = event.nativeKey else {
             return .unsupported
         }
@@ -161,28 +165,54 @@ extension WKWebView {
             forBrowserNativeKey: nativeKey,
             additionalModifierFlags: activeModifiers
         )
-        let result = replayBrowserKeyboardSpecification(
-            specification,
-            action: action,
-            characters: nativeKey.characters,
-            marksBrowserAutomation: true
-        )
         // WebKit leaves Command+A/C/X/V/Z to the app's Edit menu by sending a
         // key no page handled back to the app, which drops an automated key's
         // resend; so once WebKit reports no page handled the key, run the
         // command on this web view, as the REPL does, never on the key
         // window. A key the page handled runs nothing more, as in a browser.
-        if result == .delivered, action != .keyUp,
-           let command = BrowserReplKeyStroke.editingCommand(code: event.code, key: event.key, flags: specification.modifierFlags),
-           Self.menuEditingCommands.contains(command),
-           let down = browserNativeInputDeliveryOwner.lastDeliveredKeyDown {
-            let outcome = observeAutomationKeyDownOutcome(down)
-            Task { @MainActor [weak self] in
-                guard await outcome.wasUnhandled(), let self else { return }
-                self.runAutomationEditingCommand(command)
-            }
+        let command = action == .keyUp ? nil
+            : BrowserReplKeyStroke.editingCommand(code: event.code, key: event.key, flags: specification.modifierFlags)
+                .flatMap { Self.menuEditingCommands.contains($0) ? $0 : nil }
+        let delivery = await deliverAutomationKeyDown(watchingOutcome: command != nil) {
+            replayBrowserKeyboardSpecification(
+                specification,
+                action: action,
+                characters: nativeKey.characters,
+                marksBrowserAutomation: true
+            )
         }
-        return result
+        if let command, let outcome = delivery.outcome, await outcome.wasUnhandled() {
+            runAutomationEditingCommand(command)
+        }
+        return delivery.result
+    }
+
+    /// Delivers an automated key-down through `deliver`, the one path the
+    /// REPL and `cmux browser press` send a key down on.
+    ///
+    /// With `watchingOutcome`, for a key whose Edit menu command runs only
+    /// when no page handled it: first waits until WebKit's key queue is
+    /// empty (``waitForQueuedAutomationKeyEvents(within:)``), since a key
+    /// still in it (the previous key's key-up) would be taken for this
+    /// one's and the outcome would say "handled"; then delivers and starts
+    /// watching the delivered key-down in the same main-actor turn
+    /// (``observeAutomationKeyDownOutcome(_:)``).
+    ///
+    /// - Returns: `deliver`'s result, and the outcome to await when
+    ///   `watchingOutcome` and a key-down was delivered.
+    public func deliverAutomationKeyDown(
+        watchingOutcome: Bool,
+        _ deliver: () throws -> BrowserKeyboardReplayResult
+    ) async rethrows -> (result: BrowserKeyboardReplayResult, outcome: BrowserAutomationKeyDownOutcome?) {
+        guard watchingOutcome else { return (try deliver(), nil) }
+        await waitForQueuedAutomationKeyEvents()
+        let owner = browserNativeInputDeliveryOwner
+        let previous = owner.lastDeliveredKeyDown
+        let result = try deliver()
+        guard result == .delivered, let down = owner.lastDeliveredKeyDown, down !== previous else {
+            return (result, nil)
+        }
+        return (result, observeAutomationKeyDownOutcome(down))
     }
 
     /// Edit menu commands `cmux browser press` runs on the web view itself.

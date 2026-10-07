@@ -2664,22 +2664,20 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             // AppKit focus (WKWebView+AutomationFocusContainment). WebKit asks
             // for that before it answers the round trip below.
             try await webView.withAutomationFocusContainment {
-                // A shortcut's outcome is told from WebKit's key queue, so
-                // the keys before it (the previous shortcut's key-up) must
-                // have left that queue first.
-                if type == "down", stroke.editingCommand != nil {
-                    await webView.waitForQueuedAutomationKeyEvents()
-                }
-                try self.frameGate.checkTab(in: webView)
-                let result = webView.replayBrowserReplKeyStroke(stroke, keyDown: type == "down", heldBy: self.sessionID)
-                guard result == .delivered else {
-                    throw Self.error("invalid", "Could not deliver key \"\(keyName)\"")
-                }
-                // Watched in the delivery's turn: WebKit reports whether a
-                // page handled the key on a later one.
-                let outcome = type == "down" && stroke.editingCommand != nil
-                    ? webView.browserNativeInputDeliveryOwner.lastDeliveredKeyDown.map { webView.observeAutomationKeyDownOutcome($0) }
-                    : nil
+                // A shortcut's key-down goes the way `cmux browser press`
+                // sends one (WKWebView.deliverAutomationKeyDown): after the
+                // keys before it left WebKit's queue, and watched in the
+                // delivery's turn, since WebKit reports whether a page
+                // handled the key on a later one. The frame gate judges the
+                // live page right before the key goes out.
+                let outcome = try await webView.deliverAutomationKeyDown(watchingOutcome: type == "down" && stroke.editingCommand != nil) {
+                    try self.frameGate.checkTab(in: webView)
+                    let result = webView.replayBrowserReplKeyStroke(stroke, keyDown: type == "down", heldBy: self.sessionID)
+                    guard result == .delivered else {
+                        throw Self.error("invalid", "Could not deliver key \"\(keyName)\"")
+                    }
+                    return result
+                }.outcome
                 self.attachment(panel).heldKeys.record(stroke, keyDown: type == "down", sessionID: self.sessionID)
                 // The editing command runs only for a key no page handled (it
                 // did not cancel the keydown), as a browser's Edit menu does.

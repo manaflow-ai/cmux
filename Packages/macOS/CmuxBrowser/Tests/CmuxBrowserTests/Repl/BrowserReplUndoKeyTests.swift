@@ -68,10 +68,12 @@ struct BrowserReplUndoKeyTests {
         #expect(stroke.editingCommand == (redo ? "redo:" : "undo:"))
         var failure: BrowserReplDriverError?
         try await BrowserReplKeyResendTests.withAppDroppingResends {
-            await webView.waitForQueuedAutomationKeyEvents()
-            #expect(webView.replayBrowserReplKeyStroke(stroke, keyDown: true, heldBy: "session") == .delivered)
-            let down = try #require(webView.browserNativeInputDeliveryOwner.lastDeliveredKeyDown)
-            if await webView.observeAutomationKeyDownOutcome(down).wasUnhandled() {
+            let delivery = await webView.deliverAutomationKeyDown(watchingOutcome: true) {
+                webView.replayBrowserReplKeyStroke(stroke, keyDown: true, heldBy: "session")
+            }
+            #expect(delivery.result == .delivered)
+            let outcome = try #require(delivery.outcome)
+            if await outcome.wasUnhandled() {
                 failure = await BrowserReplFrameGateTests.error {
                     try await gate.runEditingShortcut(redo ? .redo : .undo, in: webView, frames: { await BrowserReplFrame.readTree(of: webView) })
                 }

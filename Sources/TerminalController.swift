@@ -8632,58 +8632,22 @@ class TerminalController {
         }
 
         // A native descriptor is the only path that can provide trusted WebKit
-        // defaults. Socket traffic uses the asynchronous readiness path in
-        // `ControlSocketAsync`; this synchronous adapter is retained only for
-        // in-process callers that are already on the main thread.
+        // defaults. Every socket entry point (`ControlSocketAsync` and the
+        // worker's `processCommandUsingSocketExecutionPolicy`) sends such a
+        // key to the asynchronous `v2BrowserKeyboardNativeResult` before it
+        // reaches this synchronous router; that path awaits WebKit's key
+        // queue before an Edit menu shortcut, which a synchronous caller
+        // cannot. A native key here is refused, never downgraded to a DOM
+        // KeyboardEvent.
         if event.nativeKey != nil {
-            guard Thread.isMainThread else {
-                return .err(
-                    code: "invalid_dispatch",
-                    message: String(
-                        localized: "cli.browser.error.operationFailed",
-                        defaultValue: "Browser operation failed"
-                    ),
-                    data: nil
-                )
-            }
-            return v2BrowserWithPanelContext(params: params) { ctx in
-                MainActor.assumeIsolated {
-                    guard ctx.browserPanel.hasCommittedDocumentSinceWebViewReplacement ||
-                            ctx.webView.backForwardList.currentItem != nil else {
-                        return .err(
-                            code: "timeout",
-                            message: String(
-                                localized: "browser.automation.error.documentReadinessTimedOut",
-                                defaultValue: "Timed out waiting for the browser document to become ready"
-                            ),
-                            data: ["surface_id": ctx.surfaceId.uuidString]
-                        )
-                    }
-
-                    switch ctx.webView.replayBrowserKeyboardEvent(event, action: action) {
-                    case .delivered:
-                        let payload: [String: Any] = [
-                            "workspace_id": ctx.workspaceId.uuidString,
-                            "workspace_ref": v2Ref(kind: .workspace, uuid: ctx.workspaceId),
-                            "surface_id": ctx.surfaceId.uuidString,
-                            "surface_ref": v2Ref(kind: .surface, uuid: ctx.surfaceId)
-                        ]
-                        return .ok(payload)
-                    case .unsupported, .eventCreationFailed:
-                        // The descriptor was resolved before entering this branch;
-                        // a failed native delivery must not silently become an
-                        // untrusted page-world KeyboardEvent.
-                        return .err(
-                            code: "internal_error",
-                            message: String(
-                                localized: "cli.browser.error.operationFailed",
-                                defaultValue: "Browser operation failed"
-                            ),
-                            data: ["surface_id": ctx.surfaceId.uuidString]
-                        )
-                    }
-                }
-            }
+            return .err(
+                code: "invalid_dispatch",
+                message: String(
+                    localized: "cli.browser.error.operationFailed",
+                    defaultValue: "Browser operation failed"
+                ),
+                data: nil
+            )
         }
 
         // Preserve the historical compatibility path for opaque key tokens

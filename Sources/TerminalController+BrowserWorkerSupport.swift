@@ -234,7 +234,7 @@ extension TerminalController {
             )
         }
 
-        switch context.webView.replayBrowserKeyboardEvent(event, action: action) {
+        switch await context.webView.replayBrowserKeyboardEvent(event, action: action) {
         case .delivered:
             let workspaceRef = v2EnsureHandleRef(kind: .workspace, uuid: context.workspaceId)
             let surfaceRef = v2EnsureHandleRef(kind: .surface, uuid: context.surfaceId)
