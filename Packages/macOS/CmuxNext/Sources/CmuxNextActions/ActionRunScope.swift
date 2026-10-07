@@ -67,5 +67,6 @@ extension ActionRegistry {
                 action.run(invocation)
             }
         }
+        runObserver?(id, invocation)
     }
 }

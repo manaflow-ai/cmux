@@ -113,6 +113,7 @@ extension SettingsSchema {
         "sidebar.topBandMaxShare",
         "sidebar.bottomBandMaxShare",
         "sidebar.pinnedBandsScroll", "sidebar.showWorkspaceTabs", "sidebar.showChats",
+        "sidebar.cards.tips",
         "browser.defaultEngine",
         "browser.newTabPage",
         "browser.showBookmarksBar",

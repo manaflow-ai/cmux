@@ -1737,54 +1737,6 @@
     },
     {
       "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : "userOnly",
-      "agent_settable" : false,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : false,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.computerUse",
-        "text" : "Computer Use"
-      },
-      "help" : {
-        "key" : "settings.computerUse.enabled.help",
-        "text" : "Lets agents see and use your apps through the signed cmux Computer Use helper. macOS asks for Accessibility and Screen Recording when you first allow them."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "computerUse.enabled",
-      "keywords" : [
-        "computer use",
-        "agents",
-        "automation",
-        "screen recording",
-        "accessibility",
-        "helper"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "computerUse",
-        "enabled"
-      ],
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "general",
-      "title" : {
-        "key" : "settings.computerUse.enabled",
-        "text" : "Computer Use"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
         "even",
         "halve"
       ],
@@ -8496,6 +8448,55 @@
       "title" : {
         "key" : "settings.sidebar.minimalMode",
         "text" : "Minimal Mode"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.cards.tips.help",
+        "text" : "A \"Did you know\" card above the account button shows one cmux feature a day that you have not used yet."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.cards.tips",
+      "keywords" : [
+        "sidebar",
+        "tips",
+        "did you know",
+        "cards",
+        "learn",
+        "features"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "cards",
+        "tips"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.sidebar.cards.tips",
+        "text" : "Show Tips"
       },
       "validation" : "portable"
     },
@@ -15892,7 +15893,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "1b0672acc9c2db09805c707b4c27dfb1c5054dfe1216d254ebc068d9fb8910cd",
+  "schema_hash" : "758795b46bbea91cc68453335566a5660086004e802bbaf9c3315764076c3ef1",
   "sections" : [
     {
       "id" : "general",
