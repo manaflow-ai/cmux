@@ -148,8 +148,17 @@ try:
     if not wait(lambda: os.path.exists(SOCKET) and "error" not in rpc("debug.focus"), 120):
         sys.exit("app did not come up")
     # The palette's registry path (`action.run`), the same one the palette runs.
-    report["open"] = rpc("action.run", {"action": "remote.openLocalBrowserTab", "args": {"url": BASE + "/"}, "focus": True})
-    first = wait(title_is("rb one"), 90)
+    # It takes no arguments: the tab starts on the default page, then the typed-URL path loads the test page.
+    report["open"] = rpc("action.run", {"action": "remote.openLocalBrowserTab", "focus": True})
+    if "error" in report["open"]:
+        # A no-activation test app has no focused pane; the debug verb runs the same openLocal
+        # in the first window's pane.
+        report["open_debug"] = rb("open_local")
+    opened = wait(lambda: session_where(lambda s: s.get("title")), 120)
+    shot("start-page")
+    if opened:
+        rb("navigate", tab=opened["tab"], url=BASE + "/")
+    first = wait(title_is("rb one"), 60)
     state = rb("state")
     hosts = state.get("local_hosts") or []
     shot("page")
@@ -197,7 +206,7 @@ try:
     rb("navigate", tab=tab1, url=BASE + "/two")
     two = wait(title_is("rb two"), 30)
     shot("navigated")
-    back = rpc("action.run", {"action": "browserBack"})
+    back = rb("history", tab=tab1, op="back")
     returned = wait(title_is("rb "), 30) and wait(lambda: session_where(
         lambda s: s["tab"] == tab1 and (s.get("title") or "").startswith("rb") and s.get("title") != "rb two"), 30)
     step("a typed URL loads (rb.navigate) and Back returns (rb.history)", two and returned,

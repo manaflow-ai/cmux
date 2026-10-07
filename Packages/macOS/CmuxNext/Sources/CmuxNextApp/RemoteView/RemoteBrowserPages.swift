@@ -155,7 +155,8 @@ enum RemoteBrowserPages {
     /// runs the shared open path in that pane or the focused one; `open_local`
     /// (`url`?, `pane`?) runs `openLocal`; `state` (default) lists live
     /// sessions; `navigate` (`url`, `tab`?) loads a page the way the omnibar
-    /// does (`BrowserTab.load`); `scroll` (`x`, `y`, `dy`, `dx`) and `move`
+    /// does (`BrowserTab.load`); `history` (`op`) goes back, forward,
+    /// reloads or stops as the toolbar does; `scroll` (`x`, `y`, `dy`, `dx`) and `move`
     /// (`x`, `y`) send a wheel or hover event; `menu_choose` (`id` or `index`, `tab`?)
     /// answers the open native menu; `menu_cancel` dismisses it; `click`
     /// (`x`, `y`, `button`, `modifiers`) clicks the page.
@@ -238,6 +239,17 @@ enum RemoteBrowserPages {
                 tab.handlePointer(event)
             }
             return ["clicked": true]
+        case "history":
+            // `op`: `back`, `forward`, `reload` or `stop`, as the toolbar does.
+            guard let tab = target?.tab else { return ["error": "no session"] }
+            switch params["op"]?.stringValue {
+            case "back": tab.goBack()
+            case "forward": tab.goForward()
+            case "reload": tab.reload()
+            case "stop": tab.stop()
+            default: return ["error": "op is back, forward, reload or stop"]
+            }
+            return ["sent": true]
         case "scroll", "move":
             // `scroll`: a pixel wheel event of `dy` (and `dx`) at `x`,`y`;
             // `move`: the pointer moves to `x`,`y` (hover). Page CSS pixels
