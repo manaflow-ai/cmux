@@ -94,7 +94,13 @@ impl<E: FrameEncoder> Pump<E> {
 
     /// A captured frame with the region that changed since the previous one
     /// (frame pixels) and its capture time.
-    pub fn frame(&mut self, frame: E::Frame, damage: Rect, t_capture_us: u64, now_us: u64) -> PumpOut {
+    pub fn frame(
+        &mut self,
+        frame: E::Frame,
+        damage: Rect,
+        t_capture_us: u64,
+        now_us: u64,
+    ) -> PumpOut {
         self.stats.captured += 1;
         // The previous frame's lease goes back to Viz here.
         self.held = Some((frame, t_capture_us));
