@@ -1,7 +1,9 @@
-// SF Symbol names as searchable picker items. The host sends the names the running OS draws
-// (`cmux.iconPicker.symbols`); the page never bundles symbol images (they are rendered by the host
-// per visible cell through `symbolImageURL`). Words come from the dotted name: "person.crop.circle"
-// matches "person", "crop" and "circle".
+// SF Symbol names as searchable picker items. The host sends the catalog the running OS ships
+// (CoreGlyphs: names in the system order, search keywords, categories) with the first session;
+// the page never bundles symbol images (the host renders each visible cell through
+// `symbolImageURL`). Words come from the dotted name ("person.crop.circle" matches "person",
+// "crop" and "circle") and from the system's keywords ("star" matches "favorite").
+import { fold } from "./emojiData";
 import type { Searchable } from "./search";
 
 export interface SymbolItem extends Searchable {
@@ -24,14 +26,26 @@ export interface SymbolCatalog {
   readonly categories?: readonly SymbolCategory[];
 }
 
-export function symbolItems(names: readonly string[]): SymbolItem[] {
+/** Categories that are not sections: "all" is the whole list; "draw" and "variable" are animation features. */
+export const HIDDEN_SYMBOL_CATEGORIES: ReadonlySet<string> = new Set(["all", "draw", "variable"]);
+/** The system category whose members have a multicolor variant. */
+export const MULTICOLOR_CATEGORY = "multicolor";
+
+/** The searchable items, one per name; `keywords` (aligned with `names`) join the search text. */
+export function symbolItems(names: readonly string[], keywords: readonly string[] = []): SymbolItem[] {
   return names.map((name, index) => {
     const words = name.split(".");
+    const extra = keywords[index] ? fold(keywords[index]).split(/\s+/u).filter(Boolean) : [];
     return {
       index,
       name,
       nameText: `\n${words.join(" ")}\n${name}`,
-      searchText: `\n${words.join("\n")}\n${name}`,
+      searchText: `\n${words.join("\n")}\n${name}${extra.map((word) => `\n${word}`).join("")}`,
     };
   });
+}
+
+/** A bare name list (the bundled fallback) as a catalog with no keywords or categories. */
+export function asCatalog(symbols: SymbolCatalog | readonly string[]): SymbolCatalog {
+  return "names" in symbols ? symbols : { names: symbols };
 }

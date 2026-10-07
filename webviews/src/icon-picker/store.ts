@@ -7,7 +7,15 @@ import { layoutGrid, moveActive, type GridLayout, type GridMove, type GridSectio
 import { iconKey, type IconKind, type IconValue } from "./iconValue";
 import { EMPTY_PREFS, rankedKeys, recordUse, searchBoost, type PickerPrefs, type PickerPrefsStore } from "./recents";
 import { search, type Searchable } from "./search";
-import { symbolItems, type SymbolCatalog, type SymbolItem } from "./symbols";
+import {
+  asCatalog,
+  HIDDEN_SYMBOL_CATEGORIES,
+  MULTICOLOR_CATEGORY,
+  symbolItems,
+  type SymbolCatalog,
+  type SymbolCategory,
+  type SymbolItem,
+} from "./symbols";
 
 export type PickerTab = IconKind;
 export const GRID_TABS: readonly PickerTab[] = ["emoji", "symbol"];
@@ -38,7 +46,7 @@ export interface PickerSnapshot {
 
 export interface PickerStoreOptions {
   readonly emoji: EmojiTable;
-  readonly symbols?: readonly string[];
+  readonly symbols?: SymbolCatalog | readonly string[];
   readonly prefs?: PickerPrefsStore;
   /** Emoji newer than the system font draws (Emoji version times 10) are hidden. */
   readonly maxEmojiVersion?: number;
@@ -56,6 +64,11 @@ export class PickerStore {
   private readonly listeners = new Set<() => void>();
   private emoji: readonly EmojiRecord[] = [];
   private symbols: readonly SymbolItem[] = [];
+  /** Shown system categories (sections), in the system's order. */
+  private symbolCategories: readonly SymbolCategory[] = [];
+  /** Indices of names in no shown category (the last section). */
+  private uncategorized: readonly number[] = [];
+  private multicolor: ReadonlySet<number> = new Set();
   private readonly emojiByKey = new Map<string, EmojiRecord>();
   private prefs: PickerPrefs = EMPTY_PREFS;
   private prefsVersion = 0;
@@ -79,16 +92,31 @@ export class PickerStore {
 
   /** The host's catalog: SF Symbol names and the newest Emoji version the system font draws. */
   configure(symbols: SymbolCatalog | readonly string[], maxEmojiVersion?: number) {
-    this.load("names" in symbols ? symbols.names : symbols, maxEmojiVersion);
+    this.load(symbols, maxEmojiVersion);
     this.cache = undefined;
     this.update({});
   }
 
-  private load(symbols: readonly string[], maxEmojiVersion = Infinity) {
+  private load(symbols: SymbolCatalog | readonly string[], maxEmojiVersion = Infinity) {
     this.emoji = this.options.emoji.records.filter((record) => record.version <= maxEmojiVersion);
     this.emojiByKey.clear();
     for (const record of this.emoji) this.emojiByKey.set(`emoji:${record.emoji}`, record);
-    this.symbols = symbolItems(symbols);
+    const catalog = asCatalog(symbols);
+    const count = catalog.names.length;
+    this.symbols = symbolItems(catalog.names, catalog.keywords);
+    const valid = (members: readonly number[]) => members.filter((index) => index >= 0 && index < count);
+    const categories = catalog.categories ?? [];
+    this.multicolor = new Set(
+      valid(categories.find((category) => category.key === MULTICOLOR_CATEGORY)?.members ?? []),
+    );
+    this.symbolCategories = categories
+      .filter((category) => !HIDDEN_SYMBOL_CATEGORIES.has(category.key))
+      .map((category) => ({ ...category, members: valid(category.members) }))
+      .filter((category) => category.members.length > 0);
+    const placed = new Set(this.symbolCategories.flatMap((category) => category.members));
+    this.uncategorized = this.symbolCategories.length
+      ? [...Array(count).keys()].filter((index) => !placed.has(index))
+      : [];
   }
 
   /** A new picker session in a reused (prewarmed) page: empty query, first cell, chosen tab. */
@@ -217,27 +245,42 @@ export class PickerStore {
   }
 
   private symbolSections(query: string): GridSection<PickerCell>[] {
-    const items: readonly Searchable[] = this.symbols;
-    const hits = query.trim() ? (search(items, query) as SymbolItem[]) : this.symbols;
-    const recentSymbols = query.trim()
-      ? []
-      : rankedKeys(this.prefs, this.now())
-          .filter((key) => key.startsWith("symbol:"))
-          .slice(0, this.columns * 2)
-          .map((key) => key.slice("symbol:".length));
-    const cell = (name: string): PickerCell => ({
-      key: `symbol:${name}`,
-      value: { symbol: name },
-      label: name,
-      symbol: name,
+    const cell = (item: SymbolItem): PickerCell => ({
+      key: `symbol:${item.name}`,
+      value: { symbol: item.name },
+      label: item.name,
+      symbol: item.name,
+      multicolor: this.multicolor.has(item.index),
     });
-    return [
-      { id: "recent", title: this.options.titles("recent"), items: recentSymbols.map(cell) },
-      {
-        id: "allSymbols",
-        title: query.trim() ? "" : this.options.titles("allSymbols"),
-        items: hits.map((item) => cell(item.name)),
-      },
-    ];
+    const title = this.options.titles;
+    if (query.trim()) {
+      const hits = search(this.symbols as readonly Searchable[], query) as SymbolItem[];
+      return [{ id: "results", title: "", items: hits.map(cell) }];
+    }
+    const byName = new Map(this.symbols.map((item) => [item.name, item]));
+    const recent = rankedKeys(this.prefs, this.now())
+      .filter((key) => key.startsWith("symbol:"))
+      .slice(0, this.columns * 2)
+      .map((key) => key.slice("symbol:".length))
+      .map((name) => byName.get(name) ?? { index: -1, name, nameText: "", searchText: "" });
+    const sections: GridSection<PickerCell>[] = [{ id: "recent", title: title("recent"), items: recent.map(cell) }];
+    if (this.symbolCategories.length === 0) {
+      sections.push({ id: "allSymbols", title: title("allSymbols"), items: this.symbols.map(cell) });
+      return sections;
+    }
+    const at = (index: number) => cell(this.symbols[index]);
+    for (const category of this.symbolCategories) {
+      sections.push({
+        id: `symbolCategory.${category.key}`,
+        title: title(`symbolCategory.${category.key}`),
+        items: category.members.map(at),
+      });
+    }
+    sections.push({
+      id: "symbolCategory.other",
+      title: title("symbolCategory.other"),
+      items: this.uncategorized.map(at),
+    });
+    return sections;
   }
 }

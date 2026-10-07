@@ -12,12 +12,25 @@ import { encodeIcon, type IconValue } from "../../icon-picker/iconValue";
 import { IconPicker } from "../../icon-picker/IconPicker";
 import { PickerStore } from "../../icon-picker/store";
 import table from "./generated/strings.json";
-import { hostAssets, hostPrefs, IconPickerOps, type PickerSession } from "./host";
+import { hostAssets, hostPrefs, IconPickerOps, sessionCatalog, type PickerSession } from "./host";
 
 export interface MountedPicker {
   readonly store: PickerStore;
   /** Starts a session (the host's stream calls this; the bench calls it directly). */
   open(session: PickerSession): void;
+}
+
+/**
+ * A section title: emoji groups and fixed sections (`iconPicker.section.<id>`), system symbol
+ * categories (`iconPicker.symbolCategory.<key>`). A category a newer system adds and this page
+ * has no string for shows its key, capitalized.
+ */
+export function sectionTitle(strings: Strings, id: string): string {
+  const category = id.startsWith("symbolCategory.") ? id.slice("symbolCategory.".length) : null;
+  const key = category === null ? `iconPicker.section.${id}` : `iconPicker.symbolCategory.${category}`;
+  const title = strings.t(key);
+  if (title !== key || category === null) return title;
+  return category.charAt(0).toUpperCase() + category.slice(1);
 }
 
 export function mountIconPicker(
@@ -31,7 +44,7 @@ export function mountIconPicker(
     emoji,
     prefs: client ? hostPrefs(client) : undefined,
     language: strings.language,
-    titles: (id) => strings.t(`iconPicker.section.${id}`),
+    titles: (id) => sectionTitle(strings, id),
   });
   let session: PickerSession = { id: "" };
   // A refused finish (an unknown session, an icon the host rejects) is shown and logged, never
@@ -60,7 +73,8 @@ export function mountIconPicker(
       />,
     );
   const open = (next: PickerSession) => {
-    if (next.symbols) store.configure(next.symbols, next.maxEmojiVersion);
+    const catalog = sessionCatalog(next);
+    if (catalog) store.configure(catalog, next.maxEmojiVersion);
     session = next;
     failure = undefined;
     store.reset(next.tab ?? "emoji");

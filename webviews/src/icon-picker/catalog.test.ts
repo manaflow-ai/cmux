@@ -47,7 +47,15 @@ describe("symbol catalog", () => {
       "T(symbolCategory.other)",
     ]);
     // A symbol shows in every category it belongs to (as in the SF Symbols app).
-    expect(names(picker)).toEqual(["folder.fill", "folder", "folder.fill", "star", "star.fill", "car", "zz.uncategorized"]);
+    expect(names(picker)).toEqual([
+      "folder.fill",
+      "folder",
+      "folder.fill",
+      "star",
+      "star.fill",
+      "car",
+      "zz.uncategorized",
+    ]);
   });
 
   test("keywords find a symbol whose name does not contain the word", () => {
@@ -64,7 +72,8 @@ describe("symbol catalog", () => {
   test("search shows each symbol once, even when it is in several categories", () => {
     const picker = store();
     picker.setQuery("fill");
-    expect(names(picker)).toEqual(["folder.fill", "star.fill"]);
+    // Equal scores: the shorter name first.
+    expect(names(picker)).toEqual(["star.fill", "folder.fill"]);
   });
 
   test("multicolor support comes from the system's multicolor category", () => {
@@ -78,5 +87,19 @@ describe("symbol catalog", () => {
     const picker = store(["b", "a"]);
     expect(titles(picker)).toEqual(["T(allSymbols)"]);
     expect(names(picker)).toEqual(["b", "a"]);
+  });
+});
+
+describe("symbol category titles", () => {
+  test("localized in English and Japanese; a category this page does not know shows its key", async () => {
+    const { sectionTitle } = await import("../pages/icon-picker/mount");
+    const { createStrings } = await import("../pages/shared/i18n");
+    const { default: table } = await import("../pages/icon-picker/generated/strings.json");
+    const en = createStrings(table, ["en"]);
+    const ja = createStrings(table, ["ja"]);
+    expect(sectionTitle(en, "symbolCategory.objectsandtools")).toBe("Objects & Tools");
+    expect(sectionTitle(ja, "symbolCategory.objectsandtools")).toBe("オブジェクトとツール");
+    expect(sectionTitle(en, "symbolCategory.hologram")).toBe("Hologram");
+    expect(sectionTitle(en, "flags")).toBe("Flags");
   });
 });

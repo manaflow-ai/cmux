@@ -5,6 +5,7 @@ import type { PageClient } from "../shared/pageClient";
 import type { IconAssetSink } from "../../icon-picker/AssetTab";
 import { decodeIcon, type IconValue } from "../../icon-picker/iconValue";
 import { decodePrefs, type PickerPrefs, type PickerPrefsStore } from "../../icon-picker/recents";
+import type { SymbolCatalog, SymbolCategory } from "../../icon-picker/symbols";
 
 export const IconPickerOps = {
   /** Stream: one event per picker open in the reused page. */
@@ -27,8 +28,19 @@ export interface PickerSession {
   readonly tab?: "emoji" | "symbol" | "image" | "svg";
   readonly canClear?: boolean;
   readonly assets?: boolean;
+  /** The SF Symbol catalog, first session of a page only: names in the system's order. */
   readonly symbols?: readonly string[];
+  /** Aligned with `symbols`: space-separated search keywords. */
+  readonly symbolKeywords?: readonly string[];
+  /** The system categories with their members (indices into `symbols`). */
+  readonly symbolCategories?: readonly SymbolCategory[];
   readonly maxEmojiVersion?: number;
+}
+
+/** The session's symbol catalog, or null when the session carries none (a later session). */
+export function sessionCatalog(session: PickerSession): SymbolCatalog | null {
+  if (!session.symbols) return null;
+  return { names: session.symbols, keywords: session.symbolKeywords, categories: session.symbolCategories };
 }
 
 export function hostPrefs(client: PageClient): PickerPrefsStore {
