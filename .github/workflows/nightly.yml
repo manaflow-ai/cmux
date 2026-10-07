@@ -1693,6 +1693,10 @@ jobs:
           CMUX_TUI_TREE_SEARCH_COMMITS: "50"
           # Never ship a stale build: more than 24 h behind the tip fails.
           CMUX_TUI_TREE_MAX_AGE_HOURS: "24"
+          # This run executes the tip's nightly.yml against the resolved
+          # commit, so the resolved commit must carry the same file: run
+          # 37568319518 called a dSYM script its older build commit lacked.
+          CMUX_TUI_TREE_SAME_PATHS: .github/workflows/nightly.yml
         run: |
           set -euo pipefail
           # Prints commit=, key=, source_commit=, tip_key=, behind= and
@@ -3117,9 +3121,13 @@ jobs:
               --bucket "$NIGHTLY_NEXT_R2_BUCKET" --key "$key" --content-type "$type" --cache-control "$cache"
           done
 
+  # A cancelled job (a timeout reports as cancelled) counts as a failure. On
+  # nightly-next the signed release notes are part of the publication: a
+  # published build whose notes jobs did not both succeed is reported too
+  # (run 37526646874 published with its notes job cancelled and no alarm).
   report-nightly-failure:
-    needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, resolve-nightly-cmux-tui-client, build-sign-notarize-nightly, publish-nightly, generate-nightly-deltas, republish-nightly-deltas]
-    if: always() && needs.decide.outputs.should_publish == 'true' && (contains(needs.*.result, 'failure') || needs.publish-nightly.outputs.tag_status == 'stale')
+    needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, resolve-nightly-cmux-tui-client, build-sign-notarize-nightly, publish-nightly, generate-nightly-deltas, republish-nightly-deltas, sign-release-notes, publish-release-notes]
+    if: always() && needs.decide.outputs.should_publish == 'true' && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || needs.publish-nightly.outputs.tag_status == 'stale' || (needs.decide.outputs.track == 'nightly-next' && needs.publish-nightly.result == 'success' && (needs.sign-release-notes.result != 'success' || needs.publish-release-notes.result != 'success')))
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: read
@@ -3134,6 +3142,7 @@ jobs:
           CHANNEL_APP_NAME: ${{ needs.decide.outputs.app_name }}
           REF_NAME: ${{ github.ref_name }}
           TAG_STATUS: ${{ needs.publish-nightly.outputs.tag_status }}
+          TRACK: ${{ needs.decide.outputs.track }}
         with:
           script: |
             const { owner, repo } = context.repo;
@@ -3144,7 +3153,16 @@ jobs:
             const label = `${process.env.CHANNEL_RELEASE_TAG}-failure`;
             const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
             const results = JSON.parse(process.env.RESULTS);
-            const failed = Object.entries(results).filter(([, v]) => v.result === 'failure').map(([k]) => k);
+            const failed = Object.entries(results)
+              .filter(([, v]) => v.result === 'failure' || v.result === 'cancelled')
+              .map(([k, v]) => `${k} (${v.result})`);
+            // nightly-next: notes jobs that were skipped after a publication.
+            if (process.env.TRACK === 'nightly-next' && results['publish-nightly']?.result === 'success') {
+              for (const job of ['sign-release-notes', 'publish-release-notes']) {
+                const result = results[job]?.result;
+                if (result === 'skipped') failed.push(`${job} (skipped)`);
+              }
+            }
             const tagStale = process.env.TAG_STATUS === 'stale';
             const publicationLine = tagStale
               ? `${appName} published, tag marker stale for ${process.env.HEAD_SHA} (${refName}). Assets, release metadata, and appcasts are available; only the channel completion marker failed to advance.`
@@ -3165,8 +3183,10 @@ jobs:
             }
 
   close-nightly-failure-issue:
-    needs: [decide, publish-nightly, resolve-nightly-cmux-tui-client, generate-nightly-deltas, republish-nightly-deltas]
-    if: needs.decide.outputs.should_publish == 'true' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.tag_status == 'updated' && (needs.generate-nightly-deltas.result == 'success' || needs.generate-nightly-deltas.result == 'skipped') && (needs.republish-nightly-deltas.result == 'success' || needs.republish-nightly-deltas.result == 'skipped')
+    needs: [decide, publish-nightly, resolve-nightly-cmux-tui-client, generate-nightly-deltas, republish-nightly-deltas, sign-release-notes, publish-release-notes]
+    # always(): a skipped notes job must not skip this job silently; the
+    # conditions below decide. nightly-next closes only with its notes published.
+    if: always() && needs.decide.outputs.should_publish == 'true' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.tag_status == 'updated' && (needs.generate-nightly-deltas.result == 'success' || needs.generate-nightly-deltas.result == 'skipped') && (needs.republish-nightly-deltas.result == 'success' || needs.republish-nightly-deltas.result == 'skipped') && (needs.decide.outputs.track != 'nightly-next' || (needs.sign-release-notes.result == 'success' && needs.publish-release-notes.result == 'success'))
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: read

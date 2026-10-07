@@ -81,6 +81,8 @@ public final class AgentPaneModel {
     /// Throws an ``AgentPaneGitFailure`` saying who failed; any other error
     /// reaches the page as `native.failed`.
     @ObservationIgnored public var onGit: (@MainActor (AgentPaneGitRequest) async throws -> Data)?
+    /// Moves a file the turn created to the Trash (`turn.undo`); tests replace it.
+    @ObservationIgnored public var trashFile: @Sendable (URL) throws -> Void = { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }
 
     /// Whether this host supports converting a fresh chat without a chooser page.
     @ObservationIgnored private let allowsTabConversion: Bool
@@ -352,6 +354,8 @@ public final class AgentPaneModel {
             }
         case .invalidGit:
             return Self.gitFailure(.invalidRequest)
+        case .turnUndo(let undo): return await respondToTurnUndo(undo)
+        case .invalidTurnUndo: return AgentPaneReply.failure(code: "native.invalid_request", message: Self.turnUndoInvalidMessage)
         case .transportOpen:
             guard let connection = pendingConnection else { return Self.transportFailure(.noConnection) }
             pendingConnection = nil
@@ -377,19 +381,6 @@ public final class AgentPaneModel {
         case .unsupported(let method):
             return Self.unsupported(method)
         }
-    }
-
-    /// The page's reply to a `transport.send`.
-    static func transportReply(_ error: AgentPaneTransportError?) -> [String: Any] {
-        error.map(transportFailure) ?? AgentPaneReply.success()
-    }
-
-    static func transportFailure(_ error: AgentPaneTransportError) -> [String: Any] {
-        AgentPaneReply.failure(code: error.rawValue, message: transportFailedMessage, details: nil, retryable: nil, origin: "native")
-    }
-
-    static func unsupported(_ method: String) -> [String: Any] {
-        AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: \(method)")
     }
 
     private func setCheckpointAvailable(_ available: Bool) {
