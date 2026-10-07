@@ -75,6 +75,7 @@ impl FolderGate {
                 claude_json: user.join(".claude.json"),
                 codex_config: user.join(".codex").join("config.toml"),
                 record: home.join("trust.json"),
+                agent_home: trust::agent_home_root(),
             },
         })
     }
