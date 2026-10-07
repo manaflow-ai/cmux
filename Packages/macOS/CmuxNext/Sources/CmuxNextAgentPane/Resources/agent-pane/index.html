@@ -485,6 +485,8 @@ select {
 .acpmux-diff-back:focus-visible,.acpmux-diff-tool:focus-visible,.acpmux-fh-name:focus-visible,.acpmux-fh-btn:focus-visible,.acpmux-review-changes:focus-visible,.acpmux-edited-file:focus-visible,.acpmux-edited-more:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:1px}
 .acpmux-diff-tree{flex:0 0 250px;min-width:0;display:flex;flex-direction:column;border-left:1px solid var(--agent-border);overflow:hidden}
 .acpmux-diff-tree-host{display:block;flex:1;min-height:0}
+/* changes/ChangedFilesTree.tsx: the motion layer's element around the tree host; no box of its own. */
+.acpmux-diff-tree-motion{display:contents}
 .acpmux-diff-filter{display:flex;align-items:center;gap:6px;flex:none;margin:8px 8px 4px;height:28px;box-sizing:border-box;padding:0 9px;border:1px solid var(--agent-border);border-radius:8px;background:var(--agent-input-bg,transparent);color:var(--agent-muted)}
 .acpmux-diff-filter input{all:unset;flex:1;min-width:0;font:13px system-ui,-apple-system,"Helvetica Neue",sans-serif;color:var(--agent-text)}
 .acpmux-diff-filter input::placeholder{color:var(--agent-muted)}
