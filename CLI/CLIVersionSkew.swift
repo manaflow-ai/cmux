@@ -9,6 +9,9 @@ import Foundation
 /// `method_not_found: Unknown method` hides all of that. Callers that probe
 /// for optional methods catch `method_not_found` before it gets here, so this
 /// runs only for errors the CLI is about to print.
+///
+/// This file has no socket dependency so unit tests can compile it; the
+/// socket round trip lives in `CLIVersionSkew+Diagnose.swift`.
 enum CLIVersionSkew {
     /// What the connected app says about itself in `system.identify`.
     struct Peer: Equatable {
@@ -30,64 +33,39 @@ enum CLIVersionSkew {
         }
 
         init(app: String?, version: String?, build: String?, cliPath: String?, methods: [String]? = nil) {
-            self.app = app
-            self.version = version
-            self.build = build
-            self.cliPath = cliPath
+            self.app = Self.text(app)
+            self.version = Self.text(version)
+            self.build = Self.text(build)
+            self.cliPath = Self.text(cliPath)
             self.methods = methods
         }
 
         private static func text(_ value: Any?) -> String? {
             guard let string = value as? String else { return nil }
-            let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+            let trimmed = printable(string).trimmingCharacters(in: .whitespaces)
             return trimmed.isEmpty ? nil : trimmed
         }
     }
 
+    /// `text` without terminal control characters. The peer controls every
+    /// string it reports, and an escape sequence or newline in them could
+    /// rewrite the terminal or forge extra lines of this message. Drops C0
+    /// and C1 controls (ESC, BEL, CSI, CR, LF), bidirectional marks,
+    /// overrides, and isolates, and Unicode line and paragraph separators.
+    static func printable(_ text: String) -> String {
+        var scalars = String.UnicodeScalarView()
+        scalars.append(contentsOf: text.unicodeScalars.filter { scalar in
+            if scalar.properties.generalCategory == .control { return false }
+            switch scalar.value {
+            case 0x061C, 0x200E, 0x200F, 0x2028, 0x2029, 0x202A...0x202E, 0x2066...0x2069: return false
+            default: return true
+            }
+        })
+        return String(scalars)
+    }
+
     /// The product name this CLI belongs to, as `system.identify` reports it.
     static let cliProduct = "cmux"
-
-    /// Rewrites an uncaught `method_not_found` into a version-skew error, or
-    /// returns `error` unchanged when it is not one.
-    static func diagnose(
-        _ error: Error,
-        client: SocketClient,
-        cliVersion: String,
-        cliShortVersion: String?,
-        cliPath: String?
-    ) -> Error {
-        guard let failure = error as? CLIError,
-              failure.isStructuredProtocolResponse,
-              failure.v2Code == "method_not_found",
-              let method = failure.v2Method,
-              method != "system.identify" else {
-            return error
-        }
-        let peer: Peer?
-        do {
-            peer = Peer(identify: try client.sendV2(method: "system.identify", responseTimeout: 2))
-        } catch {
-            peer = nil
-        }
-        guard let message = message(
-            method: method,
-            socketPath: client.socketPath,
-            cliVersion: cliVersion,
-            cliShortVersion: cliShortVersion,
-            cliPath: cliPath,
-            peer: peer,
-            original: failure.message
-        ) else {
-            return error
-        }
-        return CLIError(
-            message: message,
-            exitCode: failure.exitCode,
-            v2Code: failure.v2Code,
-            isStructuredProtocolResponse: true,
-            v2Method: method
-        )
-    }
 
     /// The user-facing explanation, or nil when the original error already
     /// says enough: the app is the same build as this CLI, lists the method,
@@ -97,12 +75,19 @@ enum CLIVersionSkew {
         socketPath: String,
         cliVersion: String,
         cliShortVersion: String?,
+        cliBuild: String? = nil,
         cliPath: String?,
         peer: Peer?,
         original: String
     ) -> String? {
         if let methods = peer?.methods, methods.contains(method) { return nil }
-        guard let details = details(cliVersion: cliVersion, cliShortVersion: cliShortVersion, cliPath: cliPath, peer: peer) else {
+        guard let details = details(
+            cliVersion: cliVersion,
+            cliShortVersion: cliShortVersion,
+            cliBuild: cliBuild,
+            cliPath: cliPath,
+            peer: peer
+        ) else {
             return nil
         }
         let header = String(
@@ -114,7 +99,7 @@ enum CLIVersionSkew {
             method,
             socketPath
         )
-        return ([header] + details + ["(\(original))"]).joined(separator: "\n")
+        return ([header] + details + ["(\(printable(original)))"]).joined(separator: "\n")
     }
 
     /// The CLI line, app line, and fix, or nil when there is no skew or this
@@ -122,11 +107,17 @@ enum CLIVersionSkew {
     private static func details(
         cliVersion: String,
         cliShortVersion: String?,
+        cliBuild: String?,
         cliPath: String?,
         peer: Peer?
     ) -> [String]? {
         let otherProduct = peer?.app.map { $0 != cliProduct } ?? false
-        let order = compare(cliShortVersion, peer?.version)
+        let order = versionOrder(
+            cliShortVersion: cliShortVersion,
+            cliBuild: cliBuild,
+            peerVersion: peer?.version,
+            peerBuild: peer?.build
+        )
         if !otherProduct {
             // Without its own version this CLI cannot tell a skew from a
             // same-build error, so the original error stands.
@@ -227,6 +218,38 @@ enum CLIVersionSkew {
                 locale: .current,
                 name
             )
+        }
+    }
+
+    /// Orders this CLI against the app: by short version, then by build when
+    /// the short versions match and both sides report a build (nightlies and
+    /// dev builds share a short version). Builds that are equal, missing on
+    /// either side, or not purely numeric fall back to the short-version result, so
+    /// an unknown build never invents a skew. Different numeric builds with no
+    /// clear order (`1.2` vs `1.2.0`) compare as the same.
+    static func versionOrder(
+        cliShortVersion: String?,
+        cliBuild: String?,
+        peerVersion: String?,
+        peerBuild: String?
+    ) -> ComparisonResult? {
+        let byVersion = compare(cliShortVersion, peerVersion)
+        guard byVersion == .orderedSame,
+              let cliBuild, let peerBuild, cliBuild != peerBuild,
+              isNumericBuild(cliBuild), isNumericBuild(peerBuild),
+              let byBuild = compare(cliBuild, peerBuild) else {
+            return byVersion
+        }
+        return byBuild
+    }
+
+    /// A build is comparable only when it is dotted digits and nothing else.
+    /// `compare` drops `-dev` style suffixes, which is right for short
+    /// versions but would order `108-dev` against `109` by guesswork.
+    private static func isNumericBuild(_ build: String) -> Bool {
+        let parts = build.split(separator: ".", omittingEmptySubsequences: false)
+        return !parts.isEmpty && parts.allSatisfy { part in
+            !part.isEmpty && part.unicodeScalars.allSatisfy { ("0"..."9").contains($0) }
         }
     }
 

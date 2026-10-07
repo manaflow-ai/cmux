@@ -8407,6 +8407,7 @@ struct CMUXCLI {
                 client: client,
                 cliVersion: versionSummary(),
                 cliShortVersion: resolvedVersionInfo()["CFBundleShortVersionString"],
+                cliBuild: resolvedVersionInfo()["CFBundleVersion"],
                 cliPath: resolvedExecutableURL()?.path
             )
         }
