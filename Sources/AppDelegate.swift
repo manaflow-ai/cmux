@@ -14386,6 +14386,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ = didInstallWindowKeyEquivalentSwizzle
         _ = didInstallWindowFirstResponderSwizzle
         _ = didInstallWindowSendEventSwizzle
+        SwiftUIKeyViewProxyResponderGuard.install()
 #if DEBUG
         installShortcutRoutingFocusedWindowSwizzleForTesting()
 #endif
@@ -14410,6 +14411,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ = Self.didInstallWindowKeyEquivalentSwizzle
         _ = Self.didInstallWindowFirstResponderSwizzle
         _ = Self.didInstallWindowSendEventSwizzle
+        SwiftUIKeyViewProxyResponderGuard.install()
     }
 
     private func installShortcutMonitor() {
