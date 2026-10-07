@@ -230,3 +230,14 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         (try? JSONSerialization.data(withJSONObject: object)) ?? Data("{}".utf8)
     }
 }
+
+/// A refused daemon call: its stable `error_code` (`agent_session.*`) and text.
+public nonisolated struct AgentSessionRemoteError: Error, Sendable, Equatable {
+    public var code: String
+    public var message: String
+
+    public init(code: String, message: String) {
+        self.code = code
+        self.message = message
+    }
+}
