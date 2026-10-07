@@ -81,6 +81,9 @@ final class DaemonService {
     @ObservationIgnored private var pathMonitor: NWPathMonitor?
     /// How the connections reach this app's daemon (the page relay opens its own with it).
     @ObservationIgnored private(set) var endpointProvider: DaemonConnection.EndpointProvider?
+    /// A remote machine's route (`start(remote:)`), for a second connection to its daemon (an
+    /// agent chat that runs on that machine); nil for this app's own daemon.
+    @ObservationIgnored private(set) var remoteEndpoint: DaemonConnection.EndpointProvider?
 
     /// `terminalEnvironment` (`AppEnvironment.terminalEnvironment`) goes to
     /// the daemon process and to every terminal it creates for this app.
@@ -186,6 +189,7 @@ final class DaemonService {
     func start(remote endpoint: @escaping @Sendable () async throws -> String,
                admit: (@MainActor (DaemonIdentity) throws -> Void)? = nil) {
         guard runTask == nil, !policyBlock.isBlocked else { return }
+        remoteEndpoint = { DaemonEndpoint(socketPath: try await endpoint()) }
         let store = store
         let machineID = machineID
         armStartupDeadline()
