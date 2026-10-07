@@ -85,6 +85,9 @@ final class MacComposerTextView: NSTextView {
     /// Plain body attributes; formatting is layered on through the semantic keys.
     var baseTypingAttributes: [NSAttributedString.Key: Any] = [:]
     var onFormattingChanged: (() -> Void)?
+    /// Draws non-semantic decorations (mention bold and colors) over the
+    /// formatting each time it is re-derived, so both survive every restyle.
+    var decorateStorage: ((NSTextStorage) -> Void)?
     /// Draws and loops text-effect glyphs over the text, which draws them clear.
     let effectLayer = ConversationTextEffectLayer()
 

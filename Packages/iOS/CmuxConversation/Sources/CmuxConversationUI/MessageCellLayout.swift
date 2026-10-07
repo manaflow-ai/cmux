@@ -92,7 +92,8 @@ extension MessageCellLayout {
         ])
         if !runs.isEmpty {
             ConversationRichText.apply(runs, to: result)
-            ConversationRichTextStyler.applyDisplayAttributes(to: result, baseFont: ConversationTheme.bodyFont, lineHeight: ConversationTheme.lineHeight)
+            // Bubbles use the Dynamic Type bubble font with natural leading.
+            ConversationRichTextStyler.applyDisplayAttributes(to: result, baseFont: ConversationTheme.bubbleFont, lineHeight: ConversationTheme.bubbleFont.lineHeight)
         }
         let range = NSRange(text.startIndex..., in: text)
         linkDetector?.enumerateMatches(in: text, range: range) { match, _, _ in
@@ -100,7 +101,7 @@ extension MessageCellLayout {
             result.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: match.range)
             if let url = match.url { result.addAttribute(.conversationLink, value: url, range: match.range) }
         }
-        ConversationMentionStyle.apply(to: result, mentions: mentions, meID: meID, outgoing: outgoing, font: ConversationTheme.bodyFont)
+        ConversationMentionStyle.apply(to: result, mentions: mentions, meID: meID, outgoing: outgoing, font: ConversationTheme.bubbleFont)
         return result
     }
 

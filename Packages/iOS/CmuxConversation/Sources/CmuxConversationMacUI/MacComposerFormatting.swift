@@ -72,6 +72,14 @@ extension MacComposerTextView {
         onFormattingChanged?()
     }
 
+    /// Typing attributes with only the semantic formatting kept: text typed
+    /// next to a mention does not inherit its bold or color.
+    func clearTypingDecorations() {
+        let style = ConversationTextStyle(rawValue: typingAttributes[.conversationTextStyle] as? Int ?? 0)
+        let effect = (typingAttributes[.conversationTextEffect] as? String).flatMap(ConversationTextEffect.init(rawValue:))
+        typingAttributes = styledTypingAttributes(style: style, effect: effect)
+    }
+
     private func styledTypingAttributes(style: ConversationTextStyle, effect: ConversationTextEffect?) -> [NSAttributedString.Key: Any] {
         var attributes = baseTypingAttributes
         if !style.isEmpty { attributes[.conversationTextStyle] = style.rawValue }
@@ -90,6 +98,7 @@ extension MacComposerTextView {
             let typing = typingAttributes
             storage.beginEditing()
             ConversationRichTextStyler.applyDisplayAttributes(to: storage, baseFont: MacConversationTheme.bodyFont, lineHeight: MacConversationTheme.lineHeight)
+            decorateStorage?(storage)
             storage.endEditing()
             selectedRanges = selection
             typingAttributes = typing

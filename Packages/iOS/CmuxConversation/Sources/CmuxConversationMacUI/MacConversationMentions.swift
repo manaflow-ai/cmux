@@ -1,6 +1,7 @@
 #if os(macOS)
 import AppKit
 import CmuxConversationCore
+import CmuxConversationGeometry
 
 extension NSAttributedString.Key {
     /// The mentioned participant's id on a mention's characters.
@@ -18,14 +19,28 @@ enum MacMentionStyle {
         NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask)
     }
 
+    /// `font` is the fallback where the text has none; formatted mentions
+    /// keep their style and size and gain bold.
     static func apply(to text: NSMutableAttributedString, mentions: [ConversationMention], meID: String?, outgoing: Bool, font: NSFont) {
-        let bold = boldFont(font)
         for mention in ConversationMentionEditing.normalized(mentions, textLength: text.length) {
-            text.addAttribute(.font, value: bold, range: mention.nsRange)
+            embolden(text, range: mention.nsRange, fallback: font)
             text.addAttribute(.macConversationMention, value: mention.participantID, range: mention.nsRange)
             if !outgoing, mention.participantID == meID {
-                text.addAttribute(.foregroundColor, value: accent, range: mention.nsRange)
+                paint(text, range: mention.nsRange, color: accent)
             }
+        }
+    }
+
+    static func embolden(_ text: NSMutableAttributedString, range: NSRange, fallback: NSFont) {
+        text.enumerateAttribute(.font, in: range) { value, subrange, _ in
+            text.addAttribute(.font, value: boldFont(value as? NSFont ?? fallback), range: subrange)
+        }
+    }
+
+    /// Text-effect glyphs draw clear and take their color from the effect ink.
+    static func paint(_ text: NSMutableAttributedString, range: NSRange, color: NSColor) {
+        text.enumerateAttribute(.conversationTextEffect, in: range) { effect, subrange, _ in
+            text.addAttribute(effect == nil ? .foregroundColor : .conversationEffectInk, value: color, range: subrange)
         }
     }
 }
@@ -36,7 +51,7 @@ enum MacMentionStyle {
 /// dismisses), and deletes a mention as one token.
 @MainActor
 final class MacComposerMentionController {
-    private weak var textView: NSTextView?
+    private weak var textView: MacComposerTextView?
     private(set) var mentions: [ConversationMention] = []
     private(set) var query: ConversationMentionQuery?
     /// Who can be mentioned; empty outside group conversations.
@@ -45,12 +60,13 @@ final class MacComposerMentionController {
     private var popover: NSPopover?
     /// The query location the user dismissed with Escape.
     private var dismissedLocation: Int?
-    private let baseAttributes: [NSAttributedString.Key: Any]
+    /// The candidate the last restyle drew gray.
+    private var decoratedQuery: ConversationMentionQuery?
 
-    init(textView: NSTextView) {
+    init(textView: MacComposerTextView) {
         self.textView = textView
-        baseAttributes = textView.typingAttributes
         suggestions.onPick = { [weak self] participant in self?.commit(participant) }
+        textView.decorateStorage = { [weak self] storage in self?.decorate(storage) }
     }
 
     var draft: ConversationMentionDraft {
@@ -157,20 +173,26 @@ final class MacComposerMentionController {
         }
     }
 
+    /// Recolors the draft through the composer's formatting restyle, so
+    /// bold/italic/effects (semantic keys in the storage) survive.
     private func restyle(query: ConversationMentionQuery?) {
-        guard let textView, let storage = textView.textStorage, !textView.hasMarkedText() else { return }
-        let full = NSRange(location: 0, length: storage.length)
-        let font = baseAttributes[.font] as? NSFont ?? MacConversationTheme.bodyFont
-        storage.beginEditing()
-        storage.setAttributes(baseAttributes, range: full)
+        guard let textView, !textView.hasMarkedText() else { return }
+        decoratedQuery = query
+        textView.restyle()
+        textView.clearTypingDecorations()
+    }
+
+    /// Called inside the text view's restyle, after formatting fonts are derived.
+    private func decorate(_ storage: NSTextStorage) {
+        let base = textView?.baseTypingAttributes[.foregroundColor] as? NSColor ?? .labelColor
+        MacMentionStyle.paint(storage, range: NSRange(location: 0, length: storage.length), color: base)
         for mention in ConversationMentionEditing.normalized(mentions, textLength: storage.length) {
-            storage.addAttributes([.font: MacMentionStyle.boldFont(font), .foregroundColor: MacMentionStyle.accent], range: mention.nsRange)
+            MacMentionStyle.embolden(storage, range: mention.nsRange, fallback: MacConversationTheme.bodyFont)
+            MacMentionStyle.paint(storage, range: mention.nsRange, color: MacMentionStyle.accent)
         }
-        if let query, NSMaxRange(query.nsRange) <= storage.length {
-            storage.addAttribute(.foregroundColor, value: MacMentionStyle.candidate, range: query.nsRange)
+        if let query = decoratedQuery, NSMaxRange(query.nsRange) <= storage.length {
+            MacMentionStyle.paint(storage, range: query.nsRange, color: MacMentionStyle.candidate)
         }
-        storage.endEditing()
-        textView.typingAttributes = baseAttributes
     }
 
     private func showPopover(_ query: ConversationMentionQuery) {
