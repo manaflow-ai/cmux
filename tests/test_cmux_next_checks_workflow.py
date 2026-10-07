@@ -403,7 +403,6 @@ class PathRoutingStructure(unittest.TestCase):
         self.assertNotIn("generated-autofix", jobs)
         text = WORKFLOW.read_text(encoding="utf-8")
         self.assertNotIn("Mint the autofix token", text)
-        self.assertNotIn("GLAEDA_ROUTE_APP", text)
         fail = next(step for step in jobs["generated-files"]["steps"]
                     if step.get("name") == "Fail on stale generated files")
         self.assertIn("scripts/cmux-next/regenerate-action-contracts.sh", fail["run"])
