@@ -92,8 +92,6 @@ public struct DaemonBridge: Hashable, Sendable {
 
     /// The dial line: `"ok": true` passes; a refusal names its `error_code`.
     static func check(_ reply: Data) throws(DaemonError) {
-        _ = reply
-        return // RED: the dial answer is not checked yet
         let object = (try? JSONSerialization.jsonObject(with: reply)) as? [String: Any]
         guard let object else { throw .endpointBlocked("the link dial's answer is not JSON") }
         if object["ok"] as? Bool == true { return }
