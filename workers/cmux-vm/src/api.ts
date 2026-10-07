@@ -80,8 +80,14 @@ export const ListVmsParams = Schema.Struct({
   state: Schema.optional(VmState),
 });
 
-/** Retrying a create with the same key returns the first result instead of creating twice. */
-export const IdempotencyHeaders = Schema.Struct({
+/** With a session token, names the team (tenant) the request acts for. Ignored for API keys. */
+const teamHeader = { "x-cmux-team-id": Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(128))) };
+
+export const TeamHeaders = Schema.Struct(teamHeader);
+
+/** Retrying a create with the same idempotency key returns the first result instead of creating twice. */
+export const CreateHeaders = Schema.Struct({
+  ...teamHeader,
   "idempotency-key": Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(255))),
 });
 
@@ -102,6 +108,7 @@ export class HealthGroup extends HttpApiGroup.make("health").add(
 const vmAction = <const Name extends string>(endpointName: Name, path: `/v1/vms/:vmId/${string}`, summary: string) =>
   HttpApiEndpoint.post(endpointName, path)
     .setPath(VmPath)
+    .setHeaders(TeamHeaders)
     .addSuccess(Vm)
     .addError(NotFound)
     .addError(Conflict)
@@ -112,7 +119,7 @@ export class VmsGroup extends HttpApiGroup.make("vms")
   .add(
     HttpApiEndpoint.post("createVm", "/v1/vms")
       .setPayload(CreateVmRequest)
-      .setHeaders(IdempotencyHeaders)
+      .setHeaders(CreateHeaders)
       .addSuccess(Vm, { status: 201 })
       .addError(NotFound)
       .addError(Conflict)
@@ -124,6 +131,7 @@ export class VmsGroup extends HttpApiGroup.make("vms")
   .add(
     HttpApiEndpoint.get("listVms", "/v1/vms")
       .setUrlParams(ListVmsParams)
+      .setHeaders(TeamHeaders)
       .addSuccess(VmList)
       .addError(NotImplemented)
       .annotateContext(describe("List the tenant's VMs", "vm:read")),
@@ -131,6 +139,7 @@ export class VmsGroup extends HttpApiGroup.make("vms")
   .add(
     HttpApiEndpoint.get("getVm", "/v1/vms/:vmId")
       .setPath(VmPath)
+      .setHeaders(TeamHeaders)
       .addSuccess(Vm)
       .addError(NotFound)
       .annotateContext(describe("Get a VM", "vm:read")),
@@ -143,7 +152,7 @@ export class VmsGroup extends HttpApiGroup.make("vms")
     HttpApiEndpoint.post("forkVm", "/v1/vms/:vmId/fork")
       .setPath(VmPath)
       .setPayload(ForkVmRequest)
-      .setHeaders(IdempotencyHeaders)
+      .setHeaders(CreateHeaders)
       .addSuccess(Vm, { status: 201 })
       .addError(NotFound)
       .addError(Conflict)
@@ -155,6 +164,7 @@ export class VmsGroup extends HttpApiGroup.make("vms")
   .add(
     HttpApiEndpoint.del("deleteVm", "/v1/vms/:vmId")
       .setPath(VmPath)
+      .setHeaders(TeamHeaders)
       .addSuccess(HttpApiSchema.NoContent)
       .addError(NotFound)
       .addError(Conflict)

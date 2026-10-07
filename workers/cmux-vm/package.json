@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "lint": "oxlint --deny-warnings src test",
+    "lint:prepare": "bun build ./node_modules/@gdp-ts/core/src/lint/plugin.ts ./node_modules/@gdp-ts/core/src/lint/oxlint.ts --root ./node_modules/@gdp-ts/core/src/lint --outdir .gdp-lint --target node --format esm",
+    "lint": "bun run lint:prepare && oxlint --deny-warnings src test",
     "openapi": "bun scripts/generate-openapi.ts",
     "openapi:check": "bun scripts/generate-openapi.ts --check",
     "test": "bun run test:workers && bun run test:pg",
