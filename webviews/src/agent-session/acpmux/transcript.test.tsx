@@ -2070,7 +2070,7 @@ describe("acpmux turn diff", () => {
     const root = await renderCard(editRow(["/repo/src/a.ts", "/repo/b.ts"]), opened);
     const document = dom.window.document;
     try {
-      expect(document.querySelector(".acpmux-edited-title")?.textContent).toBe("Edited 2 files+4-2");
+      expect(document.querySelector(".acpmux-edited-title")?.textContent).toBe("Edited 2 filesView changes");
       const files = [...document.querySelectorAll(".acpmux-edited-file")];
       expect(files.map((file) => file.textContent)).toEqual(["src/a.ts+2-1", "b.ts+2-1"]);
       await act(async () => files[0]!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
@@ -2119,7 +2119,7 @@ describe("acpmux turn diff", () => {
         ),
       );
       expect(document.querySelector(".acpmux-edited-title")?.textContent).toBe(
-        "Edited 2 files+7-1Includes changes outside tool calls",
+        "Edited 2 filesView changesIncludes changes outside tool calls",
       );
       expect([...document.querySelectorAll(".acpmux-edited-file")].map((file) => file.textContent)).toEqual([
         "src/a.ts+2-1",
@@ -2187,7 +2187,7 @@ describe("acpmux turn diff", () => {
           ),
         ),
       );
-      expect(document.querySelector(".acpmux-edited-title")?.textContent).toBe("Edited 2 files+4-2");
+      expect(document.querySelector(".acpmux-edited-title")?.textContent).toBe("Edited 2 filesView changes");
       for (const button of document.querySelectorAll<HTMLButtonElement>(".acpmux-edited button"))
         await act(async () => button.click());
       expect(asked).toEqual([]);
