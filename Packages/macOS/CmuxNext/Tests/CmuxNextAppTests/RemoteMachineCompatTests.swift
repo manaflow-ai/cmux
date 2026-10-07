@@ -123,4 +123,15 @@ import Testing
         #expect(SidebarBridge.machine(for: service, name: "vm", kind: .cloud).status == .updateAvailable)
         #expect(SidebarBridge.machine(for: service, name: "vm", kind: .local).status == .connected)
     }
+
+    /// A remote machine's daemon (SSH, server) keeps its route, so a second connection to that
+    /// daemon (an agent chat on that machine, `agent-session-attach-v1`) dials the same socket.
+    @Test func aRemoteDaemonKeepsItsRouteForSecondConnections() async throws {
+        let service = DaemonService(machineID: "server-test")
+        #expect(service.remoteEndpoint == nil)
+        service.start(remote: { "/tmp/cmux-remote-route-test.sock" })
+        defer { service.shutdownConnection() }
+        let endpoint = try await #require(service.remoteEndpoint)()
+        #expect(endpoint.socketPath == "/tmp/cmux-remote-route-test.sock")
+    }
 }
