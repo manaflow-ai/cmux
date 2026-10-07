@@ -4,7 +4,8 @@ import { act } from "react";
 import settings from "../src/pages/settings/settings.gallery";
 import passwords from "../src/pages/passwords/passwords.gallery";
 import { installDom } from "../src/pages/settings/testDom";
-import { schema, rowsInSection, sections } from "../src/pages/settings/schema";
+import { schema } from "../src/pages/settings/schema";
+import { categories, categoryOf, categoryRows } from "../src/pages/settings/categories";
 import { mockDomains } from "../src/pages/settings/mockProvider";
 import { validate } from "../src/pages/settings/validate";
 import { sectionHref } from "../src/pages/settings/router";
@@ -38,8 +39,11 @@ for (const [name, state] of Object.entries(settings.variants)) {
         if (state.accounts) page.provider.accounts = structuredClone(state.accounts);
         await page.store.refreshAccounts();
       });
-      expect(page.container.querySelector("[data-section]")?.getAttribute("data-section")).toBe(state.section);
-      for (const row of rowsInSection(state.section))
+      const category = categoryOf(state.section);
+      expect(page.container.querySelector("[data-section]")?.getAttribute("data-section")).toBe(category);
+      // The Theme section draws appearance.theme and appearance.appTheme as its pickers.
+      const drawnByStudio = new Set(["appearance.theme", "appearance.appTheme"]);
+      for (const row of categoryRows(category).filter((item) => !drawnByStudio.has(item.key)))
         expect(page.container.querySelector(`[data-row-key="${row.key}"]`)).not.toBeNull();
       for (const step of state.steps ?? []) {
         // Flush each gesture's render before waiting for its resulting element.
@@ -48,7 +52,8 @@ for (const [name, state] of Object.entries(settings.variants)) {
         });
         await settle();
       }
-      if (name === "search-empty") expect(page.container.querySelectorAll("[data-row-key]").length).toBe(0);
+      if (name === "search-empty")
+        expect(page.container.querySelectorAll("[data-row-key]:not([data-filtered])").length).toBe(0);
       if (name === "search-results") expect(page.container.querySelectorAll("mark").length).toBeGreaterThan(0);
     } finally {
       page.unmount();
@@ -56,8 +61,8 @@ for (const [name, state] of Object.entries(settings.variants)) {
   });
 }
 
-test("all settings sections are reachable through the real page", () => {
-  expect(sections.every((section) => settings.variants[section.id])).toBe(true);
+test("all settings categories are reachable through the real page", () => {
+  expect(categories.every((category) => settings.variants[category.id])).toBe(true);
 });
 
 const { createRoot } = await import("react-dom/client");

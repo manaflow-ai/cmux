@@ -86,14 +86,26 @@ import Testing
         #expect(identity.resolve(running: adHoc, installed: [signed]) == .unavailable(.runningHelperNotSigned(adHoc)))
     }
 
-    @Test func candidatesCoverReleaseInstallsOnce() {
+    /// A dev build's own helper is ad hoc: it tries NIGHTLY, then RC, then
+    /// the release app (NIGHTLY's helper holds the grants on the team Macs).
+    @Test func aDevBuildPrefersNightlyThenRCThenTheReleaseApp() {
         let home = URL(fileURLWithPath: "/Users/someone")
-        let main = URL(fileURLWithPath: "/Applications/cmux.app")
-        let registered = URL(fileURLWithPath: "/Applications/cmux NIGHTLY.app/Contents/Library/cmux Computer Use.app")
-        let candidates = CuaHelperIdentity.installedCandidates(mainBundle: main, home: home, registered: [registered])
-        #expect(candidates.first?.path == "/Applications/cmux.app/Contents/Library/cmux Computer Use.app")
-        #expect(candidates.contains { $0.path == "/Applications/cmux RC.app/Contents/Library/cmux Computer Use.app" })
-        #expect(candidates.contains { $0.path == "/Users/someone/Applications/cmux NIGHTLY.app/Contents/Library/cmux Computer Use.app" })
-        #expect(Set(candidates.map(\.path)).count == candidates.count)
+        let dev = URL(fileURLWithPath: "/Users/someone/DerivedData/cmux DEV x.app")
+        let paths = CuaHelperIdentity.installedCandidates(mainBundle: dev, home: home, isDevBuild: true).map(\.path)
+        #expect(Array(paths.prefix(3)) == ["/Applications/cmux NIGHTLY.app/Contents/Library/cmux Computer Use.app",
+                                           "/Applications/cmux RC.app/Contents/Library/cmux Computer Use.app",
+                                           "/Applications/cmux.app/Contents/Library/cmux Computer Use.app"])
+        #expect(!paths.contains { $0.hasPrefix(dev.path) }, "a dev build never uses its own ad-hoc helper")
+        #expect(paths.allSatisfy { $0.hasPrefix("/Applications/") || $0.hasPrefix("/Users/someone/Applications/") })
+        #expect(Set(paths).count == paths.count)
+    }
+
+    /// A release build uses the helper it ships (signed with it) first.
+    @Test func aReleaseBuildUsesItsOwnHelperFirst() {
+        let home = URL(fileURLWithPath: "/Users/someone")
+        let release = URL(fileURLWithPath: "/Applications/cmux NIGHTLY.app")
+        let paths = CuaHelperIdentity.installedCandidates(mainBundle: release, home: home, isDevBuild: false).map(\.path)
+        #expect(paths.first == "/Applications/cmux NIGHTLY.app/Contents/Library/cmux Computer Use.app")
+        #expect(Set(paths).count == paths.count)
     }
 }

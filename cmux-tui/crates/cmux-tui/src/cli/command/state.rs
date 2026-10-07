@@ -411,6 +411,9 @@ pub(super) fn parse_workspace_group(
 
 /// `tab <selector> pin|unpin|zoom <n>|reset|in|out|update`.
 ///
+/// `update --icon <value>|--clear-icon` sets or clears the tab's user icon
+/// (`tab.update {icon}`), which the daemon owns for every tab kind.
+///
 /// Zoom is a terminal's font zoom, which the daemon owns (`tab.update`). A
 /// browser tab's page zoom belongs to the app that hosts the page, so the CLI
 /// never writes a browser tab's record: a read before the request finds the
@@ -443,23 +446,38 @@ pub(super) fn tab_change(
             Op::TabUpdate
         }
         ("update", []) => {
+            // The icon is the daemon's field on every tab kind. A browser
+            // tab's page zoom is an app action, so one request cannot carry
+            // both: an icon with a zoom flag is a usage error.
+            nullable(&mut params, flags, "icon", "icon")?;
             let step = match (flags.take("zoom"), flags.boolean("clear-zoom")) {
                 (Some(_), true) => {
                     return Err(UsageError::new("--zoom and --clear-zoom are mutually exclusive"));
                 }
                 (Some(value), false) => {
                     params.insert("zoom", float("--zoom", &value, 0.25, 5.0)?);
-                    ZoomStep::Value
+                    Some(ZoomStep::Value)
                 }
                 (None, true) => {
                     params.insert("zoom", Value::Null);
-                    ZoomStep::Reset
+                    Some(ZoomStep::Reset)
                 }
-                (None, false) => {
-                    return Err(UsageError::new("tab update needs --zoom or --clear-zoom"));
-                }
+                (None, false) => None,
             };
-            params.resolve.push(Resolve::TabZoom { step });
+            match step {
+                Some(_) if params.fields.contains_key("icon") => {
+                    return Err(UsageError::new(
+                        "tab update sets the icon or the zoom, not both; run two commands",
+                    ));
+                }
+                Some(step) => params.resolve.push(Resolve::TabZoom { step }),
+                None if params.fields.contains_key("icon") => {}
+                None => {
+                    return Err(UsageError::new(
+                        "tab update needs --zoom, --clear-zoom, --icon or --clear-icon",
+                    ));
+                }
+            }
             Op::TabUpdate
         }
         _ => return usage("tab action"),

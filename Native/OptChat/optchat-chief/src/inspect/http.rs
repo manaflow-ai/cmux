@@ -27,8 +27,12 @@ use serde_json::json;
 
 use super::Inspector;
 
-/// The React page, one self-contained file (scripts/cmux-next/build-optchat-inspector-web.sh).
-pub const PAGE: &str = include_str!("../../inspector/index.html");
+/// The React page, one self-contained file (scripts/cmux-next/build-optchat-inspector-web.sh),
+/// copied into OUT_DIR by build.rs; a placeholder when the bundle was not built.
+pub const PAGE: &str = include_str!(concat!(env!("OUT_DIR"), "/inspector.html"));
+/// Whether this binary carries the placeholder page instead of the inspector
+/// (build.rs set `optchat_inspector_placeholder`: nothing built the bundle).
+pub const PAGE_IS_PLACEHOLDER: bool = cfg!(optchat_inspector_placeholder);
 
 /// The session cookie's name, with the port in it: a browser sends a
 /// 127.0.0.1 cookie to every port, so two Chiefs (two tags) must not share it.
