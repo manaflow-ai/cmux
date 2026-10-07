@@ -1,5 +1,6 @@
 #!/bin/bash
 # gh-merge-green REPO#PR [--main-fix] [--override "reason"] [gh pr merge flags...]
+# gh-merge-green --revert REPO#PR: open a revert PR for a merged PR and land it (scripts/ci/revert_pr.py).
 # Merges only when the PR head's required-in-practice checks are green.
 # main has no required status checks, so `gh pr merge --auto` merges at once; agents use this instead.
 set -Eeuo pipefail
@@ -100,6 +101,11 @@ maybe_update_checkout() {
 }
 
 maybe_update_checkout "$ref" "$@"
+
+# --revert: one-command rollback. The revert PR lands through this same tool.
+if [ "$ref" = --revert ]; then
+  exec python3 "$script_dir/ci/revert_pr.py" "$@"
+fi
 
 # --main-fix delegates to the existing compile/test evidence validator. That
 # path posts the required audit comment before merging a red-main fix-forward.
