@@ -883,6 +883,10 @@
       return page;
     }
     _materialize(page) {
+      // `background: false` neither shows nor focuses the tab (a session's
+      // tabs.open never does; WebKit loads it the same either way): it makes
+      // the tab the session's current one, which a lazy page is, also when an
+      // unbound fetch is what opens it.
       if (!page._materializing) {
         page._materializing = this.driver.call("tabs.open", { background: false }).then(({ targetId }) => {
           this.pages.delete(page._targetId);
