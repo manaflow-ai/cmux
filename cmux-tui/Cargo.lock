@@ -931,6 +931,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-local-socket"
+version = "1.0.0"
+dependencies = [
+ "uds_windows",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "cmux-motion"
 version = "0.1.0"
 dependencies = [
