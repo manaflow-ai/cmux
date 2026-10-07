@@ -374,7 +374,7 @@ describe("cloud MCP scoping", () => {
     const owner = await callCloudMcpTool(gatewayFor({ userId: OWNER }), "list_machines", {});
     expect(owner.structuredContent).toEqual({ view: "machines", machines: [{ id: "vm-personal", name: null, status: "running" }] });
     const stranger = await callCloudMcpTool(gatewayFor({ userId: "user-stranger" }), "list_machines", {});
-    expect(stranger.structuredContent).toEqual({ machines: [] });
+    expect(stranger.structuredContent).toEqual({ view: "machines", machines: [] });
     expect(listed).toEqual([
       { userId: OWNER, billingTeamId: null },
       { userId: "user-stranger", billingTeamId: null },
