@@ -106,6 +106,10 @@ pub struct FolderProfile {
     /// sha256 of the file bytes and icon bytes; None when unreadable.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sha256: Option<String>,
+    /// Files inside the folder that the command line runs or names; their
+    /// bytes are part of `sha256`.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub checked_files: Vec<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub diagnostics: Vec<Diagnostic>,
     #[serde(skip)]
@@ -145,6 +149,7 @@ pub fn load_one(cfg: &Config, gate: &FolderGate, folder: &Path, id: &str) -> Opt
         state: FolderState::Error,
         trust: level.as_str().to_owned(),
         sha256: None,
+        checked_files: vec![],
         diagnostics: vec![],
         profile: None,
     };
