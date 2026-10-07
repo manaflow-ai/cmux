@@ -252,7 +252,11 @@ fn tile_frames_are_standalone_and_keep_their_video_reference() {
     let mut p = Packetizer::new(7, MAX_DATAGRAM_VPC);
     let mut r = Reassembler::new(10_000);
     let mut send = |frame: u32, video_frame: u32, len: usize, now: u64, lose_all: bool| {
-        let b = FrameBody { t_capture_us: now, ref_frame: video_frame, access_unit: vec![frame as u8; len] };
+        let b = FrameBody {
+            t_capture_us: now,
+            ref_frame: video_frame,
+            access_unit: vec![frame as u8; len],
+        };
         let out = p.packetize(frame, flags::TILE, &b, 1).expect("packetize");
         let mut released = Vec::new();
         if !lose_all {
@@ -266,7 +270,10 @@ fn tile_frames_are_standalone_and_keep_their_video_reference() {
     };
     // Frame 1 of the tile stream tops off video frame 900 of the surface stream.
     let first = send(1, 900, 3_000, 0, false);
-    assert_eq!(first.iter().map(|f| (f.frame, f.body.ref_frame)).collect::<Vec<_>>(), vec![(1, 900)]);
+    assert_eq!(
+        first.iter().map(|f| (f.frame, f.body.ref_frame)).collect::<Vec<_>>(),
+        vec![(1, 900)]
+    );
     // A lost tile frame does not block a later one (tiles have no chain).
     assert!(send(2, 905, 3_000, 1_000, true).is_empty());
     let third = send(3, 910, 500, 2_000, false);
