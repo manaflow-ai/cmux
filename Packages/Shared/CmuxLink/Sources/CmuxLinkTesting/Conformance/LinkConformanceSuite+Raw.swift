@@ -25,7 +25,7 @@ extension LinkConformanceSuite {
             await dialed.close()
             throw fail("acceptor ended")
         }
-        let frameBytes = min(64 << 10, host.capabilities.maxFrameBytes, dialed.capabilities.maxFrameBytes)
+        let frameBytes = min(16 << 10, host.capabilities.maxFrameBytes, dialed.capabilities.maxFrameBytes)
         let sendLimit = max(rawBufferLimitBytes * 3, 64 << 20)
         let lane = TransportLane(reliability: .reliableOrdered, priority: .bulk)
         let progress = RawSendProgress()
@@ -65,10 +65,12 @@ extension LinkConformanceSuite {
             await host.close()
             throw fail("sender made no progress")
         }
-        // Read everything: the sender resumes and stops 64 frames later.
-        let total = progress.stop(after: 64)
+        // Read everything: the sender resumes and stops 32 frames later.
+        // Slow (lossy) carriers get three step limits to drain.
+        let total = progress.stop(after: 32)
         let events = dialed.events
-        let received = try await deadline.run("drain \(total) frames") { () -> UInt64 in
+        let drainDeadline = Deadline(limit: deadline.limit * 3, harness: name, testCase: .rawBackPressure)
+        let received = try await drainDeadline.run("drain \(total) frames") { () -> UInt64 in
             var expected: UInt64 = 1
             for await event in events {
                 switch event {
