@@ -5,7 +5,7 @@ import Testing
 /// Whether this build compiled its string catalogs into `.lproj` tables. A
 /// fleet SwiftPM build copies them uncompiled (bead cx-v2k), so there these
 /// tests skip; hosted CI always runs them.
-private func stringCatalogsCompiled() -> Bool {
+nonisolated private func stringCatalogsCompiled() -> Bool {
     ProcessInfo.processInfo.environment["GITHUB_ACTIONS"] == "true"
         || Bundle.module.path(forResource: "en", ofType: "lproj") != nil
 }

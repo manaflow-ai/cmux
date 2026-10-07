@@ -18,6 +18,7 @@ pub mod agent_host;
 #[cfg(test)]
 mod agent_replay_tests;
 pub mod agent_tools;
+pub mod catalog;
 pub mod chats;
 pub mod claude_stdio;
 pub mod cli;

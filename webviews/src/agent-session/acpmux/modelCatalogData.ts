@@ -1,4 +1,4 @@
-import bundledCatalog from "./generated/model-catalog-snapshot.json";
+import bundledCatalog from "../../../../web/data/model-catalog/snapshot.json";
 import { agentName } from "./agents";
 import type { AcpmuxSnapshot } from "./model";
 import { agentKey } from "../shared/agentKey";

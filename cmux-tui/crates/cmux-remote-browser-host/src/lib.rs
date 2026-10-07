@@ -9,6 +9,9 @@
 //! only; encoding and transport plug in through lane 17's `cmux-encode` and
 //! `cmux-rd-engine` (remote-tab-r2.md section 5).
 
+pub mod probe;
+pub mod pump;
+pub mod shim_ui;
 pub mod tab;
 
 #[cfg(target_os = "macos")]
@@ -16,3 +19,6 @@ pub mod ffi;
 
 #[cfg(target_os = "macos")]
 pub mod smoke;
+
+#[cfg(target_os = "macos")]
+pub mod serve;

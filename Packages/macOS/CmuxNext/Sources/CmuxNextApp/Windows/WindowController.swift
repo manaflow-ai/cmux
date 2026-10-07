@@ -49,6 +49,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         self.services = services
         let sidebar = SidebarBridge(services: services, state: state)
         self.sidebar = sidebar
+        SidebarProfileControl(services: services).install(model: sidebar.model, sidebar: sidebar.container.sidebarView)
         root = WindowRootView(sidebar: sidebar.container)
         // The static toggle runs the same action as the shortcut, palette and menu (R68).
         root.toolbarBand.onToggleSidebar = { [weak registry = services.registry] in
@@ -87,6 +88,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         observeWorkspace()
         observeRoom()
         observeSidebarHidden()
+        followTopPageForBack()
     }
 
     @available(*, unavailable)

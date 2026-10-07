@@ -10,6 +10,7 @@ import "./previewCard/previewCard.css";
 import "./changes/changes.css";
 import "./turnChanges/turnChanges.css";
 import "./summary/summary.css";
+import "./subagents/subagents.css";
 import "./header/header.css";
 import "./composerControls.css";
 import "./composerStates.css";

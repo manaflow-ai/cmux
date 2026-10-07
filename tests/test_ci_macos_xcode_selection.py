@@ -66,6 +66,9 @@ EXEMPT = {
         "as the nightly and release callers always have; pinning it would "
         "change published artifacts",
     ("relay-publish-npm.yml", "smoke"): "npm package smoke test; no Xcode",
+    ("cmux-next-batch.yml", "build"):
+        "submits the stack to the build fleet and waits; the build runs on a "
+        "fleet worker, never with this runner's Xcode",
 }
 
 # (workflow, job, step name) allowed to set CMUX_CI_XCODE_ALLOW_BELOW_FLOOR.

@@ -150,7 +150,10 @@ describe("PasswordsPage", () => {
     await click($(".pw-import-browser")!);
     await click($(".pw-import-csv")!);
     const runs = provider.calls.filter((c) => c.op === "cmux.app.action.run").map((c) => c.params);
-    expect(runs).toEqual([{ action: "importFromBrowser" }, { action: "password.importCSV", args: { profile: "work" } }]);
+    expect(runs).toEqual([
+      { action: "importFromBrowser" },
+      { action: "password.importCSV", args: { profile: "work" } },
+    ]);
     // Importing works even before the build can list passwords (fork API 18).
     act(() => root.unmount());
     root = createRoot(dom.window.document.getElementById("root")!);
