@@ -14,5 +14,8 @@ struct RefusedCloseNotice {
         codes.contains(permanentColumnCode) ? RefusalStrings.columnStaysDocked : RefusalStrings.closeRefused
     }
 
-    func show(codes: [String], in window: NSWindow?) {}
+    func show(codes: [String], in window: NSWindow?) {
+        NSSound.beep()
+        services.refusalHUD.show(Self.reason(codes: codes), in: window)
+    }
 }
