@@ -43,6 +43,9 @@ final class WorkspaceRowView: SidebarRowView {
     private var progress: SidebarProgress?
     private var hasSubtitle = false
     private var grouped = false
+    /// The group band's frame (`GroupLabelBandTests`).
+    var groupBandFrame: NSRect { .zero }
+    var isGroupBandHidden: Bool { true }
     private var groupColor: GroupColor?
     private var iconKind: WorkspaceIcon?
     /// Selected but not active (the active row paints the selection fill).

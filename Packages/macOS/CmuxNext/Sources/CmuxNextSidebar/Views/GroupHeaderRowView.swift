@@ -84,6 +84,9 @@ final class GroupHeaderRowView: SidebarRowView {
     }
 
     override var titleFrame: NSRect { name.frame }
+    /// The name's colored label (`GroupLabelBandTests`).
+    var labelFrame: NSRect { .zero }
+    var labelFill: CGColor? { nil }
     override var titleFont: NSFont { SidebarStyle.headerFont }
     private var renaming = false
     override func setTitleHidden(_ hidden: Bool) {
