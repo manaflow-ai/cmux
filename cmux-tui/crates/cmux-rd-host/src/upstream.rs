@@ -1,5 +1,157 @@
-//! Upstream media streams a viewer opens on this host (rd change C4).
-//! Red tests first; the handler follows.
+//! Upstream media streams a viewer opens on this host (rd change C4): the
+//! microphone (`up_audio`) or a camera or screen share (`up_video`). The
+//! viewer sends `stream_open` only after the user's consent for that kind;
+//! this host answers it, registers the stream with the engine (reassembly,
+//! FEC, acks and NACKs), hands complete frames to the sink that plays them
+//! into the desktop, and forgets every stream when the session ends.
+//!
+//! A host offers the `up_media` cap only when it has a sink for at least one
+//! kind ([`UpstreamSink::accepts`]); a viewer whose welcome does not list
+//! `up_media` and `stream.open` sends nothing upstream.
+
+use std::collections::BTreeMap;
+
+use cmux_rd_core::reassembly::CompleteFrame;
+use cmux_rd_core::service::caps;
+use cmux_rd_engine::MediaEngine;
+use cmux_rd_proto::control::{Control, StreamKind};
+
+/// Where the desktop plays upstream media (a virtual microphone or camera).
+pub trait UpstreamSink {
+    /// This sink can play streams of `kind` (only upstream kinds are asked).
+    fn accepts(&self, kind: StreamKind) -> bool;
+    /// A stream of `kind` starts; an error refuses it (`unsupported`).
+    fn open(&mut self, stream: u16, kind: StreamKind) -> Result<(), String>;
+    /// One complete frame of an opened stream, in frame order.
+    fn frame(&mut self, stream: u16, frame: &CompleteFrame);
+    /// The stream ended (closed by the viewer or the session ended).
+    fn close(&mut self, stream: u16);
+}
+
+/// No virtual microphone or camera on this host yet: accepts nothing, so the
+/// host offers no `up_media` cap.
+pub struct NoSink;
+
+impl UpstreamSink for NoSink {
+    fn accepts(&self, _kind: StreamKind) -> bool {
+        false
+    }
+    fn open(&mut self, _stream: u16, _kind: StreamKind) -> Result<(), String> {
+        Err("no sink".into())
+    }
+    fn frame(&mut self, _stream: u16, _frame: &CompleteFrame) {}
+    fn close(&mut self, _stream: u16) {}
+}
+
+/// The caps a host with `sink` adds to its welcome offer.
+pub fn offered_caps(sink: &dyn UpstreamSink) -> Vec<&'static str> {
+    if [StreamKind::UpAudio, StreamKind::UpVideo].into_iter().any(|k| sink.accepts(k)) {
+        vec![caps::UP_MEDIA, caps::STREAM_OPEN]
+    } else {
+        Vec::new()
+    }
+}
+
+/// The upstream streams of one session.
+pub struct Upstreams<S: UpstreamSink> {
+    sink: S,
+    /// Both `up_media` and `stream.open` were negotiated.
+    enabled: bool,
+    open: BTreeMap<u16, StreamKind>,
+}
+
+impl<S: UpstreamSink> Upstreams<S> {
+    /// `negotiated` is the welcome's caps list.
+    pub fn new(sink: S, negotiated: &[String]) -> Self {
+        let has = |cap: &str| negotiated.iter().any(|c| c == cap);
+        Self { sink, enabled: has(caps::UP_MEDIA) && has(caps::STREAM_OPEN), open: BTreeMap::new() }
+    }
+
+    /// The opened streams and their kinds.
+    #[cfg(test)]
+    pub fn opened(&self) -> impl Iterator<Item = (u16, StreamKind)> + '_ {
+        self.open.iter().map(|(&s, &k)| (s, k))
+    }
+
+    #[cfg(test)]
+    pub fn sink(&self) -> &S {
+        &self.sink
+    }
+
+    /// Handles a control message from the viewer; returns the answer to send.
+    /// Messages that are not about upstream streams return `None`.
+    pub fn on_control(&mut self, engine: &mut MediaEngine, control: &Control) -> Option<Control> {
+        match control {
+            Control::StreamOpen { stream, kind, codec, .. } => {
+                let stream = *stream;
+                let answer = match self.open(engine, stream, *kind, codec) {
+                    Ok(()) => Control::StreamOpened { stream },
+                    Err(reason) => Control::StreamRefused { stream, reason: reason.into() },
+                };
+                Some(answer)
+            }
+            Control::StreamClose { stream } => {
+                self.close(engine, *stream);
+                None
+            }
+            _ => None,
+        }
+    }
+
+    fn open(
+        &mut self,
+        engine: &mut MediaEngine,
+        stream: u16,
+        kind: StreamKind,
+        codec: &str,
+    ) -> Result<(), &'static str> {
+        if !self.enabled {
+            return Err("caps");
+        }
+        // Host-to-viewer kinds are the host's to open, never the viewer's.
+        if !kind.is_upstream() {
+            return Err("kind");
+        }
+        if kind.codec() != Some(codec) {
+            return Err("codec");
+        }
+        if !self.sink.accepts(kind) {
+            return Err("unsupported");
+        }
+        engine.add_upstream(stream).map_err(|e| e.reason())?;
+        if self.sink.open(stream, kind).is_err() {
+            engine.remove_upstream(stream);
+            return Err("unsupported");
+        }
+        self.open.insert(stream, kind);
+        Ok(())
+    }
+
+    fn close(&mut self, engine: &mut MediaEngine, stream: u16) {
+        if self.open.remove(&stream).is_some() {
+            engine.remove_upstream(stream);
+            self.sink.close(stream);
+        }
+    }
+
+    /// Hands the engine's complete upstream frames to the sink (frames of a
+    /// stream that is no longer open are dropped).
+    pub fn deliver(&mut self, frames: &[(u16, CompleteFrame)]) {
+        for (stream, frame) in frames {
+            if self.open.contains_key(stream) {
+                self.sink.frame(*stream, frame);
+            }
+        }
+    }
+
+    /// Ends every stream (session end, host stop, disconnect).
+    pub fn close_all(&mut self, engine: &mut MediaEngine) {
+        let streams: Vec<u16> = self.open.keys().copied().collect();
+        for stream in streams {
+            self.close(engine, stream);
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
