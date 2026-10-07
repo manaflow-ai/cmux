@@ -50,7 +50,7 @@ import type { ComposerAttachment } from "./attachments";
 import { ComposerPickers } from "./ComposerPickers";
 import { EmptyState, isNewChat, projectName } from "./EmptyState";
 import { HomeLists } from "./HomeLists";
-import { turnFiles, turnRows } from "./diff";
+import { turnFiles, turnRows, type TurnFile } from "./diff";
 import type { TrustSource } from "./folderTrust";
 import { TrustAsk } from "./TrustAsk";
 import { PermissionCard } from "./PermissionCard";
@@ -1857,22 +1857,22 @@ function AcpmuxPane() {
       <TurnActionsContext.Provider value={turnActions}>
         <TurnCountsContext.Provider value={turnCountsFor}>
           <SessionRowsContext.Provider value={snapshot.rows}>
-          <VirtualTranscript
-            rows={transcriptRows}
-            canLoadOlder={snapshot.canLoadOlder}
-            expanded={expanded}
-            registry={registry}
-            // The Quick Composer has no room for the changes view; its file rows stay plain.
-            onOpenDiff={quick ? undefined : openDiff}
-            onToggleActivity={(id) =>
-              setExpanded((current) => {
-                const next = new Set(current);
-                if (next.has(id)) next.delete(id);
-                else next.add(id);
-                return next;
-              })
-            }
-          />
+            <VirtualTranscript
+              rows={transcriptRows}
+              canLoadOlder={snapshot.canLoadOlder}
+              expanded={expanded}
+              registry={registry}
+              // The Quick Composer has no room for the changes view; its file rows stay plain.
+              onOpenDiff={quick ? undefined : openDiff}
+              onToggleActivity={(id) =>
+                setExpanded((current) => {
+                  const next = new Set(current);
+                  if (next.has(id)) next.delete(id);
+                  else next.add(id);
+                  return next;
+                })
+              }
+            />
           </SessionRowsContext.Provider>
         </TurnCountsContext.Provider>
       </TurnActionsContext.Provider>
