@@ -81,7 +81,9 @@ const CALL_TIMEOUT: Duration = Duration::from_secs(5);
 const MAX_EARLY: usize = 256;
 /// Largest attach or events page sent to the client (a control message);
 /// older records past it are left for the next page (`hasMore`).
-pub(crate) const MAX_PAGE_BYTES: usize = 16 << 20;
+pub(crate) const MAX_PAGE_BYTES: usize = 8 << 20;
+/// Bytes of notifications held while the attach call waits.
+const MAX_EARLY_BYTES: usize = 16 << 20;
 const THREAD_STACK_BYTES: usize = 256 * 1024;
 
 // MARK: State
@@ -519,6 +521,7 @@ fn attach(
 struct ReaderSlot {
     attachment: Option<Arc<Attachment>>,
     early: VecDeque<Inbound>,
+    early_bytes: usize,
     overflowed: bool,
     /// The resolved session once the attach answered: other sessions'
     /// notifications (the watch) are not held.
@@ -536,9 +539,19 @@ impl ReaderSlot {
         {
             return Ok(());
         }
-        if self.early.len() >= MAX_EARLY {
+        let bytes = match &inbound {
+            Inbound::Notification(method, params) => {
+                method.len() + serde_json::to_string(params).map_or(0, |text| text.len())
+            }
+            Inbound::Closed(_) => 0,
+        };
+        if self.overflowed
+            || self.early.len() >= MAX_EARLY
+            || self.early_bytes + bytes > MAX_EARLY_BYTES
+        {
             self.overflowed = true;
         } else {
+            self.early_bytes += bytes;
             self.early.push_back(inbound);
         }
         Ok(())
@@ -602,6 +615,15 @@ fn connect_and_attach(
     };
     let resolved =
         page.pointer("/session/sessionId").and_then(Value::as_str).unwrap_or_default().to_string();
+    // acpmux resolves an id, a name or a unique prefix of either: only the
+    // session the record names exactly (its id or its full name) is the tab's.
+    let named = page.pointer("/session/name").and_then(Value::as_str);
+    if resolved != record_session && named != Some(record_session.as_str()) {
+        release(sessions);
+        link.close();
+        refuse(&writer, id, Refusal::UnknownTab);
+        return;
+    }
     slot.lock().unwrap_or_else(|e| e.into_inner()).session = Some(resolved.clone());
     // Session status changes (`_acpmux/session_changed`) come only to
     // watchers; the reader keeps only this session's. The answer (every
@@ -726,7 +748,7 @@ fn deliver(attachment: &Attachment, inbound: Inbound) {
                 attachment.end(None);
             }
         }
-        "_acpmux/prompt_accepted" => {
+        "_acpmux/prompt_accepted" if same_session => {
             let prompt = params.get("promptId").and_then(Value::as_str).unwrap_or_default();
             let slot = attachment.prompts.lock().unwrap_or_else(|e| e.into_inner()).remove(prompt);
             if let Some(slot) = slot {

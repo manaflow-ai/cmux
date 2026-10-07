@@ -707,3 +707,79 @@ fn a_closed_tab_ends_its_attachment() {
     assert_eq!(closed["reason"], json!("detached"));
     fake.no_frame();
 }
+
+// MARK: Scope (security review)
+
+#[test]
+fn a_record_that_names_a_session_only_by_prefix_is_not_attached() {
+    let fake = FakeAcpmux::start("prefix");
+    let mux = mux_with(&fake, "asa-prefix");
+    // acpmux resolves a unique prefix; the fake resolves anything to SESSION.
+    let surface = agent_tab(&mux, Some("acp_sess"));
+    let mut client = Client::connect(&mux, "prefix");
+    assert_code(&attach(&mut client, surface), "agent_session.unknown_tab");
+    assert_eq!(mux.control_clients.agent_sessions.attachment_count(), 0);
+}
+
+#[test]
+fn another_connection_cannot_drive_an_attachment() {
+    let fake = FakeAcpmux::start("other");
+    let mux = mux_with(&fake, "asa-other");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut owner = Client::connect(&mux, "owner");
+    assert_eq!(attach(&mut owner, surface)["ok"], json!(true));
+    let _ = fake.frame();
+    let mut stranger = Client::connect(&mux, "stranger");
+    for frame in every_verb(surface).into_iter().skip(1).take(4) {
+        let mut frame = frame;
+        frame.as_object_mut().unwrap().remove("id");
+        assert_code(&stranger.request(frame), "agent_session.not_attached");
+    }
+    fake.no_frame();
+}
+
+#[test]
+fn every_verb_refuses_session_cwd_command_and_meta_params() {
+    let fake = FakeAcpmux::start("allparams");
+    let mux = mux_with(&fake, "asa-allparams");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "allparams");
+    assert_eq!(attach(&mut client, surface)["ok"], json!(true));
+    let _ = fake.frame();
+    for extra in [
+        json!({"sessionId":"other"}),
+        json!({"cwd":"/"}),
+        json!({"command":"x"}),
+        json!({"_meta":{"acpmux":{"steer":true}}}),
+        json!({"prompt":[{"type":"text","text":"x"}]}),
+    ] {
+        for mut frame in every_verb(surface).into_iter().skip(1).take(4) {
+            frame.as_object_mut().unwrap().remove("id");
+            for (key, value) in extra.as_object().unwrap() {
+                frame[key] = value.clone();
+            }
+            assert_code(&client.request(frame), "agent_session.bad_request");
+        }
+    }
+    fake.no_frame();
+}
+
+#[test]
+fn a_permission_of_another_session_is_not_answerable() {
+    let mut fake = FakeAcpmux::start("otherperm");
+    let mux = mux_with(&fake, "asa-otherperm");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "otherperm");
+    assert_eq!(attach(&mut client, surface)["ok"], json!(true));
+    let _ = fake.frame();
+    let _ = client.event(WAIT).expect("the early record");
+    fake.notify(
+        "_acpmux/permission_pending",
+        json!({"sessionId":"acp_other","permissionId":"perm_other","options":[]}),
+    );
+    assert!(client.event(Duration::from_millis(200)).is_none(), "not shown");
+    let reply = client.request(json!({"cmd":"agent-session-permission","surface":surface,
+                                      "permission_id":"perm_other","option_id":"allow"}));
+    assert_code(&reply, "agent_session.unknown_permission");
+    fake.no_frame();
+}
