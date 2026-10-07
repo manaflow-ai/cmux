@@ -39,24 +39,38 @@ export function cronMonitorConfig(cron: string) {
 }
 
 /**
+ * A cron body may override the check-in status its response implies, for a
+ * deliberate non-failure such as a job that is intentionally unconfigured in
+ * this deployment but still answers 5xx to its HTTP caller.
+ */
+export type MonitoredCronResult = {
+  readonly response: Response;
+  readonly checkInStatus: "ok" | "error";
+};
+
+/**
  * Run an authorized cron body under a Sentry cron monitor named after the
  * cron. Call it after authorization so an unauthenticated probe never checks
- * in. Without SENTRY_DSN the body runs unmonitored.
+ * in. Without SENTRY_DSN the body runs unmonitored. A thrown error or a 5xx
+ * response checks in `error` unless the body returns an explicit status.
  */
 export async function runMonitoredCron(
   cron: string,
-  run: () => Promise<Response>,
+  run: () => Promise<Response | MonitoredCronResult>,
 ): Promise<Response> {
   const Sentry = await loadSentry();
-  if (!Sentry) return run();
+  if (!Sentry) return responseOf(await run());
   const monitorConfig = cronMonitorConfig(cron);
   const startedAt = performance.now();
   const checkInId = safeCheckIn(() =>
     Sentry.captureCheckIn({ monitorSlug: cron, status: "in_progress" }, monitorConfig));
   let status: "ok" | "error" = "error";
   try {
-    const response = await run();
-    status = response.status >= 500 ? "error" : "ok";
+    const result = await run();
+    const response = responseOf(result);
+    status = result instanceof Response
+      ? (response.status >= 500 ? "error" : "ok")
+      : result.checkInStatus;
     return response;
   } finally {
     const duration = (performance.now() - startedAt) / 1000;
@@ -113,6 +127,10 @@ export function reportCronFailure(
 /** Test seam: forget throttle state between cases. */
 export function resetCronFailureReportsForTesting(): void {
   lastFailureReport.clear();
+}
+
+function responseOf(result: Response | MonitoredCronResult): Response {
+  return result instanceof Response ? result : result.response;
 }
 
 async function loadSentry(): Promise<SentryCheckInApi | undefined> {

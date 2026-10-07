@@ -8,15 +8,12 @@ export async function GET(request: Request): Promise<Response> {
   return runMonitoredCron("cloud-diagnostics", async () => {
     try {
       const result = await maintainCloudDiagnostics();
-      if (!result.configured) {
-        reportCronFailure(
-          "cloud-diagnostics",
-          new Error("Cloud diagnostics delivery is not configured"),
-          {},
-          { stage: "unconfigured", level: "warning" },
-        );
-      }
-      return jsonNoStore(result, result.configured ? 200 : 503);
+      if (result.configured) return jsonNoStore(result, 200);
+      // A deployment without Cloud Axiom delivery is a deliberate setup, not
+      // a failure: the caller still sees 503, but the monitor stays healthy
+      // and no Sentry issue opens.
+      console.warn("cmux.cron.cloud_diagnostics.unconfigured");
+      return { response: jsonNoStore(result, 503), checkInStatus: "ok" as const };
     } catch (error) {
       reportCronFailure("cloud-diagnostics", error);
       return jsonNoStore({ error: "cloud_diagnostics_failed" }, 500);
