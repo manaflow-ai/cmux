@@ -8,6 +8,8 @@
 
 optchat-chief is an OptChat-memory brain with one Chief conversation and a fresh acpmux session per turn, so it does not produce the TypeScript core's effect trace. Each case is run through one adapter that compares what both brains must share, or is N/A with its reason. The test fails on a case missing here and on a listed deviation that no longer deviates.
 
+The `policy` cases (approval policy and harness routing) all run on every brain: the TypeScript and Rust cores through their policy rules, optchat-chief through its settings reader, its harness gate and the shared rules its brain calls (`tests/corpus.rs` `the_shared_policy_cases_hold_for_optchat_chief`).
+
 Adapters: `inbox` (the messages the brain wakes on and logs equal the corpus's prompts), `turn-text` (the text a turn posts), `outbox` (the sends of a refused reply and the reconnect).
 
 ## optchat-chief
