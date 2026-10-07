@@ -70,9 +70,10 @@ else is image-only: design it so old machines keep working without it.
   each host it starts with `StartTransientUnit`, through `sudo -n busctl`
   with a fixed argv when it runs as the Cloud user). A `systemctl stop` or
   `restart` of the daemon unit then keeps every terminal, and the next daemon
-  adopts them. Hosts on a machine whose unit predates the variable, or whose
-  move failed (logged once), stay in the unit's cgroup and a unit stop ends
-  them. A host ignores a stray SIGTERM, SIGHUP, SIGINT or SIGQUIT (it is the
+  adopts them. The move fails open: hosts on a machine whose unit predates
+  the variable, or whose `StartTransientUnit` call failed (logged once),
+  keep running unscoped in the unit's cgroup, and a unit stop ends them. A
+  scope is a lifetime boundary, not an isolation guarantee. A host ignores a stray SIGTERM, SIGHUP, SIGINT or SIGQUIT (it is the
   only holder of its PTY) but honors a SIGTERM from PID 1, so a machine
   shutdown ends each terminal promptly through the host's normal exit path
   (exit record written), never after the stop timeout.

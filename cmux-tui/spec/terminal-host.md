@@ -542,6 +542,24 @@ nonce are 64-character lowercase hex, the Unix-socket path is canonical, and
 the host PID is nonzero. Record directories are mode `0700`; records and
 sockets are mode `0600`.
 
+## Host process placement (Cloud scopes)
+
+A daemon started with `CMUX_TUI_HOST_SCOPES=systemd` on a systemd machine
+moves each terminal host it starts into its own transient scope
+`cmux-terminal-host-<pid>.scope` in `cmux-terminal-hosts.slice`, before the
+host receives `Launch` or `LaunchAdopt`, so the host's child inherits the
+scope and a stop or restart of the daemon's unit leaves the host running for
+adoption. The move is `org.freedesktop.systemd1.Manager.StartTransientUnit`
+with the host PID, run as `busctl` with a fixed argument vector (through
+`sudo -n` when the daemon is not root), and only for an unreaped child of
+the daemon, checked against `/proc/<pid>/stat` first. The move fails open:
+when the call fails, the host keeps running unscoped in the daemon's cgroup
+and the daemon logs the failure once. A scope is therefore not an isolation
+or security guarantee, only a lifetime boundary. Without the variable, or
+without systemd, hosts are not moved. A machine shutdown stops every scope;
+the host honors that `SIGTERM` from PID 1 and ends its terminal through the
+normal exit path.
+
 ## Durability boundary
 
 The append-only journal is exact while a mux daemon owns the authenticated host
