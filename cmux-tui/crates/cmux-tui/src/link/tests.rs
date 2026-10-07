@@ -50,7 +50,8 @@ async fn an_inbound_stream_reaches_only_the_remote_entry_never_the_local_socket(
     let pairings = pairings();
     let session_for_task = session.clone();
     let task = tokio::spawn(async move {
-        serve_inbound(link_side, [2; 32], peer_addr("inst_b"), &pairings, &session_for_task, None).await
+        serve_inbound(link_side, [2; 32], peer_addr("inst_b"), &pairings, &session_for_task, None)
+            .await
     });
     peer.write_all(b"{\"service\":\"daemon\"}\n{\"id\":1,\"cmd\":\"ping\"}\n").await.unwrap();
     let accepted = tokio::time::timeout(super::lines::HANDSHAKE_TIMEOUT, entry.accept()).await;
@@ -74,14 +75,17 @@ async fn an_unpaired_key_or_a_foreign_source_never_reaches_the_daemon() {
     let session = directory.path().join("s.sock");
     let pairings = pairings();
     let (_peer, link_side) = tokio::io::duplex(1024);
-    let refused = serve_inbound(link_side, [9; 32], peer_addr("inst_b"), &pairings, &session, None).await;
+    let refused =
+        serve_inbound(link_side, [9; 32], peer_addr("inst_b"), &pairings, &session, None).await;
     assert_eq!(refused, Err(InboundRefused::UnknownPeer));
     let (_peer, link_side) = tokio::io::duplex(1024);
-    let refused = serve_inbound(link_side, [2; 32], peer_addr("inst_c"), &pairings, &session, None).await;
+    let refused =
+        serve_inbound(link_side, [2; 32], peer_addr("inst_c"), &pairings, &session, None).await;
     assert_eq!(refused, Err(InboundRefused::AddressMismatch));
     let (mut peer, link_side) = tokio::io::duplex(1024);
     peer.write_all(b"{\"service\":\"shell\"}\n").await.unwrap();
-    let refused = serve_inbound(link_side, [2; 32], peer_addr("inst_b"), &pairings, &session, None).await;
+    let refused =
+        serve_inbound(link_side, [2; 32], peer_addr("inst_b"), &pairings, &session, None).await;
     assert_eq!(refused, Err(InboundRefused::BadHello));
 }
 
@@ -254,7 +258,10 @@ const BRAIN_IDENTIFY: &str = "{\"id\":1,\"ok\":true,\"data\":{\"app\":\"cmux-tui
 
 /// A brain daemon at `<home>/daemon/s.sock` that answers the identify probe
 /// with `identify`, then echoes one line of the spliced stream.
-fn fake_brain(home: &std::path::Path, identify: &'static str) -> (std::path::PathBuf, tokio::task::JoinHandle<Option<String>>) {
+fn fake_brain(
+    home: &std::path::Path,
+    identify: &'static str,
+) -> (std::path::PathBuf, tokio::task::JoinHandle<Option<String>>) {
     std::fs::create_dir_all(home.join("daemon")).unwrap();
     let socket = home.join("daemon/s.sock");
     let listener = tokio::net::UnixListener::bind(&socket).unwrap();
@@ -265,7 +272,10 @@ fn fake_brain(home: &std::path::Path, identify: &'static str) -> (std::path::Pat
         probe.read_line(&mut line).await.ok()?;
         probe.get_mut().write_all(identify.as_bytes()).await.ok()?;
         drop(probe);
-        let (session, _) = tokio::time::timeout(super::lines::HANDSHAKE_TIMEOUT, listener.accept()).await.ok()?.ok()?;
+        let (session, _) = tokio::time::timeout(super::lines::HANDSHAKE_TIMEOUT, listener.accept())
+            .await
+            .ok()?
+            .ok()?;
         let mut session = BufReader::new(session);
         let mut first = String::new();
         session.read_line(&mut first).await.ok()?;
@@ -276,7 +286,12 @@ fn fake_brain(home: &std::path::Path, identify: &'static str) -> (std::path::Pat
 }
 
 fn owner(socket: &std::path::Path, home: &std::path::Path, user: &str) -> OwnerSession {
-    OwnerSession { owner_user: user.into(), owner_team: "team_a".into(), socket: socket.to_path_buf(), brain_home: home.to_path_buf() }
+    OwnerSession {
+        owner_user: user.into(),
+        owner_team: "team_a".into(),
+        socket: socket.to_path_buf(),
+        brain_home: home.to_path_buf(),
+    }
 }
 
 /// RED (security): the server's owner reaches the brain daemon's trusted
@@ -292,12 +307,18 @@ async fn the_owner_reaches_the_brain_daemon_with_an_owner_session() {
     let (mut peer, link_side) = tokio::io::duplex(64 * 1024);
     let pairings = pairings();
     let task = tokio::spawn(async move {
-        serve_inbound(link_side, [2; 32], peer_addr("inst_b"), &pairings, &session, Some(&config)).await
+        serve_inbound(link_side, [2; 32], peer_addr("inst_b"), &pairings, &session, Some(&config))
+            .await
     });
-    peer.write_all(b"{\"service\":\"owner_session\"}\n{\"id\":7,\"cmd\":\"list-workspaces\"}\n").await.unwrap();
+    peer.write_all(b"{\"service\":\"owner_session\"}\n{\"id\":7,\"cmd\":\"list-workspaces\"}\n")
+        .await
+        .unwrap();
     let mut peer = BufReader::new(peer);
     let mut echoed = String::new();
-    tokio::time::timeout(super::lines::HANDSHAKE_TIMEOUT, peer.read_line(&mut echoed)).await.unwrap().unwrap();
+    tokio::time::timeout(super::lines::HANDSHAKE_TIMEOUT, peer.read_line(&mut echoed))
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(echoed, "{\"id\":7,\"cmd\":\"list-workspaces\"}\n");
     assert_eq!(brain.await.unwrap().as_deref(), Some("{\"id\":7,\"cmd\":\"list-workspaces\"}\n"));
     drop(peer);
@@ -318,19 +339,39 @@ async fn a_non_owner_or_a_non_brain_socket_gets_no_owner_session() {
     let not_owner = owner(&socket, &home, "someone_else");
     let (mut peer, link_side) = tokio::io::duplex(1024);
     peer.write_all(hello).await.unwrap();
-    let refused = serve_inbound(link_side, [2; 32], peer_addr("inst_b"), &pairings(), &session, Some(&not_owner)).await;
+    let refused = serve_inbound(
+        link_side,
+        [2; 32],
+        peer_addr("inst_b"),
+        &pairings(),
+        &session,
+        Some(&not_owner),
+    )
+    .await;
     assert_eq!(refused, Err(InboundRefused::Owner(OwnerRefused::NotOwner)));
 
     let (mut peer, link_side) = tokio::io::duplex(1024);
     peer.write_all(hello).await.unwrap();
-    let refused = serve_inbound(link_side, [2; 32], peer_addr("inst_b"), &pairings(), &session, None).await;
+    let refused =
+        serve_inbound(link_side, [2; 32], peer_addr("inst_b"), &pairings(), &session, None).await;
     assert_eq!(refused, Err(InboundRefused::Owner(OwnerRefused::NotConfigured)));
 
     let other_home = directory.path().join("other");
-    let (plain, _plain_task) = fake_brain(&other_home, "{\"id\":1,\"ok\":true,\"data\":{\"app\":\"cmux-tui\",\"capabilities\":[]}}\n");
+    let (plain, _plain_task) = fake_brain(
+        &other_home,
+        "{\"id\":1,\"ok\":true,\"data\":{\"app\":\"cmux-tui\",\"capabilities\":[]}}\n",
+    );
     let config = owner(&plain, &other_home, "42");
     let (mut peer, link_side) = tokio::io::duplex(1024);
     peer.write_all(hello).await.unwrap();
-    let refused = serve_inbound(link_side, [2; 32], peer_addr("inst_b"), &pairings(), &session, Some(&config)).await;
+    let refused = serve_inbound(
+        link_side,
+        [2; 32],
+        peer_addr("inst_b"),
+        &pairings(),
+        &session,
+        Some(&config),
+    )
+    .await;
     assert_eq!(refused, Err(InboundRefused::Owner(OwnerRefused::NotABrain)));
 }
