@@ -81,6 +81,7 @@ let package = Package(
                 .product(name: "CmuxBrowserStream", package: "CmuxBrowserStream"),
                 "CmuxiOSWorkspaces",
                 "CmuxiOSWorkspacesCore",
+                "CmuxiOSCloudCore",
                 "CmuxiOSTerminalLink",
                 "CmuxiOSPairing",
                 "CmuxiOSPairingCore",
@@ -461,6 +462,26 @@ let package = Package(
                 "CmuxiOSFeatureKit",
                 .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
                 .product(name: "CmuxControlPlane", package: "CmuxControlPlane"),
+            ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // Lane C12 (plans/cmux-next/ios-next/c12-cloud.md): the team's Cloud
+        // machines over CloudDO (/v1/read, /v1/ops, /v1/wire/cloud). No UIKit,
+        // so its tests also run on macOS.
+        .target(
+            name: "CmuxiOSCloudCore",
+            dependencies: [
+                "CmuxiOSFeatureKit",
+                .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
+            ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .testTarget(
+            name: "CmuxiOSCloudCoreTests",
+            dependencies: [
+                "CmuxiOSCloudCore",
+                "CmuxiOSFeatureKit",
+                .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
             ],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),

@@ -10,6 +10,7 @@ public enum FeatureSeam: String, CaseIterable, Hashable, Sendable {
     case devices
     case files
     case browser
+    case cloud
 
     /// The implementing lane id.
     public var lane: String {
@@ -21,6 +22,7 @@ public enum FeatureSeam: String, CaseIterable, Hashable, Sendable {
         case .devices: "B6/C11"
         case .files: "C4"
         case .browser: "C2"
+        case .cloud: "C12"
         }
     }
 
@@ -34,6 +36,7 @@ public enum FeatureSeam: String, CaseIterable, Hashable, Sendable {
         case .devices: "DeviceRegistry"
         case .files: "FileTransfer"
         case .browser: "BrowserStreamSource"
+        case .cloud: "CloudMachineSource"
         }
     }
 }

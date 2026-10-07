@@ -15,6 +15,8 @@ public struct RealFeatureFactories: Sendable {
     public var devices: (@Sendable () -> any DeviceRegistry)?
     public var files: (@Sendable () -> any FileTransfer)?
     public var browser: (@Sendable () -> any BrowserStreamSource)?
+    /// Lane C12: the team's Cloud machines (`CloudDO`).
+    public var cloud: (@Sendable () -> any CloudMachineSource)?
 
     public init() {}
 
@@ -27,6 +29,7 @@ public struct RealFeatureFactories: Sendable {
         case .devices: devices != nil
         case .files: files != nil
         case .browser: browser != nil
+        case .cloud: cloud != nil
         }
     }
 
@@ -51,7 +54,8 @@ public struct RealFeatureFactories: Sendable {
         let hosts = pick(.hosts, hosts) { MockHostsStore() as any HostsStore }
         let files = pick(.files, files) { MockFileTransfer() as any FileTransfer }
         let browser = pick(.browser, browser) { MockBrowserStreamSource() as any BrowserStreamSource }
+        let cloud = pick(.cloud, cloud) { MockCloudMachineSource() as any CloudMachineSource }
         return FeatureSources(feed: feed, workspaces: workspaces, composer: composer, hosts: hosts,
-                              devices: devices, files: files, browser: browser, resolved: resolved)
+                              devices: devices, files: files, browser: browser, cloud: cloud, resolved: resolved)
     }
 }
