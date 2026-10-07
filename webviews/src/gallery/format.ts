@@ -35,6 +35,11 @@ export type AgentPaneVariant = VariantBase & {
   ready?: Record<string, unknown>;
   /** The snapshot the bridge delivers after `ready`. */
   snapshot: AcpmuxSnapshot;
+  /** Answers to the pane's host calls by method, for a play step's click (`chat.queue.remove`). */
+  answers?: Record<string, unknown>;
+  /** The snapshot the bridge delivers after the pane makes a host call, by method: what acpmux
+   *  would send next (`chat.cancel`: the turn ends and the next queued prompt starts). */
+  then?: Record<string, AcpmuxSnapshot>;
 };
 
 /** The markdown editor page (src/pages/markdown) on an in-page cmuxPage host. */

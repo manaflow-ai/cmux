@@ -933,6 +933,82 @@ describe("acpmux composer queue", () => {
     }
   });
 
+  test("a queued prompt's edit and remove take its row out at once, and it comes back if it already started", async () => {
+    const root = createRoot(doc.getElementById("root")!);
+    const answers: Array<(removed: boolean) => void> = [];
+    const removed: string[] = [];
+    const edited: AcpmuxSnapshot["queue"] = [];
+    const render = async (queue: AcpmuxSnapshot["queue"], actions = true) => {
+      await act(async () =>
+        root.render(
+          createElement(Composer, {
+            snapshot: { ...snapshot({}, true), queue },
+            chips: () => null,
+            onSend: () => {},
+            onStop: () => {},
+            ...(actions && {
+              onQueueRemove: (id: string) => {
+                removed.push(id);
+                return new Promise<boolean>((resolve) => answers.push(resolve));
+              },
+              onQueueEdit: (entry: AcpmuxSnapshot["queue"][number]) => {
+                edited.push(entry);
+                return new Promise<boolean>((resolve) => answers.push(resolve));
+              },
+            }),
+          }),
+        ),
+      );
+      await ready();
+    };
+    const texts = () => [...doc.querySelectorAll(".acpmux-queued-text")].map((node) => node.textContent);
+    const marks = () => [...doc.querySelectorAll(".acpmux-queued-mark")].map((node) => node.textContent);
+    const click = async (index: number, label: string) => {
+      const row = doc.querySelectorAll(".acpmux-queued")[index]!;
+      await act(async () => row.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!.click());
+    };
+    const answer = async (value: boolean) => {
+      await act(async () => answers.shift()!(value));
+      await ready();
+    };
+    const queue = [
+      { id: "p1", prompt: "first" },
+      { id: "p2", prompt: "second" },
+    ];
+    try {
+      await render(queue, false);
+      expect(doc.querySelectorAll(".acpmux-queued button")).toHaveLength(0);
+      await render(queue);
+      expect([...doc.querySelectorAll(".acpmux-queued")[0]!.querySelectorAll("button")].map((b) => b.title)).toEqual([
+        "Edit queued prompt",
+        "Remove queued prompt",
+      ]);
+
+      // Gone on click, before acpmux answers; the rest renumber.
+      await click(0, "Remove queued prompt");
+      expect(removed).toEqual(["p1"]);
+      expect(texts()).toEqual(["second"]);
+      expect(marks()).toEqual(["1"]);
+      // It had already started: the row comes back until the turn takes it.
+      await answer(false);
+      expect(texts()).toEqual(["first", "second"]);
+
+      await click(0, "Remove queued prompt");
+      await answer(true);
+      expect(texts()).toEqual(["second"]);
+      await render(queue.slice(1));
+      expect(texts()).toEqual(["second"]);
+
+      await click(0, "Edit queued prompt");
+      expect(edited).toEqual([{ id: "p2", prompt: "second" }]);
+      expect(doc.querySelector(".acpmux-composer-queue")).toBeNull();
+      await answer(true);
+      expect(doc.querySelector(".acpmux-composer-queue")).toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+
   test("a queued prompt shows its full text as a tooltip only when its line is cut off", async () => {
     const root = createRoot(doc.getElementById("root")!);
     try {

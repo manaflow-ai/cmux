@@ -192,6 +192,12 @@ function callNative<T>(method: string, params: Record<string, unknown> = {}): Pr
   return postNative<T>(method, params);
 }
 
+/// Withdraws a queued prompt before its turn starts; false when it already started.
+const removeQueued = (promptId: string) =>
+  callNative<{ removed?: boolean } | null>("chat.queue.remove", { promptId }).then(
+    (result) => result?.removed === true,
+  );
+
 /// Asks the host to show the Quick Composer's chat in a window.
 const postOpenInWindow = (sessionId: string) =>
   void callNative(QUICK_MESSAGES.openInWindow, { sessionId }).catch(() => undefined);
@@ -1608,6 +1614,7 @@ function AcpmuxPane() {
           "chat.send": ({ text, attachments }) =>
             send(String(text ?? ""), Array.isArray(attachments) ? attachments : []),
           "chat.cancel": () => client.cancel(),
+          "chat.queue.remove": ({ promptId }) => client.removeQueued(String(promptId)),
           "chat.permission": ({ permissionId, optionId }) => client.permission(String(permissionId), String(optionId)),
           "chat.permission_group.respond": ({ groupId, revision, decision }) =>
             client.permissionGroup(String(groupId), Number(revision), decision as PermissionDecision),
@@ -2048,6 +2055,13 @@ function AcpmuxPane() {
           send().then(() => promptLanded.current(), cancelOpenInWindow);
         }}
         onStop={() => void callNative("chat.cancel")}
+        onQueueRemove={removeQueued}
+        onQueueEdit={(entry) =>
+          removeQueued(entry.id).then((removed) => {
+            if (removed) composerHandle.current?.restore(entry.prompt, []);
+            return removed;
+          })
+        }
         onProject={chooseProject}
         projectChoices={freshChat && !quick ? newTabProjects : undefined}
         onBrowseProject={

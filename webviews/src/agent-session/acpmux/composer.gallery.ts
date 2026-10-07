@@ -6,6 +6,12 @@ import { agentPaneEntry } from "../../gallery/format";
 import { assistant, chat, CWD, noChat, session, summary, user } from "../../gallery/fixtures/acpmux";
 
 const working = [user("Add retries", 1), assistant("Reading the helper…", 0.5, { streaming: true })];
+// Three prompts waiting for the running turn.
+const waiting = [
+  { id: "q1", prompt: "Then add a test for the 429 path" },
+  { id: "q2", prompt: "And update the README" },
+  { id: "q3", prompt: "Run the whole suite" },
+];
 const finished = [
   user("Add retries with backoff to the fetch helper", 10),
   assistant("Done: GETs retry, POSTs only with a policy.", 9),
@@ -90,6 +96,30 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.hover({ text: /^Once the retries land/ });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-queued-text[title]"));
+      },
+    },
+    "queued-send-remove": {
+      note: "Play: remove the first waiting prompt from its row, then Stop: the turn ends and the next prompt is sent. Neither moves the composer, the transcript or the rows below.",
+      snapshot: chat(working, { isWorking: true, queue: waiting }),
+      answers: { "chat.queue.remove": { removed: true } },
+      then: {
+        // acpmux ends the turn and starts the next queued prompt (q2): its rows join the transcript.
+        "chat.cancel": chat(
+          [
+            working[0]!,
+            { ...working[1]!, version: 2, streaming: false },
+            user("And update the README", 0),
+            assistant("Looking at the README…", 0, { streaming: true }),
+          ],
+          { isWorking: true, queue: waiting.slice(2) },
+        ),
+      },
+      play: async (ctx) => {
+        await ctx.hover({ text: "Then add a test for the 429 path" });
+        await ctx.click({ selector: '.acpmux-queued:first-child button[aria-label="Remove queued prompt"]' });
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-queued").length === 2);
+        await ctx.click({ role: "button", name: "Stop" });
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-queued").length === 1);
       },
     },
     "codex-model": {
