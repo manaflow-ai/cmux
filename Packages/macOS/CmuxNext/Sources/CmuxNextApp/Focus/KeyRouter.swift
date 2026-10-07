@@ -126,9 +126,10 @@ final class KeyRouter: BrowserKeyRouting {
     private func decide(_ event: NSEvent, focus: FocusState, context: KeyContext) -> Decision {
         if let candidate = candidate(for: event, context: context, focus: focus) {
             if case .ghostty = candidate.source {
-                // A terminal runs its own Ghostty keybinds; a Ghostty
-                // keybind never runs a content action from elsewhere.
-                if case .terminal = focus.resolved { return .deliver }
+                // A terminal runs its own Ghostty keybinds (in copy mode,
+                // which takes keys before Ghostty, the routed action runs);
+                // a Ghostty keybind never runs a content action from elsewhere.
+                if case .terminal = focus.resolved, !WhenClause.has(KeyContext.terminalCopyMode).evaluate(context) { return .deliver }
                 if candidate.tier == .content { return .deliver }
             }
             if Self.allows(candidate.tier, id: candidate.id, focus: focus) { return .run(candidate) }

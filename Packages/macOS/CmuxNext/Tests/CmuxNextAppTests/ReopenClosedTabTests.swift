@@ -95,4 +95,17 @@ struct ReopenClosedTabTests {
         #expect(DaemonService.closeCommand(for: tab, reaps: true).label == "close-surface")
         #expect(DaemonService.closeCommand(for: tab, reaps: false).label == "close-terminal")
     }
+
+    /// `terminal-reap-v1` says the daemon can reap; only
+    /// `terminal-reaper-active-v1` says its reaper runs. An owner started
+    /// without a reap grace keeps detached terminals until the session ends,
+    /// so there a closed tab ends its terminal (nxdog61: 5 hosts outlived
+    /// every workspace).
+    @Test func closingDetachesOnlyWhileTheOwnersReaperRuns() {
+        let canReap: Set<String> = ["terminal-reap-v1"]
+        #expect(!DaemonService.reapsDetachedTerminals { canReap.contains($0) })
+        let reaping: Set<String> = ["terminal-reap-v1", "terminal-reaper-active-v1"]
+        #expect(DaemonService.reapsDetachedTerminals { reaping.contains($0) })
+        #expect(!DaemonService.reapsDetachedTerminals { _ in false })
+    }
 }

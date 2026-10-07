@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "b97b29ea6eb2cf4288745d8799d73ad8f53fcd5b147b5ee27e370671ee57a1a1";
+pub const ir_sha256 = "574ef12717291a1170f2fdd5a2fe27916a8af26ab9e64b532916dbb0fbee870e";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -352,6 +352,14 @@ pub const ConversationChange = struct {
         "participant",
         "seq",
     };
+};
+
+pub const ConversationImportMessage = struct {
+    author: []const u8,
+    client_msg_id: []const u8,
+    created_at: []const u8,
+    id: wire.Field([]const u8) = .absent,
+    parts: []const ConversationPart,
 };
 
 pub const ConversationMessage = struct {
@@ -987,9 +995,14 @@ pub const MintTerminalRendererResult = struct {
     incarnation: []const u8,
     protocol_version: u16,
     rights: u32,
+    supports_viewer_size_priority: ?bool = null,
     terminal_id: []const u8,
     token: []const u8,
     ttl_ms: u64,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "supports_viewer_size_priority",
+    };
 };
 
 pub const MoveTerminalResult = struct {
@@ -3875,6 +3888,30 @@ pub fn conversationHistory(client: anytype, request: ConversationHistoryRequest)
         ConversationHistoryResult,
         .{
             .name = "conversation-history",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "local-conversations-v1",
+        },
+        request,
+    );
+}
+
+pub const ConversationImportRequest = struct {
+    conversation: []const u8,
+    messages: []const ConversationImportMessage,
+};
+
+pub const ConversationImportResult = struct {
+    conversation: ConversationSummary,
+    imported: []const u64,
+    skipped: u64,
+};
+
+pub fn conversationImport(client: anytype, request: ConversationImportRequest) !wire.Decoded(ConversationImportResult) {
+    return client.callTyped(
+        ConversationImportResult,
+        .{
+            .name = "conversation-import",
             .authority = "local-admin",
             .since = 12,
             .capability = "local-conversations-v1",
@@ -9263,7 +9300,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 231;
+pub const command_count: usize = 232;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -9314,6 +9351,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "conversation-bind", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
     .{ .name = "conversation-create", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
     .{ .name = "conversation-history", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
+    .{ .name = "conversation-import", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
     .{ .name = "conversation-list", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
     .{ .name = "conversation-op", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
     .{ .name = "conversation-search", .authority = "local-admin", .since = 12, .capability = "conversation-search-v1", .stream = null },

@@ -11,6 +11,7 @@ import Testing
 
     @Test func backAndForwardFollowTheTrail() async throws {
         let services = ActionBindingCoverageTests.boundServices()
+        try await Wiring.useEverythingSteps(services)
         services.windows.ordersWindowsIn = false
         services.daemon.store.apply(snapshot: try Wiring.tree(tabs: [7, 8]))
         let controller = try #require(services.windows.openWindow(workspaces: [Wiring.key]))

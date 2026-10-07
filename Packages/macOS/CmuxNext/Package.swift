@@ -29,8 +29,8 @@ import PackageDescription
 //     Chromium framework load later from another thread; plans/cmux-next/browser-isolation.md)
 //   CmuxNextBrowserImport -> system frameworks only (browser detection, parsers, importer; no UI)
 //   CmuxNextOnboarding -> Design, BrowserImport (first-run window; the App supplies OnboardingServices)
-//   CmuxNextHome -> Design, Wakeups (Home conversations: virtualized CALayer transcript, list, composer;
-//     no daemon; the App maps the conversation mirror and intent log into HomeTranscriptSource)
+//   CmuxNextHome -> Design, Wakeups, MessagesLabHome (the Home transcript: MessagesLabAppKitNative's
+//     vendored code over the shared HomeStore; no daemon; plans/cmux-next/home-mac.md)
 //   CmuxNextHistory -> Design (history model, SQLite visit log, cmux://history page; no daemon)
 //   CmuxNextPages -> Design, Settings (the one host for React pages: PageWebView, cmux-page://<id>/
 //     scheme, engine-neutral bridge, PageRouter + PageProvider; no daemon; the App supplies providers;
@@ -100,8 +100,8 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// when the FFI sources differ from the pinned source sha.
 let appFFI: Target = .binaryTarget(
     name: "CCmuxAppFFI",
-    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-2914fa520b6d7ae10f961fdb57966d8d976a4276/CCmuxAppFFI.xcframework.zip",
-    checksum: "5a0cdcdab75b99d71c41506292315ef94f5bba74927ce19364a0d28fa8639dc8"
+    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-66ca6e66e8e5d53af1d4bbc3f50fa1ee318b1fee/CCmuxAppFFI.xcframework.zip",
+    checksum: "e976842d62e8e651940d968beb452563cf17281351e3cc411cd43af98cc3ac9d"
 )
 
 let package = Package(
@@ -124,6 +124,8 @@ let package = Package(
         .package(path: "../../Shared/CmuxAgentCursor"),
         .package(path: "../../Shared/CmuxHomeCore"),
         .package(path: "../../Shared/CmuxHomeRender"),
+        // The Mac Home transcript: MessagesLabAppKitNative, vendored (home-mac.md).
+        .package(path: "../../Shared/CmuxMessagesLab"),
         .package(path: "../../Shared/CmuxIrxTransport"),
         // Sparkle driver shared with the legacy app (no bonsplit, no legacy deps).
         .package(path: "../CmuxUpdater"),
@@ -303,22 +305,23 @@ let package = Package(
         .target(
             name: "CmuxNextHome",
             dependencies: [
-                "CmuxNextDesign", "CmuxNextWakeups",
+                "CmuxNextDesign", "CmuxNextIcons", "CmuxNextWakeups",
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
+                .product(name: "MessagesLabHome", package: "CmuxMessagesLab"),
             ],
             resources: [
                 .process("Resources"),
             ],
-            swiftSettings: uiSwiftSettings,
-            linkerSettings: [.linkedLibrary("sqlite3")]
+            swiftSettings: uiSwiftSettings
         ),
         .testTarget(
             name: "CmuxNextHomeTests",
             dependencies: [
-                "CmuxNextHome", "CmuxNextDesign",
+                "CmuxNextHome", "CmuxNextDesign", "CmuxNextIcons",
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
+                .product(name: "MessagesLabHome", package: "CmuxMessagesLab"),
             ],
             swiftSettings: uiSwiftSettings
         ),
@@ -475,7 +478,7 @@ let package = Package(
         // feed owner; the App supplies the source.
         .target(
             name: "CmuxNextFeed",
-            dependencies: ["CmuxNextDesign", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextDesign", "CmuxNextIcons", "CmuxNextWakeups"],
             resources: [
                 .process("Resources"),
             ],
@@ -483,7 +486,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextFeedTests",
-            dependencies: ["CmuxNextFeed"],
+            dependencies: ["CmuxNextFeed", "CmuxNextIcons"],
             swiftSettings: uiSwiftSettings
         ),
         // Remote desktop pane (plans/cmux-next/remote-desktop.md section 7):
@@ -801,7 +804,7 @@ let package = Package(
         ),
         .target(
             name: "CmuxNextLayout",
-            dependencies: ["CmuxNextWakeups", "CmuxNextDesign"],
+            dependencies: ["CmuxNextWakeups", "CmuxNextDesign", "CmuxNextIcons"],
             resources: [
                 .process("Resources"),
             ],
@@ -809,7 +812,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextLayoutTests",
-            dependencies: ["CmuxNextWakeups", "CmuxNextLayout"],
+            dependencies: ["CmuxNextWakeups", "CmuxNextLayout", "CmuxNextIcons"],
             swiftSettings: uiSwiftSettings
         ),
         .target(

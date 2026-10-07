@@ -2,16 +2,28 @@ import AppKit
 import CmuxHomeRender
 import CmuxNextDesign
 
-/// The render core's palette from the cmux-next theme: the sent bubble uses
-/// the theme's text colour (as the Home transcript does), never a fixed blue.
-/// Users may pick another accent; `accentOverride` carries it.
+/// The render core's palette from the cmux-next theme. The sent bubble is
+/// iMessage blue on every theme (Lawrence, 2026-10-05 evening, replacing the
+/// theme-accent rule of that morning): MessagesLab's measured Display P3 blue
+/// and gradient with white text (`Fixture`, `measuredAccent`). Only an
+/// accent the caller chooses (`accentOverride`) replaces it.
 enum HomeThemePalette {
+    /// MessagesLab's measured sent-bubble blue (catalyst Fixture.outgoing).
+    static let messagesBlue = NSColor(srgbRed: 2 / 255, green: 132 / 255, blue: 254 / 255, alpha: 1)
+
+    /// Whether the sent bubble is MessagesLab's blue: no chosen accent,
+    /// whatever the theme. Callers run inside `performWithTheme`.
+    static func usesMessagesBlueInScope(accentOverride: NSColor? = nil) -> Bool { // theme-scoped
+        accentOverride == nil
+    }
+
     /// Resolves the tokens; callers run inside `performWithTheme` (theme-scoped).
     static func resolveInScope(active: Bool, accentOverride: NSColor? = nil) -> HomePalette { // theme-scoped
+        let accent = accentOverride ?? messagesBlue
         let theme = HomePalette.Theme(
             background: color(Palette.windowBackground, opaque: true),
             foreground: color(Palette.textPrimary, opaque: true),
-            accent: color(accentOverride ?? Palette.textPrimary, opaque: true),
+            accent: color(accent, opaque: true),
             failure: color(Palette.danger, opaque: true))
         var palette = HomePalette.themed(theme, active: active)
         // One window background (plans/cmux-next/windows.md): the scene

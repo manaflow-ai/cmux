@@ -24,18 +24,15 @@ import Testing
         let window = try #require(harness.window.window)
         let cache = FileManager.default.temporaryDirectory.appendingPathComponent("l16-action-\(UUID().uuidString)")
         let store = HomeStore(source: MockHomeSource(options: .immediate), blobCacheDirectory: cache)
-        let view = HomeNativeTranscriptView(conversation: ConversationID("conv_action"), me: ParticipantID("user_me"))
+        let view = HomeNativeTranscriptView(store: store, conversation: ConversationID("conv_action"), me: ParticipantID("user_me"))
         view.frame = CGRect(x: 0, y: 0, width: 600, height: 700)
         window.contentView?.addSubview(view)
-        defer { view.removeFromSuperview() }
-        let binding = HomeStoreBinding(store: store, controller: view.controller)
-        defer { binding.stop() }
-        view.connect(binding)
+        defer { view.removeFromSuperview(); view.stop() }
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString)-plan.pdf")
         try Data("x".utf8).write(to: file)
         try await ViewChangePermissionTests.run(harness, "home.attachFiles", origin: "cli", arguments: ["path": .string(file.path)])
         await view.attachmentsReady()
-        #expect(view.field.draftAttachments.map(\.ref.name) == [file.lastPathComponent], "the CLI's file is a chip")
+        #expect(view.transcript.draftAttachments.map(\.ref.name) == [file.lastPathComponent], "the CLI's file is a chip")
     }
 
     @Test func withNoHomeShownTheActionRefuses() async throws {

@@ -29,8 +29,11 @@ const unreachable = (ws: WebSocket, message: string | ArrayBuffer) => {
 
 type ChiefGrant = { ok: true; op_classes: ReadonlyArray<string> } | { ok: false }
 
-/** A chief token of a paired server acting as its placed chief: its socket's chief rights are confirmed per mutating frame. */
-const placedChiefToken = (p: Principal) => p.kind === "install" && !!p.agent && p.install_kind === "daemon" && (p.grant_classes ?? []).includes("mutate-shared")
+/**
+ * A chief token holding mutate-shared (a paired server acting as its placed chief): its socket's chief rights are
+ * confirmed per mutating frame. No install_kind condition: a path that leaves it out still gets the check (fail closed).
+ */
+const placedChiefToken = (p: Principal) => p.kind === "install" && !!p.agent && (p.grant_classes ?? []).includes("mutate-shared")
 
 /** An op frame that writes (an unknown op counts as one: fail closed). */
 const mutatingFrame = (message: string | ArrayBuffer): { key?: string } | null => {

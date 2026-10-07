@@ -60,6 +60,14 @@ jobs:
           echo "CMUX_BROWSER_HOST_TEST_CHROME=$path" >> "$GITHUB_ENV"
           echo "Using Chromium at $path"
 
+      # The headful tests (a_headful_tab_gets_its_first_click,
+      # headful_leaves_a_persons_chooser_to_the_browser) start their own Xvfb.
+      - name: Install Xvfb for the headful tests
+        run: |
+          set -euo pipefail
+          command -v Xvfb >/dev/null || { sudo apt-get update -q && sudo apt-get install -y -q xvfb; }
+          command -v Xvfb
+
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
 
@@ -73,4 +81,12 @@ jobs:
             echo "::error::no ignored Chromium test selected" >&2
             exit 1
           }
-          cargo test -p cmux-browser-host --test chromium --locked -- --ignored
+          cargo test -p cmux-browser-host --test chromium --locked -- --ignored \
+            | tee "$RUNNER_TEMP/results.txt"
+          # The headful tests ran (not filtered out or skipped) and passed.
+          for name in a_headful_tab_gets_its_first_click headful_leaves_a_persons_chooser_to_the_browser; do
+            grep -Eq "test files::$name \.\.\. ok$" "$RUNNER_TEMP/results.txt" || {
+              echo "::error::headful test $name did not run and pass" >&2
+              exit 1
+            }
+          done

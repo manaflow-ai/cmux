@@ -17,6 +17,12 @@ pub mod engines;
 pub mod fs_sandbox;
 pub mod gate;
 #[cfg(unix)]
+pub mod headless_activity;
+#[cfg(unix)]
+pub mod headless_configure;
+#[cfg(unix)]
+pub mod headless_routes;
+#[cfg(unix)]
 pub mod headless_source;
 pub mod host;
 pub mod idle_exit;

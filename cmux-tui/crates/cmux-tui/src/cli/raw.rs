@@ -41,7 +41,7 @@ pub(super) fn run(global: GlobalArgs, plan: RawCommandPlan) -> i32 {
     let stream = match cmux_tui_core::server::connect_session_socket(&socket, socket_is_derived) {
         Ok(stream) => stream,
         Err(error) => {
-            eprintln!("cannot connect to session socket {}: {error}", socket.display());
+            eprintln!("{}", super::wire::connect_failure(&socket, &error));
             return 3;
         }
     };

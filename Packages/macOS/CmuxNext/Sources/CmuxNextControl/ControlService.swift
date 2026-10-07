@@ -57,7 +57,10 @@ public final class ControlService {
             build: bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0",
             bundleID: launch.bundleID,
             tag: launch.tag,
-            processID: getpid()
+            processID: getpid(),
+            appBundlePath: bundle.bundleURL.path,
+            appCLIPath: bundle.resourceURL.map { $0.appendingPathComponent("bin/cmux").path }
+                .flatMap { FileManager.default.isExecutableFile(atPath: $0) ? $0 : nil }
         )
         return try start(
             registry: registry,

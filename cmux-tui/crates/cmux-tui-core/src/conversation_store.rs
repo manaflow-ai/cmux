@@ -22,6 +22,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
+#[path = "conversation_import.rs"]
+mod import;
+pub(crate) use import::ImportedMessage;
+
 /// The store's file inside the session state directory.
 pub(crate) const CONVERSATIONS_FILE: &str = "conversations.sqlite3";
 /// 2: the op ledger is keyed by actor too (`op_ledger_v2`) and the agent loop

@@ -2,6 +2,7 @@
 
 use crate::cli::command::*;
 use crate::cli::output::*;
+use crate::cli::session_folder::new_session_cwd;
 use crate::cli::{errors, orchestrate};
 use crate::client::Client;
 use crate::config::{Config, home};
@@ -9,7 +10,6 @@ use crate::daemon::connect;
 use crate::rpc::method;
 use anyhow::{Result, anyhow};
 use serde_json::{Value, json};
-use std::path::PathBuf;
 mod permission;
 pub(crate) use permission::answer_permission;
 
@@ -275,6 +275,8 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
             Ok(())
         }
         Command::New(args) => {
+            // Checked before connecting, so the error needs no daemon.
+            let cwd = new_session_cwd(args.host.as_deref(), args.cwd.clone())?;
             let client = connect(true).await?;
             if let Some(n) = &args.name {
                 crate::session_name::validate(n).map_err(|e| anyhow!(e))?;
@@ -293,12 +295,6 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
             if let Some(h) = &args.host {
                 meta["peer"] = json!(h);
             }
-            // On a peer the directory is a remote path; leave it to the
-            // remote daemon (its home) unless given.
-            let cwd: Option<PathBuf> = match (&args.host, args.cwd) {
-                (Some(_), c) => c,
-                (None, c) => Some(c.unwrap_or(std::env::current_dir()?)),
-            };
             if let Some(n) = &args.name {
                 meta["name"] = json!(n);
             }
@@ -309,9 +305,7 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
                 meta["effort"] = json!(e);
             }
             let mut p = json!({"mcpServers": [], "_meta": {"acpmux": meta}});
-            if let Some(c) = cwd {
-                p["cwd"] = json!(c);
-            }
+            p["cwd"] = json!(cwd);
             let v = client.request(method::SESSION_NEW, p).await?;
             let id = v.get("sessionId").and_then(Value::as_str).unwrap_or("").to_owned();
             let name =
@@ -838,21 +832,7 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
             }
             Ok(())
         }
-        Command::Shutdown => {
-            let client = connect(false).await?;
-            let _ = client.request(method::MUX_SHUTDOWN, json!({})).await;
-            // The daemon holds its lock until it exits, so a `daemon start`
-            // right after this cannot lose the lock to the stopping one.
-            let stopped = crate::daemon::wait_for_exit().await;
-            if json_out {
-                print_json(&json!({"stopped": stopped}));
-            } else if stopped {
-                println!("stopped");
-            } else {
-                println!("shutdown requested");
-            }
-            Ok(())
-        }
+        Command::Shutdown { keep_agents } => crate::cli::shutdown::run(keep_agents, json_out).await,
         Command::Config => {
             let path = Config::path();
             if json_out {
@@ -962,6 +942,7 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
         | Command::Stdio { .. }
         | Command::Session(_)
         | Command::Daemon(_)
+        | Command::Harness(_)
         | Command::Host(_) => {
             unreachable!()
         }

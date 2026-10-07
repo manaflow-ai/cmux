@@ -67,8 +67,7 @@ async function mount(extra: Record<string, unknown> = {}) {
         onAsk: record("ask"),
         onOpen: record("open"),
         onSearch: record("search"),
-        onTerminal: record("terminal"),
-        onTypeAhead: record("typeAhead"),
+        onShell: record("shell"),
         onJump: record("jump"),
         onOpenSession: record("session"),
         onShowAll: record("all"),
@@ -103,29 +102,41 @@ test("the field has the keyboard when the screen appears, and the cards show rec
   await act(async () => root.unmount());
 });
 
-test("! turns the tab into a terminal at once and forwards what follows", async () => {
-  const { container, root, type, calls } = await mount();
+test("! puts the field in shell mode in place: no terminal, no rows, the cards stay", async () => {
+  const { container, root, field, type, calls } = await mount();
   await type("!");
-  expect(calls).toEqual(["terminal:"]);
-  expect(container.querySelector(".nt-chats")).toBeNull();
-  await type("!gi");
-  await type("!git status");
-  expect(calls).toEqual(["terminal:", "typeAhead:gi", "typeAhead:git status"]);
+  expect(calls).toEqual([]);
+  const screen = container.querySelector(".nt-screen")!;
+  expect(screen.hasAttribute("data-shell")).toBe(true);
+  expect(field.value).toBe("");
+  expect(container.querySelector(".nt-shell-glyph")?.textContent).toBe("!");
+  await type("git status");
+  expect(container.querySelector(".nt-rows")).toBeNull();
+  // Stability: the recent chats do not unmount for a mode.
+  expect(container.querySelectorAll(".nt-card").length).toBeGreaterThan(0);
+  expect(dom.window.document.activeElement).toBe(field);
   await act(async () => root.unmount());
 });
 
-// R81: the "!" frame shows the terminal at once (a placeholder over the same background, the
-// typed command and a cursor) while the daemon starts the shell; the field keeps the keyboard.
-test("! shows a terminal placeholder in the same render, echoing what is typed", async () => {
-  const { container, root, field, type } = await mount();
+// The page's folder is added by screenActions (screenActions.test.ts).
+test("Enter in shell mode hands the command to a chat; no terminal opens", async () => {
+  const { root, type, key, calls } = await mount();
+  await type("!npm test");
+  await key("Enter");
+  expect(calls).toEqual(["shell:npm test"]);
+  await act(async () => root.unmount());
+});
+
+test("Backspace on an empty command and Escape leave shell mode, keeping what was typed", async () => {
+  const { container, root, field, type, key } = await mount();
   await type("!");
-  const terminal = container.querySelector(".nt-terminal");
-  expect(terminal).not.toBeNull();
-  expect(container.querySelector(".nt-screen")!.hasAttribute("data-converting")).toBe(true);
-  expect(container.querySelector(".nt-terminal .nt-cursor")).not.toBeNull();
-  await type("!ls -la");
-  expect(container.querySelector(".nt-terminal-command")!.textContent).toBe("ls -la");
-  expect(dom.window.document.activeElement).toBe(field);
+  await key("Backspace");
+  expect(container.querySelector(".nt-screen")!.hasAttribute("data-shell")).toBe(false);
+  await type("!");
+  await type("ls");
+  await key("Escape");
+  expect(container.querySelector(".nt-screen")!.hasAttribute("data-shell")).toBe(false);
+  expect(field.value).toBe("ls");
   await act(async () => root.unmount());
 });
 

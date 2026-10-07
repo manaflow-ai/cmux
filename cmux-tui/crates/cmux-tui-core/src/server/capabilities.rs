@@ -4,12 +4,16 @@
 use super::*;
 
 /// `identify`'s capabilities: the static set plus `cloud-conversations-v1`
-/// when the binary installed a cloud transport.
+/// when the binary installed a cloud transport, and
+/// `terminal-reaper-active-v1` while the unplaced-terminal reaper runs.
 pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     let mut capabilities = advertised_capabilities(cfg!(unix));
     capabilities.push(activity::CAPABILITY);
     if mux.cloud_conversations().is_some() {
         capabilities.push(cloud_conversations::CAPABILITY);
+    }
+    if mux.terminal_reaper_running() {
+        capabilities.push(TERMINAL_REAPER_ACTIVE_CAPABILITY);
     }
     capabilities
 }
@@ -98,6 +102,7 @@ pub(super) fn advertised_capabilities(
         FRONTEND_BROWSER_OWNER_CAPABILITY,
         crate::state::frontend_browser_keys::FRONTEND_BROWSER_TAB_KEYS_CAPABILITY,
         crate::state::home_store::WORKSPACE_KIND_CAPABILITY,
+        crate::state::agent_folder::CAPABILITY,
         crate::state::personal_order::PERSONAL_MIXED_ORDER_CAPABILITY,
         crate::state::conversation_tabs_store::CONVERSATION_TABS_CAPABILITY,
         crate::state::conversation_tabs_store::AGENT_SESSION_TABS_CAPABILITY,
@@ -120,4 +125,24 @@ pub(super) fn advertised_capabilities(
     #[cfg(unix)]
     capabilities.extend(crate::fs_ops::advertised());
     capabilities
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{SurfaceOptions, start_terminal_reaper};
+
+    /// A client decides from `identify` whether closing a tab may only
+    /// detach its terminal: that is safe only while the reaper runs.
+    #[test]
+    fn identify_advertises_the_reaper_only_while_it_runs() {
+        let mux = Mux::new_for_test("reaper-capability", SurfaceOptions::default());
+        assert!(identify_capabilities(&mux).contains(&TERMINAL_REAP_CAPABILITY));
+        assert!(!identify_capabilities(&mux).contains(&TERMINAL_REAPER_ACTIVE_CAPABILITY));
+        let reaper = start_terminal_reaper(&mux).unwrap();
+        assert!(identify_capabilities(&mux).contains(&TERMINAL_REAPER_ACTIVE_CAPABILITY));
+        reaper.stop();
+        assert!(!identify_capabilities(&mux).contains(&TERMINAL_REAPER_ACTIVE_CAPABILITY));
+        assert!(identify_capabilities(&mux).contains(&TERMINAL_REAP_CAPABILITY));
+    }
 }

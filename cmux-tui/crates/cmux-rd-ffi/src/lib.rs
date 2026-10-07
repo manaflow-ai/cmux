@@ -9,6 +9,7 @@
 
 mod input;
 mod input_ffi;
+mod rb_client_ffi;
 mod receiver;
 mod session;
 mod session_ffi;
@@ -16,16 +17,17 @@ mod session_ffi;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use cmux_rd_core::reassembly::CompleteFrame;
-use cmux_rd_proto::{STREAM_CONTROL, STREAM_DATAGRAM, encode_stream_frame};
+use cmux_rd_proto::{STREAM_BULK, STREAM_CONTROL, STREAM_DATAGRAM, encode_stream_frame};
 
 pub use input::InputChannel;
 pub use input_ffi::*;
+pub use rb_client_ffi::*;
 pub use receiver::{Carrier, Message, Receiver, ReceiverError, Stats};
 pub use session::{MAX_STREAMS, Session, SessionError};
 pub use session_ffi::*;
 
 /// Version of the C ABI (`CMUX_RD_FFI_ABI_VERSION`).
-pub const ABI_VERSION: u32 = 1;
+pub const ABI_VERSION: u32 = 2;
 
 pub const CMUX_RD_OK: i32 = 0;
 pub const CMUX_RD_ERR_NULL: i32 = -1;
@@ -35,6 +37,10 @@ pub const CMUX_RD_ERR_CARRIER: i32 = -4;
 pub const CMUX_RD_ERR_FAILED: i32 = -5;
 pub const CMUX_RD_ERR_PANIC: i32 = -6;
 
+/// Frame flag of a lossless tile frame (`CMUX_RD_FLAG_TILE`, rd change C3).
+pub const CMUX_RD_FLAG_TILE: u32 = 0x08;
+/// Message kind of a bulk chunk (`CMUX_RD_MESSAGE_BULK`, rd change C5).
+pub const CMUX_RD_MESSAGE_BULK: u32 = 3;
 pub const CMUX_RD_CARRIER_DATAGRAM: u32 = 0;
 pub const CMUX_RD_CARRIER_STREAM: u32 = 1;
 
@@ -427,7 +433,7 @@ pub unsafe extern "C" fn cmux_rd_encode_stream_frame(
     // SAFETY: guaranteed by the caller.
     let Some(payload) = (unsafe { bytes_in(payload, len) }) else { return CMUX_RD_ERR_NULL };
     let Ok(kind) = u8::try_from(kind) else { return CMUX_RD_ERR_INVALID };
-    if !matches!(kind, STREAM_CONTROL | STREAM_DATAGRAM) {
+    if !matches!(kind, STREAM_CONTROL | STREAM_DATAGRAM | STREAM_BULK) {
         return CMUX_RD_ERR_INVALID;
     }
     catch_unwind(|| {
@@ -443,6 +449,8 @@ pub unsafe extern "C" fn cmux_rd_encode_stream_frame(
 
 #[cfg(test)]
 mod input_tests;
+#[cfg(test)]
+mod rb_client_tests;
 #[cfg(test)]
 mod session_tests;
 #[cfg(test)]

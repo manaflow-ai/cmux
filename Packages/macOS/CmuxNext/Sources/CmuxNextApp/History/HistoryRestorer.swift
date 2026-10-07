@@ -64,7 +64,10 @@ struct HistoryRestorer {
                 services.closedWorkspaces.restore(record)
                 return services.registry.refuse(HistoryAppStrings.reopenWorkspaceOnMachine(record.machine))
             }
-            WorkspaceHandlers.createAndShow(context, name: record.name, cwd: record.cwd)
+            // A reopen gets a new workspace id; the closed workspace's agent-home folder (its chat
+            // files) moves to it before its first chat (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE).
+            let key = services.closedWorkspaces.reopenKey(for: record)
+            WorkspaceHandlers.createAndShow(context, name: record.name, cwd: record.cwd, key: key)
         }
     }
 

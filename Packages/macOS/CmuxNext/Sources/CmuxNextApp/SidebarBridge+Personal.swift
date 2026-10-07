@@ -42,8 +42,8 @@ extension SidebarBridge {
             personal("create-personal-group") { connection in
                 // The v2 operation names the group itself.
                 let created = v2 ? WorkspaceGroupID(rawValue: try await connection.state.createWorkspaceGroup(
-                    name: name, room: room.rawValue, color: color.rawValue, index: move).id)
-                    : try await connection.createPersonalGroup(name: name, id: id, room: room, color: color.rawValue).id
+                    name: SidebarGroup.named(name), room: room.rawValue, color: color.rawValue, index: move).id)
+                    : try await connection.createPersonalGroup(name: SidebarGroup.named(name), id: id, room: room, color: color.rawValue).id
                 if top != .unchanged { try await connection.state.updateWorkspaceGroup(created.rawValue, topIndex: top) }
                 for workspace in members {
                     try await connection.state.placePersonalWorkspace(session: workspace.session, key: workspace.key, resource: workspace.resource,

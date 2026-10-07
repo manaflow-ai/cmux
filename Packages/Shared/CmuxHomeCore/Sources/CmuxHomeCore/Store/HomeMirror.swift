@@ -51,6 +51,21 @@ public struct HomeMirror: Hashable, Sendable {
         return refetch
     }
 
+    /// Seeds an empty mirror from the client's cache before the owner
+    /// answers. The inbox and every seeded window are stale with no
+    /// revision: nothing settles against them, the first connection fetches
+    /// them, and the owner's answer replaces them.
+    public mutating func seed(_ snapshot: HomeCacheSnapshot) {
+        guard conversations.isEmpty, windows.isEmpty else { return }
+        me = snapshot.me
+        for summary in snapshot.conversations { conversations[summary.id] = summary }
+        for (id, messages) in snapshot.windows where conversations[id] != nil && !messages.isEmpty {
+            windows[id] = TranscriptWindow(messages: messages)
+            stale.insert(.conversation(id))
+        }
+        stale.insert(.inbox)
+    }
+
     /// Starts buffering a conversation's events before its first page
     /// arrives, so nothing committed during the fetch is lost.
     public mutating func beginLoading(_ conversation: ConversationID) {

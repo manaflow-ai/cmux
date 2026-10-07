@@ -52,13 +52,15 @@ import Testing
         let (services, controller) = try await Self.window()
         services.windows.show(workspaceID: Fixture.id(3), in: controller.state)
         Self.addPlaceholders(controller)
+        // The walk covers every item (SIDEBAR-NUMBERING-AND-STEPPING): past the
+        // last row it wraps to the first top item (Home), never a placeholder.
         services.registry.perform("nextSidebarTab", invocation: ActionInvocation())
         Self.expectNoPlaceholder(services, controller, "next sidebar tab")
-        #expect(controller.state.workspaceID == Fixture.id(1))
+        #expect(controller.state.page == .home || controller.state.workspaceID == Fixture.id(1))
         Self.addPlaceholders(controller)
         services.registry.perform("prevSidebarTab", invocation: ActionInvocation())
         Self.expectNoPlaceholder(services, controller, "previous sidebar tab")
-        #expect(controller.state.workspaceID == Fixture.id(3))
+        #expect(controller.state.page == nil && controller.state.workspaceID == Fixture.id(3))
         Fixture.closeAll(services)
     }
 

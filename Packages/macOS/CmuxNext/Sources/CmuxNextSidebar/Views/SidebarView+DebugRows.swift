@@ -12,6 +12,8 @@ public struct SidebarDebugRow: Sendable {
     public var viewAlpha: CGFloat?
     public var inList: Bool
     public var suppressed: Bool
+    /// The row's view paints the selection fill now.
+    public var selected: Bool
 }
 
 /// One sidebar layout item (a top or bottom region row), for
@@ -27,6 +29,20 @@ public struct SidebarDebugItem: Sendable {
     public var windowFrame: CGRect?
 }
 
+/// One drop resolution of an internal drag, for `debug.sidebar_rows`.
+public struct SidebarDropProbe: Sendable, Equatable {
+    /// `top` or `bottom`: the card's leading edge for the drag direction.
+    public var edge: String
+    /// The edge in list coordinates as drawn, and in the base layout.
+    public var displayY: CGFloat
+    public var baseY: CGFloat?
+    /// The base-layout row under the edge and the edge's share of its height.
+    public var row: String?
+    public var fraction: CGFloat?
+    /// The resolved target, or nil when the drop is refused.
+    public var target: String?
+}
+
 extension SidebarView {
     /// Every layout item of the shown sections and its view (debug).
     public func debugLayoutItems() -> [SidebarDebugItem] {
@@ -40,12 +56,15 @@ extension SidebarView {
                     frame = CGRect(x: inWindow.minX, y: height - inWindow.maxY, width: inWindow.width, height: inWindow.height)
                 }
                 return SidebarDebugItem(id: item.id.rawValue, refKind: item.ref.kind, ref: item.ref.value, region: section.region.rawValue,
-                                        isActive: model.itemInfo[item.id]?.isActive == true, windowFrame: frame)
+                                        isActive: model.selectedItem == .topItem(item.id), windowFrame: frame)
             }
         }
     }
 
     /// The list's rows and their views, the selection and the drag (debug).
+    /// The drag's last drop probe (debug): nil while nothing is dragged.
+    public func debugDropProbe() -> SidebarDropProbe? { list.drag?.probe }
+
     public func debugRows() -> (rows: [SidebarDebugRow], selection: [String], dragging: [String]) {
         let rows = list.displayed.rows.map { row -> SidebarDebugRow in
             let view = list.rowViews[row.key]
@@ -56,7 +75,7 @@ extension SidebarView {
             let windowFrame = CGRect(x: inWindow.minX, y: height - inWindow.maxY, width: inWindow.width, height: inWindow.height)
             return SidebarDebugRow(key: String(describing: row.key), title: title, frame: list.frame(for: row), windowFrame: windowFrame,
                                    viewFrame: view?.frame, viewAlpha: view?.alphaValue, inList: view?.superview === list,
-                                   suppressed: list.suppressed.contains(row.key))
+                                   suppressed: list.suppressed.contains(row.key), selected: view?.isSelected == true)
         }
         let selection = model.orderedSelection.map { model.workspace($0)?.title ?? $0.rawValue }
         let dragging = list.drag.map { drag in drag.hiddenKeys.map { String(describing: $0) } } ?? []

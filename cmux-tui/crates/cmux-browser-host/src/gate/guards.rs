@@ -18,23 +18,24 @@ const CAPTURE_MASK: &str = "/* cmux-capture-mask */ (values, token) => { \
     const g = globalThis; const st = g.__cmuxCaptureState || (g.__cmuxCaptureState = { saved: new Map(), runs: new Map() }); \
     const closed = g.__cmuxClosedRoots; const shadow = (el) => el.shadowRoot || (closed && closed.get(el)); \
     const roots = (root, out) => { out.push(root); for (const el of root.querySelectorAll('*')) { const r = shadow(el); if (r) roots(r, out); } return out; }; \
-    const holds = (text) => !!text && values.some((v) => text.includes(v)); \
-    const scan = () => { const found = new Set(); for (const root of roots(document, [])) { \
+    const scan = (needles) => { const holds = (text) => !!text && needles.some((v) => text.includes(v)); \
+      const found = new Set(); for (const root of roots(document, [])) { \
       for (const el of root.querySelectorAll('input, textarea')) if (el.type === 'password' || holds(el.value)) found.add(el); \
       const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT); \
       for (let n = walker.nextNode(); n; n = walker.nextNode()) if (n.parentElement && holds(n.data)) found.add(n.parentElement); } \
       return found; }; \
-    const props = ['-webkit-text-security', 'color']; const mine = scan(); \
+    const props = ['-webkit-text-security', 'color']; const mine = scan(values); \
     for (const el of mine) { const s = st.saved.get(el); if (s) { s.count++; continue; } \
       st.saved.set(el, { count: 1, props: props.map((p) => [el.style.getPropertyValue(p), el.style.getPropertyPriority(p)]) }); \
       el.style.setProperty('-webkit-text-security', 'disc', 'important'); el.style.setProperty('color', 'transparent', 'important'); } \
     st.runs.set(token, { scan, mine, props }); return mine.size; }";
 
 /// `true` while every element that holds a secret is still hidden, else
-/// why not (never a value).
-const CAPTURE_HELD: &str = "/* cmux-capture-held */ (token) => { const st = globalThis.__cmuxCaptureState; \
+/// why not (never a value). `values` are the secrets the tab has after the
+/// capture, also ones another session typed after the mask step.
+const CAPTURE_HELD: &str = "/* cmux-capture-held */ (token, values) => { const st = globalThis.__cmuxCaptureState; \
     const run = st && st.runs.get(token); if (!run) return 'the mask state is gone'; \
-    for (const el of run.scan()) { if (!run.mine.has(el)) return 'a new element holds a secret'; const s = getComputedStyle(el); \
+    for (const el of run.scan(values)) { if (!run.mine.has(el)) return 'a new element holds a secret'; const s = getComputedStyle(el); \
       const security = s.getPropertyValue('-webkit-text-security'); if (security !== 'disc') return 'text security is ' + security; \
       if (s.color !== 'rgba(0, 0, 0, 0)') return 'the text color is ' + s.color; } \
     return true; }";
@@ -153,11 +154,18 @@ impl Gate {
     /// hidden, restore. A capture the page could have unmasked is refused.
     pub(super) fn capture(&self, method: &str, params: &Value) -> Result<Value, DriverError> {
         let target = params.get("targetId").cloned().unwrap_or(Value::Null);
-        let mut masker = self.masker();
-        if let Some(tab) = target.as_str().and_then(|t| self.tab_secrets.masker(t)) {
-            masker.merge(&tab);
-        }
-        let values = masker.capture_needles();
+        // The session's secrets and every secret typed into the tab, read
+        // again after the capture: another session can type one between
+        // the mask step and the capture (it records the secret for the tab
+        // before its input is sent).
+        let needles = || {
+            let mut masker = self.masker();
+            if let Some(tab) = target.as_str().and_then(|t| self.tab_secrets.masker(t)) {
+                masker.merge(&tab);
+            }
+            masker.capture_needles()
+        };
+        let values = needles();
         if values.is_empty() {
             return self.driver.call(method, params);
         }
@@ -196,8 +204,9 @@ impl Gate {
             outcome = self.driver.call(method, params);
         }
         if outcome.is_ok() {
+            let now = needles();
             for frame in &frames {
-                let why = match evaluate(frame, CAPTURE_HELD, json!([token])) {
+                let why = match evaluate(frame, CAPTURE_HELD, json!([token, now])) {
                     Ok(Value::Bool(true)) => continue,
                     Ok(Value::String(why)) => why,
                     Ok(_) => "the check failed".to_owned(),

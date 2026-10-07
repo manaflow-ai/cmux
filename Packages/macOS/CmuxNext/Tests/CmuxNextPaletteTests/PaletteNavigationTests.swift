@@ -256,6 +256,36 @@ import Testing
         #expect(data.events == ["renameTab:t1:build"])
     }
 
+    @Test func reopeningWhileSearchingReleasesThePreviousRegistryPage() async {
+        let registry = ActionRegistry.standard()
+        let model = PaletteModel(persistence: nil)
+        weak var released: RegistryPaletteProvider?
+
+        func openAndClose() {
+            let provider = RegistryPaletteProvider(registry: registry, includeUnbound: true)
+            released = provider
+            model.reset(to: PalettePageSpec(
+                id: "commands",
+                title: "Commands",
+                placeholder: "Search",
+                providers: [provider]
+            ))
+            // Start the off-main-actor search, then replace the page while its
+            // task still retains the provider, as repeated Cmd-Shift-P opens do.
+            model.query = "command"
+            model.handle(.escape)
+            model.handle(.escape)
+        }
+
+        for _ in 0..<8 {
+            openAndClose()
+            await Task.yield()
+        }
+        await model.settle()
+        for _ in 0..<100 { await Task.yield() }
+        #expect(released == nil)
+    }
+
     @Test func goToWorkspaceOpensNestedList() async {
         let registry = ActionRegistry.standard()
         let data = MockPaletteData()
@@ -312,7 +342,8 @@ import Testing
         #expect(command(space, empty: true) == nil)
         #expect(command(try key(36, "\r")) == .submit)
         #expect(command(try key(36, "\r", .command)) == .submitAlternate)
-        #expect(command(try key(40, "k", .command)) == .toggleActions)
+        // Decision K1: Cmd-K is no palette key; Tab opens the Actions menu.
+        #expect(command(try key(40, "k", .command)) == nil)
         #expect(command(try key(48, "\t")) == .openActions)
         #expect(command(try key(53, "\u{1B}")) == .escape)
         #expect(command(try key(51, "\u{7F}"), empty: true) == .back)

@@ -41,15 +41,17 @@ import Testing
 
     /// Every page the host ships routes by fragment only: its first load (``PageDescriptor/url(route:)``)
     /// and a route change keep the main frame; a path or query on its origin does not.
-    @Test(arguments: [PageDescriptor.cloud, .settings, .apps, .coderouter, .changelog, .history, .diff, .markdown, .editor])
-    func everyPageRoutesByFragmentOnly(_ descriptor: PageDescriptor) {
-        func policy(_ url: URL) -> PageNavigation.Policy {
-            PageNavigation.policy(for: url, page: descriptor, userClicked: false, mainFrame: true, hook: nil)
+    /// The descriptors are main-actor statics, so the list is read inside the main-actor test (a
+    /// `@Test(arguments:)` list is evaluated outside it, which Xcode 27 refuses).
+    @Test func everyPageRoutesByFragmentOnly() {
+        for descriptor in [PageDescriptor.cloud, .settings, .apps, .coderouter, .changelog, .history, .diff, .markdown, .editor] {
+            func policy(_ url: URL?) -> PageNavigation.Policy {
+                PageNavigation.policy(for: url, page: descriptor, userClicked: false, mainFrame: true, hook: nil)
+            }
+            #expect(policy(descriptor.url()) == .allow, "\(descriptor.id)")
+            #expect(policy(descriptor.url(route: "#/x/y?focus=1")) == .allow, "\(descriptor.id)")
+            #expect(policy(descriptor.url().appendingPathComponent("other")) == .cancel, "\(descriptor.id)")
+            #expect(policy(URL(string: descriptor.url().absoluteString + "?file=a")) == .cancel, "\(descriptor.id)")
         }
-        #expect(policy(descriptor.url()) == .allow, "\(descriptor.id)")
-        #expect(policy(descriptor.url(route: "#/x/y?focus=1")) == .allow, "\(descriptor.id)")
-        #expect(policy(descriptor.url().appendingPathComponent("other")) == .cancel, "\(descriptor.id)")
-        let query = URL(string: descriptor.url().absoluteString + "?file=a")
-        #expect(PageNavigation.policy(for: query, page: descriptor, userClicked: false, mainFrame: true, hook: nil) == .cancel)
     }
 }

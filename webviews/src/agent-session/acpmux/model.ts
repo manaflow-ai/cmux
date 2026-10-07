@@ -4,6 +4,7 @@ import type { Enforcement } from "./handoff/protocol";
 import type { SlashCommand } from "./slashCommands";
 import type { SummaryCheckpoint } from "./changes/turnCheckpointSource";
 import { safeHref } from "./replyHref";
+import type { ShellRun } from "./shell/shellRuns";
 
 export type AcpmuxRow = {
   id: string;
@@ -38,6 +39,8 @@ export type AcpmuxRow = {
   prompt?: string;
   /// An edited-files card of a turn that has ended, which offers Undo (conversation/turns.ts).
   ended?: boolean;
+  /// A shell mode command's block (shell/shellRuns.ts), which the page adds; never from acpmux.
+  shell?: ShellRun;
 };
 
 export type AcpmuxActivity = {
@@ -99,6 +102,8 @@ export type AcpmuxSnapshot = {
     title?: string;
     name?: string;
     harness?: string;
+    /// The harness family acpmux files the session under (`codex`, `opencode`, ...), when it says.
+    family?: string;
     model?: string;
     /// The model the agent last reported, when the pane draws a pick (`model`) it has not
     /// confirmed yet (harnessSwitch.ts). Unset otherwise: `model` is what it reported.
@@ -120,6 +125,10 @@ export type AcpmuxSnapshot = {
     }[];
   };
   connection: string;
+  /// The origin acpmux names for this connection in `initialize` (`_meta.acpmux.origin`):
+  /// `remote` gets its Web rules (no Codex or opencode, remoteEditing.ts); `unknown` is an older
+  /// acpmux that names none. Unset in a snapshot no client built (fixtures).
+  origin?: "local" | "remote" | "peer" | "unknown";
   sessionId?: string;
   isWorking: boolean;
   /// acpmux serves `acp.session.fork` (operations.ts), so a turn can be forked from.

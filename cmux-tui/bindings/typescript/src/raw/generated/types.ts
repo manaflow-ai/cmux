@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR b97b29ea6eb2cf4288745d8799d73ad8f53fcd5b147b5ee27e370671ee57a1a1. */
+/* cmux-tui mux protocol 12, IR 574ef12717291a1170f2fdd5a2fe27916a8af26ab9e64b532916dbb0fbee870e. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -210,6 +210,14 @@ export type ConversationChange = {
   /** kind read-cursor. */
   "seq"?: bigint;
   [key: string]: unknown;
+};
+
+export type ConversationImportMessage = {
+  "author": string;
+  "client_msg_id": string;
+  "created_at": string;
+  "id"?: (string) | null;
+  "parts": Array<ConversationPart>;
 };
 
 export type ConversationMessage = {
@@ -558,6 +566,7 @@ export type MintTerminalRendererResult = {
   "incarnation": string;
   "protocol_version": number;
   "rights": number;
+  "supports_viewer_size_priority"?: boolean;
   "terminal_id": string;
   "token": string;
   "ttl_ms": bigint;

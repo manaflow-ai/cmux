@@ -77,9 +77,13 @@ pub(super) fn apply(
                 }
             }
             Resolve::TabZoom { step } => {
-                let tab = params.get("tab").cloned().unwrap_or(Value::Null);
+                // A `current` or named tab resolves through its ancestors.
                 let mut selector = route.clone();
-                selector.insert("tab".into(), tab);
+                for key in ["workspace", "screen", "pane", "tab"] {
+                    if let Some(value) = params.get(key) {
+                        selector.insert(key.into(), value.clone());
+                    }
+                }
                 let snapshot = read(reader, ResourceOperation::TabGet, selector)?;
                 if let Some(action) = tab_zoom_route(&snapshot, step)? {
                     let tab = snapshot.get("id").and_then(Value::as_str).unwrap_or_default();

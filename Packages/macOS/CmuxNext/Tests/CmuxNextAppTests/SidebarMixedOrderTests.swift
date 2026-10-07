@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextSidebar
 import Testing
 
@@ -72,13 +73,17 @@ struct SidebarMixedOrderTests {
         let model = window.sidebar.model
         let rows = (collapsed ? [1, 2, 4] : [1, 3, 2, 4]).map(Self.id)
         await Self.settle { model.visibleWorkspaceIDs == rows }
-        let first = model.layout.firstTopItem(room: model.activeProfileID?.rawValue)?.id
-        let numbering = SidebarNumbering(firstTopItem: first, workspaces: model.visibleWorkspaceIDs)
-        let top = first.map { [SidebarNumbering.Target.topItem($0)] } ?? []
-        #expect(numbering.order == top + rows.map(SidebarNumbering.Target.workspace))
-        // The first workspace number follows the top item: w1, then w3 inside G.
-        #expect(numbering.pick(top.count + 1) == .workspace(Self.id(1)))
-        #expect(numbering.pick(top.count + 2) == .workspace(Self.id(collapsed ? 2 : 3)))
+        // SIDEBAR-NUMBERING-AND-STEPPING: every top item is numbered, then the
+        // rows in shown order; a collapsed group is one stop.
+        let order = model.itemOrder
+        let top = order.topItems
+        func w(_ n: Int) -> SidebarItem { .workspace(CmuxNextSidebar.WorkspaceID(Self.id(n))) }
+        let groups = order.rows.filter { if case .group = $0 { true } else { false } }
+        let expectedRows: [SidebarItem] = collapsed ? [w(1)] + groups + [w(2), w(4)] : [w(1), w(3), w(2), w(4)]
+        #expect(!collapsed || groups.count == 1, "a collapsed group is one stop")
+        #expect(order.items == top + expectedRows)
+        #expect(order.pick(top.count + 1, SidebarNavigationSettings()) == w(1))
+        if !collapsed { #expect(order.pick(top.count + 2, SidebarNavigationSettings()) == w(3)) }
     }
 
     @Test func theWindowOrderIsTheShownOrder() {

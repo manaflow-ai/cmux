@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextIcons
 import CmuxNextPages
 import CmuxNextUpdater
 
@@ -20,6 +21,7 @@ final class ChangelogPageTab: InternalPageProvider {
     var page: InternalPageID { .changelog }
     var title: String { ChangelogPageStrings.title }
     var symbol: String { "sparkles" }
+    var icon: IconName? { .fileText }
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
         guard let services, let view = PageFactory(services: services).changelogPage() else { return NSView() }

@@ -93,19 +93,10 @@ final class QuitCoordinator {
         return .terminateLater
     }
 
-    /// Interactive and menu quits ask about unsaved documents; signal,
-    /// power-off, update and scripted quits save them unattended (a scripted
-    /// quit has already refused if a save failed, `QuitUnsavedStep.refusal`).
+    /// The unsaved step for `origin` (`QuitUnsavedStep.resolve`).
     private func resolveUnsaved(_ origin: QuitOrigin) async -> Bool {
-        switch origin {
-        case .interactive, .explicit:
-            let scope: CmuxDialogScope = sheetWindow().map { .window($0) } ?? .app
-            return await QuitUnsavedStep.resolveInteractive(unsaved, scope: scope)
-        case .scripted, .powerOff, .signal:
-            await RecoveryDraftStore.shared.writePending()
-            _ = await QuitUnsavedStep.saveUnattended(unsaved)
-            return true
-        }
+        let window = sheetWindow()
+        return await QuitUnsavedStep.resolve(origin, registry: unsaved, scope: window.map { .window($0) } ?? .app)
     }
 
     /// A quit from the Dock or the app switcher while cmux is inactive is the
@@ -158,6 +149,8 @@ final class QuitCoordinator {
                 // Remote-terminal tabs keep their last screen for the
                 // placeholder after relaunch (data-model.md 1.4).
                 await services.remoteTerminals.saveSnapshots()
+                // Agent panes on screen draw their last page at the next launch.
+                await services.agentTabs.launchImages.save(services.agentTabs.shownPageImages())
                 // Browser tabs reopen at their recorded page (before any
                 // session ends, while the daemon still answers).
                 await services.cache.browserTabs.flushRecords()
@@ -167,7 +160,11 @@ final class QuitCoordinator {
             endLocalSessions: { await services.daemon.endSessionsAndStop($0) },
             confirmFailures: { [weak self] failures in await self?.confirm(failures) ?? .quitAnyway },
             endLocalAgents: { [attempts = QuitAttempts()] in
-                await QuitAgents.end(QuitAgents.environment(services), waitForShutdown: attempts.isRetry())
+                // The Chief home's host ends with the sessions (home-state-ownership.md section 3).
+                await ChiefHostStop.endChiefSessions(home: services.home.chief.home,
+                                                     bundledBin: Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true))
+                await services.home.chief.shutdownForEndSessions()
+                return await QuitAgents.end(QuitAgents.environment(services), waitForShutdown: attempts.isRetry())
             },
             stopBrowserEngines: { await services.cache.cef.shutdown() }
         ))

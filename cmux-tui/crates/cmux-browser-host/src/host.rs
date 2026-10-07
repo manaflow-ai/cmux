@@ -247,6 +247,11 @@ impl Host {
             if let Some((gate, tx)) =
                 sink_slot.lock().unwrap_or_else(PoisonError::into_inner).as_ref()
             {
+                // The engine's entry for the policy log, not a session event.
+                if event.name == crate::driver::POLICY_LOG_EVENT {
+                    gate.log_policy(event.payload);
+                    return;
+                }
                 let payload = gate.mask_event(&event.name, &event.payload);
                 let _ = tx.send(DriverEvent { name: event.name, payload });
             }

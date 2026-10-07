@@ -499,3 +499,75 @@ describe("acpmux composer draft", () => {
     await act(async () => root.unmount());
   });
 });
+
+describe("acpmux composer remote editing note", () => {
+  let root: ReturnType<typeof createRoot>;
+  let sent: string[];
+  const note = () => dom.window.document.querySelector(".acpmux-composer-remote-note");
+  const sendButton = () => dom.window.document.querySelector("button.acpmux-send[type=submit]");
+  const render = async (value: AcpmuxSnapshot) => {
+    await act(async () =>
+      root.render(
+        createElement(Composer, {
+          snapshot: value,
+          chips: () => null,
+          onSend: (text: string) => {
+            sent.push(text);
+          },
+          onStop: () => {},
+        }),
+      ),
+    );
+    await ready();
+  };
+  const showing = (origin: AcpmuxSnapshot["origin"], harness: string): AcpmuxSnapshot => ({
+    ...snapshot(),
+    origin,
+    summary: { sessionId: "s", harness, family: harness },
+  });
+  const enter = async () =>
+    act(async () => {
+      promptField().element.dispatchEvent(
+        new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+      );
+    });
+  beforeEach(() => {
+    sent = [];
+    root = createRoot(dom.window.document.getElementById("root")!);
+  });
+  afterEach(async () => {
+    await act(async () => root.unmount());
+  });
+
+  test("a remote Codex or opencode chat says it is not available and offers no send", async () => {
+    for (const harness of ["codex", "opencode"]) {
+      await render(showing("remote", harness));
+      expect(note()?.textContent).toBe("Not available from here: this agent has no mode that asks before each change");
+      expect(note()?.getAttribute("role")).toBe("note");
+      expect(sendButton()).toBeNull();
+    }
+    await act(async () => typeInto(promptField(), "from a paired device"));
+    await enter();
+    expect(sent).toEqual([]);
+  });
+
+  test("an acpmux that names no origin offers no send for Codex or opencode", async () => {
+    await render(showing("unknown", "codex"));
+    expect(note()?.textContent).toBe(
+      "Update acpmux to send from here: it does not say where this connection comes from",
+    );
+    expect(sendButton()).toBeNull();
+    await act(async () => typeInto(promptField(), "hello"));
+    await enter();
+    expect(sent).toEqual([]);
+  });
+
+  test("a local chat and a remote Claude chat show no note and keep send", async () => {
+    await render(showing("local", "codex"));
+    expect(note()).toBeNull();
+    expect(sendButton()).not.toBeNull();
+    await render(showing("remote", "claude"));
+    expect(note()).toBeNull();
+    expect(sendButton()).not.toBeNull();
+  });
+});

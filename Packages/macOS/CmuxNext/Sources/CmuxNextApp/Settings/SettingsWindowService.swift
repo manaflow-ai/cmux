@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextIcons
 import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextSettingsWindow
@@ -96,6 +97,7 @@ final class SettingsWindowService: InternalPageProvider {
     var page: InternalPageID { .settings }
     var title: String { SettingsDeepLink.pageTitle }
     var symbol: String { "gearshape" }
+    var icon: IconName? { .settings }
 
     /// The kept page when no other tab shows it, else a new one (a second window's tab).
     func makeView(for key: String, in window: WindowController?) -> NSView {

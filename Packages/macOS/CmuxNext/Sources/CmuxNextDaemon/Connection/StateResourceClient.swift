@@ -56,7 +56,9 @@ extension StateResourceClient {
 
     /// What `closed.reopen` recreated.
     public struct ReopenedItem: Decodable, Sendable, Equatable {
-        public var workspaceID: ResourceID
+        /// Nil when the reply names no workspace (a reopen of a deleted
+        /// space that had none may; cmux-tui-core names the active one).
+        public var workspaceID: ResourceID?
         public var screenIDs: [ResourceID]
         public var tabIDs: [ResourceID]
 
@@ -107,6 +109,14 @@ extension StateResourceClient {
         Self.field(color, into: &params, "color") { .string($0) }
         Self.field(icon, into: &params, "icon") { .string($0) }
         try await stateMutation("workspace.update", params)
+    }
+
+    /// The folder new agent chats of the workspace start in (`workspace.agent_folder.set`); nil
+    /// clears it. The daemon takes it only from the verified app (origin `user`) and only as an
+    /// absolute, existing, canonical folder.
+    public func setAgentFolder(_ workspace: ResourceID, path: String?) async throws {
+        let params: [String: JSONValue] = ["workspace": .string(workspace.rawValue), "path": path.map(JSONValue.string) ?? .null]
+        try await stateMutation("workspace.agent_folder.set", params)
     }
 
     /// Workspace identity through `workspace.update` when `resource` (the

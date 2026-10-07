@@ -13,7 +13,6 @@ final class EmptyWorkspaceView: NSView {
     private let newButton = NSButton()
     private let importButton = NSButton()
     private let titleLabel = NSTextField(labelWithString: EmptyWorkspaceStrings.title)
-    private let subtitleLabel = NSTextField(labelWithString: EmptyWorkspaceStrings.subtitle)
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -38,11 +37,6 @@ final class EmptyWorkspaceView: NSView {
         title.font = Typography.header
         title.alignment = .center
 
-        let subtitle = subtitleLabel
-        subtitle.font = Typography.body
-        subtitle.alignment = .center
-        subtitle.maximumNumberOfLines = 2
-
         for (button, title, selector, identifier) in [
             (newButton, EmptyWorkspaceStrings.new, #selector(newPressed), "cmux.empty-workspace.new"),
             (importButton, EmptyWorkspaceStrings.importAndSync, #selector(importPressed), "cmux.empty-workspace.import-and-sync"),
@@ -61,7 +55,7 @@ final class EmptyWorkspaceView: NSView {
         actions.alignment = .centerY
         actions.spacing = Metrics.space2
 
-        let stack = NSStackView(views: [title, subtitle, actions])
+        let stack = NSStackView(views: [title, actions])
         stack.orientation = .vertical
         stack.alignment = .centerX
         stack.spacing = Metrics.space2
@@ -93,7 +87,6 @@ final class EmptyWorkspaceView: NSView {
     private func applyColors() {
         performWithTheme {
             titleLabel.textColor = Palette.textPrimary
-            subtitleLabel.textColor = Palette.textSecondary
         }
     }
 

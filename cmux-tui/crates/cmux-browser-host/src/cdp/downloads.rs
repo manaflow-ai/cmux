@@ -154,6 +154,16 @@ impl Inner {
     }
 }
 
+impl Inner {
+    /// `download.cancel { downloadId }`: stops a download (the host's answer
+    /// to one no session takes, D2).
+    pub(super) fn download_cancel(&self, params: &Value) -> Result<Value, DriverError> {
+        let guid = required_str(params, "downloadId")?;
+        self.conn.call(None, "Browser.cancelDownload", json!({"guid": guid}), INTERNAL_TIMEOUT)?;
+        Ok(Value::Null)
+    }
+}
+
 impl CdpDriver {
     /// Saves the browser's downloads in `dir` and reports them as
     /// `download.started` / `download.finished` (headless Chromium only).

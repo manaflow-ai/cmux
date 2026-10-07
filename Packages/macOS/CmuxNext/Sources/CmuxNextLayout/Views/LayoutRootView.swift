@@ -34,6 +34,9 @@ public final class LayoutRootView: NSView {
     /// coordinates; nil when nothing is highlighted. The drag session flies
     /// the ghost to it, so the ghost lands where the preview showed (R47).
     public internal(set) var tabDragHighlightOnScreen: CGRect?
+    /// The zone hit the drop preview shows now; the next hit test holds it
+    /// near its line (`DropZoneGeometry.zone`). Nil while nothing shows.
+    var tabDropHit: DropTarget?
     /// Overlay sync observers by id (`observeOverlaySync`).
     var overlaySyncObservers: [Int: () -> Void] = [:]
     var nextOverlaySyncObserver = 0

@@ -37,8 +37,9 @@ extension SettingsSchema {
         "window.titlebarButtons",
         "tabs.plusButton",
         "tabs.barPosition", "tabs.barOrder",
-        "navigation.historyScope",
+        "navigation.historyScope", "navigation.history.scope",
         "sidebar.minimalMode",
+        "sidebar.numbering", "sidebar.cmd9", "sidebar.stepping", "sidebar.steppingWraps",
         "sidebar.side",
         "sidebar.spacesPosition",
         "tabs.newTabKind",
@@ -67,6 +68,7 @@ extension SettingsSchema {
         "appearance.backgroundBlur",
         "appearance.background",
         "appearance.experimentalControls",
+        "app.uiScale",
         "appearance.glassTransparency",
         "appearance.hue",
         "appearance.saturation",
@@ -102,7 +104,8 @@ extension SettingsSchema {
         "sidebar.sectionLook",
         "sidebar.topBandMaxShare",
         "sidebar.bottomBandMaxShare",
-        "sidebar.pinnedBandsScroll", "sidebar.showWorkspaceTabs",
+        "sidebar.pinnedBandsScroll", "sidebar.showWorkspaceTabs", "sidebar.showCounts",
+        "sidebar.showWorkspaceDirectory",
         "browser.defaultEngine",
         "browser.newTabPage",
         "browser.showBookmarksBar",
@@ -129,9 +132,10 @@ extension SettingsSchema {
         "notifications.attention.persist",
         "notifications.attention.showOnTab",
         "notifications.attention.showOnSidebar",
+        // cmux-browser mutes a workspace through settings.set as `script` (cmux-browser #614).
+        "notifications.mutedWorkspaces",
         "labs.previewFeatures",
         "updates.notify",
-        "updates.quietHours",
         "announcements.enabled",
     ]
 
@@ -147,7 +151,11 @@ extension SettingsSchema {
         "feed.github.enabled": .network,
         "feed.github.pollIntervalSeconds": .network,
         "browser.remoteLocalhost": .network,
+        // Whether attached photos and videos send their location.
+        "home.attachments.keepLocation": .privacy,
         "app.quitBehavior": .destructive,
+        // On, a key is taken from every other app system-wide.
+        "app.globalHotKey": .userOnly,
         // Off, a close ends running programs and agents without asking.
         "app.warnBeforeClosingTab": .destructive,
         "app.warnBeforeClosingAgentSession": .destructive,
