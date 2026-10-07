@@ -32,11 +32,7 @@ import Testing
 
     private func focusProxy(in window: NSWindow, host: NSView) async throws -> NSView {
         host.layoutSubtreeIfNeeded()
-        let proxyCreated = await AppKitTestEventPump().waitUntil(timeout: .seconds(5)) {
-            host.subviews.contains(where: isKeyViewProxy)
-        }
-        try #require(proxyCreated, "SwiftUI should create a focus proxy in the hosting view")
-
+        // SwiftUI can create its proxy lazily when keyboard focus is requested.
         try #require(window.makeFirstResponder(host))
         window.selectNextKeyView(nil)
         let proxyFocused = await AppKitTestEventPump().waitUntil(timeout: .seconds(5)) {
