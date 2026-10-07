@@ -252,7 +252,10 @@ function toolIcon(symbol: string): string {
 }
 
 function toolTitle(t: ReturnType<typeof useT>, tool: NonNullable<NewTabHost["tools"]>[number]): string {
-  const key: Record<string, "newTabPage.tool.changes" | "newTabPage.tool.terminal" | "newTabPage.tool.files" | "newTabPage.tool.sideChat"> = {
+  const key: Record<
+    string,
+    "newTabPage.tool.changes" | "newTabPage.tool.terminal" | "newTabPage.tool.files" | "newTabPage.tool.sideChat"
+  > = {
     openDiffViewer: "newTabPage.tool.changes",
     newSurface: "newTabPage.tool.terminal",
     "file.open": "newTabPage.tool.files",

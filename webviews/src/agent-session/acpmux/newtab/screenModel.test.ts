@@ -49,6 +49,20 @@ test("matching open tabs and history follow the typed rows", () => {
   ]);
 });
 
+test("the omnibar model keeps every navigation and intent row kind", () => {
+  const context: OmnibarContext = {
+    ...omnibar,
+    workspaces: [{ id: "w1", name: "Docs", detail: "~/src/docs" }],
+  };
+  expect(types(screenRows("docs", { agents: [], omnibar: context }))).toEqual(["search", "workspace"]);
+  expect(screenRows("https://cmux.dev", { agents: [], omnibar: context })[0]).toEqual({
+    type: "open",
+    url: "https://cmux.dev",
+    text: "https://cmux.dev",
+  });
+  expect(screenRows("hello", { agents: [], omnibar: EMPTY_OMNIBAR })[0]).toEqual({ type: "search", text: "hello" });
+});
+
 test("a typed ! command never shows rows: the tab already became a terminal", () => {
   expect(screenRows("!ls", { agents, omnibar })).toEqual([]);
 });

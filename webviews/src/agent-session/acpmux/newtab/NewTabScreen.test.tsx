@@ -190,6 +190,25 @@ test("an address opens on Enter; Down then Enter picks the next row", async () =
   await act(async () => root.unmount());
 });
 
+test("a matching workspace row switches on Return", async () => {
+  const { root, type, key, calls } = await mount({
+    omnibar: {
+      tabs: [],
+      workspaces: [{ id: "w1", name: "Docs", detail: "~/src/docs" }],
+      folders: [],
+      commands: [],
+      history: [],
+    },
+  });
+  await type("Docs");
+  await key("ArrowDown");
+  await key("ArrowDown");
+  await key("ArrowDown");
+  await key("Enter");
+  expect(calls).toEqual(["jump:workspace:w1"]);
+  await act(async () => root.unmount());
+});
+
 test("the remembered agent comes from the host and leads the rows", async () => {
   const { root, type, key, calls } = await mount({ lastAgent: "codex" });
   await type("hello");
