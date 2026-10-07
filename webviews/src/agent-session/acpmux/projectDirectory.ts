@@ -1,4 +1,9 @@
-export type ProjectDirectory = { path: string; parent: string | null; home: string; directories: string[] };
+export type ProjectDirectory = {
+  path: string;
+  parent: string | null;
+  home: string;
+  directories: string[];
+};
 export type ProjectDirectoryHost = {
   /** Optional in-pane browser supplied by gallery or the reviewed native host operation. */
   list?: (path: string) => Promise<ProjectDirectory>;
