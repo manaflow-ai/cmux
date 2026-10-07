@@ -253,8 +253,7 @@ async fn a_web_prompt_waits_for_the_folders_trust_and_the_web_cannot_answer() {
     let mut local = Client::new(&hub, Origin::Local);
     let work = d.join("work");
     local.trust(&work, "trusted").await;
-    let mut app = Client::new(&hub, Origin::LocalApp);
-    let s = app.new_session(&work, "fclaude").await;
+    let s = web.new_session(&work, "fclaude").await;
     local.trust(&work, "unknown").await;
 
     let r = web.prompt(&s, "web-before-trust").await;
