@@ -20,6 +20,8 @@ mod docs;
 mod extra_help;
 mod federation;
 #[cfg(unix)]
+mod frontend_browser;
+#[cfg(unix)]
 mod host_mount;
 mod lifecycle;
 #[cfg(unix)]
