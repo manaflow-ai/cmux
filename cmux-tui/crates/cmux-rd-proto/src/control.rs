@@ -67,6 +67,12 @@ pub enum Control {
         service: String,
         body: serde_json::Value,
     },
+    /// Bulk flow control (rd change C5): the receiver of transfer
+    /// `transfer` allows bytes before `offset`.
+    BulkCredit {
+        transfer: u64,
+        offset: u64,
+    },
     Stats {
         kbps: u32,
         frames: u64,

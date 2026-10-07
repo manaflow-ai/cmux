@@ -14,6 +14,18 @@ pub(crate) fn run(args: Vec<OsString>) -> i32 {
             args[1..].iter().map(|arg| arg.to_string_lossy().into_owned()).collect();
         return open(&words);
     }
+    if let [harness, run, rest @ ..] = args.as_slice()
+        && harness == "harness"
+        && run == "run"
+        && rest.iter().any(|arg| arg == "--tab")
+    {
+        let words: Vec<String> = rest
+            .iter()
+            .filter(|arg| *arg != "--tab")
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect();
+        return harness_tab(&words);
+    }
     let home = std::env::var("HOME").ok().map(PathBuf::from);
     let identity = crate::app_identity::AppIdentity::detect(
         |name| std::env::var(name).ok(),
@@ -110,6 +122,35 @@ fn socket_in_home(home: &Path, uid: u32) -> PathBuf {
     PathBuf::from(format!("/tmp/acpmux-{uid}/{hash:016x}.sock"))
 }
 
+/// `cmux harness run ID --tab`: a new tab in the current pane whose process
+/// is `cmux harness run ID --cwd DIR`, so the tab resolves the profile env
+/// itself and no secret is on a command line.
+fn harness_tab(words: &[String]) -> i32 {
+    let (exe, cwd) = match (std::env::current_exe(), std::env::current_dir()) {
+        (Ok(exe), Ok(cwd)) => (exe, cwd),
+        (Err(error), _) | (_, Err(error)) => {
+            eprintln!("cmux harness run: {error}");
+            return 1;
+        }
+    };
+    crate::cli::run(&harness_tab_command(words, &exe.to_string_lossy(), &cwd), "")
+}
+
+/// The `pane current run -- <exe> harness run …` arguments, with `--cwd`
+/// added when the caller gave none.
+fn harness_tab_command(words: &[String], exe: &str, cwd: &Path) -> Vec<String> {
+    let mut out: Vec<String> = ["pane", "current", "run", "--", exe, "harness", "run"]
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+    out.extend(words.iter().cloned());
+    if !words.iter().any(|w| w == "--cwd" || w.starts_with("--cwd=")) {
+        out.push("--cwd".into());
+        out.push(cwd.to_string_lossy().into_owned());
+    }
+    out
+}
+
 /// The binary started as `acpmux`. Its daemon is started from
 /// `current_exe`, which resolves an `acpmux` symlink to this binary under
 /// its own name, so that start needs the `acp` prefix (`<cmux> acp daemon
@@ -180,6 +221,24 @@ mod tests {
         let socket = socket_in_home(&long, 501);
         assert!(socket.starts_with("/tmp/acpmux-501/"), "{socket:?}");
         assert_eq!(socket.extension().and_then(|e| e.to_str()), Some("sock"));
+    }
+
+    #[test]
+    fn harness_run_tab_runs_the_harness_in_a_new_tab_in_its_folder() {
+        let words = |list: &[&str]| list.iter().map(|word| (*word).to_owned()).collect::<Vec<_>>();
+        assert_eq!(
+            harness_tab_command(&words(&["aider"]), "/b/cmux", Path::new("/repo")),
+            words(&[
+                "pane", "current", "run", "--", "/b/cmux", "harness", "run", "aider", "--cwd",
+                "/repo"
+            ])
+        );
+        assert_eq!(
+            harness_tab_command(&words(&["aider", "--cwd", "/x"]), "/b/cmux", Path::new("/repo")),
+            words(&[
+                "pane", "current", "run", "--", "/b/cmux", "harness", "run", "aider", "--cwd", "/x"
+            ])
+        );
     }
 
     #[test]

@@ -108,6 +108,7 @@ pub(super) fn advertised_capabilities(
         crate::state::home_store::WORKSPACE_KIND_CAPABILITY,
         crate::state::agent_folder::CAPABILITY,
         crate::state::personal_order::PERSONAL_MIXED_ORDER_CAPABILITY,
+        crate::state::sidebar_layout_store::CAPABILITY,
         crate::state::conversation_tabs_store::CONVERSATION_TABS_CAPABILITY,
         crate::state::conversation_tabs_store::AGENT_SESSION_TABS_CAPABILITY,
         crate::state::conversation_tabs_store::PAGE_TABS_CAPABILITY,
