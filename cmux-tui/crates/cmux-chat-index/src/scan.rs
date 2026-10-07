@@ -3,6 +3,8 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use serde::{Deserialize, Serialize};
+
 use crate::adapters;
 use crate::entry::{AdapterKind, ChatEntry};
 use crate::stamp::FileState;
@@ -34,13 +36,17 @@ pub struct FileRead {
 }
 
 /// Everything one root holds now.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RootScan {
     pub entries: Vec<ChatEntry>,
     /// Read state per session file (empty for database stores).
     pub files: Vec<(PathBuf, FileState)>,
     /// Files that failed to read; they are left out, never fatal.
     pub skipped: usize,
+    /// True when the entries came from a database query (Codex state DB,
+    /// OpenCode): session file events then do not apply, store events do.
+    pub database: bool,
 }
 
 /// Reads one session file of a file-per-chat store. `prev` is the state from
@@ -59,7 +65,7 @@ pub fn scan_root(
         return Ok(RootScan::default());
     }
     if let Some(entries) = adapters::read_store(config.kind, &config.root)? {
-        return Ok(RootScan { entries, files: Vec::new(), skipped: 0 });
+        return Ok(RootScan { entries, files: Vec::new(), skipped: 0, database: true });
     }
     let mut files: Vec<(PathBuf, i64)> = adapters::list_files(config.kind, &config.root)?
         .into_iter()

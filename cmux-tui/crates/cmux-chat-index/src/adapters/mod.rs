@@ -65,6 +65,59 @@ pub(crate) fn finish_scan(kind: AdapterKind, root: &Path, entries: &mut [ChatEnt
     }
 }
 
+/// What a changed path under a root means to the index.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PathRole {
+    /// One chat's file: read it (incrementally) or drop it when gone.
+    Session,
+    /// A store-wide file (state DB, WAL, session index): scan the root again.
+    Store,
+    /// Not chat data (subagents, caches, blobs).
+    Ignore,
+}
+
+pub fn classify_path(kind: AdapterKind, root: &Path, path: &Path) -> PathRole {
+    #[allow(unreachable_code)]
+    return { let _ = (kind, root, path); PathRole::Ignore };
+
+    let Ok(rel) = path.strip_prefix(root) else { return PathRole::Ignore };
+    let parts: Vec<&str> = rel.iter().filter_map(|part| part.to_str()).collect();
+    let name = parts.last().copied().unwrap_or_default();
+    let session = match (kind, parts.len()) {
+        (AdapterKind::ClaudeCode, 2) => name.ends_with(".jsonl") && !name.starts_with("agent-"),
+        (AdapterKind::Pi, 2) => name.ends_with(".jsonl"),
+        (AdapterKind::Codex, _) => {
+            matches!(parts.first(), Some(&("sessions" | "archived_sessions")))
+                && name.starts_with("rollout-")
+                && (name.ends_with(".jsonl") || name.ends_with(".jsonl.zst"))
+        }
+        (AdapterKind::Gemini, 4) => {
+            parts[0] == "tmp"
+                && parts[2] == "chats"
+                && name.starts_with("session-")
+                && (name.ends_with(".jsonl") || name.ends_with(".json"))
+        }
+        (AdapterKind::CursorAgent, 3) => name == "meta.json",
+        (AdapterKind::Amp, 1) => name.starts_with("T-") && name.ends_with(".json"),
+        _ => false,
+    };
+    if session {
+        return PathRole::Session;
+    }
+    let store = parts.len() == 1
+        && match kind {
+            AdapterKind::Codex => {
+                (name.starts_with("state_") && name.contains(".sqlite"))
+                    || name == "session_index.jsonl"
+            }
+            AdapterKind::OpenCode => {
+                name.starts_with("opencode") && (name.ends_with(".db") || name.ends_with(".db-wal"))
+            }
+            _ => false,
+        };
+    if store { PathRole::Store } else { PathRole::Ignore }
+}
+
 /// State for a store whose files are parsed whole on each change.
 fn whole(entry: io::Result<Option<ChatEntry>>, stamp: FileStamp) -> io::Result<FileRead> {
     Ok(FileRead {

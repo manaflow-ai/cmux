@@ -7,14 +7,22 @@
 
 mod adapters;
 mod entry;
+mod index;
 mod lines;
+mod roots;
 mod scan;
 mod sqlite;
 mod stamp;
+mod store_file;
 mod text;
 mod time;
 
+pub use adapters::{PathRole, classify_path};
 pub use entry::{AdapterKind, ChatEntry, ChatKey, Resume, TitleSource};
+pub use index::{ChatChange, ChatIndex, IndexedChat};
+pub use roots::{
+    ChatRoot, Discovery, DiscoveryInput, RecordedRoots, RefusedRoot, RootSource, RootSpec, discover,
+};
 pub use scan::{AdapterConfig, FileRead, RootScan, read_file, scan_root};
 pub use stamp::{Change, FileStamp, FileState, Tally};
 pub use text::title_line;
