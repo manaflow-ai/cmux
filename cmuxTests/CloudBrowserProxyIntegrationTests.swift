@@ -116,7 +116,8 @@ struct CloudBrowserProxyIntegrationTests {
         defer { server.stop() }
 
         let panel = BrowserPanel(
-            workspaceId: UUID(), renderInitialNavigation: false, websiteDataStore: .nonPersistent()
+            workspaceId: UUID(), initialURL: URL(string: "about:blank"),
+            preloadInitialNavigationInBackground: true, websiteDataStore: .nonPersistent()
         )
         defer { panel.close() }
 
@@ -137,7 +138,16 @@ struct CloudBrowserProxyIntegrationTests {
         request.setValue("text/plain", forHTTPHeaderField: "Content-Type")
         request.httpBody = Data("from-managed-ssh".utf8)
         let resourceID = SurfaceResourceID(machine: .ssh("ssh-loopback-test"), kind: .browser, key: "port:3000")
-        panel.configureCloudBrowser(model: model, url: url, resourceID: resourceID, request: request)
+        panel.prepareCloudBrowserStore(machineID: resourceID.machine.rawValue)
+        panel.showCloudAddress(url)
+        panel.pendingCloudNavigationRequest = request
+        panel.cloudAccess.configure(model: model, url: url, resourceID: resourceID)
+        #expect(panel.navigate(to: url) == nil, "The request must wait while its SSH proxy starts")
+        model.connect()
+        #expect(await wait { model.isReady })
+        #expect(panel.webView.window != nil)
+        #expect(panel.websiteDataStore.proxyConfigurations.count == 1)
+        #expect(panel.navigate(to: url) != nil)
 
         let requestDeadline = ContinuousClock.now.advanced(by: .seconds(10))
         while !server.requests.contains(where: { $0.method == "POST" }), ContinuousClock.now < requestDeadline {
