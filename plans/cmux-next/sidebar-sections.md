@@ -151,8 +151,9 @@ top of the first top-region section (creating one when the region is empty).
 | Region scroll offsets, hover, drag gap | client | client | gestures |
 | Look variants (prototype) | Debug Settings tunable | client | DEV only |
 
-Wire contract (capability `sidebar-layout-v1`, `cmux.protocol/2` state operations in
-`cmux-tui-core::state`, personal state of the home session; branch feat-cmux-next-sidebar-layout-store):
+Wire contract (capability `sidebar-layout-v1`, `cmux.protocol/2` resource operations served by
+`cmux-tui-core::state`, personal state of the home session; landed from branch
+feat-cmux-next-pinned-store, cmux-tui/spec/resource-api-v2.md):
 
 | operation | params | result |
 | --- | --- | --- |
@@ -161,17 +162,24 @@ Wire contract (capability `sidebar-layout-v1`, `cmux.protocol/2` state operation
 
 `op` is one `SidebarLayoutOp` (section 4, plus `item.remove_ref {ref}`: every copy of a ref). The
 commit path writes the row, the replay record and one `session.events` batch with a `state_upsert`
-of resource `sidebar_layout`, id `user`; session snapshots carry `extra.state.sidebar_layout`. A
+of resource `sidebar_layout`, id `user`; session snapshots carry `extra.state.sidebar_layout`. The
+commit also advances `personal_revision`, so raw (v1) subscribers get `personal-changed`
+(`{event, personal_revision}`, no `kind` field: the SDK event schema refuses unknown fields, so a
+`kind` would break older decoders) and refetch with `sidebar_layout.get`. Item refs are opaque
+kind + value: a workspace value is the qualified public id `<session>:ws_…` and a tab value
+`<session>:tab_…`; the store neither normalizes them nor checks that the target exists. Apps
+read the layout with `sidebar_layout:read` (granted with the app); `sidebar_layout:write` is an
+elevated scope (scope-classes.json), granted only by the user. A
 reducer reject is `validation.invalid` with the reason and writes nothing (no replay record: a
 retry runs again); a no-op commits no change and keeps the layout revision. A stored row that no
 longer parses reads as the defaults. The reducer is the same in Rust and Swift; the shared cases in
 `Packages/macOS/CmuxNext/Tests/CmuxNextSidebarTests/Fixtures/sidebar-layout-cases.json` run against
 both.
 
-Client: the confirmed mirror is written only by `sidebar-layout-get` replies and events; pending ops
+Client: the confirmed mirror is written only by `sidebar_layout.get` replies and `state_upsert` events; pending ops
 form the intent log (visible = mirror + pending; an op leaves on echo or reject, reject animates
-back). Before the daemon serves the capability (it is in `unservedByBundledDaemon` until the daemon half,
-PR #16842, lands), the app shows the default layout and every layout action is disabled with the reason
+back). Before the daemon serves the capability (it is in `unservedByBundledDaemon` until the bundled cmux-tui pin
+includes the store; then `DaemonEndpoint` marks it optional, tracker cx-lle.4), the app shows the default layout and every layout action is disabled with the reason
 "Needs a newer cmux-tui"; nothing queues and nothing is written to a local file. DEV builds may
 turn on `sidebar.sections.localPrototype` (Debug Settings) to edit an in-memory layout for
 prototyping; it is never persisted.
