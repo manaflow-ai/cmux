@@ -913,22 +913,20 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         let visible = model.isMetadataExpanded ? allEntries : Array(allEntries.prefix(3))
         Self.pool(&metadataRows, count: visible.count, parent: contentContainer) { SidebarRowIconTextLine() }
         for (index, entry) in visible.enumerated() {
-            // Legacy parity: on the selected row an explicit entry color
-            // yields to the selected foreground — otherwise agent-status
-            // tints (blue "Running") vanish into the blue selection
-            // highlight. Explicit colors only apply on unselected rows.
+            // Preserve explicit status colors on selected rows when they meet
+            // the contrast floor; otherwise use selection foreground chrome.
             let explicitColor = palette.accent.statusEntryColor(
                 hex: entry.color,
                 isDark: palette.colorScheme == .dark
             )
-            let entryColor: NSColor
-            if model.isActive {
-                entryColor = explicitColor != nil
-                    ? palette.selectedForeground(1.0)
-                    : palette.secondary(0.95).withAlphaComponent(0.84)
-            } else {
-                entryColor = explicitColor ?? palette.secondary()
-            }
+            let entryColor = sidebarStatusPresentationNSColor(
+                explicit: explicitColor,
+                isActive: model.isActive,
+                selectedBackground: palette.selectedBackground,
+                fallback: model.isActive
+                    ? (explicitColor == nil ? palette.secondary(0.95).withAlphaComponent(0.84) : palette.selectedForeground(1))
+                    : palette.secondary()
+            )
             metadataRows[index].configureMetadataEntry(
                 entry,
                 model: model,

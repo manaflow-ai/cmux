@@ -16373,7 +16373,8 @@ struct TabItemView: View, Equatable {
                     SidebarMetadataRows(
                         entries: metadataEntries,
                         isActive: usesInvertedActiveForeground,
-                        activeForegroundColor: activeSecondaryColor(0.95),
+                        selectedBackground: selectedWorkspaceBackgroundNSColor,
+                        selectedForeground: selectedWorkspaceForegroundNSColor(opacity: 1),
                         activeSecondaryForegroundColor: activeSecondaryColor(0.65),
                         fontScale: fontScale,
                         onFocus: { updateSelection() }
@@ -17071,7 +17072,8 @@ extension String {
 private struct SidebarMetadataRows: View {
     let entries: [SidebarStatusEntry]
     let isActive: Bool
-    let activeForegroundColor: Color
+    let selectedBackground: NSColor
+    let selectedForeground: NSColor
     let activeSecondaryForegroundColor: Color
     let fontScale: CGFloat
     let onFocus: () -> Void
@@ -17085,7 +17087,8 @@ private struct SidebarMetadataRows: View {
                 SidebarMetadataEntryRow(
                     entry: entry,
                     isActive: isActive,
-                    activeForegroundColor: activeForegroundColor,
+                    selectedBackground: selectedBackground,
+                    selectedForeground: selectedForeground,
                     fontScale: fontScale,
                     onFocus: onFocus
                 )
@@ -17125,7 +17128,8 @@ private struct SidebarMetadataRows: View {
 private struct SidebarMetadataEntryRow: View {
     let entry: SidebarStatusEntry
     let isActive: Bool
-    let activeForegroundColor: Color
+    let selectedForeground: NSColor
+    let selectedBackground: NSColor
     let fontScale: CGFloat
     let onFocus: () -> Void
     @Environment(\.colorScheme) private var colorScheme
@@ -17170,13 +17174,15 @@ private struct SidebarMetadataEntryRow: View {
 
     private var foregroundColor: Color {
         let explicit = cmuxAccent.statusEntryColor(hex: entry.color, isDark: colorScheme == .dark)
-        if isActive, explicit != nil {
-            return activeForegroundColor
-        }
-        if let explicit {
-            return Color(nsColor: explicit)
-        }
-        return isActive ? activeForegroundColor.opacity(0.84) : .secondary
+        let fallback = isActive
+            ? selectedForeground.withAlphaComponent(explicit == nil ? 0.95 * 0.84 : 1)
+            : NSColor.secondaryLabelColor
+        return Color(nsColor: sidebarStatusPresentationNSColor(
+            explicit: explicit,
+            isActive: isActive,
+            selectedBackground: selectedBackground,
+            fallback: fallback
+        ))
     }
 
     private var iconView: AnyView? {

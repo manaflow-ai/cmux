@@ -198,6 +198,25 @@ func cmuxReadableForegroundNSColor(
     return cmuxReadableForegroundNSColor(on: backgroundColor, opacity: preferredColor.alphaComponent)
 }
 
+/// Keeps explicit status colors when readable on selection, otherwise uses
+/// the caller's selected-foreground fallback.
+func sidebarStatusPresentationNSColor(
+    explicit: NSColor?,
+    isActive: Bool,
+    selectedBackground: NSColor,
+    fallback: @autoclosure () -> NSColor
+) -> NSColor {
+    guard let explicit else { return fallback() }
+    guard isActive else { return explicit }
+
+    let foregroundForComparison = explicit.alphaComponent < 1
+        ? cmuxCompositedNSColor(explicit, over: selectedBackground)
+        : explicit
+    return cmuxContrastRatio(foreground: foregroundForComparison, background: selectedBackground) >= 4.5
+        ? explicit
+        : fallback()
+}
+
 func cmuxCompositedNSColor(_ foreground: NSColor, over background: NSColor) -> NSColor {
     let fg = foreground.usingColorSpace(.sRGB) ?? foreground
     let bg = background.usingColorSpace(.sRGB) ?? background
