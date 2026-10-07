@@ -78,6 +78,14 @@ extension ComposerTextView {
         onFormattingChanged?()
     }
 
+    /// The draft's base font and pitch: the body metrics, or an emoji-only
+    /// draft's large size (the composer swaps `baseTypingAttributes`).
+    private var displayBaseFont: UIFont { baseTypingAttributes[.font] as? UIFont ?? ConversationTheme.bodyFont }
+    private var displayLineHeight: CGFloat {
+        let fixed = (baseTypingAttributes[.paragraphStyle] as? NSParagraphStyle)?.minimumLineHeight ?? 0
+        return fixed > 0 ? fixed : displayBaseFont.lineHeight
+    }
+
     /// Typing attributes with only the semantic formatting kept: text typed
     /// next to a mention does not inherit its bold or color.
     func clearTypingDecorations() {
@@ -91,7 +99,7 @@ extension ComposerTextView {
         if !style.isEmpty { attributes[.conversationTextStyle] = style.rawValue }
         if let effect { attributes[.conversationTextEffect] = effect.rawValue }
         let probe = NSMutableAttributedString(string: "x", attributes: attributes)
-        ConversationRichTextStyler.applyDisplayAttributes(to: probe, baseFont: ConversationTheme.bodyFont, lineHeight: ConversationTheme.lineHeight)
+        ConversationRichTextStyler.applyDisplayAttributes(to: probe, baseFont: displayBaseFont, lineHeight: displayLineHeight)
         return probe.attributes(at: 0, effectiveRange: nil)
     }
 
@@ -104,7 +112,7 @@ extension ComposerTextView {
             let selection = selectedRange
             let typing = typingAttributes
             textStorage.beginEditing()
-            ConversationRichTextStyler.applyDisplayAttributes(to: textStorage, baseFont: ConversationTheme.bodyFont, lineHeight: ConversationTheme.lineHeight)
+            ConversationRichTextStyler.applyDisplayAttributes(to: textStorage, baseFont: displayBaseFont, lineHeight: displayLineHeight)
             decorateStorage?(textStorage)
             textStorage.endEditing()
             selectedRange = selection

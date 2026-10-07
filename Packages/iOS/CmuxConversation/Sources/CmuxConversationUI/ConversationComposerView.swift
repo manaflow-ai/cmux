@@ -342,10 +342,19 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
             .foregroundColor: UIColor.label,
             .paragraphStyle: ConversationTheme.bodyParagraph,
         ]
+        // Swap the draft's base; formatting keys and mentions stay and are
+        // re-derived on the new base by the text view's restyle.
+        textView.baseTypingAttributes = attributes
+        let storage = textView.textStorage
+        let full = NSRange(location: 0, length: storage.length)
         let selection = textView.selectedRange
-        textView.textStorage.setAttributes(attributes, range: NSRange(location: 0, length: textView.textStorage.length))
-        textView.typingAttributes = attributes
+        storage.beginEditing()
+        storage.removeAttribute(.paragraphStyle, range: full)
+        storage.addAttributes(attributes, range: full)
+        storage.endEditing()
         textView.selectedRange = selection
+        textView.restyle()
+        textView.clearTypingDecorations()
     }
 
     /// Grows by whole lines in the same frame as the edit, with no animation.
