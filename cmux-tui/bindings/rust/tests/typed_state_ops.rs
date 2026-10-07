@@ -217,10 +217,16 @@ fn tab_pin_unpin_and_update_send_their_operations_and_decode_tab_snapshots() {
         assert_eq!(params["back"], json!(["https://a.example/", "https://b.example/"]));
         assert_eq!(params["forward"], json!([]));
         assert_eq!(params["owner"], "install-a");
-        mutation_ok(stream, &update, tab_snapshot(json!({"zoom": 1.25, "owner": "install-a"})));
+        assert_eq!(params["icon"], "hammer.fill");
+        mutation_ok(
+            stream,
+            &update,
+            tab_snapshot(json!({"zoom": 1.25, "owner": "install-a", "icon": "hammer.fill"})),
+        );
 
         let clear = request(reader, "tab.update");
         assert_eq!(clear["params"]["zoom"], Value::Null);
+        assert_eq!(clear["params"]["icon"], Value::Null);
         assert!(clear["params"].get("back").is_none());
         mutation_ok(stream, &clear, tab_snapshot(json!({})));
     });
@@ -235,10 +241,13 @@ fn tab_pin_unpin_and_update_send_their_operations_and_decode_tab_snapshots() {
             back: Some(vec!["https://a.example/".into(), "https://b.example/".into()]),
             forward: Some(vec![]),
             owner: Some("install-a".into()),
+            icon: Update::Set("hammer.fill".into()),
         })
         .unwrap();
     assert_eq!(updated.value.extra["owner"], "install-a");
-    tab.update(TabUpdateOptions { zoom: Update::Clear, ..Default::default() }).unwrap();
+    assert_eq!(updated.value.extra["icon"], "hammer.fill");
+    tab.update(TabUpdateOptions { zoom: Update::Clear, icon: Update::Clear, ..Default::default() })
+        .unwrap();
 
     // Catalog limits are refused before any request.
     for invalid in [
@@ -247,6 +256,7 @@ fn tab_pin_unpin_and_update_send_their_operations_and_decode_tab_snapshots() {
         TabUpdateOptions { zoom: Update::Set(f64::NAN), ..Default::default() },
         TabUpdateOptions { back: Some(vec![String::new(); 21]), ..Default::default() },
         TabUpdateOptions { owner: Some(String::new()), ..Default::default() },
+        TabUpdateOptions { icon: Update::Set(String::new()), ..Default::default() },
     ] {
         assert!(matches!(tab.update(invalid), Err(Error::InvalidArgument(_))));
     }
