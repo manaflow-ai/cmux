@@ -12,7 +12,7 @@ import { Effect, Option } from "effect";
 import { OwnershipStore, type OwnedResource, type PagePosition } from "../db/stores.ts";
 import type { StoreError } from "../db/sql.ts";
 import type { Principal } from "../domain/principal.ts";
-import { parseVmId, type ResourceKind, type SnapshotId, type UpstreamId, type VmId } from "../lib/ids.ts";
+import { parseVmId, type DeviceId, type MeshId, type ResourceId, type ResourceKind, type SnapshotId, type TunnelId, type UpstreamId, type VmId } from "../lib/ids.ts";
 
 const TenantOwnsResource = defineProof("TenantOwnsResource");
 
@@ -34,7 +34,7 @@ export const upstreamIdOf = <C, R>(proof: TenantOwnsResource<C, R>): UpstreamId 
 
 const owns = <C, R>(
   caller: Named<C, Principal>,
-  resource: Named<R, VmId | SnapshotId>,
+  resource: Named<R, ResourceId>,
   kind: ResourceKind,
 ): Effect.Effect<TenantOwnsResource<C, R> | null, StoreError, OwnershipStore> =>
   Effect.gen(function* () {
@@ -61,6 +61,14 @@ export const tenantOwnsVm = <C, R>(caller: Named<C, Principal>, vm: Named<R, VmI
 
 export const tenantOwnsSnapshot = <C, R>(caller: Named<C, Principal>, snapshot: Named<R, SnapshotId>) =>
   owns(caller, snapshot, "snapshot");
+
+/** Mesh experiment (cx-0op): a mesh's upstream id is its private network. */
+export const tenantOwnsMesh = <C, R>(caller: Named<C, Principal>, mesh: Named<R, MeshId>) => owns(caller, mesh, "mesh");
+
+/** A device's upstream id is its tunnel's: deleting the device deletes exactly that tunnel. */
+export const tenantOwnsDevice = <C, R>(caller: Named<C, Principal>, device: Named<R, DeviceId>) => owns(caller, device, "device");
+
+export const tenantOwnsTunnel = <C, R>(caller: Named<C, Principal>, tunnel: Named<R, TunnelId>) => owns(caller, tunnel, "tunnel");
 
 /** What a list handler may read from an ownership row; the upstream id stays with the proof. */
 export type OwnedRowView = Pick<OwnedResource, "cmuxId" | "displayName" | "createdAt" | "labels">;
