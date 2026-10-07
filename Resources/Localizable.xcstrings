@@ -491,7 +491,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Impossible de lire la version de l’app. Compare-la dans cmux > À propos de cmux avec cette CLI, puis relance ou mets à jour la plus ancienne."
+            "value": "Impossible de lire la version de l’app. Comparez-la dans cmux > À propos de cmux avec cette CLI, puis relancez ou mettez à jour la plus ancienne."
           }
         },
         "es": {
@@ -503,13 +503,13 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "アプリのバージョンを取得できませんでした。cmux > cmux について でこの CLI と比較し、古い方を再起動または更新してください。"
+            "value": "アプリのバージョンを取得できませんでした。cmux > cmuxについて でこの CLI と比較し、古い方を再起動または更新してください。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "앱 버전을 읽을 수 없습니다. cmux > cmux 정보에서 이 CLI와 비교한 다음 오래된 쪽을 다시 실행하거나 업데이트하세요."
+            "value": "앱 버전을 읽을 수 없습니다. cmux > cmux에 관하여에서 이 CLI와 비교한 다음 오래된 쪽을 다시 실행하거나 업데이트하세요."
           }
         },
         "zh-Hans": {
@@ -527,7 +527,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تعذّرت قراءة إصدار التطبيق. قارنه في cmux > حول cmux مع واجهة CLI هذه، ثم أعد تشغيل الأقدم أو حدّثه."
+            "value": "تعذّرت قراءة إصدار التطبيق. قارنه في cmux > حول cmux مع واجهة سطر الأوامر هذه، ثم أعد تشغيل الأقدم أو حدّثه."
           }
         }
       }
