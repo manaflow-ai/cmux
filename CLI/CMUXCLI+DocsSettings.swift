@@ -490,7 +490,7 @@ extension CMUXCLI {
     /// Completion candidates for `cmux settings <target>` and `cmux settings open
     /// <target>`. Canonical spellings only, matching `settingsTargetRawValue`.
     static let settingsTargetNames: [String] = [
-        "account", "app", "terminal", "networking", "sidebar-appearance",
+        "account", "app", "themes", "terminal", "networking", "computers", "sidebar-appearance",
         "custom-sidebars", "automation", "browser", "browser-import",
         "global-hotkey", "keyboard-shortcuts", "workspace-colors",
         "cmux-json", "reset",

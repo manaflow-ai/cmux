@@ -85,7 +85,9 @@ enum CompletionCandidates {
 
     /// Reads `--name value` and `--name=value` from the shell words, last one
     /// winning, and maps each to the `<name>_id` RPC param. A flag with no value
-    /// yet, or whose next word is another flag, contributes nothing.
+    /// yet, or whose next word is another flag, contributes nothing. Bash splits
+    /// `--name=value` at the `=` in COMP_WORDS, so a lone `=` after the flag is
+    /// skipped.
     private static func selectors(_ names: [String], in words: [String]) -> [String: Any] {
         var params: [String: Any] = [:]
         for name in names {
@@ -93,7 +95,11 @@ enum CompletionCandidates {
             for (index, word) in words.enumerated() {
                 var value: String?
                 if word == flag, index + 1 < words.count {
-                    value = words[index + 1]
+                    var valueIndex = index + 1
+                    if words[valueIndex] == "=" {
+                        valueIndex += 1
+                    }
+                    value = valueIndex < words.count ? words[valueIndex] : nil
                 } else if word.hasPrefix(flag + "=") {
                     value = String(word.dropFirst(flag.count + 1))
                 }
