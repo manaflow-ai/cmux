@@ -401,12 +401,12 @@ impl Hub {
     /// agents' files and acpmux's record at `paths` (the daemon passes the
     /// user's; tests pass fixtures). None turns it off.
     pub fn set_trust_gate(&self, paths: Option<crate::trust::Paths>) {
-        *self.trust_gate.lock().unwrap() = paths;
+        *self.trust_gate.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = paths;
     }
 
     /// The gate's paths, while the gate is on.
     pub fn trust_gate(&self) -> Option<crate::trust::Paths> {
-        self.trust_gate.lock().unwrap().clone()
+        self.trust_gate.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
     }
 
     /// Points adopt at other harness stores (tests use fixture stores).
