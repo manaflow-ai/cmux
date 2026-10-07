@@ -72,7 +72,11 @@ const guardedFetch = async (request: Request): Promise<Response> => {
   if (kind === undefined) throw new Error("guard: unknown kind");
   if (request.method !== "GET" && id !== null && !ledger.has(id)) throw new Error(`guard: refusing ${request.method} on an id this run did not create`);
   if (request.method === "POST" && id === null && live.size >= MAX_LIVE) throw new Error("guard: 20 live resources");
+  const sent = request.method === "GET" ? null : await request.clone().text();
   const response = await fetch(request);
+  if (!response.ok && !(request.method === "GET" && response.status === 404)) {
+    log("provider-error", { method: request.method, path: url.pathname.replace(/[^/]{20,}/gu, "<id>"), status: response.status, body: (await response.clone().text()).slice(0, 300), sent: sent?.slice(0, 300) });
+  }
   if (request.method === "POST" && id === null && response.ok) {
     const body: Record<string, unknown> = await response.clone().json();
     const created = String(body["tunnelId"] ?? body["id"] ?? body["vmId"] ?? "");
