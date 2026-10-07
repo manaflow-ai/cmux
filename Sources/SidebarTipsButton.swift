@@ -12,6 +12,19 @@ import SwiftUI
 /// opens by itself. "Don't show again" hides the button until the Help
 /// popover's "Show Tips" brings it back.
 struct SidebarTipsButton: View {
+    @AppStorage(SidebarTipsStorage.hiddenKey) private var isHidden = false
+
+    var body: some View {
+        // Hiding removes the inner view so its popover state goes with it. A
+        // popover left open in another window would otherwise come back on
+        // its own when "Show Tips" brings the button back.
+        if SidebarTipsSchedule.showsButton(SidebarTipsProgress(isHidden: isHidden)) {
+            SidebarTipsFooterButton()
+        }
+    }
+}
+
+private struct SidebarTipsFooterButton: View {
     private static let iconSize: CGFloat = 13
     /// `circle.fill` point size; draws a dot about 6pt across.
     private static let dotPointSize: CGFloat = 6.5
@@ -46,12 +59,6 @@ struct SidebarTipsButton: View {
     }
 
     var body: some View {
-        if SidebarTipsSchedule.showsButton(progress) {
-            button
-        }
-    }
-
-    private var button: some View {
         Button {
             if !isPopoverPresented {
                 let today = SidebarTipsSchedule.dayKey(for: Date())
