@@ -201,24 +201,61 @@ struct BrowserReplKeyResendTests {
         return (window, webView)
     }
 
-    /// `cmux browser press` Meta+A right after another key, into a focused
-    /// field of a web view in a window, as in the app. The earlier key can
-    /// still be in WebKit's key queue when Meta+A is delivered; its end must
-    /// not be taken for Meta+A's own outcome (the press must wait for that
-    /// queue, as the REPL does), or Meta+A counts as handled and Select All
-    /// is silently skipped.
-    @Test func cmuxBrowserPressRunsSelectAllRightAfterAnotherKeyInAWindowsEditableField() async throws {
+    /// Holds a block for a later main run-loop turn.
+    private final class HeldCompletion: @unchecked Sendable {
+        let run: () -> Void
+        init(_ run: @escaping () -> Void) { self.run = run }
+    }
+
+    /// Runs `body` with a slow input method on `webView`: WebKit gives a
+    /// key-down in editable content to the window's input method first and
+    /// queues it for the page when the input method answers. Here the
+    /// answer comes only once every key WebKit queued before has been
+    /// handled, and on a later turn, so a key still in WebKit's queue when
+    /// the next key goes out always drains before that key is queued. In
+    /// the app the input method's answer races the page's handling of the
+    /// earlier key; this makes the losing order certain.
+    private static func withSlowInputMethod(on webView: WKWebView, _ body: () async throws -> Void) async throws {
+        let selector = NSSelectorFromString("handleEventByInputMethod:completionHandler:")
+        let method = try #require(class_getInstanceMethod(NSTextInputContext.self, selector))
+        let previous = method_getImplementation(method)
+        typealias Completion = @convention(block) (Bool) -> Void
+        typealias Handle = @convention(c) (NSTextInputContext, Selector, NSEvent, @escaping Completion) -> Void
+        let original = unsafeBitCast(previous, to: Handle.self)
+        let pending = NSSelectorFromString("_doAfterProcessingAllPendingKeyEvents:")
+        let replacement: @convention(block) (NSTextInputContext, NSEvent, @escaping Completion) -> Void = { [weak webView] context, event, completion in
+            original(context, selector, event) { handled in
+                let held = HeldCompletion { completion(handled) }
+                let answer: @convention(block) () -> Void = {
+                    RunLoop.main.perform { held.run() }
+                }
+                guard let webView else { return answer() }
+                _ = webView.perform(pending, with: answer)
+            }
+        }
+        method_setImplementation(method, imp_implementationWithBlock(replacement))
+        defer { method_setImplementation(method, previous) }
+        try await body()
+    }
+
+    /// `cmux browser press` Meta+A into a focused field of a web view in a
+    /// window, as in the app, while the key before it (Meta's) is still in
+    /// WebKit's key queue. The end of that earlier key must not be taken
+    /// for Meta+A's own outcome (the press must wait for that queue, as the
+    /// REPL does), or Meta+A counts as handled and Select All is silently
+    /// skipped.
+    @Test func cmuxBrowserPressRunsSelectAllWhileAnEarlierKeyIsQueuedInAWindowsEditableField() async throws {
         let (window, webView) = try await loadInWindow("<input id=i value=abc><script>\(Self.countKeys)</script>")
         defer { window.close() }
-        for round in 1...3 {
-            try await Self.withAppDroppingResends {
+        try await Self.withAppDroppingResends {
+            try await Self.withSlowInputMethod(on: webView) {
                 try await press(["x"], in: webView)
                 try await press(["Meta", "a"], in: webView)
-                try await settle(webView, keys: 3 * round)
+                try await settle(webView, keys: 3)
             }
-            #expect(webView.commands.count == round, "round \(round): Meta+A after another key ran \(webView.commands)")
         }
-        #expect(webView.commands.allSatisfy { $0 == "selectAll:" })
+        #expect(try await webView.evaluateJavaScript("window.keys") as? Int == 3, "the page did not get x, Meta and a")
+        #expect(webView.commands == ["selectAll:"], "Meta+A no page handled ran \(webView.commands)")
     }
 
     /// Meta+A, Meta+C and Meta+X that no page handled, typed by a REPL
