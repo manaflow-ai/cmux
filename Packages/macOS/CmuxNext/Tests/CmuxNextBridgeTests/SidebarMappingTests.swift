@@ -1,4 +1,5 @@
 import CmuxNextIcons
+import CmuxNextDesign
 import CmuxNextDaemon
 import CmuxNextSidebar
 import Foundation
@@ -25,7 +26,7 @@ struct SidebarMappingTests {
         let machine = SidebarMachine(id: .local, name: "Mac", kind: .local)
         // The cwd never becomes a second line on its own.
         let plain = SidebarMapping.shared.sections(store.sidebarSections, machine: machine)
-        for ws in plain[0].workspaces { #expect(ws.liveDetail == nil && ws.progress == nil) }
+        for ws in plain[0].workspaces { #expect(ws.status == nil && ws.progress == nil) }
 
         let beta = try #require(store.sidebarSections.flatMap(\.workspaces).first { $0.displayName == "beta" })
         let terminal = try #require(beta.screens.flatMap(\.panes).flatMap(\.tabs).first?.terminalResourceID)
@@ -38,14 +39,35 @@ struct SidebarMappingTests {
 
         let mapped = { try #require(SidebarMapping.shared.sections(store.sidebarSections, machine: machine)[0].workspaces.first { $0.title == "beta" }) }
         #expect(try mapped().status == "Running")
-        #expect(try mapped().liveDetail == "Running")
         #expect(try mapped().progress == SidebarProgress(value: 0.5))
-        #expect(try mapped().subtitle == plain[0].workspaces.first { $0.title == "beta" }?.subtitle)
+        #expect(try mapped().directory == plain[0].workspaces.first { $0.title == "beta" }?.directory)
 
         // Without a reported progress, the terminal's parsed one shows.
         state.workspaceStatus[betaID]?.progress = nil
         store.apply(batch: [DaemonEventEnvelope(sequence: 2, event: .sessionState(.snapshot(state)))])
         #expect(try mapped().progress == SidebarProgress(value: 0.3, isError: true))
+    }
+
+    /// SIDEBAR-ROWS-MINIMAL-AND-CUSTOMIZABLE: each row fact comes apart, so a
+    /// setting can show one without another. Status entries `ports` and `pr`
+    /// feed their own elements and leave the status line.
+    @Test func statusEntriesFeedTheirOwnRowElements() throws {
+        let store = try BridgeFixture.store()
+        let machine = SidebarMachine(id: .local, name: "Mac", kind: .local)
+        let beta = try #require(store.sidebarSections.flatMap(\.workspaces).first { $0.displayName == "beta" })
+        let betaID = try #require(beta.resourceID)
+        var state = SessionStateMirror()
+        state.workspaceStatus[betaID] = WorkspaceStatus(workspaceID: betaID, entries: [
+            .init(key: "agent", text: "Running"), .init(key: "ports", text: ":3000"), .init(key: "pr", text: "#12 ✓"),
+        ])
+        store.apply(batch: [DaemonEventEnvelope(sequence: 1, event: .sessionState(.snapshot(state)))])
+        let ws = try #require(SidebarMapping.shared.sections(store.sidebarSections, machine: machine)[0].workspaces.first { $0.title == "beta" })
+        #expect(ws.status == "Running")
+        #expect(ws.ports == ":3000")
+        #expect(ws.pullRequest == "#12 ✓")
+        #expect(ws.directory?.contains(" · ") != true, "the folder holds no branch")
+        #expect(!ws.agentWorking)
+        #expect(SidebarMapping.shared.rowKind([]) == .terminal)
     }
 
     /// Workspace rows keep a visible type glyph even when the workspace has
