@@ -8,10 +8,19 @@ final class MacConversationEntry {
     let id: String
     let store: ConversationStore
     lazy var controller = MacConversationViewController(store: store)
+    /// The conversation's details panel (one per conversation, so its store
+    /// observer is registered once).
+    lazy var details = MacConversationDetailsViewController(store: store)
 
     init(id: String, endpoint: URL) {
         self.id = id
-        store = ConversationStore(backend: ConversationSimBackend(endpoint: endpoint), pageSize: ConversationStore.macPageSize)
+        // Drafts persist per conversation and per service.
+        let service = "\(endpoint.host ?? "local")-\(endpoint.port ?? 0)"
+        store = ConversationStore(
+            backend: ConversationSimBackend(endpoint: endpoint),
+            pageSize: ConversationStore.macPageSize,
+            draftStorage: ConversationUserDefaultsDraftStorage(keyPrefix: "cmux.conversation.draft.\(service).")
+        )
     }
 
     init(id: String, store: ConversationStore) {
@@ -24,10 +33,14 @@ final class MacConversationEntry {
 /// transparent toolbar (so the system draws the soft scroll edge effect), and
 /// the composer as the content item's bottom accessory.
 @MainActor
-final class MacConversationSplitController: NSSplitViewController, NSToolbarDelegate {
+final class MacConversationSplitController: NSSplitViewController, NSToolbarDelegate, MacConversationDetailsHost {
     let entries: [MacConversationEntry]
     let sidebar: MacConversationListViewController
     private let content = MacConversationContainerController()
+    /// The details panel: an inspector on the window's trailing edge.
+    private let inspector = MacConversationContainerController()
+    private var inspectorItem: NSSplitViewItem!
+    private weak var detailsButton: NSButton?
     /// The bottom accessory hosting the composer (macOS 26); earlier systems pin it in the content view.
     private var composerAccessory: NSViewController?
     private let composerHost = MacFlippedView()
@@ -88,6 +101,12 @@ final class MacConversationSplitController: NSSplitViewController, NSToolbarDele
             content.view.addSubview(composerHost)
         }
         addSplitViewItem(contentItem)
+        inspectorItem = NSSplitViewItem(inspectorWithViewController: inspector)
+        inspectorItem.minimumThickness = 260
+        inspectorItem.maximumThickness = 400
+        inspectorItem.canCollapse = true
+        inspectorItem.isCollapsed = true
+        addSplitViewItem(inspectorItem)
         splitView.dividerStyle = .thin
         if let first = entries.first { select(first) }
         unreadBadge.onChange = { [weak self] in
@@ -160,6 +179,13 @@ final class MacConversationSplitController: NSSplitViewController, NSToolbarDele
             self.titleView.configure(info: info, meID: meID, connected: connected)
         }
         controller.onComposerHeightChange = { [weak self] in self?.layoutComposer() }
+        controller.detailsHost = self
+        let details = entry.details
+        details.onToggleAlerts = { [weak self, weak entry] in
+            guard let self, let entry else { return }
+            self.sidebar.perform(.toggleAlerts, on: entry)
+        }
+        inspector.show(details)
         content.show(controller)
         composerHost.subviews.forEach { $0.removeFromSuperview() }
         composerHost.addSubview(controller.composer)
@@ -169,6 +195,35 @@ final class MacConversationSplitController: NSSplitViewController, NSToolbarDele
         }
         updateKeyViewLoop()
         if focusComposer { view.window?.makeFirstResponder(controller.composer.textView) }
+    }
+
+    // MARK: Details
+
+    var isConversationDetailsShown: Bool { inspectorItem.map { !$0.isCollapsed } ?? false }
+
+    /// Toolbar (i), Conversation > Show Details (⌥⌘I) and the lab all land here.
+    func toggleConversationDetails() {
+        let show = !isConversationDetailsShown
+        if show { selected?.details.rebuildIfNeeded() }
+        if view.window?.isVisible == true {
+            inspectorItem.animator().isCollapsed = !show
+        } else {
+            inspectorItem.isCollapsed = !show
+        }
+        updateDetailsButton(shown: show)
+    }
+
+    /// The (i) button takes the same action as the menu item: the selected
+    /// conversation controller's `toggleConversationDetails(_:)`.
+    @objc private func detailsButtonClicked(_ sender: Any?) {
+        selected?.controller.toggleConversationDetails(sender)
+    }
+
+    private func updateDetailsButton(shown: Bool) {
+        guard let button = detailsButton else { return }
+        button.toolTip = shown ? MacDetailsStrings.hideDetails : MacDetailsStrings.showDetails
+        button.setAccessibilityValue(shown ? MacDetailsStrings.hideDetailsAXValue : MacDetailsStrings.showDetailsAXValue)
+        button.state = shown ? .on : .off
     }
 
     // MARK: Keyboard navigation
@@ -245,6 +300,7 @@ final class MacConversationSplitController: NSSplitViewController, NSToolbarDele
     static let composeItem = NSToolbarItem.Identifier("conversation.compose")
     static let titleItem = NSToolbarItem.Identifier("conversation.title")
     static let videoItem = NSToolbarItem.Identifier("conversation.video")
+    static let detailsItem = NSToolbarItem.Identifier("conversation.details")
 
     /// Measured: Messages' toolbar glyphs are ~15 pt wide.
     private static let toolbarSymbol = NSImage.SymbolConfiguration(pointSize: 14, weight: .regular)
@@ -278,7 +334,7 @@ final class MacConversationSplitController: NSSplitViewController, NSToolbarDele
     }
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [.flexibleSpace, Self.filterItem, .sidebarTrackingSeparator, Self.composeItem, .flexibleSpace, Self.titleItem, .flexibleSpace, Self.videoItem]
+        [.flexibleSpace, Self.filterItem, .sidebarTrackingSeparator, Self.composeItem, .flexibleSpace, Self.titleItem, .flexibleSpace, Self.videoItem, Self.detailsItem]
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
@@ -300,6 +356,17 @@ final class MacConversationSplitController: NSSplitViewController, NSToolbarDele
         case Self.videoItem:
             item.label = String(localized: "conversation.header.action", defaultValue: "Call", bundle: .module)
             item.view = Self.circleButton("video", label: item.label)
+        case Self.detailsItem:
+            item.label = MacDetailsStrings.details
+            let view = Self.circleButton("info.circle", label: item.label)
+            if let button = view as? NSButton {
+                button.target = self
+                button.action = #selector(detailsButtonClicked(_:))
+                button.setAccessibilityIdentifier("conversation.toolbar.details")
+                detailsButton = button
+                updateDetailsButton(shown: isConversationDetailsShown)
+            }
+            item.view = view
         case Self.titleItem:
             item.view = titleView
             item.label = ""
@@ -548,7 +615,9 @@ final class MacConversationListViewController: NSViewController, NSTableViewData
         pinsRowShown = !pinned.isEmpty
         for entry in entries {
             entry.store.addObserver { [weak self] change in
-                guard let self, change != .typing else { return }
+                guard let self else { return }
+                // The selected conversation lists no draft while it is open.
+                if change == .draft, entry.id == self.selectedID { return }
                 self.refresh(changed: entry)
             }
         }
@@ -690,7 +759,12 @@ final class MacConversationListViewController: NSViewController, NSTableViewData
     }
 
     func markSelected(_ id: String) {
+        let previous = selectedID
         selectedID = id
+        // The conversation left behind may now list its draft.
+        if let previous, previous != id, let row = row(of: previous), row < table.numberOfRows {
+            table.reloadData(forRowIndexes: IndexSet(integer: row), columnIndexes: IndexSet(integer: 0))
+        }
         if let entry = entry(id), entry.store.listState.markedUnread {
             // Opening a conversation clears Mark as Unread.
             entry.store.updateListState(.init(markedUnread: false))
@@ -716,7 +790,7 @@ final class MacConversationListViewController: NSViewController, NSTableViewData
         guard let entry = listEntry(atRow: row) else { return nil }
         let view = tableView.makeView(withIdentifier: .init("r"), owner: nil) as? MacConversationListRow ?? MacConversationListRow()
         view.identifier = .init("r")
-        view.configure(store: entry.store)
+        view.configure(store: entry.store, showsDraft: entry.id != selectedID)
         view.isUnread = isUnread(entry)
         view.isMentioned = view.isUnread && unreadMentionsMe(entry)
         view.isMuted = entry.store.listState.muted
@@ -989,6 +1063,14 @@ final class MacConversationListViewController: NSViewController, NSTableViewData
         if action == .delete, !confirm { delete(entry) } else { perform(action, on: entry) }
     }
 
+    /// The row's preview line as listed ("<typing>" while the typing bubble shows).
+    func previewSummary(for id: String) -> String? {
+        guard let entry = entry(id) else { return nil }
+        let row = MacConversationListRow()
+        row.configure(store: entry.store, showsDraft: id != selectedID)
+        return row.previewSummary
+    }
+
     func movePin(_ id: String, to index: Int) {
         dropOnPins(id, at: index)
     }
@@ -1026,6 +1108,7 @@ final class MacConversationListRow: MacFlippedView {
     /// Hide Alerts: a bell.slash in the unread dot's column (the dot wins when both apply).
     var isMuted = false { didSet { updateIndicators() } }
     private let mentionGlyph = makeMacLabel()
+    private let typingIndicator = MacListTypingIndicator()
 
     private func updateIndicators() {
         unreadDot.isHidden = !isUnread || isMentioned
@@ -1080,13 +1163,17 @@ final class MacConversationListRow: MacFlippedView {
         preview.lineBreakMode = .byWordWrapping
         preview.cell?.truncatesLastVisibleLine = true
         for view in [avatar, title, time, preview] { addSubview(view) }
+        typingIndicator.isHidden = true
+        addSubview(typingIndicator)
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
     @MainActor
-    func configure(store: ConversationStore) {
+    var previewSummary: String { preview.isHidden ? "<typing>" : preview.stringValue }
+
+    func configure(store: ConversationStore, showsDraft: Bool = true) {
         let info = store.info
         title.stringValue = info?.title ?? ""
         let others = info?.participants.filter { $0.id != store.meID } ?? []
@@ -1123,6 +1210,17 @@ final class MacConversationListRow: MacFlippedView {
             preview.stringValue = ""
             time.stringValue = ""
         }
+        // DRAFT_CONVERSATION_LIST_SUMMARY: unsent text replaces the last message.
+        if showsDraft, let draft = store.draftSummary {
+            preview.stringValue = MacDetailsStrings.draftSummary(draft)
+        }
+        // Someone typing replaces the preview with the typing bubble.
+        let typingNames = store.typingParticipantIDs.compactMap { info?.participant($0)?.name }
+        let typing = !store.typingParticipantIDs.isEmpty
+        typingIndicator.isHidden = !typing
+        preview.isHidden = typing
+        typingIndicator.setAccessibilityElement(typing)
+        typingIndicator.setAccessibilityLabel(typing ? MacDetailsStrings.typing(typingNames) : nil)
         needsLayout = true
     }
 
@@ -1146,6 +1244,7 @@ final class MacConversationListRow: MacFlippedView {
         time.frame = CGRect(x: bounds.width - 85, y: 16, width: 80, height: 16)
         title.frame = CGRect(x: 56, y: 15.5, width: bounds.width - 56 - 85, height: 17)
         preview.frame = CGRect(x: 56, y: 34, width: bounds.width - 61, height: 34)
+        typingIndicator.frame = CGRect(origin: CGPoint(x: 56, y: 36), size: MacListTypingIndicator.size)
         separator.frame = CGRect(x: 56, y: bounds.height - 1, width: bounds.width - 61, height: 1)
     }
 }
@@ -1319,9 +1418,58 @@ public enum MacConversationLab {
                 "pinned": state.pinned, "pinOrder": state.pinOrder as Any, "muted": state.muted,
                 "markedUnread": state.markedUnread, "deleted": state.deleted, "unreadDot": unread,
                 "menu": sidebar.menuTitles(for: id), "swipeLeading": swipes.leading, "swipeTrailing": swipes.trailing,
+                "preview": sidebar.previewSummary(for: id) ?? "", "sendReadReceipts": state.sendReadReceipts,
             ]
         }
         return ["pinned": sidebar.pinnedIDs, "listed": sidebar.visibleIDs, "conversations": conversations]
+    }
+
+    private static var split: MacConversationSplitController? {
+        windows.last?.window?.contentViewController as? MacConversationSplitController
+    }
+
+    /// Toggles the details panel. `button` clicks the toolbar (i) button;
+    /// otherwise the
+    /// conversation controller's `toggleConversationDetails(_:)` runs directly.
+    public static func toggleDetails(viaButton button: Bool = false) -> Bool {
+        guard let split else { return false }
+        if button {
+            guard let item = split.view.window?.toolbar?.items.first(where: { $0.itemIdentifier == MacConversationSplitController.detailsItem }),
+                  let control = item.view as? NSButton else { return false }
+            control.performClick(nil)
+        } else {
+            split.selected?.controller.toggleConversationDetails(nil)
+        }
+        return split.isConversationDetailsShown
+    }
+
+    /// The details panel's contents plus the (i) button's tooltip and VoiceOver value.
+    public static func detailsSnapshot() -> [String: Any] {
+        guard let split, let entry = split.selected else { return [:] }
+        var snapshot = entry.details.labSnapshot()
+        snapshot["shown"] = split.isConversationDetailsShown
+        let button = split.view.window?.toolbar?.items.first { $0.itemIdentifier == MacConversationSplitController.detailsItem }?.view as? NSButton
+        snapshot["buttonToolTip"] = button?.toolTip ?? ""
+        snapshot["buttonAXLabel"] = button?.accessibilityLabel() ?? ""
+        snapshot["buttonAXValue"] = (button?.accessibilityValue() as? String) ?? ""
+        let item = NSMenuItem(title: "", action: #selector(MacConversationViewController.toggleConversationDetails(_:)), keyEquivalent: "")
+        _ = entry.controller.validateMenuItem(item)
+        snapshot["menuTitle"] = item.title
+        return snapshot
+    }
+
+    /// Clicks a details control: hideAlerts, readReceipts, photosMore, linksMore.
+    public static func pressDetails(_ control: String) -> Bool {
+        split?.selected?.details.labPress(control) ?? false
+    }
+
+    /// The selected conversation's composer text.
+    public static var composerText: String { split?.selected?.controller.composer.text ?? "" }
+
+    /// Replaces the selected conversation's composer text as typing would.
+    public static func setComposerText(_ text: String) {
+        guard let controller = split?.selected?.controller else { return }
+        controller.composer.text = text
     }
 
     /// The sheet on the lab window (an alert): its texts and buttons.
