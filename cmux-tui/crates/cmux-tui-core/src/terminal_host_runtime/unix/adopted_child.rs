@@ -234,29 +234,65 @@ impl HostShared {
 mod tests {
     use super::*;
 
+    /// Wait (up to 5 s) until `pid` runs `name`, so a signal reaches the
+    /// final program and not a process still between fork and exec. Linux
+    /// reads `/proc/<pid>/comm`; elsewhere it waits a fixed short time.
+    fn wait_until_exec(pid: u32, name: &str) {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < deadline {
+            match fs::read_to_string(format!("/proc/{pid}/comm")) {
+                Ok(comm) if comm.trim() == name => return,
+                Ok(_) => {}
+                Err(_) if !cfg!(target_os = "linux") => {
+                    thread::sleep(Duration::from_millis(200));
+                    return;
+                }
+                Err(_) => {}
+            }
+            thread::sleep(Duration::from_millis(5));
+        }
+    }
+
     #[test]
     fn adopted_child_sees_a_non_child_session_end_and_never_signals_on_drop() {
         // A session leader this test spawned stands in for an adopted one:
         // it is waited on only through the adoption path.
         let mut leader = Command::new("/bin/sh");
         leader.args(["-c", "exec sleep 30"]);
-        // SAFETY: setsid is async-signal-safe in the forked child.
+        // The leader must not depend on this test process's signal state:
+        // other tests in the process may change dispositions or a thread's
+        // mask, and ignored signals and the mask survive exec.
+        // SAFETY: signal, sigprocmask and setsid are async-signal-safe in
+        // the forked child.
         unsafe {
             leader.pre_exec(|| {
+                libc::signal(libc::SIGHUP, libc::SIG_DFL);
+                let mut empty = std::mem::MaybeUninit::<libc::sigset_t>::uninit();
+                libc::sigemptyset(empty.as_mut_ptr());
+                libc::sigprocmask(libc::SIG_SETMASK, empty.as_ptr(), std::ptr::null_mut());
                 if libc::setsid() < 0 { Err(std_io::Error::last_os_error()) } else { Ok(()) }
             });
         }
         let mut leader = leader.spawn().unwrap();
         let pid = leader.id();
+        wait_until_exec(pid, "sleep");
         assert!(AdoptedChild::adopt(pid, pid + 1).is_err(), "a non-leader was adopted");
         let adopted = AdoptedChild::adopt(pid, pid).unwrap();
         drop(AdoptedChild::adopt(pid, pid).unwrap());
         let raw = libc::pid_t::try_from(pid).unwrap();
         assert!(leads_session(raw, raw), "dropping an adopted child signaled it");
-        adopted.killer().kill().unwrap();
+        let before = fs::read_to_string(format!("/proc/{pid}/status")).unwrap_or_default();
+        let kill_result = adopted.killer().kill();
         let watcher = thread::spawn(move || adopted.wait_for_exit());
         let status = leader.wait().unwrap();
-        assert!(status.code().is_none(), "SIGHUP did not end the leader: {status:?}");
+        let state = before
+            .lines()
+            .filter(|line| line.starts_with("Sig") || line.starts_with("Name"))
+            .collect::<Vec<_>>();
+        assert!(
+            status.code().is_none(),
+            "SIGHUP did not end the leader: {status:?}, kill {kill_result:?}, {state:?}"
+        );
         watcher.join().unwrap();
         assert!(AdoptedChild::adopt(pid, pid).is_err(), "an ended session was adopted");
     }
