@@ -188,6 +188,7 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
     }
 
     private func textDidChange() {
+        updateEmojiScale()
         updatePlaceholder()
         updateSendButton(animated: true)
         updateHeight()
@@ -212,12 +213,42 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         UIView.animate(withDuration: 0.32, delay: 0, usingSpringWithDamping: 0.72, initialSpringVelocity: 0, options: [.beginFromCurrentState, .allowUserInteraction], animations: apply)
     }
 
+    /// Point size of an emoji-only draft, or nil for body text. Messages
+    /// shows a lone emoji in the field at 72 pt and two or three at 48 pt
+    /// (measured on iOS 26: glyph boxes 64 and 43 pt, a 105 pt field for one).
+    private(set) var emojiPointSize: CGFloat?
+
+    static func emojiPointSize(for text: String) -> CGFloat? {
+        guard text == text.trimmingCharacters(in: .whitespacesAndNewlines),
+              ConversationRowBuilder.isEmojiOnly(text) else { return nil }
+        return text.count == 1 ? 72 : 48
+    }
+
+    private func updateEmojiScale() {
+        guard textView.markedTextRange == nil else { return }
+        let size = attachments.isEmpty ? Self.emojiPointSize(for: textView.text ?? "") : nil
+        guard size != emojiPointSize else { return }
+        emojiPointSize = size
+        let attributes: [NSAttributedString.Key: Any] = size.map {
+            [.font: UIFont.systemFont(ofSize: $0), .foregroundColor: UIColor.label]
+        } ?? [
+            .font: ConversationTheme.bodyFont,
+            .foregroundColor: UIColor.label,
+            .paragraphStyle: ConversationTheme.bodyParagraph,
+        ]
+        let selection = textView.selectedRange
+        textView.textStorage.setAttributes(attributes, range: NSRange(location: 0, length: textView.textStorage.length))
+        textView.typingAttributes = attributes
+        textView.selectedRange = selection
+    }
+
     /// Grows by whole lines in the same frame as the edit, with no animation.
     func updateHeight() {
         let width = max(1, (fieldGlass.bounds.width > 0 ? fieldGlass.bounds.width : bounds.width - 120) - fieldTextInset - sendSize.width - 10)
         let textSize = textView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
         let lines = max(1, round((textSize.height - 2 * verticalPadding) / ConversationTheme.lineHeight))
         var natural = ConversationTheme.composerMinHeight + (lines - 1) * ConversationTheme.lineHeight
+        if emojiPointSize != nil { natural = max(ConversationTheme.composerMinHeight, ceil(textSize.height)) }
         if !attachments.isEmpty { natural += attachmentHeight + 16 }
         let height = min(natural, maximumFieldHeight)
         textView.isScrollEnabled = natural > maximumFieldHeight
@@ -266,6 +297,7 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         }
         attachmentStrip.isHidden = attachments.isEmpty
         attachmentSeparator.isHidden = attachments.isEmpty
+        updateEmojiScale()
         updatePlaceholder()
         updateSendButton(animated: true)
         setNeedsLayout()
@@ -294,6 +326,7 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         attachmentStrip.isHidden = true
         attachmentSeparator.isHidden = true
         textView.text = ""
+        updateEmojiScale()
         updatePlaceholder()
         updateSendButton(animated: true)
         let previous = fieldHeight
