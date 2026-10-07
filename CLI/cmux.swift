@@ -8398,10 +8398,17 @@ struct CMUXCLI {
             throw unknownCommandError(command)
         }
         } catch {
-            if !capturesSocketErrorsInsideCommand {
-                captureSocketTransportError(telemetry: cliTelemetry, stage: "socket_command", error: error, client: client)
-            }
-            throw error
+            // Hook commands own their socket errors and run under a short
+            // wall-clock budget, so they skip the extra identify round trip.
+            guard !capturesSocketErrorsInsideCommand else { throw error }
+            captureSocketTransportError(telemetry: cliTelemetry, stage: "socket_command", error: error, client: client)
+            throw CLIVersionSkew.diagnose(
+                error,
+                client: client,
+                cliVersion: versionSummary(),
+                cliShortVersion: resolvedVersionInfo()["CFBundleShortVersionString"],
+                cliPath: resolvedExecutableURL()?.path
+            )
         }
     }
 
@@ -43111,7 +43118,7 @@ export default {
     }
 
 
-    private func versionSummary() -> String {
+    func versionSummary() -> String {
         let info = resolvedVersionInfo()
         let commit = info["CMUXCommit"].flatMap { normalizedCommitHash($0) }
         let baseSummary: String
