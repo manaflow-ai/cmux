@@ -66,6 +66,7 @@
     "axe-core": "4.13.0",
     "babel-plugin-react-compiler": "^1.0.0",
     "esbuild": "0.27.7",
+    "happy-dom": "^20.14.5",
     "jsdom": "^29.1.1",
     "oxc-transform-react": "0.145.0",
     "pixelmatch": "7.2.0",
