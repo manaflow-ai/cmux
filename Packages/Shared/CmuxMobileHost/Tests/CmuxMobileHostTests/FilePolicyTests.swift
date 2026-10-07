@@ -74,6 +74,8 @@ struct FilePolicyTests {
         try Data("k".utf8).write(to: f.workspace.appendingPathComponent(".ssh/id_ed25519"))
         #expect(code { try f.policy.resolveExisting("~/src/proj/.ssh/id_ed25519") } == "files.forbidden")
         #expect(code { try f.policy.resolve("~/src/proj/.netrc") } == "files.forbidden")
+        #expect(code { try f.policy.resolve("~/src/proj/.SSH/id_ed25519") } == "files.forbidden")
+        #expect(MobileFilePolicy.sanitizedName("ID_RSA") == "_ID_RSA")
     }
 
     @Test func uploadNamesAreSanitizedAndNeverOverwrite() throws {

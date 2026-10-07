@@ -23,11 +23,16 @@ public struct MobileFilePolicy: Sendable {
         public var root: Root
     }
 
-    /// Names never served below a root, at any depth.
+    /// Names never served below a root, at any depth, compared without case
+    /// (APFS is usually case-insensitive, so `.SSH` opens `.ssh`).
     public static let deniedNames: Set<String> = [
-        ".ssh", ".gnupg", ".aws", ".kube", ".docker", ".netrc", ".pgpass", "Keychains",
+        ".ssh", ".gnupg", ".aws", ".kube", ".docker", ".netrc", ".pgpass", "keychains",
         "id_rsa", "id_ecdsa", "id_ed25519", "id_dsa",
     ]
+
+    public static func isDenied(_ name: String) -> Bool {
+        deniedNames.contains(name.lowercased())
+    }
     /// Trees under home that may never be (or contain) a root.
     public static let protectedHomeTrees = ["Library", ".ssh", ".gnupg", ".aws", ".config/gcloud", ".kube", ".docker"]
     public static let inboxID = "inbox"
@@ -114,7 +119,7 @@ public struct MobileFilePolicy: Sendable {
             throw .filesForbidden()
         }
         let below = canonical.dropFirst(root.path.count).split(separator: "/")
-        guard !below.contains(where: { Self.deniedNames.contains(String($0)) }) else {
+        guard !below.contains(where: { Self.isDenied(String($0)) }) else {
             throw .filesForbidden("this name is never shared")
         }
         return Resolved(path: canonical, root: root)
@@ -136,7 +141,7 @@ public struct MobileFilePolicy: Sendable {
             clean = base + suffix
         }
         if clean.isEmpty { return "file" }
-        return deniedNames.contains(clean) ? "_" + clean : clean
+        return isDenied(clean) ? "_" + clean : clean
     }
 
     /// Creates a new empty file in `directory` named `name`, `name (2).ext`,
@@ -164,8 +169,10 @@ public struct MobileFilePolicy: Sendable {
     }
 
     static func isAllowedRoot(_ path: String, home: String) -> Bool {
-        guard path != home, path.hasPrefix(home + "/") else { return false }
-        return !protectedHomeTrees.contains { isInside(path, home + "/" + $0) }
+        let lowered = path.lowercased()
+        let home = home.lowercased()
+        guard lowered != home, lowered.hasPrefix(home + "/") else { return false }
+        return !protectedHomeTrees.contains { isInside(lowered, home + "/" + $0.lowercased()) }
     }
 
     /// `realpath(3)` of the longest existing prefix plus the missing tail.

@@ -27,7 +27,7 @@ public struct FilesListReadHandler: MobileReadHandler {
         }
         let limit = min(max(1, params.limit ?? configuration.listDefaultLimit), configuration.listMaxLimit)
         let names = ((try? FileManager.default.contentsOfDirectory(atPath: resolved.path)) ?? [])
-            .filter { !MobileFilePolicy.deniedNames.contains($0) }
+            .filter { !MobileFilePolicy.isDenied($0) }
             .filter { name in params.after.map { name > $0 } ?? true }
             .sorted()
         var entries: [FilesListEntry] = []
