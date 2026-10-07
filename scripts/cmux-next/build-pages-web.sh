@@ -5,13 +5,26 @@
 #
 #   scripts/cmux-next/build-pages-web.sh          # rebuild every page
 #   scripts/cmux-next/build-pages-web.sh --check  # fail if a page (or its strings) is stale
+#   scripts/cmux-next/build-pages-web.sh --out DIR  # build every page into DIR/<page>/
 #
 # Absorbed from the Settings lead's build-settings-web.sh (branch feat-cmux-next-settings-react).
 set -eu
 
 ROOT="$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)"
 OUT_ROOT="$ROOT/Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages"
-MODE="${1:-build}"
+MODE=build
+# --out DIR writes every page (DIR/<page>/) into DIR instead (build-web-bundles.sh --out-root, checks).
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --check) MODE=--check ;;
+    --out)
+      [ $# -ge 2 ] || { echo "error: --out needs a directory" >&2; exit 2; }
+      case "$2" in /*) OUT_ROOT="$2" ;; *) OUT_ROOT="$PWD/$2" ;; esac
+      shift ;;
+    *) echo "usage: $0 [--check] [--out DIR]" >&2; exit 2 ;;
+  esac
+  shift
+done
 PAGES="history apps coderouter cloud keybindings icon-picker settings passwords changelog"
 # Pages whose string table ships as one script per locale (locales/<locale>.js), loaded before the
 # app: only English and the active locale are parsed at open (R82 first-open speed).
@@ -26,9 +39,9 @@ cd "$ROOT/webviews"
 [ -d node_modules ] || bun install --frozen-lockfile >/dev/null
 
 if [ "$MODE" = "--check" ]; then
-  node scripts/pages/gen-strings.mjs --check
+  bun scripts/pages/gen-strings.mjs --check
 else
-  node scripts/pages/gen-strings.mjs
+  bun scripts/pages/gen-strings.mjs
 fi
 
 # No CSP meta: the scheme handler sends each page's policy as a header (PageCSP, strict unless a
@@ -42,7 +55,7 @@ for page in $PAGES; do
   bun scripts/agent-pane/bundle.mjs "$src/main.tsx" "$src" "$WORK/$page/app.js"
   loader=""
   case " $SPLIT_STRINGS " in
-    *" $page "*) loader="$(node scripts/pages/split-strings.mjs "$src/generated/strings.json" "$WORK/$page/locales")" ;;
+    *" $page "*) loader="$(bun scripts/pages/split-strings.mjs "$src/generated/strings.json" "$WORK/$page/locales")" ;;
   esac
   {
     printf '<!doctype html>\n<html lang="en" data-cmux-page="%s">\n<head>\n' "$page"
