@@ -1,3 +1,4 @@
+import CmuxAgentQuestion
 import CmuxHomeCore
 import CmuxNextDaemon
 import Foundation
@@ -25,7 +26,7 @@ nonisolated enum HomeCoreMapping {
                            agentClass: participant.kind == .agent ? (isChief ? .chief : .agent) : nil)
     }
 
-    static func part(_ part: ConversationPart) -> MessagePart {
+    static func part(_ part: ConversationPart, messageID: String = "", index: Int = 0) -> MessagePart {
         switch part {
         case .text(let text, let runs):
             let mentions = runs.compactMap { run in
@@ -37,6 +38,12 @@ nonisolated enum HomeCoreMapping {
                                  status: WorkRef.Status(rawValue: status) ?? .running, preview: preview))
         case .attachment(let attachment):
             return .attachment(Self.ref(attachment))
+        case .unknown("question", let payload):
+            // The owner's question part (spec/commands.md `Question`).
+            guard let data = try? JSONEncoder().encode(payload), let json = try? AgentQuestionJSON(data: data),
+                  let question = AgentQuestion(conversationPart: json, messageID: messageID, partIndex: index)
+            else { return .text("question") }
+            return .question(question)
         case .unknown(let type, _):
             return .text(type)
         }
@@ -74,7 +81,7 @@ nonisolated enum HomeCoreMapping {
     static func message(_ message: ConversationMessage) -> Message {
         Message(id: MessageID(message.id), conversation: ConversationID(message.conversation), seq: message.seq,
                 clientMessageID: IdempotencyKey(message.clientMsgID), author: ParticipantID(message.author),
-                parts: message.parts.map(part), createdAt: date(message.createdAt) ?? .distantPast,
+                parts: message.parts.enumerated().map { part($1, messageID: message.id, index: $0) }, createdAt: date(message.createdAt) ?? .distantPast,
                 editedAt: date(message.editedAt), retractedAt: date(message.retractedAt),
                 reactions: message.reactions.map(reaction))
     }
@@ -101,8 +108,9 @@ nonisolated enum HomeCoreMapping {
                 return .work(session: work.session, host: work.host, status: work.status.rawValue, preview: work.preview)
             case .attachment(let ref):
                 return .attachment(Self.attachment(ref))
-            case .approval, .linkPreview, .location:
-                // The local owner has no approval, link preview or location parts.
+            case .approval, .linkPreview, .location, .question:
+                // The local owner has no approval, link preview or location parts;
+                // a person never sends a question (agents post them).
                 return .text(part.plainText, runs: [])
             }
         }
@@ -121,6 +129,10 @@ nonisolated enum HomeCoreMapping {
             case .emoji(let emoji): .emoji(emoji)
             }
             return (conversation.rawValue, .addReaction(messageID: message.rawValue, partIndex: partIndex, kind: kind))
+        case .answerQuestion(let message, let conversation, let partIndex, let answer):
+            guard let data = try? answer.conversationAnswer.data(),
+                  let value = try? JSONDecoder().decode(JSONValue.self, from: data) else { return nil }
+            return (conversation.rawValue, .answerQuestion(messageID: message.rawValue, partIndex: partIndex, answer: value))
         case .createGroup, .createChief, .startConversation, .invite, .openDirect, .setPinned, .setMuted, .setTyping:
             return nil
         }

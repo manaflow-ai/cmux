@@ -114,11 +114,13 @@ fi
 # and stamp it, so the build below and every later build path skip. The caller restores
 # it under that key, so the stamp's source key is the key it was built from.
 if [ "$MODE" = from ]; then
-  for path in "$PANE" "$PAGES" "$ACTIVITY" "$APP" "$INSPECTOR" "$PALETTE/palette-ranker.js"; do
+  # The inspector page stays committed (optchat-chief compiles it in with
+  # include_str!, and the brain build runs no bundle step): never removed here.
+  for path in "$PANE" "$PAGES" "$ACTIVITY" "$APP" "$PALETTE/palette-ranker.js"; do
     [ -e "$FROM_ROOT/$path" ] || { echo "error: $FROM_ROOT has no $path; build the web bundles instead" >&2; exit 1; }
   done
   rm -f "$STAMP"
-  for path in "$PANE" "$PAGES" "$ACTIVITY" "$APP" "$INSPECTOR"; do
+  for path in "$PANE" "$PAGES" "$ACTIVITY" "$APP"; do
     rm -rf "${ROOT:?}/$path"
     mkdir -p "$(dirname "${ROOT:?}/$path")"
     cp -R "$FROM_ROOT/$path" "$ROOT/$path"
