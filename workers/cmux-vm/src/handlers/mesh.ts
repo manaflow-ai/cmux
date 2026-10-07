@@ -1238,11 +1238,12 @@ export const MEMBERSHIP_WEBHOOK_ACTOR = "system:stack-membership-webhook";
 /** The audit actor of a revocation the Stack `user.deleted` webhook made (G1). */
 export const USER_DELETED_WEBHOOK_ACTOR = "system:stack-user-deleted-webhook";
 
-/** What one webhook revocation did; `skipped: "member"` when Stack confirmed the user as a member after the event. */
+/** What one webhook revocation did. */
 export interface RevocationResult {
   readonly devicesRevoked: number;
   readonly meshesReapplied: number;
-  readonly skipped?: "member";
+  /** Whether Stack says the user is a member of the team now (null: Stack did not answer). Logged only; it changes nothing. */
+  readonly memberNow?: boolean | null;
 }
 
 /**
@@ -1251,14 +1252,18 @@ export interface RevocationResult {
  *
  * 1. The shared membership cache is revoked at `eventAt`: no isolate trusts a
  *    "member" answer asked before the event again.
- * 2. Re-add check: the user is a member again when the cache holds a "member"
- *    answer Stack gave after the event, or, without one, Stack says so now.
- *    Then nothing is revoked (the user was added back before this delivery
- *    or its retry).
- * 3. Otherwise each device the user enrolled in that tenant at or before
- *    `eventAt` is closed and each affected mesh re-applied (closeUserDevices).
- *    A device enrolled after the event passed a membership check after it;
- *    if the user was removed again, that removal's own event revokes it.
+ * 2. Each device the user enrolled in that tenant at or before `eventAt` is
+ *    closed and each affected mesh re-applied (closeUserDevices), also when
+ *    the user was added back before this delivery or its retry: a removal
+ *    cuts the devices that existed then (an admin may remove a user to cut a
+ *    lost laptop), and a re-add does not bring them back. A device enrolled
+ *    after the event passed a membership check after it and stays; if the
+ *    user was removed again, that removal's own event revokes it.
+ * 3. Stack is asked whether the user is a member now, for the log only: its
+ *    answer and its failure change nothing, so an event for a team outside the
+ *    mesh allowlist, without devices, or for a user Stack no longer knows is
+ *    a recorded 200, never a 503 that Svix would retry until it disables the
+ *    endpoint.
  *
  * Idempotent: a retry finds no live device from before the event.
  */
@@ -1266,12 +1271,10 @@ export const revokeMemberDevices = (tenantId: Principal["tenantId"], userId: Use
   Effect.gen(function* () {
     const cache = yield* MembershipCache;
     yield* cache.revoke(tenantId, userId, eventAt).pipe(Effect.catchAll(dependencyDown("membership.revoke")));
-    const member = yield* (yield* TeamMembership).isMember(tenantId, userId).pipe(Effect.mapError(() => unavailable()));
-    if (member) {
-      const result: RevocationResult = { devicesRevoked: 0, meshesReapplied: 0, skipped: "member" };
-      return result;
-    }
-    return yield* closeUserDevices(tenantId, userId, eventAt, MEMBERSHIP_WEBHOOK_ACTOR);
+    const closed = yield* closeUserDevices(tenantId, userId, eventAt, MEMBERSHIP_WEBHOOK_ACTOR);
+    const memberNow = yield* (yield* TeamMembership).isMember(tenantId, userId).pipe(Effect.orElseSucceed(() => null));
+    const result: RevocationResult = { ...closed, memberNow };
+    return result;
   });
 
 /**
