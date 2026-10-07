@@ -24,11 +24,7 @@ export function ChatRootsEditor({ row, value, disabled, labelId }: EditorProps) 
         >
           <span className="folder-path selectable">
             {folder.path}
-            {folder.reason && (
-              <span className="row-error" role="status">
-                {folder.reason}
-              </span>
-            )}
+            {folder.reason && <output className="row-error">{folder.reason}</output>}
           </span>
           {folder.managed ? (
             <span className="row-managed" title={t("settingsWindow.managed.device")}>
