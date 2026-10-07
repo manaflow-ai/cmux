@@ -336,7 +336,8 @@ impl Mux {
                 }) {
                     Some(surface) => surface,
                     None => {
-                        self.new_tab(Some(pane), tab["cwd"].as_str().map(str::to_string), None)?.id
+                        let (cwd, env) = crate::workspace_registry::relaunch_store::replay(tab);
+                        self.new_tab_with_env(Some(pane), cwd, env, None)?.id
                     }
                 }
             }
