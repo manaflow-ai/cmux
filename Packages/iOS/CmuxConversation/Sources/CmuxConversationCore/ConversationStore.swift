@@ -168,7 +168,7 @@ public final class ConversationStore {
         }
         let isNew = upsert(incoming)
         if isNew {
-            sortAndReindex()
+            sortAndReindexAfterAppend()
             // The typing bubble leaves in the same update the message arrives,
             // so the transcript moves once.
             if incoming.senderID != meID, typingParticipantIDs.contains(incoming.senderID) {
@@ -233,6 +233,25 @@ public final class ConversationStore {
         // An acknowledgment always clears a local failure; otherwise never regress.
         if case .failed = lhs, rhs != nil { return rhs }
         return deliveryRank(rhs) >= deliveryRank(lhs) ? rhs : lhs
+    }
+
+    /// `upsert` just appended one message. Live traffic almost always lands
+    /// after everything loaded with nothing local pending, which is already
+    /// sorted and indexed; only then skip the full sort (O(n log n) plus a
+    /// reindex of the whole window per arriving message).
+    private func sortAndReindexAfterAppend() {
+        let count = messages.count
+        if count >= 2, let seq = messages[count - 1].seq {
+            let previous = messages[count - 2]
+            // Sends in flight sort last, so a pending one would be `previous`;
+            // every failed send has an anchor until it is retried or discarded.
+            if let previousSeq = previous.seq, previousSeq < seq, failedAnchorSeq.isEmpty {
+                return
+            }
+        } else if count == 1, messages[0].seq != nil {
+            return
+        }
+        sortAndReindex()
     }
 
     /// Acknowledged messages ascend by seq. A failed send keeps its place in

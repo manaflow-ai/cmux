@@ -146,6 +146,7 @@ enum ConversationRowBuilder {
 
     /// One to three emoji and nothing else render large without a bubble.
     static func isEmojiOnly(_ text: String) -> Bool {
+        guard ConversationTextScan.mayBeEmojiOnly(text) else { return false }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, trimmed.count <= 3 else { return false }
         return trimmed.allSatisfy { character in

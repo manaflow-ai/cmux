@@ -51,6 +51,14 @@ public final class ConversationViewController: UIViewController {
 
     private(set) var rows: [ConversationRow] = []
     private var rowIndex: [String: Int] = [:]
+    /// `rows.map(\.id)`, kept so each update does not walk the old row models.
+    private var rowIDs: [String] = []
+    /// Height and leading spacing of each row, aligned with `rows` (NaN = not
+    /// measured), valid for `rowMetricsKey`. An update re-measures only the
+    /// rows it inserts or changes (and their followers' spacing), so a layout
+    /// pass over a long transcript is a sum instead of a walk over row models.
+    private var rowMetrics: [RowMetrics] = []
+    private var rowMetricsKey: (width: CGFloat, margin: CGFloat) = (0, 0)
     /// Rows whose insertion should use a specific appearance on the next update.
     var appearances: [String: ConversationTranscriptLayout.Appearance] = [:]
     /// Outgoing rows hidden while their send animation flies.
@@ -199,6 +207,7 @@ public final class ConversationViewController: UIViewController {
         super.traitCollectionDidChange(previousTraitCollection)
         if previousTraitCollection?.userInterfaceStyle != traitCollection.userInterfaceStyle {
             layoutCache.invalidateAll()
+            invalidateRowMetrics()
             collectionView.reloadData()
         }
     }
@@ -313,7 +322,7 @@ public final class ConversationViewController: UIViewController {
     }
 
     private func apply(_ newRows: [ConversationRow], change: ConversationStoreChange) {
-        let oldIDs = rows.map(\.id)
+        let oldIDs = rowIDs
         let newIDs = newRows.map(\.id)
         let oldIndex = rowIndex
         var newIndex: [String: Int] = [:]
@@ -324,6 +333,8 @@ public final class ConversationViewController: UIViewController {
         if !hasPositionedInitially || change == .reset && oldIDs.isEmpty {
             rows = newRows
             rowIndex = newIndex
+            rowIDs = newIDs
+            invalidateRowMetrics()
             collectionView.reloadData()
             collectionView.layoutIfNeeded()
             if !newRows.isEmpty {
@@ -407,9 +418,12 @@ public final class ConversationViewController: UIViewController {
         // (spacing, tail, sender name); rows that move a few points glide.
         let screenBefore = animateLive ? [:] : visibleScreenTops()
 
+        let carriedMetrics = structural ? carriedRowMetrics(newIDs: newIDs, oldIndex: oldIndex, updated: updated) : nil
         let updates = {
             self.rows = newRows
             self.rowIndex = newIndex
+            self.rowIDs = newIDs
+            if let carriedMetrics { self.rowMetrics = carriedMetrics } else { self.invalidateRowMetrics() }
             if structural {
                 self.collectionView.deleteItems(at: deleted)
                 self.collectionView.insertItems(at: inserted)
@@ -708,7 +722,24 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
 
     func transcriptItemCount() -> Int { rows.count }
 
+    func transcriptWillPrepare(width: CGFloat) {
+        let margin = layoutMargin
+        if rowMetricsKey.width != width || rowMetricsKey.margin != margin {
+            rowMetricsKey = (width, margin)
+            invalidateRowMetrics()
+        } else if rowMetrics.count != rows.count {
+            invalidateRowMetrics()
+        }
+    }
+
     func transcriptHeight(at index: Int, width: CGFloat) -> CGFloat {
+        if index < rowMetrics.count, !rowMetrics[index].height.isNaN { return rowMetrics[index].height }
+        let height = measuredHeight(at: index, width: width)
+        if index < rowMetrics.count { rowMetrics[index].height = height }
+        return height
+    }
+
+    private func measuredHeight(at index: Int, width: CGFloat) -> CGFloat {
         switch rows[index] {
         case let .message(model):
             return layoutCache.layout(for: model, width: width, margin: layoutMargin).height
@@ -720,6 +751,13 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
     }
 
     func transcriptSpacing(before index: Int) -> CGFloat {
+        if index < rowMetrics.count, !rowMetrics[index].spacing.isNaN { return rowMetrics[index].spacing }
+        let spacing = measuredSpacing(before: index)
+        if index < rowMetrics.count { rowMetrics[index].spacing = spacing }
+        return spacing
+    }
+
+    private func measuredSpacing(before index: Int) -> CGFloat {
         guard case let .message(model) = rows[index] else {
             if case .typing = rows[index], index > 0, case let .message(previous) = rows[index - 1],
                let typer = store.typingParticipantIDs.first, previous.message.senderID == typer {
@@ -729,6 +767,36 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
         }
         guard index > 0, isMessage(index - 1) else { return 4 }
         return model.isFirstInGroup ? ConversationTheme.ungroupedSpacing : ConversationTheme.groupedSpacing
+    }
+
+    struct RowMetrics {
+        var height: CGFloat = .nan
+        var spacing: CGFloat = .nan
+    }
+
+    /// Forgets every measurement (width, margin or appearance changed).
+    func invalidateRowMetrics() {
+        rowMetrics = Array(repeating: RowMetrics(), count: rows.count)
+    }
+
+    /// Metrics for the new rows. A row keeps its height when it is unchanged,
+    /// and its spacing when, in addition, the row above it is the same
+    /// unchanged row (spacing depends only on the pair).
+    private func carriedRowMetrics(newIDs: [String], oldIndex: [String: Int], updated: [IndexPath]) -> [RowMetrics] {
+        var metrics = [RowMetrics](repeating: RowMetrics(), count: newIDs.count)
+        guard rowMetrics.count == rows.count else { return metrics }
+        var changed = [Bool](repeating: false, count: newIDs.count)
+        for indexPath in updated { changed[indexPath.item] = true }
+        var previousOld: Int?
+        for (index, id) in newIDs.enumerated() {
+            let old = oldIndex[id]
+            defer { previousOld = changed[index] ? nil : old }
+            guard let old, !changed[index] else { continue }
+            metrics[index].height = rowMetrics[old].height
+            let samePredecessor = index == 0 ? old == 0 : previousOld.map { $0 == old - 1 } ?? false
+            if samePredecessor { metrics[index].spacing = rowMetrics[old].spacing }
+        }
+        return metrics
     }
 
     private func isMessage(_ index: Int) -> Bool {

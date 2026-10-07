@@ -171,6 +171,7 @@ enum MacConversationRowBuilder {
     }
 
     static func isEmojiOnly(_ text: String) -> Bool {
+        guard ConversationTextScan.mayBeEmojiOnly(text) else { return false }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, trimmed.count <= 3 else { return false }
         return trimmed.allSatisfy { character in

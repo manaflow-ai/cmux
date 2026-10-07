@@ -4,6 +4,8 @@ import UIKit
 @MainActor
 protocol ConversationTranscriptLayoutDataSource: AnyObject {
     func transcriptItemCount() -> Int
+    /// Called once at the start of each layout pass, before any height.
+    func transcriptWillPrepare(width: CGFloat)
     func transcriptHeight(at index: Int, width: CGFloat) -> CGFloat
     /// Vertical gap above item `index`.
     func transcriptSpacing(before index: Int) -> CGFloat
@@ -27,7 +29,9 @@ final class ConversationTranscriptLayout: UICollectionViewLayout {
     weak var dataSource: (any ConversationTranscriptLayoutDataSource)?
     private var frames: [CGRect] = []
     private var contentHeight: CGFloat = 0
-    private var cachedAttributes: [UICollectionViewLayoutAttributes] = []
+    /// Created on first request: a pass over thousands of rows allocates
+    /// attributes only for the rows UIKit actually asks about.
+    private var cachedAttributes: [UICollectionViewLayoutAttributes?] = []
     var topPadding: CGFloat = 0
 
     override func prepare() {
@@ -35,6 +39,7 @@ final class ConversationTranscriptLayout: UICollectionViewLayout {
         guard let collectionView, let dataSource else { return }
         let width = collectionView.bounds.width
         let count = dataSource.transcriptItemCount()
+        dataSource.transcriptWillPrepare(width: width)
         frames.removeAll(keepingCapacity: true)
         frames.reserveCapacity(count)
         var y: CGFloat = topPadding
@@ -52,11 +57,15 @@ final class ConversationTranscriptLayout: UICollectionViewLayout {
             for index in frames.indices { frames[index].origin.y += shift }
             contentHeight = visible
         }
-        cachedAttributes = frames.enumerated().map { index, frame in
-            let attributes = UICollectionViewLayoutAttributes(forCellWith: IndexPath(item: index, section: 0))
-            attributes.frame = frame
-            return attributes
-        }
+        cachedAttributes = Array(repeating: nil, count: frames.count)
+    }
+
+    private func attributes(at index: Int) -> UICollectionViewLayoutAttributes {
+        if let attributes = cachedAttributes[index] { return attributes }
+        let attributes = UICollectionViewLayoutAttributes(forCellWith: IndexPath(item: index, section: 0))
+        attributes.frame = frames[index]
+        cachedAttributes[index] = attributes
+        return attributes
     }
 
     override var collectionViewContentSize: CGSize {
@@ -74,7 +83,7 @@ final class ConversationTranscriptLayout: UICollectionViewLayout {
         var result: [UICollectionViewLayoutAttributes] = []
         var index = low
         while index < frames.count, frames[index].minY <= rect.maxY {
-            result.append(cachedAttributes[index])
+            result.append(attributes(at: index))
             index += 1
         }
         return result
@@ -82,7 +91,7 @@ final class ConversationTranscriptLayout: UICollectionViewLayout {
 
     override func layoutAttributesForItem(at indexPath: IndexPath) -> UICollectionViewLayoutAttributes? {
         guard indexPath.item < cachedAttributes.count else { return nil }
-        return cachedAttributes[indexPath.item]
+        return attributes(at: indexPath.item)
     }
 
     override func shouldInvalidateLayout(forBoundsChange newBounds: CGRect) -> Bool {
