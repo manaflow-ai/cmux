@@ -261,7 +261,7 @@ impl Hub {
             turn_seq: 0,
             control,
         });
-        session.last_turn_web.store(control == Control::Web, Ordering::SeqCst);
+        session.floor.last_turn_web.store(control == Control::Web, Ordering::SeqCst);
         self.reset_stream(session);
         self.append(
             session,
