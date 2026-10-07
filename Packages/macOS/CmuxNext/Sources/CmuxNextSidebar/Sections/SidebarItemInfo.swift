@@ -26,10 +26,14 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
     public var caption: String?
     /// An agent's brand mark (`AgentBrandID`), drawn instead of `icon` (a Recents chat).
     public var brand: String?
+    /// One emoji the item draws as its glyph (a workspace's emoji icon), before `brand` and `icon`.
+    public var emoji: String?
 
     public init(title: String, symbol: String, icon: IconName? = nil, color: GroupColor? = nil, badge: Int? = nil, isActive: Bool = false,
-                isMissing: Bool = false, isHidden: Bool = false, caption: String? = nil, shortcut: String? = nil, brand: String? = nil) {
+                isMissing: Bool = false, isHidden: Bool = false, caption: String? = nil, shortcut: String? = nil, brand: String? = nil,
+                emoji: String? = nil) {
         self.icon = icon
+        self.emoji = emoji
         self.brand = brand
         self.shortcut = shortcut
         self.isHidden = isHidden

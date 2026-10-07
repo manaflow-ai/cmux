@@ -252,11 +252,22 @@ final class SidebarItemRowView: NSView {
 
     /// The item's registry icon at `side` points; without one, its SF Symbol at the matching text size.
     private func glyphImage(side: CGFloat) -> NSImage? {
+        if let emoji = info.emoji { return Self.emojiImage(emoji, side: side) }
         if let brand = info.brand, let mark = AgentBrandCatalog.templateImage(brand: brand, size: side) { return mark }
         if let name = info.icon { return NSImage.icon(name, size: side) }
         let symbol = NSImage(systemSymbolName: info.symbol, accessibilityDescription: nil)?
             .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: side * 0.8, weight: .regular))
         return symbol ?? NSImage.icon(.appGeneric, size: side)
+    }
+
+    /// `emoji` drawn as a text glyph filling a `side` square (in color, not a template).
+    static func emojiImage(_ emoji: String, side: CGFloat) -> NSImage {
+        NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
+            let text = NSAttributedString(string: emoji, attributes: [.font: NSFont.systemFont(ofSize: side * 0.85)])
+            let size = text.size()
+            text.draw(at: NSPoint(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2))
+            return true
+        }
     }
 
     /// A `side` square centered in `box`, on the device pixel grid so the icon's strokes stay crisp.

@@ -5,8 +5,8 @@ import Testing
 
 /// Pin a tab group (PINNED-ITEMS-END-TO-END P3, Chrome parity): pinning a
 /// group saves it. The tab group menu offers Pin Group on a group that is
-/// not saved and Unpin Group on a saved one, never both; the palette keeps
-/// Save Tab Group and Unsave Tab Group. No window is put on screen.
+/// not saved and Unpin Group on a saved one, never both; the palette and the
+/// CLI use the same words (ids tabGroup.save / tabGroup.unsave stay). No window is put on screen.
 @MainActor
 struct TabGroupPinMenuTests {
     private static func ids(_ entries: [ContextMenuEntry]) -> Set<ActionID> {
@@ -23,11 +23,9 @@ struct TabGroupPinMenuTests {
         #expect(open.subtracting(["tabGroup.save"]) == saved.subtracting(["tabGroup.unsave"]), "the rest of the menu is the same")
     }
 
-    @Test func theMenuReadsPinGroupAndThePaletteKeepsSave() {
+    @Test func everySurfaceSaysPinGroup() {
         let services = ActionBindingCoverageTests.boundServices()
-        let invocation = ActionInvocation(target: ActionTargetRef(kind: .tabGroup, id: "grp_1"))
-        #expect(services.registry.action(for: "tabGroup.save")?.targetTitle?(invocation) == PinStrings.pinGroup)
-        #expect(services.registry.action(for: "tabGroup.unsave")?.targetTitle?(invocation) == PinStrings.unpinGroup)
-        #expect(services.registry.descriptor(for: "tabGroup.save")?.title != PinStrings.pinGroup, "the palette title stays Save Tab Group")
+        #expect(services.registry.descriptor(for: "tabGroup.save")?.title == PinStrings.pinGroup)
+        #expect(services.registry.descriptor(for: "tabGroup.unsave")?.title == PinStrings.unpinGroup)
     }
 }

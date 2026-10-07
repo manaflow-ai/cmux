@@ -34,15 +34,20 @@ struct WorkspacePinTilesTests {
         AppActions.bind(services)
         services.palette.bindRegistryActions()
         services.windows.ordersWindowsIn = false
+        tree(services)
+        return services
+    }
+
+    /// Applies w1..w3 (`names`, `icons`) to the local store at `revision`.
+    static func tree(_ services: AppServices, names: [String] = ["w1", "w2", "w3"], icons: [String?] = [nil, nil, nil], revision: UInt64 = 10) {
         let snapshots = keys.enumerated().map { index, key in
             let pane = PaneID(rawValue: UInt64(index + 1) * 10)
             let screen = ScreenSnapshot(id: ScreenID(rawValue: UInt64(index + 1) * 100), layout: .leaf(pane),
                                         panes: [PaneSnapshot(id: pane, tabs: [TabSnapshot(surface: SurfaceID(rawValue: UInt64(index + 1)), title: "zsh")])])
             return WorkspaceSnapshot(id: WorkspaceHandle(rawValue: UInt64(index + 1)), key: key, resourceID: ResourceID(rawValue: "ws_\(index + 1)"),
-                                     name: "w\(index + 1)", screens: [screen], pinned: index == 1)
+                                     name: names[index], screens: [screen], icon: icons[index], pinned: index == 1)
         }
-        services.daemon.store.apply(snapshot: DaemonTree(registryID: session, workspaceRevision: 10, workspaces: snapshots))
-        return services
+        services.daemon.store.apply(snapshot: DaemonTree(registryID: session, workspaceRevision: revision, workspaces: snapshots))
     }
 
     private static func togglePin(_ services: AppServices, _ index: Int) -> ControlActionOutcome {
@@ -128,6 +133,27 @@ struct WorkspacePinTilesTests {
         let stored = try JSONDecoder().decode(LayoutItem.self, from: JSONEncoder().encode(closed))
         #expect(stored.label == "Old project", "the label goes over the wire with the item")
         await Self.drain(owner)
+    }
+
+    @Test func aTileShowsTheLiveNameAndTheStoredNameOnlyWhenClosed() async throws {
+        let owner = SidebarLayoutServiceTests.FakeOwner()
+        let services = Self.services(owner: owner)
+        #expect(Self.togglePin(services, 1) == .ran)
+        Self.tree(services, names: ["Renamed", "w2", "w3"], revision: 11)
+        let layout = services.sidebarLayout.document
+        let tile = try #require(layout.section(SidebarLayoutDocument.pinnedSectionID)?.items.first)
+        #expect(tile.label == "w1", "the stored name is from the pin")
+        let workspaces = SidebarWorkspaceItems.workspaceInfos(layout, refs: WorkspaceLayoutRefs(machines: services.machines))
+        let infos = SidebarBridge.itemInfo(for: layout, registered: { _ in true }, workspace: { workspaces[$0] })
+        #expect(infos[tile.id]?.title == "Renamed", "a rename shows on the tile at once")
+        await Self.drain(owner)
+    }
+
+    @Test func anEmojiIconDrawsOnTheTile() throws {
+        let services = Self.services(owner: nil)
+        Self.tree(services, icons: ["🚀", nil, nil], revision: 11)
+        let (workspace, _) = try #require(services.machines.workspace(id: Self.id(1)))
+        #expect(SidebarWorkspaceItems.workspaceInfo(workspace).emoji == "🚀")
     }
 
     @Test func aTileDrawsTheGlyphItsRowStandsFor() throws {
