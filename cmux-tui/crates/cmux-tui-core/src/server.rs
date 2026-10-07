@@ -14137,18 +14137,7 @@ fn handle_command_with_cancellation(
                 "notifications": rows
                     .iter()
                     .map(|(row, acknowledged)| {
-                        json!({
-                            "id": row.id,
-                            "title": row.title,
-                            "subtitle": row.subtitle,
-                            "body": row.body,
-                            "level": row.level.as_str(),
-                            "terminal_id": row.terminal_id,
-                            "surface": row.surface,
-                            "created_at_ms": row.created_at_ms,
-                            "source": row.source.as_str(),
-                            "acknowledged": acknowledged,
-                        })
+                        crate::notification_origin::list_row_json(row, *acknowledged)
                     })
                     .collect::<Vec<_>>(),
             }))
@@ -15605,15 +15594,7 @@ fn subscribed_event_json(event: &MuxEvent) -> Value {
             "updated_at_ms": updated_at_ms,
         }),
         MuxEvent::Bell(id) => json!({"event": "bell", "surface": id}),
-        MuxEvent::Notification(notification) => json!({
-            "event": "notification",
-            "notification": notification.notification,
-            "title": notification.title,
-            "body": notification.body,
-            "level": notification.level.as_str(),
-            "surface": notification.surface,
-            "source": notification.source.as_str(),
-        }),
+        MuxEvent::Notification(notification) => notification.event_json(),
         MuxEvent::GraphicsStatus(status) => match status {
             GraphicsStatus::KittyImageBudgetWorkerStartFailed { error } => json!({
                 "event": "graphics-status",

@@ -995,6 +995,14 @@ class NotificationMarker:
 
 
 @dataclass(frozen=True)
+class NotificationProgramStatus:
+    __cmux_schema_path__: ClassVar[str] = 'types/NotificationProgramStatus'
+    kind: Union[Literal['permission', 'question', 'auth'], None]
+    msg: Union[str, None]
+    state: Literal['blocked', 'error']
+
+
+@dataclass(frozen=True)
 class NotifyResult:
     __cmux_schema_path__: ClassVar[str] = 'types/NotifyResult'
     notification: Id
@@ -4349,6 +4357,7 @@ class NotificationEvent(EventBase):
     level: NotificationLevel
     notification: Id
     title: str
+    program_status: Union[NotificationProgramStatus, MissingType] = field(default=MISSING)
     source: Union[NotificationSource, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
@@ -4923,6 +4932,7 @@ __all__ = [
     'NewRowResult',
     'NoteSizeActivityResult',
     'NotificationMarker',
+    'NotificationProgramStatus',
     'NotifyResult',
     'PaneNeighborResult',
     'PingResult',

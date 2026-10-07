@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR af2b63afd5b6fadf0bbf64b43e17101ac3697fe4e74dd7c1dccd8bd2ec32d28a. */
+/* cmux-tui mux protocol 12, IR 06c37618050c9415344f6c930341fe29613e09c76610e9dabb3d01418a91e190. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -608,6 +608,12 @@ export type NotificationMarker = {
   "notification": Id;
   "source"?: NotificationSource;
   "unread": boolean;
+};
+
+export type NotificationProgramStatus = {
+  "kind": ("permission" | "question" | "auth") | null;
+  "msg": (string) | null;
+  "state": "blocked" | "error";
 };
 
 export type NotificationSource = "cli" | "terminal" | "agent" | "daemon";

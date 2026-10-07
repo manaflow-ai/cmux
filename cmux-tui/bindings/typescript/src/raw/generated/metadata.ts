@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR af2b63afd5b6fadf0bbf64b43e17101ac3697fe4e74dd7c1dccd8bd2ec32d28a. */
+/* cmux-tui mux protocol 12, IR 06c37618050c9415344f6c930341fe29613e09c76610e9dabb3d01418a91e190. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "af2b63afd5b6fadf0bbf64b43e17101ac3697fe4e74dd7c1dccd8bd2ec32d28a" as const;
+export const SDK_IR_SHA256 = "06c37618050c9415344f6c930341fe29613e09c76610e9dabb3d01418a91e190" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -6813,6 +6813,43 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "boolean"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "NotificationProgramStatus": {
+    "additional_properties": false,
+    "fields": {
+      "kind": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "enum",
+          "values": [
+            "permission",
+            "question",
+            "auth"
+          ]
+        }
+      },
+      "msg": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "state": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "enum",
+          "values": [
+            "blocked",
+            "error"
+          ]
         }
       }
     },
@@ -23543,6 +23580,16 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      },
+      "program_status": {
+        "capability": "notification-program-status-v1",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "NotificationProgramStatus"
         }
       },
       "source": {

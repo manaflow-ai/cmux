@@ -98,6 +98,11 @@ public struct DaemonCapabilities: Sendable {
     /// OSC 777 and OSC 99 parsed by the daemon from every terminal's output
     /// (plans/cmux-next/notifications.md).
     public let notificationSource = "notification-source-v1"
+    /// `program_status` on notifications the daemon posts for an OSC 7501
+    /// record that entered `blocked` or `error`, so the app words the body in
+    /// the user's language (`NotificationProgramStatus`). Decoded whenever
+    /// present; older daemons send the English body only.
+    public let notificationProgramStatus = "notification-program-status-v1"
     /// `shell_args` on the terminal-creating commands, so bash and nushell
     /// get Ghostty's argv-based shell integration (`GhosttyShellIntegration`).
     public let terminalShellArgs = "terminal-shell-args-v1"
@@ -225,7 +230,7 @@ public struct DaemonCapabilities: Sendable {
     public var optional: [String] { [workspaceGroups, workspaceMetadata, tabMetadata, frontendBrowserTabs, tabDrag,
                                             notificationAck, tabGroups, savedTabGroups, terminalEnv, terminalPlacementEnv,
                                             terminalReap, terminalReaperActive, batchClose, closeReason, browserHostProvider, frontendBrowserActivate, frontendBrowserInsertAfter, loopbackForward, screenMetadata, screenGroups, profiles,
-                                            terminalPendingSequence, personalTerminals, browserProfiles, notificationSource,
+                                            terminalPendingSequence, personalTerminals, browserProfiles, notificationSource, notificationProgramStatus,
                                             terminalShellArgs, terminalFrontendShellIntegration, launchSnapshot, bookmarks, workspacePin, notificationMarkUnread,
                                             terminalCommandJournal, dockColumns, edgeDocks, rows, tabColumnRespawn, endTerminalsKeepLayout, stateResources,
                                             sessionIdentity, localConversations, tabSplitRespawn, frontendBrowserHistory,

@@ -108,10 +108,10 @@ extension NotificationCenterService {
             switch mirror.terminal {
             case .off: return nil
             case .title: return (notification.title, "")
-            case .full: return (notification.title, notification.body)
+            case .full: return (notification.title, body(of: notification))
             }
         default:
-            return mirror.agents ? (notification.title, notification.body) : nil
+            return mirror.agents ? (notification.title, body(of: notification)) : nil
         }
     }
 

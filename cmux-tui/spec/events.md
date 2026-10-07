@@ -886,10 +886,10 @@ Example:
 Payload:
 
 ```text
-object{event:"notification",notification:Id,title:string,body:string,level:"info"|"warning"|"error",surface:Id|null,source?:"cli"|"terminal"|"agent"|"daemon"}
+object{event:"notification",notification:Id,title:string,body:string,level:"info"|"warning"|"error",surface:Id|null,source?:"cli"|"terminal"|"agent"|"daemon",program_status?:object{state:"blocked"|"error",kind:"permission"|"question"|"auth"|null,msg:string|null}}
 ```
 
-Meaning: A notification was posted. With `notification-source-v1`, `source` names who posted it (`notify`'s `source`, `terminal` for OSC 9/777/99 the daemon parsed from terminal output, `agent` for agent hooks); the tab's retained `notification` marker carries the same `source`. An inactive target surface receives one retained unread marker in the tree; a later notification overwrites it. Active-surface and session-wide notifications remain event-only. Selecting the target clears its marker without a notification lifecycle event.
+Meaning: A notification was posted. With `notification-source-v1`, `source` names who posted it (`notify`'s `source`, `terminal` for OSC 9/777/99 the daemon parsed from terminal output, `agent` for agent hooks); the tab's retained `notification` marker carries the same `source`. With `notification-program-status-v1`, a notification the daemon posts because an OSC 7501 program status record entered `blocked` or `error` also carries `program_status`: the record's `state`, its `kind` (`blocked` only, else `null`) and its sanitized `msg` (display text only, never a link or a command). `title` and `body` keep the daemon's English wording (`Needs approval`, `Asks a question`, `Needs sign-in`, `Needs input`, or `Failed`, then `: <msg>`) for clients without the capability; a client with it builds the body in its own language. Other notifications omit the field. An inactive target surface receives one retained unread marker in the tree; a later notification overwrites it. Active-surface and session-wide notifications remain event-only. Selecting the target clears its marker without a notification lifecycle event.
 
 Example:
 

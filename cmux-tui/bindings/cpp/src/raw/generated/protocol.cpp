@@ -4603,6 +4603,71 @@ Result<NotificationMarker> Codec<NotificationMarker>::decode(const Json& value) 
     return result;
 }
 
+Result<Json> Codec<NotificationProgramStatus>::encode(const NotificationProgramStatus& value) {
+    (void)value;
+    Json::Object object;
+    if (value.kind) {
+        auto encoded = encode_value(*value.kind);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("kind", std::move(encoded).value());
+    } else {
+        object.emplace("kind", Json(nullptr));
+    }
+    if (value.msg) {
+        auto encoded = encode_value(*value.msg);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("msg", std::move(encoded).value());
+    } else {
+        object.emplace("msg", Json(nullptr));
+    }
+    auto encoded_state = encode_value(value.state);
+    if (!encoded_state) return std::move(encoded_state).error();
+    object.emplace("state", std::move(encoded_state).value());
+    return Json(std::move(object));
+}
+
+Result<NotificationProgramStatus> Codec<NotificationProgramStatus>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    NotificationProgramStatus result{};
+    const Json* field_kind = value.find("kind");
+    if (!field_kind) {
+        return make_error(ErrorCode::decode, "missing required field 'kind'");
+    }
+    if (field_kind) {
+        if (field_kind->is_null()) {
+            result.kind.reset();
+        } else {
+            auto decoded = decode_value<NotificationProgramStatusKind>(*field_kind);
+            if (!decoded) return std::move(decoded).error();
+            result.kind = std::move(decoded).value();
+        }
+    }
+    const Json* field_msg = value.find("msg");
+    if (!field_msg) {
+        return make_error(ErrorCode::decode, "missing required field 'msg'");
+    }
+    if (field_msg) {
+        if (field_msg->is_null()) {
+            result.msg.reset();
+        } else {
+            auto decoded = decode_value<std::string>(*field_msg);
+            if (!decoded) return std::move(decoded).error();
+            result.msg = std::move(decoded).value();
+        }
+    }
+    const Json* field_state = value.find("state");
+    if (!field_state) {
+        return make_error(ErrorCode::decode, "missing required field 'state'");
+    }
+    if (field_state) {
+        auto decoded = decode_value<NotificationProgramStatusState>(*field_state);
+        if (!decoded) return std::move(decoded).error();
+        result.state = std::move(decoded).value();
+    }
+    return result;
+}
+
 Result<Json> Codec<NotificationSource>::encode(const NotificationSource& value) {
     switch (value) {
         case NotificationSource::cli: return Json(std::string("cli"));
@@ -28895,6 +28960,11 @@ Result<Json> Codec<NotificationEvent>::encode(const NotificationEvent& value) {
     auto encoded_notification = encode_value(value.notification);
     if (!encoded_notification) return std::move(encoded_notification).error();
     object.emplace("notification", std::move(encoded_notification).value());
+    if (value.program_status) {
+        auto encoded = encode_value(*value.program_status);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("program_status", std::move(encoded).value());
+    }
     if (value.source) {
         auto encoded = encode_value(*value.source);
         if (!encoded) return std::move(encoded).error();
@@ -28943,6 +29013,12 @@ Result<NotificationEvent> Codec<NotificationEvent>::decode(const Json& value) {
         auto decoded = decode_value<Id>(*field_notification);
         if (!decoded) return std::move(decoded).error();
         result.notification = std::move(decoded).value();
+    }
+    const Json* field_program_status = value.find("program_status");
+    if (field_program_status) {
+        auto decoded = decode_value<NotificationProgramStatus>(*field_program_status);
+        if (!decoded) return std::move(decoded).error();
+        result.program_status = std::move(decoded).value();
     }
     const Json* field_source = value.find("source");
     if (field_source) {
@@ -32679,6 +32755,36 @@ Result<LayoutStack> Codec<LayoutStack>::decode(const Json& value) {
         }
     }
     return result;
+}
+
+Result<Json> Codec<NotificationProgramStatusKind>::encode(const NotificationProgramStatusKind& value) {
+    switch (value) {
+        case NotificationProgramStatusKind::permission: return Json(std::string("permission"));
+        case NotificationProgramStatusKind::question: return Json(std::string("question"));
+        case NotificationProgramStatusKind::auth: return Json(std::string("auth"));
+    }
+    return make_error(ErrorCode::invalid_argument, "invalid enum value");
+}
+
+Result<NotificationProgramStatusKind> Codec<NotificationProgramStatusKind>::decode(const Json& value) {
+    if (value == Json(std::string("permission"))) return NotificationProgramStatusKind::permission;
+    if (value == Json(std::string("question"))) return NotificationProgramStatusKind::question;
+    if (value == Json(std::string("auth"))) return NotificationProgramStatusKind::auth;
+    return make_error(ErrorCode::decode, "unknown NotificationProgramStatusKind value");
+}
+
+Result<Json> Codec<NotificationProgramStatusState>::encode(const NotificationProgramStatusState& value) {
+    switch (value) {
+        case NotificationProgramStatusState::blocked: return Json(std::string("blocked"));
+        case NotificationProgramStatusState::error: return Json(std::string("error"));
+    }
+    return make_error(ErrorCode::invalid_argument, "invalid enum value");
+}
+
+Result<NotificationProgramStatusState> Codec<NotificationProgramStatusState>::decode(const Json& value) {
+    if (value == Json(std::string("blocked"))) return NotificationProgramStatusState::blocked;
+    if (value == Json(std::string("error"))) return NotificationProgramStatusState::error;
+    return make_error(ErrorCode::decode, "unknown NotificationProgramStatusState value");
 }
 
 Result<Json> Codec<SnapshotRequestResultStatus>::encode(const SnapshotRequestResultStatus& value) {

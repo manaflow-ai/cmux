@@ -719,7 +719,10 @@ pub(crate) fn public_session_snapshot_with_journal_head(
                 if let Some(subtitle) = notification.subtitle {
                     snapshot["subtitle"] = json!(subtitle);
                 }
-                snapshot["extra"] = json!({"source": notification.source.as_str()});
+                snapshot["extra"] = crate::notification_origin::extra_value(
+                    notification.source,
+                    notification.program_status.as_ref(),
+                );
                 snapshot
             })
             .collect::<Vec<_>>();

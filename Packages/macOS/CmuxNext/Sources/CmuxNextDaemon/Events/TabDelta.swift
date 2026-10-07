@@ -38,10 +38,15 @@ public struct DaemonNotification: Sendable, Hashable, Decodable {
     /// Who posted it (`notification-source-v1`: `cli`, `terminal` for OSC
     /// 9/777/99 the daemon parsed, `agent`, `daemon`); nil from older daemons.
     public var source: String?
+    /// Why a program status notification was posted
+    /// (`notification-program-status-v1`); nil for every other notification
+    /// and from older daemons, which keep the English `body`.
+    public var programStatus: NotificationProgramStatus?
 
     enum CodingKeys: String, CodingKey {
         case notification, title, body, level, surface, source
         case createdAtMs = "created_at_ms"
+        case programStatus = "program_status"
     }
 
     public init(from decoder: any Decoder) throws {
@@ -53,6 +58,7 @@ public struct DaemonNotification: Sendable, Hashable, Decodable {
         surface = try c.decodeIfPresent(SurfaceID.self, forKey: .surface)
         createdAtMs = try c.decodeIfPresent(UInt64.self, forKey: .createdAtMs)
         source = try? c.decodeIfPresent(String.self, forKey: .source)
+        programStatus = try? c.decodeIfPresent(NotificationProgramStatus.self, forKey: .programStatus)
     }
 }
 

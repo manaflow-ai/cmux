@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR af2b63afd5b6fadf0bbf64b43e17101ac3697fe4e74dd7c1dccd8bd2ec32d28a.
+// cmux-tui mux protocol 12, IR 06c37618050c9415344f6c930341fe29613e09c76610e9dabb3d01418a91e190.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -962,6 +962,34 @@ pub struct NotificationMarker {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub source: Option<NotificationSource>,
     pub unread: bool,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum NotificationProgramStatusKind {
+    #[serde(rename = "permission")]
+    Permission,
+    #[serde(rename = "question")]
+    Question,
+    #[serde(rename = "auth")]
+    Auth,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum NotificationProgramStatusState {
+    #[serde(rename = "blocked")]
+    Blocked,
+    #[serde(rename = "error")]
+    Error,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NotificationProgramStatus {
+    pub kind: Nullable<NotificationProgramStatusKind>,
+    pub msg: Nullable<String>,
+    pub state: NotificationProgramStatusState,
 }
 
 #[rustfmt::skip]

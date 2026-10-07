@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR af2b63afd5b6fadf0bbf64b43e17101ac3697fe4e74dd7c1dccd8bd2ec32d28a.
+// cmux-tui mux protocol 12, IR 06c37618050c9415344f6c930341fe29613e09c76610e9dabb3d01418a91e190.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -305,6 +305,8 @@ pub struct NotificationEvent {
     pub body: String,
     pub level: T::NotificationLevel,
     pub notification: T::Id,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub program_status: Option<T::NotificationProgramStatus>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub source: Option<T::NotificationSource>,
     pub surface: Nullable<T::Id>,

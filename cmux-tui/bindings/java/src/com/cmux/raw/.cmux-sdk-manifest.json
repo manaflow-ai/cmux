@@ -1467,8 +1467,8 @@
     },
     {
       "path": "NotificationEvent.java",
-      "sha256": "bc24b7c0bf04a17396b7d55bedd4c1892e504e0f86449d0ed7b2bde1c0be36a3",
-      "size": 5759
+      "sha256": "848c377dad8b956e653e5a1e1b8a9394a0765587a5cd5d44b74e0801efbd57a8",
+      "size": 6552
     },
     {
       "path": "NotificationLevel.java",
@@ -1479,6 +1479,21 @@
       "path": "NotificationMarker.java",
       "sha256": "65589c90300e9e8eb31ba905c6f27da8e0aad88bb0822731d39008eb177582ed",
       "size": 4043
+    },
+    {
+      "path": "NotificationProgramStatus.java",
+      "sha256": "1769d720630213c01861ac83d04527c5781ef091cbfd3bc4713018a746b11a28",
+      "size": 3408
+    },
+    {
+      "path": "NotificationProgramStatusKind.java",
+      "sha256": "be1e237dafb1810b6aa882e5934cf65d45d62cd515788cb600d60644a97ffd9b",
+      "size": 999
+    },
+    {
+      "path": "NotificationProgramStatusState.java",
+      "sha256": "e00f2899bd6fdeda11d82bc1ea97abc32d039475c0674b5a7f0269d49a72c200",
+      "size": 974
     },
     {
       "path": "NotificationSource.java",
@@ -1597,7 +1612,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "fbf8545908d0e6dafc3ecdf749431aefbfcb3b05ff5a52edac7fc2b0bff93c23",
+      "sha256": "782c18c0fae67334f2eddad70ba459a192ff2fc0a5aafbf287f2f7863cf6bd7f",
       "size": 5749
     },
     {
@@ -2772,7 +2787,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "af2b63afd5b6fadf0bbf64b43e17101ac3697fe4e74dd7c1dccd8bd2ec32d28a",
+  "ir_sha256": "06c37618050c9415344f6c930341fe29613e09c76610e9dabb3d01418a91e190",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

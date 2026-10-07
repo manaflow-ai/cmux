@@ -1173,54 +1173,7 @@ impl NotificationLevel {
     }
 }
 
-/// Who posted a notification (`notification-source-v1`). Frontends apply
-/// per-source preferences from it instead of guessing.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum NotificationSource {
-    /// `cmux notify`, the `notify` verb without a source, or
-    /// `notification.create`.
-    Cli,
-    /// A program in the terminal: OSC 9, OSC 777 `notify` or kitty OSC 99,
-    /// parsed by the daemon from the terminal's output.
-    Terminal,
-    /// An agent hook (Claude Code, Codex, ...), daemon-side or reported by a
-    /// frontend.
-    Agent,
-    /// Any other daemon producer.
-    Daemon,
-}
-
-impl NotificationSource {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            NotificationSource::Cli => "cli",
-            NotificationSource::Terminal => "terminal",
-            NotificationSource::Agent => "agent",
-            NotificationSource::Daemon => "daemon",
-        }
-    }
-
-    pub fn parse(value: &str) -> Option<Self> {
-        match value {
-            "cli" => Some(NotificationSource::Cli),
-            "terminal" => Some(NotificationSource::Terminal),
-            "agent" => Some(NotificationSource::Agent),
-            "daemon" => Some(NotificationSource::Daemon),
-            _ => None,
-        }
-    }
-
-    /// The source of a durable notification written before sources existed,
-    /// from its idempotency key: agent hooks mint `agent-hook-notification-*`;
-    /// every other producer then was `notify` or `notification.create`.
-    pub(crate) fn from_legacy_key(idempotency_key: &str) -> Self {
-        if idempotency_key.starts_with("agent-hook-notification-") {
-            NotificationSource::Agent
-        } else {
-            NotificationSource::Cli
-        }
-    }
-}
+pub use crate::notification_origin::NotificationSource;
 
 #[derive(Debug, Clone)]
 pub struct NotificationEvent {
@@ -1230,6 +1183,8 @@ pub struct NotificationEvent {
     pub level: NotificationLevel,
     pub surface: Option<SurfaceId>,
     pub source: NotificationSource,
+    /// `notification-program-status-v1`: set only for an OSC 7501 alert.
+    pub program_status: Option<crate::NotificationProgramStatus>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1243,6 +1198,7 @@ pub struct ResourceNotification {
     pub terminal_id: Option<TerminalPublicId>,
     pub created_at_ms: u64,
     pub source: NotificationSource,
+    pub program_status: Option<crate::NotificationProgramStatus>,
     pub(crate) surface: Option<SurfaceId>,
 }
 
@@ -6666,6 +6622,7 @@ impl Mux {
                 level,
                 Some(surface),
                 NotificationSource::Agent,
+                None,
             )
             .with_context(|| format!("agent hook notification for sequence {sequence}"))?;
         }
@@ -11005,7 +10962,7 @@ impl Mux {
         source: NotificationSource,
     ) -> anyhow::Result<u64> {
         let key = format!("notify-{}", crate::workspace_registry::new_uuid_v4());
-        self.create_durable_notification(&key, title, None, body, level, surface, source)?
+        self.create_durable_notification(&key, title, None, body, level, surface, source, None)?
             .context("fresh notify key unexpectedly replayed")
     }
 
@@ -11114,6 +11071,7 @@ impl Mux {
         terminal_id: Option<TerminalPublicId>,
         created_at_ms: u64,
         source: NotificationSource,
+        program_status: Option<crate::NotificationProgramStatus>,
     ) -> u64 {
         let id = self.next_notification_id();
         {
@@ -11128,6 +11086,7 @@ impl Mux {
                 terminal_id: terminal_id.clone(),
                 created_at_ms,
                 source,
+                program_status: program_status.clone(),
                 surface,
             });
             let mut evicted = Vec::new();
@@ -11174,6 +11133,7 @@ impl Mux {
             level,
             surface,
             source,
+            program_status,
         }));
         if unread_changed {
             self.emit(MuxEvent::TreeChanged);
@@ -11246,7 +11206,7 @@ impl Mux {
         }
         // Stored under `extra`, which every registry schema already accepts,
         // so a downgraded daemon still opens the receipt.
-        value["extra"] = serde_json::json!({"source": notification.source.as_str()});
+        value["extra"] = crate::notification_origin::notification_extra(notification);
         value
     }
 
@@ -11266,6 +11226,7 @@ impl Mux {
         level: NotificationLevel,
         surface: Option<SurfaceId>,
         source: NotificationSource,
+        program_status: Option<crate::NotificationProgramStatus>,
     ) -> anyhow::Result<Option<u64>> {
         const OPERATION: &str = "notification.create";
         let terminal_id = surface.and_then(|surface| {
@@ -11301,7 +11262,7 @@ impl Mux {
         )? {
             Some(preparation) => preparation,
             None => {
-                let intent = serde_json::json!({
+                let mut intent = serde_json::json!({
                     "notification_id": NotificationPublicId::random().map_err(anyhow::Error::new)?,
                     "title": title,
                     "subtitle": subtitle,
@@ -11311,6 +11272,9 @@ impl Mux {
                     "created_at_ms": now_ms(),
                     "source": source.as_str(),
                 });
+                if let Some(program_status) = &program_status {
+                    intent["program_status"] = program_status.to_json();
+                }
                 self.prepare_resource_effect(
                     idempotency_key,
                     OPERATION,
@@ -11351,6 +11315,8 @@ impl Mux {
             .and_then(Value::as_str)
             .and_then(NotificationSource::parse)
             .unwrap_or(source);
+        let program_status =
+            crate::NotificationProgramStatus::from_intent(&intent).or(program_status);
         let numeric_id = self.post_resource_notification(
             notification_id.clone(),
             title.clone(),
@@ -11361,6 +11327,7 @@ impl Mux {
             terminal_id.clone(),
             created_at_ms,
             source,
+            program_status.clone(),
         );
         let session_id = self.workspace_registry.lock().unwrap().session_id().clone();
         let value = self.notification_snapshot_value(
@@ -11373,6 +11340,7 @@ impl Mux {
                 terminal_id,
                 created_at_ms,
                 source,
+                program_status,
                 surface,
             },
             &session_id,
@@ -25619,6 +25587,7 @@ mod tests {
             NotificationLevel::Info,
             Some(first.id),
             NotificationSource::Cli,
+            None,
         )
         .unwrap();
         mux.create_durable_notification(
@@ -25629,6 +25598,7 @@ mod tests {
             NotificationLevel::Info,
             Some(second.id),
             NotificationSource::Cli,
+            None,
         )
         .unwrap();
         mux.create_durable_notification(
@@ -25639,6 +25609,7 @@ mod tests {
             NotificationLevel::Info,
             Some(first.id),
             NotificationSource::Cli,
+            None,
         )
         .unwrap();
         let snapshot = crate::resource_api::public_session_snapshot(&mux).unwrap();

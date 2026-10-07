@@ -1352,6 +1352,43 @@
    },
    "additional_properties": false
   },
+  "NotificationProgramStatus": {
+   "kind": "object",
+   "fields": {
+    "state": {
+     "type": {
+      "kind": "enum",
+      "values": [
+       "blocked",
+       "error"
+      ]
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "kind": {
+     "type": {
+      "kind": "enum",
+      "values": [
+       "permission",
+       "question",
+       "auth"
+      ]
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "msg": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true
+    }
+   },
+   "additional_properties": false
+  },
   "Tab": {
    "kind": "object",
    "fields": {
@@ -21570,6 +21607,16 @@
       "nullable": false,
       "since": 12,
       "capability": "notification-source-v1"
+     },
+     "program_status": {
+      "type": {
+       "kind": "ref",
+       "name": "NotificationProgramStatus"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "notification-program-status-v1"
      }
     },
     "additional_properties": false

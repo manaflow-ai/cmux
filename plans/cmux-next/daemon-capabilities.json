@@ -26,6 +26,7 @@
     "loopback-forward-v1",
     "notification-ack-v1",
     "notification-mark-unread-v1",
+    "notification-program-status-v1",
     "notification-source-v1",
     "page-tabs-v1",
     "personal-mixed-order-v1",
@@ -36,6 +37,7 @@
     "screen-groups-v1",
     "screen-metadata-v1",
     "session-identity-v1",
+    "sidebar-layout-v1",
     "state-resources-v1",
     "tab-column-respawn-v1",
     "tab-drag-v1",
@@ -73,7 +75,6 @@
   ],
   "unservedByBundledDaemon" : [
     "detached-terminals-v1",
-    "remote-terminal-tabs-v1",
-    "sidebar-layout-v1"
+    "remote-terminal-tabs-v1"
   ]
 }

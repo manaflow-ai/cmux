@@ -38,6 +38,8 @@ pub struct RegistryNotificationProjection {
     /// `extra.source`, or derived from the idempotency key for receipts
     /// written before sources existed.
     pub source: crate::NotificationSource,
+    /// `extra.program_status` (`notification-program-status-v1`).
+    pub program_status: Option<crate::NotificationProgramStatus>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -348,13 +350,8 @@ impl WorkspaceRegistry {
                 stored.session_id,
                 self.session_id
             );
-            let source = stored
-                .extra
-                .as_ref()
-                .and_then(|extra| extra.get("source"))
-                .and_then(Value::as_str)
-                .and_then(crate::NotificationSource::parse)
-                .unwrap_or_else(|| crate::NotificationSource::from_legacy_key(&idempotency_key));
+            let (source, program_status) =
+                crate::notification_origin::receipt_origin(stored.extra.as_ref(), &idempotency_key);
             let _ = stored.read_by;
             let read_by = reads.remove(stored.id.as_str()).unwrap_or_default();
             let unread = stored.unread && !acked.contains(stored.id.as_str());
@@ -371,6 +368,7 @@ impl WorkspaceRegistry {
                 unread,
                 read_by,
                 source,
+                program_status,
             });
         }
         notifications.reverse();

@@ -199,7 +199,7 @@ final class NotificationCenterService {
     private func post(_ notification: DaemonNotification, tab: TabModel?, workspace: String?, sound: String?) {
         let id = "cmux-notification-\(notification.notification.rawValue)"
         let title = notification.title.isEmpty ? (tab?.displayTitle ?? "cmux") : notification.title
-        desktop.post(id: id, title: title, body: notification.body, surface: notification.surface?.rawValue,
+        desktop.post(id: id, title: title, body: Self.body(of: notification), surface: notification.surface?.rawValue,
                      workspace: workspace, defaultSound: sound == "default")
         if let sound, sound != "default" { NotificationSounds.play(sound) }
         if let tab { banners[tab.id, default: []].append(id) }

@@ -477,6 +477,9 @@ impl RemoteSession {
                         .and_then(Value::as_str)
                         .and_then(NotificationSource::parse)
                         .unwrap_or(NotificationSource::Daemon),
+                    program_status: value
+                        .get("program_status")
+                        .and_then(cmux_tui_core::NotificationProgramStatus::from_json),
                 }));
             }
             Some("overflow") => {

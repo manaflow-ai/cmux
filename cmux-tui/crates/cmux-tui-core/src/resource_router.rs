@@ -590,6 +590,7 @@ fn execute_notification_effect(
         .and_then(Value::as_str)
         .and_then(crate::NotificationSource::parse)
         .unwrap_or(crate::NotificationSource::Cli);
+    let program_status = crate::NotificationProgramStatus::from_intent(intent);
     mux.post_resource_notification(
         notification_id.clone(),
         title.to_string(),
@@ -600,6 +601,7 @@ fn execute_notification_effect(
         terminal_id.clone(),
         created_at_ms,
         source,
+        program_status.clone(),
     );
     let value = mux.notification_snapshot_value(
         &crate::ResourceNotification {
@@ -611,6 +613,7 @@ fn execute_notification_effect(
             terminal_id,
             created_at_ms,
             source,
+            program_status,
             surface,
         },
         &session_id,

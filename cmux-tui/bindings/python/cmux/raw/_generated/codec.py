@@ -90,6 +90,7 @@ MODEL_BY_PATH = {
     'types/NewRowResult': models.NewRowResult,
     'types/NoteSizeActivityResult': models.NoteSizeActivityResult,
     'types/NotificationMarker': models.NotificationMarker,
+    'types/NotificationProgramStatus': models.NotificationProgramStatus,
     'types/NotifyResult': models.NotifyResult,
     'types/PaneNeighborResult': models.PaneNeighborResult,
     'types/PingResult': models.PingResult,

@@ -69,6 +69,7 @@ pub(super) fn restore_public_projections(
             terminal_id: notification.terminal_id,
             created_at_ms: notification.created_at_ms,
             source: notification.source,
+            program_status: notification.program_status,
             surface,
         });
     }
@@ -244,6 +245,7 @@ mod tests {
                 unread: true,
                 read_by: vec![],
                 source: NotificationSource::Cli,
+                program_status: None,
             }],
             agents: vec![RegistryAgentProjection {
                 id: AgentPublicId::parse("agent_00000000000000000000000000000001").unwrap(),
@@ -286,6 +288,7 @@ mod tests {
                 unread: true,
                 read_by: vec![],
                 source: NotificationSource::Cli,
+                program_status: None,
             }],
             agents: Vec::new(),
             agent_hook_states: Vec::new(),
@@ -313,6 +316,7 @@ mod tests {
                 unread: true,
                 read_by: vec![],
                 source: NotificationSource::Cli,
+                program_status: None,
             }],
             agents: Vec::new(),
             agent_hook_states: Vec::new(),

@@ -110,6 +110,26 @@ impl ProgramStatusAlert {
     pub(crate) fn is_error(&self) -> bool {
         self.state == ProgramStatusState::Error
     }
+
+    /// The structured reason the notification carries
+    /// (`notification-program-status-v1`), so a client words the body in its
+    /// own language. `msg` is the record's already shown-safe message.
+    pub(crate) fn reason(&self) -> crate::NotificationProgramStatus {
+        use crate::notification_origin::{ProgramStatusNoticeKind, ProgramStatusNoticeState};
+        crate::NotificationProgramStatus {
+            state: if self.is_error() {
+                ProgramStatusNoticeState::Error
+            } else {
+                ProgramStatusNoticeState::Blocked
+            },
+            kind: self.kind.map(|kind| match kind {
+                ProgramStatusKind::Permission => ProgramStatusNoticeKind::Permission,
+                ProgramStatusKind::Question => ProgramStatusNoticeKind::Question,
+                ProgramStatusKind::Auth => ProgramStatusNoticeKind::Auth,
+            }),
+            msg: self.message.clone(),
+        }
+    }
 }
 
 /// The records of one terminal, keyed by record id (`""` is the root).
@@ -266,8 +286,9 @@ pub(crate) fn query_only_sink() -> ghostty_vt::ProgramStatusFn {
 impl crate::mux::Mux {
     /// Post one terminal notification per OSC 7501 record that entered
     /// `blocked` or `error` in `surface`'s terminal (titled `terminal` when
-    /// the program names nothing). Called by the publisher after the
-    /// terminal upsert, outside every terminal lock.
+    /// the program names nothing). Each carries its structured reason
+    /// (`program_status`) next to the English title and body. Called by the
+    /// publisher after the terminal upsert, outside every terminal lock.
     pub(crate) fn post_program_status_alerts(
         &self,
         surface: crate::SurfaceId,
@@ -281,16 +302,18 @@ impl crate::mux::Mux {
             } else {
                 crate::mux::NotificationLevel::Warning
             };
-            if self
-                .post_notification_from(
-                    title,
-                    body,
-                    level,
-                    Some(surface),
-                    crate::mux::NotificationSource::Terminal,
-                )
-                .is_err()
-            {
+            let key = format!("notify-{}", crate::workspace_registry::new_uuid_v4());
+            let posted = self.create_durable_notification(
+                &key,
+                title,
+                None,
+                body,
+                level,
+                Some(surface),
+                crate::mux::NotificationSource::Terminal,
+                Some(alert.reason()),
+            );
+            if posted.is_err() {
                 self.report_internal_diagnostic("program status notification not posted");
             }
         }

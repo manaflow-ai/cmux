@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "af2b63afd5b6fadf0bbf64b43e17101ac3697fe4e74dd7c1dccd8bd2ec32d28a";
+inline constexpr std::string_view kProtocolIrSha256 = "06c37618050c9415344f6c930341fe29613e09c76610e9dabb3d01418a91e190";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -101,6 +101,7 @@ struct NewRowResult;
 struct NoteSizeActivityResult;
 enum class NotificationLevel;
 struct NotificationMarker;
+struct NotificationProgramStatus;
 enum class NotificationSource;
 struct NotifyResult;
 struct Pane;
@@ -541,6 +542,8 @@ enum class IdMappingKind;
 struct LayoutLeaf;
 struct LayoutSplit;
 struct LayoutStack;
+enum class NotificationProgramStatusKind;
+enum class NotificationProgramStatusState;
 enum class SnapshotRequestResultStatus;
 enum class TabBrowserSource;
 enum class TabBrowserStatus;
@@ -3163,10 +3166,29 @@ struct NoteSizeActivityResult {
     friend bool operator==(const NoteSizeActivityResult&, const NoteSizeActivityResult&) = default;
 };
 
+enum class NotificationProgramStatusKind {
+    permission,
+    question,
+    auth,
+};
+
+enum class NotificationProgramStatusState {
+    blocked,
+    error,
+};
+
+struct NotificationProgramStatus {
+    std::optional<NotificationProgramStatusKind> kind{};
+    std::optional<std::string> msg{};
+    NotificationProgramStatusState state{};
+    friend bool operator==(const NotificationProgramStatus&, const NotificationProgramStatus&) = default;
+};
+
 struct NotificationEvent {
     std::string body{};
     NotificationLevel level{};
     Id notification{};
+    std::optional<NotificationProgramStatus> program_status{};
     std::optional<NotificationSource> source{};
     std::optional<Id> surface{};
     std::string title{};
@@ -5357,6 +5379,12 @@ template <>
 struct Codec<NotificationMarker> {
     static Result<Json> encode(const NotificationMarker& value);
     static Result<NotificationMarker> decode(const Json& value);
+};
+
+template <>
+struct Codec<NotificationProgramStatus> {
+    static Result<Json> encode(const NotificationProgramStatus& value);
+    static Result<NotificationProgramStatus> decode(const Json& value);
 };
 
 template <>
@@ -7997,6 +8025,18 @@ template <>
 struct Codec<LayoutStack> {
     static Result<Json> encode(const LayoutStack& value);
     static Result<LayoutStack> decode(const Json& value);
+};
+
+template <>
+struct Codec<NotificationProgramStatusKind> {
+    static Result<Json> encode(const NotificationProgramStatusKind& value);
+    static Result<NotificationProgramStatusKind> decode(const Json& value);
+};
+
+template <>
+struct Codec<NotificationProgramStatusState> {
+    static Result<Json> encode(const NotificationProgramStatusState& value);
+    static Result<NotificationProgramStatusState> decode(const Json& value);
 };
 
 template <>

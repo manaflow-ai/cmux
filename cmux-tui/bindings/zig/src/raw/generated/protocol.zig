@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "af2b63afd5b6fadf0bbf64b43e17101ac3697fe4e74dd7c1dccd8bd2ec32d28a";
+pub const ir_sha256 = "06c37618050c9415344f6c930341fe29613e09c76610e9dabb3d01418a91e190";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -1068,6 +1068,51 @@ pub const NotificationMarker = struct {
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "source",
     };
+};
+
+pub const NotificationProgramStatusKind = enum {
+    permission,
+    question,
+    auth,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "permission")) return .permission;
+        if (std.mem.eql(u8, value, "question")) return .question;
+        if (std.mem.eql(u8, value, "auth")) return .auth;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .permission => "permission",
+            .question => "question",
+            .auth => "auth",
+        };
+    }
+};
+
+pub const NotificationProgramStatusState = enum {
+    blocked,
+    @"error",
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "blocked")) return .blocked;
+        if (std.mem.eql(u8, value, "error")) return .@"error";
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .blocked => "blocked",
+            .@"error" => "error",
+        };
+    }
+};
+
+pub const NotificationProgramStatus = struct {
+    kind: wire.Nullable(NotificationProgramStatusKind),
+    msg: wire.Nullable([]const u8),
+    state: NotificationProgramStatusState,
 };
 
 pub const NotificationSource = enum {
@@ -8439,11 +8484,13 @@ pub const NotificationEvent = struct {
     event: []const u8,
     level: NotificationLevel,
     notification: Id,
+    program_status: ?NotificationProgramStatus = null,
     source: ?NotificationSource = null,
     surface: wire.Nullable(Id),
     title: []const u8,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "program_status",
         "source",
     };
 };

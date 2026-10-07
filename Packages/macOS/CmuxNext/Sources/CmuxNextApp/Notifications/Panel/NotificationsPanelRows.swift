@@ -27,7 +27,7 @@ struct NotificationsPanelRow: Hashable, Identifiable {
                 id: entry.id,
                 title: entry.title,
                 subtitle: entry.subtitle.flatMap { $0.isEmpty ? nil : $0 },
-                body: entry.body,
+                body: entry.programStatus?.localizedBody ?? entry.body,
                 level: entry.level,
                 workspaceTitle: entry.surface.flatMap(workspace),
                 createdAt: Date(timeIntervalSince1970: TimeInterval(entry.createdAtMs) / 1000),

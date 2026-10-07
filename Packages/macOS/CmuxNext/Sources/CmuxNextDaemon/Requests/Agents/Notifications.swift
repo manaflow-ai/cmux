@@ -48,10 +48,27 @@ public struct ListNotificationsRequest: DaemonRequest {
         public var surface: SurfaceID?
         public var createdAtMs: UInt64
         public var acknowledged: Bool
+        /// `notification-program-status-v1`; nil for other notifications.
+        public var programStatus: NotificationProgramStatus?
         enum CodingKeys: String, CodingKey {
             case id, title, subtitle, body, level, surface, acknowledged
             case terminalID = "terminal_id"
             case createdAtMs = "created_at_ms"
+            case programStatus = "program_status"
+        }
+
+        public init(from decoder: any Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            id = try c.decode(String.self, forKey: .id)
+            title = try c.decode(String.self, forKey: .title)
+            subtitle = try c.decodeIfPresent(String.self, forKey: .subtitle)
+            body = try c.decode(String.self, forKey: .body)
+            level = try c.decode(NotificationLevel.self, forKey: .level)
+            terminalID = try c.decodeIfPresent(TerminalID.self, forKey: .terminalID)
+            surface = try c.decodeIfPresent(SurfaceID.self, forKey: .surface)
+            createdAtMs = try c.decode(UInt64.self, forKey: .createdAtMs)
+            acknowledged = try c.decode(Bool.self, forKey: .acknowledged)
+            programStatus = try? c.decodeIfPresent(NotificationProgramStatus.self, forKey: .programStatus)
         }
     }
     public struct Response: Decodable, Sendable, Equatable {
