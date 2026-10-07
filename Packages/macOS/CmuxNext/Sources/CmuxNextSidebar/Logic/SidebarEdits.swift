@@ -30,8 +30,10 @@ public nonisolated enum SidebarEdits {
             return move(ids, toGroup: group, in: &sections)
         case let .reorderGroup(group, index):
             return reorderGroup(group, index: index, in: &sections)
-        case let .createGroup(id, name, color, ids, anchor):
-            return createGroup(id, name: name, color: color, workspaces: ids, anchor: anchor, in: &sections)
+        case let .createGroup(id, name, color, ids, anchor, collapsed):
+            guard createGroup(id, name: name, color: color, workspaces: ids, anchor: anchor, in: &sections) else { return false }
+            if collapsed { _ = mutateGroup(id, in: &sections) { $0.isCollapsed = true } }
+            return true
         case let .renameGroup(id, name):
             return mutateGroup(id, in: &sections) { $0.name = name }
         case let .setGroupColor(id, color):

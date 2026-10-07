@@ -1,3 +1,4 @@
+public import CoreGraphics
 import Foundation
 
 /// Pure rules of the profile bar: visibility, stepping, and drag reorder.
@@ -14,12 +15,21 @@ public nonisolated enum ProfileBarLogic {
         return target == index ? nil : order[target]
     }
 
-    /// Leading x of each room's slot, centered as a group in `width`, then
-    /// the "+" slot right after the last room. The "+" shows only on hover,
-    /// so it must not shift the dots.
-    public static func slotXs(count: Int, slot: Double, width: Double) -> [Double] {
-        let x0 = (width - slot * Double(count)) / 2
-        return (0...count).map { x0 + Double($0) * slot }
+    /// Leading x of each room's slot, from `leading`, then the "+" slot
+    /// right after the last room. The dots are anchored leading
+    /// (SIDEBAR-FOOTER-AND-SPACE-MENU amendment 2, Leo: no reflow): adding
+    /// or removing a space never moves an existing dot, and the "+" (shown
+    /// only on hover) never shifts them either.
+    public static func slotXs(count: Int, slot: Double, leading: Double) -> [Double] {
+        (0...max(0, count)).map { leading + Double($0) * slot }
+    }
+
+    /// The hover background of a space (F2): its slot inset by `inset` on
+    /// every side, at most as tall as it is wide, centered in the slot.
+    public static func chipRect(slot: CGRect, inset: CGFloat) -> CGRect {
+        let width = max(0, slot.width - inset * 2)
+        let height = min(width, max(0, slot.height - inset * 2))
+        return CGRect(x: slot.midX - width / 2, y: slot.midY - height / 2, width: width, height: height)
     }
 
     /// Insertion index (the `move-workspace` rule: an index into the list
