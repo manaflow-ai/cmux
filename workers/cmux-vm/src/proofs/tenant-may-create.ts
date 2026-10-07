@@ -75,7 +75,8 @@ export const tenantMayCreate = <C, const K extends ResourceKind>(
     const entitlements = yield* Entitlements;
     if (!(yield* entitlements.mayCreate(tenantId, kind))) return { _tag: "not_entitled" };
     const policy = yield* TenantPolicy;
-    const limit = policy.maxVms(tenantId);
+    // Each kind has its own budget: snapshots never consume the VM limit.
+    const limit = kind === "snapshot" ? policy.maxSnapshots(tenantId) : policy.maxVms(tenantId);
     const live = yield* (yield* OwnershipStore).countLive(tenantId, kind);
     const reserved = yield* (yield* TenantLimits).reserve(tenantId, kind, limit, live);
     if (!reserved.ok) return { _tag: "over_quota", limit };

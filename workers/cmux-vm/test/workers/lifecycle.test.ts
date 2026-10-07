@@ -138,7 +138,7 @@ describe("createVm", () => {
     const otherTenant = await createVm(t, keyB);
 
     expect(second.status).toBe(429);
-    expect(await json(second)).toMatchObject({ _tag: "QuotaExceeded" });
+    expect(await json(second)).toMatchObject({ _tag: "QuotaExceeded", budget: "vms" });
     expect(otherTenant.status).toBe(201);
 
     expect((await t.request(`/v1/vms/${String(first.id)}`, bearer(keyA), { method: "DELETE" })).status).toBe(204);
@@ -154,7 +154,7 @@ describe("createVm", () => {
     expect((await createVm(t, keyA)).status).toBe(201);
     const limited = await createVm(t, keyA);
     expect(limited.status).toBe(429);
-    expect(await json(limited)).toMatchObject({ _tag: "QuotaExceeded", retryAfterSeconds: expect.any(Number) });
+    expect(await json(limited)).toMatchObject({ _tag: "QuotaExceeded", retryAfterSeconds: expect.any(Number), budget: "rate" });
     expect((await createVm(t, keyB)).status).toBe(201);
   });
 });
