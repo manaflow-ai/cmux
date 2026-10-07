@@ -2217,21 +2217,25 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
 
             // The first confirmation is accepted, but Bonsplit rejects the
             // confirmed retry, so the tab stays open.
-            let vetoingDelegate = VetoingCloseBonsplitDelegate()
+            let retryRejected = expectation(description: "confirmed retry rejected")
+            let vetoingDelegate = VetoingCloseBonsplitDelegate { retryRejected.fulfill() }
             var promptCount = 0
             manager.confirmCloseHandler = { _, _, _ in
                 promptCount += 1
-                if promptCount == 1 {
-                    workspace.bonsplitController.delegate = vetoingDelegate
-                }
+                workspace.bonsplitController.delegate = vetoingDelegate
                 return true
             }
 
             workspace.markExplicitClose(surfaceId: initialSurfaceId)
             _ = workspace.bonsplitController.closeTab(initialSurfaceId)
-            drainMainQueue()
-            drainMainQueue()
-            drainMainQueue()
+            wait(for: [retryRejected], timeout: 5)
+            // The confirmation session ends on a later main-queue turn; a close
+            // issued before then is dropped as "confirmation in flight".
+            let sessionEnded = expectation(
+                for: NSPredicate { _, _ in !manager.isCloseConfirmationInFlight },
+                evaluatedWith: nil
+            )
+            wait(for: [sessionEnded], timeout: 5)
 
             XCTAssertEqual(promptCount, 1)
             XCTAssertNotNil(workspace.panels[initialPanelId])
@@ -2239,15 +2243,15 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
             // A later close of the still-open tab must ask again instead of
             // reusing the stale force-close entry.
             workspace.bonsplitController.delegate = workspace
+            let secondPrompt = expectation(description: "second close prompts again")
             manager.confirmCloseHandler = { _, _, _ in
                 promptCount += 1
+                secondPrompt.fulfill()
                 return false
             }
             workspace.markExplicitClose(surfaceId: initialSurfaceId)
             _ = workspace.bonsplitController.closeTab(initialSurfaceId)
-            drainMainQueue()
-            drainMainQueue()
-            drainMainQueue()
+            wait(for: [secondPrompt], timeout: 5)
 
             XCTAssertEqual(promptCount, 2)
             XCTAssertNotNil(workspace.panels[initialPanelId])
@@ -4786,7 +4790,14 @@ final class CrossWindowWorkspaceMoveTests: XCTestCase {
 }
 
 private final class VetoingCloseBonsplitDelegate: BonsplitDelegate {
+    private let onVeto: () -> Void
+
+    init(onVeto: @escaping () -> Void) {
+        self.onVeto = onVeto
+    }
+
     func splitTabBar(_ controller: BonsplitController, shouldCloseTab tab: Bonsplit.Tab, inPane pane: PaneID) -> Bool {
-        false
+        onVeto()
+        return false
     }
 }
