@@ -114,6 +114,12 @@ async function mount(): Promise<void> {
       return (await import("./pages")).mountMarkdownPage(entry.variants[variantName]!, context);
     case "diff-page":
       return (await import("./pages")).mountDiffPage(entry.variants[variantName]!, context);
+    case "editor-page":
+      return (await import("./pages")).mountEditorPage(entry.variants[variantName]!, context);
+    case "history-page":
+      return (await import("./pages")).mountHistoryPage(entry.variants[variantName]!, context);
+    case "keybindings-page":
+      return (await import("./pages")).mountKeybindingsPage(entry.variants[variantName]!, context);
     case "component":
       return (await import("./component")).mountComponent(entry, entry.variants[variantName]!, context);
     case "native":
