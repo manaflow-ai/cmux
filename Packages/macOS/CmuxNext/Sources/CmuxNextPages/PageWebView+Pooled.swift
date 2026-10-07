@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesign
 public import CmuxNextSettings
 public import WebKit
 
