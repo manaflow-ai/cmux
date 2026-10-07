@@ -360,6 +360,8 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
             trash.frame = CGRect(x: inset, y: 0, width: size, height: size)
             forward.frame = CGRect(x: width - inset - size, y: 0, width: size, height: size)
             forward.autoresizingMask = [.flexibleLeftMargin]
+            // Without a New Message to hand the draft to, there is no Forward.
+            forward.isHidden = onForward == nil
             bar.addSubview(trash)
             bar.addSubview(forward)
             bar.alpha = 0
@@ -437,11 +439,8 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
         let draft = ConversationForwardDraft(messages: picked)
         guard !draft.isEmpty else { return }
         setSelecting(false)
-        if let onForward {
-            onForward(draft)
-        } else {
-            presentForwardPlaceholder(draft)
-        }
+        // The host opens New Message with the draft (see ConversationLabView).
+        onForward?(draft)
     }
 }
 

@@ -110,8 +110,8 @@ extension ConversationViewController {
             forwardSelection()
             return "ok"
         case "forwardsheet":
-            let placeholder = (presentedViewController as? UINavigationController)?.viewControllers.first as? ConversationForwardPlaceholderController
-            return placeholder.map { "placeholder text=\($0.messageField.text.replacingOccurrences(of: "\n", with: "|"))" } ?? "none"
+            let compose = (presentedViewController as? UINavigationController)?.viewControllers.first as? ConversationComposeViewController
+            return compose.map { "compose text=\($0.composer.text.replacingOccurrences(of: "\n", with: "|")) images=\($0.composer.attachments.count)" } ?? "none"
         case "selectstate":
             return "selecting=\(isSelecting) selected=\(selectedRowIDs.count) trailing=\(header.trailingMode) backAlpha=\(header.backGlass.alpha)"
         case "endselect":

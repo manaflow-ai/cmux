@@ -49,6 +49,11 @@ struct ConversationLabView: UIViewControllerRepresentable {
             guard let navigation else { return }
             _ = ConversationComposeViewController.presentForSimulator(over: navigation, backend: backend)
         }
+        // Forward (select mode) opens the same New Message with the draft.
+        controller.onForward = { [weak navigation] draft in
+            guard let navigation else { return }
+            ConversationComposeViewController.presentForSimulator(over: navigation, backend: backend).setDraft(forwarding: draft)
+        }
         return navigation
     }
 

@@ -49,6 +49,23 @@ public final class ConversationComposeViewController: UIViewController {
         recipientField.textField.becomeFirstResponder()
     }
 
+    /// Forward: New Message opens with the selected messages' text, one per
+    /// line, and their photos (the local copy, or the loaded image).
+    public func setDraft(forwarding draft: ConversationForwardDraft) {
+        Task { @MainActor [weak self] in
+            var images: [ConversationComposeImage] = []
+            for attachment in draft.attachments where attachment.kind == .image {
+                if let data = attachment.localData {
+                    images.append(ConversationComposeImage(data: data, width: attachment.width, height: attachment.height, mimeType: "image/jpeg"))
+                } else if let image = await ConversationImageLoader.shared.image(for: attachment, pixelWidth: 2048),
+                          let data = image.jpegData(compressionQuality: 0.9) {
+                    images.append(ConversationComposeImage(data: data, width: Int(image.size.width * image.scale), height: Int(image.size.height * image.scale), mimeType: "image/jpeg"))
+                }
+            }
+            self?.setDraft(ConversationComposeMessage(text: draft.draftText, images: images))
+        }
+    }
+
     /// Wraps the controller in its navigation bar and configures the sheet.
     public func makeSheet() -> UINavigationController {
         let navigation = UINavigationController(rootViewController: self)
