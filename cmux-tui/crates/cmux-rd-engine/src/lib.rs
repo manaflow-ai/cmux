@@ -121,6 +121,8 @@ pub enum StreamError {
     Exists(u16),
     /// The session already has the most streams a viewer accepts.
     TooMany,
+    /// A tile stream names a surface stream that does not exist.
+    NoSurface(u16),
 }
 
 /// Counters for the stats control message.
@@ -216,6 +218,11 @@ impl MediaEngine {
         }
         self.streams.insert(stream, StreamState::new(width, height, self.cfg.max_fps));
         Ok(())
+    }
+
+    /// Adds a lossless tile stream for surface `of` (red-commit stub: a plain stream).
+    pub fn add_tile_stream(&mut self, stream: u16, _of: u16, width: u32, height: u32) -> Result<(), StreamError> {
+        self.add_stream(stream, width, height)
     }
 
     /// Removes a display stream and its frame state.

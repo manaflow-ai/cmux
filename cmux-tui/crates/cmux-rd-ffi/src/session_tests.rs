@@ -297,3 +297,20 @@ fn feedbacks_raw(s: &Owned, now: u64) -> Vec<Vec<u8>> {
         }
     }
 }
+
+#[test]
+fn a_tile_frame_is_released_with_its_flag_and_its_video_reference() {
+    let s = session(CMUX_RD_CARRIER_DATAGRAM);
+    open(&s, 8);
+    let mut p = Packetizer::new(8, MAX_DATAGRAM_VPC);
+    let body = FrameBody { t_capture_us: 1, ref_frame: 900, access_unit: vec![5; 2_000] };
+    for d in p.packetize(1, flags::TILE, &body, 0).expect("packetize").datagrams {
+        push(&s, &d, 0);
+    }
+    let mut f = CmuxRdFrame { t_capture_us: 0, data: std::ptr::null(), len: 0, frame: 0, ref_frame: 0, flags: 0 };
+    let mut stream = 0u16;
+    // SAFETY: live session, writable outs.
+    assert_eq!(unsafe { cmux_rd_session_pop_frame(s.0, &mut f, &mut stream) }, 1, "a tile frame is released");
+    assert_eq!((stream, f.ref_frame), (8, 900));
+    assert_eq!(u32::from(f.flags) & CMUX_RD_FLAG_TILE, CMUX_RD_FLAG_TILE);
+}
