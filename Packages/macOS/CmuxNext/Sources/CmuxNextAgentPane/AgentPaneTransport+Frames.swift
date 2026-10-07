@@ -199,8 +199,9 @@ extension AgentPaneTransport {
                     _ = gestures.redeem(ticket, connection: id, pick: nil)
                     return Self.refuse(.refuse(.intentInvalid, method: facts.method, requestID: facts.pageID), socket: socket)
                 }
-                // B2: only set_mode and set_config_option redeem a ticket, for their exact pick, into
-                // a session of this pane. A ticket is spent even when it does not match.
+                // B2: only set_mode, set_config_option and a prompt held for the trust answer (its
+                // promptId) redeem a ticket, for their exact pick, into a session of this pane. A
+                // ticket is spent even when it does not match.
                 let redeemed = gestures.redeem(ticket, connection: id, pick: facts.pick)
                 granted = redeemed && AgentPaneGestureIntent.methods[facts.method ?? ""] != nil
                     && facts.sessionId.map(sessions.contains) == true

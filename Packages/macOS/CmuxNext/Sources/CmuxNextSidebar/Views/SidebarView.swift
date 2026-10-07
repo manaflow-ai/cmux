@@ -60,6 +60,8 @@ public final class SidebarView: NSView {
     let footer = NSView()
     /// The staged update card above the footer (`SidebarModel.updateCard`).
     let updateCardView = SidebarUpdateCardView()
+    /// Back, in the footer band's spot while a destination is open (`SidebarView+Back`).
+    let backButton = SidebarBackButton()
     /// Where the spaces dots sit (`sidebar.spacesPosition`, R109).
     public var spacesPosition: SpacesPosition = .bottom {
         didSet { if spacesPosition != oldValue { needsLayout = true } }
@@ -209,6 +211,7 @@ public final class SidebarView: NSView {
         buildBands()
 
         addSubview(footer)
+        installBackButton()
         footer.addSubview(profileBar)
         installUpdateCard()
     }
@@ -270,6 +273,7 @@ public final class SidebarView: NSView {
         placeUpdateCard(above: footer.frame.minY, slotHeight: updateHeight)
         footerCards?.frame = NSRect(x: 0, y: footer.frame.minY - updateHeight - cardsHeight, width: b.width, height: cardsHeight)
         layoutFooter(visibleSlots)
+        layoutBack()
         placeSpaces(top: y, height: spacesHeight)
         edgeFade.frame = listFrame
         scrollView.tile()
@@ -324,6 +328,7 @@ public final class SidebarView: NSView {
         var fontSize: CGFloat
         var titlebarHeight: CGFloat
         var updateCard: SidebarUpdateCard?
+        var showsBack: Bool
     }
 
     private func observe() {
@@ -348,7 +353,8 @@ public final class SidebarView: NSView {
                     metrics: .standard,
                     fontSize: Typography.body.pointSize,
                     titlebarHeight: Metrics.titlebarHeight,
-                    updateCard: model.updateCard
+                    updateCard: model.updateCard,
+                    showsBack: model.showsBack
                 )
             }) {
                 self?.render(state)
@@ -387,7 +393,7 @@ public final class SidebarView: NSView {
             updateCardView.configure(state.updateCard)
             needsLayout = true
         }
-        if chromeChanged || profilesChanged { needsLayout = true }
+        if chromeChanged || profilesChanged || lastState?.showsBack != state.showsBack { needsLayout = true }
         lastState = state
     }
 
