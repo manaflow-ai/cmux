@@ -49,7 +49,12 @@ test("the sidebar groups sessions by folder, marks them, and selects on click", 
   const selected: string[] = [];
   await act(async () =>
     root.render(
-      createElement(SessionSidebar, { sessions, selectedId: "app-1", onSelect: (id: string) => selected.push(id) }),
+      createElement(SessionSidebar, {
+        sessions,
+        selectedId: "app-1",
+        onSelect: (id: string) => selected.push(id),
+        groupByProject: true,
+      }),
     ),
   );
 
@@ -108,6 +113,27 @@ test("the sidebar groups sessions by folder, marks them, and selects on click", 
   await act(async () => root.unmount());
 });
 
+test("by default the list is flat: no Projects label and no folder headers until projects are real folders", async () => {
+  const container = dom.window.document.getElementById("root")!;
+  const root = createRoot(container);
+  const list: AcpmuxSessionEntry[] = [
+    { sessionId: "pin", displayTitle: "Pinned work", cwd: "/src/web", updatedAt: 9, pinned: true },
+    ...sessions,
+  ];
+  await act(async () => root.render(createElement(SessionSidebar, { sessions: list, onSelect: () => {} })));
+  expect(container.querySelector(".acpmux-sidebar-project")).toBeNull();
+  expect([...container.querySelectorAll(".acpmux-sidebar-section")].map((node) => node.textContent)).toEqual([
+    "Pinned",
+    "Sessions",
+  ]);
+  // Every unpinned session, newest first across folders, with nothing behind "Show more".
+  expect(
+    [...container.querySelectorAll(".acpmux-sidebar-projects .acpmux-session-row-title")].map((node) => node.textContent),
+  ).toEqual(sessions.map((session) => session.displayTitle));
+  expect(container.querySelector(".acpmux-sidebar-more")).toBeNull();
+  await act(async () => root.unmount());
+});
+
 test("an empty list says so", async () => {
   const container = dom.window.document.getElementById("root")!;
   const root = createRoot(container);
@@ -157,7 +183,7 @@ test("pinned sessions get their own section, an all-cloud project names its mach
       updatedAt: 4,
     },
   ];
-  await act(async () => root.render(createElement(SessionSidebar, { sessions: list, onSelect: () => {} })));
+  await act(async () => root.render(createElement(SessionSidebar, { sessions: list, onSelect: () => {}, groupByProject: true })));
   expect([...container.querySelectorAll(".acpmux-sidebar-section")].map((node) => node.textContent)).toEqual([
     "Pinned",
     "Projects",
@@ -192,7 +218,9 @@ test("pinned sessions get their own section, an all-cloud project names its mach
 test("search narrows the list, shows every match, and Escape clears it before closing anything", async () => {
   const container = dom.window.document.getElementById("root")!;
   const root = createRoot(container);
-  await act(async () => root.render(createElement(SessionSidebar, { sessions, onSelect: () => {} })));
+  await act(async () =>
+    root.render(createElement(SessionSidebar, { sessions, onSelect: () => {}, groupByProject: true })),
+  );
   const field = container.querySelector<HTMLInputElement>('input[aria-label="Search sessions"]')!;
   const type = async (value: string) =>
     act(async () => {
@@ -253,6 +281,7 @@ test("the rail switches the list; the sessions view adds New chat, project marks
       createElement(SessionSidebar, {
         sessions: list,
         onSelect: () => undefined,
+        groupByProject: true,
         onNewChat: () => {
           newChats += 1;
         },
