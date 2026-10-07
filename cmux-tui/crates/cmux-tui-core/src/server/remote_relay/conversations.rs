@@ -128,7 +128,9 @@ fn remote_op_allowed(op: &Op) -> bool {
         | Op::ReactionAdd { .. }
         | Op::ReactionRemove { .. }
         | Op::ReadCursorSet { .. } => true,
-        Op::ParticipantsAdd { .. } | Op::TitleSet { .. } => false,
+        // Paired installs do not see question parts yet (project.rs), so
+        // they cannot answer one; allow it with the question projection.
+        Op::ParticipantsAdd { .. } | Op::TitleSet { .. } | Op::QuestionAnswer { .. } => false,
     }
 }
 

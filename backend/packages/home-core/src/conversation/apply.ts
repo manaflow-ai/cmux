@@ -2,6 +2,7 @@ import { checkAgentBudget, checkAgentStreak } from "./budget.ts"
 import { removeParticipant, setSettings } from "./cloud.ts"
 import { acceptInvite, approveJoin, createInvite, reportDelivery, revokeInvite } from "./invite-ops.ts"
 import { parseRfc3339Millis, validToken } from "./ids.ts"
+import { answerQuestion, checkQuestionEdit } from "./question.ts"
 import { fail, reject, RejectError } from "./reject.ts"
 import { conversationChanged, upsertParticipant, type ApplyResult, type Commit, type Draft, type OpRequest } from "./request.ts"
 import {
@@ -26,7 +27,7 @@ import {
 
 /** The message an op changes, which the host loads. */
 export const targetMessageId = (op: Op): string | undefined =>
-  op.kind === "message.edit" || op.kind === "message.retract" || op.kind === "reaction.add" || op.kind === "reaction.remove"
+  op.kind === "message.edit" || op.kind === "message.retract" || op.kind === "reaction.add" || op.kind === "reaction.remove" || op.kind === "question.answer"
     ? op.message_id
     : undefined
 
@@ -67,6 +68,8 @@ const applyOrThrow = (head: ConversationHead, request: OpRequest): Commit => {
     case "message.send": {
       if (op.client_msg_id !== request.idempotency_key || !validToken(op.client_msg_id)) fail("invalid_client_msg_id")
       const parts = validateParts(op.parts, cloud)
+      // Only an agent posts a question, and only a pending one (Rust `bad_question`).
+      if (parts.some((part) => part.type === "question" && (actor.kind !== "agent" || part.state.kind !== "pending"))) fail("invalid_parts")
       const replyTo = op.reply_to
       if (replyTo !== undefined) {
         const replied = request.reply_target
@@ -111,6 +114,7 @@ const applyOrThrow = (head: ConversationHead, request: OpRequest): Commit => {
       if (message.author !== request.actor) fail("not_author")
       if (message.retracted_at !== undefined) fail("retracted")
       const parts = validateParts(op.parts, cloud)
+      checkQuestionEdit(message.parts, parts)
       return updated(next, {
         ...message,
         parts,
@@ -142,6 +146,15 @@ const applyOrThrow = (head: ConversationHead, request: OpRequest): Commit => {
       )
       if (position < 0) fail("unknown_reaction")
       return updated(next, { ...message, reactions: message.reactions.filter((_, index) => index !== position) })
+    }
+    case "question.answer": {
+      const message = target(head, request, op.message_id)
+      if (message.retracted_at !== undefined) fail("retracted")
+      const index = op.part_index
+      const part = Number.isInteger(index) && index >= 0 && index <= 0xffff_ffff ? message.parts[index] : undefined
+      if (part?.type !== "question") return fail("invalid_part_index")
+      const answered = answerQuestion(part, op.answer, actor, now)
+      return updated(next, { ...message, parts: message.parts.map((p, i) => (i === index ? answered : p)) })
     }
     case "read_cursor.set": {
       if (!Number.isInteger(op.seq) || op.seq < 0 || op.seq > head.last_seq) fail("cursor_out_of_range")

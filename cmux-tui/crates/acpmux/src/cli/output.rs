@@ -341,7 +341,9 @@ pub(crate) async fn stream_prompt(
                     }
                     method::MUX_PERMISSION_PENDING => {
                         let title = p.pointer("/request/toolCall/title").and_then(Value::as_str).unwrap_or("permission");
-                        eprintln!("\n\x1b[33mpermission needed:\x1b[0m {title}  (answer with: acpmux allow {id} | acpmux deny {id})");
+                        let request = p.get("request").cloned().unwrap_or(Value::Null);
+                        let hint = crate::question_answer::pending_hint(&request, id);
+                        eprintln!("\n\x1b[33mpermission needed:\x1b[0m {title}  (answer with: {hint})");
                     }
                     _ => {}
                 }
