@@ -131,7 +131,7 @@ import Testing
         await #expect(throws: PageError.self) {
             _ = try await provider.call("cmux.settings.theme.colors", params: [:], context: context)
         }
-        let nord = try #require(GhosttyThemeColors(name: "Nord", themeFile: "background = #2e3440\nforeground = #d8dee9\npalette = 4=#81a1c1\ncursor-color = #eceff4\n"))
+        let nord = try #require(ThemeFileColors(name: "Nord", themeFile: "background = #2e3440\nforeground = #d8dee9\npalette = 4=#81a1c1\ncursor-color = #eceff4\n"))
         provider.themeColors = { [nord] }
         let answer = try await provider.call("cmux.settings.theme.colors", params: [:], context: context)
         let theme = try #require(answer["themes"]?.arrayValue?.first)

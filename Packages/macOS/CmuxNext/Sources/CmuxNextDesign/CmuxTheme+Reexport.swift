@@ -13,5 +13,5 @@ public typealias ThemeInput = CmuxTheme.ThemeInput
 public typealias ThemeTokens = CmuxTheme.ThemeTokens
 /// The app theme's contract tokens from a terminal palette; see ``CmuxTheme/AppTheme``.
 public typealias AppTheme = CmuxTheme.AppTheme
-/// One Ghostty theme file's colors; see ``CmuxTheme/GhosttyThemeColors``.
-public typealias GhosttyThemeColors = CmuxTheme.GhosttyThemeColors
+/// One Ghostty theme file's colors; see ``CmuxTheme/ThemeFileColors``.
+public typealias ThemeFileColors = CmuxTheme.ThemeFileColors

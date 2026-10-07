@@ -67,14 +67,14 @@ import Testing
         var failures: [String] = []
         for name in names {
             let text = try String(contentsOf: folder.appending(path: name), encoding: .utf8)
-            let colors = try #require(GhosttyThemeColors(name: name, themeFile: text), "\(name) has no colors")
+            let colors = try #require(ThemeFileColors(name: name, themeFile: text), "\(name) has no colors")
             for pair in colors.appTheme.failures { failures.append("\(name): \(pair.token) on \(pair.on)") }
         }
         #expect(failures == [])
     }
 
     @Test func aThemeFileReadsLikeTheWebParser() throws {
-        let colors = try #require(GhosttyThemeColors(name: "Sample", themeFile: """
+        let colors = try #require(ThemeFileColors(name: "Sample", themeFile: """
         # comment
         palette = 0=#000000
         palette = 4=#3366ff
@@ -90,6 +90,6 @@ import Testing
         #expect(colors.palette[1] == nil)
         #expect(colors.cursorColor.map(AppTheme.hex) == "#ff0000")
         #expect(colors.selectionBackground.map(AppTheme.hex) == "#3f638b")
-        #expect(GhosttyThemeColors(name: "Empty", themeFile: "palette = 0=#000000") == nil)
+        #expect(ThemeFileColors(name: "Empty", themeFile: "palette = 0=#000000") == nil)
     }
 }

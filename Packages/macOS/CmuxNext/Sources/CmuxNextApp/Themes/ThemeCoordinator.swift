@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextSettings
 import CmuxNextTabs
 import CmuxNextTerminal
 import Observation

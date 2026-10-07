@@ -18,7 +18,7 @@ final class ThemeCatalog {
     /// Each theme's swatch strip (`ThemeSwatch`), read after the names.
     private(set) var strips: [String: [ThemeRGB]] = [:]
     /// Each theme's colors (the Settings page's preview and swatches), read with the strips.
-    private(set) var colors: [String: GhosttyThemeColors] = [:]
+    private(set) var colors: [String: ThemeFileColors] = [:]
     @ObservationIgnored private var known: Set<String> = []
     @ObservationIgnored private var loading: Task<Void, Never>?
 
@@ -69,16 +69,16 @@ final class ThemeCatalog {
     /// Every theme's swatch strip and colors from one read of its file, the user's file winning
     /// on a name clash.
     nonisolated static func read(resources: String?, home: URL, environment: [String: String])
-        -> (strips: [String: [ThemeRGB]], colors: [String: GhosttyThemeColors]) {
+        -> (strips: [String: [ThemeRGB]], colors: [String: ThemeFileColors]) {
         var strips: [String: [ThemeRGB]] = [:]
-        var colors: [String: GhosttyThemeColors] = [:]
+        var colors: [String: ThemeFileColors] = [:]
         // Shipped themes first, so the user's folder replaces a clash.
         for (name, file) in themeFiles(resources: resources, home: home, environment: environment) {
             // concurrency-allow: nonisolated, called from a detached task at launch
             guard let data = try? Data(contentsOf: file, options: .mappedIfSafe), data.count <= maximumThemeFileBytes else { continue }
             let text = String(decoding: data, as: UTF8.self)
             strips[name] = ThemeSwatch.strip(themeFile: text)
-            colors[name] = GhosttyThemeColors(name: name, themeFile: text)
+            colors[name] = ThemeFileColors(name: name, themeFile: text)
         }
         return (strips, colors)
     }

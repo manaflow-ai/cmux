@@ -29,7 +29,7 @@ final class SettingsPageProvider: PageProvider {
     var acceptsTheme: (@MainActor (String) -> Bool)?
     /// Every published theme's colors (`cmux.settings.theme.colors`), for the Theme section's
     /// preview and swatches; nil in tests without an app.
-    var themeColors: (@MainActor () -> [GhosttyThemeColors])?
+    var themeColors: (@MainActor () -> [ThemeFileColors])?
     /// The cmux picker for folders (R89): the paths the person chose (`~/` for home), nil when
     /// they left it.
     var pickFolders: (@MainActor () async -> [String]?)?
@@ -48,7 +48,7 @@ final class SettingsPageProvider: PageProvider {
     }
 
     /// A theme's colors as the page reads them (`GhosttyTheme` in webviews/src/theme/ghosttyTheme.ts).
-    static func json(_ colors: GhosttyThemeColors) -> JSONValue {
+    static func json(_ colors: ThemeFileColors) -> JSONValue {
         var object: [String: JSONValue] = [
             "name": .string(colors.name),
             "background": .string(AppTheme.hex(colors.background)),

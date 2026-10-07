@@ -6,10 +6,10 @@ import Foundation
 /// Settings page's preview and the app agree on a theme's colors.
 ///
 /// ```swift
-/// let colors = GhosttyThemeColors(name: "Nord", themeFile: text)
+/// let colors = ThemeFileColors(name: "Nord", themeFile: text)
 /// let app = colors.map { AppTheme.derive(background: $0.background, foreground: $0.foreground, palette: $0.palette) }
 /// ```
-public struct GhosttyThemeColors: Hashable, Sendable {
+public struct ThemeFileColors: Hashable, Sendable {
     public let name: String
     public let background: ThemeRGB
     public let foreground: ThemeRGB
