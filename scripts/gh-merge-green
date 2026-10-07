@@ -1,5 +1,5 @@
 #!/bin/bash
-# gh-merge-green REPO#PR [--main-fix] [--override "reason"] [--freeze-token TOKEN] [gh pr merge flags...]
+# gh-merge-green REPO#PR [--main-fix] [--override "reason"] [--freeze-token TOKEN] [--window-token TOKEN]... [gh pr merge flags...]
 # gh-merge-green --revert REPO#PR: open a revert PR for a merged PR and land it (scripts/ci/revert_pr.py).
 # Merges only when the PR head's required-in-practice checks are green.
 # main has no required status checks, so `gh pr merge --auto` merges at once; agents use this instead.
@@ -112,6 +112,7 @@ fi
 fix=0
 override_reason=''
 freeze_token=''
+window_tokens=()
 args=()
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -123,6 +124,13 @@ while [ "$#" -gt 0 ]; do
         'not green: --freeze-token requires the token from the FREEZE line' \
         'pass --freeze-token followed by the token=... value you hold'
       freeze_token="$2"
+      shift
+      ;;
+    --window-token)
+      [ "$#" -ge 2 ] || refuse \
+        'not green: --window-token requires the token of the WINDOW area you hold' \
+        'pass --window-token followed by the token: value of your [AREA] in the WINDOW'
+      window_tokens+=("$2")
       shift
       ;;
     --override)
@@ -551,12 +559,15 @@ fi
 # `FREEZE: <path prefix>... token=<token>`; only the token holder
 # (--freeze-token) merges into it, and --override never lifts it. A WINDOW
 # that cannot be read refuses: the coordinator merges while freezes are unknown.
-if [ "$base" = feat-cmux-next ]; then
+window=''
+if [ "$base" = feat-cmux-next ] || [ -n "$freeze_token" ] || [ "${#window_tokens[@]}" -gt 0 ]; then
   if [ -n "${GH_MERGE_GREEN_WINDOW_FILE:-}" ]; then
     window=$(cat -- "$GH_MERGE_GREEN_WINDOW_FILE" 2>/dev/null) || window=''
   else
     window=$(timeout 30 ssh -o BatchMode=yes -o ConnectTimeout=10 cmux-lawrence 'cat ~/agent-mailbox/WINDOW' 2>/dev/null) || window=''
   fi
+fi
+if [ "$base" = feat-cmux-next ]; then
   if [ -z "$window" ]; then
     refuse \
       "not merged: cannot read the coordinator's WINDOW, so active freezes on $ref are unknown" \
@@ -593,6 +604,55 @@ for path in sys.stdin.read().split():
       "not merged: $ref touches frozen paths: $(paste -sd ';' <<<"$frozen" | sed 's/;/; /g')" \
       'wait for the freeze to lift, or send the PR to the coordinator; only the token holder merges with --freeze-token'
   fi
+fi
+# A merge under a WINDOW token releases it: each token must be current (an
+# [AREA] section's `token:` or a hold line's `token=`), and right after the
+# merge a RELEASE <AREA> mail with the landed SHA goes to
+# inbox/lawrence-coordinator (Lawrence's coordinator missed a manual one).
+releases=''
+if [ -n "$freeze_token" ] || [ "${#window_tokens[@]}" -gt 0 ]; then
+  if [ -z "$window" ]; then
+    refuse \
+      "not merged: cannot read the coordinator's WINDOW to check the tokens for $ref" \
+      'check with the coordinator; they merge this PR while the WINDOW is unreadable'
+  fi
+  if ! releases=$(WINDOW="$window" python3 -c '
+import re, os, sys
+areas, holds, frozen = {}, {}, set()
+area = None
+for line in os.environ["WINDOW"].splitlines():
+    header = re.match(r"\[([A-Za-z0-9_-]+)\]", line)
+    if header:
+        area = header.group(1)
+        continue
+    held = re.match(r"token:\s*(\S+)", line)
+    if area and held and held.group(1) != "none":
+        areas[held.group(1)] = area
+    if not line.strip():
+        area = None
+    for token in re.findall(r"token=(\S+)", line):
+        if line.startswith("FREEZE:"):
+            frozen.add(token)
+        else:
+            holds.setdefault(token, line.split()[0])
+missing = []
+for token in sys.argv[1:]:
+    name = areas.get(token) or holds.get(token) or ("FREEZE" if token in frozen else None)
+    if name is None:
+        missing.append(token)
+    else:
+        print(f"{name}\t{token}")
+if missing:
+    print(" ".join(missing), file=sys.stderr)
+    sys.exit(3)
+' ${freeze_token:+"$freeze_token"} ${window_tokens[@]+"${window_tokens[@]}"} 2>"${TMPDIR:-/tmp}/gh-merge-green-tokens.$$"); then
+    stale=$(cat "${TMPDIR:-/tmp}/gh-merge-green-tokens.$$")
+    rm -f "${TMPDIR:-/tmp}/gh-merge-green-tokens.$$"
+    refuse \
+      "not merged: ${stale:-a token} is not a current WINDOW token" \
+      'merge only while you hold the token; ask the coordinator for the current one'
+  fi
+  rm -f "${TMPDIR:-/tmp}/gh-merge-green-tokens.$$"
 fi
 # The merged head passes the checks a red lint job can hide (#18326 grew a god
 # type while an unrelated lint red masked the god-file step): the Swift god-file
@@ -709,3 +769,35 @@ if ! gh pr merge "$num" --repo "$repo" --match-head-commit "$sha" "$@"; then
     "not green: GitHub refused to merge $ref" \
     'read the GitHub refusal, repair the named issue, and retry the exact head'
 fi
+[ -n "$releases" ] || exit 0
+landed=''
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  landed=$(gh pr view "$num" --repo "$repo" --json state,mergeCommit 2>/dev/null \
+    | jq -r 'select(.state == "MERGED") | .mergeCommit.oid // empty' 2>/dev/null || true)
+  [ -n "$landed" ] && break
+  sleep 3
+done
+sender="${GH_MERGE_GREEN_SENDER:-}"
+[ -n "$sender" ] || { [ -n "${TMUX_PANE:-}" ] && sender=$(tmux display-message -p -t "$TMUX_PANE" '#S' 2>/dev/null); }
+sender="${sender:-$(hostname -s)}"
+mail_failed=0
+while IFS=$'\t' read -r area token; do
+  subject="RELEASE $area: $ref landed ${landed:-<merge commit not reported yet>}"
+  subject="${subject/$repo#/#}"
+  body=$(printf 'from: %s/gh-merge-green\nto: lawrence-coordinator\nre: none\npriority: normal\nsubject: %s\n\nRELEASE %s. #%s landed as %s under token %s (sent by gh-merge-green right after the merge).\n' \
+    "$sender" "$subject" "$area" "$num" "${landed:-an unreported merge commit}" "$token")
+  name="$(date -u +%Y%m%dT%H%M%SZ)-$sender-release-$(tr '[:upper:]' '[:lower:]' <<<"$area")-$num.md"
+  if [ -n "${GH_MERGE_GREEN_MAILBOX_DIR:-}" ]; then
+    dir="$GH_MERGE_GREEN_MAILBOX_DIR/inbox/lawrence-coordinator"
+    printf '%s\n' "$body" > "$dir/$name.tmp" && mv "$dir/$name.tmp" "$dir/$name" || mail_failed=1
+  else
+    printf '%s\n' "$body" | timeout 30 ssh -o BatchMode=yes -o ConnectTimeout=10 cmux-lawrence \
+      "f=~/agent-mailbox/inbox/lawrence-coordinator/$name; cat > \"\$f.tmp\" && mv \"\$f.tmp\" \"\$f\"" || mail_failed=1
+  fi
+  if [ "$mail_failed" -eq 1 ]; then
+    refusal_reported=1
+    printf 'merged %s, but the RELEASE %s mail failed. Send it by hand to inbox/lawrence-coordinator:\n%s\n' "$ref" "$area" "$body" >&2
+    exit 1
+  fi
+  printf 'mailed RELEASE %s for %s (%s) to inbox/lawrence-coordinator\n' "$area" "$ref" "${landed:-merge commit pending}" >&2
+done <<<"$releases"
