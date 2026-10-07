@@ -215,7 +215,7 @@ try {
   let version = 1;
   const rounds = 5;
   const flips: Array<{ kind: string; sentAt: number; putMs: number }> = [];
-  const probe = spawn(AGENT, ["probe", "--config", config, "--key-file", keyFile, cmux.vmId, "8080", "--interval-ms", "50", "--duration-s", String(rounds * 8 + 6)], { env: agentEnv });
+  const probe = spawn(AGENT, ["probe", "--config", config, "--key-file", keyFile, cmux.vmId, "8080", "--interval-ms", "50", "--duration-s", String(rounds * 14 + 8)], { env: agentEnv });
   let probeOut = "";
   probe.stdout.on("data", (chunk) => (probeOut += chunk));
   const probeDone = new Promise((resolve) => probe.on("exit", resolve));
@@ -227,7 +227,8 @@ try {
       if (result.status !== 200) throw new Error(`acl ${kind} -> ${result.status} ${JSON.stringify(result.json)}`);
       version += 1;
       flips.push({ kind, sentAt, putMs: result.ms });
-      await Bun.sleep(3500);
+      // 7 s apart keeps the run under the 10 applies per mesh per minute budget.
+      await Bun.sleep(7000);
     }
   }
   await probeDone;
