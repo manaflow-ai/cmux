@@ -789,6 +789,40 @@ final class BrowserPanelInitialNavigationTests: XCTestCase {
         XCTAssertFalse(panel.hasPendingRemoteNavigation)
     }
 
+    func testRemoteTuiLoopbackRequestDoesNotFallThroughToLocalBrowser() throws {
+        let url = try XCTUnwrap(URL(string: "http://127.0.0.1:49210/"))
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            renderInitialNavigation: false,
+            isRemoteWorkspace: true,
+            allowsLocalNavigationWithoutRemoteProxy: true
+        )
+
+        let navigation = panel.navigateWithoutInsecureHTTPPrompt(to: url, recordTypedNavigation: false)
+
+        XCTAssertNil(navigation)
+        XCTAssertTrue(panel.hasPendingRemoteNavigation)
+    }
+
+    func testRemoteTuiPublicNavigationSupersedesQueuedLoopbackRequest() throws {
+        let loopbackURL = try XCTUnwrap(URL(string: "http://127.0.0.1:49210/"))
+        let publicURL = try XCTUnwrap(URL(string: "https://example.com/"))
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            renderInitialNavigation: false,
+            isRemoteWorkspace: true,
+            allowsLocalNavigationWithoutRemoteProxy: true
+        )
+
+        _ = panel.navigateWithoutInsecureHTTPPrompt(to: loopbackURL, recordTypedNavigation: false)
+        XCTAssertTrue(panel.hasPendingRemoteNavigation)
+
+        let navigation = panel.navigateWithoutInsecureHTTPPrompt(to: publicURL, recordTypedNavigation: false)
+
+        XCTAssertNotNil(navigation)
+        XCTAssertFalse(panel.hasPendingRemoteNavigation)
+    }
+
     func testInitialURLCanBePreservedWithoutRenderingWebView() throws {
         let url = try XCTUnwrap(URL(string: "https://example.com/custom-layout"))
         let panel = BrowserPanel(
