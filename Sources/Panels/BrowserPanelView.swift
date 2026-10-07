@@ -6717,12 +6717,14 @@ struct WebViewRepresentable: NSViewRepresentable {
 #endif
                 reapplyHostedInspectorDividerToStoredWidthIfNeeded(reason: "drag.end")
             }
-            if let pending = pendingHostedInspectorDockConfiguration {
-                self.pendingHostedInspectorDockConfiguration = nil
-                applyHostedInspectorDockConfiguration(
-                    pending.configuration,
-                    reason: "\(pending.reason).dragEnd"
-                )
+            MainActor.assumeIsolated {
+                if let pending = self.pendingHostedInspectorDockConfiguration {
+                    self.pendingHostedInspectorDockConfiguration = nil
+                    self.applyHostedInspectorDockConfiguration(
+                        pending.configuration,
+                        reason: "\(pending.reason).dragEnd"
+                    )
+                }
             }
             super.mouseUp(with: event)
         }
