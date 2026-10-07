@@ -389,7 +389,7 @@ impl Hub {
                 .unwrap_or("default")
                 .to_owned();
             let model = current_model(&meta).unwrap_or_else(|| "default".into());
-            let plan = crate::claude_stdio::spawn_plan(
+            let mut plan = crate::claude_stdio::spawn_plan(
                 profile,
                 resume,
                 fork,
@@ -398,6 +398,13 @@ impl Hub {
                 &mode,
                 Some(&model),
             );
+            // A remote chain runs inside the Seatbelt sandbox, canary-checked
+            // at this spawn (`remote_sandbox.rs`).
+            if meta.remote_origin {
+                let (program, args) =
+                    self.sandboxed_claude_plan(session, profile, plan.program, plan.args).await?;
+                plan = crate::claude_stdio::SpawnPlan { program, args };
+            }
             // A fresh process was given its id; a resumed one already has it.
             let known = if fork { None } else { fresh_id.clone().or_else(|| existing_sid.clone()) };
             if self.agent_hosts_enabled() {
