@@ -48,6 +48,16 @@ for tool in blacksmith gh git; do
   command -v "$tool" >/dev/null || { echo "missing required tool: $tool" >&2; exit 65; }
 done
 test -x "$BOUNDED" || { echo "missing $BOUNDED; run from a cmux worktree" >&2; exit 65; }
+# GNU timeout moves its child into a new process group, so a terminal Ctrl-C
+# never reaches it, and bash runs an INT trap only after a foreground command
+# ends. Every bounded step therefore runs in the background and is waited for:
+# the trap runs at once and cleanup terminates the step it interrupted.
+active_pid=""
+bounded() {
+  "$BOUNDED" "$@" &
+  active_pid=$!
+  wait "$active_pid"
+}
 test -f "$WORKFLOW" || { echo "missing $WORKFLOW; rebase onto a main that has the lane" >&2; exit 65; }
 [[ "$WARMUP_TIMEOUT" =~ ^[0-9]+$ ]] || { echo "CMUX_TESTBOX_DEMO_WARMUP_TIMEOUT must be seconds" >&2; exit 64; }
 
@@ -120,17 +130,26 @@ echo "of building, then it stops itself. Ctrl-C also stops it."
 # ------------------------------------------------------------------- warmup --
 TBX=""
 RUN_ID=""
+warmup_started=""
 # The wrapper's stdout lands here as it is printed, so the box id is on disk
 # before anything after TBX= can fail, hang or be interrupted.
 warmup_out="$(mktemp)"
 cleanup() {
   local status=$?
+  [[ -z "${1:-}" ]] || status="$1"
   trap - EXIT INT TERM
+  if [[ -n "$active_pid" ]] && kill -0 "$active_pid" 2>/dev/null; then
+    kill -TERM "$active_pid" 2>/dev/null || true
+    wait "$active_pid" 2>/dev/null || true
+  fi
   if [[ -z "$TBX" && -s "$warmup_out" ]]; then
     TBX="$(sed -n 's/^TBX=//p' "$warmup_out" | head -1)"
     RUN_ID="$(sed -n 's/^RUN=//p' "$warmup_out" | head -1)"
   fi
   rm -f "$warmup_out"
+  if [[ -z "$TBX" && -n "$warmup_started" ]]; then
+    echo "the warmup was interrupted before the wrapper named a box; if 'blacksmith testbox list' shows one you started, stop it: blacksmith testbox stop --id <tbx>" >&2
+  fi
   # A box named without RUN=: find its warmup run by the title the workflow
   # gives it, so the keepalive runner is released too.
   if [[ -n "$TBX" && -z "$RUN_ID" ]]; then
@@ -154,16 +173,22 @@ cleanup() {
   fi
   exit "$status"
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'cleanup 130' INT
+trap 'cleanup 143' TERM
 
 say "Warming a box from main"
 echo "The workflow refuses any ref but main: it is the trust boundary, because"
 echo "the CLI resolves the workflow definition from the same ref it hydrates."
 printf '\033[2m$ %s --lane %s -- %s --ref main --job %s --idle-timeout %s\033[0m\n' \
   "$WARMUP" "${CMUX_TESTBOX_LANE:-testbox-demo}" "$WORKFLOW" "$JOB" "$IDLE_TIMEOUT"
+# stdout (TBX=, RUN=) goes straight to the file, never through a pipe a
+# Ctrl-C could break; the wrapper's progress log is on stderr.
 warmup_rc=0
-"$BOUNDED" "$WARMUP_TIMEOUT" "$WARMUP" --lane "${CMUX_TESTBOX_LANE:-testbox-demo}" -- "$WORKFLOW" \
-  --ref main --job "$JOB" --idle-timeout "$IDLE_TIMEOUT" | tee "$warmup_out" || warmup_rc=$?
+warmup_started=1
+bounded "$WARMUP_TIMEOUT" "$WARMUP" --lane "${CMUX_TESTBOX_LANE:-testbox-demo}" -- "$WORKFLOW" \
+  --ref main --job "$JOB" --idle-timeout "$IDLE_TIMEOUT" >"$warmup_out" || warmup_rc=$?
+cat "$warmup_out"
 TBX="$(sed -n 's/^TBX=//p' "$warmup_out" | head -1)"
 RUN_ID="$(sed -n 's/^RUN=//p' "$warmup_out" | head -1)"
 if (( warmup_rc != 0 )); then
@@ -175,7 +200,7 @@ fi
 
 # -------------------------------------------------------------------- ready --
 say "Waiting for hydration (installs pinned Zig and Rust, fetches Cargo and Zig deps)"
-"$BOUNDED" 1200 blacksmith testbox status --id "$TBX" --wait --wait-timeout 15m
+bounded 1200 blacksmith testbox status --id "$TBX" --wait --wait-timeout 15m
 
 # ---------------------------------------------------------------------- pin --
 say "Pinning the box to your commit"
@@ -183,7 +208,7 @@ echo "The box is an exact checkout of main right now, because that is what CI"
 echo "hydrated. This makes it an exact checkout of $SOURCE_SHA."
 pin_command="set -euo pipefail; git fetch --no-tags origin $SOURCE_SHA; git reset --hard $SOURCE_SHA; git submodule update --init --depth 1 ghostty; git rev-parse HEAD"
 printf '\033[2m$ blacksmith testbox run --id %s "%s"\033[0m\n' "$TBX" "$pin_command"
-"$BOUNDED" 300 blacksmith testbox run --id "$TBX" "$pin_command"
+bounded 300 blacksmith testbox run --id "$TBX" "$pin_command"
 
 # -------------------------------------------------------------------- build --
 if (( STAGES )); then
@@ -194,9 +219,9 @@ if (( STAGES )); then
     say "Stage: $stage"
     stage_command="CMUX_TESTBOX_REMOTE=1 CMUX_TESTBOX_ID=$TBX ./scripts/blacksmith-cmux-tui-testbox-stage.sh $stage $SOURCE_SHA $GHOSTTY_SHA"
     printf '\033[2m$ blacksmith testbox run --id %s "%s"\033[0m\n' "$TBX" "$stage_command"
-    "$BOUNDED" 1500 blacksmith testbox run --id "$TBX" "$stage_command"
+    bounded 1500 blacksmith testbox run --id "$TBX" "$stage_command"
     for suffix in json time log; do
-      "$BOUNDED" 120 blacksmith testbox download --id "$TBX" \
+      bounded 120 blacksmith testbox download --id "$TBX" \
         "testbox-benchmark/$stage.$suffix" "$out/raw/$stage.$suffix" >/dev/null
     done
   done
@@ -219,11 +244,11 @@ else
   say "Build 1 of 2: cold target directory, warm dependency caches"
   build_command="cd cmux-tui && cargo build -p cmux-tui --locked"
   printf '\033[2m$ blacksmith testbox run --id %s "%s"\033[0m\n' "$TBX" "$build_command"
-  "$BOUNDED" 1500 blacksmith testbox run --id "$TBX" "$build_command"
+  bounded 1500 blacksmith testbox run --id "$TBX" "$build_command"
 
   say "Build 2 of 2: nothing changed, same VM, same disk"
   echo "This is what the persistent box buys. Compare it to build 1."
-  "$BOUNDED" 600 blacksmith testbox run --id "$TBX" "$build_command"
+  bounded 600 blacksmith testbox run --id "$TBX" "$build_command"
 fi
 
 say "Done. The box stops next, on the way out."
