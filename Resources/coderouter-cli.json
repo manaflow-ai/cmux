@@ -1,7 +1,7 @@
 {
-  "sourceCommit": "03f2d123aa1f8727d10d54c885b0d59079195c80",
+  "sourceCommit": "fb01cb550af23b99c40ebb59f1aa86c98f2e7c9c",
   "darwin-arm64": {
-    "url": "https://github.com/manaflow-ai/coderouter-releases/releases/download/dev-cmux18036-03f2d12/coderouter-darwin-arm64",
-    "sha256": "6871365251e653329b6f2ffb31229f0acb363eae6ff8f7652845512946745229"
+    "url": "https://github.com/manaflow-ai/coderouter-releases/releases/download/v0.3.16/coderouter-darwin-arm64",
+    "sha256": "a43c2cc1a89786b28ba148d07ff6826acb5ba60e3faf27c463aef03058607193"
   }
 }
