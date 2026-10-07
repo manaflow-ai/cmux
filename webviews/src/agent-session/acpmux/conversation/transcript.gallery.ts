@@ -153,7 +153,10 @@ export default agentPaneEntry({
       native: { "git.githubRepository": { repository: "manaflow-ai/cmux" } },
       snapshot: chat([
         user("Please review #18325 and manaflow-ai/cmux#18321", 3),
-        assistant("The fixes are in #18325.\n\n`#18325` stays code, and fenced examples stay code too:\n\n```text\n#18321\n```", 2),
+        assistant(
+          "The fixes are in #18325.\n\n`#18325` stays code, and fenced examples stay code too:\n\n```text\n#18321\n```",
+          2,
+        ),
         summary(2, { status: "completed", durationMs: 12_000 }),
       ]),
     },

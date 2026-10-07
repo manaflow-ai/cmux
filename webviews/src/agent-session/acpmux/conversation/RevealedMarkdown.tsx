@@ -96,16 +96,18 @@ export function RevealedMarkdown({
   );
 }
 
-function Revealed({ text, streaming, githubRepository }: { text: string; streaming: boolean; githubRepository?: string }) {
+function Revealed({
+  text,
+  streaming,
+  githubRepository,
+}: {
+  text: string;
+  streaming: boolean;
+  githubRepository?: string;
+}) {
   const { visible, fresh, now, settled } = useStreamReveal(text, streaming);
   return (
-    <Markdown
-      streaming={streaming}
-      fresh={fresh}
-      now={now}
-      waiting={settled}
-      githubRepository={githubRepository}
-    >
+    <Markdown streaming={streaming} fresh={fresh} now={now} waiting={settled} githubRepository={githubRepository}>
       {visible}
     </Markdown>
   );

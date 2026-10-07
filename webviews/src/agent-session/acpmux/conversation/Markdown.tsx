@@ -384,7 +384,14 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
   let k = 0;
   for (const m of text.matchAll(INLINE_RE)) {
     if (m.index! > last)
-      out.push(...linkedGithubText(text.slice(last, m.index), `t${k++}`, opts.githubRepository, opts.linkGithubReferences !== false));
+      out.push(
+        ...linkedGithubText(
+          text.slice(last, m.index),
+          `t${k++}`,
+          opts.githubRepository,
+          opts.linkGithubReferences !== false,
+        ),
+      );
     const t = m[0];
     if (m[1]) {
       const path = codePath(t.slice(1, -1));
@@ -453,7 +460,9 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
     last = m.index! + t.length;
   }
   if (last < text.length)
-    out.push(...linkedGithubText(text.slice(last), `t${k++}`, opts.githubRepository, opts.linkGithubReferences !== false));
+    out.push(
+      ...linkedGithubText(text.slice(last), `t${k++}`, opts.githubRepository, opts.linkGithubReferences !== false),
+    );
   return out;
 }
 

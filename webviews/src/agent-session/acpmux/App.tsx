@@ -248,11 +248,7 @@ const MessageRow = memo(
         </div>
       );
     return (
-      <RevealedMarkdown
-        text={row.text ?? ""}
-        streaming={row.streaming === true}
-        githubRepository={githubRepository}
-      />
+      <RevealedMarkdown text={row.text ?? ""} streaming={row.streaming === true} githubRepository={githubRepository} />
     );
   },
   (previous, next) =>
