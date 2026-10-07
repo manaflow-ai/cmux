@@ -42,7 +42,7 @@ public final class AgentPaneModel {
     /// The new tab page's "default: X" toggle (`tab.setDefaultKind`).
     @ObservationIgnored public var onSetDefaultKind: ((String) -> Void)?
     /// Runs an app action requested by an empty-state or new-tab control.
-    @ObservationIgnored public var onRunAction: ((String) -> Void)?
+    @ObservationIgnored public var onRunAction: ((String) -> Bool)?
     /// Resolves the explicit Browse… fallback in the project picker.
     @ObservationIgnored public var onBrowseProject: (() async -> String?)?
     /// Returns bounded project paths for the picker, optionally filtered by query.
