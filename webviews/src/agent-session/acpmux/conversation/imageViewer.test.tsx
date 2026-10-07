@@ -24,6 +24,7 @@ afterAll(() => Object.assign(globals, saved));
 
 const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
+const { renderToStaticMarkup } = await import("react-dom/server");
 const { ImageViewer, MAX_SCALE, zoomAbout } = await import("./ImageViewer");
 const { Markdown } = await import("./Markdown");
 const { ImageViewerContext } = await import("./imageViewerContext");
@@ -44,6 +45,27 @@ test("the chat's images are its replies' inline images, oldest first, each once,
     { src: png("B"), alt: "Dark" },
     { src: "data:image/svg+xml;base64,PHN2Zz4=", alt: "Chart" },
   ]);
+});
+
+test("the chat's images are exactly the images the reply draws", () => {
+  const svg = (tag: string) => `data:image/svg+xml;base64,${tag}`;
+  const rows: AcpmuxRow[] = [
+    // An image on a fence's later line is code, and the image after the fence is not.
+    reply("a", `Example:\n\n\`\`\`md\n# heading\n![fenced](${png("C")})\n\`\`\`\n![after](${png("E")})`),
+    // A lone backtick in one paragraph does not pair with code in a later one.
+    reply("b", `Press the \` key.\n\n![shot](${png("F")})\n\nRun \`ls\`.`),
+    // A target with one level of parentheses, as Markdown.tsx reads it, and an image in bold.
+    reply("c", `![chart](${svg("PHN2Zz4=(2)")}) and **![bold](${png("G")})**`),
+  ];
+  const drawn = (text: string) => {
+    const html = renderToStaticMarkup(createElement(Markdown, null, text));
+    return [...html.matchAll(/<img class="cv-img" src="([^"]+)" alt="([^"]*)"/g)].map(([, src, alt]) => ({
+      src: src!.replaceAll("&amp;", "&"),
+      alt: alt!,
+    }));
+  };
+  expect(chatImages(rows)).toEqual(rows.flatMap((row) => drawn(row.text!)));
+  expect(chatImages(rows).map((image) => image.alt)).toEqual(["after", "shot", "chart", "bold"]);
 });
 
 test("zooming keeps the point under the pointer still, stays in range and recenters when fitted", () => {
@@ -114,6 +136,47 @@ test("the viewer names the image and its place, steps with the arrows and closes
   expect(steps).toEqual([2, 1, 1]);
   await key(layer, "Escape");
   expect(closed).toBe(1);
+  await unmount();
+});
+
+test("Tab stays inside the viewer, wrapping at either end", async () => {
+  const images = [
+    { src: png("A"), alt: "Light" },
+    { src: png("B"), alt: "Dark" },
+  ];
+  const outside = dom.window.document.body.appendChild(dom.window.document.createElement("button"));
+  const { container, unmount } = await mount(
+    createElement(ImageViewer, { images, index: 0, onIndex: () => {}, onClose: () => {} }),
+  );
+  const buttons = [...container.querySelectorAll<HTMLButtonElement>(".acpmux-image-viewer button")];
+  const tab = (shiftKey: boolean) =>
+    act(async () => {
+      dom.window.document.activeElement!.dispatchEvent(
+        new dom.window.KeyboardEvent("keydown", { key: "Tab", shiftKey, bubbles: true, cancelable: true }),
+      );
+    });
+  buttons.at(-1)!.focus();
+  await tab(false);
+  expect(dom.window.document.activeElement).toBe(buttons[0]!);
+  await tab(true);
+  expect(dom.window.document.activeElement).toBe(buttons.at(-1)!);
+  expect(dom.window.document.activeElement).not.toBe(outside);
+  await unmount();
+  outside.remove();
+});
+
+test("an image the list does not know still opens under its own name", async () => {
+  const opened: [string, string][] = [];
+  const text = `![Light](${png("A")})`;
+  const { container, unmount } = await mount(
+    createElement(
+      ImageViewerContext.Provider,
+      { value: (src: string, alt: string) => opened.push([src, alt]) },
+      createElement(Markdown, null, text),
+    ),
+  );
+  await act(async () => container.querySelector<HTMLButtonElement>("button.cv-img-open")!.click());
+  expect(opened).toEqual([[png("A"), "Light"]]);
   await unmount();
 });
 
