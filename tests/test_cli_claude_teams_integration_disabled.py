@@ -163,6 +163,31 @@ printf '%s\\n' "$@" > "$FAKE_CLAUDE_ARGV_LOG"
             if (agent_root / "claude").exists():
                 failures.append("claude-teams installed a claude shim the integration toggle removed")
 
+        # 1b. Claude shim keys inherited from a parent cmux surface (for example
+        #     when cmux itself was started from a cmux terminal) must not win
+        #     over this surface's own agent shim root while the integration is
+        #     off: the app exports no Claude shim keys for such a surface.
+        parent_root = home / ".cmuxterm" / "cmux-cli-shims" / str(uuid.uuid4())
+        parent_root.mkdir()
+        parent_root.chmod(0o700)
+        make_executable(parent_root / "claude", "#!/usr/bin/env bash\nexit 97\n")
+        inherited_env = env.copy()
+        inherited_env["CMUX_CLAUDE_WRAPPER_SHIM_ROOT"] = str(parent_root)
+        inherited_env["CMUX_CLAUDE_WRAPPER_SHIM"] = str(parent_root / "claude")
+        tmux_path_log.unlink(missing_ok=True)
+        proc = run_claude_teams(cli_path, inherited_env, surface_id, tmp)
+        if proc.returncode != 0:
+            failures.append(
+                "inherited Claude shim keys from another surface blocked Teams with "
+                f"the integration off (exit={proc.returncode} stderr={proc.stderr.strip()!r})"
+            )
+        elif read_text(tmux_path_log) != str(agent_root / "tmux"):
+            failures.append(
+                f"tmux resolved to {read_text(tmux_path_log)!r} with inherited Claude shim keys"
+            )
+        if (parent_root / "tmux").exists():
+            failures.append("claude-teams wrote tmux into a parent surface's Claude shim root")
+
         # 2. Integration on but the Claude shim is missing: keep refusing, since
         #    launching without hooks would silently drop session tracking.
         enabled_env = env.copy()
