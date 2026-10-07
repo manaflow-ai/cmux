@@ -26,3 +26,9 @@ test("the built diff entry and its eager dependencies contain no translated diff
   expect(source.includes("Dateien ausblenden")).toBe(false);
   expect(source.includes("ファイルを隠す")).toBe(false);
 });
+
+test("the selected Japanese locale chunk contains no German diff labels", () => {
+  const source = eagerSources("chunks/diff-labels-ja.mjs").join("\n");
+  expect(source.includes("ファイルを隠す")).toBe(true);
+  expect(source.includes("Dateien ausblenden")).toBe(false);
+});

@@ -195,6 +195,8 @@ const VIEWER_SHARED =
   /\/webviews\/src\/(appearance\.ts|syntax-colors\.ts|pierre-options\.ts|pages\/shared\/(pageClient|i18n)\.ts|viewer-empty\/(ops\.ts|drop\.ts|icons\.tsx|strings\.ts|time\.ts|EmptyState\.tsx|pickerModel\.ts|generated\/strings\.json))$/;
 
 function lazyChunkName(id: string): string | null {
+  const diffLocale = id.match(/\/pages\/diff\/generated\/locales\/([^/]+)\.json$/);
+  if (diffLocale && diffLocale[1] !== "en") return `diff-labels-${diffLocale[1]}`;
   const shikiLanguage = id.match(/\/@shikijs\/langs\/dist\/([^/]+)\.mjs$/);
   if (shikiLanguage) {
     return `shiki-lang-${shikiLanguage[1]}`;
