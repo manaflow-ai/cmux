@@ -205,3 +205,6 @@ export async function mountDiffPage(state: DiffPageVariant, context: StageContex
   root.dataset.cmuxWebviewKind = "diff";
   await import("../../pages/diff/main");
 }
+
+// These pages already have protocol-faithful mock providers. Keep their mutations and streams.
+export { mountSettingsPage, mountPasswordsPage } from "./settingsPasswords";
