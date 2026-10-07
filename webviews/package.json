@@ -27,7 +27,8 @@
     "typecheck": "vp check --no-fmt --no-lint",
     "verify:tanstack-router": "node scripts/verify-tanstack-router-security.mjs",
     "react-doctor": "react-doctor . --full --no-score --fail-on none",
-    "react-doctor:ci": "react-doctor . --full --no-score --fail-on none"
+    "react-doctor:ci": "react-doctor . --full --no-score --fail-on none",
+    "gallery:build": "vp build --config vite.config.gallery.ts"
   },
   "dependencies": {
     "@base-ui/react": "1.8.0",
