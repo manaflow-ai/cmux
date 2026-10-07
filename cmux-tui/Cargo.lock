@@ -877,6 +877,7 @@ dependencies = [
  "log",
  "serde",
  "serde_json",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1094,6 +1095,7 @@ name = "cmux-sdk"
 version = "1.0.0"
 dependencies = [
  "base64",
+ "cmux-local-socket",
  "getrandom 0.3.4",
  "libc",
  "serde",

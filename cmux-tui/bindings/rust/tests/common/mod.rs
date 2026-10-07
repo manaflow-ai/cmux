@@ -4,7 +4,11 @@
 
 use serde_json::{Map, Value, json};
 use std::io::{BufRead, BufReader, Write};
+#[cfg(unix)]
 use std::os::unix::net::{UnixListener, UnixStream};
+// Windows: the SDK's own transport (AF_UNIX, owner-only directory).
+#[cfg(windows)]
+use cmux_local_socket::Stream as UnixStream;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
@@ -23,14 +27,26 @@ static NEXT_SOCKET: AtomicU64 = AtomicU64::new(1);
 pub fn mock(
     serve: impl FnOnce(&mut UnixStream, &mut BufReader<UnixStream>) + Send + 'static,
 ) -> Mock {
+    #[cfg(unix)]
     let path = std::env::temp_dir().join(format!(
         "cmux-sdk-mock-{}-{}.sock",
         std::process::id(),
         NEXT_SOCKET.fetch_add(1, Ordering::Relaxed)
     ));
+    #[cfg(unix)]
     let listener = UnixListener::bind(&path).unwrap();
+    // The shared transport binds only in an owner-only directory.
+    #[cfg(windows)]
+    let path = std::env::temp_dir()
+        .join(format!("cmux-sdk-mock-{}", std::process::id()))
+        .join(format!("{}.sock", NEXT_SOCKET.fetch_add(1, Ordering::Relaxed)));
+    #[cfg(windows)]
+    let listener = cmux_local_socket::listen(&path).unwrap();
     let server = thread::spawn(move || {
+        #[cfg(unix)]
         let (mut stream, _) = listener.accept().unwrap();
+        #[cfg(windows)]
+        let mut stream = listener.accept().unwrap();
         let mut reader = BufReader::new(stream.try_clone().unwrap());
         serve(&mut stream, &mut reader);
     });

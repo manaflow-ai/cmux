@@ -344,7 +344,7 @@ pub(crate) struct Shared {
 }
 
 struct Outbound {
-    socket: std::os::unix::net::UnixStream,
+    socket: crate::codec::UnixStream,
     next_id: u64,
     last_reported: Option<CellSize>,
 }

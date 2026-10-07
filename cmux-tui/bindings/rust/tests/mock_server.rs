@@ -1,3 +1,5 @@
+// Unix sockets and a live Unix daemon; the Windows suite is separate.
+#![cfg(unix)]
 use cmux::{
     BrowserAttachOptions, BrowserCreateOptions, BrowserId, BrowserMouseButton, BrowserMouseKind,
     BrowserMouseOptions, CancellationToken, CellPixelsOptions, ClientMetadataOptions,

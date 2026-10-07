@@ -6,10 +6,12 @@ use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
 use std::collections::VecDeque;
 use std::fmt;
+#[cfg(unix)]
 use std::mem::{offset_of, size_of};
 use std::net::Shutdown;
+#[cfg(unix)]
 use std::os::unix::ffi::OsStrExt;
-use std::os::unix::net::UnixStream;
+use crate::codec::UnixStream;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -516,7 +518,7 @@ pub(crate) fn hashed_socket_legacy_path(path: &Path) -> Option<PathBuf> {
     if digest.len() != 64 || !digest.bytes().all(|b| b.is_ascii_hexdigit()) {
         return None;
     }
-    let canonical = PathBuf::from("/tmp").join(format!("cmux-tui-{uid}"));
+    let canonical = fallback_root().join(format!("cmux-tui-{uid}"));
     let sibling = parent.parent()?.join(format!("cmux-tui-{uid}"));
     let mut roots = vec![canonical];
     if sibling != roots[0] {
@@ -535,7 +537,13 @@ pub(crate) fn hashed_socket_legacy_path(path: &Path) -> Option<PathBuf> {
                 continue;
             }
             let Ok(file_type) = entry.file_type() else { continue };
+            #[cfg(unix)]
             if std::os::unix::fs::FileTypeExt::is_socket(&file_type) {
+                return Some(entry.path());
+            }
+            // Windows AF_UNIX sockets are plain files to the file system.
+            #[cfg(windows)]
+            if file_type.is_file() {
                 return Some(entry.path());
             }
         }
@@ -760,21 +768,41 @@ pub fn default_socket_path(session: &str) -> PathBuf {
     }
 }
 
-fn default_socket_path_for_session(session: &str) -> Result<PathBuf> {
-    let base = std::env::var_os("XDG_RUNTIME_DIR")
+#[cfg(windows)]
+fn runtime_base() -> PathBuf {
+    // The daemon's base on Windows (cmux-tui-core `platform::runtime_base_dir`).
+    std::env::temp_dir()
+}
+
+#[cfg(unix)]
+fn runtime_base() -> PathBuf {
+    std::env::var_os("XDG_RUNTIME_DIR")
         .filter(|value| !value.is_empty())
         .or_else(|| std::env::var_os("TMPDIR").filter(|value| !value.is_empty()))
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("/tmp"));
+        .unwrap_or_else(|| PathBuf::from("/tmp"))
+}
+
+/// Where short socket paths go when the runtime directory's are too long:
+/// `/tmp` on Unix, the temp directory on Windows.
+fn fallback_root() -> PathBuf {
+    #[cfg(unix)]
+    {
+        PathBuf::from("/tmp")
+    }
+    #[cfg(windows)]
+    {
+        std::env::temp_dir()
+    }
+}
+
+fn default_socket_path_for_session(session: &str) -> Result<PathBuf> {
+    let base = runtime_base();
     default_socket_path_in_runtime_dir(session, base.join(private_runtime_dir_name()))
 }
 
 fn invalid_session_socket_path(session: &str) -> PathBuf {
-    let base = std::env::var_os("XDG_RUNTIME_DIR")
-        .filter(|value| !value.is_empty())
-        .or_else(|| std::env::var_os("TMPDIR").filter(|value| !value.is_empty()))
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("/tmp"));
+    let base = runtime_base();
     invalid_session_socket_path_in_runtime_dir(session, base)
 }
 
@@ -785,7 +813,7 @@ fn invalid_session_socket_path_in_runtime_dir(session: &str, runtime_dir: PathBu
     if unix_socket_path_fits(&preferred) {
         preferred
     } else {
-        PathBuf::from("/tmp")
+        fallback_root()
             .join(format!("cmux-tui-invalid-{}", current_uid_component()))
             .join(invalid_session_socket_leaf(session))
     }
@@ -798,7 +826,7 @@ pub(crate) fn default_socket_path_in_runtime_dir(
     let file_name = format!("{session}.sock");
     let preferred = runtime_dir.join(&file_name);
     if !unix_socket_path_fits(&preferred) {
-        let fallback = PathBuf::from("/tmp").join(private_runtime_dir_name()).join(file_name);
+        let fallback = fallback_root().join(private_runtime_dir_name()).join(file_name);
         if unix_socket_path_fits(&fallback) {
             return Ok(fallback);
         }
@@ -807,14 +835,15 @@ pub(crate) fn default_socket_path_in_runtime_dir(
                 crate::socket_hash::LONG_PATH_NEEDS_HASH.into(),
             ));
         };
-        let preferred_base = runtime_dir.parent().unwrap_or_else(|| Path::new("/tmp"));
+        let fallback = fallback_root();
+        let preferred_base = runtime_dir.parent().unwrap_or(&fallback);
         let hashed = preferred_base
             .join(format!("cmux-tui-hashed-{}", current_uid_component()))
             .join(format!("{digest}.sock"));
         if unix_socket_path_fits(&hashed) {
             return Ok(hashed);
         }
-        let hashed = PathBuf::from("/tmp")
+        let hashed = fallback_root()
             .join(format!("cmux-tui-hashed-{}", current_uid_component()))
             .join(format!("{digest}.sock"));
         debug_assert!(unix_socket_path_fits(&hashed));
@@ -827,22 +856,38 @@ pub(crate) fn private_runtime_dir_name() -> String {
     format!("cmux-tui-{}", current_uid_component())
 }
 
+#[cfg(unix)]
 pub(crate) fn unix_socket_path_fits(path: &Path) -> bool {
     const SUN_PATH_CAPACITY: usize =
         size_of::<libc::sockaddr_un>() - offset_of!(libc::sockaddr_un, sun_path);
     path.as_os_str().as_bytes().len() < SUN_PATH_CAPACITY
 }
 
+/// Windows AF_UNIX: `sockaddr_un.sun_path` is 108 bytes of UTF-8 with its
+/// NUL.
+#[cfg(windows)]
+pub(crate) fn unix_socket_path_fits(path: &Path) -> bool {
+    path.to_str().is_some_and(|p| p.len() < 108)
+}
+
+#[cfg(unix)]
 pub(crate) fn current_uid_component() -> String {
     // SAFETY: getuid has no preconditions and does not dereference pointers.
     unsafe { libc::getuid() }.to_string()
+}
+
+/// Windows: the user name, as the daemon names its socket directory
+/// (cmux-tui-core `platform::user_id_component`).
+#[cfg(windows)]
+pub(crate) fn current_uid_component() -> String {
+    std::env::var("USERNAME").unwrap_or_else(|_| "user".to_string())
 }
 
 fn invalid_session_socket_leaf(session: &str) -> String {
     crate::socket_hash::invalid_session_leaf(session)
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     #![cfg_attr(not(feature = "socket-path-hash"), allow(dead_code, unused_imports))]
     use super::*;

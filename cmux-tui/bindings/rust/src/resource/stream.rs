@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 use std::collections::VecDeque;
 use std::io::Write;
 use std::net::Shutdown;
-use std::os::unix::net::UnixStream;
+use crate::codec::UnixStream;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -680,7 +680,7 @@ fn validate_stream_id(object: &serde_json::Map<String, Value>, expected: &Stream
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
     use serde_json::json;

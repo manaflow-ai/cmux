@@ -23,12 +23,22 @@ socket-path-hash = ["dep:sha2"]
 
 [dependencies]
 base64 = { workspace = true }
-libc = { workspace = true }
 getrandom = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 # SHA-256 socket-path digests; see src/socket_hash.rs.
 sha2 = { workspace = true, optional = true }
+
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
+
+# Windows: AF_UNIX through the transport the daemon uses, with its same-user
+# checks (plans/cmux-next/windows-daemon.md).
+[target.'cfg(windows)'.dependencies]
+cmux-local-socket = { workspace = true }
+
+[target.'cfg(windows)'.dev-dependencies]
+cmux-local-socket = { workspace = true }
 
 [dev-dependencies]
 # tests/catalog_manifest.rs hashes the generated sources in every feature set.

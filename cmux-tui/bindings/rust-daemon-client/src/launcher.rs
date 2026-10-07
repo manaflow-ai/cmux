@@ -268,7 +268,20 @@ fn kill(pid: u32) {
             libc::kill(pid, libc::SIGKILL);
         }
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::Foundation::CloseHandle;
+        use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_TERMINATE, TerminateProcess};
+        // SAFETY: plain calls; the handle is checked and closed.
+        unsafe {
+            let process = OpenProcess(PROCESS_TERMINATE, 0, pid);
+            if !process.is_null() {
+                TerminateProcess(process, 1);
+                CloseHandle(process);
+            }
+        }
+    }
+    #[cfg(not(any(unix, windows)))]
     let _ = pid;
 }
 
@@ -309,6 +322,7 @@ mod tests {
     #[test]
     fn pin_names_a_commit() {
         assert_eq!(pinned_commit().len(), 40);
-        assert!(pinned_cache_path().unwrap().ends_with(format!("{}/cmux-tui", pinned_commit())));
+        let exe = if cfg!(windows) { "cmux-tui.exe" } else { "cmux-tui" };
+        assert!(pinned_cache_path().unwrap().ends_with(Path::new(pinned_commit()).join(exe)));
     }
 }
