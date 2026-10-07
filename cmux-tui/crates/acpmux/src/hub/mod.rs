@@ -121,6 +121,8 @@ pub struct QueuedPrompt {
     pub client: String,
     pub preview: String,
     pub queued_at: u64,
+    /// Fired by `remove_queued`: the waiting `session/prompt` answers withdrawn at once.
+    pub(super) withdraw: Arc<Notify>,
 }
 
 /// Options for `Hub::prompt_with`.

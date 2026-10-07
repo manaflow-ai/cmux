@@ -209,13 +209,21 @@ impl Hub {
         let turn_id = uuid::Uuid::now_v7().to_string();
         let waiting = session.turn().is_some() || session.queued() > 0;
         let position = session.queued.fetch_add(1, Ordering::SeqCst) + 1;
-        if waiting {
-            self.enqueue(session, &text, client, position, &prompt_id, &turn_id);
+        let withdraw = waiting.then(|| {
+            let withdraw = self.enqueue(session, &text, client, position, &prompt_id, &turn_id);
             accept(
                 json!({"sessionId": session.id, "promptId": prompt_id, "turnId": turn_id, "queued": true, "position": position}),
             );
-        }
-        let guard = session.turn_lock.lock().await;
+            withdraw
+        });
+        // A queued prompt `remove_queued` withdraws answers at once, not when the turn ends.
+        let guard = match withdraw {
+            Some(withdraw) => tokio::select! {
+                guard = session.turn_lock.lock() => guard,
+                () = withdraw.notified() => return Ok(super::queue::withdrawn_reply(&prompt_id, &turn_id)),
+            },
+            None => session.turn_lock.lock().await,
+        };
         if !waiting {
             session.queued.fetch_sub(1, Ordering::SeqCst);
         } else if let Some(withdrawn) = self.take_queued(session, &prompt_id, &turn_id) {
