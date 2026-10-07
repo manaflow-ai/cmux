@@ -236,8 +236,8 @@ async function main() {
     JSON.stringify(fmt.message.textRuns) === JSON.stringify([{ start: 0, length: 5, styles: ["bold", "italic"] }, { start: 6, length: 7, effect: "explode" }]),
     "send textRuns round-trip (styles in canonical order)",
   );
-  const page = await c.call("history", { beforeSeq: null, limit: 5 });
-  check(page.messages.some((m: any) => m.id === fmt.message.id && m.textRuns?.length === 2), "history carries textRuns");
+  const fmtPage = await c.call("history", { beforeSeq: null, limit: 5 });
+  check(fmtPage.messages.some((m: any) => m.id === fmt.message.id && m.textRuns?.length === 2), "history carries textRuns");
   const badRange = await c.raw("send", { clientMessageId: `fmt-${crypto.randomUUID()}`, text: "abc", textRuns: [{ start: 2, length: 5, styles: ["bold"] }] });
   check(badRange.error?.code === -32602, "out-of-range textRuns rejected");
   const badEffect = await c.raw("send", { clientMessageId: `fmt-${crypto.randomUUID()}`, text: "abc", textRuns: [{ start: 0, length: 3, effect: "wobble" }] });
