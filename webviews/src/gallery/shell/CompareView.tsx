@@ -22,6 +22,9 @@ import { stageHeight, type ArmMeasurement, type GalleryEntry, type GalleryExperi
 import { entryPaneSize, fitScale } from "../window";
 import metrics from "virtual:cmux-gallery/metrics";
 
+/** Published matrix runs (scripts/gallery-matrix publishRun): the strips the captions link to. */
+const MATRIX_URL = "https://cmux-lawrences-mac-mini.tail137216.ts.net:18796/matrix";
+
 /** Pause between two synced steps, at 1x, so each step's end state reads before the next. */
 const STEP_HOLD_MS = 450;
 
@@ -417,7 +420,19 @@ function CompareCell({
           </a>
         </div>
         <div className="gallery-note">{definition.description}</div>
-        {measured && <div className="gallery-compare-measure">{measuredLine(measured)}</div>}
+        {measured && (
+          <div className="gallery-compare-measure">
+            {measuredLine(measured)}
+            {measured.strip && (
+              <>
+                {" · "}
+                <a href={`${MATRIX_URL}/${measured.run}/${measured.strip}`} target="_blank" rel="noreferrer">
+                  frame strip
+                </a>
+              </>
+            )}
+          </div>
+        )}
         {stats && (
           <div className="gallery-compare-measure">
             here, last step: {fmt(stats)} · {stats.durationMs} ms · plan {stats.planMs} ms

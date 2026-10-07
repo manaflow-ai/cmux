@@ -26,15 +26,29 @@
 export type SpringParameters = { response: number; dampingFraction: number };
 
 /**
- * The cmux-next motion tokens this panel uses, at speed "fast"
+ * The cmux-next motion springs the webviews use (this panel, the changes tree), at speed "fast"
  * (Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift,
  * cmux-tui/crates/cmux-motion/src/spring.rs; plans/cmux-next/motion.md owns
  * the values): `appear` for sidebar show, `disappear` for sidebar hide.
  */
 export const MOTION_SPRINGS = {
+  move: { response: 0.2, dampingFraction: 0.9 },
   appear: { response: 0.18, dampingFraction: 0.9 },
   disappear: { response: 0.15, dampingFraction: 0.9 },
 } as const satisfies Record<string, SpringParameters>;
+
+/**
+ * The cmux-next fade tokens the webviews use, in ms at speed "fast" (MotionFadeTokens.swift;
+ * plans/cmux-next/motion.md). Under Reduce Motion a fade is at most `crossfade` long.
+ */
+export const MOTION_FADES = { hover: 80, fadeIn: 120, fadeOut: 80, crossfade: 100, highlight: 1200 } as const;
+
+/** Seconds until the spring reaches 95% of its travel (cmux-next `perceivedDuration`, Motion.duration(spring)). */
+export function springPerceivedDuration(spring: SpringParameters): number {
+  const step = 0.001;
+  for (let t = 0; t < 5 * spring.response + 1; t += step) if (springStepResponse(spring, t) >= 0.95) return t;
+  return 5 * spring.response;
+}
 
 /** Closed-form position of a unit step (0 to 1, from rest) after `t` seconds. */
 export function springStepResponse(spring: SpringParameters, t: number): number {

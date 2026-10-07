@@ -300,6 +300,11 @@ export type ComponentEntry<P = Record<string, unknown>> = EntryBase<ComponentVar
   load: () => Promise<ComponentType<P>>;
   /** Stylesheets the component needs, loaded before it. */
   styles?: () => Promise<unknown>;
+  /**
+   * An agent pane component: the host loads the pane's strings and stylesheet and applies its
+   * theme (AgentPaneTheme through applyAgentTheme), as the pane has them around it.
+   */
+  pane?: boolean;
 };
 /** Drawn only by the native gallery; the web gallery lists it and shows its native snapshots. */
 export type NativeEntry = EntryBase<NativeVariant> & { host: "native" };

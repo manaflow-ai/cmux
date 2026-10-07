@@ -383,18 +383,22 @@ main .gallery-entry-error {
   display: grid;
   gap: 20px 16px;
   padding-top: 14px;
-  align-items: start;
+  align-items: stretch;
 }
 .gallery-compare-grid--row {
   grid-auto-flow: column;
   overflow-x: auto;
   padding-bottom: 8px;
 }
+/* Captions of different lengths: the frames still line up at the bottom of each grid row. */
 .gallery-compare-cell {
   margin: 0;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
 .gallery-compare-cell figcaption {
+  flex: 1;
   display: flex;
   flex-direction: column;
   gap: 2px;
