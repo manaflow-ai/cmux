@@ -271,6 +271,21 @@ async function main() {
   check(!midMsg.linkPreview, "a URL in the middle of text carries no preview");
   check(newest.messages.concat(older.messages).every((m: any) => !m.linkPreview || typeof m.linkPreview.url === "string"), "history previews are well formed");
 
+  console.log("send effects");
+  const fx = await c.call("send", { clientMessageId: `fx-${crypto.randomUUID()}`, text: "boom", effect: "slam" });
+  check(fx.message.effect === "slam", "send with effect echoes effect");
+  await c.waitFor(() => c.events().find((e) => e.kind === "message.created" && e.message.id === fx.message.id && e.message.effect === "slam"), 3000, "effect event");
+  check(true, "message.created carries the effect");
+  const badFx = await c.raw("send", { clientMessageId: `fx-${crypto.randomUUID()}`, text: "x", effect: "sparkle" });
+  check(badFx.error?.code === -32602, "unknown effect is rejected");
+  check(!s1.message.effect, "plain send has no effect");
+  const said = await post("/admin/say?conversation=group&sender=leo&effect=balloons&text=happy%20birthday");
+  check(said.message.senderId === "leo" && said.message.effect === "balloons" && said.message.text === "happy birthday", "admin say sends a bot message with an effect");
+  await c.waitFor(() => c.events().find((e) => e.kind === "message.created" && e.message.id === said.message.id && e.message.effect === "balloons"), 3000, "say event");
+  check(true, "admin say emits message.created with effect");
+  const fxPage = await c.call("history", { beforeSeq: null, limit: 200 });
+  check(fxPage.messages.every((m: any) => m.effect === undefined || typeof m.effect === "string"), "history carries effect strings");
+
   console.log("resume");
   await c.waitFor(() => c.events().some((e) => e.kind === "message.updated" && e.message.text === "edited text"), 3000, "edit event");
   await sleep(300);

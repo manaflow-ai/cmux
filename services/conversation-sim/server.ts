@@ -10,6 +10,14 @@ import { LINK_MESSAGES, type LinkPreview, previewImages, previewURL, unfurl } fr
 
 type Reaction = "heart" | "thumbsup" | "thumbsdown" | "haha" | "exclamation" | "question";
 const REACTIONS: Reaction[] = ["heart", "thumbsup", "thumbsdown", "haha", "exclamation", "question"];
+/** Messages "send with effect": four bubble effects, then eight full-screen effects. */
+type Effect =
+  | "slam" | "loud" | "gentle" | "invisibleInk"
+  | "echo" | "spotlight" | "balloons" | "confetti" | "love" | "lasers" | "fireworks" | "celebration";
+const EFFECTS: Effect[] = [
+  "slam", "loud", "gentle", "invisibleInk",
+  "echo", "spotlight", "balloons", "confetti", "love", "lasers", "fireworks", "celebration",
+];
 
 interface Participant {
   id: string;
@@ -66,6 +74,7 @@ interface Message {
   readAt?: number;
   mentions?: Mention[];
   textRuns?: TextRun[];
+  effect?: Effect;
 }
 // Rich text (iMessage formatting and animated text effects). Offsets are UTF-16
 // code units into `text`, so they index JS strings, NSString and NSRange alike.
@@ -117,6 +126,8 @@ const knobs = {
   disconnectEverySeconds: 240,
   botIntervalScale: 1,
   botLinkRate: 0.05,
+  /** Share of bot text messages sent with a Messages effect. */
+  effectRate: 0.03,
 };
 type Knobs = typeof knobs;
 
@@ -374,6 +385,8 @@ function generateHistory(store: Store, total: number, meShare: number, seed: num
   for (let i = 1; i < drafts.length; i++) if (drafts[i].sentAt <= drafts[i - 1].sentAt) drafts[i].sentAt = drafts[i - 1].sentAt + 1;
 
   let dayFirstIndex = 0;
+  // Separate stream: adding effects must not shift the rest of the seeded corpus.
+  const effectRng = mulberry32(seed ^ 0x5eed);
   for (let i = 0; i < drafts.length; i++) {
     const m = drafts[i];
     if (i === 0 || drafts[i - 1].day !== m.day) dayFirstIndex = i;
@@ -404,6 +417,7 @@ function generateHistory(store: Store, total: number, meShare: number, seed: num
       const chosen = [...reactors].sort(() => rng() - 0.5).slice(0, n);
       m.reactions = chosen.map((p) => ({ participantId: p.id, reaction: pick(rng, REACTIONS) }));
     }
+    if (effectRng() < 0.015 && m.text && !m.attachments.length) m.effect = pick(effectRng, EFFECTS);
     if (m.senderId === ME.id) {
       if (conv.kind === "direct") {
         m.status = "read";
@@ -647,6 +661,7 @@ function wireMessage(m: Message, base: string) {
   if (m.textRuns?.length) out.textRuns = m.textRuns;
   const preview = linkPreviewFor(m);
   if (preview) out.linkPreview = wireLinkPreview(preview, base);
+  if (m.effect) out.effect = m.effect;
   return out;
 }
 
@@ -891,6 +906,8 @@ async function handleSend(conn: Conn, p: any): Promise<Message> {
   if (p?.replyToId && !store.byId.get(p.replyToId)) throw invalid("unknown replyToId");
   const mentions = validMentions(p?.mentions, text, store.conv);
   const textRuns = parseTextRuns(p?.textRuns, text);
+  const effect = p?.effect ?? undefined;
+  if (effect !== undefined && effect !== null && !EFFECTS.includes(effect)) throw invalid("effect");
 
   await sleep(lat(120, 900));
   const existing = store.byClientId.get(cmid);
@@ -913,6 +930,7 @@ async function handleSend(conn: Conn, p: any): Promise<Message> {
     attachments,
     textRuns,
     ...(mentions.length ? { mentions } : {}),
+    ...(effect ? { effect } : {}),
   });
   // Replying reads the conversation (Messages clears unread when you send).
   store.setLastRead(m.seq);
@@ -1013,6 +1031,7 @@ function randomBotMessage(store: Store, bot: Participant): { text: string; opts:
     opts.replyToId = parent.id;
   }
   opts.textRuns = randomTextRuns(R, text);
+  if (text && R() < knobs.effectRate) opts.effect = pick(R, EFFECTS);
   return { text, opts };
 }
 
@@ -1070,7 +1089,7 @@ function json(body: unknown, status = 200) {
 }
 
 function applyKnobs(input: Record<string, unknown>): Knobs {
-  const unitRange = ["failRate", "historyFailRate", "duplicateRate"];
+  const unitRange = ["failRate", "historyFailRate", "duplicateRate", "effectRate"];
   for (const [k, v] of Object.entries(input)) {
     if (!(k in knobs)) throw new Error(`unknown knob ${k}`);
     const n = Number(v);
@@ -1218,15 +1237,36 @@ async function handleHttp(req: Request, server: ReturnType<typeof Bun.serve>): P
     return json({ ok: true, conversation: conv, sender: bot.id, messageIds: created });
   }
   if (path === "/admin/say" && req.method === "POST") {
-    // Scripted message from a participant: {conversation, senderId, text}.
-    const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
-    const store = stores.get(String(body.conversation ?? "group"));
-    if (!store) return json({ error: "unknown conversation" }, 404);
-    const sender = store.conv.participants.find((p) => p.id === body.senderId) ?? store.bots()[0];
-    if (typeof body.text !== "string" || !body.text) return json({ error: "text" }, 400);
-    const m = store.create(sender.id, body.text);
+    // One message from a participant, now. Params come from a JSON body
+    // {conversation, senderId, text, effect} (deterministic fixtures: posts at
+    // once, I may be the sender) or the query (conversation, sender, text,
+    // effect: a bot types briefly first, for receiver-side effect testing).
+    // Text defaults to a random line; the sender to a random bot.
+    const isJSON = req.headers.get("content-type")?.includes("json") ?? false;
+    const body = isJSON ? ((await req.json().catch(() => ({}))) as Record<string, unknown>) : {};
+    const param = (key: string, query = key) => {
+      const value = isJSON ? body[key] : url.searchParams.get(query);
+      return typeof value === "string" && value ? value : undefined;
+    };
+    const conv = param("conversation") ?? "group";
+    const store = stores.get(conv);
+    if (!store) return json({ error: `unknown conversation ${conv}` }, 404);
+    const senderId = param("senderId", "sender");
+    const sender = senderId ? store.conv.participants.find((p) => p.id === senderId) : pick(R, store.bots());
+    if (!sender) return json({ error: `unknown sender ${senderId}` }, 400);
+    const effect = param("effect");
+    if (effect !== undefined && !EFFECTS.includes(effect as Effect)) return json({ error: `unknown effect ${effect}` }, 400);
+    const text = param("text") ?? messageText(R);
+    if (!isJSON && !sender.isMe) {
+      // Real-time typing (not botSleep): bots may be paused via botIntervalScale.
+      store.broadcastTyping(sender.id, true);
+      await sleep(lat(400, 900));
+      store.broadcastTyping(sender.id, false);
+    }
+    const m = store.create(sender.id, text, effect ? { effect: effect as Effect } : {});
     if (sender.isMe) afterMySend(store, m);
-    return json({ message: wireMessage(m, base) });
+    log(`admin say conv=${conv} sender=${sender.id} effect=${effect ?? "-"}`);
+    return json({ ok: true, message: wireMessage(m, base) });
   }
   if (path === "/admin/disconnect" && req.method === "POST") {
     return json({ ok: true, dropped: dropAll("admin disconnect") });

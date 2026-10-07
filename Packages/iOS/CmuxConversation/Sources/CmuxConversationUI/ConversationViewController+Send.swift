@@ -24,6 +24,8 @@ extension ConversationViewController: ConversationComposerViewDelegate {
     }
 
     func composerDidTapSend(_ composer: ConversationComposerView) {
+        let effect = effects.pendingSendEffect
+        effects.pendingSendEffect = nil
         let text = composer.text
         let mentions = composer.mentions
         let textRuns = composer.textRuns
@@ -37,17 +39,20 @@ extension ConversationViewController: ConversationComposerViewDelegate {
         }
         // Create the flight before the row exists so the row inserts hidden.
         let flight = SendFlight(text: text, attachments: attachments.map(\.image), fieldFrame: fieldFrame, textFrame: textFrame)
-        pendingFlight = flight
+        // A bubble effect replaces the flight: the bubble makes its entrance in place.
+        let flies = effect?.kind != .bubble
+        pendingFlight = flies ? flight : nil
         composer.clearAfterSend()
         photoDrawer?.clearSelection()
         pickedAssets = [:]
-        guard let rowID = store.send(text: text, images: images, replyToID: replyTo, mentions: mentions, textRuns: textRuns, linkPreview: linkPreview) else {
+        guard let rowID = store.send(text: text, images: images, replyToID: replyTo, mentions: mentions, textRuns: textRuns, linkPreview: linkPreview, effect: effect) else {
             pendingFlight = nil
             return
         }
         pendingFlight = nil
         if replyTarget != nil { exitReplyMode(settling: false) }
-        launch(flight, rowID: rowID)
+        if flies { launch(flight, rowID: rowID) }
+        if effect != nil { playSentEffect(rowID: rowID) }
         // The send button leaves with the text; VoiceOver stays in the field.
         UIAccessibility.post(notification: .layoutChanged, argument: composer.textView)
     }

@@ -251,6 +251,7 @@ public final class ConversationStore {
     private func merged(existing: ConversationMessage, incoming: ConversationMessage) -> ConversationMessage {
         var result = incoming
         result.delivery = Self.maxDelivery(existing.delivery, incoming.delivery)
+        if result.effect == nil, incoming.seq == nil || existing.seq == nil { result.effect = existing.effect }
         // Keep local bytes so the sender's image never flashes while the remote copy loads.
         result.attachments = incoming.attachments.enumerated().map { offset, attachment in
             var attachment = attachment
@@ -472,7 +473,8 @@ public final class ConversationStore {
         replyToID: String? = nil,
         mentions: [ConversationMention] = [],
         textRuns: [ConversationTextRun] = [],
-        linkPreview: ConversationLinkPreview? = nil
+        linkPreview: ConversationLinkPreview? = nil,
+        effect: ConversationMessageEffect? = nil
     ) -> String? {
         let (trimmed, runs) = ConversationRichText.trimmed(text, runs: textRuns)
         guard (!trimmed.isEmpty || !images.isEmpty), let meID else { return nil }
@@ -500,7 +502,8 @@ public final class ConversationStore {
             delivery: .sending,
             mentions: ConversationMentionEditing.trimmed(mentions, removedPrefix: leading, textLength: trimmed.utf16.count),
             textRuns: runs,
-            linkPreview: linkPreview
+            linkPreview: linkPreview,
+            effect: effect
         )
         upsert(pending)
         sortAndReindex()
@@ -587,7 +590,8 @@ public final class ConversationStore {
                     replyToID: current.replyToID,
                     attachmentIDs: attachmentIDs,
                     mentions: current.mentions,
-                    textRuns: current.textRuns
+                    textRuns: current.textRuns,
+                    effect: current.effect
                 )
                 var acked = try await self.backend.send(draft)
                 if acked.delivery == nil { acked.delivery = .sent }

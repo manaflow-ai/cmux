@@ -95,6 +95,35 @@ import Testing
         #expect(store.messages.last?.delivery == .delivered)
     }
 
+    @Test func sendWithEffectCarriesTheEffectOnTheRowAndTheDraft() async throws {
+        let backend = ScriptedBackend(total: 5)
+        let store = ConversationStore(backend: backend, pageSize: 30, makeClientMessageID: { "fx-1" })
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+        let rowID = try #require(store.send(text: "boom", effect: .slam))
+        #expect(store.message(rowID: rowID)?.effect == .slam)
+        try await waitUntil { store.message(rowID: rowID)?.seq != nil }
+        #expect(backend.sentEffects == [.slam])
+        #expect(store.message(rowID: rowID)?.effect == .slam)
+        store.send(text: "plain")
+        try await waitUntil { backend.sendCount == 2 }
+        #expect(backend.sentEffects == [.slam, nil])
+    }
+
+    @Test func effectKindsSplitBubbleAndScreen() {
+        #expect(ConversationMessageEffect.bubbleEffects.allSatisfy { $0.kind == .bubble })
+        #expect(ConversationMessageEffect.screenEffects.allSatisfy { $0.kind == .screen })
+        #expect(Set(ConversationMessageEffect.bubbleEffects + ConversationMessageEffect.screenEffects) == Set(ConversationMessageEffect.allCases))
+    }
+
+    @Test func wireDecodingReadsEffectAndIgnoresUnknownOnes() throws {
+        let base = try #require(URL(string: "http://127.0.0.1:1"))
+        let known = WireDecoding.message(["id": "m1", "senderId": "lc", "text": "hi", "effect": "invisibleInk"], base: base)
+        #expect(known?.effect == .invisibleInk)
+        let unknown = WireDecoding.message(["id": "m2", "senderId": "lc", "text": "hi", "effect": "sparkle"], base: base)
+        #expect(unknown != nil && unknown?.effect == nil)
+    }
+
     @Test func rapidSendsReachTheBackendOneAtATimeInSendOrder() async throws {
         let backend = ScriptedBackend(total: 5)
         let ids = ClientIDSequence(prefix: "rapid")
@@ -253,6 +282,7 @@ final class ScriptedBackend: ConversationBackend, @unchecked Sendable {
     private var _sendWaiters: [CheckedContinuation<Void, Never>] = []
     private var _sentClientIDs: [String] = []
     private var _sentDrafts: [ConversationOutgoingDraft] = []
+    private var _sentEffects: [ConversationMessageEffect?] = []
     private var _sendCount = 0
     private var _stampAcksWithServerNow = false
 
@@ -264,6 +294,7 @@ final class ScriptedBackend: ConversationBackend, @unchecked Sendable {
     var holdSend: Bool { get { lock.withLock { _holdSend } } set { lock.withLock { _holdSend = newValue } } }
     var sentClientIDs: [String] { lock.withLock { _sentClientIDs } }
     var sentDrafts: [ConversationOutgoingDraft] { lock.withLock { _sentDrafts } }
+    var sentEffects: [ConversationMessageEffect?] { lock.withLock { _sentEffects } }
     var sendCount: Int { lock.withLock { _sendCount } }
     /// Acks carry a server time later than any local send time, as a real server's do.
     var stampAcksWithServerNow: Bool { get { lock.withLock { _stampAcksWithServerNow } } set { lock.withLock { _stampAcksWithServerNow = newValue } } }
@@ -306,6 +337,7 @@ final class ScriptedBackend: ConversationBackend, @unchecked Sendable {
         let (hold, fail) = lock.withLock { () -> (Bool, Bool) in
             _sentClientIDs.append(draft.clientMessageID)
             _sentDrafts.append(draft)
+            _sentEffects.append(draft.effect)
             let fail = _failNextSend
             _failNextSend = false
             return (_holdSend, fail)
@@ -327,6 +359,7 @@ final class ScriptedBackend: ConversationBackend, @unchecked Sendable {
         message.text = draft.text
         message.mentions = draft.mentions
         message.textRuns = draft.textRuns
+        message.effect = draft.effect
         message.delivery = .sent
         if stampAcksWithServerNow { message.sentAt = Date().addingTimeInterval(5) }
         return message

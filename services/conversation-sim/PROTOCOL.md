@@ -21,7 +21,7 @@ process and keep growing.
 | --- | --- | --- |
 | `hello` | `{clientId, resumeAfterEventSeq?}` | `{conversation, me: Participant, headSeq, headEventSeq, serverTime, lagged, lastReadSeq, unreadCount}` |
 | `history` | `{beforeSeq: Int?, limit: Int}` | `{messages: [Message], hasMore: Bool}` |
-| `send` | `{clientMessageId, text, replyToId?, attachmentIds?, mentions?: [Mention], textRuns?}` | `{message: Message}` |
+| `send` | `{clientMessageId, text, replyToId?, attachmentIds?, mentions?: [Mention], textRuns?, effect?: Effect}` | `{message: Message}` |
 | `react` | `{messageId, reaction: Reaction?}` | `{message: Message}` |
 | `edit` | `{messageId, text, textRuns?}` | `{message: Message}` (at most 5 edits per message; then error `-32004`) |
 | `unsend` | `{messageId}` | `{message: Message}` (Undo Send: text and attachments cleared, `unsentAt` set; error `-32003` after 2 minutes) |
@@ -95,6 +95,7 @@ Message {
   mentions?: [Mention]                           // omitted when none
   textRuns?: [TextRun]                           // omitted when plain
   linkPreview?: LinkPreview   // when a URL opens or ends `text`
+  effect?: Effect                                // "send with effect"
 }
 LinkPreview {
   url, title?, siteName?, state: "loaded"|"loading"|"tapToLoad",
@@ -118,6 +119,9 @@ unknown participants and out-of-range or overlapping mentions with `-32602`.
 
 ```
 Reaction = "heart"|"thumbsup"|"thumbsdown"|"haha"|"exclamation"|"question"
+Effect   = "slam"|"loud"|"gentle"|"invisibleInk"                       // bubble
+         | "echo"|"spotlight"|"balloons"|"confetti"|"love"|"lasers"
+         | "fireworks"|"celebration"                                   // screen
 ```
 
 `textRuns` carry iMessage formatting and animated text effects. `start` and
@@ -151,11 +155,14 @@ edit without `textRuns` clears the formatting.
   others.
 - `POST /admin/audio?conversation=<id>&count=<n>[&sender=<participantId>]`:
   one participant sends `n` audio messages back to back (auto-play testing).
+- `POST /admin/say?conversation=<id>&sender=<id>&text=<s>&effect=<Effect>`: a
+  participant types briefly, then sends one message (all params optional).
+  Receiver-side effect testing. With a JSON body `{conversation, senderId,
+  text, effect}` instead, the message posts at once and the sender may be me
+  (deterministic link, data detector and layout fixtures).
 - `POST /admin/disconnect`: drop every socket (reconnect testing).
-- `POST /admin/say` JSON `{conversation, senderId, text}`: one scripted message
-  from a participant (deterministic link, data detector and layout fixtures).
 - `POST /admin/knobs` JSON `{latencyScale, failRate, historyFailRate,
-  duplicateRate, disconnectEverySeconds, botIntervalScale, botLinkRate}`.
+  duplicateRate, disconnectEverySeconds, botIntervalScale, botLinkRate, effectRate}`.
 
 ## Link previews
 
@@ -195,3 +202,6 @@ is unchanged) plus, near each conversation's newest message, two consecutive
 recordings from one participant and one of mine just above the boot unread
 backlog (which is all from others). Bots send a recording 3% of
 the time. Every recording has a spoken transcript.
+
+Effects: `effectRate` (default 0.03) of bot text messages carry a random
+effect; ~1.5% of generated history text messages do too.

@@ -147,6 +147,45 @@ extension ConversationMessage {
     }
 }
 
+/// Messages "send with effect". Bubble effects animate the message's own
+/// bubble; screen effects play a full-screen animation over the transcript.
+public enum ConversationMessageEffect: String, Sendable, Hashable, CaseIterable {
+    case slam
+    case loud
+    case gentle
+    case invisibleInk
+    case echo
+    case spotlight
+    case balloons
+    case confetti
+    case love
+    case lasers
+    case fireworks
+    case celebration
+
+    public enum Kind: Sendable, Hashable {
+        case bubble
+        case screen
+    }
+
+    public var kind: Kind {
+        switch self {
+        case .slam, .loud, .gentle, .invisibleInk: return .bubble
+        default: return .screen
+        }
+    }
+
+    /// Whether the message keeps a "Replay" control. Invisible Ink stays
+    /// covered until touched instead.
+    public var isReplayable: Bool { self != .invisibleInk }
+
+    /// Picker order, as Messages lists them.
+    public static let bubbleEffects: [ConversationMessageEffect] = [.slam, .loud, .gentle, .invisibleInk]
+    public static let screenEffects: [ConversationMessageEffect] = [
+        .echo, .spotlight, .balloons, .confetti, .love, .lasers, .fireworks, .celebration,
+    ]
+}
+
 /// Delivery of a message I sent. Messages from others carry no delivery.
 public enum ConversationDelivery: Sendable, Hashable {
     case sending
@@ -187,6 +226,8 @@ public struct ConversationMessage: Sendable, Hashable, Identifiable {
     public var textRuns: [ConversationTextRun]
     /// Rich link card for the URL that opens or ends `text`, if any.
     public var linkPreview: ConversationLinkPreview?
+    /// "Send with effect"; nil for a plain message.
+    public var effect: ConversationMessageEffect?
 
     public init(
         id: String,
@@ -205,7 +246,8 @@ public struct ConversationMessage: Sendable, Hashable, Identifiable {
         delivery: ConversationDelivery? = nil,
         mentions: [ConversationMention] = [],
         textRuns: [ConversationTextRun] = [],
-        linkPreview: ConversationLinkPreview? = nil
+        linkPreview: ConversationLinkPreview? = nil,
+        effect: ConversationMessageEffect? = nil
     ) {
         self.id = id
         self.seq = seq
@@ -224,6 +266,7 @@ public struct ConversationMessage: Sendable, Hashable, Identifiable {
         self.mentions = mentions
         self.textRuns = textRuns
         self.linkPreview = linkPreview
+        self.effect = effect
     }
 
     /// Identity that survives the pending to acknowledged transition, so the
@@ -250,6 +293,7 @@ public struct ConversationOutgoingDraft: Sendable {
     public var attachmentIDs: [String]
     public var mentions: [ConversationMention]
     public var textRuns: [ConversationTextRun]
+    public var effect: ConversationMessageEffect?
 
     public init(
         clientMessageID: String,
@@ -257,7 +301,8 @@ public struct ConversationOutgoingDraft: Sendable {
         replyToID: String?,
         attachmentIDs: [String],
         mentions: [ConversationMention] = [],
-        textRuns: [ConversationTextRun] = []
+        textRuns: [ConversationTextRun] = [],
+        effect: ConversationMessageEffect? = nil
     ) {
         self.clientMessageID = clientMessageID
         self.text = text
@@ -265,6 +310,7 @@ public struct ConversationOutgoingDraft: Sendable {
         self.attachmentIDs = attachmentIDs
         self.mentions = mentions
         self.textRuns = textRuns
+        self.effect = effect
     }
 }
 

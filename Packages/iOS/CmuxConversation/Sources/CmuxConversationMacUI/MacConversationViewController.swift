@@ -76,10 +76,11 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
     private let initialSpinner = NSProgressIndicator()
 
     private(set) var rows: [MacConversationRow] = []
-    private var rowIndex: [String: Int] = [:]
+    private(set) var rowIndex: [String: Int] = [:]
     private var hasPositioned = false
     private var isPinnedToBottom = true
     private var arrivingRowIDs: Set<String> = []
+    var effects = MacEffectsState()
     private var lastWidth: CGFloat = 0
     private var isLiveScrolling = false
     /// Sends whose bubble should fly from the composer once their row exists.
@@ -437,7 +438,8 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         let typingNow = newRows.last.map { if case .typing = $0 { return true } else { return false } } ?? false
         if case .live = change {
             let arrivals = newRows.compactMap { row -> String? in
-                guard !oldIDs.contains(row.id), case let .message(model) = row, !model.isOutgoing else { return nil }
+                // A bubble effect is the row's entrance; other arrivals fade in.
+                guard !oldIDs.contains(row.id), case let .message(model) = row, !model.isOutgoing, !queueArrivalEffect(model) else { return nil }
                 return model.rowID
             }
             // The message that replaces a typing indicator takes its place at
@@ -458,6 +460,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         }
 
         defer { if threadFocus != nil { reloadThread(animated: false) } }
+        defer { playQueuedEffects() }
         trace("change.before \(change)")
         programmatic {
             apply(newRows, from: oldRows)
@@ -894,15 +897,18 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         isSubmitting = true
         composer.clearAfterSend()
         trace("submit.cleared")
-        let rowID = store.send(text: text, images: images, replyToID: replyTo, mentions: mentions, textRuns: textRuns, linkPreview: linkPreview)
+        let effect = effects.pendingSendEffect
+        let rowID = store.send(text: text, images: images, replyToID: replyTo, mentions: mentions, textRuns: textRuns, linkPreview: linkPreview, effect: effect)
         isSubmitting = false
         if let rowID { registerUndoSend(rowID: rowID) }
         // The flight's scroll animates to the new bottom.
         updateInsets(followingBottom: false)
         if let rowID, rowIndex[rowID] != nil {
-            pendingFlightRowIDs.append(rowID)
+            // A bubble effect replaces the flight: the bubble makes its entrance in place.
+            if effect?.kind != .bubble { pendingFlightRowIDs.append(rowID) }
             isPinnedToBottom = true
             runPendingFlights()
+            if effect != nil { playEffect(rowID: rowID, explicit: false) }
         } else {
             flightSource = nil
             updateInsets()
@@ -917,6 +923,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         photos.image = NSImage(systemSymbolName: "photo.on.rectangle", accessibilityDescription: nil)
         photos.target = self
         menu.addItem(photos)
+        menu.addItem(effectsMenuItem())
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: composer.appsButton.bounds.height + 4), in: composer.appsButton)
     }
 
@@ -1349,6 +1356,17 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             return "ok"
         case "send":
             composer.textView.doCommand(by: #selector(NSResponder.insertNewline(_:)))
+            return "ok"
+        case "effect":
+            // effect <name>: send the draft with that effect; effect replay: replay the newest.
+            if argument == "state" { return effectLabState() }
+            if argument == "replay" {
+                guard let id = rows.last(where: { if case let .message(m) = $0 { return m.message.effect != nil } else { return false } })?.id else { return "error none" }
+                replayEffect(rowID: id)
+                return "ok"
+            }
+            guard let effect = ConversationMessageEffect(rawValue: argument) else { return "error unknown effect" }
+            sendWithEffect(effect)
             return "ok"
         case "composer":
             let host = composer.superview

@@ -17,6 +17,8 @@ protocol ConversationComposerViewDelegate: AnyObject {
     func composerDidChangeHeight(_ composer: ConversationComposerView)
     func composerDidTapSend(_ composer: ConversationComposerView)
     func composerDidTapPlus(_ composer: ConversationComposerView)
+    /// Long press on send: "Send with effect".
+    func composerDidLongPressSend(_ composer: ConversationComposerView)
 }
 
 /// Messages composer: a glass "+" circle and a glass capsule field that grows
@@ -180,6 +182,9 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
             guard let self, self.hasContent else { return }
             self.delegate?.composerDidTapSend(self)
         }, for: .touchUpInside)
+        let effectPress = UILongPressGestureRecognizer(target: self, action: #selector(sendLongPressed(_:)))
+        effectPress.minimumPressDuration = 0.4
+        sendButton.addGestureRecognizer(effectPress)
         sendButton.alpha = 0
         sendButton.transform = CGAffineTransform(scaleX: 0.4, y: 0.4)
         fieldGlass.contentView.addSubview(sendButton)
@@ -251,6 +256,11 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         fieldHeight = 0
         updateHeight()
         setNeedsLayout()
+    }
+
+    @objc private func sendLongPressed(_ press: UILongPressGestureRecognizer) {
+        guard press.state == .began, hasContent, !isEditMode else { return }
+        delegate?.composerDidLongPressSend(self)
     }
 
     // MARK: Text

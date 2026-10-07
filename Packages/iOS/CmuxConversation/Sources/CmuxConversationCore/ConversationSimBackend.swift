@@ -32,6 +32,7 @@ public final class ConversationSimBackend: ConversationBackend, @unchecked Senda
         if !draft.attachmentIDs.isEmpty { params["attachmentIds"] = draft.attachmentIDs }
         if !draft.mentions.isEmpty { params["mentions"] = draft.mentions.map(WireDecoding.wireMention) }
         if !draft.textRuns.isEmpty { params["textRuns"] = WireDecoding.wireRuns(draft.textRuns) }
+        if let effect = draft.effect { params["effect"] = effect.rawValue }
         let result = try await core.request("send", params: JSONBox(params), timeout: .seconds(15)).value
         return try await core.decodeMessage(JSONBox(result["message"] as? [String: Any] ?? [:]))
     }
@@ -379,7 +380,8 @@ enum WireDecoding {
             delivery: delivery,
             mentions: (raw["mentions"] as? [[String: Any]] ?? []).compactMap(mention),
             textRuns: textRuns(raw["textRuns"], text: raw["text"] as? String ?? ""),
-            linkPreview: (raw["linkPreview"] as? [String: Any]).flatMap { linkPreview($0, base: base) }
+            linkPreview: (raw["linkPreview"] as? [String: Any]).flatMap { linkPreview($0, base: base) },
+            effect: (raw["effect"] as? String).flatMap(ConversationMessageEffect.init(rawValue:))
         )
     }
 

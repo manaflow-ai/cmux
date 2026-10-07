@@ -26,6 +26,8 @@ struct MessageCellLayout {
     /// Bottom of the row that only the tail occupies; the gap to the next
     /// row is measured from the body, so the tail hangs into it.
     var tailOverhang: CGFloat
+    /// "Replay" under a message sent with an effect.
+    var replayFrame: CGRect? = nil
     /// Union of everything that lifts in the long-press preview.
     var contentFrame: CGRect
     /// Audio messages: the play button, waveform and duration row inside the bubble.
@@ -311,6 +313,11 @@ extension MessageCellLayout {
             audioExpiryFrame = footerRect(y + 4)
             y += 4 + footerHeight
         }
+        var replayFrame: CGRect?
+        if message.effect?.isReplayable == true, bubbleFrame != nil || emojiFrame != nil {
+            replayFrame = footerRect(y + 4)
+            y += 4 + footerHeight
+        }
         if message.editedAt != nil {
             editedFrame = footerRect(y + 4)
             y += 4 + footerHeight
@@ -379,6 +386,7 @@ extension MessageCellLayout {
             repliesFrame: repliesFrame,
             failedBadgeFrame: failedBadgeFrame,
             tailOverhang: tailOverhang,
+            replayFrame: replayFrame,
             contentFrame: content,
             audioFrame: audioFrame,
             audioExpiryFrame: audioExpiryFrame,
