@@ -156,6 +156,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         scrollView.contentView.postsBoundsChangedNotifications = true
         NotificationCenter.default.addObserver(self, selector: #selector(liveScrollStarted), name: NSScrollView.willStartLiveScrollNotification, object: scrollView)
         NotificationCenter.default.addObserver(self, selector: #selector(liveScrollEnded), name: NSScrollView.didEndLiveScrollNotification, object: scrollView)
+        installTranslation()
         store.onChange = { [weak self] change in self?.storeDidChange(change) }
         store.start()
     }
@@ -205,7 +206,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         let layout = layoutCache.layout(model, width: transcriptWidth)
         var bottom = layout.contentFrame.maxY
         if let bubble = layout.bubbleFrame { bottom = max(bottom, bubble.maxY + MacConversationTheme.tailDrop) }
-        for frame in [layout.footerFrame, layout.editedFrame, layout.repliesFrame].compactMap({ $0 }) {
+        for frame in [layout.footerFrame, layout.editedFrame, layout.repliesFrame, layout.translationFrame].compactMap({ $0 }) {
             bottom = max(bottom, frame.maxY)
         }
         return max(0, layout.height - bottom)
@@ -224,7 +225,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         // nominal drop); rows carry their own trailing space,
         // so the inset subtracts the last row's. It grows with the field.
         let composerGrowth = max(0, composer.fieldHeight - 32)
-        let bottom = 50 - lastRowTrailingSpace() + composerGrowth + (replyBanner.isHidden ? 0 : 30)
+        let bottom = 50 - lastRowTrailingSpace() + composerGrowth + (replyBanner.isHidden ? 0 : 30) + layoutTranslationIndicator(aboveBottom: replyBanner.isHidden ? 0 : 30)
         let content = tableView.bounds.height
         let visible = scrollView.bounds.height - top - bottom
         // Short transcripts sit at the bottom, like Messages.
@@ -908,6 +909,10 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             showReactors(model, from: rowView.badge)
             return true
         }
+        if !rowView.translationLabel.isHidden, rowView.translationLabel.frame.insetBy(dx: 0, dy: -3).contains(local) {
+            store.translations.toggleOriginal(rowID: model.rowID)
+            return true
+        }
         if !rowView.repliesLabel.isHidden, rowView.repliesLabel.frame.contains(local) {
             showThread(rootID: model.message.id, from: rowView.repliesLabel)
             return true
@@ -1028,6 +1033,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(message.text, forType: .string)
         })
+        if let translate = translateMenuItem(for: model) { menu.addItem(translate) }
         if message.delivery?.isFailed == true {
             menu.addItem(item(String(localized: "conversation.retry.tryAgain", defaultValue: "Try Again", bundle: .module), "arrow.clockwise") { [weak self] in self?.store.retry(rowID: model.rowID) })
             menu.addItem(item(String(localized: "conversation.select.delete", defaultValue: "Delete", bundle: .module), "trash") { [weak self] in self?.store.discardFailed(rowID: model.rowID) })
@@ -1155,6 +1161,8 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
                   let reaction = ConversationReaction(rawValue: bits[1]) else { return "error usage react <row-match> <reaction>" }
             store.react(messageID: model.message.id, reaction: reaction)
             return "ok"
+        case "translate", "translateconv", "translation", "untranslate", "toggletranslation", "translationindicator", "translatemenu":
+            return labTranslationCommand(verb, argument)
         case "escape":
             tapbackPopover?.close()
             exitReplyOrEdit()

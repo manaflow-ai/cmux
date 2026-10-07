@@ -707,7 +707,9 @@ public enum MacConversationLab {
     public static func open(endpoint: URL) -> MacConversationViewController {
         let initial = URLComponents(url: endpoint, resolvingAgainstBaseURL: false)?
             .queryItems?.first { $0.name == "conversation" }?.value ?? "group"
-        let ids = ["group", "direct"].sorted { lhs, _ in lhs == initial }
+        // `intl` (the sim's multilingual conversation) joins only when asked
+        // for, so older sims without it never show a dead entry.
+        let ids = (["group", "direct"] + (initial == "intl" ? ["intl"] : [])).sorted { lhs, _ in lhs == initial }
         let entries = ids.map { id -> MacConversationEntry in
             var components = URLComponents(url: endpoint, resolvingAgainstBaseURL: false)!
             components.queryItems = [URLQueryItem(name: "conversation", value: id)]

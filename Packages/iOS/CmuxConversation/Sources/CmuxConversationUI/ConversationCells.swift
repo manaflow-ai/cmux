@@ -20,6 +20,7 @@ final class MessageCell: UICollectionViewCell {
     let footerLabel = UILabel()
     let editedLabel = UILabel()
     let repliesLabel = UILabel()
+    let translationLabel = UILabel()
     let failedBadge = UIImageView(image: UIImage(systemName: "exclamationmark.circle.fill"))
     let timeLabel = UILabel()
     let replyArrow = UIImageView(image: UIImage(systemName: "arrowshape.turn.up.left.fill"))
@@ -71,7 +72,8 @@ final class MessageCell: UICollectionViewCell {
         replyArrow.contentMode = .center
         replyArrow.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 15, weight: .semibold)
         replyArrow.alpha = 0
-        for view in [senderLabel, quoteBubble, quoteLabel, bubble, textLabel, emojiLabel, avatar, reactionBadge, editedLabel, repliesLabel] {
+        translationLabel.accessibilityIdentifier = "conversation.message.translation"
+        for view in [senderLabel, quoteBubble, quoteLabel, bubble, textLabel, emojiLabel, avatar, reactionBadge, editedLabel, repliesLabel, translationLabel] {
             shiftable.addSubview(view)
         }
         shiftable.bringSubviewToFront(reactionBadge)
@@ -263,6 +265,11 @@ final class MessageCell: UICollectionViewCell {
             repliesLabel.frame = frame
             repliesLabel.textAlignment = model.isOutgoing ? .right : .left
         }
+        translationLabel.isHidden = layout.translationFrame == nil
+        if let frame = layout.translationFrame, let caption = model.translation {
+            translationLabel.attributedText = ConversationTranslationText.caption(caption, alignment: model.isOutgoing ? .right : .left)
+            translationLabel.frame = frame
+        }
 
         timeLabel.text = message.sentAt.formatted(date: .omitted, time: .shortened)
         setNeedsLayout()
@@ -270,6 +277,7 @@ final class MessageCell: UICollectionViewCell {
         accessibilityLabel = [model.senderName, message.text].compactMap { $0 }.joined(separator: ", ")
         // VoiceOver hears what the bubble shows: "Edited" and the current status.
         accessibilityValue = [
+            translationLabel.isHidden ? nil : translationLabel.attributedText?.string,
             editedLabel.isHidden ? nil : editedLabel.text,
             footerLabel.isHidden ? nil : footerLabel.text,
         ].compactMap { $0 }.joined(separator: ", ")

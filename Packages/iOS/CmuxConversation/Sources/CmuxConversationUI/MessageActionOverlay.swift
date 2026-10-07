@@ -343,6 +343,7 @@ extension ConversationViewController {
                 self?.setSelecting(true, initial: model.rowID)
             },
         ]
+        items.insert(contentsOf: translateMenuItems(for: model, cell: cell), at: 2)
         if store.canEdit(message) {
             items.insert(.init(title: String(localized: "conversation.menu.edit", defaultValue: "Edit", bundle: .module), symbol: "pencil") { [weak self] in
                 self?.enterEditMode(for: message)

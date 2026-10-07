@@ -53,6 +53,8 @@ struct MessageRowModel: Hashable {
     /// Distinct tapbacks in first-given order, and whether one of them is mine.
     var reactionKinds: [ConversationReaction]
     var hasMyReaction: Bool
+    /// "Show Original" / "View Translation" and friends under a translated bubble.
+    var translation: ConversationTranslationCaption? = nil
 }
 
 /// Builds rows from store state with Messages grouping rules: consecutive
@@ -79,8 +81,14 @@ enum ConversationRowBuilder {
         let typingIDs = store.typingParticipantIDs
 
         let plan = ConversationRunPlan(messages: messages, meID: meID, typingParticipantIDs: typingIDs)
-        for (index, message) in messages.enumerated() {
+        let translations = store.translations
+        for (index, original) in messages.enumerated() {
             let entry = plan.entries[index]
+            // A translated bubble draws the translation; everything else
+            // (grouping, quotes, ids) keys off the original message.
+            let translation = translations.presentation(for: original)
+            var message = original
+            if let translation { message.text = translation.text }
             if entry.showsTimestamp {
                 rows.append(.timestamp(id: "ts:\(message.rowID)", date: message.sentAt))
             }
@@ -111,7 +119,8 @@ enum ConversationRowBuilder {
                 reactionKinds: message.reactions.reduce(into: [ConversationReaction]()) { kinds, mark in
                     if !kinds.contains(mark.reaction) { kinds.append(mark.reaction) }
                 },
-                hasMyReaction: message.reactions.contains { $0.participantID == meID }
+                hasMyReaction: message.reactions.contains { $0.participantID == meID },
+                translation: translation?.caption
             )))
         }
         if !typingIDs.isEmpty {

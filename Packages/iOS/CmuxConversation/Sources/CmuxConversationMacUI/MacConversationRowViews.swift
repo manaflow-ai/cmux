@@ -173,6 +173,7 @@ final class MacMessageRowView: MacFlippedView {
     private var badgeCircles: [MacFlippedView] = []
     let editedLabel = makeMacLabel()
     let repliesLabel = makeMacLabel()
+    let translationLabel = makeMacLabel()
     let footerLabel = makeMacLabel()
     let failedBadge = NSImageView()
     /// Messages' hover control beside an image: a 29 pt glass circle 12 pt
@@ -199,7 +200,8 @@ final class MacMessageRowView: MacFlippedView {
         quoteBubble.lineWidth = 1
         layer?.addSublayer(bubble)
         addSubview(textLabel)
-        for label in [emojiLabel, senderLabel, quoteLabel, editedLabel, repliesLabel, footerLabel] {
+        translationLabel.setAccessibilityIdentifier("conversation.message.translation")
+        for label in [emojiLabel, senderLabel, quoteLabel, editedLabel, repliesLabel, translationLabel, footerLabel] {
             addSubview(label)
         }
         senderLabel.font = MacConversationTheme.senderNameFont
@@ -338,6 +340,11 @@ final class MacMessageRowView: MacFlippedView {
                 : String(format: String(localized: "conversation.message.replies", defaultValue: "%d Replies", bundle: .module), model.message.replyCount)
             repliesLabel.alignment = model.isOutgoing ? .right : .left
             repliesLabel.frame = frame
+        }
+        translationLabel.isHidden = layout.translationFrame == nil
+        if let frame = layout.translationFrame, let caption = model.translation {
+            translationLabel.attributedStringValue = MacTranslationText.caption(caption, alignment: model.isOutgoing ? .right : .left)
+            translationLabel.frame = frame
         }
 
         switch model.footer {

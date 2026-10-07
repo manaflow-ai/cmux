@@ -24,6 +24,8 @@ struct MessageCellLayout {
     var failedBadgeFrame: CGRect?
     /// Union of everything that lifts in the long-press preview.
     var contentFrame: CGRect
+    /// The translation caption ("Show Original") under a translated bubble.
+    var translationFrame: CGRect? = nil
 }
 
 @MainActor
@@ -232,6 +234,11 @@ extension MessageCellLayout {
                 ? CGRect(x: margin, y: y, width: bodyTrailing - 9 - margin, height: footerHeight)
                 : CGRect(x: bodyLeading + 9, y: y, width: width - bodyLeading - 9 - margin, height: footerHeight)
         }
+        var translationFrame: CGRect?
+        if model.translation != nil {
+            translationFrame = footerRect(y + 4)
+            y += 4 + footerHeight
+        }
         if message.editedAt != nil {
             editedFrame = footerRect(y + 4)
             y += 4 + footerHeight
@@ -287,7 +294,8 @@ extension MessageCellLayout {
             editedFrame: editedFrame,
             repliesFrame: repliesFrame,
             failedBadgeFrame: failedBadgeFrame,
-            contentFrame: content
+            contentFrame: content,
+            translationFrame: translationFrame
         )
     }
 }

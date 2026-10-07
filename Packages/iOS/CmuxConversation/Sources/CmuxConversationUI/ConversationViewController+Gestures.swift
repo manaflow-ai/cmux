@@ -157,6 +157,10 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
             presentActions(for: model, cell: cell, mode: .reactionDetail)
             return
         }
+        if let caption = cell.cellLayout?.translationFrame, caption.insetBy(dx: 0, dy: -6).contains(cell.shiftable.convert(local, from: cell)) {
+            store.translations.toggleOriginal(rowID: model.rowID)
+            return
+        }
         if let replies = cell.cellLayout?.repliesFrame, replies.contains(local) {
             openThread(rootID: model.message.id)
             return
