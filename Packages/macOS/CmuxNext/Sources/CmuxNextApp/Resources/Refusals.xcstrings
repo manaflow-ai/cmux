@@ -15983,6 +15983,137 @@
         }
       }
     },
+    "handlers.refusal.homeNeedsFocus": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opening Home needs focus: run it with focus, or give its arguments to run it in the background."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホームを開くにはフォーカスが必要です。フォーカス付きで実行するか、引数を指定してバックグラウンドで実行してください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يتطلب فتح الصفحة الرئيسية التركيز: شغّله مع التركيز، أو مرّر وسائطه لتشغيله في الخلفية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otvaranje Početne traži fokus: pokrenite s fokusom ili navedite argumente da radi u pozadini."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hjem kræver fokus for at åbne: kør med fokus, eller angiv argumenter for at køre i baggrunden."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Home braucht zum Öffnen den Fokus: Mit Fokus ausführen oder Argumente angeben, um im Hintergrund auszuführen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abrir Inicio requiere el foco: ejecútalo con foco o indica sus argumentos para ejecutarlo en segundo plano."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’ouverture de l’accueil nécessite le focus : lancez-la avec le focus ou fournissez ses arguments pour l’exécuter en arrière-plan."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aprire Home richiede il focus: eseguilo con il focus o passa gli argomenti per eseguirlo in background."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការបើកទំព័រដើមត្រូវការការផ្តោត៖ ដំណើរការជាមួយការផ្តោត ឬផ្តល់អាគុយម៉ង់ដើម្បីដំណើរការនៅផ្ទៃខាងក្រោយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "홈을 열려면 포커스가 필요합니다. 포커스를 주고 실행하거나 인수를 지정해 백그라운드에서 실행하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hjem må ha fokus for å åpnes: kjør med fokus, eller oppgi argumenter for å kjøre i bakgrunnen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otwarcie strony głównej wymaga fokusu: uruchom z fokusem lub podaj argumenty, aby działało w tle."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abrir o Início requer foco: execute com foco ou informe os argumentos para executar em segundo plano."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Для открытия Главной нужен фокус: запустите с фокусом или передайте аргументы для работы в фоне."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การเปิดหน้าหลักต้องมีโฟกัส: เรียกใช้พร้อมโฟกัส หรือระบุอาร์กิวเมนต์เพื่อเรียกใช้ในเบื้องหลัง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ana Sayfa'yı açmak odak gerektirir: odakla çalıştırın veya arka planda çalıştırmak için bağımsız değişkenleri verin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Щоб відкрити Головну, потрібен фокус: запустіть із фокусом або передайте аргументи для роботи у фоні."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mở Trang chủ cần tiêu điểm: chạy với tiêu điểm, hoặc truyền đối số để chạy ở nền."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "打开主页需要焦点：请带焦点运行，或提供参数在后台运行。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "開啟首頁需要焦點：請帶焦點執行，或提供引數在背景執行。"
+          }
+        }
+      }
+    },
     "handlers.refusal.rowsTurnedOff": {
       "extractionState": "manual",
       "localizations": {
