@@ -64,8 +64,10 @@ fn env_reduce_motion() -> Option<bool> {
 }
 
 /// The system Reduce Motion setting: macOS
-/// `NSWorkspace.accessibilityDisplayShouldReduceMotion`; false elsewhere
-/// (use `CMUX2_REDUCE_MOTION` or the override there).
+/// `NSWorkspace.accessibilityDisplayShouldReduceMotion`; Linux GNOME
+/// `enable-animations` (else `gtk-enable-animations`); Windows "Animation
+/// effects" (`SPI_GETCLIENTAREAANIMATION`). Linux and Windows keep it
+/// current from a watcher thread (`system.rs`); false on other systems.
 pub fn system_reduce_motion() -> bool {
     #[cfg(target_os = "macos")]
     {
@@ -73,7 +75,7 @@ pub fn system_reduce_motion() -> bool {
     }
     #[cfg(not(target_os = "macos"))]
     {
-        false
+        crate::system::reduce_motion()
     }
 }
 
