@@ -25,7 +25,9 @@ nonisolated struct ServerReachPlan: Sendable, Equatable {
     /// (pairing sends `hostname -s` as the server's default name) and the
     /// brain's daemon socket when one exists here.
     nonisolated struct LocalServer: Sendable, Equatable {
-        /// Every name this Mac answers to (RED: only the first is matched).
+        /// Every name this Mac answers to: gethostname, the LocalHostName
+        /// and the computer name (pairing sends `hostname -s`, which can be
+        /// either, and a DHCP lease can change the first).
         var hostNames: [String]
         var brainSocket: String
     }
@@ -51,7 +53,8 @@ nonisolated struct ServerReachPlan: Sendable, Equatable {
     /// This Mac's brain socket when the server is this Mac, else SSH to the
     /// server's host name (dev-only until the overlay route exists).
     static func route(for host: PairedServer, local: LocalServer?) -> ServerReach.Route? {
-        if let local, let mine = local.hostNames.first.flatMap(ServerReach.dnsLabel), ServerReach.dnsLabel(host.name) == mine {
+        if let local, let theirs = ServerReach.dnsLabel(host.name),
+           local.hostNames.contains(where: { ServerReach.dnsLabel($0) == theirs }) {
             return .unix(local.brainSocket)
         }
         return ServerReach.brainRoute(serverName: host.name)

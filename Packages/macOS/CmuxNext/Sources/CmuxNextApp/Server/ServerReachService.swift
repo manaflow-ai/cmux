@@ -4,6 +4,7 @@ import CmuxNextRemote
 import Foundation
 import Observation
 import os
+import SystemConfiguration
 
 /// Paired servers in the sidebar (plans/cmux-next/server-reach.md): when the
 /// signed-in user has a chief placed on a paired server, that server's
@@ -241,16 +242,21 @@ final class ServerReachService {
         }?.id
     }
 
-    /// This Mac as a possible placed server: its short host name and the
-    /// brain's daemon socket, when one exists (a stat; nothing is read).
+    /// This Mac as a possible placed server: every name it answers to
+    /// (gethostname, LocalHostName, computer name) and the brain's daemon
+    /// socket, when one exists (a stat; nothing is read).
     static func thisMac() -> ServerReachPlan.LocalServer? {
         let socket = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".cmux/brains/chief/daemon/cmux.sock").path
         guard FileManager.default.fileExists(atPath: socket) else { return nil }
+        var names: [String] = []
         var buffer = [CChar](repeating: 0, count: 256)
-        guard gethostname(&buffer, buffer.count) == 0 else { return nil }
-        let name = String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
-        guard let short = name.split(separator: ".").first.map(String.init), !short.isEmpty else { return nil }
-        return ServerReachPlan.LocalServer(hostNames: [short], brainSocket: socket)
+        if gethostname(&buffer, buffer.count) == 0 {
+            names.append(String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self))
+        }
+        if let local = SCDynamicStoreCopyLocalHostName(nil) as String? { names.append(local) }
+        if let computer = SCDynamicStoreCopyComputerName(nil, nil) as String? { names.append(computer) }
+        let short = names.compactMap { $0.split(separator: ".").first.map(String.init) }.filter { !$0.isEmpty }
+        return short.isEmpty ? nil : ServerReachPlan.LocalServer(hostNames: short, brainSocket: socket)
     }
 
     /// The registry transport for `session`: the reach plus whether it connects at launch.
