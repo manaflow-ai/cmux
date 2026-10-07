@@ -20,9 +20,10 @@
 //! - the folder check against the pane's roots, which reads the disk
 //!   (`AcpmuxPathPolicy.check`, `canonical`); this crate only says which
 //!   frames wait for it ([`check::needs_path_check`], `policy.json` `path_keys`);
-//! - the pane's session scope, handoff records and the click's scope credit
-//!   (`AcpmuxPaneSessions`: `contains`, `holdsSource`, `observe`, `sent`);
-//!   this crate reads them through [`check::PaneScope`];
+//! - feeding the pane's scope: [`sessions::PaneSessions`] ports
+//!   `AcpmuxPaneSessions` (`add`, `sent`, `observe`, `holdsSource`), the host
+//!   calls it with what the pane sent and the daemon answered, and decides the
+//!   click's scope credit; the session folders (`observeFolder`) stay here;
 //! - gesture tickets, records and the mode confirmation sheet
 //!   (`AgentPaneUserGestures`, `AgentPaneModeConfirmation`);
 //! - request ids: the relay id map, the in-flight refusal and the reply id
@@ -44,8 +45,10 @@ pub mod gesture;
 pub mod json_keys;
 pub mod params;
 pub mod reply;
+pub mod sessions;
 
 pub use check::{Checked, Facts, FrameState, PaneScope, check_frame};
 pub use data::{GestureRule, Policy, ReplyShape, policy};
 pub use error::Refusal;
 pub use frame::{Decision, Refused, allowlist_check, allowlist_decision, refusal_frame};
+pub use sessions::PaneSessions;

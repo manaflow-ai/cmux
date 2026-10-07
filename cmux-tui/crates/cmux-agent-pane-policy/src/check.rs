@@ -277,12 +277,14 @@ pub fn config_value_text(object: &Map<String, Value>) -> String {
 
 /// The text the host sends to acpmux for a checked frame: its fresh
 /// serialization, with the relay's own id when given (`FrameBox.encoded`).
-pub fn encode(frame: &Map<String, Value>, relay_id: Option<i64>) -> String {
+/// None when it does not encode: the host refuses the frame
+/// ([`Refusal::InvalidFrame`], as Swift's `sendNow`), never sends an empty one.
+pub fn encode(frame: &Map<String, Value>, relay_id: Option<i64>) -> Option<String> {
     let mut copy = frame.clone();
     if let Some(id) = relay_id {
         copy.insert("id".into(), Value::from(id));
     }
-    serde_json::to_string(&copy).unwrap_or_default()
+    serde_json::to_string(&copy).ok()
 }
 
 /// The close a refusal ends the connection with: the first frame that is not

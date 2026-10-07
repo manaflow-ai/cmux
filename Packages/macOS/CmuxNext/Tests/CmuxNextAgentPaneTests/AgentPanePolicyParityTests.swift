@@ -16,8 +16,18 @@ import Testing
         try JSONSerialization.jsonObject(with: Data(contentsOf: crate.appendingPathComponent(relative)), options: [.fragmentsAllowed])
     }
 
+    /// A case file's cases; an empty file fails (it would pass every runner).
     static func cases(_ name: String) throws -> [[String: Any]] {
-        try #require(try json("tests/cases/\(name)") as? [[String: Any]])
+        let all = try #require(try json("tests/cases/\(name)") as? [[String: Any]])
+        try #require(!all.isEmpty, "\(name) holds no cases")
+        return all
+    }
+
+    /// One group of a case file, at least one case.
+    static func group(_ all: [String: Any], _ key: String) throws -> [[String: Any]] {
+        let cases = try #require(all[key] as? [[String: Any]], "no group \(key)")
+        try #require(!cases.isEmpty, "group \(key) holds no cases")
+        return cases
     }
 
     static func set(_ value: Any?) -> Set<String> { Set((value as? [String]) ?? []) }
@@ -167,7 +177,9 @@ import Testing
     /// The full check in order (`tests/cases/check.json`, which the crate's `full_check_order`
     /// runs against `check_frame`) against ``AgentPaneTransport/checkOne(_:_:)``.
     @Test func fullCheckOrder() throws {
-        for c in try Self.cases("check.json") {
+        let all = try Self.cases("check.json")
+        #expect(all.count == 26, "check.json: the full order's 26 cases")
+        for c in all {
             let name = c["name"] as? String ?? "?"
             let state = try #require(c["state"] as? [String: Any])
             let sessions = AcpmuxPaneSessions()
@@ -201,6 +213,34 @@ import Testing
         }
     }
 
+    /// The pane's scope and the source rule (`tests/cases/sources.json`, which the crate's
+    /// `scope_and_sources` runs against `PaneSessions`) against ``AcpmuxPaneSessions``.
+    @Test func scopeAndSources() throws {
+        for c in try Self.cases("sources.json") {
+            let name = c["name"] as? String ?? "?"
+            let sessions = AcpmuxPaneSessions()
+            for case let step as [String: Any] in c["steps"] as? [Any] ?? [] {
+                if let session = step["add"] as? String {
+                    sessions.add(session)
+                } else if let sent = step["sent"] as? [String: Any] {
+                    sessions.sent(method: sent["method"] as? String ?? "", id: sent["id"] as? String,
+                                  handoff: sent["handoff"] as? String, owned: sent["owned"] as? Bool ?? false)
+                } else if let frame = step["observe"] as? [String: Any] {
+                    sessions.observe(frame)
+                }
+            }
+            let holds = c["holds"] as? [[Any]] ?? []
+            let contains = c["contains"] as? [[Any]] ?? []
+            #expect(holds.count + contains.count > 0, "\(name) checks nothing")
+            for h in holds {
+                #expect(sessions.holdsSource(h[0] as? [String: Any] ?? [:]) == h[1] as? Bool, "\(name) holds \(h[0])")
+            }
+            for k in contains {
+                #expect(sessions.contains(k[0] as? String ?? "") == k[1] as? Bool, "\(name) contains \(k[0])")
+            }
+        }
+    }
+
     @Test func paramsRule() throws {
         for c in try Self.cases("params.json") { Self.checkParams(c) }
     }
@@ -215,9 +255,9 @@ import Testing
     /// acpmux wrote them (no ``AcpmuxPaneMethods/replyShapes`` entry rebuilds them).
     @Test func trustGate() throws {
         let all = try #require(try Self.json("tests/cases/trust_gate.json") as? [String: Any])
-        for case let c as [String: Any] in all["frames"] as? [Any] ?? [] { try Self.checkFrame(c) }
-        for case let c as [String: Any] in all["params"] as? [Any] ?? [] { Self.checkParams(c) }
-        for case let c as [String: Any] in all["gestures"] as? [Any] ?? [] { Self.checkGesture(c) }
+        for c in try Self.group(all, "frames") { try Self.checkFrame(c) }
+        for c in try Self.group(all, "params") { Self.checkParams(c) }
+        for c in try Self.group(all, "gestures") { Self.checkGesture(c) }
         let unfiltered = try #require(all["unfiltered"] as? [String])
         #expect(!unfiltered.isEmpty)
         for method in unfiltered { #expect(AcpmuxPaneMethods.replyShapes[method] == nil, "\(method)") }
@@ -279,6 +319,9 @@ import Testing
 
     @Test func environmentTokensAndSockets() throws {
         let e = try #require(try Self.json("tests/cases/environment.json") as? [String: Any])
+        for key in ["tag_slugs", "tokens", "sockets", "resolve"] {
+            #expect(!((e[key] as? [Any]) ?? []).isEmpty, "environment.json group \(key) holds no cases")
+        }
         for case let t as [Any] in e["tag_slugs"] as? [Any] ?? [] {
             #expect(AcpmuxEnvironment.tagSlug(t[0] as? String ?? "") == t[1] as? String, "tag \(t[0])")
         }

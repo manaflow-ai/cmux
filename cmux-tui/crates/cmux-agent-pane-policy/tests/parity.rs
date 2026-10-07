@@ -13,14 +13,27 @@ use cmux_agent_pane_policy::params::{
     take_gesture_ticket,
 };
 use cmux_agent_pane_policy::reply::filtered_reply;
-use cmux_agent_pane_policy::{Decision, Refusal, allowlist_decision, connection, policy};
+use cmux_agent_pane_policy::{
+    Decision, PaneSessions, Refusal, allowlist_decision, connection, policy,
+};
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 fn cases(name: &str) -> Value {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/cases").join(name);
-    serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap()
+    let v: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    // An empty case file would pass every runner: it fails here.
+    let count = v.as_array().map(Vec::len).or_else(|| v.as_object().map(Map::len)).unwrap_or(0);
+    assert!(count > 0, "{name} holds no cases");
+    v
+}
+
+/// The cases of one group, at least one.
+fn group<'a>(v: &'a Value, key: &str) -> &'a Vec<Value> {
+    let a = v[key].as_array().unwrap_or_else(|| panic!("no group {key}"));
+    assert!(!a.is_empty(), "group {key} holds no cases");
+    a
 }
 
 fn object(v: &Value) -> Map<String, Value> {
@@ -76,21 +89,6 @@ fn frames() {
     cases("frames.json").as_array().unwrap().iter().for_each(check_frame);
 }
 
-/// The pane's sessions in a case: `sessions`; no handoff is the pane's.
-struct Scope(BTreeSet<String>);
-
-impl PaneScope for Scope {
-    fn contains(&self, session: &str) -> bool {
-        self.0.contains(session)
-    }
-    fn holds_source(&self, params: &Map<String, Value>) -> bool {
-        if params.get("handoffId").and_then(Value::as_str).is_some() {
-            return false;
-        }
-        params.get("sessionId").and_then(Value::as_str).is_some_and(|s| self.0.contains(s))
-    }
-}
-
 fn facts_json(facts: &cmux_agent_pane_policy::Facts) -> Value {
     use cmux_agent_pane_policy::check::SettingAsk;
     let setting = facts.setting.as_ref().map(|s| {
@@ -116,19 +114,17 @@ fn facts_json(facts: &cmux_agent_pane_policy::Facts) -> Value {
 /// same file against `AgentPaneTransport.checkOne`).
 #[test]
 fn full_check_order() {
-    for c in cases("check.json").as_array().unwrap() {
+    let all = cases("check.json");
+    assert_eq!(all.as_array().unwrap().len(), 26, "check.json: the full order's 26 cases");
+    for c in all.as_array().unwrap() {
         let s = &c["state"];
         let modes: Option<BTreeSet<String>> = s["mode_fields"]
             .as_array()
             .map(|a| a.iter().map(|v| v.as_str().unwrap().to_owned()).collect());
-        let scope = Scope(
-            s["sessions"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|v| v.as_str().unwrap().to_owned())
-                .collect(),
-        );
+        let scope = PaneSessions::new();
+        for session in s["sessions"].as_array().unwrap() {
+            scope.add(session.as_str().unwrap());
+        }
         let options = PermissionOptions::new();
         for d in s["denies"].as_array().unwrap() {
             let pending = serde_json::json!({"method": "_acpmux/permission_pending", "params": {
@@ -174,7 +170,7 @@ fn debug_output_is_redacted() {
     let first = r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#;
     let shown = format!("{:?}", allowlist_decision(first, true, Some(&token)));
     assert!(!shown.contains(&token), "{shown}");
-    let scope = Scope(BTreeSet::new());
+    let scope = PaneSessions::new();
     let options = PermissionOptions::new();
     let state = FrameState {
         is_first: true,
@@ -185,6 +181,49 @@ fn debug_output_is_redacted() {
     };
     let shown = format!("{:?}", full_check(first, &state));
     assert!(!shown.contains(&token), "{shown}");
+}
+
+/// The pane's scope and the source rule (tests/cases/sources.json; Swift runs
+/// it against `AcpmuxPaneSessions`).
+#[test]
+fn scope_and_sources() {
+    for c in cases("sources.json").as_array().unwrap() {
+        let s = PaneSessions::new();
+        for step in c["steps"].as_array().unwrap() {
+            if let Some(session) = step["add"].as_str() {
+                s.add(session);
+            } else if let Some(sent) = step.get("sent") {
+                s.sent(
+                    sent["method"].as_str().unwrap(),
+                    sent["id"].as_str(),
+                    sent["handoff"].as_str(),
+                    sent["owned"].as_bool().unwrap(),
+                );
+            } else {
+                s.observe(step["observe"].as_object().unwrap());
+            }
+        }
+        let checks = c["holds"].as_array().unwrap().len() + c["contains"].as_array().unwrap().len();
+        assert!(checks > 0, "{} checks nothing", name(c));
+        for h in c["holds"].as_array().unwrap() {
+            assert_eq!(
+                s.holds_source(h[0].as_object().unwrap()),
+                h[1].as_bool().unwrap(),
+                "{} holds {}",
+                name(c),
+                h[0]
+            );
+        }
+        for k in c["contains"].as_array().unwrap() {
+            assert_eq!(
+                s.contains(k[0].as_str().unwrap()),
+                k[1].as_bool().unwrap(),
+                "{} contains {}",
+                name(c),
+                k[0]
+            );
+        }
+    }
 }
 
 #[test]
@@ -204,10 +243,10 @@ fn gestures() {
 #[test]
 fn trust_gate() {
     let all = cases("trust_gate.json");
-    all["frames"].as_array().unwrap().iter().for_each(check_frame);
-    all["params"].as_array().unwrap().iter().for_each(check_params);
-    all["gestures"].as_array().unwrap().iter().for_each(check_gesture);
-    for m in all["unfiltered"].as_array().unwrap() {
+    group(&all, "frames").iter().for_each(check_frame);
+    group(&all, "params").iter().for_each(check_params);
+    group(&all, "gestures").iter().for_each(check_gesture);
+    for m in group(&all, "unfiltered") {
         let m = m.as_str().unwrap();
         assert!(!policy().reply_shapes.contains_key(m), "{m}: its reply would lose data.reason");
     }
@@ -293,10 +332,10 @@ fn session_scope() {
 #[test]
 fn environment_tokens_and_sockets() {
     let e = cases("environment.json");
-    for t in e["tag_slugs"].as_array().unwrap() {
+    for t in group(&e, "tag_slugs") {
         assert_eq!(tag_slug(t[0].as_str().unwrap()).as_deref(), t[1].as_str(), "tag {}", t[0]);
     }
-    for t in e["tokens"].as_array().unwrap() {
+    for t in group(&e, "tokens") {
         assert_eq!(
             connection::parse_local_app_token(t[0].as_str().unwrap().as_bytes()).as_deref(),
             t[1].as_str(),
@@ -304,12 +343,12 @@ fn environment_tokens_and_sockets() {
             t[0]
         );
     }
-    for s in e["sockets"].as_array().unwrap() {
+    for s in group(&e, "sockets") {
         let got =
             default_socket_path(Path::new(s[0].as_str().unwrap()), s[1].as_u64().unwrap() as u32);
         assert_eq!(got, s[2].as_str().unwrap(), "socket {}", s[0]);
     }
-    for r in e["resolve"].as_array().unwrap() {
+    for r in group(&e, "resolve") {
         let env: BTreeMap<String, String> = r["env"]
             .as_object()
             .unwrap()
