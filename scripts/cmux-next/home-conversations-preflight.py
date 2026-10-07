@@ -117,11 +117,6 @@ def sidebar():
     return page().get("sidebar") or {}
 
 
-def window_ids():
-    windows = (rpc("debug.surfaces").get("result") or {}).get("windows") or []
-    return [w.get("window") for w in windows if isinstance(w, dict) and w.get("window")]
-
-
 def visual():
     """Appearance, divider and scoped-shortcut checks on the never-key test window."""
     for mode in ("dark", "light"):
@@ -129,36 +124,33 @@ def visual():
         time.sleep(1.5)
         shot(f"10-home-{mode}")
     rpc("debug.appearance", {"mode": "dark"})
-    # The main sidebar hidden, the Home page starts at the window's left edge: the divider sits at the list width.
-    run("toggleSidebar")
+    # The divider as the app reports it (debug.home sidebar: window id, divider frame in window points).
+    bar = sidebar()
+    win, divider = bar.get("window"), bar.get("divider") or {}
+    start = bar.get("width") or 0
+    x = divider.get("x", start) + divider.get("width", 1) / 2
+    y = divider.get("y", 0) + divider.get("height", 800) / 2
+    print("divider", json.dumps({"window": win, "frame": divider, "width": start}), flush=True)
+    drag = rpc("debug.mouse", {"window": win, "x": x, "y": y, "action": "drag", "to_x": x + 120, "to_y": y, "steps": 12})
     time.sleep(1)
-    start = sidebar().get("width") or 0
-    y = 400
-    # The page's window: the one whose drag moves the Home divider.
-    win, drag, dragged = None, {}, start
-    for candidate in reversed(window_ids()):
-        drag = rpc("debug.mouse", {"window": candidate, "x": start + 0.5, "y": y, "action": "drag",
-                                   "to_x": start + 120.5, "to_y": y, "steps": 12})
-        time.sleep(1)
-        dragged = sidebar().get("width")
-        if dragged != start:
-            win = candidate
-            break
-    print("windows", window_ids(), "drag window", win, flush=True)
+    dragged = sidebar().get("width")
     shot("11-divider-dragged")
-    reset = rpc("debug.mouse", {"window": win, "x": (dragged or start) + 0.5, "y": y, "action": "double_click"})
+    moved_x = (sidebar().get("divider") or {}).get("x", x) + divider.get("width", 1) / 2
+    reset = rpc("debug.mouse", {"window": win, "x": moved_x, "y": y, "action": "double_click"})
     time.sleep(1)
     after = sidebar().get("width")
-    results["divider"] = {"start": start, "dragged": dragged, "after_double_click": after,
+    results["divider"] = {"window": win, "start": start, "dragged": dragged, "after_double_click": after,
                           "drag_ok": drag.get("ok"), "reset_ok": reset.get("ok")}
-    print("divider", json.dumps(results["divider"]), flush=True)
-    narrow = rpc("debug.mouse", {"window": win, "x": (after or start) + 0.5, "y": y, "action": "drag", "to_x": 60.5, "to_y": y, "steps": 12})
+    reset_x = (sidebar().get("divider") or {}).get("x", x) + divider.get("width", 1) / 2
+    rpc("debug.mouse", {"window": win, "x": reset_x, "y": y, "action": "drag", "to_x": 20, "to_y": y, "steps": 12})
     time.sleep(1)
     results["divider"]["narrowest"] = sidebar().get("width")
     shot("12-divider-compact")
-    rpc("debug.mouse", {"window": win, "x": (results["divider"]["narrowest"] or 76) + 0.5, "y": y, "action": "double_click"})
+    compact_x = (sidebar().get("divider") or {}).get("x", 76) + divider.get("width", 1) / 2
+    rpc("debug.mouse", {"window": win, "x": compact_x, "y": y, "action": "double_click"})
     time.sleep(1)
-    run("toggleSidebar")
+    results["divider"]["restored"] = sidebar().get("width")
+    print("divider", json.dumps(results["divider"]), flush=True)
     # Cmd-Shift-] / [ move between conversations on Home only.
     before = page().get("shown")
     nxt = rpc("debug.key", {"window": win, "key": "]", "modifiers": ["cmd", "shift"]})
