@@ -11,6 +11,7 @@ import { ApiKeyStore, OwnershipStore, type ApiKeyRecord, type OwnedResource } fr
 import type { Scope } from "../../src/domain/scopes.ts";
 import { newApiKeyId, newVmId, TenantId, UpstreamId, UserId, type VmId } from "../../src/lib/ids.ts";
 import { makeUpstreamClient, UpstreamClient } from "../../src/upstream/client.ts";
+import { makeS3aFakes } from "./s3a-fakes.ts";
 
 export const STACK_API_URL = "https://stack.test";
 export const STACK_PROJECT_ID = "project-test";
@@ -57,8 +58,12 @@ export async function makeHarness() {
       ),
   });
 
+  const s3a = makeS3aFakes(resources);
+
   const upstreamFetch = async (request: Request): Promise<Response> => {
     upstreamRequests.push(request);
+    const handled = await s3a.upstream(request);
+    if (handled !== null) return handled;
     const url = new URL(request.url);
     const match = /^\/v5\/vms\/([^/]+)$/.exec(url.pathname);
     if (request.headers.get("authorization") !== "Bearer upstream-test-key") {
@@ -90,6 +95,7 @@ export async function makeHarness() {
     Layer.succeed(TeamMembership, {
       isMember: (tenantId, userId) => Effect.sync(() => members.get(tenantId)?.has(userId) ?? false),
     }),
+    s3a.layer(upstreamFetch),
   );
 
   const { handler, dispose } = makeWebHandler(services);
@@ -97,6 +103,8 @@ export async function makeHarness() {
   return {
     dispose,
     upstreamRequests,
+    /** Snapshots and terminals (slice S3a): fake stores, audit log, entitlements and upstream state. */
+    s3a,
     /** Records a VM owned by `tenant` and backed by a fake upstream VM. Returns its public id. */
     addVm(tenant: string, state = "running"): { readonly vmId: VmId; readonly upstreamId: string } {
       const vmId = newVmId();
