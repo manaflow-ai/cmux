@@ -18,10 +18,14 @@ final class ConversationHeaderView: UIView {
     private var avatars: [ConversationAvatarView] = []
     /// Group chats seat their avatar cluster on a 60 pt glass disc.
     private let clusterDisc = makeGlassView(cornerRadius: 30)
-    let namePillGlass = makeGlassView(cornerRadius: 16.5, interactive: true)
+    /// Measured on iOS 26 Messages: a 32.33 pt capsule 55 pt below the safe
+    /// area top, bold 17 pt name inset 13 pt, then a heavy compact chevron
+    /// 5.9 pt after the text and 10.9 pt from the trailing edge.
+    static let namePillHeight: CGFloat = 97.0 / 3
+    let namePillGlass = makeGlassView(cornerRadius: 97.0 / 6, interactive: true)
     let nameButton = UIButton(type: .system)
     private let nameLabel = UILabel()
-    private let chevron = UIImageView(image: UIImage(systemName: "chevron.right", withConfiguration: UIImage.SymbolConfiguration(pointSize: 10, weight: .bold)))
+    private let chevron = UIImageView(image: UIImage(systemName: "chevron.compact.right", withConfiguration: UIImage.SymbolConfiguration(pointSize: 13, weight: .black)))
     let trailingGlass = makeGlassView(cornerRadius: 22, interactive: true)
     let trailingButton = UIButton(type: .system)
     private let avatarTapButton = UIButton(type: .custom)
@@ -59,10 +63,11 @@ final class ConversationHeaderView: UIView {
 
         addSubview(namePillGlass)
         namePillGlass.contentView.addSubview(nameButton)
-        nameLabel.font = .systemFont(ofSize: 17, weight: .semibold)
+        nameLabel.font = .systemFont(ofSize: 17, weight: .bold)
         nameLabel.textColor = .label
         namePillGlass.contentView.addSubview(nameLabel)
-        chevron.tintColor = .tertiaryLabel
+        chevron.tintColor = .systemGray2
+        chevron.contentMode = .center
         namePillGlass.contentView.addSubview(chevron)
         nameButton.addAction(UIAction { [weak self] _ in self?.onInfo?() }, for: .touchUpInside)
         nameButton.accessibilityIdentifier = "conversation.header.name"
@@ -154,11 +159,14 @@ final class ConversationHeaderView: UIView {
         avatarTapButton.frame = CGRect(x: centerX - 40, y: top, width: 80, height: clusterBottom - top)
 
         nameLabel.sizeToFit()
-        let pillWidth2 = min(bounds.width - 2 * (margin + 60), nameLabel.bounds.width + 36)
-        let pillY = max(top + 53, clusterBottom - 7)
-        namePillGlass.frame = CGRect(x: centerX - pillWidth2 / 2, y: pillY, width: pillWidth2, height: 33)
-        nameLabel.frame = CGRect(x: 13, y: 0, width: pillWidth2 - 34, height: 33)
-        chevron.frame = CGRect(x: pillWidth2 - 19, y: 11, width: 8, height: 11)
+        let chevronInk: CGFloat = 4.7
+        let pillWidth2 = min(bounds.width - 2 * (margin + 60), 13 + nameLabel.bounds.width + 5.9 + chevronInk + 10.9)
+        let pillHeight = Self.namePillHeight
+        let pillY = max(top + 55, clusterBottom - 5)
+        namePillGlass.frame = CGRect(x: centerX - pillWidth2 / 2, y: pillY, width: pillWidth2, height: pillHeight)
+        nameLabel.frame = CGRect(x: 13, y: 0, width: pillWidth2 - 13 - 5.9 - chevronInk - 10.9, height: pillHeight)
+        let chevronSize = chevron.image?.size ?? CGSize(width: 8, height: 15)
+        chevron.frame = CGRect(x: pillWidth2 - 10.9 - chevronInk / 2 - chevronSize.width / 2, y: (pillHeight - chevronSize.height) / 2, width: chevronSize.width, height: chevronSize.height)
         nameButton.frame = namePillGlass.bounds
         statusLabel.frame = CGRect(x: 0, y: namePillGlass.frame.maxY + 2, width: bounds.width, height: 14)
     }
