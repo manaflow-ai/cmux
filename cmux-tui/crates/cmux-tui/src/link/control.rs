@@ -16,19 +16,27 @@ use tokio::net::{UnixListener, UnixStream};
 
 use super::cloud::{CloudResolver, ConnectInfoSource, apply_cloud_event};
 use super::dial::{Overlay, serve_dial_line};
-use super::inbound::{InboundRefused, serve_inbound};
+use super::inbound::{InboundRefused, serve_inbound_watched};
 use super::lines::read_line;
 
 /// The paired peers, re-read from their file on `link.reload`.
 pub(super) struct Peers {
     path: PathBuf,
     current: RwLock<Arc<Pairings>>,
+    /// Every new view, for open owner sessions (revocation closes them).
+    changes: tokio::sync::watch::Sender<Arc<Pairings>>,
 }
 
 impl Peers {
     pub(super) fn load(path: PathBuf) -> io::Result<Self> {
-        let current = RwLock::new(Arc::new(Pairings::load(&path)?));
-        Ok(Self { path, current })
+        let loaded = Arc::new(Pairings::load(&path)?);
+        let (changes, _) = tokio::sync::watch::channel(loaded.clone());
+        Ok(Self { path, current: RwLock::new(loaded), changes })
+    }
+
+    /// A receiver of every new pairing view.
+    pub(super) fn watch(&self) -> tokio::sync::watch::Receiver<Arc<Pairings>> {
+        self.changes.subscribe()
     }
 
     pub(super) fn snapshot(&self) -> Arc<Pairings> {
@@ -40,7 +48,8 @@ impl Peers {
     async fn reload<O: Overlay>(&self, overlay: &O) -> io::Result<()> {
         let fresh = Arc::new(Pairings::load(&self.path)?);
         overlay.sync_peers(&fresh).await?;
-        *self.current.write().unwrap() = fresh;
+        *self.current.write().unwrap() = fresh.clone();
+        self.changes.send_replace(fresh);
         Ok(())
     }
 }
@@ -124,10 +133,18 @@ pub(super) async fn serve_overlay<L: OverlayListener>(
         let Some(session_socket) = session_socket.clone() else { continue };
         let pairings = peers.snapshot();
         let owner = owner.clone();
+        let revocations = peers.watch();
         tokio::spawn(async move {
-            let served =
-                serve_inbound(stream, key, address, &pairings, &session_socket, owner.as_deref())
-                    .await;
+            let served = serve_inbound_watched(
+                stream,
+                key,
+                address,
+                &pairings,
+                &session_socket,
+                owner.as_deref(),
+                Some(revocations),
+            )
+            .await;
             // Owner session refusals are security events: always log them.
             if let Err(InboundRefused::Owner(why)) = served {
                 eprintln!("cmux link: owner session refused ({why:?}) for {address}");
