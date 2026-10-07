@@ -3426,3 +3426,69 @@ describe("acpmux hunk review", () => {
     }
   });
 });
+
+describe("agent pane header", () => {
+  const snapshot = (connection: string, isWorking = false) => ({
+    type: "snapshot",
+    protocolVersion: 1,
+    rows: [],
+    sessions: [],
+    connection,
+    sessionId: "s",
+    summary: { sessionId: "s", title: "Fix the header", harness: "codex" },
+    isWorking,
+    queue: [],
+    catalog: [],
+    canLoadOlder: false,
+  });
+
+  test.each(["connected", "connecting", "idle", "tool_call", "mock"])(
+    "%s shows no header title or normal status and keeps the pane name",
+    async (connection) => {
+      const root = createRoot(dom.window.document.getElementById("root")!);
+      try {
+        await act(async () => root.render(createElement(AcpmuxApp)));
+        await act(async () =>
+          (dom.window as unknown as Window).cmuxAcpmuxBridge!.receive(snapshot(connection, true) as never),
+        );
+        const header = dom.window.document.querySelector(".acpmux-header")!;
+        expect(header.querySelector(".acpmux-title") === null).toBe(true);
+        expect(header.querySelector(".acpmux-status") === null).toBe(true);
+        expect(dom.window.document.querySelector("section.acpmux-shell")?.getAttribute("aria-label")).toBe(
+          "Fix the header",
+        );
+        expect(header.querySelectorAll(".acpmux-header-tools button").length).toBeGreaterThanOrEqual(4);
+      } finally {
+        await act(async () => root.unmount());
+      }
+    },
+  );
+
+  test.each([
+    ["disconnected", "Disconnected", "Disconnected"],
+    ["connecting: Error: connection refused", "Reconnecting", "Error: connection refused"],
+    ["error: access denied", "Failed", "access denied"],
+    ["failed", "Failed", "Failed"],
+  ])(
+    "%s shows a quiet problem label with an icon and details, then clears on recovery",
+    async (connection, label, detail) => {
+      const root = createRoot(dom.window.document.getElementById("root")!);
+      const host = dom.window as unknown as Window;
+      try {
+        await act(async () => root.render(createElement(AcpmuxApp)));
+        await act(async () => host.cmuxAcpmuxBridge!.receive(snapshot(connection!, true) as never));
+        const header = dom.window.document.querySelector(".acpmux-header")!;
+        const tools = header.querySelector(".acpmux-header-tools");
+        const status = header.querySelector(".acpmux-status");
+        expect(status?.textContent).toBe(label!);
+        expect(status?.querySelector("svg")).not.toBeNull();
+        expect(status?.getAttribute("title")).toContain(detail!);
+        await act(async () => host.cmuxAcpmuxBridge!.receive(snapshot("connected") as never));
+        expect(header.querySelector(".acpmux-status") === null).toBe(true);
+        expect(header.querySelector(".acpmux-header-tools")).toBe(tools);
+      } finally {
+        await act(async () => root.unmount());
+      }
+    },
+  );
+});
