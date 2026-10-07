@@ -582,6 +582,54 @@ test("a lazy page's cookie calls open its tab and never use the active tab's sto
   }
 });
 
+// fetch() goes through the current page's tab. While that page is lazy (no
+// tab yet), fetch opens its tab first, reads cookies from that tab's store
+// and binds the request to it: without a tab both would use the active
+// tab's store, another site's.
+test("fetch from a lazy current page opens its tab and never uses the active tab's store", async () => {
+  const browser = await createDevBrowser();
+  const servers = await startFixtureServers();
+  const { primary } = servers.origins;
+  const dir = makeTestDir("cmux-repl-fetch-lazy-");
+  const driver = browser.driver();
+  const calls = [];
+  const call = driver.call.bind(driver);
+  driver.call = (method, params) => {
+    if (method === "cookies.get") calls.push({ method, targetId: params && params.targetId });
+    return call(method, params);
+  };
+  const host = createNodeHost({ workDir: dir, sessionId: `fetch-lazy-${process.pid}`, print: () => {} });
+  const hostFetch = host.fetch.bind(host);
+  host.fetch = (url, init = {}) => {
+    calls.push({ method: "host.fetch", targetId: init.targetId });
+    return hostFetch(url, init);
+  };
+  const repl = createDevRepl({ host, driver });
+  try {
+    const r = await repl.evaluate(`
+      const lazy = page;
+      const wasLazy = String(lazy._targetId).startsWith("lazy:");
+      const other = await tabs.open(${JSON.stringify(primary)} + "/index.html", { background: true });
+      await other.bringToFront();
+      const res = await fetch(${JSON.stringify(primary)} + "/index.html");
+      JSON.stringify({ wasLazy, status: res.status, lazy: lazy._targetId, other: other._targetId, current: page._targetId })
+    `);
+    assert.equal(r.ok, true, r.error);
+    const ids = JSON.parse(r.value);
+    assert.equal(ids.wasLazy, true, "the session's first page starts lazy");
+    assert.equal(ids.status, 200);
+    assert.ok(!String(ids.lazy).startsWith("lazy:"), "the lazy page's tab opened");
+    assert.equal(ids.current, ids.lazy, "the lazy page stays the current page");
+    assert.deepEqual(calls.map((c) => c.method), ["cookies.get", "host.fetch"], JSON.stringify(calls));
+    for (const c of calls) assert.equal(c.targetId, ids.lazy, `${c.method} names the lazy page's own tab, not ${ids.other}: ${JSON.stringify(calls)}`);
+  } finally {
+    repl.dispose();
+    await browser.close();
+    await servers.close();
+    removeTestDir(dir);
+  }
+});
+
 // A page whose tab closed (the user closed it, or a narrowed domain policy
 // closed it) has no site and no store any more: its cookie calls fail with
 // `closed` and never fall back to the current tab. Seen on the app: once
