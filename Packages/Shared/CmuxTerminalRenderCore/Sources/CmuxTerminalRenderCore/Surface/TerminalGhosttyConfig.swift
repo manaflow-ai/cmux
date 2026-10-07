@@ -16,15 +16,24 @@ public struct TerminalGhosttyConfig: Hashable, Sendable {
     /// Nil keeps Ghostty's built-in theme.
     public var theme: ThemeInput?
     public var cursorBlink: Bool
+    /// `font-family`; nil keeps Ghostty's embedded font (JetBrains Mono).
+    public var fontFamily: String?
+    /// `cursor-style`; nil keeps Ghostty's default (block).
+    public var cursorStyle: TerminalCursorStyle?
 
     public init(fontSize: Double = TerminalFontSizing().baseSize,
                 scrollbackLimitBytes: Int = Self.defaultScrollbackLimitBytes,
                 theme: ThemeInput? = nil,
-                cursorBlink: Bool = false) {
+                cursorBlink: Bool = false,
+                fontFamily: String? = nil,
+                cursorStyle: TerminalCursorStyle? = nil) {
         self.fontSize = fontSize
         self.scrollbackLimitBytes = max(0, scrollbackLimitBytes)
         self.theme = theme
         self.cursorBlink = cursorBlink
+        let family = fontFamily?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.fontFamily = family?.isEmpty == false ? family : nil
+        self.cursorStyle = cursorStyle
     }
 
     /// Ghostty config lines, one `key = value` per line.
@@ -36,6 +45,12 @@ public struct TerminalGhosttyConfig: Hashable, Sendable {
             // The phone draws the terminal opaque: glass never sits behind terminal text.
             "background-opacity = 1",
         ]
+        if let fontFamily, !fontFamily.contains(where: \.isNewline) {
+            lines.append("font-family = \(fontFamily)")
+        }
+        if let cursorStyle {
+            lines.append("cursor-style = \(cursorStyle.rawValue)")
+        }
         if let theme {
             let tokens = ThemeTokens.derive(from: theme)
             lines.append("background = \(Self.hex(theme.background))")

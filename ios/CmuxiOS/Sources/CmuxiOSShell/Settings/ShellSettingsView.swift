@@ -1,43 +1,21 @@
 import CmuxiOSFeatureKit
+import CmuxiOSSettingsCore
 import SwiftUI
 
-/// The Settings tab until lane C11 lands: account, devices, about, sign out,
-/// and the Developer section in DEBUG builds. A low-frequency form, so SwiftUI.
+/// The Settings tab (plans/cmux-next/ios-next/c11-settings.md section 1):
+/// Account, Devices & Macs, Preferences, Help, About, Developer (DEBUG) and
+/// Delete Account last. A low-frequency form, so SwiftUI.
 struct ShellSettingsView: View {
     @Bindable var model: ShellSettingsModel
     @State private var confirmingSignOut = false
 
     var body: some View {
         Form {
-            Section(SettingsText.account) {
-                LabeledContent(SettingsText.name, value: model.account.displayName)
-                if let email = model.account.email {
-                    LabeledContent(SettingsText.email, value: email)
-                }
-            }
-            Section {
-                ForEach(model.devices) { device in
-                    DeviceRow(device: device)
-                }
-            } header: {
-                Text(SettingsText.devices)
-            } footer: {
-                if !model.devicesConnection.isLive {
-                    Text(SettingsText.devicesOffline)
-                }
-            }
-            if !model.links.isEmpty {
-                Section {
-                    ForEach(model.links) { link in
-                        NavigationLink {
-                            link.destination()
-                        } label: {
-                            Label(link.title, systemImage: link.systemImage)
-                        }
-                        .accessibilityIdentifier("shell.settings." + link.id)
-                    }
-                }
-            }
+            AccountSection(model: model, confirmingSignOut: $confirmingSignOut)
+            DevicesSection(model: model.devicesModel)
+            preferences
+            help
+            AboutSection(about: model.about)
             if let developer = model.developer {
                 Section {
                     NavigationLink(SettingsText.developer) {
@@ -46,25 +24,70 @@ struct ShellSettingsView: View {
                     .accessibilityIdentifier("shell.settings.developer")
                 }
             }
-            Section(SettingsText.about) {
-                if let replayTour = model.replayTour {
-                    Button(SettingsText.replayTour) { replayTour() }
-                        .foregroundStyle(.primary)
-                        .accessibilityIdentifier("shell.settings.replayTour")
-                }
-                LabeledContent(SettingsText.version, value: model.about.summary)
-            }
-            Section {
-                Button(SettingsText.signOut, role: .destructive) { confirmingSignOut = true }
-                    .disabled(model.isSigningOut)
-                    .accessibilityIdentifier("shell.settings.signOut")
+            if let account = model.accountModel {
+                DeleteAccountSection(model: account)
             }
         }
         .navigationTitle(ShellTab.settings.title)
-        .task { await model.observeDevices() }
+        .task { await model.observe() }
         .confirmationDialog(SettingsText.signOutConfirm, isPresented: $confirmingSignOut, titleVisibility: .visible) {
             Button(SettingsText.signOut, role: .destructive) {
                 Task { await model.signOut() }
+            }
+        }
+    }
+
+    @ViewBuilder private var preferences: some View {
+        if model.terminal != nil || model.notifications != nil || model.privacy != nil {
+            Section(SettingsText.preferences) {
+                if let terminal = model.terminal {
+                    NavigationLink {
+                        TerminalSettingsView(store: terminal)
+                    } label: {
+                        Label(SettingsText.terminal, systemImage: "terminal")
+                    }
+                    .accessibilityIdentifier("shell.settings.terminal")
+                }
+                if let notifications = model.notifications {
+                    NavigationLink {
+                        NotificationSettingsView(store: notifications, authorization: model.notificationAuthorization)
+                    } label: {
+                        Label(SettingsText.notifications, systemImage: "bell.badge")
+                    }
+                    .accessibilityIdentifier("shell.settings.notifications")
+                }
+                if let privacy = model.privacy {
+                    NavigationLink {
+                        PrivacySettingsView(privacy: privacy)
+                    } label: {
+                        Label(SettingsText.privacy, systemImage: "hand.raised")
+                    }
+                    .accessibilityIdentifier("shell.settings.privacy")
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private var help: some View {
+        if !model.links.isEmpty || model.replayTour != nil {
+            Section(SettingsText.help) {
+                ForEach(model.links) { link in
+                    NavigationLink {
+                        link.destination()
+                    } label: {
+                        Label(link.title, systemImage: link.systemImage)
+                    }
+                    .accessibilityIdentifier("shell.settings." + link.id)
+                }
+                if let replayTour = model.replayTour {
+                    Button {
+                        replayTour()
+                    } label: {
+                        Label(SettingsText.replayTour, systemImage: "play.circle")
+                    }
+                    .foregroundStyle(.primary)
+                    .accessibilityIdentifier("shell.settings.replayTour")
+                }
             }
         }
     }
