@@ -343,6 +343,33 @@ public struct SSHConnectionSharingOptions: Sendable {
         return value
     }
 
+    /// Removes only the cmux-owned control socket generated before a CLI-to-app
+    /// TUI handoff and carries its opaque route identity when needed. Caller
+    /// supplied control paths remain authoritative and are forwarded unchanged.
+    ///
+    /// The returned values are durable SSH options; the private route marker is
+    /// consumed by ``mergingDefaults(into:userConfiguredControlOptions:routeSensitiveOptions:routeIdentifier:)``
+    /// before any OpenSSH process is launched.
+    public func optionsForTUIHandoff(
+        _ options: [String],
+        routeIdentifier: String? = nil
+    ) -> [String] {
+        let resolver = SSHAgentSocketResolver(environment: [:])
+        var tuiOptions = options
+        let generatedControlPath = cmuxOwnedControlPath(in: tuiOptions)
+        if generatedControlPath != nil {
+            tuiOptions.removeAll { resolver.optionKey($0) == "controlpath" }
+        }
+        // A route digest is needed only when the generated socket was already
+        // route-specific. The normal `%C` socket is recomputed by the app;
+        // carrying its digest would unnecessarily split ordinary connections.
+        if let routeIdentifier, generatedControlPath?.contains("%") == false,
+           let routeMarker = routeSensitiveOption(for: routeIdentifier) {
+            tuiOptions.append(routeMarker)
+        }
+        return tuiOptions
+    }
+
     /// Whether `value` is an identity from ``routeIdentifier(fromSSHConfigOutput:)``.
     private static func isRouteDigest(_ value: String) -> Bool {
         value.utf8.count == 64 && value.utf8.allSatisfy { byte in

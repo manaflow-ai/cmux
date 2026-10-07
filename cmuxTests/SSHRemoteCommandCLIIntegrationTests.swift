@@ -25,9 +25,9 @@ struct SSHRemoteCommandCLIIntegrationTests {
             "ControlPath=\(generatedPath)",
         ]
 
-        #expect(CMUXCLI.sshOptionsForTUI(options) == ["ControlMaster=auto", "ControlPersist=600"])
+        #expect(sharingOptions.optionsForTUIHandoff(options) == ["ControlMaster=auto", "ControlPersist=600"])
         let routeIdentifier = String(repeating: "c", count: 64)
-        #expect(CMUXCLI.sshOptionsForTUI(options, routeIdentifier: routeIdentifier)
+        #expect(sharingOptions.optionsForTUIHandoff(options, routeIdentifier: routeIdentifier)
             == ["ControlMaster=auto", "ControlPersist=600"])
         let routeSpecificPath = generatedPath.replacingOccurrences(of: "%C", with: String(repeating: "a", count: 40))
         let routeSpecificOptions = [
@@ -35,10 +35,10 @@ struct SSHRemoteCommandCLIIntegrationTests {
             "ControlPersist=600",
             "ControlPath=\(routeSpecificPath)",
         ]
-        #expect(CMUXCLI.sshOptionsForTUI(routeSpecificOptions, routeIdentifier: routeIdentifier)
+        #expect(sharingOptions.optionsForTUIHandoff(routeSpecificOptions, routeIdentifier: routeIdentifier)
             == ["ControlMaster=auto", "ControlPersist=600", "__cmux_route_sensitive=\(routeIdentifier)"])
         let callerOwnedOptions = ["ControlMaster=auto", "ControlPath=/tmp/caller-owned"]
-        #expect(CMUXCLI.sshOptionsForTUI(callerOwnedOptions) == callerOwnedOptions)
+        #expect(sharingOptions.optionsForTUIHandoff(callerOwnedOptions) == callerOwnedOptions)
     }
 
     private struct RemoteCommandMockedSSHRun {

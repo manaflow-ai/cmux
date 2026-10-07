@@ -116,8 +116,18 @@ public struct SSHTuiConnection: Sendable {
            let suppliedControlPath = resolver.optionValue(named: "ControlPath", in: options),
            suppliedControlPath.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() != "none" {
             if sharing.cmuxOwnedControlPath(in: options) != nil {
-                // Recompute a cmux-owned path from the captured agent route.
-                options.removeAll { resolver.optionKey($0) == "controlpath" }
+                // A restored cmux carrier owns the exact authenticated master
+                // recorded in its snapshot. Keep that socket even for legacy
+                // snapshots that predate the opaque route marker; dropping it
+                // can make a password-only host unreachable in batch mode.
+                let restoresAuthenticatedCmuxCarrier =
+                    configuration.restoredSSHSession?.sshSessionOwner == "cmux-tui"
+                if !restoresAuthenticatedCmuxCarrier {
+                    // New launches recompute a cmux-owned path from the
+                    // captured agent route so different credentials cannot
+                    // share a master.
+                    options.removeAll { resolver.optionKey($0) == "controlpath" }
+                }
             } else {
                 // A caller-owned path cannot encode the agent route. Never let
                 // it connect a master opened with a different credential.

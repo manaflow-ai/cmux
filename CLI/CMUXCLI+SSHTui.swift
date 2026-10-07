@@ -2,27 +2,6 @@ import CmuxFoundation
 import Foundation
 
 extension CMUXCLI {
-    /// Removes only the exact cmux socket that CLI route resolution generated.
-    /// The app recomputes its agent-aware route from the durable SSH options;
-    /// caller-owned ControlPath values remain authoritative and are forwarded.
-    static func sshOptionsForTUI(_ options: [String], routeIdentifier: String? = nil) -> [String] {
-        let sharingOptions = SSHConnectionSharingOptions()
-        var tuiOptions = options
-        let generatedControlPath = sharingOptions.cmuxOwnedControlPath(in: tuiOptions)
-        if generatedControlPath != nil {
-            let resolver = SSHAgentSocketResolver(environment: [:])
-            tuiOptions.removeAll { resolver.optionKey($0) == "controlpath" }
-        }
-        // A route digest is needed only when the generated socket was already
-        // route-specific. The normal `%C` socket is recomputed by the app;
-        // carrying its digest would unnecessarily split ordinary connections.
-        if let routeIdentifier, generatedControlPath?.contains("%") == false,
-           let routeMarker = sharingOptions.routeSensitiveOption(for: routeIdentifier) {
-            tuiOptions.append(routeMarker)
-        }
-        return tuiOptions
-    }
-
     /// SSH is only the carrier; the app projects the daemon-owned terminal natively.
     func runSSHTui(
         options: SSHCommandOptions,
@@ -34,7 +13,9 @@ extension CMUXCLI {
     ) throws {
         var params: [String: Any] = [
             "destination": options.destination,
-            "ssh_options": Self.sshOptionsForTUI(options.sshOptions, routeIdentifier: routeIdentifier),
+            "ssh_options": SSHConnectionSharingOptions().optionsForTUIHandoff(
+                options.sshOptions, routeIdentifier: routeIdentifier
+            ),
             "focus": !options.noFocus,
             "operation_id": UUID().uuidString.lowercased(),
         ]
