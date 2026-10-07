@@ -355,24 +355,42 @@ pub unsafe extern "C" fn cmux_rd_session_stats(
     })
 }
 
-/// Starts clock probes on this session (red-commit stub).
+/// Starts session clock probes (rd change C8). Call only when welcome lists
+/// the `clock` cap. Pings leave through [`cmux_rd_session_feedback`]; pongs
+/// are consumed, not queued as messages.
 ///
 /// # Safety
 /// `session` is valid.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_rd_session_enable_clock(session: *mut CmuxRdSession) -> i32 {
-    with_session(session, |_| CMUX_RD_OK)
+    with_session(session, |h| {
+        h.inner.enable_clock();
+        CMUX_RD_OK
+    })
 }
 
-/// The clock estimate (red-commit stub).
+/// Writes the host clock's offset from this viewer's (host = viewer +
+/// offset) and the best sample's RTT: 1 when an estimate exists, 0 before
+/// the first answer (outs untouched).
 ///
 /// # Safety
-/// `session` is valid; outs are writable.
+/// `session` is valid; `offset_us` and `rtt_us` are writable.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_rd_session_clock(
     session: *const CmuxRdSession,
-    _offset_us: *mut i64,
-    _rtt_us: *mut u32,
+    offset_us: *mut i64,
+    rtt_us: *mut u32,
 ) -> i32 {
-    with_session(session.cast_mut(), |_| 0)
+    if offset_us.is_null() || rtt_us.is_null() {
+        return CMUX_RD_ERR_NULL;
+    }
+    with_session(session.cast_mut(), |h| {
+        let Some(estimate) = h.inner.clock() else { return 0 };
+        // SAFETY: checked non-NULL; writable by contract.
+        unsafe {
+            offset_us.write(estimate.offset_us);
+            rtt_us.write(estimate.rtt_us);
+        }
+        1
+    })
 }

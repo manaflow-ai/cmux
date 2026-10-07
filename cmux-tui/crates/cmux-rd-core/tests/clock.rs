@@ -7,7 +7,12 @@ use cmux_rd_proto::{ClockEstimate, ClockPong};
 /// path takes `up` and `down` microseconds and the host turns around in `turn`.
 fn pong(seq: u32, t_viewer: u64, offset: i64, up: u64, turn: u64) -> ClockPong {
     let rx = (t_viewer + up) as i64 + offset;
-    ClockPong { seq, t_viewer_us: t_viewer, t_host_rx_us: rx as u64, t_host_tx_us: rx as u64 + turn }
+    ClockPong {
+        seq,
+        t_viewer_us: t_viewer,
+        t_host_rx_us: rx as u64,
+        t_host_tx_us: rx as u64 + turn,
+    }
 }
 
 #[test]

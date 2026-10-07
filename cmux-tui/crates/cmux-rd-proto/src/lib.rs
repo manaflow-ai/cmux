@@ -7,9 +7,9 @@
 //! packets of that frame, plus optional parity packets. All integers are
 //! little-endian. This crate does no I/O.
 
+mod clock;
 #[cfg(feature = "serde")]
 pub mod control;
-mod clock;
 mod datagram;
 mod error;
 mod feedback;

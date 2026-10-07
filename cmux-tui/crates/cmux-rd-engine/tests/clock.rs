@@ -32,9 +32,16 @@ fn a_ping_is_answered_at_once_and_its_estimate_is_kept() {
     let (h, payload) = DatagramHeader::decode(&out.datagrams[0]).expect("pong");
     assert_eq!(h.kind, DatagramKind::ClockPong);
     let pong = ClockPong::decode(payload).expect("pong payload");
-    assert_eq!((pong.seq, pong.t_viewer_us, pong.t_host_rx_us, pong.t_host_tx_us), (3, 123_456, 50_000, 50_000));
+    assert_eq!(
+        (pong.seq, pong.t_viewer_us, pong.t_host_rx_us, pong.t_host_tx_us),
+        (3, 123_456, 50_000, 50_000)
+    );
     assert_eq!(e.clock(), Some(estimate));
     // A ping without an estimate keeps the last one.
-    e.on_datagram(&ping_datagram(&ClockPing { seq: 4, t_viewer_us: 1, estimate: None }), false, 60_000);
+    e.on_datagram(
+        &ping_datagram(&ClockPing { seq: 4, t_viewer_us: 1, estimate: None }),
+        false,
+        60_000,
+    );
     assert_eq!(e.clock(), Some(estimate));
 }
