@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentActivity
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBrowser
@@ -25,6 +26,16 @@ final class OnboardingService {
 
     /// Shows onboarding on the first launch even in a no-activate test launch.
     static let forceKey = "CMUX_NEXT_ONBOARDING"
+
+    /// The cmux-cua socket the computer use step reads (CMUX_NEXT_CUA_SOCKET,
+    /// else cmux-cua's default). Tests point it at their own socket.
+    var computerUseConfiguration = AgentActivitySocketSource.Configuration.standard(machineName: "")
+
+    /// Whether an open window can show `step`: it already has that step (or
+    /// no step was asked for). Otherwise the window is rebuilt for the step.
+    static func reusesWindow(showing steps: [OnboardingModel.Step], for step: OnboardingModel.Step?) -> Bool {
+        true
+    }
 
     init(services: AppServices) {
         self.services = services
