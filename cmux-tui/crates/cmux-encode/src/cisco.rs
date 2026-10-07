@@ -171,3 +171,45 @@ fn download(url: &str) -> Result<Vec<u8>, InstallError> {
 fn sha256_hex(bytes: &[u8]) -> String {
     sha2::Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{InstallError, parse_response, split_url};
+
+    #[test]
+    fn a_200_response_with_a_matching_length_yields_its_body() {
+        let raw = b"HTTP/1.1 200 OK\r\nContent-Type: binary/octet-stream\r\ncontent-length: 5\r\n\r\nhello";
+        assert_eq!(parse_response(raw).expect("body"), b"hello");
+        let no_length = b"HTTP/1.1 200 OK\r\nServer: AmazonS3\r\n\r\nbytes until close";
+        assert_eq!(parse_response(no_length).expect("body"), b"bytes until close");
+    }
+
+    #[test]
+    fn other_statuses_chunked_bodies_and_short_bodies_are_refused() {
+        let cases: [&[u8]; 5] = [
+            b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n",
+            b"HTTP/1.1 301 Moved\r\nLocation: http://x/\r\n\r\n",
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\n",
+            b"HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nshort",
+            b"not http at all",
+        ];
+        for raw in cases {
+            assert!(
+                matches!(parse_response(raw), Err(InstallError::Download(_))),
+                "{}",
+                String::from_utf8_lossy(raw)
+            );
+        }
+    }
+
+    #[test]
+    fn only_https_urls_with_a_host_and_path_are_fetched() {
+        assert_eq!(
+            split_url("https://ciscobinary.openh264.org/lib.so.bz2"),
+            Some(("ciscobinary.openh264.org", "/lib.so.bz2"))
+        );
+        assert_eq!(split_url("http://ciscobinary.openh264.org/lib.so.bz2"), None);
+        assert_eq!(split_url("https://ciscobinary.openh264.org"), None);
+        assert_eq!(split_url("https:///lib"), None);
+    }
+}
