@@ -58,6 +58,11 @@ if [ "${1:-}" = "notarytool" ]; then
   printf 'notary-key %s\n' "$key" >> "$CMUX_TEST_CALL_LOG"
 fi
 if [ "${1:-}" = "notarytool" ] && [ "${2:-}" = "submit" ]; then
+  if [ "${CMUX_TEST_NOTARY_TIMEOUT:-0}" = 1 ]; then
+    # notarytool --wait --timeout: the submission is still In Progress when the wait ends.
+    printf '{"id":"fixture-id","status":"In Progress","message":"Timeout of 25m reached"}\n'
+    exit 1
+  fi
   printf '{"id":"fixture-id","status":"%s"}\n' "${CMUX_TEST_NOTARY_STATUS:-Accepted}"
 fi
 EOF
@@ -223,8 +228,13 @@ if [ ! -f "$IMMUTABLE" ] || ! cmp -s "$DMG" "$IMMUTABLE"; then
 fi
 
 : > "$LOG"
-if CMUX_TEST_NOTARY_STATUS=Rejected run_helper; then
+if CMUX_TEST_NOTARY_STATUS=Rejected run_helper 2>"$TMP_DIR/rejected.err"; then
   echo "FAIL: rejected notarization unexpectedly succeeded" >&2
+  exit 1
+fi
+if ! grep -q "fixture-id" "$TMP_DIR/rejected.err"; then
+  echo "FAIL: a rejected notarization must name its submission id" >&2
+  cat "$TMP_DIR/rejected.err" >&2
   exit 1
 fi
 if grep -Fq 'xcrun stapler staple' "$LOG"; then
@@ -232,7 +242,59 @@ if grep -Fq 'xcrun stapler staple' "$LOG"; then
   exit 1
 fi
 
+# Run 37620073632 waited 78 minutes on a notary submission that never
+# finished, until the job was cancelled. The wait is bounded, and a timed-out
+# submission fails at once with its id, before anything is stapled.
+: > "$LOG"
+if ! grep -Eq "^xcrun notarytool submit $DMG .*--wait --timeout [0-9]+m" <(CMUX_TEST_NOTARY_STATUS=Accepted run_helper >/dev/null 2>&1; cat "$LOG"); then
+  echo "FAIL: the DMG notarization wait must have a --timeout" >&2
+  exit 1
+fi
+: > "$LOG"
+rm -rf "$TMP_DIR/cmux-nightly-mount"
+if CMUX_TEST_NOTARY_TIMEOUT=1 run_helper >/dev/null 2>"$TMP_DIR/timeout.err"; then
+  echo "FAIL: a notarization that timed out unexpectedly succeeded" >&2
+  exit 1
+fi
+if ! grep -q "did not finish" "$TMP_DIR/timeout.err" || ! grep -q "fixture-id" "$TMP_DIR/timeout.err"; then
+  echo "FAIL: a timed-out notarization must say so and name its submission" >&2
+  cat "$TMP_DIR/timeout.err" >&2
+  exit 1
+fi
+if grep -Fq 'xcrun stapler staple' "$LOG"; then
+  echo "FAIL: a timed-out DMG must not be stapled" >&2
+  exit 1
+fi
+
 echo "PASS: single DMG submission validates app ticket and delivered artifact"
+
+# The bounded notary wait only helps if the step and the job outlive it: the
+# step allows the wait plus DMG creation and the post-notary verification,
+# and the job allows the step plus the steps before and after it.
+if ! python3 - "$ROOT_DIR/.github/workflows/nightly.yml" <<'PY'
+import re, sys
+text = open(sys.argv[1]).read()
+job = re.search(r"\n  build-sign-notarize-nightly:\n(.*?)(?=\n  [A-Za-z0-9_-]+:\n)", text, re.S)
+assert job, "no build-sign-notarize-nightly job"
+job = job.group(1)
+job_timeout = int(re.search(r"^    timeout-minutes: (\d+)$", job, re.M).group(1))
+step = re.search(r"- name: Notarize app ticket through final DMG\n(.*?)(?=\n      - name:)", job, re.S)
+assert step, "no notarize step"
+step = step.group(1)
+step_timeout = re.search(r"^        timeout-minutes: (\d+)$", step, re.M)
+assert step_timeout, "the notarize step needs its own timeout-minutes"
+step_timeout = int(step_timeout.group(1))
+wait = re.search(r"^          CMUX_NOTARY_WAIT_TIMEOUT: (\d+)m$", step, re.M)
+assert wait, "the notarize step must set CMUX_NOTARY_WAIT_TIMEOUT"
+wait = int(wait.group(1))
+assert step_timeout >= wait + 10, f"step {step_timeout}m must cover the {wait}m wait plus 10m of DMG work and verification"
+assert job_timeout >= step_timeout + 20, f"job {job_timeout}m must cover the {step_timeout}m notarize step plus 20m of other steps"
+PY
+then
+  echo "FAIL: the notarize step and job timeouts must clearly exceed the notary wait" >&2
+  exit 1
+fi
+echo "PASS: notarize step and job timeouts outlive the bounded notary wait"
 
 # The RC channel reuses the same packaging path and only switches the
 # entitlements default and the bundle-metadata channel argument.
