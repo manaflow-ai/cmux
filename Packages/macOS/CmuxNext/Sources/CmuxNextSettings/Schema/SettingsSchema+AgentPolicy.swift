@@ -24,12 +24,16 @@ extension SettingsSchema {
     /// `appearance.surfaces.<surface>.color|opacity` row (looks only, R55).
     public static let agentSettableKeys: Set<String> = agentSettableTable.union(SurfaceBackgroundSetting.keys).union(BrowserLinkClickSchema.agentSettableKeys)
         .union(OmnibarSettingsSchema.agentSettableKeys)
+        // What sidebar rows show (looks only, SIDEBAR-ROWS-MINIMAL-AND-CUSTOMIZABLE).
+        .union(WorkspaceRowSetting.keys)
         // The diff page's display keys (looks only, diff-host S4).
         .union(DiffViewerSettingsSchema.keys)
         // Sizes and cmux-browser's own keys: cmux-browser writes them from its UI as `script`
         // (a separate process is never `user`), for example the sidebar width after a resize.
         .union(LayoutMetricSetting.all.map { $0.configPath.joined(separator: ".") })
         .union(BrowserAppSettingsSchema.descriptors.map(\.id))
+        // The edited-files card (looks only).
+        .union(AgentPaneEditedFilesSettingsSchema.agentSettableKeys)
 
     private static let agentSettableTable: Set<String> = [
         "window.titlebar",
@@ -104,8 +108,7 @@ extension SettingsSchema {
         "sidebar.sectionLook",
         "sidebar.topBandMaxShare",
         "sidebar.bottomBandMaxShare",
-        "sidebar.pinnedBandsScroll", "sidebar.showWorkspaceTabs", "sidebar.showCounts",
-        "sidebar.showWorkspaceDirectory",
+        "sidebar.pinnedBandsScroll", "sidebar.showWorkspaceTabs",
         "browser.defaultEngine",
         "browser.newTabPage",
         "browser.showBookmarksBar",

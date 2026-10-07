@@ -135,8 +135,6 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.bottomBandMaxShare` | real | `0.25` | 0.1 to 0.9 | Bottom Sections Height. The share of the sidebar the bottom sections fill before they scroll. |
 | `sidebar.pinnedBandsScroll` | boolean | `true` |  | Scroll Tall Sections. Off: the top and bottom sections never scroll and the workspace list gets smaller. |
 | `sidebar.showWorkspaceTabs` | boolean | `false` |  | Show Workspace Tabs. Lists tabs beneath each workspace in the sidebar. |
-| `sidebar.showCounts` | boolean | `false` |  | Show Tab Counts |
-| `sidebar.showWorkspaceDirectory` | boolean | `false` |  | Show Workspace Folder. Shows each workspace's folder under its name. A live agent status always shows. |
 | `sidebar.minimalMode` | string | `"bottom"` | `off`, `bottom`, `top`, `both` | Minimal Mode. Hides the chosen sections until the pointer is over the sidebar. |
 | `sidebar.side` | string | `"left"` | `left`, `right` | Sidebar Side. The window edge the sidebar sits on. On the right, the window buttons sit over the tab bar. |
 | `sidebar.spacesPosition` | string | `"bottom"` | `top`, `bottom` | Spaces Position. Where the spaces dots sit in the sidebar: under the window buttons or above the Settings row. |
@@ -144,6 +142,66 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.cmd9` | string | `"last"` | `last`, `ninth` | Command-9. Goes to the last item, as in browsers, or to the ninth. |
 | `sidebar.stepping` | string | `"allItems"` | `allItems`, `workspacesOnly` | Next and Previous Item. What Command-Control-] and Command-Control-[ step through. |
 | `sidebar.steppingWraps` | boolean | `true` |  | Wrap Around. Past the last item, the next item is the first again. |
+| `sidebar.workspaceRow.icon` | boolean | `true` |  | Icon. The icon or emoji you chose for a workspace. |
+| `sidebar.workspaceRow.directory` | boolean | `false` |  | Folder |
+| `sidebar.workspaceRow.branch` | boolean | `false` |  | Git Branch |
+| `sidebar.workspaceRow.process` | boolean | `false` |  | Running Program. The terminal's title, which the shell or program sets. |
+| `sidebar.workspaceRow.agentStatus` | boolean | `false` |  | Agent Status. The status line agents and hooks report. |
+| `sidebar.workspaceRow.tabCount` | boolean | `false` |  | Tab Count |
+| `sidebar.workspaceRow.ports` | boolean | `false` |  | Ports. Set by a hook: cmux workspace status set ports <text>. |
+| `sidebar.workspaceRow.lastActivity` | boolean | `false` |  | Last Activity |
+| `sidebar.workspaceRow.pullRequest` | boolean | `false` |  | Pull Request. Set by a hook: cmux workspace status set pr <text>. |
+| `sidebar.workspaceRow.progress` | boolean | `false` |  | Progress. A progress bar under the row and the busy mark of running work. |
+| `sidebar.workspaceRow.working` | boolean | `true` |  | Agent Working. A mark while an agent works in the workspace. |
+| `sidebar.workspaceRow.secondLineOrder` | array | `["directory","branch","process","agentStatus","ports","lastActivity"]` | `directory`, `branch`, `process`, `agentStatus`, `ports`, `lastActivity` | Second Line Order. The order of the shown items under the workspace name. |
+| `sidebar.workspaceRow.terminal.icon` | boolean |  |  | Icon |
+| `sidebar.workspaceRow.terminal.directory` | boolean |  |  | Folder |
+| `sidebar.workspaceRow.terminal.branch` | boolean |  |  | Git Branch |
+| `sidebar.workspaceRow.terminal.process` | boolean |  |  | Running Program |
+| `sidebar.workspaceRow.terminal.agentStatus` | boolean |  |  | Agent Status |
+| `sidebar.workspaceRow.terminal.tabCount` | boolean |  |  | Tab Count |
+| `sidebar.workspaceRow.terminal.ports` | boolean |  |  | Ports |
+| `sidebar.workspaceRow.terminal.lastActivity` | boolean |  |  | Last Activity |
+| `sidebar.workspaceRow.terminal.pullRequest` | boolean |  |  | Pull Request |
+| `sidebar.workspaceRow.terminal.progress` | boolean |  |  | Progress |
+| `sidebar.workspaceRow.terminal.working` | boolean |  |  | Agent Working |
+| `sidebar.workspaceRow.terminal.secondLineOrder` | array |  | `directory`, `branch`, `process`, `agentStatus`, `ports`, `lastActivity` | Second Line Order |
+| `sidebar.workspaceRow.agent.icon` | boolean |  |  | Icon |
+| `sidebar.workspaceRow.agent.directory` | boolean |  |  | Folder |
+| `sidebar.workspaceRow.agent.branch` | boolean |  |  | Git Branch |
+| `sidebar.workspaceRow.agent.process` | boolean |  |  | Running Program |
+| `sidebar.workspaceRow.agent.agentStatus` | boolean |  |  | Agent Status |
+| `sidebar.workspaceRow.agent.tabCount` | boolean |  |  | Tab Count |
+| `sidebar.workspaceRow.agent.ports` | boolean |  |  | Ports |
+| `sidebar.workspaceRow.agent.lastActivity` | boolean |  |  | Last Activity |
+| `sidebar.workspaceRow.agent.pullRequest` | boolean |  |  | Pull Request |
+| `sidebar.workspaceRow.agent.progress` | boolean |  |  | Progress |
+| `sidebar.workspaceRow.agent.working` | boolean |  |  | Agent Working |
+| `sidebar.workspaceRow.agent.secondLineOrder` | array |  | `directory`, `branch`, `process`, `agentStatus`, `ports`, `lastActivity` | Second Line Order |
+| `sidebar.workspaceRow.browser.icon` | boolean |  |  | Icon |
+| `sidebar.workspaceRow.browser.directory` | boolean |  |  | Folder |
+| `sidebar.workspaceRow.browser.branch` | boolean |  |  | Git Branch |
+| `sidebar.workspaceRow.browser.process` | boolean |  |  | Running Program |
+| `sidebar.workspaceRow.browser.agentStatus` | boolean |  |  | Agent Status |
+| `sidebar.workspaceRow.browser.tabCount` | boolean |  |  | Tab Count |
+| `sidebar.workspaceRow.browser.ports` | boolean |  |  | Ports |
+| `sidebar.workspaceRow.browser.lastActivity` | boolean |  |  | Last Activity |
+| `sidebar.workspaceRow.browser.pullRequest` | boolean |  |  | Pull Request |
+| `sidebar.workspaceRow.browser.progress` | boolean |  |  | Progress |
+| `sidebar.workspaceRow.browser.working` | boolean |  |  | Agent Working |
+| `sidebar.workspaceRow.browser.secondLineOrder` | array |  | `directory`, `branch`, `process`, `agentStatus`, `ports`, `lastActivity` | Second Line Order |
+| `sidebar.workspaceRow.mixed.icon` | boolean |  |  | Icon |
+| `sidebar.workspaceRow.mixed.directory` | boolean |  |  | Folder |
+| `sidebar.workspaceRow.mixed.branch` | boolean |  |  | Git Branch |
+| `sidebar.workspaceRow.mixed.process` | boolean |  |  | Running Program |
+| `sidebar.workspaceRow.mixed.agentStatus` | boolean |  |  | Agent Status |
+| `sidebar.workspaceRow.mixed.tabCount` | boolean |  |  | Tab Count |
+| `sidebar.workspaceRow.mixed.ports` | boolean |  |  | Ports |
+| `sidebar.workspaceRow.mixed.lastActivity` | boolean |  |  | Last Activity |
+| `sidebar.workspaceRow.mixed.pullRequest` | boolean |  |  | Pull Request |
+| `sidebar.workspaceRow.mixed.progress` | boolean |  |  | Progress |
+| `sidebar.workspaceRow.mixed.working` | boolean |  |  | Agent Working |
+| `sidebar.workspaceRow.mixed.secondLineOrder` | array |  | `directory`, `branch`, `process`, `agentStatus`, `ports`, `lastActivity` | Second Line Order |
 | `browser.defaultEngine` | string | `"chromium"` | `chromium`, `webkit` | Default Engine. New browser tabs open in this engine. |
 | `browser.newTabPage` | string | `""` |  | New Tab Page. An address such as https://example.com. Empty opens a blank page. |
 | `browser.showBookmarksBar` | boolean | `false` |  | Show Bookmarks Bar. A row of bookmarks under each browser toolbar. |
@@ -192,6 +250,9 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `feed.github.pollIntervalSeconds` | real | `120` | 60 to 900 | Refresh Interval. Seconds between GitHub refreshes. Refresh in the Inbox runs immediately. |
 | `agentPane.links.outsideRoots` | string | `"confirm"` | `confirm`, `text`, `open` | Files Outside the Project. What a file link in a reply does when the file is outside the chat's folders. Keys and .env files never open. |
 | `agentPane.images.remote` | string | `"click"` | `click`, `never`, `always` | Web Images in Replies. A web image loads from its site, which then sees that you read the reply. |
+| `agentPane.editedFiles.show` | string | `"always"` | `always`, `collapsed`, `never` | Edited Files Card. The card that lists a turn's edited files, with Undo and View changes. |
+| `agentPane.editedFiles.maxRows` | real | `5` | 1 to 50 | Edited Files Shown |
+| `agentPane.editedFiles.scope` | string | `"turn"` | `turn`, `session` | Edited Files Card Covers |
 | `EnrollmentToken` | string |  |  | Team enrollment token from the cmux dashboard. Signed-in users in a verified domain of the team join it; the token alone never grants membership. |
 | `ManagedTeam` | string |  |  | Team id (team_...) that manages this device. |
 | `RestrictToManagedTeam` | boolean |  |  | Refuse sign-in to any team other than ManagedTeam on this device. |

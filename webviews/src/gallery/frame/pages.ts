@@ -12,7 +12,7 @@ import { CodeRouterOps } from "../../pages/coderouter/types";
 import { MockCodeRouterProvider } from "../../pages/coderouter/mockProvider";
 import { ACTION_RUN as CHANGELOG_ACTION_RUN, ChangelogOps } from "../../pages/changelog/types";
 import { MockChangelogProvider } from "../../pages/changelog/mockProvider";
-import { diffViewerLabelsFor, diffViewerLanguage } from "../../labels";
+import { diffViewerLabelsFor, diffViewerLanguage, loadDiffViewerLabels } from "../../labels";
 import type {
   AppsPageVariant,
   ChangelogPageVariant,
@@ -175,6 +175,7 @@ export async function mountDiffPage(state: DiffPageVariant, context: StageContex
   }) as typeof fetch;
   // Ordinary gallery locales exercise the same host-free catalog as the app.
   // Pseudo-locales retain a protocol override so synthetic text remains a gallery concern.
+  if (isPseudo(context.env.locale)) await loadDiffViewerLabels(diffViewerLanguage([context.env.locale]));
   const labels = isPseudo(context.env.locale)
     ? Object.fromEntries(
         Object.entries(diffViewerLabelsFor(diffViewerLanguage([context.env.locale]))).map(([key, text]) => [

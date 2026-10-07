@@ -54,8 +54,9 @@ impl Hub {
                     self.cancel_pending_permissions(&session);
                     self.revoke_permission_chat(&session);
                     // A new agent holds no grant and no undeclared mode.
-                    session.harness_grant.store(false, Ordering::SeqCst);
-                    *session.undeclared_mode.lock().unwrap_or_else(|e| e.into_inner()) = None;
+                    session.floor.harness_grant.store(false, Ordering::SeqCst);
+                    session.floor.unsandboxed.store(false, Ordering::SeqCst);
+                    *session.floor.undeclared_mode.lock().unwrap_or_else(|e| e.into_inner()) = None;
                     let intentional =
                         matches!(session.status(), SessionStatus::Idle | SessionStatus::Closed);
                     // An agent host's exit was logged before its ack.
@@ -435,7 +436,7 @@ impl Hub {
             let permission_id = uuid::Uuid::now_v7().to_string();
             if let Some(option_id) = auto {
                 if option_kind(&options, &option_id) == Some("allow_always") {
-                    session.harness_grant.store(true, Ordering::SeqCst);
+                    session.floor.harness_grant.store(true, Ordering::SeqCst);
                 }
                 self.append(
                 session,
@@ -557,7 +558,7 @@ impl Hub {
                         .with_data(json!({"reason":"policy_changed"})));
                 }
                 if kind == Some("allow_always") {
-                    session.harness_grant.store(true, Ordering::SeqCst);
+                    session.floor.harness_grant.store(true, Ordering::SeqCst);
                 }
             }
             let p = map.remove(permission_id).unwrap();
