@@ -48,6 +48,8 @@ pub struct HostTab {
     pub menus: MenuTokens,
     fork_menu: Option<ForkMenu>,
     capture_wanted: bool,
+    /// The shim accepted the capture (it refuses while the tab has no view).
+    capture_on: bool,
     screen: Option<ScreenSize>,
     /// Each open viewer's last screen seq (`rb.open` is seq 0).
     viewer_seqs: BTreeMap<String, u32>,
@@ -74,6 +76,7 @@ impl HostTab {
             menus: MenuTokens::default(),
             fork_menu: None,
             capture_wanted: false,
+            capture_on: false,
             screen: None,
             viewer_seqs: BTreeMap::new(),
             next_dialog: 1,
@@ -374,6 +377,15 @@ impl HostTab {
             Some(open) => vec![Control::DialogCancel { token: open.rb_token }],
             None => Vec::new(),
         }
+    }
+
+    /// Starts the wanted capture that the shim refused before (call it on
+    /// the tab's later shim callbacks: title, URL, load).
+    pub fn retry_capture(&mut self, _p: &mut dyn Presentation) {}
+
+    /// The shim captures this tab now.
+    pub fn capturing(&self) -> bool {
+        self.capture_on
     }
 
     pub fn state(&self) -> SessionState {

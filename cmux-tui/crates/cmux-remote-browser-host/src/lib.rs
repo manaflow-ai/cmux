@@ -9,6 +9,7 @@
 //! only; encoding and transport plug in through lane 17's `cmux-encode` and
 //! `cmux-rd-engine` (remote-tab-r2.md section 5).
 
+pub mod pump;
 pub mod tab;
 
 #[cfg(target_os = "macos")]
