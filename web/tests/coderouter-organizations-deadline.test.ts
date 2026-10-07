@@ -135,8 +135,9 @@ describe("GET /api/coderouter/organizations deadline", () => {
     const response = await organizationsGet(organizationsRequest(), authorizedCoderouterTeams);
     expect(response.status).toBe(200);
     const body = await response.json() as { teams: unknown[] };
-    expect(body.teams).toHaveLength(51);
-    expect(state.permissionLookups).toBe(50);
+    // 50 listed teams, the selected team-a, and the personal team.
+    expect(body.teams).toHaveLength(52);
+    expect(state.permissionLookups).toBe(51);
   });
 
   test("a deadline during permission lookups reports the 503 and starts no more Stack calls", async () => {
