@@ -97,6 +97,32 @@ describe("create", () => {
     expect((await h.request("/v1/api-keys", asMember)).status).toBe(403);
   });
 
+  it("caps a new key's expiry at an expiring issuer's: a missing or later expiry is refused with 400", async () => {
+    const issuerExpiry = new Date(Date.now() + 60 * 60 * 1000);
+    const admin = await h.addKey(TENANT_A, ["admin", "vm:read"], { expiresAt: issuerExpiry });
+    const later = new Date(issuerExpiry.getTime() + 60 * 60 * 1000).toISOString();
+    const sooner = new Date(issuerExpiry.getTime() - 30 * 60 * 1000).toISOString();
+
+    expect((await create(bearer(admin), { name: "forever", scopes: ["vm:read"] })).status).toBe(400);
+    expect((await create(bearer(admin), { name: "later", scopes: ["vm:read"], expiresAt: later })).status).toBe(400);
+    const ok = await create(bearer(admin), { name: "sooner", scopes: ["vm:read"], expiresAt: sooner });
+    expect(ok.status).toBe(201);
+    expect(await ok.json<{ expiresAt: string | null }>()).toMatchObject({ expiresAt: sooner });
+    expect(h.storedKeys().filter((key) => key.tenantId === TENANT_A)).toHaveLength(2);
+  });
+
+  it("lets a team admin's session and a non-expiring key set any expiry, or none", async () => {
+    h.addMember(TENANT_A, "user_admin");
+    h.addAdmin(TENANT_A, "user_admin");
+    const asAdmin = { ...bearer(await h.sessionToken("user_admin")), "x-cmux-team-id": TENANT_A };
+    const forever = await h.addKey(TENANT_A, ["admin", "vm:read"]);
+    const far = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
+
+    expect((await create(asAdmin, { name: "s1", scopes: ["vm:read"] })).status).toBe(201);
+    expect((await create(asAdmin, { name: "s2", scopes: ["vm:read"], expiresAt: far })).status).toBe(201);
+    expect((await create(bearer(forever), { name: "k1", scopes: ["vm:read"] })).status).toBe(201);
+  });
+
   it("rejects an unknown scope and an empty scope list", async () => {
     const admin = await h.addKey(TENANT_A, ["admin", "vm:read"]);
     expect((await create(bearer(admin), { name: "x", scopes: ["vm:everything"] })).status).toBe(400);
