@@ -251,7 +251,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             brightenInDarkMode: settings.brightenInDarkMode,
             isEmphasized: palette.isSelectionEmphasized,
             increaseContrast: palette.increasesSelectionContrast,
-            accent: palette.accent
+            accent: palette.accent,
+            selectionAccent: settings.selectionAccent
         )
         applyBackgroundStyle(style)
         if let edgeColor = style.edgeColor {

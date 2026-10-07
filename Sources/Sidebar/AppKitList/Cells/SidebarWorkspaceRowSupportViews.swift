@@ -28,7 +28,8 @@ struct SidebarRowPalette {
             subtleSelection: model.settings.subtleSelection,
             isEmphasized: isSelectionEmphasized,
             increaseContrast: increasesSelectionContrast,
-            accent: accent
+            accent: accent,
+            selectionAccent: model.settings.selectionAccent
         )
     }
 

@@ -1,4 +1,5 @@
 import CmuxSidebar
+import CmuxFoundation
 import SwiftUI
 
 extension VerticalTabsSidebar {
@@ -13,7 +14,7 @@ extension VerticalTabsSidebar {
     var sidebarPresentationToggleOverlay: some View {
         SidebarPresentationToggleButton(
             mode: presentationMode,
-            accent: Color(nsColor: cmuxAccentNSColor(for: sidebarChromeColorScheme)),
+            accent: Color(nsColor: (AppDelegate.shared?.accentColor ?? CmuxAccentColor()).nsColor(for: sidebarChromeColorScheme)),
             onToggle: onTogglePresentationMode
         )
         .padding(.trailing, 8)

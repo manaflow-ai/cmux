@@ -16159,7 +16159,8 @@ struct TabItemView: View, Equatable {
             sidebarSelectionColorHex: sidebarSelectionColorHex,
             activeTabIndicatorStyle: activeTabIndicatorStyle,
             subtleSelection: settings.subtleSelection,
-            accent: settings.accentColor
+            accent: settings.accentColor,
+            selectionAccent: settings.selectionAccent
         )
     }
 
@@ -16937,7 +16938,7 @@ struct TabItemView: View, Equatable {
         workspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot,
         railColor: Color
     ) -> some View {
-        RoundedRectangle(cornerRadius: 6)
+        return RoundedRectangle(cornerRadius: 6)
             .fill(style.color.map { Color(nsColor: $0).opacity(style.opacity) } ?? .clear)
             .overlay {
                 RoundedRectangle(cornerRadius: 6)
@@ -16973,7 +16974,8 @@ struct TabItemView: View, Equatable {
             brightenInDarkMode: settings.brightenInDarkMode,
             isEmphasized: isEmphasized,
             increaseContrast: colorSchemeContrast == .increased,
-            accent: settings.accentColor
+            accent: settings.accentColor,
+            selectionAccent: settings.selectionAccent
         )
     }
 
