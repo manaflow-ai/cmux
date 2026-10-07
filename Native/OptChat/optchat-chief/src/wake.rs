@@ -25,88 +25,16 @@
 //! or a parameter to the host: its text goes to the log and to the turn as
 //! the user's words, exactly as a local message would.
 
-use cmux_chief::rules::{AGENT_MUX, USER_LOCAL, wakes};
-use cmux_conversation::{Message, Origin, Part, ParticipantKind, Summary};
+use cmux_chief::rules::wakes;
+use cmux_conversation::{Message, Summary};
 
-/// The participant id prefix of a paired install (the relay's
-/// `remote_participant`).
-const REMOTE_PREFIX: &str = "remote_";
-
-/// Whether `message` wakes the Chief.
+/// Whether `message` wakes the Chief: the shared rule, remote-origin gate
+/// included (`cmux_chief::rules::wakes`, the same as the TypeScript core's
+/// `rules.wakes`; the shared behavior corpus checks all three brains).
 pub fn chief_wakes(
     summary: &Summary,
     message: &Message,
     is_mux_message: impl Fn(&str) -> bool,
 ) -> bool {
-    let author = summary.participants.iter().find(|p| p.id == message.author);
-    let remote_author =
-        author.is_some_and(|a| a.person.is_some()) || message.author.starts_with(REMOTE_PREFIX);
-    if message.origin.is_none() && !remote_author {
-        // A local message: the shared rule (which refuses any device).
-        return wakes(summary, message, is_mux_message);
-    }
-    remote_wakes(summary, message, is_mux_message)
-}
-
-/// The remote-origin gate (module docs).
-fn remote_wakes(
-    summary: &Summary,
-    message: &Message,
-    is_mux_message: impl Fn(&str) -> bool,
-) -> bool {
-    // 1. Stamped by the owner as relayed from exactly this author.
-    let Some(Origin::Remote { install }) = &message.origin else {
-        return false;
-    };
-    if install.is_empty() || message.author != format!("{REMOTE_PREFIX}{install}") {
-        return false;
-    }
-    // 2. The user's own paired device.
-    let Some(author) = summary.participants.iter().find(|p| p.id == message.author) else {
-        return false;
-    };
-    if author.kind != ParticipantKind::Human || author.person.as_deref() != Some(USER_LOCAL) {
-        return false;
-    }
-    // 3. Live, and the Chief is here.
-    let retracted = message
-        .retracted_at
-        .as_deref()
-        .is_some_and(|at| !at.is_empty());
-    if retracted || !summary.participants.iter().any(|p| p.id == AGENT_MUX) {
-        return false;
-    }
-    // 4. The conversation test, persons counted (a device is its person).
-    let mut persons: Vec<&str> = summary
-        .participants
-        .iter()
-        .filter(|p| p.kind == ParticipantKind::Human)
-        .map(|p| p.person.as_deref().unwrap_or(&p.id))
-        .collect();
-    persons.sort_unstable();
-    persons.dedup();
-    let agents = summary
-        .participants
-        .iter()
-        .filter(|p| p.kind == ParticipantKind::Agent)
-        .count();
-    if persons.len() == 1 && agents == 1 {
-        return true;
-    }
-    if summary.id.starts_with("conv_dm_") && persons.len() + agents == 2 {
-        return true;
-    }
-    let mentioned = message.parts.iter().any(|part| match part {
-        Part::Text {
-            runs: Some(runs), ..
-        } => runs
-            .iter()
-            .any(|run| run.mention.as_deref() == Some(AGENT_MUX)),
-        _ => false,
-    });
-    mentioned
-        || message
-            .reply_to
-            .as_ref()
-            .is_some_and(|r| is_mux_message(&r.message_id))
+    wakes(summary, message, is_mux_message)
 }

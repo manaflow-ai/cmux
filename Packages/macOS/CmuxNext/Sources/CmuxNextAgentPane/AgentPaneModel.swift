@@ -81,12 +81,16 @@ public final class AgentPaneModel {
     /// Throws an ``AgentPaneGitFailure`` saying who failed; any other error
     /// reaches the page as `native.failed`.
     @ObservationIgnored public var onGit: (@MainActor (AgentPaneGitRequest) async throws -> Data)?
+    /// Moves a file the turn created to the Trash (`turn.undo`); tests replace it.
+    @ObservationIgnored public var trashFile: @Sendable (URL) throws -> Void = { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }
 
     /// Whether this host supports converting a fresh chat without a chooser page.
     @ObservationIgnored private let allowsTabConversion: Bool
     /// The host's acpmux socket for this pane (in the app the page never holds one).
     @ObservationIgnored public let transport: AgentPaneTransport
     @ObservationIgnored public let shell = AgentPaneShell() // shell mode: shell.run, shell.read, shell.stop
+    /// The App's side of reply chips, images and the preview card's browsers.
+    @ObservationIgnored public let replyLinks = AgentPaneReplyLinks()
     /// The last handshake's connection, until the page opens it: used once, so the LocalApp
     /// token is never kept beyond one handshake.
     @ObservationIgnored private var pendingConnection: AcpmuxConnection?
@@ -174,6 +178,7 @@ public final class AgentPaneModel {
         // Boot traffic, and a request the host refused (it changed nothing), leave it untouched.
         case .ready, .reconnect, .framePacing, .renderRate, .checkpointAvailability, .painted, .unsupported,
              .transportOpen, .transportSend, .transportClose, .transportGesture, .transportGestureRelease: break
+        case .reply(let reply) where reply.isPassive: break
         default:
             if !userTouched { touchedBy = String(String(describing: request).prefix { $0 != "(" }) }
             userTouched = true
@@ -207,8 +212,8 @@ public final class AgentPaneModel {
                 handshake.linkScheme = linkScheme
                 handshake.machineName = await Self.localMachineName?.value
                 if sessionMustExist, sessionId != nil { handshake.sessionMustExist = true }
-                // An inherited or default `~` is no chat folder (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE).
-                if sessionId == nil, let cwd = handshake.cwd, isHomeOrAbove(cwd) { handshake.cwd = nil }
+                // An inherited or default `~`, or an agent-home folder, is no chat folder (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE).
+                if sessionId == nil, let cwd = handshake.cwd, isHomeOrAbove(cwd) || isAgentHome(cwd) { handshake.cwd = nil }
                 // A new chat with no folder starts in agent-home; the page offers Choose Folder….
                 if sessionId == nil, handshake.cwd == nil, primaryRoot() == nil, onChooseFolder != nil,
                    workspaceAgentHome?() != nil {
@@ -349,6 +354,8 @@ public final class AgentPaneModel {
             }
         case .invalidGit:
             return Self.gitFailure(.invalidRequest)
+        case .turnUndo(let undo): return await respondToTurnUndo(undo)
+        case .invalidTurnUndo: return AgentPaneReply.failure(code: "native.invalid_request", message: Self.turnUndoInvalidMessage)
         case .transportOpen:
             guard let connection = pendingConnection else { return Self.transportFailure(.noConnection) }
             pendingConnection = nil
@@ -369,22 +376,11 @@ public final class AgentPaneModel {
         case .transportClose(let connection):
             transport.close(connection: connection)
             return AgentPaneReply.success()
+        case .reply(let reply):
+            return await respond(to: reply)
         case .unsupported(let method):
             return Self.unsupported(method)
         }
-    }
-
-    /// The page's reply to a `transport.send`.
-    static func transportReply(_ error: AgentPaneTransportError?) -> [String: Any] {
-        error.map(transportFailure) ?? AgentPaneReply.success()
-    }
-
-    static func transportFailure(_ error: AgentPaneTransportError) -> [String: Any] {
-        AgentPaneReply.failure(code: error.rawValue, message: transportFailedMessage, details: nil, retryable: nil, origin: "native")
-    }
-
-    static func unsupported(_ method: String) -> [String: Any] {
-        AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: \(method)")
     }
 
     private func setCheckpointAvailable(_ available: Bool) {

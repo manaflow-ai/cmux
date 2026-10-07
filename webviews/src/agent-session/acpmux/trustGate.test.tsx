@@ -79,10 +79,12 @@ function Pane({
   replies,
   chat,
   sent,
+  remote = false,
 }: {
   replies: Map<string, Record<string, unknown>>;
   chat: { sessionId?: string; cwd?: string; family?: string; prompts: number };
   sent: string[];
+  remote?: boolean;
 }) {
   const source = React.useMemo(
     () => ({
@@ -95,7 +97,7 @@ function Pane({
     }),
     [replies],
   );
-  const trust = useFolderTrustAsk(source, chat);
+  const trust = useFolderTrustAsk(source, chat, !remote);
   return createElement(
     React.Fragment,
     null,
@@ -144,6 +146,17 @@ test("a new chat asks before its first prompt, and Enter sends nothing until Tru
   expect(note()).toBeNull();
   await enter();
   expect(sent).toEqual(["Reply with only the word pong."]);
+});
+
+test("a remote browser sees where to answer trust and no answer buttons", async () => {
+  const sent: string[] = [];
+  const replies = new Map<string, Record<string, unknown>>();
+  await render({ replies, chat: { cwd: "/Users/me", family: "claude", prompts: 0 }, sent, remote: true });
+  expect(doc.querySelector(".acpmux-trust-ask")!.textContent).toBe(
+    "Answer the trust question in the cmux app on this Mac",
+  );
+  expect(doc.querySelectorAll(".acpmux-trust-ask-action")).toHaveLength(0);
+  expect(send()!.disabled).toBe(true);
 });
 
 test("Don't trust keeps prompts from the agent and says why; Undo asks again", async () => {

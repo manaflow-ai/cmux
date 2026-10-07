@@ -8,82 +8,21 @@ use super::resolve::{Draft, Resolved, draft_meta};
 impl Hub {
     // --------------------------------------------------------- lifecycle
 
-    /// Refresh the configured catalog while keeping all session processes alive.
-    pub async fn reload_catalog(self: &Arc<Self>) -> Result<Value, RpcError> {
-        let path =
-            self.config.read().await.path.clone().ok_or_else(|| {
-                RpcError::invalid_params("this daemon has no config file to reload")
-            })?;
-        // Disk reads and PATH discovery run outside the async executor. An
-        // invalid/missing file never replaces the last accepted configuration.
-        let mut next = tokio::task::spawn_blocking(move || {
-            std::fs::metadata(&path)?;
-            crate::config::Config::load_from(&path)
-        })
-        .await
-        .map_err(|e| RpcError::internal(e.to_string()))?
-        .map_err(|e| RpcError::invalid_params(format!("reload config: {e}")))?;
-        let (harnesses, default_harness, retained) = {
-            let mut current = self.config.write().await;
-            let mut retained = Vec::new();
-            for session in self.sessions.lock().unwrap().values() {
-                let name = session.meta().harness;
-                if !next.harnesses.contains_key(&name)
-                    && let Some(old) = current.harnesses.get(&name)
-                {
-                    next.harnesses.insert(name.clone(), old.clone());
-                    // Do not resurrect a deleted profile in config.json on
-                    // the next preset/default save.
-                    next.discovered.insert(name.clone());
-                    retained.push(name);
-                }
-            }
-            // Only unchanged launchers inherit a startup validation failure.
-            next.unavailable = current
-                .unavailable
-                .iter()
-                .filter(|(n, _)| current.harnesses.get(*n) == next.harnesses.get(*n))
-                .map(|(n, reason)| (n.clone(), reason.clone()))
-                .collect();
-            // Keep cached models until fresh probes finish, invalidating only
-            // changed/removed profiles. Listeners, peers, store and policy stay put.
-            self.known_models
-                .lock()
-                .unwrap()
-                .retain(|name, _| current.harnesses.get(name) == next.harnesses.get(name));
-            current.harnesses = next.harnesses;
-            current.default_harness = next.default_harness;
-            current.defaults = next.defaults;
-            current.presets = next.presets;
-            current.discovered = next.discovered;
-            current.auto_fallback = next.auto_fallback;
-            current.auto_default = next.auto_default;
-            current.auto_prefer = next.auto_prefer;
-            current.unavailable = next.unavailable;
-            current.profile_meta = next.profile_meta;
-            current.profile_diagnostics = next.profile_diagnostics;
-            current.shadowed_config = next.shadowed_config;
-            current.pool = next.pool;
-            current.web_roots = next.web_roots;
-            current.web_asking_modes = next.web_asking_modes;
-            self.refresh_web_modes(&current);
-            (
-                current.harnesses.keys().cloned().collect::<Vec<_>>(),
-                current.default_harness.clone(),
-                retained,
-            )
-        };
-        // Pooled sessions started under the old catalog are never served.
-        self.drain_pool();
-        self.probe_models_with(true, false).await;
-        Ok(json!({"reloaded": true, "harnesses": harnesses, "defaultHarness": default_harness,
-            "retainedProfiles": retained, "modelProbePending": true}))
-    }
-
     pub async fn new_session(self: &Arc<Self>, req: NewRequest) -> Result<Arc<Session>, RpcError> {
         // Harness discovery and launcher checks finish in the background.
         self.wait_startup().await;
-        let NewRequest { harness, preset, name, cwd, policy, model, effort, adopt, remote } = req;
+        let NewRequest {
+            harness,
+            preset,
+            name,
+            cwd,
+            policy,
+            model,
+            effort,
+            adopt,
+            remote,
+            env: session_env,
+        } = req;
         // An adopted session's harness names the head unless one was given.
         let harness = harness.or_else(|| adopt.as_ref().and_then(|a| a.harness.clone()));
         // Resolution is a lookup, never a guess: preset → head (family or
@@ -134,11 +73,15 @@ impl Hub {
             policy,
             remote,
         });
+        meta.session_env = session_env;
         // A pooled session of exactly this shape (`pool/`) gives the session
         // its id; `ensure_child` then takes it instead of starting cold.
+        // A pooled harness started without this session's env: never claimed.
         let pooled = match &adopt {
-            None => self.pool_claim(&meta, &profile, &defaults.env).await,
-            Some(_) => None,
+            None if meta.session_env.is_empty() => {
+                self.pool_claim(&meta, &profile, &defaults.env).await
+            }
+            _ => None,
         };
         // Every way out of here (an error, or this future dropped) before
         // `ensure_child` took the entry puts it back or ends it.
@@ -399,6 +342,7 @@ impl Hub {
                 &mode,
                 Some(&model),
             );
+            let plan = self.remote_chain_plan(session, profile, plan).await?;
             // A fresh process was given its id; a resumed one already has it.
             let known = if fork { None } else { fresh_id.clone().or_else(|| existing_sid.clone()) };
             if self.agent_hosts_enabled() {
@@ -566,10 +510,7 @@ impl Hub {
             Some(sid) if supports_load => {
                 session.loading.store(true, Ordering::SeqCst);
                 let res = child
-                    .request(
-                        method::SESSION_LOAD,
-                        json!({"sessionId": sid, "cwd": meta.cwd, "mcpServers": []}),
-                    )
+                    .request(method::SESSION_LOAD, self.acp_params(&meta, profile, Some(&sid)))
                     .await;
                 session.loading.store(false, Ordering::SeqCst);
                 match res {
@@ -590,9 +531,8 @@ impl Hub {
         };
         if !loaded {
             let had_history = session.meta().agent_session_id.is_some();
-            let res = child
-                .request(method::SESSION_NEW, json!({"cwd": meta.cwd, "mcpServers": []}))
-                .await?;
+            let res =
+                child.request(method::SESSION_NEW, self.acp_params(&meta, profile, None)).await?;
             let sid = res
                 .get("sessionId")
                 .and_then(Value::as_str)
@@ -743,7 +683,7 @@ impl Hub {
         self.probe_models_with(true, true).await;
     }
 
-    async fn probe_models_with(self: &Arc<Self>, force: bool, wait: bool) {
+    pub(super) async fn probe_models_with(self: &Arc<Self>, force: bool, wait: bool) {
         let agents: Vec<(String, HarnessProfile)> = {
             let cfg = self.config.read().await;
             let known = self.known_models.lock().unwrap();
@@ -979,4 +919,6 @@ pub struct NewRequest {
     pub remote: bool,
     /// A harness session to resume instead of starting a new one.
     pub adopt: Option<crate::adopt::AdoptRequest>,
+    /// Per-session env (`session_env.rs`), already checked by the caller.
+    pub env: std::collections::BTreeMap<String, String>,
 }

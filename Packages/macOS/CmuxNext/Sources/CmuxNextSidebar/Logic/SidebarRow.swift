@@ -48,10 +48,13 @@ public nonisolated struct SidebarRow: Hashable, Sendable {
     public var titlesProjects = false
     /// A workspace row's tab disclosure; nil when `sidebar.showWorkspaceTabs` is off.
     public var tabDisclosure: SidebarTabDisclosure? = nil
-    /// A workspace row's tab count, when `sidebar.showCounts` is on.
-    public var tabCount: Int? = nil
-    /// A workspace row's second line (`SidebarWorkspace.rowDetail(showingDirectory:)`).
-    public var detail: String? = nil
+    /// What a workspace row draws (`WorkspaceRowContent`); nil for other rows.
+    public var content: WorkspaceRowContent? = nil
+
+    /// A workspace row's tab count, when `sidebar.workspaceRow.tabCount` is on.
+    public var tabCount: Int? { content?.tabCount }
+    /// A workspace row's second line.
+    public var detail: String? { content?.detail }
 
     public var maxY: CGFloat { y + height }
 }
