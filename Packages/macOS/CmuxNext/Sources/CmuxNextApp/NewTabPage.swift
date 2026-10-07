@@ -302,8 +302,8 @@ extension NewTabPage {
             if services.cache.browserTabs?.isAvailable() == true {
                 pane.newBrowserTab(url: url, engine: engine, then: closePage)
             } else {
-                pane.newBrowserTab(url: url, engine: engine)
-                pane.close([StripTabID(key)])
+                // A refused tab (a Chromium page without Chromium) keeps the page.
+                if pane.newBrowserTab(url: url, engine: engine) { pane.close([StripTabID(key)]) }
             }
         case .agent:
             return

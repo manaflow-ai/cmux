@@ -18,7 +18,9 @@ nonisolated struct BrowserOpenPlan: Equatable, Sendable {
     /// The engine the tab opens with: the caller's, or Chromium for a
     /// Chromium internal page.
     var engine: String?
-    /// The engine remembered as the user's choice for the folder.
+    /// The engine remembered as the user's choice for the folder: the
+    /// caller's only, so one chrome:// page does not make every later Cmd-T
+    /// a Chromium tab.
     var recordedEngine: String?
 
     @MainActor
@@ -40,6 +42,6 @@ nonisolated struct BrowserOpenPlan: Equatable, Sendable {
             }
             url = resolved
         }
-        return .open(BrowserOpenPlan(url: url, engine: engine, recordedEngine: engine))
+        return .open(BrowserOpenPlan(url: url, engine: engine, recordedEngine: requested))
     }
 }
