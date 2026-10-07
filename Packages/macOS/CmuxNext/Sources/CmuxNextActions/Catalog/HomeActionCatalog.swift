@@ -76,6 +76,19 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 cliName: "home archive-chief",
                 surfacePlan: ActionSurfacePlan(palette: .exempt(.noTargetSurface), cli: .offered, contextMenuExemption: .noTargetSurface)
             ),
+            // Cmd-Shift-[ / ] while Home is shown (KeyBindingDefaults.homeNavigation, a scoped default).
+            ActionDescriptor(
+                id: "home.previousConversation", title: t("action.home.previousConversation", "Previous Conversation"),
+                keywords: ["home", "conversation", "previous", "person", "people", "chief", "up"],
+                category: .window, symbol: "chevron.up", surfaces: [.palette, .keyboard, .menu], mainMenu: .view,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.focusMove), contextMenuExemption: .focusMove)
+            ),
+            ActionDescriptor(
+                id: "home.nextConversation", title: t("action.home.nextConversation", "Next Conversation"),
+                keywords: ["home", "conversation", "next", "person", "people", "chief", "down"],
+                category: .window, symbol: "chevron.down", surfaces: [.palette, .keyboard, .menu], mainMenu: .view,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.focusMove), contextMenuExemption: .focusMove)
+            ),
             ActionDescriptor(
                 id: "home.openConversation", title: t("action.home.openConversation", "Open Conversation"),
                 keywords: ["home", "conversation", "message", "open", "dm"],

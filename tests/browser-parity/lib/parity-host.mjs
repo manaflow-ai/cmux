@@ -48,7 +48,10 @@ function installHandlers() {
 export async function startOwnHost({ cmd, args = [], env = process.env }) {
   const dir = makeTestDir("parity-host-", { mode: 0o700 });
   const socket = path.join(dir, "host.sock");
-  const child = spawn(cmd, [...args, "serve", "--socket", socket], { stdio: "ignore", env });
+  // Its state (cookie backups) stays in the private directory and goes
+  // with it, never in the person's host state directory.
+  const childEnv = { ...env, CMUX_BROWSER_HOST_STATE_DIR: path.join(dir, "state") };
+  const child = spawn(cmd, [...args, "serve", "--socket", socket], { stdio: "ignore", env: childEnv });
   running.add(child);
   installHandlers();
   const exited = new Promise((resolve) => child.once("exit", resolve));

@@ -83,6 +83,10 @@ enum HomeConversationStrings {
 
     // MARK: Sidebar previews
 
+    static var searchPlaceholder: String { String(localized: "home.sidebar.search", defaultValue: "Search", bundle: .module) }
+    static func composeAddPerson(_ name: String) -> String {
+        String(format: String(localized: "home.sidebar.messagePerson", defaultValue: "Message %@", bundle: .module), name)
+    }
     static var yesterday: String { String(localized: "home.sidebar.yesterday", defaultValue: "Yesterday", bundle: .module) }
     static var you: String { String(localized: "home.sidebar.you", defaultValue: "You", bundle: .module) }
 
