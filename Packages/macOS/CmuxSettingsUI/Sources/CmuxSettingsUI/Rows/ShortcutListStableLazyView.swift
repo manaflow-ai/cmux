@@ -30,7 +30,7 @@ struct ShortcutListStableLazyView: View {
 
     var body: some View {
         let actions = matchedActions ?? ShortcutAction.settingsVisibleActions
-        ShortcutListRows(model: model, actions: actions, revision: searchIndexRevision)
+        ShortcutListRows(entries: rowEntries(for: actions), revision: searchIndexRevision)
             .equatable()
         .background {
             ShortcutListHeightReader { height in
@@ -82,58 +82,75 @@ struct ShortcutListStableLazyView: View {
         }
     }
 
+    /// Projects the observable model into the immutable values consumed by the
+    /// lazy row tree. The projection stays above the `LazyVStack` boundary so
+    /// individual rows never register observation dependencies on the model.
+    private func rowEntries(for actions: [ShortcutAction]) -> [ShortcutListRowEntry] {
+        actions.enumerated().map { index, action in
+            let effective = model.effective(for: action)
+            let snapshot = ShortcutListRowSnapshot(
+                action: action,
+                isLast: index == actions.count - 1,
+                title: action.displayName,
+                subtitle: model.scopeCaption(for: action),
+                placeholder: model.formatPlaceholder(effective: effective, numbered: action.usesNumberedDigitMatching),
+                chordsEnabled: model.chordModeActions.contains(action.rawValue),
+                hasPendingRejection: model.hasPendingRejection(for: action),
+                firstStrokeRequiresModifier: !action.allowsBareFirstStroke,
+                isUnbound: effective?.isUnbound ?? true,
+                canRestore: model.canRestore(for: action),
+                validationMessage: model.validationMessage(for: action),
+                recorderAccessibilityIdentifier: "ShortcutRecorder.\(action.rawValue)"
+            )
+            let rowActions = ShortcutListRowActions(
+                onStroke: { stroke in Task { await model.assign(stroke: stroke, to: action) } },
+                onChord: { chord in Task { await model.assignChord(chord, to: action) } },
+                onBareKeyRejected: { model.markBareKeyRejected(action) },
+                onClearOrRestore: { Task { await model.clearOrRestore(for: action) } },
+                onClearRejections: { model.clearRejections(for: action) }
+            )
+            return ShortcutListRowEntry(snapshot: snapshot, actions: rowActions)
+        }
+    }
+
     /// Isolates the row tree from query state. A query change now updates this
     /// child only when matching produces a different action array, instead of
     /// diffing every visible row for each keystroke during the debounce.
     private struct ShortcutListRows: View, Equatable {
-        let model: ShortcutListModel
-        let actions: [ShortcutAction]
+        let entries: [ShortcutListRowEntry]
         let revision: Int
 
+        /// Compares only immutable row state so unchanged lazy rows stay mounted.
         nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
-            lhs.actions == rhs.actions && lhs.revision == rhs.revision
+            lhs.entries.map(\.snapshot) == rhs.entries.map(\.snapshot)
+                && lhs.revision == rhs.revision
         }
 
+        /// Renders the stable empty state and shortcut rows.
         @MainActor
         var body: some View {
             LazyVStack(spacing: 0) {
-                if actions.isEmpty {
+                if entries.isEmpty {
                     Text(String(localized: "settings.shortcuts.search.noResults", defaultValue: "No shortcuts match"))
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 18)
                         .accessibilityIdentifier("SettingsShortcutSearchNoResults")
                 }
-                ForEach(Array(actions.enumerated()), id: \.element) { index, action in
-                    let effective = model.effective(for: action)
-                    let snapshot = ShortcutListRowSnapshot(
-                        action: action,
-                        isLast: index == actions.count - 1,
-                        title: action.displayName,
-                        subtitle: model.scopeCaption(for: action),
-                        placeholder: model.formatPlaceholder(effective: effective, numbered: action.usesNumberedDigitMatching),
-                        chordsEnabled: model.chordModeActions.contains(action.rawValue),
-                        hasPendingRejection: model.hasPendingRejection(for: action),
-                        firstStrokeRequiresModifier: !action.allowsBareFirstStroke,
-                        isUnbound: effective?.isUnbound ?? true,
-                        canRestore: model.canRestore(for: action),
-                        validationMessage: model.validationMessage(for: action),
-                        recorderAccessibilityIdentifier: "ShortcutRecorder.\(action.rawValue)"
-                    )
+                ForEach(entries, id: \.snapshot.action) { entry in
                     ShortcutListRowView(
-                        snapshot: snapshot,
-                        actions: ShortcutListRowActions(
-                            onStroke: { stroke in Task { await model.assign(stroke: stroke, to: action) } },
-                            onChord: { chord in Task { await model.assignChord(chord, to: action) } },
-                            onBareKeyRejected: { model.markBareKeyRejected(action) },
-                            onClearOrRestore: { Task { await model.clearOrRestore(for: action) } },
-                            onClearRejections: { model.clearRejections(for: action) }
-                        )
+                        snapshot: entry.snapshot,
+                        actions: entry.actions
                     )
                     .equatable()
                 }
             }
         }
+    }
+
+    private struct ShortcutListRowEntry {
+        let snapshot: ShortcutListRowSnapshot
+        let actions: ShortcutListRowActions
     }
 
     private func refreshSearchIndexAfterBindingChange() {
