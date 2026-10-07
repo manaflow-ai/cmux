@@ -12,6 +12,38 @@ import Testing
 @MainActor
 @Suite("What's New launch mode", .serialized)
 struct WhatsNewCenterLaunchModeTests {
+    @Test
+    func markingCurrentReleaseSeenDuringCatalogLoadSuppressesAnnouncement() async throws {
+        let suite = "WhatsNewCenterLaunchModeTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set("0.64.24", forKey: WhatsNewCenter.lastSeenReleaseDefaultsKey)
+        let settings = UserDefaultsSettingsClient(defaults: defaults)
+        settings.set(.quiet, for: AppCatalogSection().whatsNew)
+
+        let catalog = WhatsNewCatalog(releases: [
+            WhatsNewRelease(version: "0.64.25", title: "cmux 0.64.25", features: [
+                WhatsNewRelease.Feature(title: "Highlight", description: "Available now")
+            ])
+        ])
+        let loader = BlockedCatalogLoader(catalog: catalog)
+        let center = WhatsNewCenter(
+            defaults: defaults,
+            loader: { await loader.load() },
+            buildFlavor: .stable,
+            currentVersion: "0.64.25"
+        )
+
+        center.startupSessionRestoreDidSettle()
+        await loader.waitUntilStarted()
+        defaults.set("0.64.25", forKey: WhatsNewCenter.lastSeenReleaseDefaultsKey)
+        await loader.release()
+        await center.waitForLaunchCheck()
+
+        #expect(!center.hasUnseenHighlights)
+        #expect(!NSApp.windows.contains { $0.identifier?.rawValue == "cmux.whatsNew" })
+    }
+
     @Test(arguments: [WhatsNewPresentationMode.sheet, .quiet])
     func switchingOffDuringCatalogLoadSuppressesTheAnnouncement(startingMode: WhatsNewPresentationMode) async throws {
         let suite = "WhatsNewCenterLaunchModeTests.\(UUID().uuidString)"

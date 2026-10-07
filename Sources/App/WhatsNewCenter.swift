@@ -134,6 +134,10 @@ final class WhatsNewCenter {
             // Offline or no parseable version: try again next launch.
             return
         }
+        // The seen marker is the source of truth. An on-demand recap may have
+        // completed while this launch load was suspended; never re-queue or
+        // present a release that was marked seen during that load.
+        guard defaults.string(forKey: Self.lastSeenReleaseDefaultsKey) != current else { return }
         let releases = catalog.releasesToAnnounce(after: since, through: current)
         // No highlights published for this version (yet): leave the record
         // alone so a later launch can still announce them.

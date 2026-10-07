@@ -45,6 +45,11 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
         return billingPlanIdentityID == currentIdentity?.id
             && billingPlanState.teamID == confirmedTeamID
     }
+    /// Whether upgrade controls may trust this flow's current Pro answer.
+    /// Signed-out flows have no entitlement to load and are treated as known.
+    var isProStatusKnownForUpgrade: Bool {
+        !isWorkingOnAuth && (currentIdentity == nil || hasLoadedBillingPlan)
+    }
     var teamObservationRevision: UInt64 = 0
     /// Pending selection is shared by Settings, the menu and socket actions.
     /// Cloud requests keep using the confirmed coordinator scope until success.

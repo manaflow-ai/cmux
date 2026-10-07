@@ -109,13 +109,10 @@ private struct SidebarAccountPopover: View {
     @State private var shortcutObserver = KeyboardShortcutSettingsObserver.shared
 
     private var offersUpgrade: Bool {
-        let isProStatusKnown = accountFlow.map {
-            !$0.isWorkingOnAuth && ($0.currentIdentity == nil || $0.hasLoadedBillingPlan)
-        } ?? true
         return SidebarFooterPresentationPolicy.isUpgradeVisible(
             featureFlagEnabled: CmuxFeatureFlags.shared.isProUpgradeUIEnabled,
             isProActive: accountFlow?.isProActive == true,
-            isProStatusKnown: isProStatusKnown
+            isProStatusKnown: accountFlow?.isProStatusKnownForUpgrade ?? true
         )
     }
 

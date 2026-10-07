@@ -15483,11 +15483,6 @@ struct SidebarFooterButtons: View {
         return "\(accountID):\(flow.confirmedTeamID ?? "personal"):\(flow.isProUpgradeAvailable):\(flow.isAuthenticated)"
     }
 
-    private var isProStatusKnownForUpgrade: Bool {
-        guard let flow = accountFlow else { return true }
-        return !flow.isWorkingOnAuth && (flow.currentIdentity == nil || flow.hasLoadedBillingPlan)
-    }
-
     private func shows(_ control: SidebarFooterControl) -> Bool {
         SidebarFooterPresentationPolicy.isVisible(control, presentationMode: presentationMode)
     }
@@ -15517,7 +15512,7 @@ struct SidebarFooterButtons: View {
                SidebarFooterPresentationPolicy.isUpgradeVisible(
                    featureFlagEnabled: CmuxFeatureFlags.shared.isProUpgradeUIEnabled,
                    isProActive: accountFlow?.isProActive == true,
-                   isProStatusKnown: isProStatusKnownForUpgrade
+                   isProStatusKnown: accountFlow?.isProStatusKnownForUpgrade ?? true
                ) {
                 SidebarProBadge()
             }
@@ -15646,13 +15641,10 @@ private struct SidebarHelpMenuButton: View {
                 isExternalLink: false
             )
             let flow = AppDelegate.shared?.auth?.accountFlow
-            let isProStatusKnownForUpgrade = flow.map {
-                !$0.isWorkingOnAuth && ($0.currentIdentity == nil || $0.hasLoadedBillingPlan)
-            } ?? true
             if SidebarFooterPresentationPolicy.isUpgradeVisible(
                 featureFlagEnabled: CmuxFeatureFlags.shared.isProUpgradeUIEnabled,
                 isProActive: flow?.isProActive == true,
-                isProStatusKnown: isProStatusKnownForUpgrade
+                isProStatusKnown: flow?.isProStatusKnownForUpgrade ?? true
             ) {
                 helpOptionButton(
                     title: String(localized: "menu.help.upgradeToPro", defaultValue: "Upgrade to cmux Pro…"),
