@@ -267,6 +267,7 @@ final class SendLaterBackend: ConversationBackend, @unchecked Sendable {
     }
     func react(messageID: String, reaction: ConversationReaction?) async throws -> ConversationMessage { try await base.react(messageID: messageID, reaction: reaction) }
     func edit(messageID: String, text: String) async throws -> ConversationMessage { try await base.edit(messageID: messageID, text: text) }
+    func unsend(messageID: String) async throws -> ConversationMessage { try await base.unsend(messageID: messageID) }
     func setTyping(_ isTyping: Bool) async {}
     func markRead(upToSeq: Int) async {}
     func uploadImage(_ data: Data, mimeType: String) async throws -> ConversationAttachment { try await base.uploadImage(data, mimeType: mimeType) }
