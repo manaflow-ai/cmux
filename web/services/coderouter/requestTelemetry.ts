@@ -240,12 +240,13 @@ export function recordCoderouterIdentity(
  * Puts the refusal reason on the active route span, so a flood of 401s can be
  * split by cause in Axiom (`cmux.coderouter.auth_failure_detail`).
  */
-export function recordCoderouterAuthFailure(reason: string, detail: string | undefined): void {
+export function recordCoderouterAuthFailure(reason: string, detail: string | undefined, keyId?: string): void {
   const span = trace.getActiveSpan();
   if (!span) return;
   setSpanAttributes(span, {
     "cmux.coderouter.auth_failure": reason,
     "cmux.coderouter.auth_failure_detail": detail,
+    "cmux.coderouter.auth_key_id": keyId,
   });
 }
 

@@ -271,8 +271,9 @@ Set these Vercel environment variables per production/staging environment:
   deployments.
 - `CMUX_VM_FREESTYLE_ENABLED`, per-provider Freestyle create kill switch.
 - `CMUX_CODEROUTER_EDGE_ORIGIN`, optional bare https origin guests dial for coderouter
-  (default `https://coderouter.dev`); set it on a preview deployment to test against that
-  deployment. See "Model plane".
+  (`https://coderouter.dev` in production, the branch URL on a Vercel preview). Any other
+  deployment without it (a dev backend, a local checkout) creates machines with no edge rule:
+  production can verify neither its signing key nor its database. See "Model plane".
 - `CMUX_VM_CODEROUTER_ENV_ENABLED`, local-dev only. `0` creates unwired machines with no
   coderouter env or edge rule. Never set it in production or staging.
 - `CMUX_VM_PRIVATE_NETWORK_ENABLED`, fail-closed private networking switch. Unset/`1`:
@@ -635,7 +636,9 @@ Because the guest always dials the alias, its env is identical everywhere and is
 (`services/coderouter/vmGuestEnv.ts`, written by the bake to `/etc/cmux/model-plane.env`):
 `OPENAI_BASE_URL`, `ANTHROPIC_BASE_URL`, `CMUX_CODEROUTER_URL` on the alias origin and the
 placeholder `OPENAI_API_KEY`/`ANTHROPIC_API_KEY`. `CMUX_CODEROUTER_EDGE_ORIGIN` (a bare https
-origin) only moves the rule's destination, for a preview deployment. Injection activates a few
+origin) moves the rule's destination; outside production and previews it is the only way a
+machine gets a rule at all, and it must name a public origin sharing the deployment's signing key
+and database. Injection activates a few
 seconds after boot; nothing waits for it. Node harnesses (Claude Code, pi) need
 `NODE_EXTRA_CA_CERTS`, which `agent-config.sh` exports when the platform CA file exists.
 

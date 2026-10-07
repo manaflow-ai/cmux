@@ -96,6 +96,30 @@ function verificationInstant(token: string, now: Date): Date {
   return new Date(Math.min(now.getTime(), (exp - 1) * 1000));
 }
 
+/**
+ * The key id a signed token names, unverified, or undefined when the header
+ * has none or it is not a valid id. Diagnostic only: it tells a token from
+ * another deployment's key apart from a forged or damaged one.
+ */
+export function unverifiedVmAuthorizationKeyId(token: string): string | undefined {
+  try {
+    const kid = decodeProtectedHeader(token).kid;
+    return typeof kid === "string" && KEY_ID.test(kid) ? kid : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Whether this deployment can verify tokens signed with `kid`. */
+export function isKnownVmAuthorizationKey(kid: string): boolean {
+  try {
+    verificationKey(kid);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Local signature verification precedes any database access. No token or JOSE error escapes. */
 export async function verifyVmAuthorization(token: string, now = new Date()): Promise<VmAuthorizationClaims | null> {
   try {
