@@ -106,6 +106,19 @@ struct SSHTuiPreflightTests {
         #expect(disabled.authenticationArguments.contains("IdentityAgent=none"))
     }
 
+    @Test("An explicit disabled agent overrides a caller IdentityAgent option")
+    func disabledAgentOverridesCallerIdentityAgent() throws {
+        let disabled = SSHTuiConnection(configuration: WorkspaceRemoteConfiguration(
+            destination: "alice@example.invalid", port: 2222, identityFile: nil,
+            sshOptions: ["IdentityAgent=/tmp/caller-agent.sock"],
+            localProxyPort: nil, relayPort: nil, relayID: nil, relayToken: nil, localSocketPath: nil,
+            terminalStartupCommand: nil, agentSocketPath: "", agentSocketPathOverrideIsSet: true
+        ))
+
+        #expect(disabled.authenticationArguments.contains("IdentityAgent=none"))
+        #expect(!disabled.authenticationArguments.contains("IdentityAgent=/tmp/caller-agent.sock"))
+    }
+
     @Test("Passes the configured agent socket like the carrier")
     func passesTheAgentSocket() async throws {
         let commands = ScriptedPreflightCommands(exitStatus: 0)

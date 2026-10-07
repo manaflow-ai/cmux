@@ -106,6 +106,19 @@ public struct SSHTuiConnection: Sendable {
         let agentRouteIsSensitive = configuration.agentSocketPathOverrideIsSet
             || (effectiveAgent?.isEmpty == false)
         var options = configuration.sshOptions
+        if configuration.agentSocketPathOverrideIsSet {
+            // The explicit API value owns agent selection, including an empty
+            // value that disables forwarding. Remove a caller's IdentityAgent
+            // first so OpenSSH cannot select it ahead of this override.
+            options.removeAll { resolver.optionKey($0) == "identityagent" }
+            let agentOption = configuration.agentSocketPath
+                .flatMap { agent in
+                    let trimmed = agent.trimmingCharacters(in: .whitespacesAndNewlines)
+                    return trimmed.isEmpty ? nil : "IdentityAgent=\(trimmed)"
+                }
+                ?? "IdentityAgent=none"
+            options.append(agentOption)
+        }
         if agentRouteIsSensitive,
            let suppliedControlPath = resolver.optionValue(named: "ControlPath", in: options),
            suppliedControlPath.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() != "none" {
