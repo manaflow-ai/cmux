@@ -198,7 +198,7 @@ impl CookieBackups {
             .filter_map(|entry| {
                 let name = entry.file_name().into_string().ok()?;
                 let id = format!("{RESTORE_PREFIX}{}", name.strip_suffix(".bin")?);
-                stem(&id).map(|_| id)
+                stem(&id).is_some().then_some(id)
             })
             .collect();
         ids.sort();
