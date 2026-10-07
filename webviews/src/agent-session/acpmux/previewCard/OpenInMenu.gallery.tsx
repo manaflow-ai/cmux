@@ -11,7 +11,8 @@ const browsers: NonNullable<ChipHostFixture["browsers"]> = [
 ];
 const chipHost: ChipHostFixture = { browsers };
 const openMenu: Play = async (ctx) => {
-  await ctx.click({ selector: ".acpmux-open-in" });
+  await ctx.focus({ selector: ".acpmux-open-in" });
+  await ctx.press("Enter");
   await ctx.waitFor(() => (ctx.document.querySelectorAll(".ui-menu-item").length >= 5 ? true : null));
 };
 
