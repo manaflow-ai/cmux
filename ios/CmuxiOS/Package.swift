@@ -38,6 +38,7 @@ let package = Package(
                 "CmuxiOSDesign",
                 "CmuxiOSPush",
                 "CmuxiOSIdentity",
+                "CmuxiOSFeatureKit",
                 .product(name: "CmuxFeedPushCore", package: "CmuxFeedPushCore"),
                 "CmuxiOSTextConfirm",
                 .product(name: "CmuxTextConfirmCore", package: "CmuxTextConfirmCore"),
@@ -125,6 +126,17 @@ let package = Package(
         ),
         .target(
             name: "CmuxiOSDesign",
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // Feature seams (protocols, value types, mocks) for the ios-next
+        // feature lanes; Foundation only (plans/cmux-next/ios-next/a1-shell.md).
+        .target(
+            name: "CmuxiOSFeatureKit",
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .testTarget(
+            name: "CmuxiOSFeatureKitTests",
+            dependencies: ["CmuxiOSFeatureKit"],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
     ]
