@@ -136,6 +136,7 @@
     "pages/apps/AppDetailView.tsx#AppDetailView",
     "pages/apps/GrantsPanel.tsx#GrantsPanel",
     "pages/apps/InstalledView.tsx#InstalledView",
+    "pages/apps/parts.tsx#Switch",
     "pages/cloud/CreateSheet.tsx#CreateSheet",
     "pages/cloud/DetailSections.tsx#SnapshotsSection",
     "pages/cloud/FilesSection.tsx#FilesSection",

@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { chromium, webkit, type BrowserType, type Page } from "playwright";
+import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import pixelmatch from "pixelmatch";
 import { PNG } from "pngjs";
 import { randomUUID } from "node:crypto";
@@ -155,15 +155,14 @@ async function serveDirectory(root: string): Promise<{ baseUrl: string; close: (
   return { baseUrl: `http://127.0.0.1:${server.port}`, close: () => server.stop() };
 }
 
-async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, outputDir: string, baselineDir: string | undefined, threshold: number, browserTypes = engines): Promise<Record<string, unknown>> {
+async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, outputDir: string, baselineDir: string | undefined, threshold: number, browser: Browser): Promise<Record<string, unknown>> {
   const params = item.params ?? {};
   const width = Number(params.width ?? DEFAULT_WIDTH);
   const height = Number(params.height ?? DEFAULT_HEIGHT);
-  const browser = await browserTypes[engine].launch({ headless: true });
+  const flag = (value: Scalar | undefined) => value === true || value === 1 || value === "1" || value === "true";
+  // UTC and the gallery's own clock (src/gallery/clock.ts) keep times the same in every run.
+  const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: DEFAULT_DEVICE_SCALE, colorScheme: params.colorScheme === "dark" ? "dark" : params.colorScheme === "light" ? "light" : "no-preference", locale: typeof params.locale === "string" ? params.locale : undefined, timezoneId: "UTC", reducedMotion: flag(params.reducedMotion) ? "reduce" : "no-preference", contrast: flag(params.highContrast) ? "more" : "no-preference" });
   try {
-    const flag = (value: Scalar | undefined) => value === true || value === 1 || value === "1" || value === "true";
-    // UTC and the gallery's own clock (src/gallery/clock.ts) keep times the same in every run.
-    const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: DEFAULT_DEVICE_SCALE, colorScheme: params.colorScheme === "dark" ? "dark" : params.colorScheme === "light" ? "light" : "no-preference", locale: typeof params.locale === "string" ? params.locale : undefined, timezoneId: "UTC", reducedMotion: flag(params.reducedMotion) ? "reduce" : "no-preference", contrast: flag(params.highContrast) ? "more" : "no-preference" });
     const page = await context.newPage();
     // Play steps (webviews/src/gallery/play.ts) act through Playwright's trusted mouse and keyboard.
     await page.exposeFunction("cmuxGalleryInput", async (action: { kind: string; x?: number; y?: number; text?: string }) => {
@@ -201,9 +200,8 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
         result.diffImage = diffName;
       } else result.diff = { percentage: null, passed: true, missingBaseline: true };
     }
-    await context.close();
     return result;
-  } finally { await browser.close(); }
+  } finally { await context.close(); }
 }
 
 function renderIndex(results: Record<string, unknown>[]): string {
@@ -216,12 +214,15 @@ export async function runLocal(args: { manifest: string; galleryDir: string; out
   const selected = shardCases(cases, args.shardCount, args.shardIndex);
   await mkdir(args.outputDir, { recursive: true });
   const server = selected.some((item) => !/^https?:\/\//.test(item.path_or_url)) ? await serveDirectory(resolve(args.galleryDir)) : null;
+  const browsers = new Map<Engine, Browser>();
   try {
+    // Keep one process per engine; every case still gets a fresh context and page.
+    for (const engine of args.engines) browsers.set(engine, await browserTypes[engine].launch({ headless: true, timeout: 30_000 }));
     const results: Record<string, unknown>[] = [];
     for (const item of selected)
       for (const engine of args.engines) {
         const started = Date.now();
-        const result = await renderCase(server?.baseUrl ?? "", item, engine, args.outputDir, args.baselineDir, args.threshold, browserTypes);
+        const result = await renderCase(server?.baseUrl ?? "", item, engine, args.outputDir, args.baselineDir, args.threshold, browsers.get(engine)!);
         console.log(`rendered ${item.id} ${engine} ready=${String(result.ready)} ${Date.now() - started}ms`);
         results.push(result);
       }
@@ -237,7 +238,10 @@ export async function runLocal(args: { manifest: string; galleryDir: string; out
       process.exitCode = 1;
     }
     return results;
-  } finally { server?.close(); }
+  } finally {
+    try { await Promise.all([...browsers.values()].map((browser) => browser.close())); }
+    finally { server?.close(); }
+  }
 }
 
 function shellQuote(value: string): string { return `'${value.replaceAll("'", "'\\''")}'`; }

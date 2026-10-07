@@ -30,7 +30,7 @@ export default bridgePageEntry({
   title: "Apps",
   area: "Pages",
   page: "apps",
-  covers: ["page:cmux.apps", "pages/apps/AppsPage.tsx", "pages/apps/parts.tsx"],
+  covers: ["page:cmux.apps", "pages/apps/AppsPage.tsx", "pages/apps/parts.tsx#AppIcon", "pages/apps/parts.tsx#Badge"],
   variants: {
     empty: fixture(0),
     loaded: fixture(4),
