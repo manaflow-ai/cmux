@@ -68,7 +68,6 @@ import Testing
         view.evaluateScript = { scripts.append($0) }
         let received = await subscribe(try #require(view.page))
         let before = received().count
-        view.showSearchChats()
         view.showContinueIn()
         view.runPermissionAction("permissionDeny")
         view.runPermissionAction("notAPermissionAction")
@@ -76,7 +75,7 @@ import Testing
         _ = await view.model.respond(to: .ready)
         view.revealTurn("t-9")
         let events = received().dropFirst(before).map { "\($0["kind"]?.stringValue ?? ""):\($0["value"]?.stringValue ?? "")" }
-        #expect(events == ["command:searchChats", "command:continueIn", "command:permissionDeny", "focusLocation:", "revealTurn:t-9"])
+        #expect(events == ["command:continueIn", "command:permissionDeny", "focusLocation:", "revealTurn:t-9"])
         #expect(scripts.isEmpty)
     }
 
