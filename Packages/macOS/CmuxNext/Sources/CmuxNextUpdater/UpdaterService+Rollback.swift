@@ -2,10 +2,24 @@ public import CmuxUpdater
 public import Foundation
 import Security
 
+/// What a rollback compares, read off the main actor
+/// (``UpdaterService/rollbackInputs(stateDirectories:)``).
+nonisolated public struct RollbackInputs: Sendable {
+    /// Kept versions, newest first, each with the schemas it reads (its
+    /// Info.plist, else its own CLI; nil when neither says).
+    public var kept: [KeptVersion]
+    /// The newest schema each store holds; nil when they could not be read.
+    public var stored: [String: Int]?
+
+    public init(kept: [KeptVersion], stored: [String: Int]?) {
+        self.kept = kept
+        self.stored = stored
+    }
+}
+
 /// Rollback (decision 2026-10-04): the running bundle is kept right before
 /// each install, and a rollback runs only when the kept build reads every
-/// store the daemon has. The swap itself and `cmux update rollback` land
-/// with the cmux-tui `store.schemas` op.
+/// store the daemons hold (`StoreSchemaProbe`, `app call updates.rollback`).
 extension UpdaterService {
     /// Previous versions this app keeps (`updates.keepPreviousVersions`).
     public var keptVersions: KeptVersionStore {
@@ -25,11 +39,26 @@ extension UpdaterService {
         }
     }
 
-    /// Whether a rollback to `build` (nil: the newest kept) would run, given
-    /// the daemon's stored formats (nil: the daemon cannot report them).
-    public func rollbackDecision(to build: String?, stored: [String: Int]?) -> Result<KeptVersion, RollbackRefusal> {
-        guard let stored else { return .failure(.storesUnknown) }
-        return RollbackDecision.decide(kept: keptVersions.list(), build: build, stored: stored,
+    /// Reads the kept versions and the stored schemas off the main actor:
+    /// each probe runs a bundled CLI. `stateDirectories` are the daemons'
+    /// state roots (nil: cmux-tui's default).
+    public func rollbackInputs(stateDirectories: [URL?]) async -> RollbackInputs {
+        let store = keptVersions
+        let bundle = Bundle.main.bundleURL
+        return await Task.detached {
+            let kept = store.list().map { version in
+                var version = version
+                if version.storeSchemas == nil { version.storeSchemas = StoreSchemaProbe(bundle: version.bundle).readable() }
+                return version
+            }
+            return RollbackInputs(kept: kept, stored: StoreSchemaProbe(bundle: bundle).stored(stateDirectories: stateDirectories))
+        }.value
+    }
+
+    /// Whether a rollback to `build` (nil: the newest kept) would run.
+    public func rollbackDecision(to build: String?, inputs: RollbackInputs) -> Result<KeptVersion, RollbackRefusal> {
+        guard let stored = inputs.stored else { return .failure(.storesUnknown) }
+        return RollbackDecision.decide(kept: inputs.kept, build: build, stored: stored,
                                        teamID: Self.signingTeam(of: Bundle.main.bundleURL))
     }
 
@@ -54,8 +83,8 @@ extension UpdaterService {
     /// allows it: swaps the bundles, stops offering the build left behind,
     /// then quits keeping every session and lets `relaunch` reopen the app.
     @discardableResult
-    public func rollback(to build: String?, stored: [String: Int]?, relaunch: (URL) -> Void) throws -> KeptVersion {
-        let target = try rollbackDecision(to: build, stored: stored).get()
+    public func rollback(to build: String?, inputs: RollbackInputs, relaunch: (URL) -> Void) throws -> KeptVersion {
+        let target = try rollbackDecision(to: build, inputs: inputs).get()
         let bundle = Bundle.main.bundleURL
         try RollbackSwap.perform(current: bundle, currentBuild: identity.build, target: target,
                                  store: keptVersions, limit: preferences.keepPreviousVersions)

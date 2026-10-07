@@ -22,7 +22,7 @@ import {
   type AcpmuxRow,
   type AcpmuxSnapshot,
 } from "./model";
-import { AcpmuxDirectClient, type AcpmuxHostConfig, isTrustRefusal } from "./direct";
+import { AcpmuxDirectClient, type AcpmuxHostConfig, harnessBlock, type HarnessBlock, isTrustRefusal } from "./direct";
 import { postNative } from "./native";
 import { errorMessage } from "./transportErrors";
 import { pageHostClient, startHostEvents } from "./pageHost";
@@ -55,6 +55,8 @@ import { turnFiles, turnRows, type TurnFile } from "./diff";
 import type { TrustSource } from "./folderTrust";
 import { TrustAsk } from "./TrustAsk";
 import { PermissionCard } from "./PermissionCard";
+import { QuestionCard } from "./question/QuestionCard";
+import type { QuestionReply } from "./question/model";
 import { agentName } from "./agents";
 import { type Translate, useT } from "./i18n";
 import { useFolderTrustAsk } from "./useFolderTrustAsk";
@@ -323,7 +325,7 @@ const PermissionRow = memo(
           <strong>{t("permission.required")}</strong>
         </div>
       );
-    return <PermissionCard permission={permission} onAnswer={answerPermission(permission)} />;
+    return <PermissionAsk permission={permission} />;
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
@@ -789,6 +791,23 @@ export function VirtualTranscript({
 const answerPermission = (permission: AcpmuxPermission) => (optionId: string) =>
   void callNative("chat.permission", { permissionId: permission.permissionId, optionId });
 
+/// Sends a question card's reply: the harness's option (absent cancels) and its answers.
+const replyToQuestion = (permission: AcpmuxPermission) => (sent: QuestionReply) =>
+  void callNative("chat.permission", {
+    permissionId: permission.permissionId,
+    ...(sent.optionId === undefined ? {} : { optionId: sent.optionId }),
+    ...(sent.answers === undefined ? {} : { answers: sent.answers }),
+  });
+
+/// A permission ask: a question card when the request asks a question, else its option buttons.
+function PermissionAsk({ permission }: { permission: AcpmuxPermission }) {
+  return permission.question ? (
+    <QuestionCard question={permission.question} onReply={replyToQuestion(permission)} />
+  ) : (
+    <PermissionCard permission={permission} onAnswer={answerPermission(permission)} />
+  );
+}
+
 function DefaultComposerChips({ snapshot }: { snapshot: AcpmuxSnapshot }) {
   const picker = usePickerCatalog(snapshot.catalog, {
     harness: snapshot.summary?.harness,
@@ -813,6 +832,8 @@ function DefaultComposerChips({ snapshot }: { snapshot: AcpmuxSnapshot }) {
       onMode={(modeId) => void callNative("chat.mode", { modeId })}
       onEffort={(configId, value) => void callNative("chat.effort", { configId, value })}
       onHarness={(harness) => void callNative("chat.new", { harness })}
+      // Sent from the pick's own handler: the host's Enable confirmation needs the gesture.
+      onHarnessEnable={(folder, id) => void callNative("chat.harness.enable", { folder, id }).catch(() => undefined)}
       showPlan={false}
       onCompact={() => void callNative("chat.send", { text: "/compact", attachments: [] })}
       pickerCatalog={picker.catalog}
@@ -862,7 +883,16 @@ function AcpmuxPane() {
   // ids only grow, so a new client never reads an older client's cache entry.
   const catalogClientId = useRef(0);
   const [catalogSource, setCatalogSource] = useState<{ id: number; client: HarnessCatalogSource }>();
-  const catalog = useHarnessCatalog(catalogSource, clientSnapshot.catalog);
+  /// A chat acpmux would not start because its folder harness needs the user's Enable or the
+  /// folder's Trust answer first (`harness.needs_enable` / `harness.needs_trust`).
+  const [blockedHarness, setBlockedHarness] = useState<HarnessBlock | undefined>();
+  // The chat's folder on this Mac, whose own harness profiles the catalog then lists too; while a
+  // folder harness waits for Enable or Trust (a new chat without a session), that harness's folder.
+  const catalogCwd =
+    clientSnapshot.summary?.hostKind !== "cloud" && !clientSnapshot.summary?.host
+      ? (clientSnapshot.summary?.cwd ?? projectDraft ?? blockedHarness?.folder) || undefined
+      : undefined;
+  const catalog = useHarnessCatalog(catalogSource, clientSnapshot.catalog, undefined, catalogCwd);
   const snapshot = useMemo(
     () => applySwitch(clientSnapshot, switchView, catalog),
     [clientSnapshot, switchView, catalog],
@@ -1566,7 +1596,11 @@ function AcpmuxPane() {
           }
           // A prompt acpmux held goes with the gesture its first send kept.
           const kept = heldPrompt.take();
-          const sessionId = await client.ensureSession().catch((error: unknown) => refused(error, Boolean(accepted)));
+          const sessionId = await client.ensureSession().catch((error: unknown) => {
+            // A folder harness that waits for Enable or Trust says so on its own card.
+            setBlockedHarness(harnessBlock(error));
+            return refused(error, Boolean(accepted));
+          });
           await persistSession(sessionId);
           const turn = client
             .send(text, attachments, kept?.promptId, accepted, kept?.ticket)
@@ -1584,7 +1618,12 @@ function AcpmuxPane() {
               typeof accepted === "function" ? (accepted as () => void) : undefined,
             ),
           "chat.cancel": () => client.cancel(),
-          "chat.permission": ({ permissionId, optionId }) => client.permission(String(permissionId), String(optionId)),
+          "chat.permission": ({ permissionId, optionId, answers }) =>
+            client.permission(
+              String(permissionId),
+              optionId === undefined || optionId === null ? undefined : String(optionId),
+              answers && typeof answers === "object" ? (answers as Record<string, unknown>) : undefined,
+            ),
           "chat.permission_group.respond": ({ groupId, revision, decision }) =>
             client.permissionGroup(String(groupId), Number(revision), decision as PermissionDecision),
           "chat.permission_group.retry": () => client.permissions.retry(),
@@ -1624,6 +1663,23 @@ function AcpmuxPane() {
           },
           "chat.harness.hint": async ({ harness }) => harnessSwitch.hint(harness ? String(harness) : undefined),
           "chat.harness.retry": async () => harnessSwitch.retry(),
+          // Enables a folder profile, then starts the chat on it. The request goes out before any
+          // await, inside the click or key handler that called this: the host's confirmation
+          // takes that gesture. A Cancel there (`transport.harness_not_confirmed`) changes nothing.
+          "chat.harness.enable": ({ folder, id }) =>
+            client.harnessEnable(String(folder), String(id)).then(
+              async (result) => {
+                setBlockedHarness(undefined);
+                await queryClient.invalidateQueries({ queryKey: ["acpmux", "harnesses"] });
+                void harnessSwitch.switchTo(String(id));
+                return result;
+              },
+              (error: unknown) => {
+                if ((error as { code?: unknown } | null)?.code !== "transport.harness_not_confirmed")
+                  client.notice(errorMessage(error) || String(error));
+                return undefined;
+              },
+            ),
           "chat.harness.cancelPrompt": async ({ promptId }) => harnessSwitch.cancelQueued(String(promptId)),
           "chat.retryPrompt": ({ rowId }) => client.retryPrompt(String(rowId)),
           "chat.history": () => client.loadOlder(),
@@ -1658,7 +1714,11 @@ function AcpmuxPane() {
           turnRunning: () => client.turnRunning(),
           shown: () => client.shownSession(),
           create: async (harness, cwd) => {
-            const sessionId = await client.startSession(harness, cwd);
+            const sessionId = await client.startSession(harness, cwd).catch((error: unknown) => {
+              setBlockedHarness(harnessBlock(error));
+              throw error;
+            });
+            setBlockedHarness(undefined);
             if (sessionId) startedSessions.add(sessionId);
             return sessionId;
           },
@@ -1980,17 +2040,45 @@ function AcpmuxPane() {
               onUndo={trustAsk.undo}
             />
           )}
-          {individualPermission && (
-            <PermissionCard permission={individualPermission} onAnswer={answerPermission(individualPermission)} />
-          )}
+          {individualPermission && <PermissionAsk permission={individualPermission} />}
         </div>
       )}
     </>
   );
+  // A failed start of a folder harness says what it waits for, in place of the switch's Retry
+  // card: Enable (sent from the button's click, then the chat starts again), or the Trust answer.
+  const block =
+    blockedHarness &&
+    (snapshot.switching?.phase === "failed"
+      ? snapshot.switching.harness === blockedHarness.harness
+      : !snapshot.sessionId)
+      ? blockedHarness
+      : undefined;
+  const blockedName = block ? (catalog.find((entry) => entry.id === block.harness)?.name ?? block.harness) : undefined;
+  const harnessCard = block && (
+    <HostError
+      message={t(block.reason === "needs-enable" ? "harness.needsEnable" : "harness.needsTrust", {
+        agent: blockedName ?? block.harness,
+        folder: block.folder,
+      })}
+      hint={null}
+      {...(block.reason === "needs-enable"
+        ? {
+            action: t("harness.enable"),
+            onRetry: () =>
+              void callNative("chat.harness.enable", { folder: block.folder, id: block.harness }).catch(
+                () => undefined,
+              ),
+          }
+        : {})}
+    />
+  );
   const composer = !reviewing && !handoffLoading && (
     <>
       <DictationNotice dictation={dictation} />
-      <SwitchNotice switching={snapshot.switching} onRetry={() => void callNative("chat.harness.retry")} />
+      {harnessCard ?? (
+        <SwitchNotice switching={snapshot.switching} onRetry={() => void callNative("chat.harness.retry")} />
+      )}
       {showsFolderChoice({ offered: chooseFolder, freshChat, quick, projectDraft, sessionId: snapshot.sessionId }) && (
         <FolderChoice
           error={folderError}
@@ -2040,6 +2128,12 @@ function AcpmuxPane() {
         }}
         onStop={() => void callNative("chat.cancel")}
         onProject={chooseProject}
+        // SSH… opens Connect to Machine; cmux Cloud… opens New Cloud Machine (Lawrence 2026-10-06).
+        onConnect={(kind) =>
+          void callNative("action.run", { id: kind === "ssh" ? "remote.connect" : "newCloudMachine" }).catch(
+            () => undefined,
+          )
+        }
         projectChoices={freshChat && !quick ? newTabProjects : undefined}
         onBrowseProject={
           freshChat && !quick
@@ -2162,6 +2256,7 @@ function AcpmuxPane() {
               }}
               onShowAll={showAllChats}
               onBrowseProject={() => void callNative("action.run", { id: "palette.welcomeChecklist" })}
+              onAddHarness={() => void callNative("action.run", { id: "palette.addHarness" }).catch(() => undefined)}
               onEditShortcut={(kind) => void callNative("shortcut.edit", { kind })}
             />
           ) : (

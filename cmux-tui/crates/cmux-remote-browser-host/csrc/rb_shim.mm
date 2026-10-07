@@ -82,6 +82,15 @@ struct Rp {
                                           double),
                                  void*) = nullptr;
   int (*popup_menu_result)(int64_t, const int*, int) = nullptr;
+  // RP7 popup surfaces.
+  void (*set_surface_handler)(void (*)(void*, int, int, int, int, int, int,
+                                       int, int),
+                              void*) = nullptr;
+  int (*surface_capture_start)(int, int, int, rp_frame_fn, void*) = nullptr;
+  int (*surface_send_mouse)(int, int, double, double, int, int,
+                            int) = nullptr;
+  int (*surface_close)(int) = nullptr;
+  int (*set_active)(int, int) = nullptr;
 } g_rp;
 
 bool BindRp(const std::string& framework_binary) {
@@ -106,6 +115,11 @@ bool BindRp(const std::string& framework_binary) {
        "cmux_rp_set_needs_begin_frames_handler");
   BIND(set_popup_menu_handler, "cmux_rp_set_popup_menu_handler");
   BIND(popup_menu_result, "cmux_rp_popup_menu_result");
+  BIND(set_surface_handler, "cmux_rp_set_surface_handler");
+  BIND(surface_capture_start, "cmux_rp_surface_capture_start");
+  BIND(surface_send_mouse, "cmux_rp_surface_send_mouse");
+  BIND(surface_close, "cmux_rp_surface_close");
+  BIND(set_active, "cmux_rp_set_active");
 #undef BIND
   return g_rp.api_version && g_rp.api_version() >= 19 && g_rp.is_active &&
          g_rp.capture_start && g_rp.frame_release && g_rp.send_key;
@@ -402,6 +416,23 @@ void OnPopupMenu(void*, int browser_id, int64_t token, int x, int y, int w,
   }
 }
 
+void OnSurface(void*, int browser_id, int surface_id, int kind, int visible,
+               int x, int y, int w, int h) {
+  if (g_cb.on_surface) {
+    g_cb.on_surface(g_cb.context, browser_id, surface_id, kind, visible, x, y,
+                    w, h);
+  }
+}
+
+// The fork's frame callback gives the surface id in place of the browser id.
+void OnSurfaceFrame(void*, int surface_id, const rb_frame_t* frame) {
+  if (g_cb.on_surface_frame) {
+    g_cb.on_surface_frame(g_cb.context, surface_id, frame);
+  } else {
+    g_rp.frame_release(frame->lease);
+  }
+}
+
 class App : public CefApp, public CefBrowserProcessHandler {
  public:
   CefRefPtr<CefBrowserProcessHandler> GetBrowserProcessHandler() override {
@@ -426,6 +457,9 @@ class App : public CefApp, public CefBrowserProcessHandler {
     }
     if (g_rp.set_popup_menu_handler) {
       g_rp.set_popup_menu_handler(&OnPopupMenu, nullptr);
+    }
+    if (g_rp.set_surface_handler) {
+      g_rp.set_surface_handler(&OnSurface, nullptr);
     }
     if (g_cb.on_ready) {
       g_cb.on_ready(g_cb.context);
@@ -735,6 +769,35 @@ int rb_shim_context_menu_result(int64_t token, int command_id) {
     callback->Continue(command_id, EVENTFLAG_NONE);
   }
   return 1;
+}
+
+int rb_shim_set_active(int browser_id, int active) {
+  return g_rp.set_active ? g_rp.set_active(browser_id, active) : 0;
+}
+
+int rb_shim_surface_capture(int surface_id) {
+  return g_rp.surface_capture_start
+             ? g_rp.surface_capture_start(surface_id, /*min_period_us=*/0,
+                                          /*prefer_gpu=*/1, &OnSurfaceFrame,
+                                          nullptr)
+             : 0;
+}
+
+int rb_shim_surface_send_mouse(int surface_id,
+                               int kind,
+                               double x,
+                               double y,
+                               int button,
+                               int click_count,
+                               int modifiers) {
+  return g_rp.surface_send_mouse
+             ? g_rp.surface_send_mouse(surface_id, kind, x, y, button,
+                                       click_count, modifiers)
+             : 0;
+}
+
+int rb_shim_surface_close(int surface_id) {
+  return g_rp.surface_close ? g_rp.surface_close(surface_id) : 0;
 }
 
 int rb_shim_popup_menu_result(int64_t token, const int* indices, int count) {

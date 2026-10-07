@@ -106,13 +106,13 @@ nonisolated enum TabGroupActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "tabGroup.save",
-                title: String(localized: "action.tabGroup.save", defaultValue: "Save Tab Group", bundle: .module),
+                title: String(localized: "action.tabGroup.save", defaultValue: "Pin Group", bundle: .module),
                 keywords: ["group", "saved", "pin"], category: .tab, symbol: "bookmark", surfaces: [.palette],
                 targets: [.tabGroup], cliName: "tab-group save"
             ),
             ActionDescriptor(
                 id: "tabGroup.unsave",
-                title: String(localized: "action.tabGroup.unsave", defaultValue: "Unsave Tab Group", bundle: .module),
+                title: String(localized: "action.tabGroup.unsave", defaultValue: "Unpin Group", bundle: .module),
                 keywords: ["group", "saved", "unpin"], category: .tab, symbol: "bookmark.slash", surfaces: [.palette],
                 targets: [.tabGroup], cliName: "tab-group unsave"
             ),
