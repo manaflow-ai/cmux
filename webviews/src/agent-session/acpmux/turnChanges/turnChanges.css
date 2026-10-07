@@ -1,0 +1,16 @@
+/* The edited-files card's Undo confirmation, per-file Undo results and collapse toggle
+   (conversation/EditedFilesCard.tsx). The card itself is styled in styles.css (.acpmux-edited). */
+.acpmux-edited-base{font-weight:600}
+.acpmux-edited-toggle{flex:none;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border:0;border-radius:8px;background:transparent;color:var(--agent-muted);cursor:pointer}
+.acpmux-edited-toggle:hover{background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 10%,transparent));color:var(--agent-text)}
+.acpmux-edited-toggle:focus-visible,.acpmux-edited-cancel:focus-visible,.acpmux-edited-viewdiff:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:1px}
+.acpmux-edited-undone{flex:none;color:var(--agent-muted);font-size:12px}
+.acpmux-edited-confirm{display:flex;align-items:center;gap:8px;padding:9px 12px;box-shadow:inset 0 -1px 0 var(--agent-border)}
+.acpmux-edited-confirm-text{flex:1;min-width:0;line-height:18px}
+.acpmux-edited-confirm-skip{color:var(--agent-muted);font-size:12px}
+.acpmux-edited-cancel{flex:none;height:28px;padding:0 10px;border:0;border-radius:8px;background:transparent;color:var(--agent-text);font:inherit;cursor:pointer}
+.acpmux-edited-cancel:hover{background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 10%,transparent))}
+.acpmux-edited-undo-confirm{background:color-mix(in srgb,var(--agent-text) 9%,transparent)}
+.acpmux-edited-status{display:flex;align-items:center;gap:8px;min-height:24px;padding:0 12px 6px;color:var(--agent-muted);font-size:12px}
+.acpmux-edited-status-changed{color:var(--agent-warning,var(--agent-muted))}
+.acpmux-edited-viewdiff{height:22px;padding:0 6px;border:0;border-radius:6px;background:transparent;color:var(--agent-text);font:inherit;cursor:pointer;text-decoration:underline}

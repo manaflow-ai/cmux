@@ -1,4 +1,5 @@
 // l10n-allow-file: gallery fixtures (sample code), not shipped UI.
+import { minutesAgo } from "../../gallery/clock";
 import { editorPageEntry } from "../../gallery/format";
 
 const source = `import { createServer } from "node:http";
@@ -18,7 +19,7 @@ const largeSource = Array.from(
 const recents = Array.from({ length: 24 }, (_, index) => ({
   path: `/Users/you/src/atlas-web/src/feature-${String(index + 1).padStart(2, "0")}/component.tsx`,
   name: `component-${String(index + 1).padStart(2, "0")}.tsx`,
-  openedAt: Date.now() - index * 86_400_000,
+  openedAt: minutesAgo(index * 1440),
 }));
 
 export default editorPageEntry({

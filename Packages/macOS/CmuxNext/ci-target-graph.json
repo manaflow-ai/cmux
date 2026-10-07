@@ -756,7 +756,6 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextRemoteBrowserTests",
       "targets": [
-        "CmuxNextBrowser",
         "CmuxNextRemoteBrowser",
         "CmuxNextRemoteView"
       ],
