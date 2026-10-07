@@ -313,7 +313,7 @@ final class MessageEffectPickerViewController: UIViewController, UIScrollViewDel
 
     private func pageSettled() {
         let page = Int(round(pager.contentOffset.x / max(1, pager.bounds.width)))
-        guard page != screenPage || screenPreview.layer.animation(forKey: "screenEffect") == nil else { return }
+        guard page != screenPage || !screenPreview.isPlaying else { return }
         screenPage = max(0, min(page, ConversationMessageEffect.screenEffects.count - 1))
         pageControl.currentPage = screenPage
         UISelectionFeedbackGenerator().selectionChanged()

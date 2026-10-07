@@ -1,5 +1,6 @@
 #if canImport(UIKit)
 import CmuxConversationCore
+import CmuxConversationGeometry
 import UIKit
 
 /// Something up the responder chain that replays a row's send effect.
@@ -161,10 +162,7 @@ extension MessageCell {
         // Grows past its row: draw above the neighbors while it plays.
         layer.zPosition = 10
         if effect == .slam, !reduceMotion, let onImpact {
-            let impact = CABasicAnimation(keyPath: "zPosition")
-            impact.fromValue = 0
-            impact.toValue = 0
-            impact.duration = BubbleEffectAnimation.duration(.slam, reduceMotion: false) * BubbleEffectAnimation.slamImpact
+            let impact = ConversationBubbleEffectAnimation.slamImpactMarker()
             CATransaction.begin()
             CATransaction.setCompletionBlock { [weak stage] in
                 guard stage?.superview != nil else { return }
