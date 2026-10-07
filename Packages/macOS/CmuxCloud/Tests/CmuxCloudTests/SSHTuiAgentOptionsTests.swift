@@ -6,6 +6,21 @@ import Testing
 
 @Suite("SSH carrier agent option precedence")
 struct SSHTuiAgentOptionsTests {
+    @Test("Auth, preflight, carrier and browser share the marked agent route")
+    func markedRouteUsesOneControlPathAcrossLaunches() throws {
+        let routeIdentifier = String(repeating: "d", count: 64)
+        let connection = connection(
+            agent: "/tmp/cmux-route-agent.sock",
+            options: ["ProxyCommand=/bin/sh -c true", "__cmux_route_sensitive=\(routeIdentifier)"],
+            environment: ["PATH": "/usr/bin", "SSH_AUTH_SOCK": "/tmp/cmux-route-agent.sock"]
+        )
+        let paths = sshInvocations(connection).compactMap { arguments in
+            arguments.first { $0.hasPrefix("ControlPath=") }
+        }
+        #expect(paths.count == 4)
+        #expect(Set(paths).count == 1)
+    }
+
     @Test("A restored cmux carrier keeps its saved route socket with an agent")
     func restoredCmuxCarrierKeepsSavedControlPath() throws {
         let socketDirectory = try #require(SSHConnectionSharingOptions().controlSocketDirectoryPath)
@@ -60,12 +75,16 @@ struct SSHTuiAgentOptionsTests {
     }
 
     /// Builds the same socket override the CLI sends to the app.
-    private func connection(agent: String, options: [String]) -> SSHTuiConnection {
+    private func connection(
+        agent: String,
+        options: [String],
+        environment: [String: String] = [:]
+    ) -> SSHTuiConnection {
         SSHTuiConnection(configuration: WorkspaceRemoteConfiguration(
             destination: "example.invalid", port: nil, identityFile: nil, sshOptions: options,
             localProxyPort: nil, relayPort: nil, relayID: nil, relayToken: nil, localSocketPath: nil,
             terminalStartupCommand: nil, agentSocketPath: agent
-        ), environment: [:])
+        ), environment: environment)
     }
 
     /// Exercises interactive authentication, batch preflight, carrier and browser launches.

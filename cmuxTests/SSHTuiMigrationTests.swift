@@ -226,20 +226,31 @@ struct SSHTuiMigrationTests {
                 == resolvedControlSettings(SSHTuiConnection(configuration: opened, environment: environment)))
     }
 
-    @Test("A restored carrier dials the cmux master the CLI keyed by its resolved route")
-    func restoredCarrierDialsTheCLIsRouteMaster() throws {
-        // `cmux ssh` keys its master by the route `ssh -G` resolved and sends
-        // that cmux-owned ControlPath. The app cannot recompute the same key,
-        // so a restore that drops the path dials a master no login opened.
-        let socketDirectory = try #require(SSHConnectionSharingOptions().controlSocketDirectoryPath)
-        let cliPath = socketDirectory + "/" + String(repeating: "a", count: 40)
-        let opened = configuration(options: ["ControlMaster=auto", "ControlPersist=600", "ControlPath=\(cliPath)"])
+    @Test("A restored carrier recomputes the app-owned route from durable options")
+    func restoredCarrierRecomputesTheAppRoute() throws {
+        // The CLI drops its own resolved ControlPath before the TUI payload.
+        // The app then keys both the live carrier and its snapshot restore from
+        // one captured agent route, so a password-only restore finds that same
+        // authenticated master without needing the CLI's ssh -G digest.
+        let listener = try AgentSocketListener()
+        defer { listener.remove() }
+        let agent = listener.path
+        let base = configuration(options: ["ProxyCommand=/bin/sh -c true"])
+        let opened = WorkspaceRemoteConfiguration(
+            terminalProfile: base.terminalProfile, destination: base.destination, port: base.port,
+            identityFile: base.identityFile, sshOptions: base.sshOptions, localProxyPort: nil, relayPort: nil,
+            relayID: nil, relayToken: nil, localSocketPath: nil, terminalStartupCommand: nil,
+            configuredRemoteCommand: nil, agentSocketPath: agent, preserveAfterTerminalExit: true
+        )
         let snapshot = try #require(opened.sessionSnapshot())
         let persisted = try JSONEncoder().encode(snapshot)
         let restored = try #require(try JSONDecoder().decode(SessionRemoteWorkspaceSnapshot.self, from: persisted)
             .workspaceConfiguration(localSocketPath: "/tmp/cmux-test.sock"))
-        #expect(try resolvedControlSettings(SSHTuiConnection(configuration: restored))["controlpath"] == cliPath)
-        #expect(SSHTuiConnection(configuration: restored).id == SSHTuiConnection(configuration: opened).id)
+        let environment = ["PATH": "/usr/bin"]
+        let openedSettings = try resolvedControlSettings(SSHTuiConnection(configuration: opened, environment: environment))
+        #expect(try resolvedControlSettings(SSHTuiConnection(configuration: restored, environment: environment)) == openedSettings)
+        #expect(SSHTuiConnection(configuration: restored, environment: environment).id
+            == SSHTuiConnection(configuration: opened, environment: environment).id)
     }
 
     @Test("A restored Mosh workspace keeps the agent its snapshot saved")

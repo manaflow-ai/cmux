@@ -161,6 +161,10 @@ public struct SSHConnectionSharingOptions: Sendable {
         routeIdentifier: String? = nil
     ) -> [String] {
         let resolver = SSHAgentSocketResolver()
+        let optionRouteMarkerValue = resolver.optionValue(
+            named: Self.routeSensitiveMarkerKey,
+            in: options
+        )
         let routeMarkerValue = resolver.optionValue(
             named: Self.routeSensitiveMarkerKey,
             in: userConfiguredControlOptions ?? []
@@ -170,10 +174,12 @@ public struct SSHConnectionSharingOptions: Sendable {
                 guard let key = resolver.optionKey(option) else { return false }
                 return Self.routeSensitiveKeys.contains(key)
             }
+            || optionRouteMarkerValue != nil
             || routeMarkerValue != nil
         // A caller's identity wins; otherwise use the route `ssh -G` resolved.
         // The `true` placeholder means no identity is known.
         let effectiveRouteIdentifier = routeIdentifier
+            ?? optionRouteMarkerValue.flatMap { Self.isRouteDigest($0) ? $0 : nil }
             ?? routeMarkerValue.flatMap { Self.isRouteDigest($0) ? $0 : nil }
         var merged = options.compactMap { option -> String? in
             let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -316,6 +322,25 @@ public struct SSHConnectionSharingOptions: Sendable {
         return SHA256.hash(data: Data(("cmux-ssh-route-v1\n" + canonical).utf8))
             .map { String(format: "%02x", $0) }
             .joined()
+    }
+
+    /// Returns an opaque route marker that can cross the CLI-to-app boundary.
+    ///
+    /// The marker carries only the digest of OpenSSH's resolved configuration;
+    /// it never serializes a proxy command, socket path, or credential.
+    public func routeSensitiveOption(for routeIdentifier: String) -> String? {
+        guard Self.isRouteDigest(routeIdentifier) else { return nil }
+        return "\(Self.routeSensitiveMarkerKey)=\(routeIdentifier)"
+    }
+
+    /// Reads the opaque route marker from serialized SSH options.
+    public func routeSensitiveIdentifier(in options: [String]) -> String? {
+        let resolver = SSHAgentSocketResolver(environment: [:])
+        guard let value = resolver.optionValue(named: Self.routeSensitiveMarkerKey, in: options),
+              Self.isRouteDigest(value) else {
+            return nil
+        }
+        return value
     }
 
     /// Whether `value` is an identity from ``routeIdentifier(fromSSHConfigOutput:)``.

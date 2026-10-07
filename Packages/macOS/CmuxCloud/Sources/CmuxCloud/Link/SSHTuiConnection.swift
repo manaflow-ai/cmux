@@ -54,11 +54,17 @@ public struct SSHTuiConnection: Sendable {
     /// Hashes the route inputs that must share, or avoid sharing, an SSH master.
     private func digest(includeAgentSocket: Bool) -> String {
         let resolver = SSHAgentSocketResolver(environment: [:])
+        let sharingOptions = SSHConnectionSharingOptions()
         let persistentOptions = configuration.sshOptions.filter {
-            !["controlmaster", "controlpersist", "controlpath"].contains(resolver.optionKey($0) ?? "")
+            let key = resolver.optionKey($0) ?? ""
+            return !["controlmaster", "controlpersist", "controlpath"].contains(key)
+                && sharingOptions.routeSensitiveIdentifier(in: [$0]) == nil
         }
         var components = [configuration.destination, configuration.port.map(String.init) ?? "",
                           configuration.identityFile ?? ""] + persistentOptions
+        if let routeIdentifier = sharingOptions.routeSensitiveIdentifier(in: configuration.sshOptions) {
+            components.append(routeIdentifier)
+        }
         if includeAgentSocket {
             if let agent = sshProcessEnvironment["SSH_AUTH_SOCK"]?.trimmingCharacters(in: .whitespacesAndNewlines),
                !agent.isEmpty {
