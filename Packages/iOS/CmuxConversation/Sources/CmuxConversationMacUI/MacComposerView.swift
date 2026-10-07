@@ -7,6 +7,43 @@ struct MacComposerAttachment {
     var image: NSImage
     var data: Data
     var mimeType: String
+
+    /// Images on a pasteboard (paste or drop). Image files keep their
+    /// original bytes and type, as Messages sends them; a JPEG photo is not
+    /// re-encoded as a many-times-larger PNG. Raw image data becomes PNG.
+    static func images(on pasteboard: NSPasteboard) -> [MacComposerAttachment] {
+        let options: [NSPasteboard.ReadingOptionKey: Any] = [.urlReadingContentsConformToTypes: [UTType.image.identifier]]
+        if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: options) as? [URL], !urls.isEmpty {
+            return urls.compactMap(fromFile)
+        }
+        let images = (pasteboard.readObjects(forClasses: [NSImage.self]) as? [NSImage]) ?? []
+        return images.compactMap(asPNG)
+    }
+
+    static func fromFile(_ url: URL) -> MacComposerAttachment? {
+        guard let data = try? Data(contentsOf: url), let image = NSImage(data: data) else { return nil }
+        let type = UTType(filenameExtension: url.pathExtension)
+        let sendable: [UTType] = [.jpeg, .png, .gif, .heic]
+        if let type, sendable.contains(where: { type.conforms(to: $0) }), let mime = type.preferredMIMEType {
+            return MacComposerAttachment(image: image, data: data, mimeType: mime)
+        }
+        return asPNG(image)
+    }
+
+    static func asPNG(_ image: NSImage) -> MacComposerAttachment? {
+        guard let tiff = image.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
+              let png = rep.representation(using: .png, properties: [:]) else { return nil }
+        return MacComposerAttachment(image: image, data: png, mimeType: "image/png")
+    }
+
+    /// Whether a paste should attach images rather than insert text. Finder
+    /// puts the file name on the pasteboard beside a copied image file, so a
+    /// string alone does not mean "paste text".
+    static func pasteboardPrefersImages(_ pasteboard: NSPasteboard) -> Bool {
+        let options: [NSPasteboard.ReadingOptionKey: Any] = [.urlReadingContentsConformToTypes: [UTType.image.identifier]]
+        if pasteboard.canReadObject(forClasses: [NSURL.self], options: options) { return true }
+        return pasteboard.canReadObject(forClasses: [NSImage.self]) && pasteboard.string(forType: .string) == nil
+    }
 }
 
 @MainActor
@@ -40,7 +77,7 @@ final class MacComposerTextView: NSTextView {
     }
 
     var onSubmit: (() -> Void)?
-    var onPasteImages: (([NSImage]) -> Bool)?
+    var onPasteImages: (([MacComposerAttachment]) -> Bool)?
 
     override func doCommand(by selector: Selector) {
         if selector == #selector(insertNewline(_:)) {
@@ -56,9 +93,10 @@ final class MacComposerTextView: NSTextView {
     }
 
     override func paste(_ sender: Any?) {
-        if let images = NSPasteboard.general.readObjects(forClasses: [NSImage.self]) as? [NSImage], !images.isEmpty,
-           NSPasteboard.general.string(forType: .string) == nil, onPasteImages?(images) == true {
-            return
+        let pasteboard = NSPasteboard.general
+        if MacComposerAttachment.pasteboardPrefersImages(pasteboard) {
+            let images = MacComposerAttachment.images(on: pasteboard)
+            if !images.isEmpty, onPasteImages?(images) == true { return }
         }
         super.paste(sender)
     }
@@ -165,7 +203,7 @@ final class MacComposerView: MacFlippedView, NSTextViewDelegate {
         }
         textView.onPasteImages = { [weak self] images in
             guard let self else { return false }
-            images.forEach { self.addImage($0) }
+            images.forEach { self.addAttachment($0) }
             return true
         }
         textView.registerForDraggedTypes([.fileURL, .png, .tiff])
@@ -379,10 +417,8 @@ final class MacComposerView: MacFlippedView, NSTextViewDelegate {
         delegate?.composerDidChangeText(self)
     }
 
-    func addImage(_ image: NSImage) {
-        guard let tiff = image.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
-              let png = rep.representation(using: .png, properties: [:]) else { return }
-        let attachment = MacComposerAttachment(image: image, data: png, mimeType: "image/png")
+    func addAttachment(_ attachment: MacComposerAttachment) {
+        let image = attachment.image
         attachments.append(attachment)
         let container = MacFlippedView()
         let imageView = NSImageView(image: image)
@@ -432,21 +468,20 @@ final class MacComposerView: MacFlippedView, NSTextViewDelegate {
     // MARK: Drag and drop
 
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        imageItems(sender).isEmpty ? [] : .copy
+        canAcceptImages(sender) ? .copy : []
     }
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-        let images = imageItems(sender)
-        images.forEach { addImage($0) }
+        let images = MacComposerAttachment.images(on: sender.draggingPasteboard)
+        images.forEach { addAttachment($0) }
         return !images.isEmpty
     }
 
-    private func imageItems(_ sender: any NSDraggingInfo) -> [NSImage] {
+    /// Checks types only; decoding every dragged file on each hover is slow.
+    private func canAcceptImages(_ sender: any NSDraggingInfo) -> Bool {
         let options: [NSPasteboard.ReadingOptionKey: Any] = [.urlReadingContentsConformToTypes: [UTType.image.identifier]]
-        if let urls = sender.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: options) as? [URL], !urls.isEmpty {
-            return urls.compactMap { NSImage(contentsOf: $0) }
-        }
-        return (sender.draggingPasteboard.readObjects(forClasses: [NSImage.self]) as? [NSImage]) ?? []
+        return sender.draggingPasteboard.canReadObject(forClasses: [NSURL.self], options: options)
+            || sender.draggingPasteboard.canReadObject(forClasses: [NSImage.self])
     }
 }
 

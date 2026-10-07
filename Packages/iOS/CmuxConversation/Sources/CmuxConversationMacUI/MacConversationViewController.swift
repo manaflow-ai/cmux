@@ -742,7 +742,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         guard let window = view.window else { return }
         panel.beginSheetModal(for: window) { [weak self] response in
             guard response == .OK else { return }
-            for url in panel.urls { if let image = NSImage(contentsOf: url) { self?.composer.addImage(image) } }
+            for url in panel.urls { if let attachment = MacComposerAttachment.fromFile(url) { self?.composer.addAttachment(attachment) } }
         }
     }
 
