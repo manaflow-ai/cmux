@@ -157,7 +157,7 @@ When we change the fork, update this document and the parent submodule SHA.
   `ideograph fallback sizing fills two primary cells` plus
   `ideograph fallback sizing keeps the primary ASCII height by default`.
   The test-only commit fails with `expected 1.25, found 1.75`; the fixed head
-  passes 75 tests locally. Hosted [run 37437551741](https://github.com/manaflow-ai/cmux/actions/runs/37437551741)
+  passes 75 tests locally. Hosted [run 37566676819](https://github.com/manaflow-ai/cmux/actions/runs/37566676819)
   passed the Ghostty filters and published GhosttyKit.
 - Artifact: https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-01f4e0fe2d8c492a5b61d0e316c3086d644ca8aa-crashsubdir-cmux-crash-sentry-off-noi18n-v2
 - SHA-256 `6bae252ae9ec57b5135dc58f8c78dbaeaf01611c3c3e18e75b6e1993dffab5ec`
