@@ -132,3 +132,21 @@ const ASPECTS: [number, number][] = [
 export function imageSize(rng: Rng): [number, number] {
   return pick(rng, ASPECTS);
 }
+
+const MENTION_TEMPLATES = [
+  "{m} can you take a look at {file}?",
+  "{m} what do you think about {thing}?",
+  "thanks {m}!",
+  "looping in {m} on {thing}",
+  "{m} 👀",
+  "{m} is this the same bug you saw yesterday?",
+  "nice work {m}, {thing} feels way better",
+  "{m} do you have a sec to review the {thing} PR?",
+];
+
+/** A message mentioning `name`; returns the text and the UTF-16 offset of the name. */
+export function mentionText(rng: Rng, name: string): { text: string; location: number } {
+  const template = fill(rng, pick(rng, MENTION_TEMPLATES));
+  const location = template.indexOf("{m}");
+  return { text: template.replace("{m}", name), location };
+}

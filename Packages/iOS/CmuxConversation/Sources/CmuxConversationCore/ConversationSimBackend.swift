@@ -30,6 +30,7 @@ public final class ConversationSimBackend: ConversationBackend, @unchecked Senda
         var params: [String: Any] = ["clientMessageId": draft.clientMessageID, "text": draft.text]
         if let replyTo = draft.replyToID { params["replyToId"] = replyTo }
         if !draft.attachmentIDs.isEmpty { params["attachmentIds"] = draft.attachmentIDs }
+        if !draft.mentions.isEmpty { params["mentions"] = draft.mentions.map(WireDecoding.wireMention) }
         let result = try await core.request("send", params: JSONBox(params), timeout: .seconds(15)).value
         return try await core.decodeMessage(JSONBox(result["message"] as? [String: Any] ?? [:]))
     }
@@ -318,8 +319,19 @@ enum WireDecoding {
             editedAt: date(raw["editedAt"]),
             reactions: reactions,
             attachments: attachments,
-            delivery: delivery
+            delivery: delivery,
+            mentions: (raw["mentions"] as? [[String: Any]] ?? []).compactMap(mention)
         )
+    }
+
+    static func mention(_ raw: [String: Any]) -> ConversationMention? {
+        guard let participant = raw["participantId"] as? String,
+              let location = raw["location"] as? Int, let length = raw["length"] as? Int else { return nil }
+        return ConversationMention(participantID: participant, location: location, length: length)
+    }
+
+    static func wireMention(_ mention: ConversationMention) -> [String: Any] {
+        ["participantId": mention.participantID, "location": mention.location, "length": mention.length]
     }
 
     static func attachment(_ raw: [String: Any], base: URL) -> ConversationAttachment? {

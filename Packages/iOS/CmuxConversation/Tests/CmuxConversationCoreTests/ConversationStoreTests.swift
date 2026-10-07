@@ -310,6 +310,7 @@ final class ScriptedBackend: ConversationBackend, @unchecked Sendable {
         var message = makeMessage(seq: total + 1, sender: "me")
         message.clientMessageID = draft.clientMessageID
         message.text = draft.text
+        message.mentions = draft.mentions
         message.delivery = .sent
         if stampAcksWithServerNow { message.sentAt = Date().addingTimeInterval(5) }
         return message

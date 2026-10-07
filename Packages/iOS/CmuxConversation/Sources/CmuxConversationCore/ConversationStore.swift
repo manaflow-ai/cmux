@@ -403,9 +403,15 @@ public final class ConversationStore {
 
     /// Appends the optimistic row at once, then uploads and sends.
     @discardableResult
-    public func send(text: String, images: [(data: Data, width: Int, height: Int, mimeType: String)] = [], replyToID: String? = nil) -> String? {
+    public func send(
+        text: String,
+        images: [(data: Data, width: Int, height: Int, mimeType: String)] = [],
+        replyToID: String? = nil,
+        mentions: [ConversationMention] = []
+    ) -> String? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard (!trimmed.isEmpty || !images.isEmpty), let meID else { return nil }
+        let leading = text.prefix { $0.isWhitespace || $0.isNewline }.utf16.count
         let clientID = makeClientMessageID()
         let attachments = images.enumerated().map { offset, image in
             ConversationAttachment(
@@ -426,7 +432,8 @@ public final class ConversationStore {
             text: trimmed,
             replyToID: replyToID,
             attachments: attachments,
-            delivery: .sending
+            delivery: .sending,
+            mentions: ConversationMentionEditing.trimmed(mentions, removedPrefix: leading, textLength: trimmed.utf16.count)
         )
         upsert(pending)
         sortAndReindex()
@@ -483,7 +490,8 @@ public final class ConversationStore {
                     clientMessageID: clientID,
                     text: current.text,
                     replyToID: current.replyToID,
-                    attachmentIDs: attachmentIDs
+                    attachmentIDs: attachmentIDs,
+                    mentions: current.mentions
                 )
                 var acked = try await self.backend.send(draft)
                 if acked.delivery == nil { acked.delivery = .sent }
@@ -537,6 +545,7 @@ public final class ConversationStore {
         guard !trimmed.isEmpty, let index = indexByID[messageID], messages[index].text != trimmed else { return }
         let original = messages[index]
         messages[index].text = trimmed
+        messages[index].mentions = ConversationMentionEditing.surviving(original.mentions, oldText: original.text, newText: trimmed)
         messages[index].editedAt = Date()
         notify(.live(insertedRowIDs: [], sentByMe: false))
         Task { [weak self] in
