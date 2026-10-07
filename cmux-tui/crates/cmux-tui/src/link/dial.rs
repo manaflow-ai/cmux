@@ -82,8 +82,9 @@ pub(super) async fn serve_dial_line<C, O, S>(
         }
         return reply(&mut caller, DialReply::failed(DialError::UnknownHost)).await;
     };
-    // A paired peer serves only its daemon entry; ssh is a Cloud service.
-    if request.service != Service::Daemon {
+    // A paired peer serves its daemon entry, and its owner session to the
+    // owner (the far link decides who that is); ssh is a Cloud service.
+    if !matches!(request.service, Service::Daemon | Service::OwnerSession) {
         return reply(&mut caller, DialReply::failed(DialError::NotAuthorized)).await;
     }
     let remote = SocketAddr::new(IpAddr::V6(record.overlay_address()), LINK_PORT);

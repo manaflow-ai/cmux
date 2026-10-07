@@ -308,9 +308,14 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
-      # actions: read lets the probe read the cmux-tui artifacts runs.
-      actions: read
-      contents: read
+      # actions: read lets the probe read the cmux-tui artifacts runs. A
+      # same-repository pull request whose merge tree is not published also
+      # dispatches one cmux-tui artifacts run (actions: write) on a
+      # cmux-tui-pin-<sha12> ref it creates (contents: write). Fork pull
+      # requests never dispatch (CMUX_TUI_TREE_DISPATCH is empty for them) and
+      # GitHub gives them a read-only token whatever this block says.
+      actions: write
+      contents: write
       pull-requests: read
     outputs:
       native: ${{ steps.route.outputs.native }}
@@ -363,9 +368,10 @@ jobs:
         env:
           # Push and dispatch runs: the pushed commit's artifacts runs publish
           # the tree. A pull request: the base push's runs when its merge keeps
-          # the base tree, else its own pull_request_target runs.
+          # the base tree, else one artifacts run this probe dispatches for the
+          # merge tree (same-repository pull requests only).
           CMUX_TUI_TREE_PUBLISHER_SHA: ${{ github.event_name != 'pull_request' && github.sha || '' }}
-          CMUX_TUI_TREE_PR_NUMBER: ${{ github.event.pull_request.number }}
+          CMUX_TUI_TREE_DISPATCH: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && '1' || '' }}
           CMUX_TUI_TREE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           GH_TOKEN: ${{ github.token }}
         run: scripts/cmux-next/pin-cmux-tui.sh probe
@@ -427,7 +433,7 @@ jobs:
         if: steps.marker-upload.outcome == 'success'
         env:
           CMUX_TUI_TREE_PUBLISHER_SHA: ${{ github.event_name != 'pull_request' && github.sha || '' }}
-          CMUX_TUI_TREE_PR_NUMBER: ${{ github.event.pull_request.number }}
+          CMUX_TUI_TREE_DISPATCH: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && '1' || '' }}
           CMUX_TUI_TREE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           CMUX_TUI_TREE_RECHECK_SECONDS: "0"
           GH_TOKEN: ${{ github.token }}
@@ -1112,9 +1118,6 @@ jobs:
           # Push and dispatch runs fail fast when the artifacts runs for this
           # commit were cancelled or superseded (pin-cmux-tui.sh --help).
           CMUX_TUI_TREE_PUBLISHER_SHA: ${{ inputs.same_tree_sha == '' && github.event_name != 'pull_request' && github.sha || '' }}
-          # The probe's tree: the PR head's when nothing publishes the merge tree (fetch checks it).
-          CMUX_TUI_TREE_KEY: ${{ needs.path_route.outputs.tree_key }}
-          CMUX_TUI_TREE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           GH_TOKEN: ${{ github.token }}
         run: scripts/cmux-next/pin-cmux-tui.sh fetch
 
@@ -1561,9 +1564,6 @@ jobs:
           # Push and dispatch runs fail fast when the artifacts runs for this
           # commit were cancelled or superseded (pin-cmux-tui.sh --help).
           CMUX_TUI_TREE_PUBLISHER_SHA: ${{ inputs.same_tree_sha == '' && github.event_name != 'pull_request' && github.sha || '' }}
-          # The probe's tree: the PR head's when nothing publishes the merge tree (fetch checks it).
-          CMUX_TUI_TREE_KEY: ${{ needs.path_route.outputs.tree_key }}
-          CMUX_TUI_TREE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           GH_TOKEN: ${{ github.token }}
         run: scripts/cmux-next/pin-cmux-tui.sh fetch
 
