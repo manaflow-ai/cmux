@@ -80,10 +80,16 @@ Crate API (Unix and Windows behind cfg):
   user (see experiment 2).
 - `Listener::accept()` checks the peer: Windows `WSAIoctl
   SIO_AF_UNIX_GETPEERPID`, then `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)`
-  and the process token's `TokenUser` SID must equal ours; otherwise the
-  connection is closed and refused (the rule Unix applies with
-  `getpeereid`/`SO_PEERCRED`, `peer_may_connect`: owner, or root/SYSTEM is not
-  admitted on Windows unless the coordinator decides so).
+  and the process token: `TokenUser` SID must equal ours, and the token must
+  not be sandboxed (coordinator): integrity (`TokenIntegrityLevel`) at least
+  Medium, and not an AppContainer (`TokenIsAppContainer`). A Low-integrity or
+  AppContainer process of the same user (a Chromium/CEF renderer) is
+  refused. Otherwise the connection is closed and refused. The Unix rule
+  (`getpeereid`/`SO_PEERCRED`, `peer_may_connect`: owner or root) is not
+  changed; cmux-next's Unix daemon has no sandbox check (macOS App Sandbox
+  peers are not told apart), and the SDK's Unix client checks no peer at
+  all today (it relies on the socket directory's mode): reported, not
+  changed.
 - Sockets are not inherited by child processes (experiment 1).
 
 Users of the crate:
@@ -126,17 +132,22 @@ Tests (crate, hosted `test-windows` in `cmux-tui-sdks.yml` and
 `cmux-tui.yml`; red first):
 
 - Not inherited (experiment 1 as a test); peer pid; deadline and poll checks.
-- The peer SID check as a pure function (`peer_allowed(peer_sid, our_sid)`)
-  with fake SIDs: other user refused, same user admitted, SYSTEM and
-  Administrators refused.
+- The peer check as a pure function (`peer_allowed(peer, ours)` over the
+  peer's user SID, integrity level and AppContainer flag) with fake values:
+  other user refused, same user Medium/High admitted, same user Low or
+  Untrusted refused, AppContainer refused, SYSTEM and Administrators refused.
+- A real Low-integrity peer of the same user: the test starts a child with
+  a restricted token (`CreateRestrictedToken`, then `SetTokenInformation
+  (TokenIntegrityLevel, Low)`, `CreateProcessAsUserW`); the listener must
+  refuse it. No extra account; runs on the hosted runner and the Windows VM.
 - A directory with a wider ACL (Everyone read, or an inherited ACE) and a
   directory owned by another SID: `listen` refuses both; a socket file whose
   owner is not the token user: `connect_same_user` refuses.
 - A real peer of another user: no second account (coordinator: creating one
   is a host-access change). Options, in order: the pure-function test above
   (always); on the hosted Windows runner (an ephemeral admin VM) a peer
-  started as LocalService or SYSTEM through a short-lived scheduled task or
-  service, which are other SIDs without a new account; a restricted or
+  started as LocalService through a short-lived scheduled task (an other
+  SID without a new account), deleted in an `always()` step; a restricted or
   low-integrity token does not change the user SID, so it cannot stand in
   for another user. If the coordinator wants it on the Windows VM too, a
   SYSTEM scheduled task is the same method there (a decision: it is not an
@@ -246,12 +257,10 @@ for 32-bit processes in v1; foreground = newest live descendant (a
 heuristic); Job Object per terminal with `IsProcessInJob` on one handle;
 `test-windows` jobs; no new Windows account.
 
-Open:
+Also taken: the real other-user peer test runs on the hosted Windows runner
+only (no SYSTEM or LocalService tasks on the shared VM); the socket owner is
+always our token user (`listen` sets it); signing is raised before the
+artifact step; peers below Medium integrity or in an AppContainer are
+refused.
 
-1. A real other-user peer test: on the hosted Windows runner only (a
-   LocalService/SYSTEM peer through a scheduled task), or also on the
-   Windows VM (the same method, code running as SYSTEM there).
-2. Elevated clients: admit an Administrators-owned socket for an elevated
-   client, or always require the token user as owner (this note: always the
-   token user; `listen` sets it).
-3. Signed or unsigned Windows binaries for the tree publication.
+Open: none for steps 1-2.
