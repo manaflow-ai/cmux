@@ -1,3 +1,4 @@
+import CmuxNextIcons
 import SwiftUI
 
 /// What a request asks, above its controls: the command, the diff, the
@@ -42,7 +43,7 @@ struct FeedPromptSummary: View {
             if full && !review.checklist.isEmpty {
                 VStack(alignment: .leading, spacing: 3) {
                     ForEach(review.checklist, id: \.self) { line in
-                        Label(line, systemImage: "circle").font(.system(size: 11.5)).foregroundStyle(colors.secondary)
+                        FeedIconLabel(line, icon: .listBulletItem, textSize: 11.5).font(.system(size: 11.5)).foregroundStyle(colors.secondary)
                     }
                 }
             }
@@ -61,7 +62,7 @@ struct FeedPromptSummary: View {
 
     private func origin(_ host: String, _ reason: String) -> some View {
         VStack(alignment: .leading, spacing: 3) {
-            Label(host.replacingOccurrences(of: "https://", with: ""), systemImage: "lock")
+            FeedIconLabel(host.replacingOccurrences(of: "https://", with: ""), icon: .securityLock, textSize: 12)
                 .font(.system(size: 12, weight: .medium, design: .monospaced))
                 .foregroundStyle(colors.primary)
             Text(reason).font(.system(size: 12)).foregroundStyle(colors.secondary)
@@ -101,7 +102,7 @@ struct FeedDiffPreview: View {
         let lines = (attachment.text ?? "").split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
         let shown = maxLines.map { Array(lines.prefix($0)) } ?? lines
         VStack(alignment: .leading, spacing: 0) {
-            Label(attachment.name, systemImage: "doc.text")
+            FeedIconLabel(attachment.name, icon: .fileText, textSize: 11)
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(colors.secondary)
                 .padding(.horizontal, 9).padding(.vertical, 6)

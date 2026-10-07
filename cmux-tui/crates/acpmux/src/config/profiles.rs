@@ -27,6 +27,17 @@ use serde::{Deserialize, Serialize};
 
 use super::{DeclaredModel, HarnessKind, HarnessProfile, PermissionPolicy};
 
+#[path = "profile_env.rs"]
+mod env_refs;
+#[path = "profile_sessions.rs"]
+mod sessions;
+use env_refs::is_reference;
+pub use env_refs::{has_env_refs, keychain_lookup, resolve_env_refs};
+pub use sessions::{
+    FieldSelector, SESSION_BUILTIN_ADAPTERS, SESSION_DATA_ADAPTERS, SESSION_FIELDS, SessionsResume,
+    SessionsSpec, check_sessions,
+};
+
 /// Largest profile file read, in bytes.
 pub const MAX_PROFILE_BYTES: u64 = 64 * 1024;
 /// Largest icon file accepted, in bytes.
@@ -144,175 +155,6 @@ pub struct AuthNotes {
     pub docs: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub check: Vec<String>,
-}
-
-/// Built-in chat store adapters (Rust code in the device chat index).
-pub const SESSION_BUILTIN_ADAPTERS: &[&str] =
-    &["claude-code", "codex", "opencode", "pi", "gemini", "cursor-agent", "amp", "aider"];
-/// Data-only adapters a profile describes completely.
-pub const SESSION_DATA_ADAPTERS: &[&str] = &["jsonl", "json", "sqlite"];
-/// Index fields a `sessions.fields` table may map.
-pub const SESSION_FIELDS: &[&str] = &["id", "title", "cwd", "created", "updated", "count"];
-
-/// One `sessions.fields` selector, or a list where the first non-empty wins.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(untagged)]
-pub enum FieldSelector {
-    One(String),
-    FirstOf(Vec<String>),
-}
-
-impl FieldSelector {
-    pub fn selectors(&self) -> Vec<&str> {
-        match self {
-            Self::One(s) => vec![s.as_str()],
-            Self::FirstOf(list) => list.iter().map(String::as_str).collect(),
-        }
-    }
-}
-
-/// How the index reopens one chat.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct SessionsResume {
-    /// `{id}`, `{cwd}` and `{path}` are replaced.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub argv: Vec<String>,
-    /// Run folder: `{cwd}` or `any`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cwd: Option<String>,
-    /// Resume through acpmux adopt (ACP) instead of a command.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub adopt: Option<bool>,
-}
-
-/// Where a harness keeps its chats (ALL-CHATS-ON-DEVICE C2/C3; schema from
-/// the all-chats lane, `.cmux-scratch/nx-all-chats/DESIGN.md` section 5).
-/// Validated here, read by the device chat index.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct SessionsSpec {
-    /// A built-in adapter, or `jsonl` | `json` | `sqlite` for a data-only one.
-    pub adapter: String,
-    /// Store roots: `${VAR}` / `${VAR:-default}` read the login env, `~` = home.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub roots: Vec<String>,
-    /// Wrapper layouts: each match is one more root; `*` is the account label.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub layouts: Vec<String>,
-    /// File glob under each root (data-only adapters).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub files: Option<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub exclude: Vec<String>,
-    /// Index field -> selector (`file.stem`, `file.mtime`, `first:<ptr>`,
-    /// `last:<ptr>`, `count:<ptr>=<value>`), jsonl/json only.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub fields: BTreeMap<String, FieldSelector>,
-    /// One read-only query (sqlite only).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub query: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub resume: Option<SessionsResume>,
-}
-
-/// The problems in a sessions block, as messages.
-pub fn check_sessions(s: &SessionsSpec) -> Vec<String> {
-    let mut out = Vec::new();
-    let builtin = SESSION_BUILTIN_ADAPTERS.contains(&s.adapter.as_str());
-    let data = SESSION_DATA_ADAPTERS.contains(&s.adapter.as_str());
-    if !builtin && !data {
-        out.push(format!(
-            "sessions.adapter {:?} is unknown; use one of {}, {}",
-            s.adapter,
-            SESSION_BUILTIN_ADAPTERS.join(", "),
-            SESSION_DATA_ADAPTERS.join(", ")
-        ));
-        return out;
-    }
-    if builtin {
-        if s.files.is_some() || !s.exclude.is_empty() || !s.fields.is_empty() || s.query.is_some() {
-            out.push(format!(
-                "sessions: the built-in adapter {:?} takes only roots, layouts and resume",
-                s.adapter
-            ));
-        }
-    } else {
-        if s.roots.is_empty() && s.layouts.is_empty() {
-            out.push("sessions: a data-only adapter needs roots or layouts".into());
-        }
-        if s.files.as_deref().is_none_or(|f| f.trim().is_empty()) {
-            out.push("sessions.files: a data-only adapter needs a file glob".into());
-        }
-    }
-    if s.adapter == "sqlite" {
-        if !s.fields.is_empty() {
-            out.push("sessions.fields: the sqlite adapter names columns in query instead".into());
-        }
-        match &s.query {
-            None => out.push("sessions.query: the sqlite adapter needs a query".into()),
-            Some(q) => {
-                let upper = q.trim_start().to_ascii_uppercase();
-                let read_only = (upper.starts_with("SELECT") || upper.starts_with("WITH"))
-                    && ![
-                        "ATTACH", "PRAGMA", "INSERT", "UPDATE", "DELETE", "DROP", "CREATE",
-                        "ALTER", "REPLACE", "VACUUM",
-                    ]
-                    .iter()
-                    .any(|w| {
-                        upper
-                            .split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
-                            .any(|t| t == *w)
-                    })
-                    && !q.trim_end().trim_end_matches(';').contains(';');
-                if !read_only {
-                    out.push("sessions.query must be one read-only SELECT".into());
-                }
-            }
-        }
-    } else if !builtin {
-        if s.query.is_some() {
-            out.push("sessions.query is only for the sqlite adapter".into());
-        }
-        if !s.fields.contains_key("id") {
-            out.push("sessions.fields needs id".into());
-        }
-    }
-    for (k, sel) in &s.fields {
-        if !SESSION_FIELDS.contains(&k.as_str()) {
-            out.push(format!(
-                "sessions.fields: unknown field {k:?}; use {}",
-                SESSION_FIELDS.join(", ")
-            ));
-        }
-        for one in sel.selectors() {
-            let ok = one == "file.stem"
-                || one == "file.mtime"
-                || one.strip_prefix("first:").is_some_and(|p| p.starts_with('/'))
-                || one.strip_prefix("last:").is_some_and(|p| p.starts_with('/'))
-                || one
-                    .strip_prefix("count:")
-                    .is_some_and(|p| p.starts_with('/') && p.contains('='));
-            if !ok {
-                out.push(format!(
-                    "sessions.fields.{k}: selector {one:?} is not file.stem, file.mtime, first:/ptr, last:/ptr or count:/ptr=value"
-                ));
-            }
-        }
-    }
-    if let Some(r) = &s.resume {
-        let adopt = r.adopt == Some(true);
-        if adopt != r.argv.is_empty() {
-            out.push("sessions.resume needs exactly one of argv or adopt = true".into());
-        }
-        if let Some(cwd) = &r.cwd
-            && cwd != "{cwd}"
-            && cwd != "any"
-        {
-            out.push(format!("sessions.resume.cwd {cwd:?} must be \"{{cwd}}\" or \"any\""));
-        }
-    }
-    out
 }
 
 /// Catalog metadata for one declared model (M2 user layer input).
@@ -952,10 +794,6 @@ pub fn secret_looking(key: &str) -> bool {
         .any(|w| k.contains(w))
 }
 
-fn is_reference(value: &str) -> bool {
-    value.contains("${keychain:") || value.contains("${env:")
-}
-
 /// JSON with `//` and `/* */` comments, comments removed (strings kept).
 fn strip_json_comments(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
@@ -1000,106 +838,6 @@ fn strip_json_comments(text: &str) -> String {
         }
     }
     out
-}
-
-// ------------------------------------------------------- env references
-
-/// Replace `${keychain:…}` and `${env:…}` in env values with their values.
-/// `lookup_env` reads the login environment; `lookup_keychain` reads one
-/// secret by (service, account). An unresolved reference is an error that
-/// names the key and the item, never a value.
-pub fn resolve_env_refs(
-    env: &mut BTreeMap<String, String>,
-    lookup_env: &dyn Fn(&str) -> Option<String>,
-    lookup_keychain: &dyn Fn(&str, Option<&str>) -> Result<String, String>,
-) -> Result<(), String> {
-    for (key, value) in env.iter_mut() {
-        if !is_reference(value) {
-            continue;
-        }
-        let mut out = String::new();
-        let mut rest = value.as_str();
-        while let Some(start) = rest.find("${") {
-            out.push_str(&rest[..start]);
-            let after = &rest[start + 2..];
-            let Some(end) = after.find('}') else {
-                out.push_str(&rest[start..]);
-                rest = "";
-                break;
-            };
-            let inner = &after[..end];
-            if let Some(var) = inner.strip_prefix("env:") {
-                let v = lookup_env(var).ok_or_else(|| {
-                    format!("env {key}: ${{env:{var}}} is not set in the login environment")
-                })?;
-                out.push_str(&v);
-            } else if let Some(item) = inner.strip_prefix("keychain:") {
-                let (service, account) = match item.split_once('/') {
-                    Some((s, a)) => (s, Some(a)),
-                    None => (item, None),
-                };
-                let v = lookup_keychain(service, account)
-                    .map_err(|e| format!("env {key}: Keychain item {item:?}: {e}"))?;
-                out.push_str(&v);
-            } else {
-                // `${cwd}`, `${model}`… are expanded elsewhere.
-                out.push_str(&rest[start..start + 2 + end + 1]);
-            }
-            rest = &after[end + 1..];
-        }
-        out.push_str(rest);
-        *value = out;
-    }
-    Ok(())
-}
-
-/// Whether any env value holds a reference that must be resolved.
-pub fn has_env_refs(env: &BTreeMap<String, String>) -> bool {
-    env.values().any(|v| is_reference(v))
-}
-
-/// The system secret store: `security` on macOS, `secret-tool` elsewhere.
-/// The value goes only to the caller; nothing is logged.
-pub fn keychain_lookup(service: &str, account: Option<&str>) -> Result<String, String> {
-    use wait_timeout::ChildExt;
-    let mut cmd = if std::env::consts::OS == "macos" {
-        let mut c = std::process::Command::new("/usr/bin/security");
-        c.args(["find-generic-password", "-s", service]);
-        if let Some(a) = account {
-            c.args(["-a", a]);
-        }
-        c.arg("-w");
-        c
-    } else {
-        let mut c = std::process::Command::new("secret-tool");
-        c.args(["lookup", "service", service]);
-        if let Some(a) = account {
-            c.args(["account", a]);
-        }
-        c
-    };
-    cmd.stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null());
-    let mut child = cmd.spawn().map_err(|e| format!("cannot run the secret store: {e}"))?;
-    match child.wait_timeout(std::time::Duration::from_secs(30)) {
-        Ok(Some(status)) if status.success() => {}
-        Ok(Some(_)) => {
-            return Err("not found (add it with `cmux harness secret set`)".into());
-        }
-        Ok(None) => {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err("the secret store did not answer in 30 s".into());
-        }
-        Err(e) => return Err(e.to_string()),
-    }
-    let out = child.wait_with_output().map_err(|e| e.to_string())?;
-    let mut value = String::from_utf8(out.stdout).map_err(|_| "not UTF-8".to_owned())?;
-    while value.ends_with('\n') || value.ends_with('\r') {
-        value.pop();
-    }
-    Ok(value)
 }
 
 #[cfg(test)]

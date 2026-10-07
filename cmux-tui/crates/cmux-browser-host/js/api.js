@@ -649,6 +649,8 @@
           // "crashed" (page.reload() loads it again).
           const row = { id: t.targetId, title: t.title, url: t.url, active: !!t.active, current: t.targetId === current, state: t.state || "live" };
           if (options && options.all) row.workspace = t.windowId === undefined ? null : t.windowId;
+          // In a store that keeps nothing (tabs.open(url, { incognito: true })).
+          if (t.incognito) row.incognito = true;
           return row;
         });
       },
@@ -702,7 +704,7 @@
       },
       async open(url, options = {}) {
         if (url !== undefined && url !== null && url !== "") ns.checkNavigableURL("tabs.open", url);
-        const page = await session.newPage(url, { background: !!options.background });
+        const page = await session.newPage(url, { background: !!options.background, ...(options.incognito === undefined ? {} : { incognito: !!options.incognito }) });
         if (url) await page.waitForLoadState("load").catch(() => {});
         await page._syncInfo().catch(() => {});
         if (!options.background) state.current = page;
