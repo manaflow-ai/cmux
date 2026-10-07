@@ -29,6 +29,10 @@ import Testing
         #expect(Set(snapshot.diagnostics.map(\.path)) == ["sidebar.sectionLook", "sidebar.topBandMaxShare", "sidebar.pinnedBandsScroll", "sidebar.showWorkspaceTabs"])
     }
 
+    @Test func chatsVisibilitySettingIsRegistered() {
+        #expect(SettingsSchema.all.contains { $0.id == "sidebar.showChats" })
+    }
+
     /// The S1 key is still read for one release when the new key is absent.
     @Test func countsAreOptIn() throws {
         #expect(try !parse("{}").sidebarSections.workspaceRow.base.shows(.tabCount))
