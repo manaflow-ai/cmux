@@ -27,6 +27,7 @@ let package = Package(
         .package(path: "../../Packages/Shared/CmuxTheme"),
         .package(path: "../../Packages/Shared/CmuxGhosttyKit"),
         .package(path: "../../Packages/iOS/CmuxMobileSupport"),
+        .package(path: "../../Packages/iOS/CmuxMobileSSH"),
         .package(path: "../../Packages/macOS/CmuxPhonePush"),
         .package(path: "../../vendor/stack-auth-swift-sdk-prerelease"),
     ],
@@ -147,6 +148,29 @@ let package = Package(
         .testTarget(
             name: "CmuxiOSFeatureKitTests",
             dependencies: ["CmuxiOSFeatureKit"],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // Lane C9 (plans/cmux-next/ios-next/c9-ssh.md): SSH hosts store,
+        // config import, known_hosts and TOFU, and the `.local` byte source.
+        // No UIKit, so its tests also run on macOS.
+        .target(
+            name: "CmuxiOSSSHCore",
+            dependencies: [
+                "CmuxiOSFeatureKit",
+                .product(name: "CmuxMobileSSH", package: "CmuxMobileSSH"),
+                .product(name: "CmuxTerminalRenderCore", package: "CmuxTerminalRenderCore"),
+                .product(name: "CmuxTerminalStream", package: "CmuxTerminalStream"),
+            ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .testTarget(
+            name: "CmuxiOSSSHCoreTests",
+            dependencies: [
+                "CmuxiOSSSHCore",
+                "CmuxiOSFeatureKit",
+                .product(name: "CmuxMobileSSH", package: "CmuxMobileSSH"),
+                .product(name: "CmuxTerminalRenderCore", package: "CmuxTerminalRenderCore"),
+            ],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         // Root navigation, placeholder screens, feature flags, DEV sources.
