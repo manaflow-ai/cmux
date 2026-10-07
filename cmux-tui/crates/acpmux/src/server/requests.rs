@@ -67,6 +67,7 @@ pub(super) async fn handle_request(
     if conn.origin != Origin::Local {
         super::remote_guard::check(hub, conn.origin, m, &mut params).await?;
     }
+    super::trust_gate::check(hub, conn.origin, m, &params).await?; // the folder-trust gate
     let key = super::session_key(&params).ok().map(str::to_owned);
     let mut reply = dispatch_request(hub, conn, m, params).await;
     super::remote_guard::after(hub, conn.origin, m, key.as_deref(), &mut reply);
@@ -218,6 +219,7 @@ async fn dispatch_request(
                 model: pick("model"),
                 effort: pick("effort"),
                 adopt,
+                env: crate::session_env::parse(meta)?,
                 // LocalApp = same-user secret, equal to the unix socket for STARTING presets; writes stay unix-socket only.
                 remote: conn.origin.web_class(),
             };
@@ -340,7 +342,8 @@ async fn dispatch_request(
                 .and_then(Value::as_str)
                 .or_else(|| params.get("name").and_then(Value::as_str))
                 .map(str::to_owned);
-            let new = hub.fork(&s, name, cwd).await?;
+            let env = crate::session_env::parse(mux_meta(&params))?;
+            let new = hub.fork(&s, name, cwd, env).await?;
             attach(hub, conn, &new.id);
             let meta = new.meta();
             Ok(
@@ -746,7 +749,16 @@ async fn dispatch_request(
         }
         method::MUX_INFO => {
             let s = hub.resolve(session_key(&params)?)?;
-            Ok(hub.session_detail(&s))
+            let mut detail = hub.session_detail(&s);
+            // The session env reaches the unix socket only: no summary or
+            // event carries it, so a key added to the allowlist later never
+            // reaches another origin by default (session_env.rs).
+            if conn.origin == Origin::Local
+                && let Some(obj) = detail.as_object_mut()
+            {
+                obj.insert("sessionEnv".into(), json!(s.meta().session_env));
+            }
+            Ok(detail)
         }
         method::MUX_WAIT => wait::wait(hub, &params).await,
         method::MUX_SCHEMA => {
@@ -773,25 +785,7 @@ async fn dispatch_request(
             Ok(hub.session_summary(&s))
         }
         method::ACP_TRUST_GET | method::ACP_TRUST_SET => {
-            let cwd = params.get("cwd").and_then(Value::as_str).unwrap_or_default().to_owned();
-            let level = params.get("level").and_then(Value::as_str).map(str::to_owned);
-            let setting = m == method::ACP_TRUST_SET;
-            // Small files, read and written off the runtime threads.
-            let reply = tokio::task::spawn_blocking(move || {
-                let paths = crate::trust::Paths::current()
-                    .ok_or_else(|| crate::trust::Failure::Record("no home directory".into()))?;
-                if setting {
-                    crate::trust::set(&paths, &cwd, level.as_deref().unwrap_or_default())
-                } else {
-                    crate::trust::get(&paths, &cwd)
-                }
-            })
-            .await
-            .map_err(|e| RpcError::internal(e.to_string()))?;
-            reply.map_err(|failure| match failure {
-                crate::trust::Failure::Invalid(message) => RpcError::invalid_params(message),
-                crate::trust::Failure::Record(message) => RpcError::internal(message),
-            })
+            super::trust_gate::answer(hub, m, &params).await
         }
         method::MUX_SET_RULES => {
             let s = hub.resolve(session_key(&params)?)?;
@@ -953,7 +947,10 @@ async fn dispatch_request(
         method::MUX_HANDOFF_PREPARE => hub.handoff_prepare(&params).await,
         method::MUX_HANDOFF_GET => hub.handoff_get(&params),
         method::MUX_HANDOFF_DRAFT => hub.handoff_draft(&params).await,
-        method::MUX_HANDOFF_START => hub.handoff_start(&params).await,
+        method::MUX_HANDOFF_START => {
+            let control = super::remote_guard::control_of(conn.origin, &params);
+            hub.handoff_start(&params, control).await
+        }
         method::MUX_HANDOFF_DISCARD => hub.handoff_discard(&params).await,
         // Anything else that names a session goes to the agent untouched, from the
         // unix socket only: an extension method may spawn or read (`remote_guard.rs`).
