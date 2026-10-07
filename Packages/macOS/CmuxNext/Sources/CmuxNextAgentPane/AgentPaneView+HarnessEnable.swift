@@ -25,8 +25,13 @@ extension AgentPaneView {
         lines.append(String(format: harnessEnableHash, show(prompt.sha256)))
         return CmuxDialogSpec(title: String(format: harnessEnableTitle, show(prompt.id)), lines: lines,
                               buttons: [.cancel(), CmuxDialogButton(id: "enable", title: harnessEnableButton, role: .destructive)],
-                              identifier: "agentPane.enableHarness")
+                              identifier: harnessEnableIdentifier)
     }
+
+    /// The sheet's dialog identifier. Only the user answers it: `debug.dialog` may dismiss it
+    /// (which refuses), never press Enable, so an agent with the debug socket cannot enable a
+    /// folder's program by itself.
+    public static let harnessEnableIdentifier = "agentPane.enableHarness"
 
     /// `%@` is the profile's id.
     static var harnessEnableTitle: String {
