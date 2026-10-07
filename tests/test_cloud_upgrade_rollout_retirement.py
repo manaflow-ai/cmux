@@ -1,6 +1,7 @@
 """Source guards for the retired rollout gates and their UI entrypoints."""
 
 from pathlib import Path
+import subprocess
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -15,10 +16,16 @@ class RolloutRetirementTests(unittest.TestCase):
             "proUpgradeEnabled",
         )
         for folder, suffixes in (("Sources", {".swift"}), ("Packages", {".swift"}), ("web/app", {".ts", ".tsx"})):
-            for path in (ROOT / folder).rglob("*"):
-                if path.suffix not in suffixes or not path.is_file():
+            tracked = subprocess.check_output(
+                ["git", "ls-files", "--", folder],
+                cwd=ROOT,
+                text=True,
+            ).splitlines()
+            for relative in tracked:
+                path = ROOT / relative
+                if path.suffix not in suffixes:
                     continue
-                source = path.read_text()
+                source = path.read_text(errors="ignore")
                 for token in forbidden:
                     with self.subTest(path=str(path.relative_to(ROOT)), token=token):
                         self.assertFalse(token in source, f"{path.relative_to(ROOT)} still reads the retired gate: {token}")

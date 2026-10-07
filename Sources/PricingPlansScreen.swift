@@ -190,7 +190,7 @@ private final class NativePricingWindowController: NSWindowController {
     }
 }
 
-private enum NativePricingPlanID: String, Decodable {
+private enum NativePricingPlanID: String, Decodable, Sendable {
     case free
     case go
     case pro
@@ -222,7 +222,7 @@ private struct NativeBillingPlanResponse: Decodable {
     }
 }
 
-private struct NativePricingSnapshot: Equatable {
+private struct NativePricingSnapshot: Equatable, Sendable {
     var authenticated = false
     var billingAvailable = true
     var planId: NativePricingPlanID = .free
@@ -233,9 +233,14 @@ private struct NativePricingSnapshot: Equatable {
     var isGo: Bool { planId == .go }
 }
 
+private struct NativeBillingTokens: Sendable {
+    let accessToken: String
+    let refreshToken: String
+}
+
 @MainActor
 private final class NativePricingPlanStore: ObservableObject {
-    enum LoadState: Equatable {
+    enum LoadState: Equatable, Sendable {
         case idle
         case loading
         case loaded(NativePricingSnapshot)
@@ -290,13 +295,24 @@ private final class NativePricingPlanStore: ObservableObject {
     }
 
     private static func loadPlanState() async -> LoadState {
+        let tokens = try? await AppDelegate.shared?.auth?.coordinator.currentTokens()
+        let billingTokens = tokens.map {
+            NativeBillingTokens(accessToken: $0.accessToken, refreshToken: $0.refreshToken)
+        }
+        return await loadPlanStateOffMain(billingTokens: billingTokens)
+    }
+
+    /// Performs the billing request and response decoding away from the main actor.
+    private nonisolated static func loadPlanStateOffMain(
+        billingTokens: NativeBillingTokens?
+    ) async -> LoadState {
         var request = URLRequest(url: AuthEnvironment.apiBaseURL.appendingPathComponent("api/billing/plan"))
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 
-        if let tokens = try? await AppDelegate.shared?.auth?.coordinator.currentTokens() {
-            request.setValue("Bearer \(tokens.accessToken)", forHTTPHeaderField: "Authorization")
-            request.setValue(tokens.refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
+        if let billingTokens {
+            request.setValue("Bearer \(billingTokens.accessToken)", forHTTPHeaderField: "Authorization")
+            request.setValue(billingTokens.refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
         }
 
         do {
