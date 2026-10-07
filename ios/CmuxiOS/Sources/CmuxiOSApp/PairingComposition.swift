@@ -49,7 +49,9 @@ struct PairingComposition {
         let mirror = TrustStoreMirror()
         await mirror.start(client: user, user: owner.user)
         let ops = ControlPlanePairingOps(client: user, mirror: mirror, account: account, signer: IdentityLinkSigner(identity: identity),
-                                         keys: KeychainDirectKeyStore(bundleID: bundleID, environment: owner.environment))
+                                         keys: KeychainDirectKeyStore(bundleID: bundleID, environment: owner.environment),
+                                         wireGuardKeys: KeychainDirectKeyStore(bundleID: bundleID, environment: owner.environment,
+                                                                               purpose: .wg))
         let presence = ControlPlaneHostPresence { host, team in
             client(path: "/v1/wire/host/\(host)", query: team.isEmpty ? nil : "team=\(team)", install: owner.install)
         }

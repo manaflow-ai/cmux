@@ -52,8 +52,9 @@ public actor MobileLinkHostRunner {
         let principal = try await account.principal()
         let keys = MobileLinkKeyStore(directory: options.keyDirectory)
         let direct = try DirectIdentity(privateKeyRepresentation: keys.privateKey(.direct))
-        let wireGuard = options.wireGuardOverWebRTC
-            ? try WireGuardPrivateKey(rawRepresentation: keys.privateKey(.wireGuard)) : nil
+        // The `wg` key is published either way, so phones pin it before the
+        // B3 DEV switch turns the acceptor on (the assembly gates the acceptor).
+        let wireGuard = try WireGuardPrivateKey(rawRepresentation: keys.privateKey(.wireGuard))
         let daemon = try await DaemonMobileDaemon.connect(hostID: principal.hostID, endpointProvider: endpointProvider)
         self.daemon = daemon
 
@@ -159,22 +160,29 @@ public actor MobileLinkHostRunner {
         }
     }
 
-    /// Publishes this Mac's `direct` (and with B3, `wg`) certificate with
-    /// its host id, so phones of the account pin the keys (b6-pairing.md 3).
+    /// Publishes this Mac's `direct` and `wg` certificates with its host id,
+    /// so phones of the account pin the keys (b6-pairing.md 3).
     private static func publish(principal: MobileLinkHostPrincipal, signer: any LinkKeySigning, direct: DirectIdentity,
-                                wireGuard: WireGuardPrivateKey?, client: ControlPlaneClient, logger: Logger) async {
+                                wireGuard: WireGuardPrivateKey, client: ControlPlaneClient, logger: Logger) async {
         let issuer = LinkCertificateIssuer(environment: principal.environment, user: principal.accountUserID,
                                            install: principal.install, signer: signer)
         let pairing = PairingClient(client: client)
-        do {
-            let cert = try await issuer.issue(purpose: .direct, key: direct.publicKey.rawRepresentation)
-            try await pairing.publish(cert, host: principal.hostID)
-            if let wireGuard {
+        // Ops need a negotiated socket (nothing queues): publish on the first
+        // connection, and again on the next one after a failure. This task is
+        // the only reader of `client.states`.
+        for await state in client.states {
+            guard case .connected = state else { continue }
+            do {
+                let cert = try await issuer.issue(purpose: .direct, key: direct.publicKey.rawRepresentation)
+                try await pairing.publish(cert, host: principal.hostID)
                 let wg = try await issuer.issue(purpose: .wg, key: wireGuard.publicKey.rawRepresentation)
                 try await pairing.publish(wg, host: principal.hostID)
+                return
+            } catch is CancellationError {
+                return
+            } catch {
+                logger.error("phone link: publishing link certificates failed: \(String(describing: error), privacy: .public)")
             }
-        } catch {
-            logger.error("phone link: publishing link certificates failed: \(String(describing: error), privacy: .public)")
         }
     }
 }

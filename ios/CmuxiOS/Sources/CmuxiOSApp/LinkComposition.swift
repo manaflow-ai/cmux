@@ -1,4 +1,5 @@
 import CmuxControlPlane
+import CmuxiOSFeatureKit
 import CmuxiOSIdentity
 import CmuxiOSPairingCore
 import CmuxiOSTerminalLink
@@ -24,17 +25,21 @@ struct LinkComposition {
     func bootstrap() async throws -> AccountLinkBootstrap {
         let runtime = try await pairing.sharedRuntime()
         let account = runtime.account
-        // Macs authorize the Noise key through its published cert (B4/B5).
-        try? await runtime.ops.ensureDirectKeyPublished()
+        // Macs authorize the Noise key (B4/B5) and the WireGuard key (B3) only
+        // through their published certs.
+        Self.publishWhenLive(runtime.ops, wireGuard: dev.wireGuardOverWebRTC)
         let direct = try DirectIdentity(
             privateKeyRepresentation: KeychainDirectKeyStore(bundleID: bundleID, environment: account.environment).privateKey())
         let installKey = try InstallKeyLinkIdentity(
             install: account.install, signer: SecureEnclaveInstallSigner(bundleID: bundleID, environment: account.environment))
-        let credentials = MobileDeviceCredentials(
+        var credentials = MobileDeviceCredentials(
             signer: installKey, client: HelloClient(install: account.install, platform: "ios", appVersion: appVersion),
-            direct: direct, webrtc: installKey,
-            // V2 needs a published `wg` cert, which B6 does not publish from the phone yet.
-            wireGuard: nil)
+            direct: direct, webrtc: installKey)
+        if dev.wireGuardOverWebRTC {
+            // V2 (DEV switch): the key the published `wg` cert names.
+            try? credentials.useWireGuardKey(rawRepresentation: KeychainDirectKeyStore(
+                bundleID: bundleID, environment: account.environment, purpose: .wg).privateKey())
+        }
         let pairing = self.pairing
         return AccountLinkBootstrap(
             credentials: credentials, mirror: runtime.mirror,
@@ -46,5 +51,22 @@ struct LinkComposition {
                 let relay = ControlPlaneSignaling(client: client)
                 return MobileHostSignaling(router: SignalRouter(channel: relay), iceServers: relay, close: { await client.stop() })
             })
+    }
+
+    /// Publishes this install's link certs once the account socket is live
+    /// (ops need a negotiated socket and nothing queues), retrying on the next
+    /// live connection after a failure.
+    private static func publishWhenLive(_ ops: any PairingOps, wireGuard: Bool) {
+        Task {
+            for await connection in await ops.connectionStates() where connection.isLive {
+                do {
+                    try await ops.ensureDirectKeyPublished()
+                    if wireGuard { try await ops.ensureWireGuardKeyPublished() }
+                    return
+                } catch {
+                    continue
+                }
+            }
+        }
     }
 }

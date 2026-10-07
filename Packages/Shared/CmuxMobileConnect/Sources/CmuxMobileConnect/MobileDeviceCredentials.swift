@@ -3,6 +3,7 @@ public import CmuxLinkWebRTC
 public import CmuxLinkWG
 public import CmuxMobileLink
 public import CmuxMobileWire
+public import Foundation
 
 /// This install's keys for every carrier (b6-pairing.md section 2): the
 /// install key signs `hello.auth` and WebRTC fingerprints (Secure Enclave on
@@ -27,5 +28,11 @@ public struct MobileDeviceCredentials: Sendable {
         self.direct = direct
         self.webrtc = webrtc
         self.wireGuard = wireGuard
+    }
+
+    /// Enables B3 with this install's raw X25519 `wg` key (the one its
+    /// published `wg` cert names; Macs authorize nothing else).
+    public mutating func useWireGuardKey(rawRepresentation: Data) throws {
+        wireGuard = try WireGuardPrivateKey(rawRepresentation: rawRepresentation)
     }
 }
