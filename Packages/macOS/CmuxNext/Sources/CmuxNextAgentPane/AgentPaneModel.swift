@@ -210,8 +210,8 @@ public final class AgentPaneModel {
                 handshake.linkScheme = linkScheme
                 handshake.machineName = await Self.localMachineName?.value
                 if sessionMustExist, sessionId != nil { handshake.sessionMustExist = true }
-                // An inherited or default `~` is no chat folder (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE).
-                if sessionId == nil, let cwd = handshake.cwd, isHomeOrAbove(cwd) { handshake.cwd = nil }
+                // An inherited or default `~`, or an agent-home folder, is no chat folder (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE).
+                if sessionId == nil, let cwd = handshake.cwd, isHomeOrAbove(cwd) || isAgentHome(cwd) { handshake.cwd = nil }
                 // A new chat with no folder starts in agent-home; the page offers Choose Folder….
                 if sessionId == nil, handshake.cwd == nil, primaryRoot() == nil, onChooseFolder != nil,
                    workspaceAgentHome?() != nil {

@@ -41,7 +41,6 @@ import { harnessProfiles } from "./harnessProfiles";
 import { MockAcpmuxSocket, mockHost, type MockScript } from "./mock";
 import { BridgeSocket } from "./bridgeSocket";
 import { useComposerKeyboard } from "./composerFocus";
-import { installTooltips } from "../../ui/titleTooltips";
 import { createAcpmuxDebug, type AcpmuxDebug } from "./debug";
 import { acpWire } from "./wire";
 import { acpmuxPerf } from "./perf";
@@ -86,6 +85,7 @@ import { SHORTCUT_ACTIONS, ShortcutsContext, readShortcuts, type ShortcutLabels 
 import { FALLBACK_LINK_SCHEME, revealTurnWhenShown, setLinkScheme } from "./links";
 import { copyText } from "./conversation/clipboard";
 import { sessionLink } from "./links";
+import { ChatHeaderStatus } from "./header/ChatHeaderStatus";
 import { ChatHeaderTools, HEADER_ACTIONS, type ChatMenuItem } from "./header/ChatHeaderTools";
 import { Thinking } from "./conversation/Thinking";
 import { WorkingFor } from "./conversation/WorkingFor";
@@ -95,7 +95,7 @@ import { MOVE_ROW, type ChatMove, withMoveRows } from "./shell/chatMoves";
 import { MoveRow } from "./shell/MoveRow";
 import { ShellActionsContext, ShellRow, type ShellActions } from "./shell/ShellRow";
 import { SwitchNotice } from "./SwitchNotice";
-import { FolderChoice } from "./FolderChoice";
+import { FolderChoice, showsFolderChoice } from "./FolderChoice";
 import { HandoffReviewMessage } from "./handoff/ReviewMessage";
 import { handoffStrings } from "./handoff/strings";
 import type { HandoffReviewInput } from "./handoff/review";
@@ -871,7 +871,6 @@ function DefaultComposerChips({ snapshot }: { snapshot: AcpmuxSnapshot }) {
 
 export function AcpmuxApp() {
   const [queryClient] = useState(createPaneQueryClient);
-  useEffect(() => installTooltips(document), []);
   return (
     <QueryClientProvider client={queryClient}>
       <AcpmuxPane />
@@ -963,12 +962,16 @@ function AcpmuxPane() {
   // A folder without a trust answer is asked about beside the chat's other permission asks as
   // soon as the chat's folder is known (a new chat's chosen one before its first prompt). No
   // prompt goes until the answer is Trust; acpmux refuses one that does (`trust_gate.rs`).
-  const trustAsk = useFolderTrustAsk(trustSource, {
-    sessionId: snapshot.sessionId,
-    cwd: snapshot.summary?.cwd ?? (snapshot.sessionId ? undefined : projectDraft),
-    family: snapshot.summary?.family || snapshot.summary?.harness,
-    prompts: snapshot.rows.filter((row) => row.kind === "user").length,
-  });
+  const trustAsk = useFolderTrustAsk(
+    trustSource,
+    {
+      sessionId: snapshot.sessionId,
+      cwd: snapshot.summary?.cwd ?? (snapshot.sessionId ? undefined : projectDraft),
+      family: snapshot.summary?.family || snapshot.summary?.harness,
+      prompts: snapshot.rows.filter((row) => row.kind === "user").length,
+    },
+    snapshot.origin !== "remote",
+  );
   trustRecheck.current = trustAsk.recheck;
   const individualPermission =
     snapshot.permission?.pending && !(snapshot.permissionGroups?.supported && snapshot.permission.groupId)
@@ -1494,6 +1497,7 @@ function AcpmuxPane() {
         if (cancelled) return;
         acpmuxPerf.markAgent("handshakeReady");
         setNewSession(host.newSession === true && !host.sessionId);
+        if (host.newSession && !host.sessionId && typeof host.cwd === "string" && host.cwd) setProjectDraft(host.cwd);
         setChooseFolder(host.chooseFolder === true);
         setHandshaken(true);
         if (
@@ -1714,12 +1718,8 @@ function AcpmuxPane() {
         acpmuxPerf.markAgent("composerReady");
         client.snapshot();
         void client.warmRecentProjects();
-        // A new chat owns a live process before the first keypress. Sending a
-        // prompt still joins this in-flight creation through ensureSession().
-        // A new-tab page stays empty until the user chooses a kind or sends a prompt.
-        // Other new chats still prewarm their process before the first keypress.
-        if (host.newSession && !host.adopt && !host.newTab && !pendingHarness)
-          void client.ensureSession().catch(() => undefined);
+        // New chats stay sessionless until the folder-trust question is answered.
+        // `chat.send` creates the session after Trust; no harness hooks can run first.
         // A resumed chat is the tab's session from the start, so restoring the tab reopens it.
         if (client.adopted) void persistSession(client.adopted);
         // A `#turn-<turnId>` link that opened this tab: scroll once the turn's row renders.
@@ -2016,7 +2016,7 @@ function AcpmuxPane() {
     <>
       <DictationNotice dictation={dictation} />
       <SwitchNotice switching={snapshot.switching} onRetry={() => void callNative("chat.harness.retry")} />
-      {chooseFolder && freshChat && !quick && !snapshot.sessionId && !projectDraft && (
+      {showsFolderChoice({ offered: chooseFolder, freshChat, quick, projectDraft, sessionId: snapshot.sessionId }) && (
         <FolderChoice
           error={folderError}
           onChoose={() => {
@@ -2129,7 +2129,7 @@ function AcpmuxPane() {
     );
   return (
     <ShortcutsContext.Provider value={shortcuts}>
-      <section className="acpmux-shell">
+      <section className="acpmux-shell" aria-label={composerSnapshot.summary?.title || t("header.agentChat")}>
         <div className="acpmux-main" data-new-chat={freshView && !showNewTab ? "" : undefined}>
           {showNewTab && newTab.layout === "b" ? (
             <NewTabScreen
@@ -2177,10 +2177,7 @@ function AcpmuxPane() {
             <>
               <div className={`acpmux-stage${diffFiles ? " acpmux-reviewing" : ""}`}>
                 <header className="acpmux-header">
-                  <div>
-                    <strong className="acpmux-title">{header.title}</strong>
-                    {header.status && <span className="acpmux-status">{header.status}</span>}
-                  </div>
+                  <ChatHeaderStatus status={header.status} detail={header.detail} />
                   <div className="acpmux-handoff-header-tools">
                     {preview && (
                       <span
