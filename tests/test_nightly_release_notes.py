@@ -424,5 +424,20 @@ class MetadataFallbackTests(unittest.TestCase):
                 NOTES.main()
 
 
+class WorkflowTests(unittest.TestCase):
+    def test_nightly_next_notes_read_prs_merged_into_feat_cmux_next(self):
+        # A nightly-next run is a push to the nightly-next branch, but its PRs
+        # merge into feat-cmux-next: with github.ref_name every publish listed
+        # 0 PRs (run 37611677848).
+        workflow = (ROOT / ".github/workflows/nightly.yml").read_text(encoding="utf-8")
+        step = workflow[workflow.index("- name: Prepare nightly release notes and appcast summaries"):]
+        step = step[:step.index("\n      - name:", 1)]
+        branch = re.search(r"NOTES_BRANCH: (.+)", step).group(1)
+        self.assertEqual(
+            branch,
+            "${{ needs.decide.outputs.track == 'nightly-next' && 'feat-cmux-next' || github.ref_name }}",
+        )
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
