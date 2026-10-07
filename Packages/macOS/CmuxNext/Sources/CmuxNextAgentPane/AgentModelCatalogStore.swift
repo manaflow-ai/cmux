@@ -59,7 +59,6 @@ public actor AgentModelCatalogStore {
     /// The catalog for a page request. `remote` false (cmux.json `agentPane.models.remoteCatalog`)
     /// answers from disk only.
     public func current(refresh: Bool, remote: Bool) async -> Result {
-        if !loaded { return Result(catalog: nil, delivery: nil, changed: false) } // red: not implemented
         loadDisk()
         if remote, endpoint != nil, shouldFetch(refresh: refresh) {
             if inFlight == nil {
