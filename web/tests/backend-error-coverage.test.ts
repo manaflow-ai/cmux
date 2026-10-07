@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import type { Event } from "@sentry/nextjs";
 import { context as otelContext, SpanStatusCode, trace } from "@opentelemetry/api";
 import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
@@ -257,11 +257,21 @@ describe("cron routes report failures and check in", () => {
 
   test("an intentionally unconfigured diagnostics job answers 503 but keeps its monitor healthy", async () => {
     diagnosticsOutcome = async () => ({ configured: false, delivered: 0 } as never);
-    const response = await cloudDiagnostics.GET(cronRequest("cloud-diagnostics"));
-    expect(response.status).toBe(503);
+    // reportError logs synchronously before its deferred Sentry send, so an
+    // absent log line proves no report was made.
+    const reportLogs: unknown[] = [];
+    const errorSpy = spyOn(console, "error").mockImplementation((...args: unknown[]) => { reportLogs.push(args[0]); });
+    const warnSpy = spyOn(console, "warn").mockImplementation((...args: unknown[]) => { reportLogs.push(args[0]); });
+    try {
+      const response = await cloudDiagnostics.GET(cronRequest("cloud-diagnostics"));
+      expect(response.status).toBe(503);
+    } finally {
+      errorSpy.mockRestore();
+      warnSpy.mockRestore();
+    }
     expect(checkIns.map((entry) => entry.checkIn.status)).toEqual(["in_progress", "ok"]);
-    // Give a deferred send the same chance a real report gets.
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(reportLogs).not.toContain("cmux.observability.error");
+    expect(reportLogs).toContain("cmux.cron.cloud_diagnostics.unconfigured");
     expect(events).toEqual([]);
   });
 
