@@ -48,3 +48,5 @@ jq -n \
 # Until the secrets land the Worker answers 503 "not configured" (src/index.ts).
 bunx wrangler deploy --config wrangler.generated.json --env "$TARGET"
 bunx wrangler secret bulk "$secrets" --config wrangler.generated.json --env "$TARGET"
+worker="$(jq -r --arg t "$TARGET" '.env[$t].name' wrangler.generated.json)"
+bash scripts/custom-domains.sh "$worker"
