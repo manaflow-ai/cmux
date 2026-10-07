@@ -42,5 +42,6 @@ export function newTabScreenActions(deps: {
     },
     onShowAll: deps.showAllChats,
     onTouched: () => ignore(callNative("newTab.touched")),
+    onAddHarness: () => ignore(callNative("action.run", { id: "palette.addHarness" })),
   };
 }

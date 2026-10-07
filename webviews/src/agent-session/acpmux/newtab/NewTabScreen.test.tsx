@@ -102,6 +102,28 @@ test("the field has the keyboard when the screen appears, and the cards show rec
   await act(async () => root.unmount());
 });
 
+test("a folder harness is offered as an agent only once enabled", async () => {
+  const folder = (state: string) => ({ folder: "/src/app", state });
+  const { container, root, type } = await mount({
+    snapshot: {
+      ...snapshot,
+      catalog: [
+        { id: "claude", name: "Claude Code", models: [] },
+        { id: "acme", name: "Acme Agent", models: [], folder: folder("needs-enable") },
+        { id: "lint-bot", name: "Lint Bot", models: [], folder: folder("enabled") },
+      ],
+    },
+  });
+  await type("fix the build");
+  const agents = [...container.querySelectorAll('.nt-row[data-type="agent"] .nt-row-title')].map(
+    (row) => row.textContent ?? "",
+  );
+  expect(agents.some((title) => title.includes("Claude Code"))).toBe(true);
+  expect(agents.some((title) => title.includes("Lint Bot"))).toBe(true);
+  expect(agents.some((title) => title.includes("Acme Agent"))).toBe(false);
+  await act(async () => root.unmount());
+});
+
 test("! puts the field in shell mode in place: no terminal, no rows, the cards stay", async () => {
   const { container, root, field, type, calls } = await mount();
   await type("!");

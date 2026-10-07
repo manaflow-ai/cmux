@@ -91,6 +91,8 @@ type Props = {
   onHarness?(harness: string): void;
   /// The pointer or keyboard rests on a harness row (undefined: it left them), for a prewarm hint.
   onHarnessHint?(harness: string | undefined): void;
+  /// Enables the chat folder's profile `id` (see ModelPickerProps.onHarnessEnable).
+  onHarnessEnable?(folder: string, id: string): void;
   /// The model picker's room for side submenus (tests pass a fixed one; see ModelPicker).
   measurePickerRoom?(menu: HTMLElement): number;
   /// The Plan/Build toggle lives in the composer's + menu in the default pane.
@@ -112,6 +114,7 @@ export function ComposerPickers({
   onEffort,
   onHarness,
   onHarnessHint,
+  onHarnessEnable,
   settleMs = RECENT_SETTLE_MS,
   settleTimer = browserSettleTimer,
   measurePickerRoom,
@@ -278,6 +281,7 @@ export function ComposerPickers({
           }}
           onHarness={onHarness}
           onHarnessHint={onHarnessHint}
+          onHarnessEnable={onHarnessEnable}
           harnessNotes={
             snapshot.switching?.phase === "failed"
               ? { [snapshot.switching.harness]: t("switch.failedShort") }

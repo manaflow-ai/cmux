@@ -21,6 +21,8 @@
 .nt-chats-tab.is-selected{color:var(--agent-text);font-weight:500}
 .nt-chats-all{margin-left:auto;display:flex;align-items:center;gap:2px;border:0;padding:0;background:none;color:var(--acpmux-composer-dim);font:inherit;font-size:12.5px;cursor:pointer}
 .nt-chats-all:hover{color:var(--agent-text)}
+.nt-add-harness{align-self:center;border:0;padding:4px 0;background:none;color:var(--acpmux-composer-dim);font:inherit;font-size:12.5px;cursor:pointer}
+.nt-add-harness:hover{color:var(--agent-text)}
 .nt-chats-empty{margin:8px 0 0;color:var(--acpmux-composer-dim);font-size:13px}
 .nt-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:8px}
 @container (max-width:520px){.nt-cards{grid-template-columns:minmax(0,1fr)}.nt-hint{display:none}}
