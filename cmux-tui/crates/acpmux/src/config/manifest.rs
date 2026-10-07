@@ -506,28 +506,6 @@ pub fn all() -> (BTreeMap<String, Loaded>, BTreeMap<String, Vec<Problem>>) {
     (manifests, failed)
 }
 
-/// A cheap stamp of the user folder (names, sizes and modification times),
-/// compared by the daemon's watcher to reload when a manifest changes.
-pub fn fingerprint(root: &Path) -> Vec<(PathBuf, u64, Option<std::time::SystemTime>)> {
-    let mut out = Vec::new();
-    let Ok(entries) = std::fs::read_dir(root) else {
-        return out;
-    };
-    for entry in entries.flatten() {
-        let dir = entry.path();
-        let Ok(files) = std::fs::read_dir(&dir) else {
-            continue;
-        };
-        for file in files.flatten() {
-            if let Ok(meta) = file.metadata() {
-                out.push((file.path(), meta.len(), meta.modified().ok()));
-            }
-        }
-    }
-    out.sort();
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -655,9 +633,6 @@ mod tests {
         let (loaded, failed) = load_dir(root);
         assert_eq!(loaded.keys().collect::<Vec<_>>(), ["fx"]);
         assert_eq!(failed.keys().collect::<Vec<_>>(), ["broken"]);
-        let before = fingerprint(root);
-        std::fs::write(good.join("icon.svg"), format!("{ICON}\n")).unwrap();
-        assert_ne!(before, fingerprint(root));
     }
 
     #[test]

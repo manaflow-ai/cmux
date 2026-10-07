@@ -16,6 +16,7 @@ dependencies = [
  "futures",
  "futures-util",
  "libc",
+ "notify",
  "pulldown-cmark",
  "ratatui",
  "regex",

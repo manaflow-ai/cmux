@@ -38,6 +38,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1.20", features = ["v7"] }
 libc = "0.2"
+notify.workspace = true
 base64 = "0.22"
 unicode-width = "0.2"
 wait-timeout.workspace = true
