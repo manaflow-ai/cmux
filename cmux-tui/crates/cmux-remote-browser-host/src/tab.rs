@@ -2,7 +2,9 @@
 //! presentation (the CEF shim) and control messages for the viewers out.
 //! Pure; the shim and the transport live outside.
 
-use cmux_remote_browser::menu::{MenuEffect, MenuInput, MenuTokens};
+use std::collections::BTreeMap;
+
+use cmux_remote_browser::menu::{MenuEffect, MenuInput, MenuReject, MenuTokens};
 use cmux_remote_browser::proto::{
     Control, InputEvent, Menu, MenuChoice, MenuItem, MenuKind, Rect, RefuseReason, SessionState,
 };
@@ -45,6 +47,8 @@ pub struct HostTab {
     fork_menu: Option<ForkMenu>,
     capture_wanted: bool,
     screen: Option<ScreenSize>,
+    /// Each open viewer's last screen seq (`rb.open` is seq 0).
+    viewer_seqs: BTreeMap<String, u32>,
 }
 
 fn flatten_ids(items: &[MenuItem], out: &mut Vec<i64>) {
@@ -68,6 +72,7 @@ impl HostTab {
             fork_menu: None,
             capture_wanted: false,
             screen: None,
+            viewer_seqs: BTreeMap::new(),
         }
     }
 
@@ -156,9 +161,11 @@ impl HostTab {
                     SessionInput::Open { viewer: viewer.to_string(), screen: screen.into() };
                 match self.session.apply(input) {
                     Ok(effects) => {
+                        self.viewer_seqs.insert(viewer.to_string(), 0);
                         let mut out =
                             vec![Control::Opened { session: self.session_id, main_stream: 0 }];
                         out.extend(self.run_effects(effects, p));
+                        out.extend(self.screen_applied(viewer));
                         out
                     }
                     Err(_) => vec![Control::Refused { reason: RefuseReason::Busy }],
@@ -177,17 +184,9 @@ impl HostTab {
                     SessionInput::Screen { viewer: viewer.to_string(), screen: screen.into() };
                 match self.session.apply(input) {
                     Ok(effects) => {
+                        self.viewer_seqs.insert(viewer.to_string(), *seq);
                         let mut out = self.run_effects(effects, p);
-                        if let Some(applied) = self.screen {
-                            out.push(Control::ScreenApplied {
-                                seq: *seq,
-                                pixel_width: (f64::from(applied.css_width) * applied.scale).ceil()
-                                    as u32,
-                                pixel_height: (f64::from(applied.css_height) * applied.scale).ceil()
-                                    as u32,
-                                scale: applied.scale,
-                            });
-                        }
+                        out.extend(self.screen_applied(viewer));
                         out
                     }
                     Err(_) => Vec::new(),
@@ -196,6 +195,7 @@ impl HostTab {
             Control::Close => {
                 match self.session.apply(SessionInput::Leave { viewer: viewer.to_string() }) {
                     Ok(effects) => {
+                        self.viewer_seqs.remove(viewer);
                         let mut out = self.run_effects(effects, p);
                         out.push(Control::Closed { reason: "viewer_closed".to_string() });
                         out
@@ -204,10 +204,17 @@ impl HostTab {
                 }
             }
             Control::MenuResult { token, choice } => {
-                let Ok(outcome) =
-                    self.menus.apply(MenuInput::Result { token: *token, choice: choice.clone() })
-                else {
-                    return Vec::new();
+                let outcome = match self
+                    .menus
+                    .apply(MenuInput::Result { token: *token, choice: choice.clone() })
+                {
+                    Ok(outcome) => outcome,
+                    // A choice the menu never offered: cancel the menu rather
+                    // than leave Chromium waiting (remote-tab-protocol.md 5.2).
+                    Err(MenuReject::InvalidChoice) => {
+                        return self.cancel_menu(*token, p);
+                    }
+                    Err(MenuReject::UnknownToken) => return Vec::new(),
                 };
                 for effect in outcome.effects {
                     if let MenuEffect::ChromeContinue { token, choice } = effect {
@@ -218,6 +225,22 @@ impl HostTab {
             }
             _ => Vec::new(),
         }
+    }
+
+    /// Closes the open menu `token` on both sides: Chromium gets cancel,
+    /// the viewers get `rb.menu.cancel`.
+    fn cancel_menu(&mut self, token: u64, p: &mut dyn Presentation) -> Vec<Control> {
+        let Ok(outcome) = self.menus.apply(MenuInput::PageCancel { token }) else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        for effect in outcome.effects {
+            if let MenuEffect::ViewerCancel { token } = effect {
+                self.answer_fork(token, &MenuChoice::Cancel, p);
+                out.push(Control::MenuCancel { token });
+            }
+        }
+        out
     }
 
     fn answer_fork(&mut self, rb_token: u64, choice: &MenuChoice, p: &mut dyn Presentation) {
@@ -299,10 +322,19 @@ impl HostTab {
         }
     }
 
-    /// `rb.screen_applied` for `viewer`, under that viewer's own last seq
-    /// (stub).
-    pub fn screen_applied(&self, _viewer: &str) -> Option<Control> {
-        None
+    /// `rb.screen_applied` for `viewer`: the applied size under that
+    /// viewer's own last seq. The host loop sends it to every open viewer
+    /// when one viewer's change moves the applied size. `None` for an
+    /// unknown viewer or before a screen was applied.
+    pub fn screen_applied(&self, viewer: &str) -> Option<Control> {
+        let seq = *self.viewer_seqs.get(viewer)?;
+        let applied = self.screen?;
+        Some(Control::ScreenApplied {
+            seq,
+            pixel_width: (f64::from(applied.css_width) * applied.scale).ceil() as u32,
+            pixel_height: (f64::from(applied.css_height) * applied.scale).ceil() as u32,
+            scale: applied.scale,
+        })
     }
 
     pub fn state(&self) -> SessionState {
