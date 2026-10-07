@@ -14,8 +14,9 @@ jobs:
   publish:
     # The app artifact is an optional CI product. A red unrelated CI lane must
     # not discard a successful exact-head Dogfood build; the trusted gate below
-    # requires that job and its matching GitHub artifact explicitly.
-    if: ${{ github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion != 'cancelled' }}
+    # requires that job and its matching GitHub artifact explicitly. A run the
+    # event lists no pull request for has nothing to publish, so it never starts.
+    if: ${{ github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion != 'cancelled' && toJSON(github.event.workflow_run.pull_requests) != '[]' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     environment: artifacts
     permissions:
@@ -30,59 +31,59 @@ jobs:
       build_time: ${{ steps.pr.outputs.build_time }}
       digest: ${{ steps.artifact.outputs.digest }}
     steps:
+      # Every workflow shares GITHUB_TOKEN's API budget (it ran out on
+      # 2026-10-06). The run's pull request and times come from the event, and
+      # each read below happens only when the checks before it passed: most
+      # pull requests stop after one read, their own (no dev-build label).
       - name: Find the trusted org-member dogfood artifact
         id: pr
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RUN_ID: ${{ github.event.workflow_run.id }}
+          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
           WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+          BUILD_TIME: ${{ github.event.workflow_run.updated_at || github.event.workflow_run.created_at }}
         run: |
           set -euo pipefail
-          pr="$(gh api "repos/$GH_REPO/actions/runs/$RUN_ID" --jq '.pull_requests[0].number // empty')"
-          if [ -z "$pr" ]; then
-            echo 'publish=false' >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          json_dir="$(mktemp -d)"
-          trap 'rm -rf "$json_dir"' EXIT
-          gh api "repos/$GH_REPO/pulls/$pr" > "$json_dir/pr.json"
-          gh api "repos/$GH_REPO/actions/runs/$RUN_ID" > "$json_dir/run.json"
-          gh api "repos/$GH_REPO/actions/runs/$RUN_ID/jobs?per_page=100" > "$json_dir/jobs.json"
-          gh api "repos/$GH_REPO/actions/runs/$RUN_ID/artifacts?per_page=100" > "$json_dir/artifacts.json"
-          PR_JSON_PATH="$json_dir/pr.json" JOBS_JSON_PATH="$json_dir/jobs.json" ARTIFACTS_JSON_PATH="$json_dir/artifacts.json" PR_NUMBER="$pr" HEAD_SHA="$HEAD_SHA" WORKFLOW_NAME="$WORKFLOW_NAME" RUN_JSON_PATH="$json_dir/run.json" python3 - <<'PY'
+          python3 - <<'PY'
           import json
           import os
+          import subprocess
           import sys
-          from pathlib import Path
 
-          pr = json.loads(Path(os.environ["PR_JSON_PATH"]).read_text())
-          jobs = json.loads(Path(os.environ["JOBS_JSON_PATH"]).read_text()).get("jobs") or []
-          artifacts = json.loads(Path(os.environ["ARTIFACTS_JSON_PATH"]).read_text()).get("artifacts") or []
-          run = json.loads(Path(os.environ["RUN_JSON_PATH"]).read_text())
+          def api(path):
+              out = subprocess.run(["gh", "api", path], check=True, stdout=subprocess.PIPE, text=True).stdout
+              return json.loads(out)
+
+          def skip():
+              print("workflow run has no current trusted org-member dogfood artifact; skipping")
+              with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+                  output.write("publish=false\n")
+              sys.exit(0)
+
           expected_repo = os.environ["GH_REPO"]
-          expected_artifact = f"dogfood-app-{os.environ['PR_NUMBER']}-{os.environ['HEAD_SHA']}"
+          run_id = os.environ["RUN_ID"]
+          pr_number = os.environ.get("PR_NUMBER", "")
+          if not pr_number:
+              with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+                  output.write("publish=false\n")
+              sys.exit(0)
+          expected_artifact = f"dogfood-app-{pr_number}-{os.environ['HEAD_SHA']}"
           workflow_name = os.environ["WORKFLOW_NAME"]
-          head = pr.get("head") or {}
-          repo = (head.get("repo") or {}).get("full_name")
-          labels = {label.get("name") for label in pr.get("labels") or []}
           if workflow_name == "cmux-next":
               producer_names = {"cmux app scheme compile (Debug)"}
           elif workflow_name == "CI":
-              producer_names = {f"Dogfood build #{os.environ['PR_NUMBER']}"}
+              producer_names = {f"Dogfood build #{pr_number}"}
           else:
               producer_names = set()
-          dogfood_success = any(
-              job.get("name") in producer_names
-              and job.get("conclusion") == "success"
-              for job in jobs
-          )
-          artifact_present = any(
-              artifact.get("name") == expected_artifact and not artifact.get("expired")
-              for artifact in artifacts
-          )
-          trusted = (
+
+          pr = api(f"repos/{expected_repo}/pulls/{pr_number}")
+          head = pr.get("head") or {}
+          repo = (head.get("repo") or {}).get("full_name")
+          labels = {label.get("name") for label in pr.get("labels") or []}
+          if not (
               pr.get("state") == "open"
               and repo == expected_repo
               and head.get("sha") == os.environ["HEAD_SHA"]
@@ -91,20 +92,27 @@ jobs:
               and ((workflow_name == "CI" and pr.get("base", {}).get("ref") != "feat-cmux-next")
                    or (workflow_name == "cmux-next" and pr.get("base", {}).get("ref") == "feat-cmux-next"))
               and bool(producer_names)
-              and dogfood_success
-              and artifact_present
-          )
-          if not trusted:
-              print("workflow run has no current trusted org-member dogfood artifact; skipping")
-              with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
-                  output.write("publish=false\n")
-              sys.exit(0)
+          ):
+              skip()
+          artifacts = api(f"repos/{expected_repo}/actions/runs/{run_id}/artifacts?per_page=100").get("artifacts") or []
+          if not any(
+              artifact.get("name") == expected_artifact and not artifact.get("expired")
+              for artifact in artifacts
+          ):
+              skip()
+          jobs = api(f"repos/{expected_repo}/actions/runs/{run_id}/jobs?per_page=100").get("jobs") or []
+          if not any(
+              job.get("name") in producer_names
+              and job.get("conclusion") == "success"
+              for job in jobs
+          ):
+              skip()
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
               output.write("publish=true\n")
-              output.write(f"pr={os.environ['PR_NUMBER']}\n")
+              output.write(f"pr={pr_number}\n")
               output.write(f"sha={os.environ['HEAD_SHA']}\n")
               output.write(f"workflow={workflow_name}\n")
-              output.write(f"build_time={run.get('updated_at') or run.get('created_at') or ''}\n")
+              output.write(f"build_time={os.environ.get('BUILD_TIME', '')}\n")
           PY
 
       - name: Checkout trusted publisher scripts
@@ -191,7 +199,7 @@ jobs:
           MARKER: '<!-- cmux-fleet-dogfood-artifact -->'
         run: |
           set -euo pipefail
-          existing="$(gh api "repos/$GH_REPO/issues/$PR/comments" --paginate \
+          existing="$(gh api "repos/$GH_REPO/issues/$PR/comments?per_page=100" --paginate \
             --jq ".[] | select(.body | contains(\\\"$MARKER\\\")) | .id" | head -n1)"
           BODY_PATH="$RUNNER_TEMP/dogfood-comment.md" \
             python3 - <<'PY'
@@ -328,7 +336,7 @@ jobs:
 
           CI build time: $BUILD_TIME. Surfaces: New Tab, terminal workspace, seeded agent pane, Home, Settings.
           EOF
-          existing="$(gh api "repos/$GH_REPO/issues/$PR/comments" --paginate --jq ".[] | select(.body | contains(\"$MARKER\")) | .id" | head -n1)"
+          existing="$(gh api "repos/$GH_REPO/issues/$PR/comments?per_page=100" --paginate --jq ".[] | select(.body | contains(\"$MARKER\")) | .id" | head -n1)"
           if [ -n "$existing" ]; then
             gh api -X PATCH "repos/$GH_REPO/issues/comments/$existing" -F body=@"$body" >/dev/null
           else

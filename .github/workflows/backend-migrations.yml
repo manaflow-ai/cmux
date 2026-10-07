@@ -66,6 +66,16 @@ jobs:
           set -euo pipefail
           case "$BASE_REF" in refs/heads/main|refs/heads/feat-cmux-next|main|feat-cmux-next) ;; *) echo "::error::unexpected base branch"; exit 1 ;; esac
           if [ "$EVENT" = pull_request_target ]; then
+            # Most PRs never touch migrations: decide that from git before using the API. The
+            # installation's API quota ran out under load and failed the plan on UI PRs (#17602).
+            # The same backend/db/migrations tree as the base means no migration change; a
+            # different one (the PR's change, or a base move it has not merged) is listed below.
+            git -C trusted fetch --quiet --no-tags --depth=1 origin "$HEAD_SHA"
+            base_tree=$(git -C trusted rev-parse --verify --quiet "$BASE_SHA:backend/db/migrations" || echo none)
+            head_tree=$(git -C trusted rev-parse --verify --quiet "$HEAD_SHA:backend/db/migrations" || echo none)
+            if [ "$base_tree" = "$head_tree" ]; then
+              echo "migrations=false" >> "$GITHUB_OUTPUT"; echo "no migration changes (backend/db/migrations matches the base)"; exit 0
+            fi
             gh api --paginate "repos/$REPO/pulls/$PR/files" --jq '.[] | "\(.status)\t\(.filename)\t\(.previous_filename // "")"' > changes.tsv
           else
             gh api "repos/$REPO/compare/$BASE_SHA...$HEAD_SHA" --jq '.files[] | "\(.status)\t\(.filename)\t\(.previous_filename // "")"' > changes.tsv

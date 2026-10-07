@@ -319,6 +319,12 @@ class ProductRunnerTests(unittest.TestCase):
         api = self.api_for([{"name": "macos / macOS compile admission", "labels": ["glaeda-std-xcode-26.6"]}])
         self.assertEqual(rerun.product_runner("o/r", "5", api), "blacksmith-6vcpu-macos-26")
 
+    def test_aws_xcode_263_admission_maps_to_macos_15(self) -> None:
+        # AWS's compile-only image carries the macOS 15 pool's Xcode 26.3.
+        api = self.api_for([{"name": "macos / macOS compile admission", "labels": [
+            "glaeda-aws-root-std-xcode-26.3"]}])
+        self.assertEqual(rerun.product_runner("o/r", "5", api), "blacksmith-6vcpu-macos-15")
+
     def test_macos_15_admission_and_unknown_producers_stay_on_macos_15(self) -> None:
         api = self.api_for([{"name": "macos / macOS compile admission", "labels": ["blacksmith-6vcpu-macos-15"]}])
         self.assertEqual(rerun.product_runner("o/r", "5", api), "blacksmith-6vcpu-macos-15")

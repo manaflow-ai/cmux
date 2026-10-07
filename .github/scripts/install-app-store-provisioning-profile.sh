@@ -531,7 +531,7 @@ ensure_cloud_vpn_profile_from_asc() {
   fi
 
   profile_suffix="${cert_serial: -8}"
-  profile_name="cmux App Store CloudVPN CI $profile_suffix"
+  profile_name="cmux App Store CloudVPN CI $CLOUD_VPN_BUNDLE_IDENTIFIER $profile_suffix"
   asc profiles list --profile-type IOS_APP_STORE --paginate --output json > "$profiles_json"
   profile_id="$(json_active_profile_id_by_name "$profiles_json" "$profile_name" || true)"
   if [ -z "$profile_id" ]; then

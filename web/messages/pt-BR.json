@@ -5344,7 +5344,7 @@
   "appProWelcome": {
     "eyebrow": "cmux Pro está ativo",
     "title": "Boas-vindas ao cmux Pro",
-    "body": "Os recursos Pro ainda estão em desenvolvimento. O acesso à nuvem chegará em breve, com créditos de uso acumulados a cada mês de assinatura. Hoje, o Pro inclui acesso ao cmux para iOS pelo TestFlight.",
+    "body": "O Pro inclui até 5 VMs Cloud compartilhando 20 vCPUs e 40 GB de RAM, além de acesso ao cmux iOS pelo TestFlight.",
     "done": "Ir para o painel",
     "steps": {
       "iosApp": {
