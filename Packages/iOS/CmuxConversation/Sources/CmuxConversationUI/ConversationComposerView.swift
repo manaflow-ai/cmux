@@ -34,6 +34,8 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
     private let attachmentSeparator = UIView()
     private var attachmentViews: [UIView] = []
     private(set) var attachments: [ComposerAttachment] = []
+    /// A preview's remove button was tapped (after the attachment is dropped).
+    var onRemoveAttachment: ((UUID) -> Void)?
 
     /// Set by the controller: the field may grow until it reaches the header.
     var maximumFieldHeight: CGFloat = 600 { didSet { if oldValue != maximumFieldHeight { updateHeight() } } }
@@ -271,7 +273,10 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
             close.addSubview(disc)
             close.accessibilityLabel = String(localized: "conversation.composer.removeAttachment", defaultValue: "Remove attachment", bundle: .module)
             let id = attachment.id
-            close.addAction(UIAction { [weak self] _ in self?.removeAttachment(id: id) }, for: .touchUpInside)
+            close.addAction(UIAction { [weak self] _ in
+                self?.removeAttachment(id: id)
+                self?.onRemoveAttachment?(id)
+            }, for: .touchUpInside)
             container.addSubview(close)
             attachmentStrip.addSubview(container)
             return container

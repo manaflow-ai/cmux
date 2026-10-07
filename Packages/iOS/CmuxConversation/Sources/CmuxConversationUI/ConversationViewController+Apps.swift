@@ -125,6 +125,12 @@ extension ConversationViewController {
         drawer.onToggle = { [weak self] asset, selected in
             self?.photoSelectionChanged(asset: asset, selected: selected)
         }
+        // Removing a preview from the card deselects its photo in the drawer.
+        composer.onRemoveAttachment = { [weak self] attachmentID in
+            guard let self, let assetID = self.pickedAssets.first(where: { $0.value == attachmentID })?.key else { return }
+            self.pickedAssets[assetID] = nil
+            self.photoDrawer?.deselect(assetID: assetID)
+        }
         // Measured on iOS 26 Messages (iPhone 17 Pro): a card inset 8 pt from
         // the sides and bottom, as tall as the keyboard area (336 pt plus the
         // home-indicator inset), with the field 24 pt above its top edge.

@@ -127,6 +127,16 @@ final class ConversationPhotoGridView: UIView, UICollectionViewDataSource, UICol
         onToggle?(asset, selected)
     }
 
+    /// Drops one photo from the selection (its card preview was removed),
+    /// renumbering the remaining badges as Messages does.
+    func deselect(assetID: String) {
+        guard let index = selection.firstIndex(of: assetID) else { return }
+        selection.remove(at: index)
+        for case let cell as Cell in grid.visibleCells {
+            cell.setBadge(cell.assetID.flatMap { selection.firstIndex(of: $0) }.map { $0 + 1 }, animated: true)
+        }
+    }
+
     func clearSelection() {
         selection = []
         grid.reloadData()
