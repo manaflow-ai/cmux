@@ -172,6 +172,14 @@ workspace reopened with a key that already has a row keeps that row. Older
 workspaces that have no row still follow every placement. Clients without the
 capability ignore `top_index` and show every group after the loose
 workspaces.
+`workspace_group.delete` (and the raw `delete-personal-group`) keeps every
+workspace open and stores the group as one closed-history item with no member
+(`kind: "workspace"`, `member_count: 0`) and `ClosedItemSnapshot.group`
+naming it. `closed.reopen` of that item (also after a restart) forms the group
+again with its id, name, color, collapse, room and place, and puts back each
+member whose personal row still exists and that is still ungrouped; a group
+that exists again is left as it is. Its result names the session's active
+workspace.
 `workspace.agent_folder.set {workspace, path}` (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE,
 capability `workspace-agent-folder-v1`) sets the folder new agent chats of the workspace start in, for every client.
 `path` is an absolute path of an existing directory in canonical form (the

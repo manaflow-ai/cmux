@@ -60,6 +60,21 @@ public struct ClosedItem: Sendable, Hashable, Identifiable, Decodable {
         }
     }
 
+    /// A deleted personal workspace group (`ClosedWorkspaceGroupRecord`).
+    /// Its workspaces stayed open, so the item has no member; reopening it
+    /// forms the group again with its id, place and open members.
+    public struct Group: Sendable, Hashable, Decodable {
+        public var id: String
+        public var name: String
+        public var color: String?
+
+        public init(id: String, name: String, color: String? = nil) {
+            self.id = id
+            self.name = name
+            self.color = color
+        }
+    }
+
     /// `closed_…` state id.
     public var id: String
     public var kind: Kind
@@ -78,9 +93,11 @@ public struct ClosedItem: Sendable, Hashable, Identifiable, Decodable {
     /// Every member's screens, one list per member (`ClosedMemberRecord`);
     /// empty for a v1 item, whose `screens` are the whole item.
     public var memberScreens: [[Screen]]
+    /// Set when the item is a deleted personal workspace group.
+    public var group: Group?
 
     enum CodingKeys: String, CodingKey {
-        case id, kind, name, index, screens, members
+        case id, kind, name, index, screens, members, group
         case workspaceID = "workspace_id"
         case paneID = "pane_id"
         case closedAtMs = "closed_at_ms"
@@ -91,7 +108,8 @@ public struct ClosedItem: Sendable, Hashable, Identifiable, Decodable {
     }
 
     public init(id: String, kind: Kind, name: String? = nil, workspaceID: ResourceID? = nil, paneID: ResourceID? = nil,
-                index: Int = 0, closedAtMs: UInt64 = 0, screens: [Screen] = [], memberScreens: [[Screen]] = []) {
+                index: Int = 0, closedAtMs: UInt64 = 0, screens: [Screen] = [], memberScreens: [[Screen]] = [],
+                group: Group? = nil) {
         self.id = id
         self.kind = kind
         self.name = name
@@ -101,6 +119,7 @@ public struct ClosedItem: Sendable, Hashable, Identifiable, Decodable {
         self.closedAtMs = closedAtMs
         self.screens = screens
         self.memberScreens = memberScreens
+        self.group = group
     }
 
     public init(from decoder: any Decoder) throws {
@@ -114,6 +133,7 @@ public struct ClosedItem: Sendable, Hashable, Identifiable, Decodable {
         closedAtMs = try StateDecimal.decode(c, .closedAtMs) ?? 0
         screens = try c.decodeIfPresent([Screen].self, forKey: .screens) ?? []
         memberScreens = try c.decodeIfPresent([Member].self, forKey: .members)?.map { $0.screens ?? [] } ?? []
+        group = try c.decodeIfPresent(Group.self, forKey: .group)
     }
 
     /// Every tab the item would recreate, in order: every member's (one

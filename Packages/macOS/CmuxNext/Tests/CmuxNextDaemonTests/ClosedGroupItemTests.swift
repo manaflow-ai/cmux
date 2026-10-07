@@ -20,6 +20,16 @@ import Testing
         #expect(item.paneID?.rawValue == "pane_p")
     }
 
+    /// A deleted personal workspace group: no member, and `group` names it.
+    @Test func aDeletedGroupItemNamesTheGroup() throws {
+        let json = ##"{"id":"closed_w","kind":"workspace","name":null,"workspace_id":null,"pane_id":null,"index":0,"closed_at_ms":"7","screens":[],"window":null,"member_count":0,"members":[],"group":{"id":"grp_work","name":"Work","color":"#225588"}}"##
+        let item = try JSONDecoder().decode(ClosedItem.self, from: Data(json.utf8))
+        #expect(item.group == ClosedItem.Group(id: "grp_work", name: "Work", color: "#225588"))
+        #expect(item.tabs.isEmpty)
+        let plain = try JSONDecoder().decode(ClosedItem.self, from: Data(Self.group.utf8))
+        #expect(plain.group == nil)
+    }
+
     /// A v1 item (no members) keeps its own screens.
     @Test func aV1ItemKeepsItsScreens() throws {
         let item = try JSONDecoder().decode(ClosedItem.self, from: Data(Self.member("solo", index: 0).replacingOccurrences(

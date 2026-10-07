@@ -6013,7 +6013,9 @@ Result: `object{group:PersonalGroup, changed:bool}`
 | status | implemented |
 | since | protocol 12 additive extension; capability `profiles-v1` |
 
-Deletes a personal group; its workspaces become ungrouped.
+Deletes a personal group; its workspaces become ungrouped. It is the same
+delete as `workspace_group.delete`: the group is stored in closed history, so
+`closed.reopen` forms it again.
 
 Params: `group` (required).
 
