@@ -2,7 +2,8 @@
 //!
 //! The file is a JSON object. This crate reads and writes only the keys it
 //! owns and keeps every other key as it found it:
-//! `installId`, `server.channel`, `server.pinnedVersion`, `postgres.port`.
+//! `installId`, `server.channel`, `server.pinnedVersion`, `postgres.port`;
+//! it reads `roles` (written by the app and `cmux server roles`).
 
 use std::path::{Path, PathBuf};
 
@@ -112,6 +113,12 @@ impl ServerConfig {
                 None => server.remove("pinnedVersion"),
             };
         });
+    }
+
+    /// The `roles` value: process roles (server.md 5.1), parsed by
+    /// `cmux_server_core::role_spec::parse_roles`.
+    pub fn roles(&self) -> Option<&Value> {
+        self.root.get("roles")
     }
 
     pub fn postgres_port(&self) -> Option<u16> {

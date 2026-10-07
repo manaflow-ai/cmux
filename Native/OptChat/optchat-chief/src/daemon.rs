@@ -69,6 +69,13 @@ pub trait ConversationPort: Send {
         let _ = (conversation, hash, variant, bytes);
         Err(OpError::Rejected("attachments_unsupported".into()))
     }
+    /// `cloud-mux-ack`: the chief handled the wakes of `conversation` up to
+    /// `seq` (the lease's chief; the request names no chief). Only the
+    /// cloud port has a wake queue.
+    fn mux_ack(&mut self, conversation: &str, seq: u64) -> Result<(), OpError> {
+        let _ = (conversation, seq);
+        Err(OpError::Rejected("mux_unsupported".into()))
+    }
 }
 
 /// What the brain hears from the daemon.
@@ -87,6 +94,20 @@ pub enum DaemonEvent {
     Down,
     /// The daemon cannot host local conversations: the host cannot run.
     Fatal(String),
+    /// The chief's wake queue (`cloud-mux-wake`, `cloud-mux-resynced`): wakes
+    /// by ids only, never message text. The brain reads a woken side
+    /// conversation through its own authorized reads.
+    MuxWake(Vec<MuxWake>),
+}
+
+/// One wake of the chief's queue: `conversation` has a message at `seq`
+/// that the server's wake rule says the chief should read.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
+pub struct MuxWake {
+    pub conversation: String,
+    pub seq: u64,
+    #[serde(default)]
+    pub reason: String,
 }
 
 /// The participants of the Chief conversation, the same as the app's
