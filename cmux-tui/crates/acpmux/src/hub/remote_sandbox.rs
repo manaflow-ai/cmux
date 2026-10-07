@@ -163,8 +163,8 @@ fn claude_project_name(cwd: &Path) -> String {
 /// folder (not another remote chain's own temporary folder).
 fn refused_folder(cwd: &Path, home: &Path, tmp: &Path, path_dirs: &[PathBuf]) -> Option<String> {
     let shown = cwd.display();
-    if path_dirs.iter().any(|d| cwd.starts_with(d)) {
-        return Some(format!("{shown} holds programs on PATH"));
+    if path_dirs.iter().any(|d| cwd.starts_with(d) || d.starts_with(cwd)) {
+        return Some(format!("{shown} is or holds a folder on PATH"));
     }
     if let Ok(rest) = cwd.strip_prefix(home) {
         let first = rest.components().next().map(|c| c.as_os_str().to_string_lossy().into_owned());
@@ -192,6 +192,20 @@ fn refused_folder(cwd: &Path, home: &Path, tmp: &Path, path_dirs: &[PathBuf]) ->
     Some(format!("{shown} is outside the home directory"))
 }
 
+/// Make `dir` (mode 0700) or accept it only as a real folder (no symlink)
+/// that `uid` owns.
+fn own_dir(dir: &Path, uid: u32) -> Result<(), String> {
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt};
+    match std::fs::symlink_metadata(dir) {
+        Ok(m) if m.is_dir() && m.uid() == uid => Ok(()),
+        Ok(_) => Err(format!("{} is not a folder this user owns", dir.display())),
+        Err(_) => std::fs::DirBuilder::new()
+            .mode(0o700)
+            .create(dir)
+            .map_err(|e| format!("{}: {e}", dir.display())),
+    }
+}
+
 impl Bound {
     /// The bound for a session folder, its own temporary folder created
     /// (named for `session_id`); refused off macOS and for a folder that is
@@ -214,8 +228,9 @@ impl Bound {
         let path_dirs: Vec<PathBuf> = crate::chats::login_var("PATH")
             .unwrap_or_default()
             .split(':')
-            .filter(|d| !d.is_empty())
-            .filter_map(|d| std::fs::canonicalize(d).ok())
+            .filter(|d| d.starts_with('/'))
+            // A folder that does not exist yet counts by its text.
+            .map(|d| std::fs::canonicalize(d).unwrap_or_else(|_| PathBuf::from(d)))
             .collect();
         if let Some(why) = refused_folder(&cwd, &home, &shared_tmp, &path_dirs) {
             return Err(format!("a remote chain does not run here: {why}"));
@@ -238,9 +253,10 @@ impl Bound {
         let name = claude_project_name(&cwd);
         // Made here, so the profile never lets the sandbox make (or rename)
         // the shared scratch root.
-        let claude_tmp_project = PathBuf::from(format!("/private/tmp/claude-{uid}")).join(&name);
-        std::fs::create_dir_all(&claude_tmp_project)
-            .map_err(|e| format!("{}: {e}", claude_tmp_project.display()))?;
+        let root = PathBuf::from(format!("/private/tmp/claude-{uid}"));
+        let claude_tmp_project = root.join(&name);
+        own_dir(&root, uid)?;
+        own_dir(&claude_tmp_project, uid)?;
         let claude_project = home.join(".claude/projects").join(&name);
         Ok(Bound {
             cwd,
@@ -548,7 +564,7 @@ mod tests {
     #[test]
     fn only_a_project_folder_is_a_remote_chain_folder() {
         let (home, tmp) = (Path::new("/Users/me"), Path::new("/private/var/folders/x/T"));
-        let path = [PathBuf::from("/Users/me/tools/bin")];
+        let path = [PathBuf::from("/Users/me/tools/bin"), PathBuf::from("/Users/me/w/sub/bin")];
         let ok = |p: &str| refused_folder(Path::new(p), home, tmp, &path).is_none();
         assert!(ok("/Users/me/fun/proj"));
         assert!(ok("/Users/me/proj/.worktrees/a"));
@@ -565,6 +581,8 @@ mod tests {
             "/Users/me/go/bin",
             "/Users/me/Applications",
             "/Users/me/tools/bin",
+            "/Users/me/tools",
+            "/Users/me/w",
             "/opt/homebrew",
             "/Applications",
             "/",
@@ -622,6 +640,8 @@ mod tests {
             "(deny file-link)",
             "(deny file-mount)",
             "(deny user-preference-write)",
+            "(global-name \"com.apple.lsd.modifydb\")",
+            "(deny file-write* (regex #\"/HEAD$\"))",
             ";; @API_PORT@",
             "(param \"CWD\")",
             "(param \"TMPDIR\")",
