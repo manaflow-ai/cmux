@@ -48,6 +48,8 @@ pub struct HostTab {
     pub menus: MenuTokens,
     fork_menu: Option<ForkMenu>,
     capture_wanted: bool,
+    /// The shim accepted the capture (it refuses while the tab has no view).
+    capture_on: bool,
     screen: Option<ScreenSize>,
     /// Each open viewer's last screen seq (`rb.open` is seq 0).
     viewer_seqs: BTreeMap<String, u32>,
@@ -74,6 +76,7 @@ impl HostTab {
             menus: MenuTokens::default(),
             fork_menu: None,
             capture_wanted: false,
+            capture_on: false,
             screen: None,
             viewer_seqs: BTreeMap::new(),
             next_dialog: 1,
@@ -109,7 +112,7 @@ impl HostTab {
                 SessionEffect::StartCapture => {
                     self.capture_wanted = true;
                     if let Some(browser) = self.browser {
-                        p.capture(browser, true);
+                        self.capture_on = p.capture(browser, true);
                     }
                 }
                 SessionEffect::StopCapture => {
@@ -117,12 +120,14 @@ impl HostTab {
                     if let Some(browser) = self.browser {
                         p.capture(browser, false);
                     }
+                    self.capture_on = false;
                 }
                 SessionEffect::NotifyState { state } => out.push(Control::State { state }),
                 SessionEffect::StopPage => {
                     if let Some(browser) = self.browser.take() {
                         p.close_tab(browser);
                     }
+                    self.capture_on = false;
                 }
             }
         }
@@ -133,7 +138,7 @@ impl HostTab {
     pub fn tab_created(&mut self, browser: i32, p: &mut dyn Presentation) {
         self.browser = Some(browser);
         if self.capture_wanted {
-            p.capture(browser, true);
+            self.capture_on = p.capture(browser, true);
         }
     }
 
@@ -272,6 +277,26 @@ impl HostTab {
         }
     }
 
+    /// Chromium closed its menu itself (the `<select>` went away or the
+    /// page navigated): the viewers get `rb.menu.cancel`, Chromium gets no
+    /// answer.
+    pub fn menu_closed_by_page(&mut self, fork_token: i64) -> Vec<Control> {
+        let Some(open) = self.fork_menu.take_if(|m| m.fork_token == fork_token) else {
+            return Vec::new();
+        };
+        let Ok(outcome) = self.menus.apply(MenuInput::PageCancel { token: open.rb_token }) else {
+            return Vec::new();
+        };
+        outcome
+            .effects
+            .into_iter()
+            .filter_map(|e| match e {
+                MenuEffect::ViewerCancel { token } => Some(Control::MenuCancel { token }),
+                _ => None,
+            })
+            .collect()
+    }
+
     /// Chromium opened a context menu or a `<select>` popup (fork token);
     /// returns the messages for the viewers.
     pub fn menu_opened(
@@ -374,6 +399,19 @@ impl HostTab {
             Some(open) => vec![Control::DialogCancel { token: open.rb_token }],
             None => Vec::new(),
         }
+    }
+
+    /// Starts the wanted capture that the shim refused before (call it on
+    /// the tab's later shim callbacks: title, URL, load).
+    pub fn retry_capture(&mut self, p: &mut dyn Presentation) {
+        if let (true, false, Some(browser)) = (self.capture_wanted, self.capture_on, self.browser) {
+            self.capture_on = p.capture(browser, true);
+        }
+    }
+
+    /// The shim captures this tab now.
+    pub fn capturing(&self) -> bool {
+        self.capture_on
     }
 
     pub fn state(&self) -> SessionState {

@@ -349,6 +349,7 @@ async fn an_app_prompt_forwarded_by_a_peer_waits_for_the_owning_daemons_trust() 
         claude_json: root.join("home").join(".claude.json"),
         codex_config: root.join("home").join("config.toml"),
         record: root.join("home").join("trust.json"),
+        agent_home: None,
     }));
     let (port, peer_token) = listen_with_peer_token(b.clone(), "trust").await;
     let mut cb = client(b.clone()).await;
