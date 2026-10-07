@@ -25,6 +25,7 @@ enum DebugSidebarRows {
                         "frame": rect(row.frame), "window_frame": rect(row.windowFrame), "view_frame": row.viewFrame.map(rect) ?? .null,
                         "view_alpha": row.viewAlpha.map { .number(Double($0)) } ?? .null,
                         "in_list": .bool(row.inList), "suppressed": .bool(row.suppressed), "selected": .bool(row.selected),
+                        "muted": .bool(row.muted),
                     ])
                 }),
             ])

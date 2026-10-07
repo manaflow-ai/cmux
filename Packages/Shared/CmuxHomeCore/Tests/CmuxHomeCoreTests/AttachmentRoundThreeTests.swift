@@ -3,6 +3,7 @@ import CoreGraphics
 import Foundation
 import ImageIO
 import Testing
+import CmuxHomeCoreTestSupport
 import UniformTypeIdentifiers
 @testable import CmuxHomeCore
 
@@ -125,10 +126,6 @@ func makeOpaquePNGWithAlpha(width: Int, height: Int) throws -> Data {
         await store.open(conversation)
         await waitUntil { !store.transcript(for: self.conversation).isEmpty }
         return (store, source)
-    }
-
-    func waitUntil(_ condition: @escaping @MainActor () -> Bool) async {
-        for _ in 0..<5_000 where !condition() { await Task.yield() }
     }
 
     func drainTasks() async {

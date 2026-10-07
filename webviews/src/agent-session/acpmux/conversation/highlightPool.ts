@@ -5,6 +5,7 @@
 // The dev server serves no built worker: there, and if the workers fail to start, Pierre
 // highlights on the main thread, still under the limits in highlightLimits.ts.
 import { WorkerPoolManager } from "@pierre/diffs/worker";
+import type { SupportedLanguages } from "@pierre/diffs";
 import { AGENT_DIFF_THEME, AGENT_DIFF_THEME_LIGHT, registerAgentDiffTheme } from "../diffTheme";
 import { MAX_TOKENIZED_LINE } from "./highlightLimits";
 import { WatchedWorker } from "./highlightWatchdog";
@@ -13,6 +14,10 @@ import { WatchedWorker } from "./highlightWatchdog";
 export const HIGHLIGHT_WORKER_FILE = "highlight-worker.js";
 /// Two workers: a fence stuck in one grammar leaves the other for the rest of the reply.
 const POOL_SIZE = 2;
+
+/// Pierre bakes `lineDiffType` into a worker's render options. Keep one pool per mode so a
+/// word-diff request never races a plain-diff request while changing the worker's options.
+export type HighlightLineDiffType = "none" | "word-alt";
 
 /// Whether a page at `protocol` is the bundled page, which ships the worker.
 export function usesHighlightWorker(protocol: string): boolean {
@@ -24,7 +29,7 @@ export function highlightWorkerFactory(base: string, WorkerConstructor: typeof W
   return () => new WorkerConstructor(new URL(HIGHLIGHT_WORKER_FILE, base), { type: "module" });
 }
 
-let pool: WorkerPoolManager | null | undefined;
+const pools = new Map<HighlightLineDiffType, WorkerPoolManager | null>();
 let warned = false;
 const timeoutListeners = new Map<string, () => void>();
 
@@ -58,17 +63,32 @@ function watchedWorkerFactory(base: string): () => Worker {
 }
 
 /// The pane's pool, made on first use; undefined where the page has no worker.
-export function paneHighlightPool(): WorkerPoolManager | undefined {
-  if (pool === undefined) {
+export function paneHighlightPool(
+  lineDiffType: HighlightLineDiffType = "word-alt",
+  language: string = "text",
+): WorkerPoolManager | undefined {
+  if (!pools.has(lineDiffType)) {
     const page = typeof location === "undefined" ? undefined : location;
-    if (!page || typeof Worker === "undefined" || !usesHighlightWorker(page.protocol)) pool = null;
+    if (!page || typeof Worker === "undefined" || !usesHighlightWorker(page.protocol)) pools.set(lineDiffType, null);
     else {
       registerAgentDiffTheme();
-      pool = new WorkerPoolManager(
-        { workerFactory: watchedWorkerFactory(page.href), poolSize: POOL_SIZE },
-        { theme: { dark: AGENT_DIFF_THEME, light: AGENT_DIFF_THEME_LIGHT }, tokenizeMaxLineLength: MAX_TOKENIZED_LINE },
+      // Seed the first language in each pool's worker initialization. Grammar compilation then
+      // happens in the setup phase, outside the per-request watchdog; later languages are loaded
+      // lazily by Pierre and retain the existing 2 s request budget.
+      const initialLanguage = language === "text" ? [] : [language as SupportedLanguages];
+      pools.set(
+        lineDiffType,
+        new WorkerPoolManager(
+          { workerFactory: watchedWorkerFactory(page.href), poolSize: POOL_SIZE },
+          {
+            langs: initialLanguage,
+            lineDiffType,
+            theme: { dark: AGENT_DIFF_THEME, light: AGENT_DIFF_THEME_LIGHT },
+            tokenizeMaxLineLength: MAX_TOKENIZED_LINE,
+          },
+        ),
       );
     }
   }
-  return pool ?? undefined;
+  return pools.get(lineDiffType) ?? undefined;
 }
