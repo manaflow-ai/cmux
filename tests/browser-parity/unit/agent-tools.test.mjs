@@ -537,6 +537,51 @@ test("cookie calls name the page's tab, so the driver uses that tab's store", as
   }
 });
 
+// A lazy page (the session's first `page` before any call opens its tab)
+// has no tab yet. Its cookie reads and writes open that tab first, as its
+// clear does, so the driver uses the store the page's own tab is in: a call
+// without a tab would reach the active tab's store, another site's (a
+// private tab's, or a user's tab the session drives).
+test("a lazy page's cookie calls open its tab and never use the active tab's store", async () => {
+  const browser = await createDevBrowser();
+  const servers = await startFixtureServers();
+  const { primary } = servers.origins;
+  const dir = makeTestDir("cmux-repl-cookie-lazy-");
+  const driver = browser.driver();
+  const calls = [];
+  const call = driver.call.bind(driver);
+  driver.call = (method, params) => {
+    if (method.startsWith("cookies.")) calls.push({ method, targetId: params && params.targetId });
+    return call(method, params);
+  };
+  const repl = createDevRepl({ host: createNodeHost({ workDir: dir, sessionId: `cookie-lazy-${process.pid}`, print: () => {} }), driver });
+  try {
+    const r = await repl.evaluate(`
+      const lazy = page;
+      const wasLazy = String(lazy._targetId).startsWith("lazy:");
+      const other = await tabs.open(${JSON.stringify(primary)} + "/index.html");
+      await other.bringToFront();
+      await lazy.context().addCookies([{ name: "lazy", value: "1", url: ${JSON.stringify(primary)} + "/" }]);
+      await lazy.context().cookies();
+      JSON.stringify({ wasLazy, lazy: lazy._targetId, other: other._targetId })
+    `);
+    assert.equal(r.ok, true, r.error);
+    const ids = JSON.parse(r.value);
+    assert.equal(ids.wasLazy, true, "the session's first page starts lazy");
+    assert.equal(calls.length, 2, JSON.stringify(calls));
+    for (const c of calls) {
+      assert.notEqual(c.targetId, undefined, `${c.method} names a tab: ${JSON.stringify(calls)}`);
+      assert.equal(c.targetId, ids.lazy, `${c.method} names the lazy page's own tab, not ${ids.other}`);
+    }
+    assert.ok(!String(ids.lazy).startsWith("lazy:"), "the lazy page's tab opened");
+  } finally {
+    repl.dispose();
+    await browser.close();
+    await servers.close();
+    removeTestDir(dir);
+  }
+});
+
 // A page whose tab closed (the user closed it, or a narrowed domain policy
 // closed it) has no site and no store any more: its cookie calls fail with
 // `closed` and never fall back to the current tab. Seen on the app: once
