@@ -25,6 +25,18 @@ interface Participant {
   initials: string;
   colorHex: string;
   isMe: boolean;
+  /** A Focus is on and shared: my messages deliver quietly. */
+  notificationsSilenced?: boolean;
+  /** Left (or was removed from) the group; their messages stay. */
+  left?: boolean;
+}
+/** Group changes Messages shows as centered status rows. */
+type SystemKind = "named" | "removedName" | "added" | "removed" | "left" | "changedPhoto" | "removedPhoto";
+const SYSTEM_KINDS: SystemKind[] = ["named", "removedName", "added", "removed", "left", "changedPhoto", "removedPhoto"];
+interface SystemEvent {
+  kind: SystemKind;
+  targetId?: string; // added / removed
+  name?: string; // named
 }
 interface Conversation {
   id: string;
@@ -75,6 +87,12 @@ interface Message {
   mentions?: Mention[];
   textRuns?: TextRun[];
   effect?: Effect;
+  /** A group status row in a message's place; `senderId` is the actor, `text` is empty. */
+  system?: SystemEvent;
+  /** Mine, delivered while the recipient had notifications silenced. */
+  deliveredQuietly?: boolean;
+  /** I tapped Notify Anyway for this quietly delivered message. */
+  notifiedAnyway?: boolean;
 }
 // Rich text (iMessage formatting and animated text effects). Offsets are UTF-16
 // code units into `text`, so they index JS strings, NSString and NSRange alike.
@@ -128,6 +146,10 @@ const knobs = {
   botLinkRate: 0.05,
   /** Share of bot text messages sent with a Messages effect. */
   effectRate: 0.03,
+  /** Mean seconds between live group status events (rename, photo, leave and re-add); 0 stops them. */
+  statusEverySeconds: 300,
+  /** Mean seconds between Focus on/off flips for the direct recipient; 0 stops them. */
+  focusEverySeconds: 180,
 };
 type Knobs = typeof knobs;
 
@@ -163,6 +185,7 @@ const LAWRENCE: Participant = { id: "lawrence", name: "Lawrence Chen", initials:
 const AUSTIN: Participant = { id: "austin", name: "Austin Wang", initials: "AW", colorHex: "#30D158", isMe: false };
 const LEO: Participant = { id: "leo", name: "Leo Li", initials: "LL", colorHex: "#BF5AF2", isMe: false };
 const JOHN: Participant = { id: "john", name: "John Appleseed", initials: "JA", colorHex: "#FF375F", isMe: false };
+const KATE: Participant = { id: "kate", name: "Kate Bell", initials: "KB", colorHex: "#64D2FF", isMe: false };
 
 /** First name: what a mention inserts. */
 const mentionName = (p: Participant) => p.name.split(/\s+/)[0];
@@ -200,6 +223,9 @@ function mentionTarget(rng: Rng, conv: Conversation, bot: Participant): Particip
 
 // ---------------------------------------------------------------- store
 
+/** Status rows are not messages anyone reads; mine never count either. */
+const countsAsUnread = (m: Message) => m.senderId !== ME.id && !m.system;
+
 const media = new Map<string, MediaEntry>();
 
 class Store {
@@ -215,7 +241,7 @@ class Store {
   /** Messages from others after the read marker. */
   unreadCount() {
     let n = 0;
-    for (let seq = this.headSeq; seq > this.lastReadSeq; seq--) if (this.messages[seq - 1].senderId !== ME.id) n++;
+    for (let seq = this.headSeq; seq > this.lastReadSeq; seq--) if (countsAsUnread(this.messages[seq - 1])) n++;
     return n;
   }
   readState() {
@@ -235,7 +261,7 @@ class Store {
     let seq = this.headSeq;
     let n = 0;
     while (seq > 0 && n < count) {
-      if (this.messages[seq - 1].senderId !== ME.id) n++;
+      if (countsAsUnread(this.messages[seq - 1])) n++;
       seq--;
     }
     return seq;
@@ -247,8 +273,9 @@ class Store {
   get oldestEventSeq() {
     return this.events.length ? this.events[0].eventSeq : this.headEventSeq + 1;
   }
+  /** Members other than me who are still in the conversation. */
   bots() {
-    return this.conv.participants.filter((p) => !p.isMe);
+    return this.conv.participants.filter((p) => !p.isMe && !p.left);
   }
 
   append(msg: Omit<Message, "id" | "seq">): Message {
@@ -494,16 +521,200 @@ function addHistoryAudio(conv: Conversation, drafts: (Omit<Message, "id" | "seq"
   }
 }
 
+// ---------------------------------------------------------------- group status rows
+
+/** Group names the live status stream cycles through (the last one is restored). */
+const GROUP_NAMES = ["cmux crew", "ship it 🚀", "terminal people", "cmux"];
+
+/**
+ * Turns a handful of group history messages into status rows: the group being
+ * named at the very top, a photo change, a rename and rename back, and a
+ * member leaving and being added again. Runs after history is stored and uses
+ * its own rng, so every other message (and every seq) stays as it was.
+ */
+function addHistoryStatus(store: Store, seed: number) {
+  if (store.conv.kind !== "group") return;
+  const rng = mulberry32(seed ^ 0x57a7);
+  const msgs = store.messages;
+  const usable = (i: number) => {
+    const m = msgs[i];
+    return !!m && !m.system && !m.attachments.length && !m.replyToId && !m.replyCount;
+  };
+  const toStatus = (i: number, senderId: string, system: SystemEvent) => {
+    const m = msgs[i];
+    m.senderId = senderId;
+    m.text = "";
+    m.system = system;
+    m.reactions = [];
+    delete m.mentions;
+    delete m.textRuns;
+    delete m.effect;
+    delete m.editedAt;
+    delete m.status;
+    delete m.readAt;
+  };
+  const near = (lo: number, hi: number) => {
+    for (let k = 0; k < 64; k++) {
+      const i = randInt(rng, Math.max(1, lo), Math.max(1, hi));
+      if (usable(i)) return i;
+    }
+    return -1;
+  };
+  // The newest pages and the unread backlog stay plain messages.
+  const end = Math.max(2, msgs.length - 400);
+  const at = (fraction: number) => near(Math.floor(end * fraction), Math.floor(end * fraction) + 40);
+  // The very first row, whatever it was: replies to it lose their quote.
+  if (msgs.length) {
+    const first = msgs[0];
+    if (first.replyCount) for (const m of msgs) if (m.replyToId === first.id) delete m.replyToId;
+    first.replyCount = 0;
+    first.attachments = [];
+    toStatus(0, LAWRENCE.id, { kind: "named", name: store.conv.title });
+  }
+  const photo = at(0.2);
+  if (photo > 0) toStatus(photo, ME.id, { kind: "changedPhoto" });
+  const rename = at(0.4);
+  if (rename > 0) {
+    toStatus(rename, AUSTIN.id, { kind: "named", name: GROUP_NAMES[0] });
+    const back = near(rename + 3, rename + 30);
+    if (back > 0) toStatus(back, LAWRENCE.id, { kind: "named", name: store.conv.title });
+  }
+  const leave = at(0.6);
+  if (leave > 0) {
+    toStatus(leave, LEO.id, { kind: "left" });
+    const added = near(leave + 2, leave + 12);
+    if (added > 0) {
+      // Leo says nothing while he is out of the group.
+      for (let i = leave + 1; i < added; i++) if (msgs[i].senderId === LEO.id) msgs[i].senderId = AUSTIN.id;
+      toStatus(added, LAWRENCE.id, { kind: "added", targetId: LEO.id });
+    }
+  }
+  const photo2 = at(0.8);
+  if (photo2 > 0) toStatus(photo2, LAWRENCE.id, { kind: "changedPhoto" });
+}
+
+/** Validates and applies a status event's effect on the conversation, then posts it. */
+function postStatus(store: Store, actorId: string, system: SystemEvent): Message {
+  const conv = store.conv;
+  if (conv.kind !== "group") throw invalid("status rows are for group conversations");
+  if (!SYSTEM_KINDS.includes(system.kind)) throw invalid(`unknown kind ${system.kind}`);
+  const actor = conv.participants.find((p) => p.id === actorId);
+  if (!actor || actor.left) throw invalid(`actor ${actorId} is not in the conversation`);
+  const target = system.targetId ? conv.participants.find((p) => p.id === system.targetId) : undefined;
+  switch (system.kind) {
+    case "named":
+      if (!system.name) throw invalid("name required");
+      conv.title = system.name;
+      break;
+    case "removedName":
+      conv.title = "";
+      break;
+    case "added":
+      if (!target || !target.left) throw invalid("target must be a former member");
+      target.left = false;
+      break;
+    case "removed":
+      if (!target || target.left || target.id === actor.id || target.isMe) throw invalid("target must be another member (the sim keeps me in)");
+      target.left = true;
+      break;
+    case "left":
+      if (actor.isMe) throw invalid("the sim keeps me in the conversation");
+      actor.left = true;
+      break;
+    default:
+      break;
+  }
+  if (system.kind === "left" || system.kind === "removed") {
+    if (target ?? actor) store.broadcastTyping((target ?? actor).id, false);
+  }
+  const m = store.create(actorId, "", { system });
+  if (["named", "removedName", "added", "removed", "left"].includes(system.kind)) store.broadcastConversation();
+  return m;
+}
+
+/**
+ * Live group changes on their own seeded stream (SEED ^ 0x5747): roughly every
+ * `statusEverySeconds`, a member renames the group, changes its photo, or
+ * leaves and is added back a little later.
+ */
+async function statusLoop(store: Store) {
+  const rng = mulberry32(SEED ^ 0x5747);
+  let nameIndex = 0;
+  for (;;) {
+    try {
+      const every = knobs.statusEverySeconds;
+      if (every <= 0) {
+        await sleep(1000);
+        continue;
+      }
+      await botSleep(every * 1000 * uniform(0.5, 1.5, rng));
+      if (knobs.statusEverySeconds <= 0) continue;
+      const roll = rng();
+      const members = store.bots();
+      if (!members.length) continue;
+      const actor = pick(rng, members);
+      if (roll < 0.4) {
+        nameIndex = (nameIndex + 1) % GROUP_NAMES.length;
+        postStatus(store, actor.id, { kind: "named", name: GROUP_NAMES[nameIndex] });
+      } else if (roll < 0.6) {
+        postStatus(store, actor.id, { kind: "changedPhoto" });
+      } else if (members.length > 1) {
+        const leaver = pick(rng, members.filter((m) => m.id !== actor.id));
+        postStatus(store, leaver.id, { kind: "left" });
+        await botSleep(uniform(20_000, 90_000, rng));
+        const adder = pick(rng, store.bots());
+        if (adder && leaver.left) postStatus(store, adder.id, { kind: "added", targetId: leaver.id });
+      }
+      log(`status conv=${store.conv.id} title=${store.conv.title}`);
+    } catch (e) {
+      log(`status loop error conv=${store.conv.id} ${e}`);
+    }
+  }
+}
+
+// ---------------------------------------------------------------- Focus
+
+/** The other person in a direct conversation. */
+const recipient = (store: Store) => (store.conv.kind === "direct" ? store.conv.participants.find((p) => !p.isMe) : undefined);
+
+function setSilenced(store: Store, participant: Participant, on: boolean) {
+  if (!!participant.notificationsSilenced === on) return;
+  participant.notificationsSilenced = on;
+  log(`focus conv=${store.conv.id} ${participant.id} silenced=${on}`);
+  store.broadcastConversation();
+}
+
+/** The direct recipient's Focus turns on and off on its own seeded stream (SEED ^ 0xf0c5). */
+async function focusLoop(store: Store) {
+  const rng = mulberry32(SEED ^ 0xf0c5);
+  const person = recipient(store);
+  if (!person) return;
+  for (;;) {
+    const every = knobs.focusEverySeconds;
+    if (every <= 0) {
+      await sleep(1000);
+      continue;
+    }
+    await botSleep(every * 1000 * uniform(0.5, 1.5, rng));
+    if (knobs.focusEverySeconds > 0) setSilenced(store, person, !person.notificationsSilenced);
+  }
+}
+
 // ---------------------------------------------------------------- conversations
 
 const stores = new Map<string, Store>();
 function boot() {
   const t0 = performance.now();
   const listState = { pinned: false, muted: false, markedUnread: false, deleted: false };
-  const group = new Store({ id: "group", title: "cmux", kind: "group", participants: [ME, LAWRENCE, AUSTIN, LEO], ...listState });
-  const direct = new Store({ id: "direct", title: "John Appleseed", kind: "direct", participants: [ME, JOHN], ...listState });
+  // Per-conversation copies: membership and Focus are conversation state.
+  const group = new Store({ id: "group", title: "cmux", kind: "group", participants: [ME, { ...LAWRENCE }, { ...AUSTIN }, { ...LEO }], ...listState });
+  const direct = new Store({ id: "direct", title: "John Appleseed", kind: "direct", participants: [ME, { ...JOHN }], ...listState });
+  // No messages yet: the empty-conversation and top-of-history state. Bots
+  // stay quiet here until I write.
+  const empty = new Store({ id: "empty", title: KATE.name, kind: "direct", participants: [ME, { ...KATE }], ...listState });
   generateHistory(group, GROUP_COUNT, 0.25, SEED);
   generateHistory(direct, DIRECT_COUNT, 0.45, SEED + 1);
+  addHistoryStatus(group, SEED);
   // A real backlog never contains my own messages (sending reads the
   // conversation), so the boot backlog is the last N messages, all from others.
   for (const store of [group, direct]) {
@@ -520,6 +731,7 @@ function boot() {
   }
   stores.set("group", group);
   stores.set("direct", direct);
+  stores.set("empty", empty);
   log(
     `history ready seed=${SEED} group=${group.headSeq} direct=${direct.headSeq} media=${media.size} in ${Math.round(performance.now() - t0)}ms`,
   );
@@ -589,12 +801,20 @@ class Conn {
   }
 }
 
+/** Flags are omitted when false. */
+function wireParticipant(p: Participant) {
+  const out: Record<string, unknown> = { id: p.id, name: p.name, initials: p.initials, colorHex: p.colorHex, isMe: p.isMe };
+  if (p.notificationsSilenced) out.notificationsSilenced = true;
+  if (p.left) out.left = true;
+  return out;
+}
+
 function wireConversation(c: Conversation) {
   const out: Record<string, unknown> = {
     id: c.id,
     title: c.title,
     kind: c.kind,
-    participants: c.participants,
+    participants: c.participants.map(wireParticipant),
     pinned: c.pinned,
     muted: c.muted,
     markedUnread: c.markedUnread,
@@ -663,6 +883,9 @@ function wireMessage(m: Message, base: string) {
   const preview = linkPreviewFor(m);
   if (preview) out.linkPreview = wireLinkPreview(preview, base);
   if (m.effect) out.effect = m.effect;
+  if (m.system) out.system = m.system;
+  if (m.deliveredQuietly) out.deliveredQuietly = true;
+  if (m.notifiedAnyway) out.notifiedAnyway = true;
   return out;
 }
 
@@ -865,6 +1088,17 @@ async function handleRpc(conn: Conn, rpcId: unknown, method: string, p: any): Pr
       }
       return {};
     }
+    case "notifyAnyway": {
+      const m = store.byId.get(p?.messageId);
+      if (!m) throw invalid("unknown messageId");
+      if (m.senderId !== ME.id || !m.deliveredQuietly) throw invalid("not a quietly delivered message of mine");
+      await sleep(lat(80, 400));
+      if (!m.notifiedAnyway) {
+        m.notifiedAnyway = true;
+        store.emit("message.updated", m);
+      }
+      return { message: wireMessage(m, conn.base) };
+    }
     case "typing":
       if (typeof p?.isTyping !== "boolean") throw invalid("isTyping");
       vlog(`typing conn=${conn.id} ${p.isTyping}`);
@@ -943,6 +1177,8 @@ async function handleSend(conn: Conn, p: any): Promise<Message> {
 function afterMySend(store: Store, m: Message) {
   setTimeout(() => {
     m.status = "delivered";
+    // The recipient's Focus silences the notification: "Delivered Quietly".
+    if (recipient(store)?.notificationsSilenced) m.deliveredQuietly = true;
     store.emit("message.updated", m);
     if (store.conv.kind === "direct") {
       setTimeout(() => {
@@ -1269,6 +1505,36 @@ async function handleHttp(req: Request, server: ReturnType<typeof Bun.serve>): P
     log(`admin say conv=${conv} sender=${sender.id} effect=${effect ?? "-"}`);
     return json({ ok: true, message: wireMessage(m, base) });
   }
+  if (path === "/admin/system" && req.method === "POST") {
+    // A group status row now: kind, actor (default a random member), target, name.
+    const conv = url.searchParams.get("conversation") ?? "group";
+    const store = stores.get(conv);
+    if (!store) return json({ error: `unknown conversation ${conv}` }, 404);
+    const kind = (url.searchParams.get("kind") ?? "changedPhoto") as SystemKind;
+    const actorId = url.searchParams.get("actor") ?? pick(R, store.bots())?.id ?? ME.id;
+    const system: SystemEvent = { kind };
+    const target = url.searchParams.get("target");
+    const name = url.searchParams.get("name");
+    if (target) system.targetId = target;
+    if (name !== null) system.name = name;
+    try {
+      const m = postStatus(store, actorId, system);
+      log(`admin system conv=${conv} actor=${actorId} ${JSON.stringify(system)}`);
+      return json({ ok: true, message: wireMessage(m, base), conversation: wireConversation(store.conv) });
+    } catch (e) {
+      return json({ error: String((e as Error).message ?? e) }, 400);
+    }
+  }
+  if (path === "/admin/focus" && req.method === "POST") {
+    // The direct recipient's Focus: on=1 silences notifications, on=0 clears it.
+    const conv = url.searchParams.get("conversation") ?? "direct";
+    const store = stores.get(conv);
+    if (!store) return json({ error: `unknown conversation ${conv}` }, 404);
+    const person = recipient(store);
+    if (!person) return json({ error: "Focus is shown for direct conversations" }, 400);
+    setSilenced(store, person, url.searchParams.get("on") !== "0");
+    return json({ ok: true, conversation: wireConversation(store.conv) });
+  }
   if (path === "/admin/disconnect" && req.method === "POST") {
     return json({ ok: true, dropped: dropAll("admin disconnect") });
   }
@@ -1283,6 +1549,9 @@ async function handleHttp(req: Request, server: ReturnType<typeof Bun.serve>): P
         lastReadSeq: s.lastReadSeq,
         unreadCount: s.unreadCount(),
         listState: { pinned: s.conv.pinned, pinOrder: s.conv.pinOrder, muted: s.conv.muted, markedUnread: s.conv.markedUnread, deleted: s.conv.deleted },
+        title: s.conv.title,
+        silenced: s.conv.participants.filter((p) => p.notificationsSilenced).map((p) => p.id),
+        left: s.conv.participants.filter((p) => p.left).map((p) => p.id),
       };
     return json({ knobs, conversations, uploads: [...media.values()].filter((m) => m.bytes).length });
   }
@@ -1357,5 +1626,10 @@ setInterval(() => {
       }
 }, 1000);
 
-for (const s of stores.values()) void botLoop(s);
-log(`conversation-sim listening on http://${HOST}:${server.port} (ws: /ws?conversation=group|direct)`);
+for (const s of stores.values()) {
+  if (s.conv.id === "empty") continue;
+  void botLoop(s);
+  if (s.conv.kind === "group") void statusLoop(s);
+  else void focusLoop(s);
+}
+log(`conversation-sim listening on http://${HOST}:${server.port} (ws: /ws?conversation=group|direct|empty)`);

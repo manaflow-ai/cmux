@@ -12,8 +12,9 @@ Transport: WebSocket at `ws://<host>:<port>/ws?conversation=<id>`, one JSON-RPC
 2.0 object per text frame. Media over plain HTTP on the same port.
 
 Conversations hosted: `group` (title "cmux", 3 other participants, ~20k
-messages) and `direct` (1:1, ~5k messages). Both live for the life of the
-process and keep growing.
+messages), `direct` (1:1, ~5k messages) and `empty` (1:1 with Kate Bell, no
+messages: the empty-conversation and top-of-history state; no bot traffic
+until I write). All live for the life of the process and keep growing.
 
 ## Requests (client to server)
 
@@ -30,6 +31,7 @@ process and keep growing.
 | `unfurl` | `{url}` | `{linkPreview: LinkPreview}` |
 | `updateConversation` | `{pinned?, pinOrder?, muted?, markedUnread?, deleted?}` | `{conversation}` |
 | `keepAudio` | `{messageId}` | `{message: Message}` |
+| `notifyAnyway` | `{messageId}` | `{message: Message}` (my `deliveredQuietly` message only, else `-32602`; sets `notifiedAnyway`) |
 | `audioPlayed` | `{messageId}` | `{}` |
 
 `keepAudio` keeps an audio message (clears `expiresAt`, sets `kept`).
@@ -85,7 +87,11 @@ Conversation {
   id, title, kind: "group"|"direct", participants: [Participant],
   pinned, pinOrder?, muted, markedUnread, deleted   // list state; pinOrder only when pinned
 }
-Participant  { id, name, initials, colorHex, isMe }
+Participant  {
+  id, name, initials, colorHex, isMe,
+  notificationsSilenced?: true   // Focus on (direct recipient); omitted when off
+  left?: true                    // left or was removed from the group; omitted otherwise
+}
 Message {
   id, seq, clientMessageId?, senderId, sentAt (epoch ms), text,
   replyToId?, replyCount, editedAt?, editCount?, unsentAt?,
@@ -96,6 +102,14 @@ Message {
   textRuns?: [TextRun]                           // omitted when plain
   linkPreview?: LinkPreview   // when a URL opens or ends `text`
   effect?: Effect                                // "send with effect"
+  system?: SystemEvent        // a group status row; `text` is "", `senderId` is the actor
+  deliveredQuietly?: true     // mine, delivered while the recipient was silenced
+  notifiedAnyway?: true       // I tapped Notify Anyway for it
+}
+SystemEvent {
+  kind: "named"|"removedName"|"added"|"removed"|"left"|"changedPhoto"|"removedPhoto",
+  targetId?,   // added / removed
+  name?        // named: the new conversation name
 }
 LinkPreview {
   url, title?, siteName?, state: "loaded"|"loading"|"tapToLoad",
@@ -160,9 +174,19 @@ edit without `textRuns` clears the formatting.
   Receiver-side effect testing. With a JSON body `{conversation, senderId,
   text, effect}` instead, the message posts at once and the sender may be me
   (deterministic link, data detector and layout fixtures).
+- `POST /admin/system?conversation=group&kind=<kind>&actor=<id>&target=<id>&name=<s>`:
+  a group status row now (actor defaults to a random member). It applies its
+  effect first: `named`/`removedName` change the title, `left`/`removed` mark
+  the member `left` (they stop typing and sending), `added` brings a former
+  member back; each pushes `conversation`. Invalid changes (a member who left
+  acting, adding a current member, removing or leaving as me, a status row
+  in `direct`) return 400.
+- `POST /admin/focus?conversation=direct&on=1|0`: the direct recipient's Focus
+  (pushes `conversation` with `notificationsSilenced`).
 - `POST /admin/disconnect`: drop every socket (reconnect testing).
 - `POST /admin/knobs` JSON `{latencyScale, failRate, historyFailRate,
-  duplicateRate, disconnectEverySeconds, botIntervalScale, botLinkRate, effectRate}`.
+  duplicateRate, disconnectEverySeconds, botIntervalScale, botLinkRate, effectRate,
+  statusEverySeconds, focusEverySeconds}`.
 
 ## Link previews
 
@@ -205,3 +229,24 @@ the time. Every recording has a spoken transcript.
 
 Effects: `effectRate` (default 0.03) of bot text messages carry a random
 effect; ~1.5% of generated history text messages do too.
+
+## Group status rows and Focus
+
+Status rows are messages with `system` (seq, paging, replay and dedupe as
+usual). They never count as unread (`unreadCount`, `/admin/unread`). Group
+history opens with Lawrence naming the conversation "cmux" (seq 1) and holds
+a few more far from the newest pages: my photo change, a rename and rename
+back, Leo leaving and being added again, another photo change. They replace
+existing messages after history is generated, on their own seeded rng, so
+every seq and every other message is unchanged.
+
+Live, on a separate seeded stream (`SEED ^ 0x5747`), roughly every
+`statusEverySeconds` (default 300, jittered 0.5x to 1.5x, scaled by
+`botIntervalScale`; 0 stops it) a group member renames the group (40%),
+changes its photo (20%), or a member leaves and is added back 20 to 90 s
+later (40%).
+
+The direct recipient's Focus flips on or off roughly every
+`focusEverySeconds` (default 180, its own seeded stream `SEED ^ 0xf0c5`; 0
+stops it). While it is on, my messages there become `delivered` with
+`deliveredQuietly: true`.

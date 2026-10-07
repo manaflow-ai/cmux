@@ -455,6 +455,56 @@ async function main() {
   gb.close();
   da.close();
 
+  console.log("group status rows");
+  const sg = await Client.connect("group");
+  await sg.call("hello", { clientId: "status-g" });
+  const top = await sg.call("history", { beforeSeq: 2, limit: 1 });
+  check(top.messages[0].seq === 1 && top.messages[0].system?.kind === "named" && top.messages[0].system.name === "cmux" && top.messages[0].text === "", "history opens with the group being named");
+  await post("/admin/unread?conversation=group&count=0");
+  const left = await post("/admin/system?conversation=group&kind=left&actor=leo");
+  check(left.message.system.kind === "left" && left.message.senderId === "leo", "admin system posts a status row from its actor");
+  await sg.waitFor(() => sg.frames.find((f) => f.method === "conversation" && f.params.conversation.participants.find((p: any) => p.id === "leo")?.left === true), 3000, "left push");
+  check(true, "leaving marks the member left in a conversation push");
+  const state1 = await fetch(base + "/admin/state").then((r) => r.json());
+  check(state1.conversations.group.unreadCount === 0, "status rows never count as unread");
+  const badAdd = await fetch(base + "/admin/system?conversation=group&kind=added&actor=leo&target=austin", { method: "POST" });
+  check(badAdd.status === 400, "a member who left cannot act, and only former members can be added");
+  await post("/admin/system?conversation=group&kind=added&actor=lawrence&target=leo");
+  const renamed = await post("/admin/system?conversation=group&kind=named&actor=austin&name=" + encodeURIComponent("ship it"));
+  check(renamed.conversation.title === "ship it", "naming the conversation changes its title");
+  await sg.waitFor(() => sg.events().find((e) => e.message.id === renamed.message.id && e.message.system?.name === "ship it"), 3000, "named event");
+  await post("/admin/system?conversation=group&kind=named&actor=austin&name=cmux");
+  const directStatus = await fetch(base + "/admin/system?conversation=direct&kind=changedPhoto&actor=john", { method: "POST" });
+  check(directStatus.status === 400, "status rows are for group conversations");
+  sg.close();
+
+  console.log("Focus: Delivered Quietly and Notify Anyway");
+  const fd = await Client.connect("direct");
+  await fd.call("hello", { clientId: "focus-d" });
+  await post("/admin/focus?conversation=direct&on=1");
+  await fd.waitFor(() => fd.frames.find((f) => f.method === "conversation" && f.params.conversation.participants.find((p: any) => !p.isMe)?.notificationsSilenced === true), 3000, "silenced push");
+  check(true, "Focus on pushes notificationsSilenced");
+  const quiet = (await fd.call("send", { clientMessageId: `quiet-${crypto.randomUUID()}`, text: "are you around?" })).message;
+  await fd.waitFor(() => fd.events().find((e) => e.message.id === quiet.id && e.message.status === "delivered" && e.message.deliveredQuietly === true), 5000, "delivered quietly");
+  check(true, "a message delivered while silenced is Delivered Quietly");
+  const notified = await fd.call("notifyAnyway", { messageId: quiet.id });
+  check(notified.message.notifiedAnyway === true, "notifyAnyway marks the message");
+  const notQuiet = await fd.raw("notifyAnyway", { messageId: top.messages[0].id });
+  check(notQuiet.error?.code === -32602, "notifyAnyway refuses anything but my quietly delivered message");
+  await post("/admin/focus?conversation=direct&on=0");
+  const loud = (await fd.call("send", { clientMessageId: `loud-${crypto.randomUUID()}`, text: "ok" })).message;
+  await fd.waitFor(() => fd.events().find((e) => e.message.id === loud.id && e.message.status === "delivered"), 5000, "delivered");
+  check(!fd.events().some((e) => e.message.id === loud.id && e.message.deliveredQuietly), "Focus off delivers normally");
+  fd.close();
+
+  console.log("empty conversation");
+  const ec = await Client.connect("empty");
+  const eh = await ec.call("hello", { clientId: "empty" });
+  check(eh.headSeq === 0 && eh.unreadCount === 0 && eh.conversation.kind === "direct", "the empty conversation has no messages");
+  const eHistory = await ec.call("history", { beforeSeq: null, limit: 50 });
+  check(eHistory.messages.length === 0 && eHistory.hasMore === false, "its history is empty and exhausted");
+  ec.close();
+
   console.log("admin disconnect");
   await post("/admin/disconnect");
   await l.waitFor(() => l.closed, 3000, "socket drop");
