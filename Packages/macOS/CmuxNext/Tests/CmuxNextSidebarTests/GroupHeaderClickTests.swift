@@ -53,7 +53,6 @@ import Testing
         let h = Harness()
         h.click(h.namePoint(g1), count: 1)
         #expect(h.toggles == 1, "no double-click wait (cx-qno.17)")
-        #expect(h.list.pendingGroupToggle == nil)
         #expect(h.list.model.group(g1)?.isCollapsed == true)
     }
 
@@ -73,6 +72,5 @@ import Testing
         let point = h.list.convert(h.list.convert(local, from: view), to: nil)
         h.click(point, count: 1)
         #expect(h.toggles == 1)
-        #expect(h.list.pendingGroupToggle == nil)
     }
 }

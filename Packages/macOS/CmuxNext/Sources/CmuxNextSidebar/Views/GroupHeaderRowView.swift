@@ -26,6 +26,8 @@ final class GroupHeaderRowView: SidebarRowView {
     private var collapsed = false
     private var chevronFrame: CGRect = .zero
     var isDropTarget = false { didSet { if isDropTarget != oldValue { needsDisplay = true } } }
+    /// Arrow keys stopped here (`SidebarListView+GroupKeys`): a focus ring, not a selection.
+    var isKeyboardFocused = false { didSet { if isKeyboardFocused != oldValue { needsDisplay = true } } }
     var onAdd: (() -> Void)?
     var onEdit: (() -> Void)?
 
@@ -44,6 +46,7 @@ final class GroupHeaderRowView: SidebarRowView {
     override func prepareForReuse(key: SidebarRowKey) {
         super.prepareForReuse(key: key)
         isDropTarget = false
+        isKeyboardFocused = false
         collapsed = false
         onAdd = nil
         onEdit = nil
@@ -123,6 +126,9 @@ final class GroupHeaderRowView: SidebarRowView {
             }
             CATransaction.begin()
             CATransaction.setDisableActions(true)
+            layer?.borderColor = Palette.focusRing.cgColor
+            layer?.borderWidth = isKeyboardFocused ? Metrics.dividerThickness * 1.5 : 0
+            layer?.cornerRadius = SidebarStyle.rowCornerRadius
             // The label carries the color; the dot layer stays for reuse.
             dot.isHidden = true
             dot.fillColor = collapsed ? nil : tint.cgColor
