@@ -10,24 +10,61 @@ public struct BrowserSourceDetector: Sendable {
         self.environment = environment
     }
 
+    /// Each found browser once; a profile folder that two rows share
+    /// (ungoogled-chromium and Chromium, Zen and Zen Twilight) is listed
+    /// only under the first row.
     public func detect(_ browsers: [ImportBrowser] = ImportBrowser.allCases) -> [BrowserSource] {
-        browsers.compactMap(detect)
+        var seen = Set<String>()
+        return browsers.compactMap { browser in
+            guard var source = detect(browser) else { return nil }
+            source.profiles = source.profiles.filter { seen.insert($0.path.standardizedFileURL.path).inserted }
+            return source.profiles.isEmpty ? nil : source
+        }
     }
 
     public func detect(_ browser: ImportBrowser) -> BrowserSource? {
+        guard var source = detectFiles(browser) else { return nil }
+        // Kinds the registry marks unreadable for this browser.
+        let unsupported = Set((browser.row?.unsupportedKinds ?? []).compactMap(ImportDataKind.init(rawValue:)))
+        guard !unsupported.isEmpty else { return source }
+        for index in source.profiles.indices {
+            for kind in unsupported where source.profiles[index].availability[kind] != nil && source.profiles[index].availability[kind] != .absent {
+                source.profiles[index].availability[kind] = .unsupported(.exportFromSource)
+            }
+        }
+        return source
+    }
+
+    private func detectFiles(_ browser: ImportBrowser) -> BrowserSource? {
+        guard browser.row != nil else { return nil }
         let directory = environment.dataDirectory(browser)
         let appURL = browser.bundleIDs.lazy.compactMap(environment.locateApp).first
+            ?? browser.appNames.lazy.compactMap(environment.locateAppNamed).first
         guard FileManager.default.fileExists(atPath: directory.path) else { return nil }
         switch browser.family {
         case .chromium:
-            let entries = browser.profileIsDataDirectory
-                ? [ChromiumProfileList.Entry(directoryName: "", displayName: browser.displayName)]
-                : ChromiumProfileList().entries(in: directory)
+            let entries = browser.profileIsDataDirectory ? Self.rootProfileEntries(directory, browser: browser) : ChromiumProfileList().entries(in: directory)
             let profiles = entries.map { entry in
                 let path = entry.directoryName.isEmpty ? directory : directory.appending(path: entry.directoryName, directoryHint: .isDirectory)
                 let avatar = entry.avatarFileName.map { path.appending(path: $0) }.flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil }
+                var availability = Self.chromiumAvailability(path, browser: browser)
+                if browser.bookmarksFormat == .noStore || browser.bookmarksFormat == .htmlExport {
+                    availability[.bookmarks] = .absent
+                }
+                if browser.safeStorageService == nil {
+                    // No known Keychain item: the encrypted kinds cannot be read.
+                    for kind in [ImportDataKind.passwords, .cookies] where availability[kind] == .available {
+                        availability[kind] = .unsupported(.sourceEncrypted)
+                    }
+                }
+                var bookmarksFile: URL?
+                if browser.bookmarksFormat == .arcSidebar, let sidebar = browser.row?.sidebarFile.map(environment.file),
+                   FileManager.default.fileExists(atPath: sidebar.path) {
+                    availability[.bookmarks] = .available
+                    bookmarksFile = sidebar
+                }
                 return BrowserSourceProfile(browser: browser, directoryName: entry.directoryName, displayName: entry.displayName,
-                                            path: path, availability: Self.chromiumAvailability(path, browser: browser), avatar: avatar)
+                                            path: path, availability: availability, avatar: avatar, bookmarksFile: bookmarksFile)
             }
             return profiles.isEmpty ? nil : BrowserSource(browser: browser, appURL: appURL, profiles: profiles)
         case .firefox:
@@ -44,14 +81,25 @@ public struct BrowserSourceDetector: Sendable {
                                                path: directory, availability: availability)
             guard blocked || !profile.importableKinds.isEmpty else { return nil }
             return BrowserSource(browser: browser, appURL: appURL, profiles: [profile], needsFullDiskAccess: blocked)
-        case .webkit:
-            // Listed so the user sees why nothing moves; their own export is the path.
-            let reason: UnsupportedReason = browser == .duckDuckGo ? .exportFromSource : .unknownFormat
+        case .webkit, .other:
+            // Listed so the user sees why nothing moves; their own HTML export is the path.
+            let reason: UnsupportedReason = browser.bookmarksFormat == .htmlExport ? .exportFromSource : .unknownFormat
             let profile = BrowserSourceProfile(browser: browser, directoryName: "Default", displayName: browser.displayName, path: directory,
-                                               availability: [.bookmarks: .unsupported(reason), .history: .unsupported(reason),
-                                                              .cookies: .unsupported(reason), .passwords: .unsupported(.exportFromSource)])
+                                               availability: [.bookmarks: .unsupported(reason), .history: .unsupported(.unknownFormat),
+                                                              .cookies: .unsupported(.unknownFormat), .passwords: .unsupported(.exportFromSource)])
             return BrowserSource(browser: browser, appURL: appURL, profiles: [profile])
         }
+    }
+
+    /// Opera's layout: the data folder itself is the profile; newer builds
+    /// may also list `Default` / `Profile N` in `Local State`, so both count.
+    static func rootProfileEntries(_ directory: URL, browser: ImportBrowser) -> [ChromiumProfileList.Entry] {
+        let root = ChromiumProfileList.Entry(directoryName: "", displayName: browser.displayName)
+        let listed = ChromiumProfileList().entries(in: directory).filter { !$0.directoryName.isEmpty }
+        let rootHasData = ["Bookmarks", "Preferences", "History"].contains {
+            FileManager.default.fileExists(atPath: directory.appending(path: $0).path)
+        }
+        return rootHasData || listed.isEmpty ? [root] + listed : listed
     }
 
     /// The cookie database of a Chromium profile (`Network/Cookies` since
@@ -65,16 +113,17 @@ public struct BrowserSourceDetector: Sendable {
     }
 
     static func chromiumAvailability(_ profile: URL, browser: ImportBrowser) -> [ImportDataKind: DataAvailability] {
-        func present(_ name: String) -> Bool { FileManager.default.fileExists(atPath: profile.appending(path: name).path) }
+        let files = browser.source?.files
+        func present(_ name: String?) -> Bool { name.map { FileManager.default.fileExists(atPath: profile.appending(path: $0).path) } ?? false }
         let sessions = profile.appending(path: "Sessions")
         let hasSession = ChromiumSessionReader().latestSessionFile(in: sessions) != nil || present("Current Session")
         return [
-            .bookmarks: present("Bookmarks") ? .available : .absent,
-            .history: present("History") ? .available : .absent,
+            .bookmarks: present(files?.bookmarks ?? "Bookmarks") ? .available : .absent,
+            .history: present(files?.history ?? "History") ? .available : .absent,
             .openTabs: hasSession ? .available : .absent,
             .extensions: present("Extensions") ? .available : .absent,
             // Read only after the consent step (PasswordImporter).
-            .passwords: !present("Login Data") ? .absent : browser.readsSavedPasswords ? .available : .unsupported(.exportFromSource),
+            .passwords: !present(files?.passwords ?? "Login Data") ? .absent : browser.readsSavedPasswords ? .available : .unsupported(.exportFromSource),
             .cookies: chromiumCookieFile(profile) != nil ? .available : .absent,
         ]
     }

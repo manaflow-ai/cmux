@@ -65,11 +65,11 @@ import Testing
     @Test func aDecidedAppInstallsNothing() {
         let engine = WebKitEngine()
         engine.passkeyAuthorization = WebKitPasskeyAuthorization(backend: FakeBackend(state: .authorized))
-        let tab = engine.makeWebKitTab(BrowserTabConfiguration())
+        let tab = engine.makeWebKitTab()
         #expect(!tab.webView.configuration.userContentController.userScripts.contains { $0.source.contains("cmuxPasskeyAuthorization") })
         let undecided = WebKitEngine()
         undecided.passkeyAuthorization = WebKitPasskeyAuthorization(backend: FakeBackend(state: .notDetermined))
-        let tab2 = undecided.makeWebKitTab(BrowserTabConfiguration())
+        let tab2 = undecided.makeWebKitTab()
         #expect(tab2.webView.configuration.userContentController.userScripts.contains { $0.source.contains("cmuxPasskeyAuthorization") })
         tab.close()
         tab2.close()
