@@ -409,25 +409,51 @@ async fn a_revoked_pairing_closes_an_open_owner_session_and_refuses_a_redial() {
     let task = {
         let (config, session_socket) = (config.clone(), session_socket.clone());
         tokio::spawn(async move {
-            serve_inbound_watched(link_side, [2; 32], peer_addr("inst_b"), &pairings(), &session_socket, Some(&config), Some(receiver)).await
+            serve_inbound_watched(
+                link_side,
+                [2; 32],
+                peer_addr("inst_b"),
+                &pairings(),
+                &session_socket,
+                Some(&config),
+                Some(receiver),
+            )
+            .await
         })
     };
     peer.write_all(b"{\"service\":\"owner_session\"}\nhello\n").await.unwrap();
     let mut peer = BufReader::new(peer);
     let mut echoed = String::new();
-    tokio::time::timeout(super::lines::HANDSHAKE_TIMEOUT, peer.read_line(&mut echoed)).await.unwrap().unwrap();
+    tokio::time::timeout(super::lines::HANDSHAKE_TIMEOUT, peer.read_line(&mut echoed))
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(echoed, "hello\n", "the owner session is open");
     // Revoke: the new view no longer pairs inst_b.
     sender.send_replace(std::sync::Arc::new(Pairings::default()));
-    let served = tokio::time::timeout(std::time::Duration::from_secs(1), task).await.expect("the session did not close").unwrap();
+    let served = tokio::time::timeout(std::time::Duration::from_secs(1), task)
+        .await
+        .expect("the session did not close")
+        .unwrap();
     assert_eq!(served, Err(InboundRefused::Owner(OwnerRefused::NotOwner)));
     let mut tail = String::new();
-    let eof = tokio::time::timeout(std::time::Duration::from_secs(1), peer.read_line(&mut tail)).await.unwrap().unwrap();
+    let eof = tokio::time::timeout(std::time::Duration::from_secs(1), peer.read_line(&mut tail))
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(eof, 0, "the peer's stream is closed");
     brain.abort();
     // A redial with the revoked key reaches nothing.
     let (mut again, link_side) = tokio::io::duplex(1024);
     again.write_all(b"{\"service\":\"owner_session\"}\n").await.unwrap();
-    let refused = serve_inbound(link_side, [2; 32], peer_addr("inst_b"), &Pairings::default(), &session_socket, Some(&config)).await;
+    let refused = serve_inbound(
+        link_side,
+        [2; 32],
+        peer_addr("inst_b"),
+        &Pairings::default(),
+        &session_socket,
+        Some(&config),
+    )
+    .await;
     assert_eq!(refused, Err(InboundRefused::UnknownPeer));
 }
