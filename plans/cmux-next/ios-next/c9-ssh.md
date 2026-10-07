@@ -1,0 +1,126 @@
+# C9 `ssh`: SSH hosts and sessions on the phone
+
+Status: lane C9 of PLAN.md, 2026-10-06. Branch `feat-cmux-next-ios-c9-ssh` off `feat-cmux-next-ios`
+(A1 shell and A2 renderer merged there). Binding: PLAN.md section 4, a1-shell.md (2.3 `HostsStore`,
+1.15 SSH parity, 1.4 deferred sign-in), a2-ghostty.md (2.1 `TerminalByteSource`, `.local`).
+
+## 1. What exists and what is reused
+
+`Packages/iOS/CmuxMobileSSH` stays the transport (the Mac links it too): `SSHConnection` (SwiftNIO
+SSH over Network.framework, jump hosts through `direct-tcpip`, a handshake deadline that pauses while
+a trust prompt waits), `SSHSessionChannel` (PTY request, `window-change`, ordered events),
+`SSHHostKey` + `SSHHostKeyVerdict` (OpenSSH SHA256 fingerprints), `SSHKeyStore` (Secure Enclave P-256
+and imported OpenSSH keys, secrets in the Keychain `ThisDeviceOnly`), `SSHKeyInstaller` (password
+once, then key-only proof). C9 adds only two additive pieces there:
+
+- `SSHKeyStore.generateEd25519Key(label:)` and record kind `generatedEd25519` (Curve25519 raw key in
+  the Keychain, never exported).
+- `SSHConnection.connect(..., keepalive:)`: kernel TCP keepalive on the outer transport
+  (`SO_KEEPALIVE`, idle, interval, count through NIOTS). No app timer sends keepalives, so an idle
+  session costs zero wakeups; a dead path surfaces as a closed connection.
+
+The shipping app's `MobileSSHComputers` workspace providers (tmux control mode, screen, cmux-tui
+auto install, SFTP) are not ported in this lane; a host opens a login shell. They come back through
+C5 (SSH workspaces in the list) and C4 (SFTP) on top of the same connection owner.
+
+## 2. Modules
+
+| Module | Owns | Imports |
+| --- | --- | --- |
+| `CmuxiOSSSHCore` | config parser, known_hosts file and TOFU verifier, device-local host settings, secret vault, `LocalHostsStore`, `SSHTerminalByteSource`, session state | Foundation, FeatureKit, CmuxMobileSSH, RenderCore |
+| `CmuxiOSSSH` | Hosts tab, host editor, config import, keys screen, trust prompts, SSH terminal screen | UIKit, SwiftUI, Core, Design, CmuxiOSTerminal |
+
+The shell gets the Hosts screen by injection: `ShellContent(screens:)` takes tab-to-factory closures
+from the composition root, so `CmuxiOSShell` never imports a feature module and lanes stop colliding
+on one switch.
+
+## 3. Ownership
+
+- SSH host records (name, address, port, user, jump host) belong to the account's synced host
+  store. Today the owner is `LocalHostsStore` on the device (JSON in Application Support, file
+  protection complete). `HostsSyncChannel` is the B1 seam: the store publishes each committed
+  revision and applies remote records; `DisabledHostsSync` is the default. Paired Macs are not stored
+  here (B6 owns them through `DeviceRegistry`); the store refuses them.
+- How this device logs in to a host (key id or password) is device state: `SSHHostSettingsStore`
+  keyed by `HostID`. Key ids name Keychain items that never leave the device, so they never sync.
+- Secrets live only in the Keychain: private keys (`SSHKeyStore`), passwords (`SSHSecretVault`,
+  service `dev.cmux.ios.ssh.passwords`, `WhenUnlockedThisDeviceOnly`). Nothing logs a secret,
+  a key, a password or a fingerprint; errors carry no payload text.
+- Pinned host keys are device state in `SSHKnownHostsFile` (OpenSSH `known_hosts` text,
+  `identity algorithm base64`), so a pasted `known_hosts` line can be imported later.
+- A new host's id is chosen by the client from its intent key (`HostID.added(by:)`), so the editor
+  can bind device settings before the owner's snapshot returns and a replayed add is idempotent.
+
+## 4. Host key trust (TOFU)
+
+`TOFUHostKeyVerifier` computes `SSHHostKeyVerdict` from the pinned key. Trusted: continue. Unknown:
+ask "Trust this host?" with the SHA256 fingerprint and algorithm; accept pins it. Changed: a
+destructive warning naming both fingerprints; the default action is Disconnect, "Replace key"
+re-pins. The handshake deadline is paused while the prompt is up (existing `SSHHandshakeDeadline`).
+The prompt is a `SSHTrustPrompter` protocol; the UI implements it with an alert on the presenting
+screen.
+
+## 5. `SSHTerminalByteSource` (`.local`)
+
+- `open(viewport)`: connects (jump chain first, each hop verified), opens a session with a PTY of
+  the viewport size (`xterm-256color`), starts a login shell and yields `.bytes` in channel order,
+  `.path(.direct, nil)` once live, `.title(host name)`.
+- `send`: channel writes in call order; throws `FeatureSourceError.offline` while not live (nothing
+  queues, U5). Ghostty's query replies reach the server this way.
+- `viewportChanged`: sends `window-change` when the grid differs from the last one sent, and only
+  while live; the next connect uses the newest viewport.
+- Reconnect: when the connection drops (not user close, not auth or trust refusal), state goes
+  `reconnecting(attempt)` and a new connection is tried after `SSHReconnectPolicy` backoff on the
+  injected clock (one-shot sleeps, cancelled with the source; 0.5 s doubling to 8 s, 5 attempts).
+  The renderer keeps its grid; the new shell starts below the old output. A `scenePhase` return or
+  user tap retries at once. Terminal states (`failed`, `closed`) end the stream with `.closed`.
+- `states()` streams `SSHSessionState` for the screen's banner; the screen never polls.
+
+## 6. Hosts tab
+
+UIKit compositional list (diffable, reconfigure on change) over `HostsStore.updates()`, subscribed
+only while visible. Sections: Paired Macs (read-only), SSH, Direct. Row tap on SSH opens the terminal
+screen; swipe for Edit and Delete (confirmation); toolbar menu: Add Host, Import from SSH Config,
+Keys. Editor (SwiftUI form, low frequency): name, host, port, user, auth (key picker with Generate,
+or password stored in the Keychain), jump host picker (other SSH hosts, no self, no cycles), install
+key with password. Import: paste `~/.ssh/config`; `SSHConfigParser` reads `Host`, `HostName`,
+`Port`, `User`, `ProxyJump` (first hop, mapped to an imported or existing host by alias) and applies
+`Host *` defaults; wildcard patterns are skipped; a preview list with checkboxes commits the picked
+ones. Keys: list with fingerprint, Generate (Ed25519 default, Secure Enclave P-256 option, Face ID
+toggle for enclave keys), Copy public key, Share (activity sheet), Delete.
+
+## 7. Deferred sign-in
+
+The shell gates every tab behind sign-in today. C16 owns deferred sign-in; C9 keeps its store and
+screens account-independent (no account id in paths or keys) so the Hosts tab can show signed out
+once C16 lets it.
+
+## 8. Tests (Swift Testing, `CmuxiOSSSHCoreTests`)
+
+Config parsing (defaults, wildcards, case, quoting, `ProxyJump` chains, `Port` bounds), known_hosts
+round trip and verdicts, TOFU decisions (pin on accept, refuse on decline, replace on changed),
+`LocalHostsStore` (add, idempotent replay, update, delete clears jump references, cycle refusal,
+paired Mac refusal, persistence across instances, sync publish), reconnect policy, byte source
+against a fake session factory (PTY size, window-change dedupe, offline send refused, reconnect
+after drop, no reconnect after auth failure). They run with `swift test` on macOS through a scratch
+package linking the same sources (the CmuxiOS package is iOS-only), and compile for the simulator.
+
+## 9. Status (2026-10-06)
+
+Done: `CmuxiOSSSHCore` and `CmuxiOSSSH` as above, wired into the shell (`AppContainer` registers
+one `LocalHostsStore` as the real `hosts` factory; in DEBUG the seam defaults to its mock, so use
+`CMUX_IOS_SOURCE_HOSTS=real` or the DEV switch to exercise the on-device store). 34 Swift Testing
+tests in `CmuxiOSSSHCoreTests` pass with `swift test` on macOS (plus the 13 FeatureKit tests after
+the `HostID.added(by:)` change); `CmuxiOSApp`, `CmuxiOSSSHCoreTests`, `CmuxiOSShellTests` and
+`CmuxiOSFeatureKitTests` compile for `arm64-apple-ios17.0-simulator` with SwiftPM.
+
+Unverified: everything visual and every live SSH path (trust alert, key install, PTY, resize,
+reconnect, keepalive drop detection, Secure Enclave keys) on a simulator or device. Tagged build
+`nxc9` BLOCKED: `ios/scripts/reload-cloud.sh --tag nxc9` fails on the dev backend VM
+(`cmux-dev-backend-1` SSH timeout); with `CMUX_DEV_BACKEND_MODE=local` there is no fleet manifest
+(`~/.config/macfleet/hosts.json`), so it falls back to a local Mac build that refuses at 20 GiB free
+(floor 40 GiB). Rerun the same command when a fleet slot or disk is available.
+
+Not done here: SSH workspaces in the Workspaces list (tmux, screen, cmux-tui; with C5), SFTP (C4),
+port forwarding for the in-app browser (C14), importing private keys and known_hosts lines in the
+UI (the stores support both), key install through a jump host, B1 sync behind `HostsSyncChannel`.

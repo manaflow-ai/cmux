@@ -9,15 +9,22 @@ public struct ShellContent {
     private let sources: FeatureSources
     private let home: UIViewController
     private let settings: ShellSettingsModel
+    private let screens: [ShellTab: @MainActor () -> UIViewController]
 
     /// `home` is the existing Home screen in its navigation controller.
-    public init(sources: FeatureSources, home: UIViewController, settings: ShellSettingsModel) {
+    /// `screens` are feature lanes' tab roots, injected by the composition
+    /// root so the shell never imports a feature module; a tab without one
+    /// shows its placeholder.
+    public init(sources: FeatureSources, home: UIViewController, settings: ShellSettingsModel,
+                screens: [ShellTab: @MainActor () -> UIViewController] = [:]) {
         self.sources = sources
         self.home = home
         self.settings = settings
+        self.screens = screens
     }
 
     public func controller(for tab: ShellTab) -> UIViewController {
+        if let screen = screens[tab] { return screen() }
         switch tab {
         case .home:
             return home
