@@ -7301,6 +7301,9 @@
     },
     "platforms": {
       "web": "Web"
-    }
+    },
+    "nightlySection": "Nightly builds",
+    "releasesSection": "Releases",
+    "feed": "Subscribe (Atom feed)"
   }
 }

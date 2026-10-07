@@ -5481,6 +5481,9 @@
     },
     "platforms": {
       "web": "វេប"
-    }
+    },
+    "nightlySection": "កំណែ Nightly",
+    "releasesSection": "ការចេញផ្សាយ",
+    "feed": "ជាវ (ព័ត៌មាន Atom)"
   }
 }

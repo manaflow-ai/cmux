@@ -5485,6 +5485,9 @@
     },
     "platforms": {
       "web": "Web"
-    }
+    },
+    "nightlySection": "Versions nightly",
+    "releasesSection": "Versions",
+    "feed": "S’abonner (flux Atom)"
   }
 }

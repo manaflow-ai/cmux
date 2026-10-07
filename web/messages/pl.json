@@ -5483,6 +5483,9 @@
     },
     "platforms": {
       "web": "Web"
-    }
+    },
+    "nightlySection": "Wersje nightly",
+    "releasesSection": "Wydania",
+    "feed": "Subskrybuj (kanał Atom)"
   }
 }

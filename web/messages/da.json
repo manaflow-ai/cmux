@@ -5480,6 +5480,9 @@
     },
     "platforms": {
       "web": "Web"
-    }
+    },
+    "nightlySection": "Nightly-builds",
+    "releasesSection": "Versioner",
+    "feed": "Abonner (Atom-feed)"
   }
 }

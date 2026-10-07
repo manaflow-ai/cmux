@@ -5553,6 +5553,9 @@
     },
     "platforms": {
       "web": "Веб"
-    }
+    },
+    "nightlySection": "Нічні збірки",
+    "releasesSection": "Випуски",
+    "feed": "Підписатися (стрічка Atom)"
   }
 }

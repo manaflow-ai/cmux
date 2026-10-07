@@ -5482,6 +5482,9 @@
     },
     "platforms": {
       "web": "網頁"
-    }
+    },
+    "nightlySection": "每夜建置",
+    "releasesSection": "正式版本",
+    "feed": "訂閱（Atom 摘要）"
   }
 }

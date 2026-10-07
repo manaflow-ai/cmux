@@ -5483,6 +5483,9 @@
     },
     "platforms": {
       "web": "Web"
-    }
+    },
+    "nightlySection": "Build nightly",
+    "releasesSection": "Versioni",
+    "feed": "Iscriviti (feed Atom)"
   }
 }

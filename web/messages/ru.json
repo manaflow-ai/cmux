@@ -5483,6 +5483,9 @@
     },
     "platforms": {
       "web": "Веб"
-    }
+    },
+    "nightlySection": "Ночные сборки",
+    "releasesSection": "Выпуски",
+    "feed": "Подписаться (лента Atom)"
   }
 }

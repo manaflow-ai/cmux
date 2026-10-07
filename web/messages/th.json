@@ -5488,6 +5488,9 @@
     },
     "platforms": {
       "web": "เว็บ"
-    }
+    },
+    "nightlySection": "รุ่นไนท์ลี",
+    "releasesSection": "รุ่นที่เผยแพร่",
+    "feed": "ติดตาม (ฟีด Atom)"
   }
 }

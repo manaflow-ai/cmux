@@ -13,6 +13,8 @@ import {
   WhatsNewStore,
 } from "../app/lib/whats-new";
 import { WhatsNewDocumentView, type WhatsNewLabels } from "../app/[locale]/(landing)/whats-new/whats-new-document";
+import { contentSigningPublicKey, loadNightlyDocuments, nightlyNotesBase } from "../app/lib/whats-new-nightly";
+import { whatsNewAtomFeed } from "../app/lib/whats-new-feed";
 import middleware from "../proxy";
 import { locales } from "../i18n/routing";
 
@@ -133,5 +135,41 @@ describe("What's New routes", () => {
     expect(media.headers.get("x-middleware-rewrite")).toBeNull();
     expect(localizedWhatsNewPath("ja", "0.66.0")).toBe("/ja/whats-new/0.66.0");
     expect(localizedWhatsNewPath("en")).toBe("/whats-new");
+  });
+});
+
+describe("What's New nightly digests and feed", () => {
+  const { generateKeyPairSync, sign } = require("node:crypto") as typeof import("node:crypto");
+  const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+  const rawPublicKey = publicKey.export({ format: "der", type: "spki" }).subarray(12).toString("base64");
+  const files = new Map<string, Uint8Array>();
+  const put = (name: string, value: unknown, valid = true) => {
+    const data = new TextEncoder().encode(JSON.stringify(value));
+    files.set(nightlyNotesBase + name, data);
+    const signature = sign(null, valid ? data : new TextEncoder().encode("other"), privateKey).toString("base64");
+    files.set(`${nightlyNotesBase}${name}.sig`, new TextEncoder().encode(signature));
+  };
+  const nightly = JSON.parse(fixture);
+  put("index.json", { version: 1, builds: [{ build: "43" }, { build: "42" }, { build: "41" }] });
+  put("43.json", { shortVersion: "1.0.0-nightly.43", highlights: [], changes: [] });
+  put("42.json", { shortVersion: "1.0.0-nightly.42", whatsNew: nightly });
+  put("41.json", { shortVersion: "1.0.0-nightly.41", whatsNew: { ...nightly, version: "1.0.0-nightly.41" } }, false);
+  const fetcher = async (url: string) => files.get(url);
+
+  test("only signed digests with entries are shown", async () => {
+    const documents = await loadNightlyDocuments(fetcher, rawPublicKey);
+    expect(documents.map((document) => document.version)).toEqual(["1.0.0-nightly.42"]);
+    expect(await loadNightlyDocuments(fetcher, contentSigningPublicKey)).toEqual([]);
+  });
+
+  test("the Atom feed escapes text and links releases to their pages", () => {
+    const { document } = parseWhatsNewDocument(fixture, "1.0.0-nightly.42");
+    if (!document) throw new Error("fixture did not parse");
+    const stable = { ...document, version: "0.66.0", channel: "stable" as const, headline: { en: "Tabs & <panes>" } };
+    const xml = whatsNewAtomFeed([stable, document], "https://cmux.com");
+    expect(xml).toContain("<title>cmux 0.66.0: Tabs &amp; &lt;panes&gt;</title>");
+    expect(xml).toContain('<link href="https://cmux.com/whats-new/0.66.0"/>');
+    expect(xml).toContain("<title>cmux Nightly 1.0.0-nightly.42: Faster sidebar and a new What&#x27;s New page</title>".replace("&#x27;", "'"));
+    expect(xml.match(/<entry>/g)?.length).toBe(2);
   });
 });

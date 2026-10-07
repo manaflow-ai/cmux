@@ -5483,6 +5483,9 @@
     },
     "platforms": {
       "web": "网页"
-    }
+    },
+    "nightlySection": "每夜构建",
+    "releasesSection": "正式版本",
+    "feed": "订阅（Atom 订阅源）"
   }
 }

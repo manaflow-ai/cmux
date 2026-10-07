@@ -41,6 +41,9 @@ jobs:
       - name: Nightly digest tests
         run: python3 scripts/whats-new/test_digest.py
 
+      - name: Community summary tests
+        run: python3 scripts/whats-new/test_community.py
+
       - name: Validate every document
         run: |
           set -euo pipefail

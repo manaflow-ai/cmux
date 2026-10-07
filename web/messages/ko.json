@@ -5480,6 +5480,9 @@
     },
     "platforms": {
       "web": "웹"
-    }
+    },
+    "nightlySection": "나이틀리 빌드",
+    "releasesSection": "릴리스",
+    "feed": "구독(Atom 피드)"
   }
 }

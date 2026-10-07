@@ -7211,6 +7211,9 @@
     },
     "platforms": {
       "web": "Web"
-    }
+    },
+    "nightlySection": "ナイトリービルド",
+    "releasesSection": "リリース",
+    "feed": "購読（Atom フィード）"
   }
 }

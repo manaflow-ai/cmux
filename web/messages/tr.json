@@ -5481,6 +5481,9 @@
     },
     "platforms": {
       "web": "Web"
-    }
+    },
+    "nightlySection": "Nightly sürümler",
+    "releasesSection": "Sürümler",
+    "feed": "Abone ol (Atom akışı)"
   }
 }

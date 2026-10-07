@@ -5483,6 +5483,9 @@
     },
     "platforms": {
       "web": "Web"
-    }
+    },
+    "nightlySection": "Noćne verzije",
+    "releasesSection": "Izdanja",
+    "feed": "Pretplati se (Atom feed)"
   }
 }
