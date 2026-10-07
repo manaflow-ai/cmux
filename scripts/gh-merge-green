@@ -599,6 +599,10 @@ fi
 # check when CmuxNext changes, vp check when webviews changes. They run here on
 # base + head merged locally, with the base branch's copy of the god-file script
 # and baseline, so a pull request cannot loosen its own check.
+# The files a vp check report names, sorted (ANSI colors stripped).
+vp_flagged_files() {
+  sed 's/\x1b\[[0-9;]*m//g' | grep -oE '[A-Za-z0-9_./-]+\.(tsx|ts|jsx|js|mjs|cjs|css|md|json)' | LC_ALL=C sort -u || true
+}
 merged_head_checks() {
   local repo_dir tmp merged base_sha head_sha status=0 output bun
   local swift_changed=0 web_changed=0
@@ -650,9 +654,24 @@ merged_head_checks() {
       status=2
       printf 'not merged: bun is not on PATH, so vp check cannot run on the merged head of %s\n' "$ref" >&2
     elif ! output=$(cd "$merged/webviews" && "$bun" install --frozen-lockfile --ignore-scripts 2>&1 && "$bun" x vp check 2>&1); then
-      status=1
-      printf '%s\n' "$output" | grep -vE '^\s*$' | tail -n 15 | sed 's/^/  /' >&2
-      printf 'not merged: the merged head of %s fails vp check in webviews/\n' "$ref" >&2
+      # A red the base already has is not this PR's: check the base tree with
+      # the same install, and refuse only for files the base does not flag.
+      local base_output new_files
+      git -C "$merged" checkout --quiet --detach "$base_sha" 2>/dev/null
+      if base_output=$(cd "$merged/webviews" && "$bun" x vp check 2>&1); then
+        new_files=$(vp_flagged_files <<<"$output")
+      else
+        new_files=$(LC_ALL=C comm -23 <(vp_flagged_files <<<"$output") <(vp_flagged_files <<<"$base_output"))
+      fi
+      if [ -z "$base_output" ] || [ -n "$new_files" ] || [ -z "$(vp_flagged_files <<<"$output")" ]; then
+        status=1
+        printf '%s\n' "$output" | grep -vE '^\s*$' | tail -n 15 | sed 's/^/  /' >&2
+        printf 'not merged: the merged head of %s fails vp check in webviews/%s\n' "$ref" \
+          "${new_files:+ (not on the base: $(paste -sd ' ' <<<"$new_files"))}" >&2
+      else
+        printf 'note: vp check is red on the base (%s) too (%s), not by %s\n' "$base" \
+          "$(vp_flagged_files <<<"$base_output" | paste -sd ' ')" "$ref" >&2
+      fi
     fi
   fi
   git -C "$repo_dir" worktree remove --force "$merged" >/dev/null 2>&1 || true
