@@ -26533,7 +26533,7 @@
         }
       }
     },
-    "trust.remote":     {
+    "trust.remote": {
       "comment": "Agent pane: a remote browser cannot answer folder trust",
       "extractionState": "manual",
       "localizations": {
