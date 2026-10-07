@@ -7,7 +7,9 @@ enum ConversationRow: Hashable {
     case conversationStart
     case loadingOlder
     case timestamp(id: String, date: Date)
-    case message(MessageRowModel)
+    /// Boxed: rows are copied and compared over the whole transcript on every
+    /// update, and a boxed payload copies as one reference.
+    indirect case message(MessageRowModel)
     case typing(participantIDs: [String])
     /// A centered system line in a message's place ("You unsent a message").
     case notice(ConversationNotice)
@@ -251,6 +253,7 @@ enum ConversationRowBuilder {
 
     /// One to three emoji and nothing else render large without a bubble.
     static func isEmojiOnly(_ text: String) -> Bool {
+        guard ConversationTextScan.mayBeEmojiOnly(text) else { return false }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, trimmed.count <= 3 else { return false }
         return trimmed.allSatisfy { character in

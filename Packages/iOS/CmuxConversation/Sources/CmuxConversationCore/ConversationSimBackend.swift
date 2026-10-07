@@ -456,7 +456,7 @@ enum WireDecoding {
     }
 
     static func message(_ raw: [String: Any], base: URL) -> ConversationMessage? {
-        guard let id = raw["id"] as? String, let senderID = raw["senderId"] as? String else { return nil }
+        guard let id = native(raw["id"]), let senderID = native(raw["senderId"]) else { return nil }
         // A status row of a kind this client does not know is skipped, never
         // shown as an empty bubble.
         if let system = raw["system"] as? [String: Any], systemEvent(system) == nil { return nil }
@@ -480,8 +480,8 @@ enum WireDecoding {
             clientMessageID: raw["clientMessageId"] as? String,
             senderID: senderID,
             sentAt: sentAt,
-            text: raw["text"] as? String ?? "",
-            replyToID: raw["replyToId"] as? String,
+            text: native(raw["text"]) ?? "",
+            replyToID: native(raw["replyToId"]),
             replyCount: raw["replyCount"] as? Int ?? 0,
             editedAt: date(raw["editedAt"]),
             editCount: raw["editCount"] as? Int ?? 0,
@@ -636,6 +636,17 @@ enum WireDecoding {
             url: url,
             audio: audio
         )
+    }
+
+    /// `JSONSerialization` yields bridged `NSString`s. Swift treats those as
+    /// foreign strings: every `count`, hash and comparison walks them through
+    /// UTF-16 shims, and transcript code compares ids and texts of every loaded
+    /// message on each update. Converting once at the wire boundary keeps that
+    /// work proportional to native string cost.
+    static func native(_ raw: Any?) -> String? {
+        guard var string = raw as? String else { return nil }
+        string.makeContiguousUTF8()
+        return string
     }
 
     static func date(_ raw: Any?) -> Date? {

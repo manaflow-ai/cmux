@@ -8,7 +8,9 @@ enum MacConversationRow: Hashable {
     case conversationStart
     case loadingOlder
     case timestamp(id: String, date: Date)
-    case message(MacMessageRowModel)
+    /// Boxed: rows are copied and compared over the whole transcript on every
+    /// update, and a boxed payload copies as one reference.
+    indirect case message(MacMessageRowModel)
     case typing(participantIDs: [String])
     /// A centered system line in a message's place ("You unsent a message").
     case notice(ConversationNotice)
@@ -274,6 +276,7 @@ enum MacConversationRowBuilder {
     }
 
     static func isEmojiOnly(_ text: String) -> Bool {
+        guard ConversationTextScan.mayBeEmojiOnly(text) else { return false }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, trimmed.count <= 3 else { return false }
         return trimmed.allSatisfy { character in
@@ -349,6 +352,15 @@ final class MacMessageLayoutCache {
         let value = MacMessageLayout.attributedBody(body, outgoing: model.isOutgoing, mentions: mentions, meID: model.meID, runs: runs)
         texts[model.rowID] = (body, model.isOutgoing, mentions, runs, value)
         return value
+    }
+
+    /// Drops entries for rows that left the transcript (a trimmed or rebased
+    /// window), so the cache tracks the loaded window instead of the session.
+    func forget(rowIDs: some Sequence<String>) {
+        for rowID in rowIDs {
+            layouts[rowID] = nil
+            texts[rowID] = nil
+        }
     }
 
     func invalidate() {

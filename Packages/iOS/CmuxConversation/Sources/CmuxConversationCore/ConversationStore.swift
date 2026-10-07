@@ -258,7 +258,7 @@ public final class ConversationStore {
         }
         let isNew = upsert(incoming)
         if isNew {
-            sortAndReindex()
+            sortAndReindexAfterAppend()
             // The typing bubble leaves in the same update the message arrives,
             // so the transcript moves once.
             if incoming.senderID != meID, typingParticipantIDs.contains(incoming.senderID) {
@@ -305,7 +305,9 @@ public final class ConversationStore {
             messages[index] = merged(existing: messages[index], incoming: incoming)
             indexByID[pendingID] = nil
             indexByID[incoming.id] = index
-            sortAndReindex()
+            // Acknowledged now: it sorts by seq, no longer by its failure anchor.
+            if incoming.seq != nil { failedAnchorSeq[pendingID] = nil }
+            sortAndReindexUnlessInPlace(index)
             return false
         }
         messages.append(incoming)
@@ -364,6 +366,36 @@ public final class ConversationStore {
         // An acknowledgment always clears a local failure; otherwise never regress.
         if case .failed = lhs, rhs != nil { return rhs }
         return deliveryRank(rhs) >= deliveryRank(lhs) ? rhs : lhs
+    }
+
+    /// `upsert` just appended one message.
+    private func sortAndReindexAfterAppend() {
+        sortAndReindexUnlessInPlace(messages.count - 1)
+    }
+
+    /// Everything but `index` is already in order (the store keeps that
+    /// invariant). Live arrivals land last, a new send joins the in-flight
+    /// tail, and an acknowledged send usually stays where it was; for those the
+    /// full sort and reindex (O(n log n) per message on a long window) is
+    /// skipped. Anything else, or any failed send present, sorts in full.
+    private func sortAndReindexUnlessInPlace(_ index: Int) {
+        guard messages.indices.contains(index), failedAnchorSeq.isEmpty else { return sortAndReindex() }
+        let message = messages[index]
+        let hasPrevious = index > 0
+        let hasNext = index + 1 < messages.count
+        let inPlace: Bool
+        if let seq = message.seq {
+            let previousOK = !hasPrevious || messages[index - 1].seq.map { $0 < seq } ?? false
+            let nextOK = !hasNext || messages[index + 1].seq.map { $0 > seq } ?? (messages[index + 1].delivery?.isFailed != true)
+            inPlace = previousOK && nextOK
+        } else if message.delivery?.isFailed != true {
+            let previousOK = !hasPrevious || messages[index - 1].seq != nil || messages[index - 1].sentAt <= message.sentAt
+            let nextOK = !hasNext || (messages[index + 1].seq == nil && messages[index + 1].sentAt >= message.sentAt)
+            inPlace = previousOK && nextOK
+        } else {
+            inPlace = false
+        }
+        if !inPlace { sortAndReindex() }
     }
 
     /// Acknowledged messages ascend by seq. A failed send keeps its place in
@@ -532,6 +564,74 @@ public final class ConversationStore {
         refreshReadState()
     }
 
+    // MARK: Window bound
+
+    /// Loaded-window size above which `trimOlderIfLarge()` trims, and how many
+    /// acknowledged messages it keeps. Every update walks the whole window
+    /// (run plan, rows, diff), so an unbounded window makes each arrival
+    /// slower the longer a session scrolls through history.
+    public static let windowTrimThreshold = 1500
+    public static let windowKeepCount = 1000
+
+    /// Drops loaded history above the newest `keepingNewest` acknowledged
+    /// messages, for a reader resting at the bottom: those rows are far
+    /// off screen and reload as pages when the reader scrolls back up.
+    /// Messages replied to by a kept message stay loaded with everything
+    /// below them, so no visible quote disappears; a failed send above the
+    /// cut stops the trim there. Returns whether anything was dropped
+    /// (observers get `.reset`).
+    @discardableResult
+    public func trimOlder(keepingNewest keep: Int) -> Bool {
+        guard hasLoadedNewest, keep > 0 else { return false }
+        switch older {
+        case .loading, .retrying: return false
+        case .idle, .exhausted: break
+        }
+        var ackedSeen = 0
+        var cut = messages.count
+        for index in messages.indices.reversed() where messages[index].seq != nil {
+            ackedSeen += 1
+            if ackedSeen == keep {
+                cut = index
+                break
+            }
+        }
+        guard ackedSeen == keep, cut > 0 else { return false }
+        // Keep every message a kept message quotes (and so everything below it).
+        var scanned = messages.count
+        while scanned > cut {
+            let start = cut
+            for index in start..<scanned {
+                guard let target = messages[index].replyToID, let targetIndex = indexByID[target], targetIndex < cut else { continue }
+                cut = targetIndex
+            }
+            scanned = start
+        }
+        // Never drop an unacknowledged message (a failed send's text exists only here).
+        if let firstLocal = messages[..<cut].firstIndex(where: { $0.seq == nil }) {
+            cut = firstLocal
+        }
+        guard cut > 0 else { return false }
+        messages.removeFirst(cut)
+        indexByID.removeAll(keepingCapacity: true)
+        for (index, message) in messages.enumerated() {
+            indexByID[message.id] = index
+        }
+        older = .idle
+        olderWanted = false
+        notify(.reset)
+        return true
+    }
+
+    /// `trimOlder(keepingNewest: windowKeepCount)` once the window exceeds
+    /// `windowTrimThreshold` (the gap keeps a reader moving near the bottom
+    /// from trimming and refetching repeatedly).
+    @discardableResult
+    public func trimOlderIfLarge() -> Bool {
+        guard messages.count > Self.windowTrimThreshold else { return false }
+        return trimOlder(keepingNewest: Self.windowKeepCount)
+    }
+
     static func backoff(_ attempt: Int) -> Duration {
         .milliseconds(min(8000, 500 * (1 << min(attempt, 4))))
     }
@@ -579,7 +679,7 @@ public final class ConversationStore {
             effect: effect
         )
         upsert(pending)
-        sortAndReindex()
+        sortAndReindexAfterAppend()
         notify(.live(insertedRowIDs: [pending.rowID], sentByMe: true))
         setLocalTyping(false)
         transmit(clientID: clientID, images: images)

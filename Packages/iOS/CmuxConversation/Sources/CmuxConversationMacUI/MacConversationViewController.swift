@@ -77,6 +77,8 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
 
     private(set) var rows: [MacConversationRow] = []
     private(set) var rowIndex: [String: Int] = [:]
+    /// `rows.map(\.id)`, kept so each update does not walk the old row models.
+    private var rowIDs: [String] = []
     private var hasPositioned = false
     private var isPinnedToBottom = true
     private var arrivingRowIDs: Set<String> = []
@@ -373,12 +375,25 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
     @objc private func liveScrollStarted() { isLiveScrolling = true }
 
     func userDidScroll() {
-        if !isLiveScrolling { isPinnedToBottom = isNearBottom() }
+        if !isLiveScrolling {
+            isPinnedToBottom = isNearBottom()
+            trimHistoryIfResting()
+        }
     }
 
     @objc private func liveScrollEnded() {
         isLiveScrolling = false
         isPinnedToBottom = isNearBottom()
+        trimHistoryIfResting()
+    }
+
+    /// A reader who scrolled back down and rests on the newest message bounds
+    /// the loaded window, so later updates stay cheap (rows far above reload
+    /// as pages if the reader returns to them).
+    private func trimHistoryIfResting() {
+        guard isPinnedToBottom, !isLiveScrolling, !isSubmitting, pendingFlightRowIDs.isEmpty,
+              replyTarget == nil, editingMessageID == nil, replyFocus == nil, threadFocus == nil else { return }
+        store.trimOlderIfLarge()
     }
 
     @objc private func boundsDidChange() {
@@ -459,12 +474,13 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         }
         #endif
         let oldRows = rows
-        let oldIDs = Set(rowIndex.keys)
+        // Row ids before this change (a dictionary lookup, not a fresh set per update).
+        let oldIDs = rowIndex
         let wasAtBottom = isPinnedToBottom || isNearBottom()
         let anchor = captureAnchor()
         var sentByMe = false
         if case let .live(inserted, mine) = change { sentByMe = mine && !inserted.isEmpty }
-        announceArrivals(newRows.filter { !oldIDs.contains($0.id) }, change: change)
+        announceArrivals(newRows.filter { oldIDs[$0.id] == nil }, change: change)
         // A typing indicator that stops without a message collapses first, so
         // the rows above glide down instead of jumping.
         // The indicator sits at the end of the transcript, above any Send Later rows.
@@ -475,7 +491,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         if case .live = change {
             let arrivals = newRows.compactMap { row -> String? in
                 // A bubble effect is the row's entrance; other arrivals fade in.
-                guard !oldIDs.contains(row.id), case let .message(model) = row, !model.isOutgoing, !queueArrivalEffect(model) else { return nil }
+                guard oldIDs[row.id] == nil, case let .message(model) = row, !model.isOutgoing, !queueArrivalEffect(model) else { return nil }
                 return model.rowID
             }
             // The message that replaces a typing indicator takes its place at
@@ -484,7 +500,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             for id in arrivals where id != handoff { arrivingRowIDs.insert(id) }
         }
         let slot = MacConversationRowBuilder.typingSlot(in: newRows)
-        let lastIsNew = slot > 0 && !oldIDs.contains(newRows[slot - 1].id)
+        let lastIsNew = slot > 0 && oldIDs[newRows[slot - 1].id] == nil
         if typingLeft, !typingNow, !lastIsNew, hasPositioned, typingProgress > 0, let oldTypingIndex {
             newRows.insert(oldRows[oldTypingIndex], at: slot)
             animateTyping(to: 0)
@@ -536,21 +552,35 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
     /// and in-place reconfiguration keyed by stable row identity. A pending
     /// send keeps its row (and view) when the server acknowledges it.
     private func apply(_ newRows: [MacConversationRow], from oldRows: [MacConversationRow]) {
+        let oldIndex = rowIndex
+        let oldIDs = rowIDs
+        let newIDs = newRows.map(\.id)
         rows = newRows
-        rowIndex = Dictionary(uniqueKeysWithValues: rows.enumerated().map { ($1.id, $0) })
-        guard !oldRows.isEmpty, tableView.numberOfRows == oldRows.count else {
+        rowIDs = newIDs
+        var newIndex: [String: Int] = [:]
+        newIndex.reserveCapacity(newIDs.count)
+        for (index, id) in newIDs.enumerated() { newIndex[id] = index }
+        rowIndex = newIndex
+        guard !oldRows.isEmpty, tableView.numberOfRows == oldRows.count, oldIDs.count == oldRows.count else {
             tableView.reloadData()
             tableView.layoutSubtreeIfNeeded()
             return
         }
-        let oldIDs = oldRows.map(\.id)
-        let newIDs = newRows.map(\.id)
+        // Ids are unique, so when the rows both sides keep stay in order the
+        // edit script is just "gone" and "new" (linear); a general diff is
+        // quadratic in the edit count and a trimmed window removes thousands.
         var removals = IndexSet()
         var insertions = IndexSet()
-        for step in newIDs.difference(from: oldIDs) {
-            switch step {
-            case let .remove(offset, _, _): removals.insert(offset)
-            case let .insert(offset, _, _): insertions.insert(offset)
+        for (index, id) in oldIDs.enumerated() where newIndex[id] == nil { removals.insert(index) }
+        for (index, id) in newIDs.enumerated() where oldIndex[id] == nil { insertions.insert(index) }
+        if oldIDs.filter({ newIndex[$0] != nil }) != newIDs.filter({ oldIndex[$0] != nil }) {
+            removals = IndexSet()
+            insertions = IndexSet()
+            for step in newIDs.difference(from: oldIDs) {
+                switch step {
+                case let .remove(offset, _, _): removals.insert(offset)
+                case let .insert(offset, _, _): insertions.insert(offset)
+                }
             }
         }
         let newIDSet = Set(newIDs)
@@ -559,15 +589,16 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
                   let bubble = rowView(at: index) else { continue }
             dissolve(bubble)
         }
-        var oldByID: [String: (index: Int, row: MacConversationRow)] = [:]
-        for (index, row) in oldRows.enumerated() { oldByID[row.id] = (index, row) }
+        // Compared in place by index: copying every old row into a lookup
+        // table dominated updates on long transcripts.
         var changed = IndexSet()
-        for (index, row) in newRows.enumerated() where !insertions.contains(index) {
-            guard let old = oldByID[row.id] else { continue }
-            let previousOld = old.index > 0 ? oldRows[old.index - 1].isMessage : false
+        for (index, id) in newIDs.enumerated() where !insertions.contains(index) {
+            guard let old = oldIndex[id], old < oldRows.count else { continue }
+            let previousOld = old > 0 ? oldRows[old - 1].isMessage : false
             let previousNew = index > 0 ? newRows[index - 1].isMessage : false
-            if old.row != row || previousOld != previousNew { changed.insert(index) }
+            if previousOld != previousNew || oldRows[old] != newRows[index] { changed.insert(index) }
         }
+        layoutCache.forget(rowIDs: removals.lazy.map { oldIDs[$0] })
         withoutAnimation {
             tableView.beginUpdates()
             if !removals.isEmpty { tableView.removeRows(at: removals, withAnimation: []) }
@@ -577,8 +608,8 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         }
         for index in changed {
             guard let view = tableView.view(atColumn: 0, row: index, makeIfNecessary: false) else { continue }
-            let oldModel = oldByID[newRows[index].id].flatMap { entry -> MacMessageRowModel? in
-                if case let .message(model) = entry.row { return model } else { return nil }
+            let oldModel = oldIndex[newRows[index].id].flatMap { old -> MacMessageRowModel? in
+                if case let .message(model) = oldRows[old] { return model } else { return nil }
             }
             let oldMinX = (view as? MacMessageContainerView)?.row.contentFrame.minX
             configure(view, row: index)
