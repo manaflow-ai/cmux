@@ -12,6 +12,9 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     if mux.cloud_conversations().is_some() {
         capabilities.push(cloud_conversations::CAPABILITY);
     }
+    if chief_inspect::configured() {
+        capabilities.push(chief_inspect::CAPABILITY);
+    }
     if mux.terminal_reaper_running() {
         capabilities.push(TERMINAL_REAPER_ACTIVE_CAPABILITY);
     }

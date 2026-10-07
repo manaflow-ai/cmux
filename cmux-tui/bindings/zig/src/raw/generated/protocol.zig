@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "569b470215beb2ce9523c30121918b781b0e9c11d5c77bb762fd006b813faf5b";
+pub const ir_sha256 = "528d9c980856a0b72c15fa21a5c3c9fcd61c54f8668db2585328113209d36d8b";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -3207,6 +3207,34 @@ pub fn browserWheelGuarded(client: anytype, request: BrowserWheelGuardedRequest)
             .authority = "frontend",
             .since = 10,
             .capability = "browser-pointer-frame-guard-v1",
+        },
+        request,
+    );
+}
+
+pub const ChiefInspectRequest = struct {
+    path: []const u8,
+    query: ?wire.Map([]const u8) = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "query",
+    };
+};
+
+pub const ChiefInspectResult = struct {
+    body: wire.Field(JsonValue) = .absent,
+    @"error": wire.Field([]const u8) = .absent,
+    status: u64,
+};
+
+pub fn chiefInspect(client: anytype, request: ChiefInspectRequest) !wire.Decoded(ChiefInspectResult) {
+    return client.callTyped(
+        ChiefInspectResult,
+        .{
+            .name = "chief-inspect",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "chief-inspect-v1",
         },
         request,
     );
@@ -9302,7 +9330,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 232;
+pub const command_count: usize = 233;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -9324,6 +9352,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "browser-reload", .authority = "frontend", .since = 6, .capability = null, .stream = null },
     .{ .name = "browser-wheel", .authority = "frontend", .since = 6, .capability = null, .stream = null },
     .{ .name = "browser-wheel-guarded", .authority = "frontend", .since = 10, .capability = "browser-pointer-frame-guard-v1", .stream = null },
+    .{ .name = "chief-inspect", .authority = "local-admin", .since = 12, .capability = "chief-inspect-v1", .stream = null },
     .{ .name = "clear-history", .authority = "control", .since = 9, .capability = "clear-history-v1", .stream = null },
     .{ .name = "clear-window-title", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "client-focus", .authority = "control", .since = 12, .capability = "client-focus-v1", .stream = null },

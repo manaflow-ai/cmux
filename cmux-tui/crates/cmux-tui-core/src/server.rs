@@ -177,6 +177,7 @@ pub use socket_path::{
 };
 pub(crate) mod activity;
 mod browser_input;
+mod chief_inspect;
 mod url_open;
 #[cfg(test)]
 use capabilities::advertised_capabilities;
@@ -990,6 +991,9 @@ enum Command {
         terminal_id: String,
         url: String,
     },
+    /// The Chief memory inspector's read-only API, for the owner's trusted
+    /// connection, forwarded to the brain host (`chief-inspect-v1`).
+    ChiefInspect(chief_inspect::Params),
     UrlOpenClaim {
         request_id: String,
     },
@@ -10471,6 +10475,9 @@ fn handle_request_with_cancellation(
     if let Command::UrlOpen { terminal_id, url } = cmd {
         return url_open::start(mux, client, id, terminal_id, url, writer);
     }
+    if let Command::ChiefInspect(params) = cmd {
+        return chief_inspect::start(mux, client, id, params, writer);
+    }
     if cloud_conversations::is_network(&cmd) {
         return cloud_conversations::start(mux, client, id, cmd, writer);
     }
@@ -12631,6 +12638,9 @@ fn handle_command_with_cancellation(
         }
         Command::UrlOpen { .. } => {
             anyhow::bail!("URL opening requires the asynchronous request path")
+        }
+        Command::ChiefInspect(_) => {
+            anyhow::bail!("chief-inspect requires the asynchronous request path")
         }
         Command::PasteImage {
             surface,

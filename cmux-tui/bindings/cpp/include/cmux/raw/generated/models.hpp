@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "569b470215beb2ce9523c30121918b781b0e9c11d5c77bb762fd006b813faf5b";
+inline constexpr std::string_view kProtocolIrSha256 = "528d9c980856a0b72c15fa21a5c3c9fcd61c54f8668db2585328113209d36d8b";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -223,6 +223,8 @@ struct BrowserNavigateRequest;
 struct BrowserReloadRequest;
 struct BrowserWheelRequest;
 struct BrowserWheelGuardedRequest;
+struct ChiefInspectRequest;
+struct ChiefInspectResult;
 struct ClearHistoryRequest;
 struct ClearWindowTitleRequest;
 struct ClientFocusRequest;
@@ -1022,6 +1024,24 @@ struct CellPixelSurface {
     friend bool operator==(const CellPixelSurface&, const CellPixelSurface&) = default;
 };
 
+struct ChiefInspectRequest {
+    std::string path{};
+    std::optional<std::map<std::string, std::string, std::less<>>> query{};
+    friend bool operator==(const ChiefInspectRequest&, const ChiefInspectRequest&) = default;
+};
+
+struct JsonValue {
+    Json value{};
+    friend bool operator==(const JsonValue&, const JsonValue&) = default;
+};
+
+struct ChiefInspectResult {
+    Field<JsonValue> body{};
+    Field<std::string> error{};
+    std::uint64_t status{};
+    friend bool operator==(const ChiefInspectResult&, const ChiefInspectResult&) = default;
+};
+
 enum class TerminalKey {
     unidentified,
     backquote,
@@ -1341,11 +1361,6 @@ struct CloseWorkspaceRequest {
     Field<std::string> origin{};
     Field<Id> workspace{};
     friend bool operator==(const CloseWorkspaceRequest&, const CloseWorkspaceRequest&) = default;
-};
-
-struct JsonValue {
-    Json value{};
-    friend bool operator==(const JsonValue&, const JsonValue&) = default;
 };
 
 struct CloudConversationChangedEvent {
@@ -6090,6 +6105,18 @@ template <>
 struct Codec<BrowserWheelGuardedRequest> {
     static Result<Json> encode(const BrowserWheelGuardedRequest& value);
     static Result<BrowserWheelGuardedRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ChiefInspectRequest> {
+    static Result<Json> encode(const ChiefInspectRequest& value);
+    static Result<ChiefInspectRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ChiefInspectResult> {
+    static Result<Json> encode(const ChiefInspectResult& value);
+    static Result<ChiefInspectResult> decode(const Json& value);
 };
 
 template <>

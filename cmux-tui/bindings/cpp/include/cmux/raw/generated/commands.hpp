@@ -61,6 +61,7 @@ public:
     [[nodiscard]] Result<EmptyResult> browser_reload(const BrowserReloadRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> browser_wheel(const BrowserWheelRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> browser_wheel_guarded(const BrowserWheelGuardedRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<ChiefInspectResult> chief_inspect(const ChiefInspectRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> clear_history(const ClearHistoryRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> clear_window_title(const ClearWindowTitleRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<ClientFocusResult> client_focus(const ClientFocusRequest& request, RequestOptions options = {});

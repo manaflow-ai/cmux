@@ -427,6 +427,7 @@
       "conversation-bind",
       "conversation-agent-token",
       "conversation-import",
+      "chief-inspect",
       "browser-host-provider",
       "cloud-session-set",
       "cloud-session-clear",

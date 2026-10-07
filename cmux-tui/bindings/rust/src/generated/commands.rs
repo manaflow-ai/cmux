@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 569b470215beb2ce9523c30121918b781b0e9c11d5c77bb762fd006b813faf5b.
+// cmux-tui mux protocol 12, IR 528d9c980856a0b72c15fa21a5c3c9fcd61c54f8668db2585328113209d36d8b.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -306,6 +306,24 @@ pub struct BrowserWheelGuardedRequest {
 
 #[rustfmt::skip]
 pub type BrowserWheelGuardedResult = T::EmptyResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChiefInspectRequest {
+    pub path: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub query: Option<BTreeMap<String, String>>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChiefInspectResult {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub body: Optional<T::JsonValue>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub error: Optional<String>,
+    pub status: u64,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -3379,6 +3397,10 @@ impl CmuxClient {
 
     pub fn browser_wheel_guarded(&mut self, request: BrowserWheelGuardedRequest) -> Result<BrowserWheelGuardedResult> {
         self.execute(&BROWSER_WHEEL_GUARDED_METADATA, &request)
+    }
+
+    pub fn chief_inspect(&mut self, request: ChiefInspectRequest) -> Result<ChiefInspectResult> {
+        self.execute(&CHIEF_INSPECT_METADATA, &request)
     }
 
     pub fn clear_history(&mut self, request: ClearHistoryRequest) -> Result<ClearHistoryResult> {

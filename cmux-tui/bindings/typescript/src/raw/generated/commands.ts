@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 569b470215beb2ce9523c30121918b781b0e9c11d5c77bb762fd006b813faf5b. */
+/* cmux-tui mux protocol 12, IR 528d9c980856a0b72c15fa21a5c3c9fcd61c54f8668db2585328113209d36d8b. */
 
 
 import type * as T from "./types.js";
@@ -218,6 +218,18 @@ export interface BrowserWheelGuardedRequest extends CmuxRequestBase {
   "y_px": number;
 }
 export type BrowserWheelGuardedResult = T.EmptyResult;
+
+/** Protocol v12; authority: local-admin. */
+export interface ChiefInspectRequest extends CmuxRequestBase {
+  cmd: "chief-inspect";
+  "path": string;
+  "query"?: Record<string, string>;
+}
+export type ChiefInspectResult = {
+  "body"?: (T.JsonValue) | null;
+  "error"?: (string) | null;
+  "status": bigint;
+};
 
 /** Protocol v9; authority: control. */
 export interface ClearHistoryRequest extends CmuxRequestBase {
@@ -2312,6 +2324,7 @@ export type CmuxRequest =
   | BrowserReloadRequest
   | BrowserWheelRequest
   | BrowserWheelGuardedRequest
+  | ChiefInspectRequest
   | ClearHistoryRequest
   | ClearWindowTitleRequest
   | ClientFocusRequest
@@ -2685,6 +2698,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "frontend";
     since: 10;
     capability: "browser-pointer-frame-guard-v1";
+    stream: null;
+  };
+  "chief-inspect": {
+    request: ChiefInspectRequest;
+    result: ChiefInspectResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "chief-inspect-v1";
     stream: null;
   };
   "clear-history": {
