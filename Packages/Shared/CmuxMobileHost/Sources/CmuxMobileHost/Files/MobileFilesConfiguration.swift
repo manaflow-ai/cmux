@@ -41,6 +41,6 @@ public struct MobileFilesConfiguration: Sendable {
 
     /// The signed-in Mac user's locations.
     public static var standard: MobileFilesConfiguration {
-        MobileFilesConfiguration(homeDirectory: FileManager.default.homeDirectoryForCurrentUser)
+        MobileFilesConfiguration(homeDirectory: URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true))
     }
 }

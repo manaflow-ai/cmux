@@ -15,6 +15,9 @@ enum ShellComposition {
         replayTour: @escaping @MainActor () -> Void
     ) -> ShellRootController {
         let sources = container.featureSources(for: account)
+        // Lane C4: built with the seams so background transfer handling runs
+        // for the whole signed-in session.
+        _ = container.filesFeature(for: sources)
         let settings = ShellSettingsModel(
             account: ShellAccount(displayName: account.displayName, email: account.email),
             about: ShellAbout.current(),

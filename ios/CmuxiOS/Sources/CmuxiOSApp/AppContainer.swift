@@ -7,6 +7,8 @@ import CmuxiOSCrashReporting
 import CmuxiOSFeatureKit
 import CmuxiOSFeed
 import CmuxiOSFeedCloud
+import CmuxiOSFiles
+import CmuxiOSFilesCore
 import CmuxiOSIdentity
 import CmuxiOSPlatform
 import CmuxiOSOnboarding
@@ -77,6 +79,13 @@ final class AppContainer {
     var linkDiagnosticsFactory: (@Sendable () -> any LinkDiagnosticsSource)?
     private var features: FeatureSources?
     private var featuresAccount: String?
+    /// Lane C4: pickers, uploads and the transfer list over the account's
+    /// files seam; one per seam set so its background handling lives as long.
+    private var files: FilesFeature?
+    /// C1/D1 fill this with the terminal channel's paste; nil skips the paste.
+    var terminalPathPasterFactory: (@Sendable () -> any TerminalPathPaster)?
+    /// C8 fills this with the composer's attachment intake; nil keeps uploads in the inbox.
+    var fileAttachmentSinkFactory: (@Sendable () -> any FileAttachmentSink)?
     /// DEV: the mock owners' simulated connection.
     private(set) var mockOffline = false
     let push: PushRegistration
@@ -146,7 +155,7 @@ final class AppContainer {
             InstallIdentity(baseURL: $0, bundleID: Bundle.main.bundleIdentifier ?? "", deviceName: UIDevice.current.name)
         }
         identity = madeIdentity
-        realFactories = Self.addingFeed(to: factories, base: base, identity: madeIdentity)
+        realFactories = Self.addingFiles(to: Self.addingFeed(to: factories, base: base, identity: madeIdentity))
         let ops: any CloudOpsSending
         if let base, let madeIdentity {
             ops = CloudOpsClient(baseURL: base, tokens: IdentityTokens(identity: madeIdentity))
@@ -211,6 +220,36 @@ final class AppContainer {
             }
         }
         return factories
+    }
+
+    /// C4: the real `FileTransfer` once a lane can dial a Mac over CmuxLink
+    /// (`fileHostConnector()`); until then the files seam stays on its mock.
+    private static func addingFiles(to factories: RealFeatureFactories) -> RealFeatureFactories {
+        guard let connector = fileHostConnector() else { return factories }
+        var factories = factories
+        let journal = LinkFileTransfer.defaultJournalURL
+        factories.files = { LinkFileTransfer(connector: connector, journalURL: journal) }
+        return factories
+    }
+
+    /// B2/B4 with D1 return their per-host `CmuxLink` owner and B6's signer
+    /// here. Nil: no carrier dials Macs from the app yet.
+    private static func fileHostConnector() -> (any FileHostConnector)? {
+        nil
+    }
+
+    /// The account's files feature (built with its seams).
+    func filesFeature(for sources: FeatureSources) -> FilesFeature {
+        if let files { return files }
+        let made = FilesFeature(transfer: sources.files, paster: terminalPathPasterFactory?(),
+                                attachments: fileAttachmentSinkFactory?())
+        files = made
+        return made
+    }
+
+    /// DEV: the files feature of the signed-in seams, or one over the mock.
+    var currentFilesFeature: FilesFeature {
+        filesFeature(for: features ?? FeatureSources.mock())
     }
 
     /// Follows the account's remote config until sign-out.
@@ -319,6 +358,7 @@ final class AppContainer {
         // Demo mode resolves every seam to its mock (canned fixtures).
         let made = realFactories.resolve(isDemo ? [:] : sourceModes.modes)
         features = made
+        files = nil
         if mockOffline { Task { await made.setMockConnection(.offline(reason: nil)) } }
         return made
     }
@@ -327,6 +367,7 @@ final class AppContainer {
     func dropFeatureSources() {
         features = nil
         featuresAccount = nil
+        files = nil
     }
 
     func setMockOffline(_ offline: Bool) async {
