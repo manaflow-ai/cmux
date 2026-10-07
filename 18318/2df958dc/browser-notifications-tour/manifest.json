@@ -1,0 +1,28 @@
+{
+  "tour": "browser-notifications-tour",
+  "head_sha": "2df958dc0fae5efab75fc534c3f05459f345545b",
+  "result": "failure",
+  "shots": [
+    {
+      "name": "04-browser-split",
+      "file": "04-browser-split.png"
+    },
+    {
+      "name": "12-omnibar-suggestions",
+      "file": "12-omnibar-suggestions.png"
+    },
+    {
+      "name": "20-notifications-menu",
+      "file": "20-notifications-menu.png"
+    },
+    {
+      "name": "27-end",
+      "file": "27-end.png"
+    }
+  ],
+  "gif": "tour.gif",
+  "tested_sha": "cdfb8c4455df3b00e5b38a246d2c8303e5b36ee6",
+  "run_url": "https://github.com/manaflow-ai/cmux/actions/runs/37606301740",
+  "failures": [],
+  "frames": 9
+}
