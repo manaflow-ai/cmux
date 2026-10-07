@@ -1,6 +1,7 @@
 #if DEBUG
 import CmuxHomeUI
 import CmuxiOSDesign
+import CmuxiOSShell
 import SwiftUI
 import CmuxiOSTerminal
 import UIKit
@@ -8,7 +9,8 @@ import UIKit
 /// DEV switcher for the Home prototypes, opened by shaking the phone.
 @MainActor
 enum DevMenu {
-    static func make(options: DevOptions, presenter: UIViewController) -> UIAlertController {
+    static func make(container: AppContainer, presenter: UIViewController) -> UIAlertController {
+        let options = container.devOptions
         let sheet = UIAlertController(
             title: String(localized: "dev.menu.title", defaultValue: "Prototypes", bundle: .module),
             message: String(localized: "dev.menu.message", defaultValue: "Pick a Home variant.", bundle: .module),
@@ -26,6 +28,13 @@ enum DevMenu {
                 options.set(composeFlow: flow)
             })
         }
+        // Feature seams (mock or real per lane) and feature flags.
+        sheet.addAction(UIAlertAction(
+            title: String(localized: "dev.menu.sources", defaultValue: "Feature Sources and Flags", bundle: .module),
+            style: .default
+        ) { [weak presenter] _ in
+            presenter?.present(DevSourcesScreen.make(model: ShellComposition.devModel(container: container)), animated: true)
+        })
         // DEBUG-only: a ghostty-next terminal fed by the mock session host.
         sheet.addAction(UIAlertAction(title: "Terminal (mock host)", style: .default) { [weak presenter] _ in
             let terminal = UINavigationController(rootViewController: DevTerminal.make())

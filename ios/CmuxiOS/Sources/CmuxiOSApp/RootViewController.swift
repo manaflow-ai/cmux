@@ -2,15 +2,19 @@ import CmuxHomeCore
 import CmuxHomeUI
 import CmuxiOSAuth
 import CmuxiOSDesign
+import CmuxiOSShell
 import CmuxiOSTerminal
 import UIKit
 
-/// Switches between restoring, sign-in and Home as the auth state changes.
+/// Switches between restoring, sign-in and the signed-in shell (Home plus
+/// the feature tabs) as the auth state changes.
 @MainActor
 final class RootViewController: UIViewController {
     private let container: AppContainer
     private var current: UIViewController?
     private weak var home: HomeViewController?
+    private weak var shell: ShellRootController?
+    private var shellAccount: SignedInAccount?
     private var shownState: AuthState?
 
     init(container: AppContainer) {
@@ -27,6 +31,13 @@ final class RootViewController: UIViewController {
         container.auth.onChange = { [weak self] state in self?.show(state) }
         container.devOptions.onChange = { [weak self] options in self?.home?.apply(options) }
         container.onUpdateRequiredChange = { [weak self] requirement in self?.home?.updateRequired = requirement }
+        container.flags.onChange = { [weak self] in self?.applyFlags() }
+        container.sourceModes.onChange = { [weak self] in self?.rebuildShell() }
+        container.feedResponder.openItem = { [weak self] _ in
+            // The Feed tab owns item navigation once lane C6 lands; for now
+            // a feed push opens the tab.
+            self?.shell?.select(.feed)
+        }
         #if DEBUG
         if let minimum = ProcessInfo.processInfo.environment["CMUX_IOS_PREVIEW_UPDATE_REQUIRED"] {
             // DEV preview (simulator screenshots): the update-required banner
@@ -62,6 +73,7 @@ final class RootViewController: UIViewController {
         case .restoring:
             install(LaunchPlaceholderViewController())
         case .signedOut:
+            shellAccount = nil
             container.signedOut()
             install(SignInScreen.make(coordinator: container.auth.coordinator))
         case .signedIn(let account):
@@ -86,7 +98,11 @@ final class RootViewController: UIViewController {
         self.home = home
         let navigation = UINavigationController(rootViewController: home)
         navigation.navigationBar.prefersLargeTitles = true
-        install(navigation)
+        let shell = ShellComposition.makeShell(container: container, account: account, home: navigation)
+        self.shell = shell
+        shellAccount = account
+        install(shell)
+        ShellComposition.selectLaunchTab(in: shell)
         DebugLaunchTasks.homeShown(store: store, window: view.window)
         #if DEBUG
         if let kind = ProcessInfo.processInfo.environment["CMUX_IOS_OPEN_CONVERSATION"] {
@@ -108,6 +124,20 @@ final class RootViewController: UIViewController {
             DevTerminal.captureDiagnostics(terminal)
         }
         #endif
+    }
+
+    private func applyFlags() {
+        shell?.setTabs(container.flags.visibleTabs, sidebar: container.flags.isEnabled(.iPadSidebar))
+    }
+
+    /// A seam mode changed: rebuild the seams and the shell. Home's store is
+    /// kept by the container, so Home keeps its state.
+    private func rebuildShell() {
+        container.dropFeatureSources()
+        guard let account = shellAccount, shell != nil else { return }
+        let selected = shell?.selectedShellTab
+        showHome(account: account)
+        if let selected { shell?.select(selected) }
     }
 
     private func install(_ next: UIViewController) {
@@ -133,7 +163,7 @@ final class RootViewController: UIViewController {
     #if DEBUG
     override func motionEnded(_ motion: UIEvent.EventSubtype, with event: UIEvent?) {
         guard motion == .motionShake else { return super.motionEnded(motion, with: event) }
-        present(DevMenu.make(options: container.devOptions, presenter: self), animated: true)
+        present(DevMenu.make(container: container, presenter: self), animated: true)
     }
     #endif
 }

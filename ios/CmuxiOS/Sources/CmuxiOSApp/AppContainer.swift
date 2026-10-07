@@ -2,8 +2,10 @@ import CmuxFeedPushCore
 import CmuxHomeCore
 import CmuxHomeUI
 import CmuxiOSAuth
+import CmuxiOSFeatureKit
 import CmuxiOSIdentity
 import CmuxiOSPush
+import CmuxiOSShell
 import Foundation
 import OSLog
 import UIKit
@@ -15,6 +17,17 @@ import UserNotifications
 final class AppContainer {
     let auth: StackAuthGate
     let devOptions: DevOptions
+    /// Root tab and surface flags (plans/cmux-next/ios-next/a1-shell.md).
+    let flags: FeatureFlagStore
+    /// Mock or real per feature seam (DEV switch).
+    let sourceModes: FeatureSourceModeStore
+    /// Real seam implementations. Each feature lane sets its slot here when
+    /// its carrier lands; an empty slot keeps that seam on its mock.
+    let realFactories = RealFeatureFactories()
+    private var features: FeatureSources?
+    private var featuresAccount: String?
+    /// DEV: the mock owners' simulated connection.
+    private(set) var mockOffline = false
     let push: PushRegistration
     /// The install principal (nil when no API origin is configured).
     let identity: InstallIdentity?
@@ -38,6 +51,13 @@ final class AppContainer {
         )
         auth = StackAuthGate(composition: composition)
         devOptions = DevOptions(environment: environment)
+        #if DEBUG
+        let isDebug = true
+        #else
+        let isDebug = false
+        #endif
+        flags = FeatureFlagStore(environment: environment, isDebug: isDebug)
+        sourceModes = FeatureSourceModeStore(environment: environment, isDebug: isDebug)
         // Feed pushes (plans/cmux-next/feed.md 7.3) go through the API Worker as
         // this install's principal (identity D5, InstallIdentity).
         let base = Self.cloudAPIBaseURL()
@@ -114,6 +134,28 @@ final class AppContainer {
         return store
     }
 
+    /// The feature seams for the signed-in account, built once per account
+    /// and per mode change. Feature screens get only the seams they use.
+    func featureSources(for account: SignedInAccount) -> FeatureSources {
+        if let features, featuresAccount == account.userID { return features }
+        featuresAccount = account.userID
+        let made = realFactories.resolve(sourceModes.modes)
+        features = made
+        if mockOffline { Task { await made.setMockConnection(.offline(reason: nil)) } }
+        return made
+    }
+
+    /// A mode change rebuilds the seams on next use.
+    func dropFeatureSources() {
+        features = nil
+        featuresAccount = nil
+    }
+
+    func setMockOffline(_ offline: Bool) async {
+        mockOffline = offline
+        await features?.setMockConnection(offline ? .offline(reason: nil) : .live(path: "mock"))
+    }
+
     /// Signing out drops the account's Home mirror.
     func signedIn(account: SignedInAccount) {
         let coordinator = auth.coordinator
@@ -146,6 +188,7 @@ final class AppContainer {
         home?.stop()
         home = nil
         homeAccount = nil
+        dropFeatureSources()
     }
 
     var apiBaseURL: String { auth.composition.config.apiBaseURL }
