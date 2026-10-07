@@ -25,7 +25,12 @@ CREATE TABLE IF NOT EXISTS visits(
   visit_time_ms INTEGER NOT NULL, tab TEXT);
 CREATE INDEX IF NOT EXISTS visits_time ON visits(visit_time_ms);
 CREATE INDEX IF NOT EXISTS visits_url ON visits(url);
-PRAGMA user_version=1;
+CREATE TABLE IF NOT EXISTS removed_visits(
+  backup TEXT NOT NULL, id INTEGER NOT NULL, url TEXT NOT NULL, title TEXT,
+  visit_time_ms INTEGER NOT NULL, tab TEXT);
+CREATE INDEX IF NOT EXISTS removed_visits_backup ON removed_visits(backup);
+CREATE INDEX IF NOT EXISTS removed_visits_time ON removed_visits(visit_time_ms);
+PRAGMA user_version=2;
 ";
 
 /// A finished main-frame navigation to record.
@@ -214,32 +219,92 @@ impl VisitStore {
     /// Removes one visit; `backup` names the backup it can be restored
     /// from.
     pub fn remove_visit(&self, id: i64, backup: &str) -> Result<usize, HistoryError> {
-        let _ = backup;
-        Ok(self.connection.execute("DELETE FROM visits WHERE id = ?1", params![id])?)
+        self.remove_where("id = ?2", &[&id], backup)
+    }
+
+    /// Moves the visits matching `condition` (SQL over `visits`, its
+    /// parameters from `?2`) into `backup`, in one transaction.
+    fn remove_where(
+        &self,
+        condition: &str,
+        args: &[&dyn rusqlite::ToSql],
+        backup: &str,
+    ) -> Result<usize, HistoryError> {
+        let mut all: Vec<&dyn rusqlite::ToSql> = vec![&backup];
+        all.extend_from_slice(args);
+        let transaction = self.connection.unchecked_transaction()?;
+        transaction.execute(
+            &format!(
+                "INSERT INTO removed_visits(backup, id, url, title, visit_time_ms, tab) \
+                 SELECT ?1, id, url, title, visit_time_ms, tab FROM visits WHERE {condition}"
+            ),
+            params_from_iter(all.iter()),
+        )?;
+        let removed = transaction.execute(
+            &format!("DELETE FROM visits WHERE {condition}"),
+            params_from_iter(all.iter()),
+        )?;
+        transaction.commit()?;
+        Ok(removed)
     }
 
     /// Removes every visit of `url` into `backup`.
     pub fn remove_url(&self, url: &str, backup: &str) -> Result<usize, HistoryError> {
-        let _ = backup;
-        Ok(self.connection.execute("DELETE FROM visits WHERE url = ?1", params![url])?)
+        self.remove_where("url = ?2", &[&url], backup)
     }
 
     /// Restores the visits removed into `backup`; returns how many came back.
+    /// A visit whose id was taken meanwhile comes back under a new id.
     pub fn restore(&self, backup: &str) -> Result<usize, HistoryError> {
-        let _ = backup;
-        Ok(0)
+        let transaction = self.connection.unchecked_transaction()?;
+        let rows: Vec<Visit> = {
+            let mut statement = transaction.prepare(
+                "SELECT id, url, title, visit_time_ms, tab FROM removed_visits WHERE backup = ?1",
+            )?;
+            statement
+                .query_map(params![backup], |row| {
+                    Ok(Visit {
+                        id: row.get(0)?,
+                        url: row.get(1)?,
+                        title: row.get(2)?,
+                        at_ms: row.get(3)?,
+                        tab: row.get(4)?,
+                    })
+                })?
+                .collect::<Result<_, _>>()?
+        };
+        // Free ids first, so a later new id cannot take one of them.
+        let mut taken = Vec::new();
+        for visit in &rows {
+            let inserted = transaction.execute(
+                "INSERT OR IGNORE INTO visits(id, url, title, visit_time_ms, tab) VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![visit.id, visit.url, visit.title, visit.at_ms, visit.tab],
+            )?;
+            if inserted == 0 {
+                taken.push(visit);
+            }
+        }
+        for visit in taken {
+            transaction.execute(
+                "INSERT INTO visits(url, title, visit_time_ms, tab) VALUES (?1, ?2, ?3, ?4)",
+                params![visit.url, visit.title, visit.at_ms, visit.tab],
+            )?;
+        }
+        transaction.execute("DELETE FROM removed_visits WHERE backup = ?1", params![backup])?;
+        transaction.commit()?;
+        Ok(rows.len())
     }
 
     /// Deletes `backup` for good; returns how many visits it held.
     pub fn purge(&self, backup: &str) -> Result<usize, HistoryError> {
-        let _ = backup;
-        Ok(0)
+        Ok(self
+            .connection
+            .execute("DELETE FROM removed_visits WHERE backup = ?1", params![backup])?)
     }
 
     /// Removes every visit whose host is `host` or a subdomain of it, into
     /// `backup`.
     pub fn remove_host(&self, host: &str, backup: &str) -> Result<usize, HistoryError> {
-        let _ = backup;
         let host = host.to_lowercase();
         let suffix = format!(".{host}");
         let mut ids = Vec::new();
@@ -257,23 +322,18 @@ impl VisitStore {
                 }
             }
         }
-        let transaction = self.connection.unchecked_transaction()?;
         let mut removed = 0;
         for id in ids {
-            removed += transaction.execute("DELETE FROM visits WHERE id = ?1", params![id])?;
+            removed += self.remove_visit(id, backup)?;
         }
-        transaction.commit()?;
         Ok(removed)
     }
 
     /// Removes visits at or after `since_ms` (`None`: every visit), into
     /// `backup`.
     pub fn remove_since(&self, since_ms: Option<i64>, backup: &str) -> Result<usize, HistoryError> {
-        let _ = backup;
         let since = since_ms.unwrap_or(i64::MIN);
-        Ok(self
-            .connection
-            .execute("DELETE FROM visits WHERE visit_time_ms >= ?1", params![since])?)
+        self.remove_where("visit_time_ms >= ?2", &[&since], backup)
     }
 
     /// Drops visits older than the retention before `now_ms` and the oldest
@@ -290,6 +350,9 @@ impl VisitStore {
         max_visits: usize,
     ) -> Result<usize, HistoryError> {
         let cutoff = now_ms.saturating_sub(retention_ms);
+        // A backup never outlives normal history (ff, 2026-10-06).
+        self.connection
+            .execute("DELETE FROM removed_visits WHERE visit_time_ms < ?1", params![cutoff])?;
         let mut removed = self
             .connection
             .execute("DELETE FROM visits WHERE visit_time_ms < ?1", params![cutoff])?;

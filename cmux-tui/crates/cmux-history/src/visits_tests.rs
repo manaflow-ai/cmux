@@ -118,7 +118,10 @@ fn removals_are_recoverable_until_purged() {
     assert_eq!(urls(&store), ["https://c.example/"]);
     assert_eq!(store.restore("r1").unwrap(), 1);
     let back = store.visit(a).unwrap().expect("the visit is back under its id");
-    assert_eq!((back.url.as_str(), back.title.as_deref(), back.tab.as_deref(), back.at_ms), ("https://a.example/", Some("A"), Some("m/t1"), T0));
+    assert_eq!(
+        (back.url.as_str(), back.title.as_deref(), back.tab.as_deref(), back.at_ms),
+        ("https://a.example/", Some("A"), Some("m/t1"), T0)
+    );
     assert_eq!(store.restore("r1").unwrap(), 0, "a backup restores once");
     assert_eq!(store.purge("r2").unwrap(), 1);
     assert_eq!(store.restore("r2").unwrap(), 0, "a purged backup is gone");

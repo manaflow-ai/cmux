@@ -207,9 +207,26 @@ fn removal(removed: usize, backup: String) -> Removal {
     Removal { removed, restore_id: (removed > 0).then_some(backup) }
 }
 
-/// A fresh restore id, `history:<32 hex>`.
+/// A fresh restore id, `history:<32 hex>`: 128 bits from the process's
+/// random hasher keys mixed with the time and a counter, so ids differ per
+/// removal and cannot be guessed from another one.
 fn new_restore_id() -> String {
-    String::from("history:0")
+    use std::collections::hash_map::RandomState;
+    use std::hash::{BuildHasher, Hasher};
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let count = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos());
+    let half = |salt: u64| {
+        let mut hasher = RandomState::new().build_hasher();
+        hasher.write_u64(salt);
+        hasher.write_u64(count);
+        hasher.write_u128(nanos);
+        hasher.finish()
+    };
+    format!("history:{:016x}{:016x}", half(1), half(2))
 }
 
 /// `page:<profile>:<visit id>`; the profile may contain colons.
