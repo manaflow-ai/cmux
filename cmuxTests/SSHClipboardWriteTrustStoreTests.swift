@@ -10,6 +10,10 @@ import Testing
 
 @Suite(.serialized)
 struct SSHClipboardWriteTrustStoreTests {
+    // Regression context from #18324 (@simjak): cmux 0.65.0's cmux-tui SSH
+    // mirrors received OSC 52 from a remote TUI/tmux selection, but the
+    // manual-I/O callback policy kept that remote-origin write off the Mac
+    // clipboard until the user explicitly trusted the SSH machine.
     @Test("trust is opt-in, endpoint-scoped, revocable, and write-only")
     @MainActor
     func trustPolicy() throws {
