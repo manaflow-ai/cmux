@@ -236,6 +236,369 @@
    "selected": "conv_local"
   }
  ],
+ "policy": [
+  {
+   "name": "remote.autoApprove defaults to true with no settings",
+   "fn": "remote_auto_approve",
+   "args": {
+    "settings": null
+   },
+   "result": true
+  },
+  {
+   "name": "remote.autoApprove defaults to true when the key is missing",
+   "fn": "remote_auto_approve",
+   "args": {
+    "settings": {
+     "remote": {}
+    }
+   },
+   "result": true
+  },
+  {
+   "name": "remote.autoApprove false is kept",
+   "fn": "remote_auto_approve",
+   "args": {
+    "settings": {
+     "remote": {
+      "autoApprove": false
+     }
+    }
+   },
+   "result": false
+  },
+  {
+   "name": "remote.autoApprove that is not a bool is the default",
+   "fn": "remote_auto_approve",
+   "args": {
+    "settings": {
+     "remote": {
+      "autoApprove": "no"
+     }
+    }
+   },
+   "result": true
+  },
+  {
+   "name": "a local turn runs with the configured policy",
+   "fn": "turn_policy",
+   "args": {
+    "remote": false,
+    "auto_approve": false,
+    "configured": "approve-all"
+   },
+   "result": "approve-all"
+  },
+  {
+   "name": "a remote turn with remote.autoApprove on runs with the configured policy",
+   "fn": "turn_policy",
+   "args": {
+    "remote": true,
+    "auto_approve": true,
+    "configured": "approve-all"
+   },
+   "result": "approve-all"
+  },
+  {
+   "name": "a remote turn with remote.autoApprove off asks",
+   "fn": "turn_policy",
+   "args": {
+    "remote": true,
+    "auto_approve": false,
+    "configured": "approve-all"
+   },
+   "result": "ask"
+  },
+  {
+   "name": "no spawn floor outside an ask turn",
+   "fn": "spawn_floor",
+   "args": {
+    "auto_approve": false,
+    "turn_ask": false,
+    "ask_child_live": false,
+    "ask_subagent_live": false
+   },
+   "result": null
+  },
+  {
+   "name": "an ask turn's children ask",
+   "fn": "spawn_floor",
+   "args": {
+    "auto_approve": false,
+    "turn_ask": true,
+    "ask_child_live": false,
+    "ask_subagent_live": false
+   },
+   "result": "ask"
+  },
+  {
+   "name": "a live ask child keeps the floor",
+   "fn": "spawn_floor",
+   "args": {
+    "auto_approve": false,
+    "turn_ask": false,
+    "ask_child_live": true,
+    "ask_subagent_live": false
+   },
+   "result": "ask"
+  },
+  {
+   "name": "a live ask subagent keeps the floor",
+   "fn": "spawn_floor",
+   "args": {
+    "auto_approve": false,
+    "turn_ask": false,
+    "ask_child_live": false,
+    "ask_subagent_live": true
+   },
+   "result": "ask"
+  },
+  {
+   "name": "remote.autoApprove on lifts the floor",
+   "fn": "spawn_floor",
+   "args": {
+    "auto_approve": true,
+    "turn_ask": true,
+    "ask_child_live": true,
+    "ask_subagent_live": true
+   },
+   "result": null
+  },
+  {
+   "name": "claude-sr routes to the claude-stdio profile that runs sr claude proxy",
+   "fn": "harness_admit",
+   "args": {
+    "requested": "claude-sr",
+    "answer": {
+     "harnesses": {
+      "claude-sr": {
+       "kind": "claude-stdio",
+       "argv": [
+        "/Users/me/bin/sr",
+        "claude",
+        "proxy"
+       ],
+       "family": "claude"
+      }
+     }
+    }
+   },
+   "result": {
+    "admitted": {
+     "profile": "claude-sr",
+     "kind": "claude-stdio",
+     "argv0": "/Users/me/bin/sr",
+     "family": "claude"
+    }
+   }
+  },
+  {
+   "name": "claude-sr refuses an external ACP adapter under its name",
+   "fn": "harness_admit",
+   "args": {
+    "requested": "claude-sr",
+    "answer": {
+     "harnesses": {
+      "claude-sr": {
+       "kind": "acp",
+       "argv": [
+        "/opt/homebrew/bin/claude-code-acp"
+       ],
+       "family": "claude",
+       "description": "imported from ~/.acpx"
+      }
+     }
+    }
+   },
+   "result": {
+    "refused": "the Chief runs Claude only through acpmux's own Claude Code adapter (kind claude-stdio), and claude-sr asks for one running `sr claude proxy`; acpmux has none: acpmux's claude-sr is kind acp (/opt/homebrew/bin/claude-code-acp), \"imported from ~/.acpx\""
+   }
+  },
+  {
+   "name": "claude-sr prefers a real sr claude proxy over a claude profile pointed at the team subrouter",
+   "fn": "harness_admit",
+   "args": {
+    "requested": "claude-sr",
+    "answer": {
+     "harnesses": {
+      "z-url": {
+       "kind": "claude-stdio",
+       "argv": [
+        "claude"
+       ],
+       "family": "claude",
+       "env": {
+        "ANTHROPIC_BASE_URL": "http://100.89.225.106:31415/"
+       }
+      },
+      "mine": {
+       "kind": "claude-stdio",
+       "argv": [
+        "/Users/me/bin/sr",
+        "claude",
+        "proxy"
+       ],
+       "family": "claude"
+      }
+     }
+    }
+   },
+   "result": {
+    "admitted": {
+     "profile": "mine",
+     "kind": "claude-stdio",
+     "argv0": "/Users/me/bin/sr",
+     "family": "claude"
+    }
+   }
+  },
+  {
+   "name": "claude-sr takes a claude profile pointed at the team subrouter when no sr runs",
+   "fn": "harness_admit",
+   "args": {
+    "requested": "claude-sr",
+    "answer": {
+     "harnesses": {
+      "z-url": {
+       "kind": "claude-stdio",
+       "argv": [
+        "claude"
+       ],
+       "family": "claude",
+       "env": {
+        "ANTHROPIC_BASE_URL": "http://100.89.225.106:31415/"
+       }
+      }
+     }
+    }
+   },
+   "result": {
+    "admitted": {
+     "profile": "z-url",
+     "kind": "claude-stdio",
+     "argv0": "claude",
+     "family": "claude"
+    }
+   }
+  },
+  {
+   "name": "claude routes to the direct claude login",
+   "fn": "harness_admit",
+   "args": {
+    "requested": "claude",
+    "answer": {
+     "harnesses": {
+      "claude": {
+       "kind": "claude-stdio",
+       "argv": [
+        "/Users/me/.local/bin/claude"
+       ],
+       "family": "claude"
+      },
+      "claude-sr": {
+       "kind": "claude-stdio",
+       "argv": [
+        "/Users/me/bin/sr",
+        "claude",
+        "proxy"
+       ],
+       "family": "claude"
+      }
+     }
+    }
+   },
+   "result": {
+    "admitted": {
+     "profile": "claude",
+     "kind": "claude-stdio",
+     "argv0": "/Users/me/.local/bin/claude",
+     "family": "claude"
+    }
+   }
+  },
+  {
+   "name": "an unavailable profile is not routed to",
+   "fn": "harness_admit",
+   "args": {
+    "requested": "claude",
+    "answer": {
+     "harnesses": {
+      "claude": {
+       "kind": "claude-stdio",
+       "argv": [
+        "/Users/me/.local/bin/claude"
+       ],
+       "family": "claude",
+       "unavailable": "not signed in"
+      }
+     }
+    }
+   },
+   "result": {
+    "refused": "the Chief runs Claude only through acpmux's own Claude Code adapter (kind claude-stdio), and claude asks for one running `claude`; acpmux has none: acpmux's claude is kind claude-stdio (/Users/me/.local/bin/claude)"
+   }
+  },
+  {
+   "name": "a codex profile is admitted as acpmux reports it, its family from the command",
+   "fn": "harness_admit",
+   "args": {
+    "requested": "codex",
+    "answer": {
+     "harnesses": {
+      "codex": {
+       "kind": "acp",
+       "argv": [
+        "/usr/local/bin/codex-acp"
+       ]
+      }
+     }
+    }
+   },
+   "result": {
+    "admitted": {
+     "profile": "codex",
+     "kind": "acp",
+     "argv0": "/usr/local/bin/codex-acp",
+     "family": "codex"
+    }
+   }
+  },
+  {
+   "name": "a Claude-family profile that is not claude-stdio is refused",
+   "fn": "harness_admit",
+   "args": {
+    "requested": "my-claude",
+    "answer": {
+     "harnesses": {
+      "my-claude": {
+       "kind": "acp",
+       "argv": [
+        "/opt/homebrew/bin/claude-code-acp"
+       ],
+       "family": "claude",
+       "description": "imported from ~/.acpx"
+      }
+     }
+    }
+   },
+   "result": {
+    "refused": "the Chief runs Claude only through acpmux's own Claude Code adapter (kind claude-stdio); acpmux's my-claude is kind acp (/opt/homebrew/bin/claude-code-acp), \"imported from ~/.acpx\""
+   }
+  },
+  {
+   "name": "an unknown profile is refused",
+   "fn": "harness_admit",
+   "args": {
+    "requested": "gemini",
+    "answer": {
+     "harnesses": {}
+    }
+   },
+   "result": {
+    "refused": "acpmux has no harness named gemini"
+   }
+  }
+ ],
  "cases": [
   {
    "name": "wake 1:1: a human message wakes the Chief; its turn is the reply, keyed by the turn, with typing",
