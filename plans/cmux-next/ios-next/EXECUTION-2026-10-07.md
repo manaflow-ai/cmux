@@ -26,7 +26,7 @@ silently queue.
 
 ## Current evidence and selected work
 
-The refreshed D3 matrix at HEAD `d0678348d5` reports 84 of 98 parity rows done, with one
+The refreshed D3 matrix at HEAD `80c3520858` reports 84 of 98 parity rows done, with one
 implementation gap (the remaining tmux workspace parity), five seam-only rows, four mocked
 platform rows, and four intentional drops. B1 now rate-limits TURN and pending-snapshot repair
 traffic by authenticated identity. C14's credentialed generic SOCKS route is wired to `WebRoute`,
