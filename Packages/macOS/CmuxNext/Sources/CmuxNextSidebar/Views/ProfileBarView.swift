@@ -161,9 +161,19 @@ final class ProfileBarView: NSView {
     /// The pointer entered or left (tests and the hover state of a drag).
     func setPointerInside(_ inside: Bool) { isPointerInside = inside }
 
-    private func setHovered(_ value: Int?) {
+    func setHovered(_ value: Int?) {
         guard hovered != value else { return }
         hovered = value
+        needsDisplay = true
+    }
+
+    /// The hovered space's background (F2): its rect and fill; nil when no
+    /// space is hovered.
+    var hoverChip: (rect: NSRect, fill: NSColor)? { nil }
+
+    /// A press on a space (tests; the mouse sets it in `mouseDown`).
+    func setPressed(_ value: Int?) {
+        pressed = value
         needsDisplay = true
     }
 
