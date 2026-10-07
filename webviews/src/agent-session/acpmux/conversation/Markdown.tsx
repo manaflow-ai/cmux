@@ -9,6 +9,7 @@ import { useT } from "../i18n";
 import { safeHref } from "../model";
 import { CodeBlock } from "./CodeBlock";
 import { DiagramBlock, isChart } from "./DiagramBlock";
+import { isRemoteMedia, RemoteMedia } from "../chips/ReplyMedia";
 import { CodeHandoff, PlainCode } from "./StreamingCode";
 import type { Reveal } from "./RevealedMarkdown";
 import { ArxivMark, FileDoc, GitHubMark, Globe, ImageIcon } from "./icons";
@@ -520,8 +521,17 @@ function Block({
       const H = `h${block.level}` as "h1";
       return <H className={`cv-h cv-h${Math.min(block.level, 4)}${motion}`}>{inline(block.text)}</H>;
     }
-    case "paragraph":
+    case "paragraph": {
+      // A web video link alone on its line plays in place (ReplyMedia); in a sentence it stays a link.
+      const link = block.text.trim();
+      if (!tail && !/\s/.test(link) && isRemoteMedia(link))
+        return (
+          <p className={`cv-p${motion}`}>
+            <RemoteMedia url={link} alt="" fallback={inline(block.text)} />
+          </p>
+        );
       return <p className={`cv-p${motion}`}>{inline(block.text)}</p>;
+    }
     case "hr":
       return <hr className={`cv-hr${motion}`} />;
     case "blockquote":
