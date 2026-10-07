@@ -28,7 +28,8 @@ let pending: Promise<void> | undefined;
 export function receiveModelCatalog(value: unknown): void {
   const delivery = (value ?? {}) as ModelCatalogDelivery;
   const catalog = readModelCatalog(delivery.catalog);
-  const kind = delivery.delivery === "network" || delivery.delivery === "disk" ? delivery.delivery : undefined;
+  const kind =
+    delivery.delivery === "network" || delivery.delivery === "disk" ? delivery.delivery : undefined;
   state = {
     catalog: catalog ? { ...catalog, ...(kind ? { delivery: kind } : {}) } : state.catalog,
     user: delivery.user ?? undefined,
@@ -55,7 +56,11 @@ function subscribe(listener: () => void): () => void {
 }
 
 export function useModelCatalogState(): State {
-  return useSyncExternalStore(subscribe, () => state, () => state);
+  return useSyncExternalStore(
+    subscribe,
+    () => state,
+    () => state,
+  );
 }
 
 /** Test seam: back to the bundled catalog. */
@@ -71,7 +76,10 @@ export function resetModelCatalogForTests(): void {
  */
 export function usePickerCatalog(
   acpmux: AcpmuxSnapshot["catalog"],
-  session?: { harness?: string; configOptions?: NonNullable<AcpmuxSnapshot["summary"]>["configOptions"] },
+  session?: {
+    harness?: string;
+    configOptions?: NonNullable<AcpmuxSnapshot["summary"]>["configOptions"];
+  },
 ): { catalog: PickerCatalog; date?: string; refresh(): Promise<void> } {
   const { catalog, user, provisional } = useModelCatalogState();
   const queryClient = useQueryClient();
