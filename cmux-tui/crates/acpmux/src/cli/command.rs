@@ -327,7 +327,11 @@ pub enum Command {
 pub enum HarnessCmd {
     /// Every harness with its kind, source file and problems.
     #[command(alias = "ls")]
-    List,
+    List {
+        /// Also list the folder profiles in DIR/.cmux/harnesses with their state.
+        #[arg(long)]
+        folder: Option<PathBuf>,
+    },
     /// Write a new profile file into ~/.config/cmux/harnesses and check it.
     Add {
         /// Profile id (file name); default: the example's id or the command's name.
@@ -355,6 +359,22 @@ pub enum HarnessCmd {
         /// Seconds each step may wait for the harness.
         #[arg(long, default_value_t = 120)]
         timeout: u64,
+    },
+    /// Allow a folder profile (DIR/.cmux/harnesses/ID.toml) in chats inside
+    /// DIR: shows the command and env, then asks. The folder must be trusted.
+    Enable {
+        id: String,
+        #[arg(long)]
+        folder: PathBuf,
+        /// Confirm without the prompt (needed without a terminal).
+        #[arg(long)]
+        yes: bool,
+    },
+    /// Withdraw a folder profile's confirmation.
+    Disable {
+        id: String,
+        #[arg(long)]
+        folder: PathBuf,
     },
     /// Tell the running daemon to read the profile files again.
     Reload,
