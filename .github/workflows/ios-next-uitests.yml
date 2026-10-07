@@ -1,0 +1,229 @@
+name: iOS next UI tests
+run-name: >-
+  iOS next UI tests · ${{ inputs.ref || github.head_ref || github.ref_name }} ·
+  ${{ inputs.test_filter || 'Next*UITests' }}
+
+# The rewritten iOS app's UI tests (ios/cmuxUITests, the Next*UITests
+# classes) on a simulator created for this run and deleted after it. Each test
+# runs in its own xcodebuild with its own screen recording, through
+# ios/scripts/keyboard-uitests.sh; the logs, recordings, result bundles and
+# summary are uploaded as one artifact.
+#
+# Dispatch with an optional test_filter: space- or comma-separated classes or
+# tests, with or without the cmuxUITests/ prefix, for example
+#   gh workflow run ios-next-uitests.yml --repo manaflow-ai/cmux \
+#     -f ref=feat-cmux-next-ios -f test_filter=cmuxUITests/NextShellTabsUITests
+# An empty filter runs every Next*UITests class. A pull request runs the same
+# set while it carries the `ios-uitests` label.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch, tag or SHA to test (empty = the dispatched ref)
+        required: false
+        default: ""
+      test_filter:
+        description: "Classes or tests, e.g. cmuxUITests/NextFeedUITests NextHostsUITests/testAddHost (empty = every Next*UITests class)"
+        required: false
+        default: ""
+      record_video:
+        description: Record each test's simulator screen
+        required: false
+        default: true
+        type: boolean
+      device_family:
+        description: Simulator family
+        required: false
+        default: iphone
+        type: choice
+        options:
+          - iphone
+          - ipad
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+    paths:
+      - ios/**
+      - Packages/Shared/**
+      - Packages/iOS/**
+      - scripts/ensure-ghosttykit.sh
+      - scripts/ghosttykit-checksums.txt
+      - scripts/ci/select_ios_simulator.py
+      - .github/workflows/ios-next-uitests.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('ios-next-uitests-pr-{0}', github.event.pull_request.number) || format('ios-next-uitests-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  uitests:
+    name: iOS next UI tests
+    # A pull request runs only while it has the label, and never from a fork:
+    # the job takes a macOS runner for up to two hours.
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch'
+          || (contains(github.event.pull_request.labels.*.name, 'ios-uitests')
+              && github.event.pull_request.head.repo.full_name == github.repository) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 120
+    env:
+      TEST_FILTER: ${{ inputs.test_filter }}
+      KBD_RECORD: ${{ (github.event_name != 'workflow_dispatch' || inputs.record_video) && '1' || '0' }}
+      KBD_RESULT_BUNDLES: "1"
+      NX_ARTIFACTS: ${{ github.workspace }}/artifacts/ios-next-uitests
+    steps:
+      - name: Verify GitHub-hosted route
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          REQUESTED_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
+          RUNNER_CONTEXT_NAME: ${{ runner.name }}
+        run: |
+          # The self-hosted fleet also carries a macos-26 label, so a macos-*
+          # request must prove it landed on GitHub-hosted capacity.
+          case "$REQUESTED_RUNNER" in
+            macos-*)
+              if [ "$RUNNER_ENVIRONMENT" != "github-hosted" ]; then
+                echo "::error::$REQUESTED_RUNNER resolved outside GitHub-hosted capacity: $RUNNER_CONTEXT_NAME"
+                exit 1
+              fi
+              ;;
+          esac
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Select tests
+        run: |
+          set -euo pipefail
+          tests=()
+          if [ -z "${TEST_FILTER//[ ,]/}" ]; then
+            for file in ios/cmuxUITests/Next*UITests.swift; do
+              tests+=("$(basename "$file" .swift)")
+            done
+          else
+            for entry in ${TEST_FILTER//,/ }; do
+              entry="${entry#cmuxUITests/}"
+              if ! [[ "$entry" =~ ^[A-Za-z0-9_]+(/[A-Za-z0-9_]+)?$ ]]; then
+                echo "::error::test_filter entry '$entry' is not Class or Class/testMethod"
+                exit 1
+              fi
+              if [ ! -f "ios/cmuxUITests/${entry%%/*}.swift" ]; then
+                echo "::error::no UI test class ios/cmuxUITests/${entry%%/*}.swift"
+                exit 1
+              fi
+              tests+=("$entry")
+            done
+          fi
+          echo "KBD_TESTS=${tests[*]}" >> "$GITHUB_ENV"
+          echo "KBD_DERIVED=$RUNNER_TEMP/cmux-ios-uitests" >> "$GITHUB_ENV"
+          echo "UI tests: ${tests[*]}" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Install zig
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Provision GhosttyKit
+        env:
+          CMUX_GHOSTTYKIT_CACHE_DIR: ${{ runner.temp }}/cmux-ghosttykit-cache
+        # The iOS app links GhosttyKit through a local binaryTarget, so it must
+        # exist before package resolution (as in test-ios.yml).
+        run: ./scripts/ensure-ghosttykit.sh
+
+      - name: Ensure iOS simulator runtime
+        run: |
+          set -euo pipefail
+          if ! xcrun simctl list runtimes available | grep -Eq '\biOS\b'; then
+            echo "No available iOS simulator runtime; downloading the iOS platform."
+            xcodebuild -downloadPlatform iOS
+          fi
+
+      - name: Create an isolated simulator
+        env:
+          DEVICE_FAMILY: ${{ inputs.device_family || 'iphone' }}
+        run: |
+          set -euo pipefail
+          # select_ios_simulator.py picks a device type and runtime the active
+          # Xcode can target; a fresh device of that type and runtime keeps
+          # this run off any simulator another job or person uses.
+          picked="$(python3 scripts/ci/select_ios_simulator.py 2>"$RUNNER_TEMP/pick.log" | sed -n 's/^SIMULATOR_ID=//p')"
+          cat "$RUNNER_TEMP/pick.log"
+          if [ -z "$picked" ]; then
+            echo "::error::no simulator device type and runtime available"
+            exit 1
+          fi
+          # The picker creates a device only when none fits; that one is ours too.
+          if grep -q '^Created ' "$RUNNER_TEMP/pick.log"; then
+            echo "PICKED_SIMULATOR_ID=$picked" >> "$GITHUB_ENV"
+          fi
+          read -r device_type runtime < <(PICKED="$picked" python3 - <<'PY'
+          import json, os, subprocess
+          data = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devices", "-j"]))
+          for runtime, devices in data["devices"].items():
+              for device in devices:
+                  if device["udid"] == os.environ["PICKED"]:
+                      print(device["deviceTypeIdentifier"], runtime)
+                      raise SystemExit(0)
+          raise SystemExit("picked simulator not found")
+          PY
+          )
+          if [ -z "${runtime:-}" ]; then
+            echo "::error::could not read the picked simulator's device type and runtime"
+            exit 1
+          fi
+          name="cmux next UITests ${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          udid="$(xcrun simctl create "$name" "$device_type" "$runtime")"
+          xcrun simctl boot "$udid"
+          xcrun simctl bootstatus "$udid" -b
+          echo "NX_SIM_UDID=$udid" >> "$GITHUB_ENV"
+          echo "Simulator: $name ($udid), $device_type on $runtime" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Run UI tests
+        run: ios/scripts/keyboard-uitests.sh
+
+      - name: Summary
+        if: ${{ always() }}
+        run: |
+          summary="$NX_ARTIFACTS/summary.txt"
+          if [ -f "$summary" ]; then
+            {
+              echo "### iOS next UI tests"
+              echo
+              echo '```'
+              cat "$summary"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          elif [ -f "$NX_ARTIFACTS/build.log" ]; then
+            {
+              echo "### build-for-testing failed"
+              echo
+              echo '```'
+              grep -E "error:" "$NX_ARTIFACTS/build.log" | sort -u | head -40
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload results and recordings
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ios-next-uitests
+          path: artifacts/ios-next-uitests
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Delete the simulator
+        if: ${{ always() }}
+        run: |
+          for udid in "${NX_SIM_UDID:-}" "${PICKED_SIMULATOR_ID:-}"; do
+            [ -n "$udid" ] || continue
+            xcrun simctl shutdown "$udid" >/dev/null 2>&1 || true
+            xcrun simctl delete "$udid" || true
+          done

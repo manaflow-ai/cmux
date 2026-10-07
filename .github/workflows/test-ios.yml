@@ -864,9 +864,9 @@ jobs:
         continue-on-error: true
         run: python3 scripts/ci/owned_build_state.py record "$PWD" "$IOS_DERIVED_DATA"
 
-      # The scheme has no test targets until the rewritten app's UI tests
-      # land (the legacy cmuxUITests and package test plans went with the
-      # legacy app), so this job proves the app builds for the simulator.
+      # This job proves the app builds for the simulator. The rewritten app's
+      # UI tests (cmuxUITests, the Next*UITests classes) run in
+      # ios-next-uitests.yml, and its new packages' tests in cmux-next-ios.yml.
       - name: Build iOS app for the simulator
         id: compile-product
         run: |
