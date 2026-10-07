@@ -250,8 +250,21 @@ jobs:
       # The Rust god-file ratchet (plans/cmux-next/OWNERSHIP-PRINCIPLES.md): no cmux-tui
       # file may pass 1000 lines or 60 functions unless godfile-baseline.tsv lists it,
       # and a listed file may not grow. Both modes run it, so no landing gate skips it.
+      # It fails only on what this commit grew against its merge base with
+      # feat-cmux-next, so a god file already on the base blocks no lane; if the
+      # merge base cannot be read or fetched, it checks every file.
       - name: Rust god-file check
-        run: scripts/cmux-next/check-no-godfiles.sh --only rust "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
+        env:
+          EXACT_COMMIT: ${{ inputs.commit }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          base=()
+          if merge_base="$(gh api "repos/$GITHUB_REPOSITORY/compare/feat-cmux-next...$EXACT_COMMIT" --jq .merge_base_commit.sha 2>/dev/null)" \
+            && [[ "$merge_base" =~ ^[0-9a-f]{40}$ ]] \
+            && git fetch --quiet --no-tags --depth=1 origin "$merge_base"; then
+            base=(--base "$merge_base")
+          fi
+          scripts/cmux-next/check-no-godfiles.sh --only rust ${base[@]+"${base[@]}"} "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
 
       - name: Init ghostty submodule
         run: git submodule update --init --depth 1 ghostty-next
@@ -925,7 +938,7 @@ jobs:
     name: test (windows)
     needs: validate-inputs
     if: inputs.mode == 'full'
-    runs-on: windows-latest
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'windows-2025' || vars.WINDOWS_RUNNER || 'blacksmith-4vcpu-windows-2025' }}
     timeout-minutes: 40
     env:
       GHOSTTY_ZIG_SOURCE: ghostty-next
@@ -1182,7 +1195,7 @@ jobs:
       macos_runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-15' }}
       macos_retry_runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-15' }}
       linux_runner: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
-      windows_runner: windows-latest
+      windows_runner: ${{ github.repository_owner != 'manaflow-ai' && 'windows-2025' || vars.WINDOWS_RUNNER || 'blacksmith-4vcpu-windows-2025' }}
       checkout_ref: ${{ inputs.commit }}
 
   hosted-verification:

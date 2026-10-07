@@ -8,10 +8,11 @@ mod common;
 use std::sync::Arc;
 use std::time::Duration;
 
+use cmux_chief::policy::harness::is_route;
 use common::*;
 use optchat_chief::acpmux::Family;
 use optchat_chief::compactor::{AcpmuxCompactor, CompactorSpec, Slots};
-use optchat_chief::harness_gate::{Route, admit, admit_profile};
+use optchat_chief::harness_gate::{admit, admit_profile};
 use optchat_chief::trace::Trace;
 use optchat_core::JOBS;
 use optchat_host::{CompactModel, CompactRequest, NodeId};
@@ -31,9 +32,9 @@ fn trace_events(dir: &std::path::Path) -> Vec<Value> {
 
 #[test]
 fn the_reserved_names_are_routes_to_claude_stdio_profiles() {
-    assert_eq!(Route::of("claude-sr"), Some(Route::Subrouter));
-    assert_eq!(Route::of("claude"), Some(Route::Direct));
-    assert_eq!(Route::of("codex"), None);
+    assert!(is_route("claude-sr"));
+    assert!(is_route("claude"));
+    assert!(!is_route("codex"));
     let sr = admit(&catalog(), "claude-sr").unwrap();
     assert_eq!(
         (sr.profile.as_str(), sr.kind.as_str(), sr.argv0.as_str()),

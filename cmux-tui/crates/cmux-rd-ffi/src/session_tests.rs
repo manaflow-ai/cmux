@@ -297,3 +297,66 @@ fn feedbacks_raw(s: &Owned, now: u64) -> Vec<Vec<u8>> {
         }
     }
 }
+
+#[test]
+fn a_tile_frame_is_released_with_its_flag_and_its_video_reference() {
+    let s = session(CMUX_RD_CARRIER_DATAGRAM);
+    open(&s, 8);
+    let mut p = Packetizer::new(8, MAX_DATAGRAM_VPC);
+    let body = FrameBody { t_capture_us: 1, ref_frame: 900, access_unit: vec![5; 2_000] };
+    for d in p.packetize(1, flags::TILE, &body, 0).expect("packetize").datagrams {
+        push(&s, &d, 0);
+    }
+    let mut f = CmuxRdFrame {
+        t_capture_us: 0,
+        data: std::ptr::null(),
+        len: 0,
+        frame: 0,
+        ref_frame: 0,
+        flags: 0,
+    };
+    let mut stream = 0u16;
+    // SAFETY: live session, writable outs.
+    assert_eq!(
+        unsafe { cmux_rd_session_pop_frame(s.0, &mut f, &mut stream) },
+        1,
+        "a tile frame is released"
+    );
+    assert_eq!((stream, f.ref_frame), (8, 900));
+    assert_eq!(u32::from(f.flags) & CMUX_RD_FLAG_TILE, CMUX_RD_FLAG_TILE);
+}
+
+#[test]
+fn bulk_frames_on_the_stream_carrier_are_queued_as_bulk_messages() {
+    let s = session(CMUX_RD_CARRIER_STREAM);
+    let chunk = cmux_rd_proto::BulkFrame { transfer: 2, offset: 0, bytes: vec![3; 1_000] };
+    let mut bytes = Vec::new();
+    encode_stream_frame(STREAM_BULK, &chunk.encode(), &mut bytes).expect("bulk frame");
+    // SAFETY: live session, readable slice.
+    let rc = unsafe { cmux_rd_session_push_stream(s.0, bytes.as_ptr(), bytes.len(), 0) };
+    assert!(rc >= 0, "a bulk frame does not end the session: {rc}");
+    let mut m = CmuxRdMessage { data: std::ptr::null(), len: 0, kind: 0 };
+    // SAFETY: live session, writable out.
+    assert_eq!(unsafe { cmux_rd_session_pop_message(s.0, &mut m) }, 1);
+    assert_eq!(u32::from(m.kind), CMUX_RD_MESSAGE_BULK);
+    // SAFETY: valid until the next call.
+    let payload = unsafe { std::slice::from_raw_parts(m.data, m.len) };
+    assert_eq!(cmux_rd_proto::BulkFrame::decode(payload).expect("bulk"), chunk);
+    // The viewer frames its own upload chunks with the same call.
+    let mut out = vec![0u8; 2_048];
+    let mut len = 0usize;
+    let p = chunk.encode();
+    // SAFETY: readable payload, writable buffer and length.
+    let rc = unsafe {
+        cmux_rd_encode_stream_frame(
+            CMUX_RD_MESSAGE_BULK,
+            p.as_ptr(),
+            p.len(),
+            out.as_mut_ptr(),
+            out.len(),
+            &mut len,
+        )
+    };
+    assert_eq!(rc, CMUX_RD_OK);
+    assert_eq!(&out[..len], &bytes[..]);
+}

@@ -60,7 +60,10 @@ final class PaneController: SurfacePresenter, PresentablePane {
         view.stripView.resourceSource = services.resources
         view.stripView.contextMenuProvider = { [weak self] target in self?.contextMenu(for: target) }
         view.stripView.hoverCards = services.hoverCards
-        view.onResize = { [weak services] in services?.surfaceInvariant.noteChange() }
+        view.onResize = { [weak services, weak paneView = view] in
+            services?.surfaceInvariant.noteChange()
+            services?.newTabSpares.paneLayoutDidChange(in: paneView?.window) // the parked New Tab spare follows
+        }
         observe()
     }
 
@@ -98,11 +101,13 @@ final class PaneController: SurfacePresenter, PresentablePane {
         let machine = daemon.isLocal ? nil : services.machines.machineBadge(daemon.machineID)
         let workspaceID = store.workspace(containing: pane.handle)?.id
         var items = pane.tabs.filter { !pendingClosed.contains($0.id) }.map { tab -> StripTabItem in
-            // A new tab page is "New Tab" until it becomes a chat (then the chat's title).
+            // A new tab page is "New Tab", with the new-tab icon, until it
+            // becomes a chat (then the chat's title and icon).
+            let isNewTabPage = tab.agentSession != nil && services.agentTabs.pageTabs.ids.contains(tab.id)
             let untitled = tab.agentSession != nil
-                ? services.agentTabs.pageTabs.ids.contains(tab.id) ? Strings.untitledBrowser : AgentPaneModel.tabTitle
+                ? isNewTabPage ? Strings.untitledBrowser : AgentPaneModel.tabTitle
                 : tab.kind == .conversation ? services.home.tabTitle(for: tab) : tab.kind == .browser ? Strings.untitledBrowser : fallback
-            var item = TabItemMapping.shared.item(tab, fallbackTitle: untitled)
+            var item = TabItemMapping.shared.item(tab, fallbackTitle: untitled, isNewTabPage: isNewTabPage)
             if tab.page != nil, let page = services.pages.storeTabItem(tab) {
                 // A page tab names and badges itself like the page it shows.
                 item.title = page.title
@@ -194,6 +199,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
                                                 defaultIndex: snapshot.defaultIndex, hidden: hidden)
         let selectedID = selected.map { StripTabID($0) }
         if stripModel.selectedID != selectedID { stripModel.selectedID = selectedID }
+        if view.underlay != nil, let key = currentTabKey, !services.agentTabs.isNewTabPage(key) { view.dropBackdrop(keeping: nil) } // became a chat
         if selectNew {
             // A tab this window created: show it now (focus is the
             // coordinator's expectation, not decided here).
@@ -240,13 +246,15 @@ final class PaneController: SurfacePresenter, PresentablePane {
         let key = stripModel.selectedID?.rawValue
         if key != currentTabKey {
             InputJournal.shared.append(window: state?.id, .content(tab: key ?? "-", event: "show pane=\(paneKey) from=\(currentTabKey ?? "-")"))
+            // Another tab's last page from the launch must not stay under this one.
+            view.clearLaunchImage()
         }
         if let currentTabKey, currentTabKey != key { services.cache.withdraw(currentTabKey, by: self) }
         // May replace a stale surface, displacing the view shown here.
         let content = key.flatMap(content(for:))
         currentTabKey = key
         if let key, content != nil { services.cache.present(key, by: self, presence: presence) }
-        view.show(content?.view)
+        view.show(content?.view, overBackdrop: key.map(services.agentTabs.isNewTabPage) == true) // PaneContentView+NewTabBackdrop
         // Terminals come in on their first frame (`LaunchSettle`); other
         // content (a page, an agent) is ready once shown.
         if let content, !content.isTerminal { LaunchReveal.shared.markReady(.pane) }

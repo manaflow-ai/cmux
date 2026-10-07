@@ -77,27 +77,63 @@
         if (!labelIndex) return read.call(this);
         // A hidden input has no labels (null), as the native getter says.
         if (name === "HTMLInputElement" && (this.type || "").toLowerCase() === "hidden") return null;
-        return labelIndex(this);
+        // An index the budget cut short has no answer, and WebKit's getter
+        // would scan the whole document for each control: the cut read gets
+        // no labels (it already says it was cut).
+        const found = labelIndex(this);
+        return found === null ? [] : found;
       },
     });
+  }
+  // Building it reads every <label> of the tree, which the page sets the
+  // number of, so each one is charged to the read's budget (the snapshot's,
+  // else a page-read budget of its own; classic 7f37c374e9f5). An index the
+  // budget cut short answers null, and that control has no labels in this
+  // read. The labels are read one at a time, never listed whole first: a
+  // document's from its live <label> collection; a shadow root (which has
+  // no such collection) by a walk of its elements, each one also counted
+  // against MAX_NODES.
+  let labelBudget = null;
+  function* treeLabels(root, cut) {
+    if (root.nodeType === 9 /* DOCUMENT_NODE */) {
+      const labels = root.getElementsByTagName("label");
+      for (let i = 0, label = labels[0]; label; label = labels[++i]) yield label;
+      return;
+    }
+    if (root.nodeType !== 11 /* DOCUMENT_FRAGMENT_NODE */) return;
+    let left = MAX_NODES;
+    const walker = document.createTreeWalker(root, 1 /* NodeFilter.SHOW_ELEMENT */);
+    for (let el = walker.nextNode(); el; el = walker.nextNode()) {
+      if (--left < 0) {
+        cut.done = true;
+        return;
+      }
+      if (el.localName === "label") yield el;
+    }
   }
   function createLabelIndex() {
     const byRoot = new Map();
     return (el) => {
       const root = el.getRootNode();
       let map = byRoot.get(root);
-      if (!map) {
+      if (map === undefined) {
         map = new Map();
-        const labels = root.querySelectorAll ? root.querySelectorAll("label") : [];
-        for (const label of labels) {
+        const b = labelBudget || (labelBudget = readBudget());
+        const cut = { done: false };
+        for (const label of treeLabels(root, cut)) {
+          if (!spend(b, 1)) {
+            cut.done = true;
+            break;
+          }
           const control = label.control;
           if (!control) continue;
           if (!map.has(control)) map.set(control, []);
           map.get(control).push(label);
         }
+        if (cut.done) map = null;
         byRoot.set(root, map);
       }
-      return map.get(el) || [];
+      return map === null ? null : map.get(el) || [];
     };
   }
   // Runs `fn` with the label index, Playwright's aria caches and a computed
@@ -106,6 +142,7 @@
   function withReadCaches(fn) {
     if (labelIndex) return fn();
     labelIndex = createLabelIndex();
+    labelBudget = null;
     styleCache = new Map();
     if (ariaCaches) ariaCaches.begin();
     try {
@@ -113,6 +150,7 @@
     } finally {
       if (ariaCaches) ariaCaches.end();
       labelIndex = null;
+      labelBudget = null;
       styleCache = null;
     }
   }
@@ -1013,17 +1051,26 @@
   // first child's whole subtree runs before the second child).
   const MAX_DEPTH = 1000;
   const NEST_CUT = `nested deeper than ${MAX_DEPTH} elements; snapshot this ref to read it`;
+  // The page-read budget on the work stack: a node is charged where it is
+  // scheduled (a node's children are pushed before any is read, so one
+  // element with a million children would otherwise push a million steps),
+  // and once the budget stops the walk the scheduled visits return at once
+  // while the steps that close nodes still run.
   const later = (ctx, step) => ctx.work.push(step);
+  // Past the node budget a node already charged is still read (it was
+  // scheduled within the budget; it can schedule nothing more); past the
+  // size budget or the time, the walk stops.
+  const stopped = (ctx) => !!ctx.truncated && ctx.truncated !== "nodes";
   function runWork(ctx) {
     const work = ctx.work;
     while (work.length) work.pop()();
   }
 
   function visitNode(n, out, ctx, parentVisible, parentAriaHidden, skipText) {
-    if (ctx.visited.has(n)) return;
+    if (stopped(ctx) || ctx.visited.has(n)) return;
     ctx.visited.add(n);
     if (n.nodeType === 3) {
-      if ((parentVisible || ctx.showHidden) && !skipText && n.nodeValue) out.push(n.nodeValue);
+      if ((parentVisible || ctx.showHidden) && !skipText && n.nodeValue) out.push(fit(ctx, n.nodeValue));
       return;
     }
     if (n.nodeType !== 1) return;
@@ -1038,25 +1085,34 @@
 
   // Writes the ::before text now and schedules the children, the owned
   // elements and the ::after text, in that order.
+  // Every child looked at is charged before it is scheduled; the list
+  // stops where the budget does.
   function visitChildren(el, out, ctx, visible, ariaHidden, skipText) {
-    if (visible && !skipText) out.push(pseudoText(el, "::before"));
+    if (stopped(ctx)) return;
+    if (visible && !skipText) out.push(fit(ctx, pseudoText(el, "::before")));
     const kids = [];
     const assigned = tagOf(el) === "slot" ? el.assignedNodes() : [];
     if (assigned.length) {
-      for (const child of assigned) kids.push(child);
+      for (let i = 0; i < assigned.length && spend(ctx, 1); i++) kids.push(assigned[i]);
     } else {
-      for (let child = el.firstChild; child; child = child.nextSibling) {
+      for (let child = el.firstChild; child && spend(ctx, 1); child = child.nextSibling) {
         if (!child.assignedSlot) kids.push(child);
       }
       if (el.shadowRoot) {
-        for (let child = el.shadowRoot.firstChild; child; child = child.nextSibling) kids.push(child);
+        for (let child = el.shadowRoot.firstChild; child && spend(ctx, 1); child = child.nextSibling) kids.push(child);
       }
     }
-    for (const id of (el.getAttribute("aria-owns") || "").split(/\s+/).filter(Boolean)) {
-      const owned = el.ownerDocument.getElementById(id);
-      if (owned && owned !== el) kids.push(owned);
+    // Each id in aria-owns is charged, also one that names a node already
+    // read: the page sets how many there are.
+    const owns = el.getAttribute("aria-owns");
+    if (owns) {
+      const ids = /\S+/g;
+      for (let m = ids.exec(owns); m && spend(ctx, 1); m = ids.exec(owns)) {
+        const owned = el.ownerDocument.getElementById(m[0]);
+        if (owned && owned !== el) kids.push(owned);
+      }
     }
-    if (visible && !skipText) later(ctx, () => out.push(pseudoText(el, "::after")));
+    if (visible && !skipText) later(ctx, () => stopped(ctx) || out.push(fit(ctx, pseudoText(el, "::after"))));
     for (let i = kids.length - 1; i >= 0; i--) {
       const child = kids[i];
       later(ctx, () => visitNode(child, out, ctx, visible, ariaHidden, skipText));
@@ -1168,7 +1224,8 @@
     // inside it has a box (Wikipedia's zero-width "Jump up" backlinks).
     if ((role === "link" || role === "button") && visible && !ctx.showHidden && !hasVisibleBox(el)) return;
     const node = { role };
-    if (name) node.name = name;
+    chargeSize(ctx, NODE_SIZE);
+    if (name) node.name = fit(ctx, name);
     if (interactive || scrollable) node.act = 1;
     if (interactive || scrollable || role === "iframe" || (name && SCOPE_ROLES.has(role))) {
       node.ref = refFor(el);
@@ -1186,26 +1243,37 @@
       return;
     }
     const value = valueOf(el, role, tag);
-    if (value !== null) node.value = value;
+    if (value !== null) node.value = fit(ctx, value);
     if (role === "link") {
       const url = displayUrl(el);
-      if (url) node.url = url;
+      if (url) node.url = fit(ctx, url);
       const offsite = offsiteSummary(el);
-      if (offsite) node.offsite = offsite;
+      if (offsite) node.offsite = fit(ctx, offsite);
     }
     const placeholder = el.getAttribute("placeholder");
-    if (placeholder && normalize(placeholder) !== name && (tag === "input" || tag === "textarea")) node.placeholder = normalize(placeholder);
+    if (placeholder && normalize(placeholder) !== name && (tag === "input" || tag === "textarea")) node.placeholder = fit(ctx, normalize(placeholder));
     if (tag === "select") {
-      const option = (o) => (o.selected ? { name: normalize(o.label || o.textContent), selected: true } : { name: normalize(o.label || o.textContent) });
+      const optionName = (o) => {
+        chargeSize(ctx, NODE_SIZE);
+        return fit(ctx, normalize(o.label || o.textContent));
+      };
+      const option = (o) => (o.selected ? { name: optionName(o), selected: true } : { name: optionName(o) });
       // A list box shows its options; a drop-down shows them on request. A
       // closed drop-down prints its first INLINE_OPTIONS and a count, so only
-      // those cross to the host.
-      if (el.multiple || el.size > 1) node.children = [...el.options].map((o) => Object.assign({ role: "option" }, option(o)));
-      else if (ctx.allOptions || node.expanded === true) node.options = [...el.options].map(option);
+      // those cross to the host. Options listed whole count toward the node
+      // budget; past it the list stops.
+      const listed = (map) => {
+        const all = el.options;
+        const list = [];
+        for (let i = 0; i < all.length && !ctx.truncated && spend(ctx, 1); i++) list.push(map(all[i]));
+        return list;
+      };
+      if (el.multiple || el.size > 1) node.children = listed((o) => Object.assign({ role: "option" }, option(o)));
+      else if (ctx.allOptions || node.expanded === true) node.options = listed(option);
       else {
         const all = el.options;
         node.options = [];
-        for (let i = 0; i < all.length && i < INLINE_OPTIONS; i++) node.options.push(option(all[i]));
+        for (let i = 0; i < all.length && i < INLINE_OPTIONS && !ctx.truncated; i++) node.options.push(option(all[i]));
         if (all.length > INLINE_OPTIONS) node.optionCount = all.length;
       }
     }
@@ -1261,7 +1329,8 @@
     return out.flatMap((c) => (typeof c === "string" ? c.split("\u0000").map(normalize).filter(Boolean) : [c]));
   }
 
-  // opts: { root: handle | null, showHidden, base, nest } -> { flat, max }
+  // opts: { root: handle | null, showHidden, base, nest, maxNodes, maxSize }
+  // -> { flat, max, offscreen, ms, visited, size, truncated: "nodes" | "time" | "size" | undefined }
   function snapshot(opts) {
     return withReadCaches(() => readSnapshot(opts || {}));
   }
@@ -1272,7 +1341,7 @@
     pruneHandles();
     const root = opts.root ? element(opts.root) : document.body || document.documentElement;
     if (!root || !root.isConnected) throw agentError("stale", "The snapshot root was removed from the page");
-    const ctx = {
+    const ctx = Object.assign(readBudget(opts), {
       showHidden: !!opts.showHidden,
       focus: deepActiveElement(document),
       visited: new Set(),
@@ -1287,16 +1356,18 @@
       // Elements above the root in the stitched tree (snapshot.js MAX_NEST).
       nest: Math.min(MAX_DEPTH, Math.max(0, Math.floor(Number(opts.nest)) || 0)),
       work: [],
-    };
+    });
+    // The label index charges this snapshot's budget.
+    labelBudget = ctx;
     const out = [];
-    visitElement(root, out, ctx, false, false);
+    if (spend(ctx, 1)) visitElement(root, out, ctx, false, false);
     runWork(ctx);
     const nodes = normalizeChildren(out);
     // `flat` is the tree in pre-order, [depth, node or text] per entry with
     // no `children`: a nested result deeper than about 300 levels fails
     // CDP's CBOR conversion (snapshot.js rebuilds the tree).
     // `ms` is the traversal time in this frame, for perf measurements.
-    return { flat: flatten(nodes), max: refCounter, offscreen: ctx.offscreen, ms: now() - started };
+    return { flat: flatten(nodes), max: refCounter, offscreen: ctx.offscreen, ms: now() - started, visited: ctx.nodes - ctx.left, size: ctx.size - ctx.sizeLeft, truncated: ctx.truncated };
   }
 
   function flatten(nodes) {

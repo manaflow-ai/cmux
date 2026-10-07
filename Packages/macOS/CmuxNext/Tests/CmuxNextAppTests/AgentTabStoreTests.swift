@@ -249,8 +249,9 @@ struct AgentTabLifecycleTests {
         let fixture = try AgentTabFixture(registry: registry)
         let key = try await fixture.open()
         let view = try #require(fixture.tabs.view(for: key))
-        await ReopenClosedTabTests.settle { view.shortcuts.labels["agentPane.searchChats"] == "⌘K" }
-        #expect(view.shortcuts.labels["agentPane.searchChats"] == "⌘K")
+        // Search Agent Chats starts unbound (decision K1: Cmd-K clears the terminal).
+        await ReopenClosedTabTests.settle { view.shortcuts.labels["palette.newAgentChat"] == "⌘I" }
+        #expect(view.shortcuts.labels["agentPane.searchChats"] == nil)
         registry.setShortcutOverride(Shortcut("j", modifiers: [.command, .option]), for: "agentPane.searchChats")
         await ReopenClosedTabTests.settle { view.shortcuts.labels["agentPane.searchChats"] == "⌥⌘J" }
         #expect(view.shortcuts.labels["agentPane.searchChats"] == "⌥⌘J")

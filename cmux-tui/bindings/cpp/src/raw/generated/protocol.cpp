@@ -20358,6 +20358,11 @@ Result<Json> Codec<NewFrontendBrowserTabRequest>::encode(const NewFrontendBrowse
         if (!encoded) return std::move(encoded).error();
         object.emplace("activate", std::move(encoded).value());
     }
+    if (!value.after.is_absent()) {
+        auto encoded = encode_value(value.after);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("after", std::move(encoded).value());
+    }
     if (!value.cols.is_absent()) {
         auto encoded = encode_value(value.cols);
         if (!encoded) return std::move(encoded).error();
@@ -20416,6 +20421,16 @@ Result<NewFrontendBrowserTabRequest> Codec<NewFrontendBrowserTabRequest>::decode
         auto decoded = decode_value<bool>(*field_activate);
         if (!decoded) return std::move(decoded).error();
         result.activate = std::move(decoded).value();
+    }
+    const Json* field_after = value.find("after");
+    if (field_after) {
+        if (field_after->is_null()) {
+            result.after = Field<Id>::null();
+        } else {
+            auto decoded = decode_value<Id>(*field_after);
+            if (!decoded) return std::move(decoded).error();
+            result.after = Field<Id>(std::move(decoded).value());
+        }
     }
     const Json* field_cols = value.find("cols");
     if (field_cols) {

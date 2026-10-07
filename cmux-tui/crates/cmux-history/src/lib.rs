@@ -59,5 +59,5 @@ pub use query::{HistoryQuery, HistoryRange, apply, is_displayable, matches, sear
 pub use search_index::{
     Backfill, BackfillStep, SearchDoc, SearchFeed, SearchHit, SearchIndex, SearchKind,
 };
-pub use visit_stores::{VisitStores, profile_file_name, profile_from_file_name};
+pub use visit_stores::{Removal, VisitStores, profile_file_name, profile_from_file_name};
 pub use visits::{MAX_VISITS, NewVisit, RETENTION_MS, Visit, VisitStore, VisitSummary};

@@ -1,3 +1,4 @@
+import CmuxNextIcons
 import SwiftUI
 
 /// How much room the answer controls get.
@@ -20,7 +21,7 @@ struct FeedAnswerControls: View {
 
     var body: some View {
         if let closed = FeedStrings.closed(item) {
-            Label(closed, systemImage: item.state == .answered ? "checkmark" : "minus.circle")
+            FeedIconLabel(closed, icon: item.state == .answered ? .statusSuccess : .actionRemove, textSize: 11.5)
                 .font(.system(size: 11.5))
                 .foregroundStyle(colors.tertiary)
         } else {
