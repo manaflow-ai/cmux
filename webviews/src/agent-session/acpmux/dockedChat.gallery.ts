@@ -40,10 +40,9 @@ export default agentPaneEntry({
     },
     working: {
       note: "A turn running in the dock: Stop replaces Send.",
-      snapshot: chat(
-        [user("Run the net tests", 1), assistant("Running bun test src/net…", 0.5, { streaming: true })],
-        { isWorking: true },
-      ),
+      snapshot: chat([user("Run the net tests", 1), assistant("Running bun test src/net…", 0.5, { streaming: true })], {
+        isWorking: true,
+      }),
     },
     "long-title": {
       note: "A long chat title and model name in the dock's header.",
