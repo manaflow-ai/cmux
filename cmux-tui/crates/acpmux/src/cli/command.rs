@@ -431,8 +431,9 @@ pub enum DaemonCmd {
     /// Start the daemon unless one runs, wait until it accepts clients, and print its status.
     Start,
     /// Stop the daemon and every agent process, agent hosts included;
-    /// returns once it exited. `--keep-agents` leaves hosted agents running
-    /// for the next daemon to adopt (a restart).
+    /// returns once they all exited, and fails naming any host left.
+    /// `--keep-agents` leaves hosted agents running for the next daemon to
+    /// adopt (a restart); pooled hosts end anyway.
     #[command(alias = "kill-server")]
     Shutdown {
         /// Leave hosted agents running for the next daemon to adopt.
