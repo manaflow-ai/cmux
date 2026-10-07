@@ -17,10 +17,6 @@ public nonisolated enum AgentTurnState: Hashable, Sendable {
     /// The state of one `_acpmux/watch` / `session_changed` session summary;
     /// nil when the session is idle, ready or closed.
     public static func of(summary: [String: Any]) -> AgentTurnState? {
-        nil
-    }
-
-    static func unused(summary: [String: Any]) -> AgentTurnState? {
         let status = summary["status"] as? String
         if ((summary["pendingPermissions"] as? NSNumber)?.intValue ?? 0) > 0 || status == "waiting" { return .needsInput }
         switch status {

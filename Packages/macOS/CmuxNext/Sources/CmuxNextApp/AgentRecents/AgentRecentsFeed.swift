@@ -33,8 +33,10 @@ final class AgentRecentsFeed {
         self.turns = turns
     }
 
-    /// Starts the watch for the turn states (idempotent).
-    func startTurnStates() {
+    /// Starts the watch for the turn states (idempotent). `localHost` is
+    /// this Mac's `install:<id>`: only its chat tabs read these states.
+    func startTurnStates(localHost: @autoclosure () -> String?) {
+        if turns.localHost == nil { turns.localHost = localHost() }
         if subscription == nil, directoryWatch == nil, reconnect == nil { connect() }
     }
 

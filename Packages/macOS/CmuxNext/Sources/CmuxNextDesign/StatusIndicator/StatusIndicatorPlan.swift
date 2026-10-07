@@ -77,9 +77,15 @@ public nonisolated struct StatusIndicatorPlan: Hashable, Sendable {
         case .waiting:
             // A still dot (WORKING-AND-LOADING-INDICATORS): needs input reads
             // apart from the moving working mark.
-            return StatusIndicatorPlan(glyph: .dot, animation: .pulse, tint: .attention)
+            return StatusIndicatorPlan(glyph: .dot, animation: nil, tint: .attention)
         case .working:
-            return staticPlan(.busy(progress: state.progress), style: style)
+            // Agent work has its own mark in every loading style (also
+            // `none`): its off switch is `showAgentWorkingOnTabs` and the row's
+            // working element, not the loading style.
+            if let progress = state.progress {
+                return StatusIndicatorPlan(glyph: .ring(progress: progress), animation: nil, tint: .accent)
+            }
+            return StatusIndicatorPlan(glyph: .dots, animation: .wave, tint: .accent)
         case .error:
             return StatusIndicatorPlan(glyph: .dot, animation: nil, tint: .danger)
         case .success:

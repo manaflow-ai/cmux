@@ -35,7 +35,7 @@ public struct TabItemMapping {
             isBusy: busy.state.isLoading || isReportingProgress(tab),
             status: status(tab)
         )
-        if busy.state.isLoading { item.indicator = busy.state }
+        if busy.state.replacesTabIcon { item.indicator = busy.state }
         item.busyStyle = busy.style
         return item
     }

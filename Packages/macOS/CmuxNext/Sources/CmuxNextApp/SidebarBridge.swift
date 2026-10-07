@@ -52,7 +52,9 @@ final class SidebarBridge {
         container.sidebarView.contextMenuProvider = { [weak self] target in self?.contextMenu(for: target) }
         container.sidebarView.resourceSource = services.resources
         container.sidebarView.hoverCards = services.hoverCards
-        services.startAgentTurnStates()
+        // The first window starts the acpmux turn-state watch for the
+        // working and needs-input indicators of agent chat tabs.
+        services.agentRecents?.startTurnStates(localHost: (try? services.cloud.localDeviceID()).map(AgentSessionRef.host(installID:)))
         let recents = services.agentRecents.map { feed in
             AgentRecentsSection(feed: feed) { [weak services] id in
                 guard let services else { return }

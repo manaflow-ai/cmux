@@ -24,6 +24,9 @@ public struct StatusMapping {
             reports.append(StatusReport(id: "agent:\(tab.id)", source: .agent, state: state,
                                         label: agent.agent, updatedAtMs: agent.updatedAtMs))
         }
+        if let ref = tab.agentSession, let turn = turns.state(for: ref) {
+            reports.append(StatusReport(id: "acp:\(ref.session ?? tab.id)", source: .agent, state: state(turn), label: ref.harness))
+        }
         return reports
     }
 
@@ -42,7 +45,9 @@ public struct StatusMapping {
     /// mark there, because the tab's badge already marks those states.
     /// Agent work leaves the slot when `showAgentWorkingOnTabs` is off.
     public func loading(_ tab: TabModel) -> StatusSummary {
-        StatusStack.resolve(reports(tab).filter { $0.state.isLoading }, honoring: honored)
+        let showsWorking = DesignSettings.shared.statusIndicator.showsAgentWorkingOnTabs
+        return StatusStack.resolve(reports(tab).filter { $0.state.isLoading || ($0.state.isWorking && showsWorking) },
+                                   honoring: honored)
     }
 
     /// A workspace's merged status over its tabs.
@@ -57,7 +62,7 @@ public struct StatusMapping {
     /// the tab's status badge marks it, and a finished agent is not loading.
     func state(_ agent: AgentState) -> StatusIndicatorState? {
         switch agent {
-        case .working: .busy
+        case .working: .working
         case .blocked: .waiting
         case .idle, .done, .unknown: nil
         }

@@ -25,7 +25,7 @@ enum BrowserTabIconState: Equatable {
     static func resolve(isLoading: Bool, isDormant: Bool, favicon: TabImage?, url: URL? = nil,
                         showsLoading: Bool = true) -> BrowserTabIconState {
         if let page = pageIcon(url) { return .page(page) }
-        if isLoading, !isDormant { return .throbber }
+        if isLoading, !isDormant, showsLoading { return .throbber }
         return favicon.map(BrowserTabIconState.favicon) ?? .globe
     }
 
