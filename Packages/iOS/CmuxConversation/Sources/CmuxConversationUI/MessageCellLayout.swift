@@ -24,6 +24,10 @@ struct MessageCellLayout {
     var failedBadgeFrame: CGRect?
     /// Union of everything that lifts in the long-press preview.
     var contentFrame: CGRect
+    /// Audio messages: the play button, waveform and duration row inside the bubble.
+    var audioFrame: CGRect? = nil
+    /// Audio messages: "Expires in 2m · Keep" (or "Kept") under the bubble.
+    var audioExpiryFrame: CGRect? = nil
 }
 
 @MainActor
@@ -49,11 +53,12 @@ final class MessageLayoutCache {
 
     func attributedText(for model: MessageRowModel) -> NSAttributedString {
         let cacheKey = model.rowID + (model.isOutgoing ? "o" : "i")
-        if let (text, value) = attributed[cacheKey], text == model.message.text {
+        let body = model.message.bodyText
+        if let (text, value) = attributed[cacheKey], text == body {
             return value
         }
-        let value = MessageCellLayout.attributedBody(model.message.text, outgoing: model.isOutgoing)
-        attributed[cacheKey] = (model.message.text, value)
+        let value = MessageCellLayout.attributedBody(body, outgoing: model.isOutgoing)
+        attributed[cacheKey] = (body, value)
         return value
     }
 
@@ -146,7 +151,7 @@ extension MessageCellLayout {
         if hasReactions { y += 18 }
 
         var imageFrames: [CGRect] = []
-        for attachment in message.attachments {
+        for attachment in message.attachments where attachment.kind == .image {
             let maxW = floor(width * t.maxImageWidthFraction)
             var w = maxW
             var h = w / CGFloat(attachment.aspectRatio)
@@ -162,7 +167,16 @@ extension MessageCellLayout {
         var bubbleFrame: CGRect?
         var textFrame: CGRect?
         var emojiFrame: CGRect?
-        if model.isEmojiOnly {
+        var audioFrame: CGRect?
+        if let audio = message.audioAttachment?.audio {
+            let audioLayout = AudioBubbleLayout.compute(audio: audio, text: text, maxBubbleWidth: maxBubbleWidth)
+            let frame = bubbleRect(bodyWidth: audioLayout.bodyWidth, y: y, height: audioLayout.height)
+            bubbleFrame = frame
+            let bodyMinX = model.isOutgoing ? frame.minX : frame.minX + t.tailWidth
+            audioFrame = audioLayout.row.offsetBy(dx: bodyMinX, dy: y)
+            textFrame = audioLayout.transcript?.offsetBy(dx: bodyMinX, dy: y)
+            y += audioLayout.height
+        } else if model.isEmojiOnly {
             let emoji = NSAttributedString(string: message.text, attributes: [.font: UIFont.systemFont(ofSize: t.emojiOnlyFontSize)])
             var size = measure(emoji, maxWidth: maxBubbleWidth)
             size.width += ceil(t.emojiOnlyFontSize * 0.25)
@@ -232,6 +246,11 @@ extension MessageCellLayout {
                 ? CGRect(x: margin, y: y, width: bodyTrailing - 9 - margin, height: footerHeight)
                 : CGRect(x: bodyLeading + 9, y: y, width: width - bodyLeading - 9 - margin, height: footerHeight)
         }
+        var audioExpiryFrame: CGRect?
+        if let audio = message.audioAttachment?.audio, audio.expiresAt != nil || audio.isKept {
+            audioExpiryFrame = footerRect(y + 4)
+            y += 4 + footerHeight
+        }
         if message.editedAt != nil {
             editedFrame = footerRect(y + 4)
             y += 4 + footerHeight
@@ -287,7 +306,9 @@ extension MessageCellLayout {
             editedFrame: editedFrame,
             repliesFrame: repliesFrame,
             failedBadgeFrame: failedBadgeFrame,
-            contentFrame: content
+            contentFrame: content,
+            audioFrame: audioFrame,
+            audioExpiryFrame: audioExpiryFrame
         )
     }
 }

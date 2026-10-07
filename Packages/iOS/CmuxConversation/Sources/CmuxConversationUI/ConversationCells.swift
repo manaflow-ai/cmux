@@ -26,6 +26,9 @@ final class MessageCell: UICollectionViewCell {
     private(set) var imageViews: [UIImageView] = []
     /// Everything that moves with the bubble during swipes.
     let shiftable = UIView()
+    /// Audio messages (created on first use; see ConversationAudioViews).
+    weak var audioDelegate: (any AudioMessageCellDelegate)?
+    var audioViews: AudioMessageCellViews?
 
     private(set) var model: MessageRowModel?
     private var previousRowID: String?
@@ -150,9 +153,9 @@ final class MessageCell: UICollectionViewCell {
 
         configureImages(model: model, layout: layout)
 
-        if let bubbleFrame = layout.bubbleFrame, let textFrame = layout.textFrame {
+        if let bubbleFrame = layout.bubbleFrame {
             bubble.isHidden = false
-            textLabel.isHidden = false
+            textLabel.isHidden = layout.textFrame == nil
             bubble.side = model.isOutgoing ? .trailing : .leading
             bubble.hasTail = model.showsTail
             bubble.fillColor = model.isOutgoing
@@ -160,7 +163,7 @@ final class MessageCell: UICollectionViewCell {
                 : ConversationTheme.incomingBubble
             bubble.frame = bubbleFrame
             textLabel.attributedText = text
-            textLabel.frame = textFrame
+            if let textFrame = layout.textFrame { textLabel.frame = textFrame }
         } else {
             bubble.isHidden = true
             textLabel.isHidden = true
@@ -264,10 +267,11 @@ final class MessageCell: UICollectionViewCell {
             repliesLabel.textAlignment = model.isOutgoing ? .right : .left
         }
 
+        configureAudio(model: model, layout: layout)
         timeLabel.text = message.sentAt.formatted(date: .omitted, time: .shortened)
         setNeedsLayout()
         applyShifts()
-        accessibilityLabel = [model.senderName, message.text].compactMap { $0 }.joined(separator: ", ")
+        accessibilityLabel = [model.senderName, audioAccessibilityText ?? message.text].compactMap { $0 }.joined(separator: ", ")
         // VoiceOver hears what the bubble shows: "Edited" and the current status.
         accessibilityValue = [
             editedLabel.isHidden ? nil : editedLabel.text,
@@ -304,7 +308,7 @@ final class MessageCell: UICollectionViewCell {
             imageViews.append(view)
         }
         for (index, view) in imageViews.enumerated() {
-            guard index < layout.imageFrames.count, index < model.message.attachments.count else {
+            guard index < layout.imageFrames.count, index < model.message.imageAttachments.count else {
                 view.isHidden = true
                 continue
             }
@@ -318,7 +322,7 @@ final class MessageCell: UICollectionViewCell {
             mask.path = BubbleShape.path(in: maskRect, side: model.isOutgoing ? .trailing : .leading, tail: tailed).cgPath
             view.layer.mask = mask
             view.layer.cornerRadius = 0
-            let attachment = model.message.attachments[index]
+            let attachment = model.message.imageAttachments[index]
             let pixelWidth = view.frame.width * (window?.screen.scale ?? 3)
             if let cached = ConversationImageLoader.shared.cachedImage(for: attachment, pixelWidth: pixelWidth) {
                 view.image = cached

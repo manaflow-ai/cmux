@@ -27,9 +27,9 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
     private let plusGlass = makeGlassView(cornerRadius: ConversationTheme.plusButtonSize / 2, interactive: true)
     let fieldGlass = makeGlassView(cornerRadius: ConversationTheme.composerMinHeight / 2, interactive: false)
     let textView = ComposerTextView()
-    private let placeholder = UILabel()
+    let placeholder = UILabel()
     let sendButton = UIButton(type: .custom)
-    private let micButton = UIButton(type: .system)
+    let micButton = UIButton(type: .system)
     private let attachmentStrip = UIScrollView()
     private let attachmentSeparator = UIView()
     private var attachmentViews: [UIView] = []
