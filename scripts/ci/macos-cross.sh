@@ -178,6 +178,9 @@ cmd_parity_vt() {
   fi
   for t in "${TARGETS[@]}"; do
     local lib="$XC_ROOT/vt/libghostty-vt-$t.a" ref="$XC_ROOT/ref/cmux-tui-$t"
+    [[ -s "$ref" && -s "$lib" ]] || { echo "FAIL libghostty-vt-$t: missing $ref or $lib"; status=1; continue; }
+    [[ $("$nm" --just-symbol-name "$ref" | grep -cE '^_ghostty_') -gt 0 ]] \
+      || { echo "FAIL libghostty-vt-$t: the Mac daemon $ref has no _ghostty_ symbols"; status=1; continue; }
     # Every libghostty-vt entry point the Mac-built daemon contains must exist in the Linux archive.
     comm -13 <("$nm" -g --defined-only --just-symbol-name "$lib" 2>/dev/null | grep -E '^_ghostty_' | sort -u) \
              <("$nm" --just-symbol-name "$ref" | grep -E '^_ghostty_' | sort -u) > "$XC_ROOT/vt/missing-$t.txt"
