@@ -23,7 +23,7 @@ export type AccountsUsageDependencies = {
   readonly credential: typeof freshCredential;
   readonly fetchUsage: (credential: CodeRouterCredential) => Promise<Response>;
   readonly report: typeof reportCoderouterFailure;
-  /** Consecutive usage-read timeouts per account; defaults to this instance's tracker. */
+  /** Consecutive usage-read timeouts per account; defaults to one tracker per loader. */
   readonly timeoutStreaks?: UsageTimeoutStreaks;
 };
 
@@ -64,14 +64,21 @@ export function createUsageTimeoutStreaks(): UsageTimeoutStreaks {
   };
 }
 
-const defaultTimeoutStreaks = createUsageTimeoutStreaks();
 
 type AccountWithUsage = CodeRouterAccountSummary & {
   readonly usage?: unknown;
   readonly usageError?: string;
 };
 
-export function createAccountsUsageLoader(dependencies: AccountsUsageDependencies) {
+type ResolvedUsageDependencies = AccountsUsageDependencies & {
+  readonly timeoutStreaks: UsageTimeoutStreaks;
+};
+
+export function createAccountsUsageLoader(supplied: AccountsUsageDependencies) {
+  const dependencies: ResolvedUsageDependencies = {
+    ...supplied,
+    timeoutStreaks: supplied.timeoutStreaks ?? createUsageTimeoutStreaks(),
+  };
   return async (teamId: string, access?: CoderouterAccountAccess) => {
     const startedAt = performance.now();
     addCoderouterBreadcrumb("status", "Loading account usage");
@@ -110,7 +117,7 @@ export function createAccountsUsageLoader(dependencies: AccountsUsageDependencie
 }
 
 async function accountUsage(
-  dependencies: AccountsUsageDependencies,
+  dependencies: ResolvedUsageDependencies,
   teamId: string,
   account: CodeRouterAccountSummary,
   known: EncryptedCredential | undefined,
@@ -144,7 +151,7 @@ async function accountUsage(
       return { ...account, usageError: `HTTP ${response.status}` };
     }
     const usage: unknown = await response.json();
-    (dependencies.timeoutStreaks ?? defaultTimeoutStreaks).clear(account.id);
+    dependencies.timeoutStreaks.clear(account.id);
     const cooldownMs = usageCooldown(usage);
     if (cooldownMs !== null) {
       await dependencies.markCooldown(account.id, cooldownMs);
@@ -175,11 +182,11 @@ async function accountUsage(
  * and only an account that keeps timing out escalates to an error.
  */
 function reportUsageTimeout(
-  dependencies: AccountsUsageDependencies,
+  dependencies: ResolvedUsageDependencies,
   account: CodeRouterAccountSummary,
   error: unknown,
 ): AccountWithUsage {
-  const consecutive = (dependencies.timeoutStreaks ?? defaultTimeoutStreaks).record(account.id);
+  const consecutive = dependencies.timeoutStreaks.record(account.id);
   dependencies.report(
     "provider_usage",
     error,
