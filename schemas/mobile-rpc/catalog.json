@@ -20,7 +20,9 @@
         { "name": "host.list", "kind": "read", "plane": "control", "dir": "c2s", "owner": "TeamDO" },
         { "name": "host.presence.set", "kind": "owner", "plane": "control", "dir": "s2c", "owner": "HostDO" },
         { "name": "host.caps.set", "kind": "owner", "plane": "control", "dir": "s2c", "owner": "HostDO" },
-        { "name": "host.wake", "kind": "op", "plane": "control", "dir": "c2s", "owner": "HostDO", "errors": ["host.not_wakeable"] }
+        { "name": "host.wake", "kind": "op", "plane": "control", "dir": "c2s", "owner": "HostDO", "errors": ["host.not_wakeable"] },
+        { "name": "host.device.set", "kind": "owner", "plane": "control", "dir": "s2c", "owner": "HostDO" },
+        { "name": "host.device.remove", "kind": "owner", "plane": "control", "dir": "s2c", "owner": "HostDO" }
       ]
     },
     {
@@ -157,7 +159,7 @@
       "plane": "control",
       "owner": "HostDO",
       "messages": [
-        { "name": "signal.turn_credentials", "kind": "read", "plane": "control", "dir": "c2s", "owner": "UserDO" },
+        { "name": "signal.turn_credentials", "kind": "read", "plane": "control", "dir": "c2s", "owner": "HostDO", "errors": ["signal.turn_unavailable"] },
         { "name": "signal.offer", "kind": "signal", "plane": "control", "dir": "both", "owner": "HostDO" },
         { "name": "signal.answer", "kind": "signal", "plane": "control", "dir": "both", "owner": "HostDO" },
         { "name": "signal.ice", "kind": "signal", "plane": "control", "dir": "both", "owner": "HostDO" },

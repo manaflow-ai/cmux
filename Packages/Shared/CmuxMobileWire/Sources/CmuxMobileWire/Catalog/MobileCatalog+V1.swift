@@ -10,6 +10,8 @@ extension MobileCatalog {
             MobileMessage("host.presence.set", .owner, .control, .s2c, owner: "HostDO"),
             MobileMessage("host.caps.set", .owner, .control, .s2c, owner: "HostDO"),
             MobileMessage("host.wake", .op, .control, .c2s, owner: "HostDO", errors: ["host.not_wakeable"]),
+            MobileMessage("host.device.set", .owner, .control, .s2c, owner: "HostDO"),
+            MobileMessage("host.device.remove", .owner, .control, .s2c, owner: "HostDO"),
         ]),
         MobileFamily("workspace", .control, owner: "mac-workspace-store", stream: "workspace:<host>", messages: [
             MobileMessage("workspace.upsert", .owner, .control, .s2c, owner: "mac-workspace-store"),
@@ -87,7 +89,7 @@ extension MobileCatalog {
             MobileMessage("pairing.revoke", .op, .control, .c2s, owner: "UserDO", errors: ["pairing.device_not_found"]),
         ]),
         MobileFamily("signal", .control, owner: "HostDO", messages: [
-            MobileMessage("signal.turn_credentials", .read, .control, .c2s, owner: "UserDO"),
+            MobileMessage("signal.turn_credentials", .read, .control, .c2s, owner: "HostDO", errors: ["signal.turn_unavailable"]),
             MobileMessage("signal.offer", .signal, .control, .both, owner: "HostDO"),
             MobileMessage("signal.answer", .signal, .control, .both, owner: "HostDO"),
             MobileMessage("signal.ice", .signal, .control, .both, owner: "HostDO"),

@@ -138,6 +138,20 @@ export class SocketGate {
     this.checks.clear()
   }
 
+  /**
+   * Whether a socket may receive a direct answer to its own request (forwarded results, relayed
+   * signals): not expired and not known revoked. Unlike `live`, a stale status does not hold the
+   * frame; a revoke closes the socket through the registry at once anyway.
+   */
+  answerable(ws: WebSocket, a: Attachment, now = Date.now()): boolean {
+    const p = a.principal
+    if (p.expires_at !== undefined && p.expires_at <= now) {
+      closeQuietly(ws, 4401, "token expired")
+      return false
+    }
+    return !(this.watched(p) && this.checks.get(this.key(p))?.active === false)
+  }
+
   /** Whether a socket may receive a frame now. */
   live(ws: WebSocket, a: Attachment, now = Date.now()): boolean {
     const p = a.principal

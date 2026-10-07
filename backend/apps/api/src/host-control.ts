@@ -82,8 +82,8 @@ export class HostControl {
   private toMac(frame: unknown): boolean {
     let sent = false
     for (const ws of this.ctx.getWebSockets(HOST_TAG)) {
-      sendJson(ws, frame)
-      sent = true
+      const a = ws.deserializeAttachment() as ControlAttachment | null
+      if (a && this.gate.answerable(ws, a as never)) [sendJson(ws, frame), (sent = true)]
     }
     return sent
   }
@@ -92,7 +92,7 @@ export class HostControl {
     let sent = false
     for (const ws of this.ctx.getWebSockets(devTag(identity))) {
       const a = ws.deserializeAttachment() as ControlAttachment | null
-      if (a && this.gate.live(ws, a as never)) [sendJson(ws, frame), (sent = true)]
+      if (a && this.gate.answerable(ws, a as never)) [sendJson(ws, frame), (sent = true)]
     }
     return sent
   }
