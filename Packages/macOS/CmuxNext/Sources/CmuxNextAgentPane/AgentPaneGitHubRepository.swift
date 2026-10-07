@@ -4,7 +4,7 @@ import Foundation
 ///
 /// A missing repository, a non-GitHub remote and a command failure all intentionally return nil:
 /// callers then leave issue references as ordinary text.
-public struct AgentPaneGitHubRepository {
+public nonisolated struct AgentPaneGitHubRepository {
     public init() {}
 
     public static func read(at path: String) async -> String? {
