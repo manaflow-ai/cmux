@@ -1,6 +1,6 @@
 # C7 `notify`: banners, inline actions, Live Activities
 
-Status: design and first implementation, 2026-10-06. Branch `feat-cmux-next-ios-c7-notify` off
+Status: implemented (device verification pending), 2026-10-06. Branch `feat-cmux-next-ios-c7-notify` off
 `feat-cmux-next-ios`. Binding: PLAN.md (this directory, scope C7, rules 4), a0-rpc.md 5.8 (notify family),
 b1-control-do.md (fan-out stays in `FeedDO` and `UserDO`), c6-feed.md (items, intents, `FeedNavigator`),
 c16-platform.md 4 (`NotificationRouteDecoder`, `.feed(item:)`), c11-settings.md 1.4
@@ -143,12 +143,23 @@ foreground, background inline reply under a background task, badge. Gaps: `cmux.
 reply into a Mac terminal) needs the terminal input path (D1 over `CmuxLink`); terminal banners open
 only. Mac-to-phone end-to-end push keys keep the existing `CmuxPhonePush` path in the extension.
 
-## 9. Verification
+## 9. Verification (2026-10-06)
 
-- `swift test` in `Packages/Shared/CmuxFeedPushCore` (payload decoding, action mapping, preference
-  filtering, extension decision, dismiss payload, activity state coding).
-- `CmuxiOSNotifyCoreTests` through a scratch package on macOS (intent mapping, ops performer, reconciler).
-- vitest in `backend/apps/api` for the new `UserDO` ops and `FeedDO` decisions (pure functions).
-- `CmuxiOSApp` and `CmuxiOSLiveActivity` compile for `arm64-apple-ios17.0-simulator` with SwiftPM.
-- Needs a device: banner actions from the lock screen, background budget, remote dismiss, Live Activity
-  rendering and push updates, extension behavior. The two app extension targets are not compiled here.
+- `swift test` in `Packages/Shared/CmuxFeedPushCore`: 40 tests (payload decoding, action mapping, scoped
+  and plan actions, extension decision, owner `notify_kind`, dismiss payload, activity state coding, op bodies).
+- `CmuxiOSNotifyCoreTests` (9) and `CmuxiOSSettingsCoreTests` (35, after the type move) pass on macOS through
+  a scratch package linking the same sources.
+- `Packages/Shared/CmuxMobileWire` tests (16) and the protocol `mobile-wire.test.ts` (43) pass with the
+  catalog, schema and fixture changes.
+- `backend/apps/api` vitest: `test/notify.test.ts` (UserDO ops, kind table, per-device shaping, dismiss,
+  badge, Live Activity state and requests, after-commit effects on real DO storage) and the extended
+  `test/push.test.ts` e2e; the whole suite (757 tests) passes; `tsc` clean; catalog and TS client regenerated;
+  file-size check passes. Nothing deployed.
+- `CmuxiOSApp` (with `CmuxiOSLiveActivity`) builds for `arm64-apple-ios17.0-simulator` with SwiftPM, no
+  warnings in the touched modules. `NotificationService.swift` and `AgentActivityWidgetBundle.swift`
+  typecheck with `swiftc` against the SwiftPM-built modules; the two Xcode extension targets are not
+  compiled (no local `xcodebuild`). Release signing needs `com.cmux.app.AgentActivityWidget` registered.
+- Needs a device: banner actions from the lock screen under the background budget, Answered elsewhere and
+  Answer not sent notices, remote dismiss (iOS throttles background pushes), foreground badge sync, the
+  extension's decisions on real pushes, Live Activity rendering, token registration and push updates. No
+  tagged build (known blocked).
