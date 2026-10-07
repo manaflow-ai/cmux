@@ -10,6 +10,18 @@
             "value": "لا يزال CodeRouter يحمّل إعدادات حساب هذا الفريق. حاول مرة أخرى بعد قليل."
           }
         },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CodeRouter još učitava postavke računa ovog tima. Pokušajte ponovo za trenutak."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CodeRouter indlæser stadig dette teams kontoindstillinger. Prøv igen om lidt."
+          }
+        },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -34,16 +46,70 @@
             "value": "CodeRouter charge encore les paramètres de compte de cette équipe. Réessayez dans un instant."
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CodeRouter sta ancora caricando le impostazioni degli account di questo team. Riprova tra un momento."
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "CodeRouter はこのチームのアカウント設定を読み込んでいます。しばらくしてからもう一度お試しください。"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CodeRouter កំពុងផ្ទុកការកំណត់គណនីរបស់ក្រុមនេះនៅឡើយ។ សូមព្យាយាមម្តងទៀតបន្តិចទៀត។"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
             "value": "CodeRouter가 이 팀의 계정 설정을 아직 불러오는 중입니다. 잠시 후 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CodeRouter laster fortsatt inn kontoinnstillingene for dette teamet. Prøv igjen om et øyeblikk."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CodeRouter nadal wczytuje ustawienia kont tego zespołu. Spróbuj ponownie za chwilę."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O CodeRouter ainda está carregando as configurações de conta desta equipe. Tente novamente em instantes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CodeRouter ещё загружает настройки аккаунтов этой команды. Повторите попытку через мгновение."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CodeRouter ยังคงโหลดการตั้งค่าบัญชีของทีมนี้อยู่ โปรดลองอีกครั้งในอีกสักครู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CodeRouter bu ekibin hesap ayarlarını hâlâ yüklüyor. Birazdan tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CodeRouter ще завантажує налаштування облікових записів цієї команди. Спробуйте ще раз за мить."
           }
         },
         "zh-Hans": {
@@ -67,6 +133,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "اختر فريقًا قبل إضافة حساب وكيل برمجي."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odaberite tim prije dodavanja računa agenta za kodiranje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vælg et team, før du tilføjer en kodeagentkonto."
           }
         },
         "de": {
@@ -93,16 +171,70 @@
             "value": "Sélectionnez une équipe avant d’ajouter un compte d’agent de codage."
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seleziona un team prima di aggiungere un account di agente di programmazione."
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "コーディングエージェントアカウントを追加する前にチームを選択してください。"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សូមជ្រើសរើសក្រុមមុនពេលបន្ថែមគណនីភ្នាក់ងារសរសេរកូដ។"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
             "value": "코딩 에이전트 계정을 추가하기 전에 팀을 선택하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Velg et team før du legger til en kodeagentkonto."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wybierz zespół przed dodaniem konta agenta programistycznego."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selecione uma equipe antes de adicionar uma conta de agente de programação."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выберите команду, прежде чем добавлять аккаунт агента программирования."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โปรดเลือกทีมก่อนเพิ่มบัญชีเอเจนต์เขียนโค้ด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kodlama ajanı hesabı eklemeden önce bir ekip seçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Виберіть команду, перш ніж додавати обліковий запис агента програмування."
           }
         },
         "zh-Hans": {
@@ -126,6 +258,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "اختر مساحة عمل محلية قبل إضافة حساب وكيل برمجي."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odaberite lokalni radni prostor prije dodavanja računa agenta za kodiranje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vælg et lokalt arbejdsområde, før du tilføjer en kodeagentkonto."
           }
         },
         "de": {
@@ -152,16 +296,70 @@
             "value": "Sélectionnez un espace de travail local avant d’ajouter un compte d’agent de codage."
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seleziona un’area di lavoro locale prima di aggiungere un account di agente di programmazione."
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "コーディングエージェントアカウントを追加する前にローカルワークスペースを選択してください。"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សូមជ្រើសរើសកន្លែងធ្វើការមូលដ្ឋានមុនពេលបន្ថែមគណនីភ្នាក់ងារសរសេរកូដ។"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
             "value": "코딩 에이전트 계정을 추가하기 전에 로컬 워크스페이스를 선택하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Velg et lokalt arbeidsområde før du legger til en kodeagentkonto."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wybierz lokalną przestrzeń roboczą przed dodaniem konta agenta programistycznego."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selecione uma área de trabalho local antes de adicionar uma conta de agente de programação."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выберите локальное рабочее пространство, прежде чем добавлять аккаунт агента программирования."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โปรดเลือกเวิร์กสเปซในเครื่องก่อนเพิ่มบัญชีเอเจนต์เขียนโค้ด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kodlama ajanı hesabı eklemeden önce yerel bir çalışma alanı seçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Виберіть локальну робочу область, перш ніж додавати обліковий запис агента програмування."
           }
         },
         "zh-Hans": {
