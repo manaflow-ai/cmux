@@ -89,6 +89,28 @@ import Testing
         #expect(names == ["Mine", "npm run dev", "app", "tmp", "codex"])
     }
 
+    /// Workspaces that share a folder are told apart by what ran in them,
+    /// then their branch; a number is the last resort.
+    @Test func workspacesInOneFolderGetNamesThatTellThemApart() throws {
+        let json = """
+        {"windows":[{"tabManager":{"workspaces":[
+          {"processTitle":"~","currentDirectory":"/Users/me",
+           "panels":[{"id":"a","title":"~"},{"id":"b","title":"nvim"}]},
+          {"processTitle":"~","currentDirectory":"/Users/me",
+           "panels":[{"id":"a","title":"~","terminal":{"agent":{"kind":"claude","sessionId":"s"}}}]},
+          {"processTitle":"ssh big-red","currentDirectory":"/Users/me","panels":[]},
+          {"processTitle":"~","currentDirectory":"/Users/me","gitBranch":{"branch":"main","isDirty":false},"panels":[]},
+          {"processTitle":"~","currentDirectory":"/Users/me",
+           "panels":[{"id":"a","title":"~","gitBranch":{"branch":"fix-names","isDirty":true}}]},
+          {"customTitle":"api","processTitle":"~","currentDirectory":"/Users/me","panels":[]},
+          {"processTitle":"~","currentDirectory":"/Users/me","panels":[]},
+          {"processTitle":"~","currentDirectory":"/Users/me","panels":[]}
+        ]}}]}
+        """.data(using: .utf8)!
+        let names = try ClassicSessionImporter(fileURL: URL(fileURLWithPath: "/tmp/fixture")).decode(json).map(\.name)
+        #expect(names == ["nvim", "claude", "ssh big-red", "me · main", "me · fix-names", "api", "me", "me 2"])
+    }
+
     /// Classic stable and classic NIGHTLY each keep their own snapshot; the
     /// one saved last is the session to bring over.
     @Test func readsTheNewestOfStableAndNightly() throws {
