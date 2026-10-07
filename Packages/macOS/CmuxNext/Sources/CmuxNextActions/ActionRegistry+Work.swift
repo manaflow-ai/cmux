@@ -9,10 +9,24 @@ public struct ActionWorkFailure: Error, Sendable, Hashable, CustomStringConverti
     /// A command that starts a terminal missed its deadline. The daemon may
     /// still create the terminal, so a caller must not simply retry.
     public var terminalMayAppear: Bool
+    /// The command's reply missed its deadline: it may still apply, so a
+    /// caller must not simply retry.
+    public var mayHaveApplied: Bool
+    /// A typed refusal from the handler's own work, not a daemon failure: the control socket
+    /// answers it as it answers the same refusal reported at once (`unavailable` with the
+    /// reason, or `not_found`). Nil for a daemon failure (`daemon_error`).
+    public var refusal: ActionWorkRefusal?
 
-    public init(_ message: String, terminalMayAppear: Bool = false) {
+    public init(_ message: String, mayHaveApplied: Bool = false, terminalMayAppear: Bool = false) {
         self.message = message
+        self.mayHaveApplied = mayHaveApplied
         self.terminalMayAppear = terminalMayAppear
+    }
+
+    /// The handler refused in its background work; `message` is the reason.
+    public init(refusal: ActionWorkRefusal, reason: String) {
+        self.init(reason)
+        self.refusal = refusal
     }
 
     public init(stringLiteral value: String) {
@@ -20,6 +34,15 @@ public struct ActionWorkFailure: Error, Sendable, Hashable, CustomStringConverti
     }
 
     public var description: String { message }
+}
+
+/// How a refusal from an action's background work reaches a caller (``ActionRegistry/refuse(_:quiet:)``
+/// and ``ActionRegistry/refuseNotFound(_:)`` for a refusal made at once).
+public nonisolated enum ActionWorkRefusal: Sendable, Hashable {
+    /// The action cannot act now (`unavailable`).
+    case unavailable
+    /// An explicit target names nothing (`not_found`).
+    case notFound
 }
 
 /// Completion of the asynchronous work an action starts.

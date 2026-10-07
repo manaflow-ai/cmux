@@ -1,0 +1,20 @@
+使用方法: cmux link <init|show|peer|serve|dial|install-agent|uninstall-agent> [オプション]
+
+link はこのマシンのオーバーレイ端点を持ちます。ペアリングしたすべてのマシンに
+WireGuard 鍵 1 つと UDP ポート 1 つを使います。同じネットワークのみ（リレーはまだありません）。
+
+  init --install ID [--port ポート]   鍵と設定を作成します（ポート 4101）
+  show                                公開鍵、オーバーレイアドレス、状態を表示します
+  peer add --install ID --user ID --team ID --public-key BASE64 [--endpoint IP:ポート]
+  peer remove --install ID
+  peer list
+  serve [--session-socket パス]       link を実行します。セッションソケットを指定すると、
+                                      ペアのマシンはそのデーモンのリモート入口にだけ届きます
+  dial --host ID [--service daemon|ssh] [--socket 絶対パス]
+                                      標準入出力をペアのマシンまたは Cloud ホストにつなぎます。
+                                      stderr に JSON 1 行。終了コード: 0 成功、2 不明なホスト、
+                                      3 権限なし、4 一時停止中、5 到達不能、6 link なし、64 使い方の誤り
+  install-agent [--session-socket パス]   `serve` を launchd エージェントとして実行します（macOS）
+  uninstall-agent
+
+すべての操作で --state-dir ディレクトリ を使えます（既定: <デーモン状態ディレクトリ>/link）。

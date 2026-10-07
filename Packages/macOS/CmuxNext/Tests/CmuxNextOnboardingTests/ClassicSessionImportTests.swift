@@ -1,0 +1,78 @@
+import Foundation
+import Testing
+@testable import CmuxNextOnboarding
+
+@Suite struct ClassicSessionImportTests {
+    @Test func decodesWorkspaceNamesDirectoriesTabsAndSplitTopology() throws {
+        let json = """
+        {"version":1,"windows":[{"tabManager":{"workspaces":[{
+          "processTitle":"Project Alpha","currentDirectory":"/work/alpha",
+          "layout":{"type":"split","split":{"orientation":"vertical","dividerPosition":0.35,
+            "first":{"type":"pane","pane":{"panelIds":["a"]}},
+            "second":{"type":"pane","pane":{"panelIds":["b","c"]}}}},
+          "panels":[
+            {"id":"a","customTitle":"Editor","terminal":{"workingDirectory":"/work/alpha/src"}},
+            {"id":"b","title":"Logs","terminal":{"workingDirectory":"/work/alpha"}},
+            {"id":"c","customTitle":"Tests","terminal":{"workingDirectory":"/work/alpha"}}
+          ]
+        }]}}]}
+        """.data(using: .utf8)!
+        let workspaces = try ClassicSessionImporter(fileURL: URL(fileURLWithPath: "/tmp/fixture")).decode(json)
+        #expect(workspaces.count == 1)
+        #expect(workspaces[0].name == "Project Alpha")
+        #expect(workspaces[0].workingDirectory == "/work/alpha")
+        guard case .split(let orientation, let ratio, .pane(let first), .pane(let second)) = workspaces[0].layout else {
+            Issue.record("expected a split with two panes")
+            return
+        }
+        #expect(orientation == .vertical)
+        #expect(ratio == 0.35)
+        #expect(first.tabs.first?.title == "Editor")
+        #expect(second.tabs.map(\.title) == ["Logs", "Tests"])
+    }
+
+    /// A snapshot with a panel id twice decodes (the first wins) instead of
+    /// trapping, and the selected tab counts only the tabs that resolved.
+    @Test func duplicatePanelIdsAndMissingPanelsDecode() throws {
+        let json = """
+        {"windows":[{"tabManager":{"workspaces":[{
+          "customTitle":"Dupes","currentDirectory":"/work",
+          "layout":{"type":"pane","pane":{"panelIds":["gone","a","b"],"selectedPanelId":"b"}},
+          "panels":[
+            {"id":"a","title":"First","terminal":{"workingDirectory":"/work/a"}},
+            {"id":"a","title":"Second","terminal":{"workingDirectory":"/work/a2"}},
+            {"id":"b","title":"Other","terminal":{"workingDirectory":"/work/b"}}
+          ]
+        }]}}]}
+        """.data(using: .utf8)!
+        let workspaces = try ClassicSessionImporter(fileURL: URL(fileURLWithPath: "/tmp/fixture")).decode(json)
+        guard case .pane(let pane) = workspaces.first?.layout else {
+            Issue.record("expected one pane")
+            return
+        }
+        #expect(pane.tabs.map(\.title) == ["First", "Other"])
+        #expect(pane.selectedTab == 1)
+    }
+
+    /// Classic stable and classic NIGHTLY each keep their own snapshot; the
+    /// one saved last is the session to bring over.
+    @Test func readsTheNewestOfStableAndNightly() throws {
+        let support = FileManager.default.temporaryDirectory.appending(path: "classic-\(UUID().uuidString)")
+        let folder = support.appending(path: "cmux")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        #expect(ClassicSessionImporter(applicationSupport: support).fileURL.lastPathComponent == "session-com.cmuxterm.app.json")
+        let stable = folder.appending(path: "session-com.cmuxterm.app.json")
+        let nightly = folder.appending(path: "session-com.cmuxterm.app.nightly.json")
+        try Data("{}".utf8).write(to: stable)
+        try Data("{}".utf8).write(to: nightly)
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSinceNow: -3600)], ofItemAtPath: stable.path)
+        #expect(ClassicSessionImporter(applicationSupport: support).fileURL == nightly)
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSinceNow: -7200)], ofItemAtPath: nightly.path)
+        #expect(ClassicSessionImporter(applicationSupport: support).fileURL == stable)
+    }
+
+    @Test func missingSnapshotIsAnEmptyRead() throws {
+        let importer = ClassicSessionImporter(fileURL: URL(fileURLWithPath: "/tmp/cmux-classic-fixture-that-does-not-exist"))
+        #expect(try importer.read().isEmpty)
+    }
+}

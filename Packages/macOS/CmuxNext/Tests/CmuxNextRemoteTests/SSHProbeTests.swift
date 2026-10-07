@@ -82,8 +82,8 @@ import Testing
     }
 
     @Test func authenticationFailures() {
-        let denied = SSHFailure.classify(status: 255, stderr: "lawrence@mini: Permission denied (publickey,password,keyboard-interactive).")
-        #expect(denied == .authFailed("lawrence@mini: Permission denied (publickey,password,keyboard-interactive)."))
+        let denied = SSHFailure.classify(status: 255, stderr: "dev@mini: Permission denied (publickey,password,keyboard-interactive).")
+        #expect(denied == .authFailed("dev@mini: Permission denied (publickey,password,keyboard-interactive)."))
         #expect(SSHFailure.classify(status: 255, stderr: "Received disconnect from 1.2.3.4 port 22:2: Too many authentication failures")?.kind == .authFailed)
     }
 

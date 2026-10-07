@@ -351,7 +351,7 @@ fn create_and_run_preserve_receipts_paths_and_command_modes() {
             CreateWorkspaceOptions {
                 name: Some(String::new()),
                 initial_content: InitialContent::Empty,
-                correlation_key: None,
+                ..CreateWorkspaceOptions::default()
             },
             MutationOptions::new("create-key").unwrap().with_expected_revision(16),
         )

@@ -10,7 +10,8 @@ fn cloud_image_paste_advertises_a_versioned_capability() {
         outbound: Arc::new(BoundedOutbound::default()),
         control: None,
     });
-    let identity = handle_command(&mux, 0, Command::Identify, &writer).unwrap();
+    let identity =
+        handle_command(&mux, mux.local_test_client(0), Command::Identify, &writer).unwrap();
     assert!(
         identity["capabilities"]
             .as_array()

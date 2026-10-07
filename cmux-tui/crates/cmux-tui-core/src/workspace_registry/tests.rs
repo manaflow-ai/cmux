@@ -605,22 +605,22 @@ fn terminal_host_reset_holds_structured_live_marker_lock() {
     fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
     let uid = fs::metadata(&root).unwrap().uid();
     let terminal_id = TERMINAL_ONE;
-    let incarnation = INCARNATION_ONE;
-    let host_start_nonce = "02".repeat(32);
     let record = crate::terminal_host_runtime::TerminalHostRecord {
         record_version: 2,
         terminal_id: terminal_id.to_string(),
-        incarnation: incarnation.to_string(),
+        incarnation: INCARNATION_ONE.to_string(),
         endpoint: format!("/tmp/cmux-th-{uid}/{terminal_id}.sock"),
         owner_token: "01".repeat(32),
         host_pid: std::process::id(),
-        host_start_nonce,
+        host_start_nonce: "02".repeat(32),
         workspace_key: String::new(),
         supports_set_defaults: true,
         supports_clear_history: true,
         supports_terminate_ack: false,
         supports_input_ack: false,
         supports_terminal_metadata: false,
+        supports_clipboard_read: false,
+        supports_viewer_size_priority: false,
     };
     let record_path = record.record_path(&root);
     let live_path = terminal_host_live_marker_path(&record_path, &record);
@@ -716,6 +716,8 @@ fn terminal_host_reset_checks_legacy_live_marker_as_orphan() {
         supports_terminate_ack: false,
         supports_input_ack: false,
         supports_terminal_metadata: false,
+        supports_clipboard_read: false,
+        supports_viewer_size_priority: false,
     };
     let record_path = record.record_path(&root);
     let live_path = terminal_host_live_marker_path(&record_path, &record);
@@ -810,12 +812,11 @@ fn reset_accepts_dead_v2_terminal_host_without_creating_live_marker() {
     fs::set_permissions(&host_root, fs::Permissions::from_mode(0o700)).unwrap();
     crate::terminal_host_runtime::prepare_terminal_host_publication_lock(&host_root).unwrap();
     let uid = fs::metadata(&host_root).unwrap().uid();
-    let terminal_id = TERMINAL_ONE;
     let record = crate::terminal_host_runtime::TerminalHostRecord {
         record_version: 2,
-        terminal_id: terminal_id.to_string(),
+        terminal_id: TERMINAL_ONE.to_string(),
         incarnation: INCARNATION_ONE.to_string(),
-        endpoint: format!("/tmp/cmux-th-{uid}/{terminal_id}.sock"),
+        endpoint: format!("/tmp/cmux-th-{uid}/{TERMINAL_ONE}.sock"),
         owner_token: "01".repeat(32),
         host_pid: u32::MAX,
         host_start_nonce: "02".repeat(32),
@@ -825,6 +826,8 @@ fn reset_accepts_dead_v2_terminal_host_without_creating_live_marker() {
         supports_terminate_ack: false,
         supports_input_ack: false,
         supports_terminal_metadata: false,
+        supports_clipboard_read: false,
+        supports_viewer_size_priority: false,
     };
     let record_path = record.record_path(&host_root);
     let live_path = terminal_host_live_marker_path(&record_path, &record);
@@ -1122,10 +1125,10 @@ fn workspace_commit_publishes_one_normalized_resource_event() {
     assert_eq!(events.batches.len(), 1);
     assert_eq!(events.batches[0].previous_revision, 0);
     assert_eq!(events.batches[0].revision, 1);
-    assert_eq!(events.batches[0].changes.as_array().unwrap().len(), 1);
-    assert_eq!(events.batches[0].changes[0]["kind"], "upsert");
-    assert_eq!(events.batches[0].changes[0]["resource"], "workspace");
-    assert!(events.batches[0].changes[0].get("event").is_none());
+    let c = events.batches[0].changes.as_array().unwrap();
+    assert_eq!([&c[0]["kind"], &c[1]["kind"]], ["upsert", "state_upsert"], "{c:?}");
+    assert_eq!([&c[0]["resource"], &c[1]["resource"]], ["workspace", "workspace_placement"]);
+    assert!(c[0].get("event").is_none() && c.len() == 2);
     assert_eq!(
         registry
             .connection
@@ -1475,18 +1478,14 @@ fn viewport_screen() -> RegistryScreen {
         viewport: RegistryViewport {
             base_width: Some(1.0),
             columns: vec![
-                RegistryViewportColumn {
-                    id: base_column,
-                    width: 1.0,
-                    layout: first_column,
-                    auto_layout: None,
-                },
-                RegistryViewportColumn {
-                    id: boundary,
-                    width: 0.5,
-                    layout: RegistryLayoutNode::Leaf { pane: third },
-                    auto_layout: Some(vec![pane_id(3)]),
-                },
+                RegistryViewportColumn::new(base_column, 1.0, first_column, None, None),
+                RegistryViewportColumn::new(
+                    boundary,
+                    0.5,
+                    RegistryLayoutNode::Leaf { pane: third },
+                    Some(vec![pane_id(3)]),
+                    None,
+                ),
             ],
         },
     }
@@ -2192,6 +2191,7 @@ fn completed_creation_counts_in_the_boundary_replay_window() {
             &json!({"kind":"test","id":"boundary"}),
             &json!([]),
             None,
+            None,
         )
         .unwrap();
     assert_eq!(
@@ -2297,6 +2297,7 @@ fn startup_mutation_compaction_preserves_recovery_authorities_and_recent_replay(
                 &json!({"created":true}),
                 &created_path,
                 &json!([]),
+                None,
                 None,
             )
             .unwrap();
@@ -3827,6 +3828,121 @@ fn registries_created_before_on_exit_gain_the_column_with_close_default() {
         registry.terminal_record(TERMINAL_TWO).unwrap().unwrap().on_exit,
         TerminalOnExit::Keep
     );
+    drop(registry);
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// Registries created before the workspace pin existed gain the column on
+/// open; every pre-existing presentation row stays unpinned.
+#[test]
+fn registries_created_before_workspace_pin_gain_the_column_unpinned() {
+    let root = temp_root("workspace-pin-column-migration");
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        seed_workspace(&mut registry, "one");
+    }
+
+    // Recreate the pre-pin table shape with one titled workspace.
+    let session_dir = root.join(session_storage_component("session"));
+    let connection = Connection::open(session_dir.join("workspace-registry.sqlite3")).unwrap();
+    connection
+        .execute_batch(
+            "DROP TABLE workspace_presentation;
+             CREATE TABLE workspace_presentation (
+               workspace_key TEXT PRIMARY KEY NOT NULL,
+               group_id TEXT,
+               color TEXT,
+               icon TEXT,
+               title TEXT
+             );
+             INSERT INTO workspace_presentation(workspace_key, title) VALUES('one', 'Build');",
+        )
+        .unwrap();
+    drop(connection);
+
+    let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+    let record = registry.presentation_snapshot().unwrap().workspace("one").cloned().unwrap();
+    assert_eq!(record.title.as_deref(), Some("Build"));
+    assert!(!record.pinned);
+
+    // The migrated column stores and reloads a pin.
+    let update = WorkspacePresentationUpdate { pinned: Some(true), ..Default::default() };
+    registry
+        .commit_workspace_presentation(
+            &WorkspaceMutation::new("pin-one", "test").unwrap(),
+            &json!({"op":"set-workspace-metadata","key":"one","pinned":true}),
+            None,
+            None,
+            "workspace-changed",
+            "one",
+            &[workspace(1, "one", "Workspace")],
+            Some(&workspace(1, "one", "Workspace").public_id),
+            &update,
+            &json!({"key":"one"}),
+        )
+        .unwrap();
+    drop(registry);
+    let registry = WorkspaceRegistry::open(&root, "session").unwrap();
+    let record = registry.presentation_snapshot().unwrap().workspace("one").cloned().unwrap();
+    assert_eq!(record.title.as_deref(), Some("Build"));
+    assert!(record.pinned);
+    drop(registry);
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// Registries created with the pin but before the manual unread mark gain
+/// that column on open; existing rows keep their pin and stay unmarked.
+#[test]
+fn registries_created_before_marked_unread_gain_the_column_unmarked() {
+    let root = temp_root("workspace-marked-unread-column-migration");
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        seed_workspace(&mut registry, "one");
+    }
+
+    let session_dir = root.join(session_storage_component("session"));
+    let connection = Connection::open(session_dir.join("workspace-registry.sqlite3")).unwrap();
+    connection
+        .execute_batch(
+            "DROP TABLE workspace_presentation;
+             CREATE TABLE workspace_presentation (
+               workspace_key TEXT PRIMARY KEY NOT NULL,
+               group_id TEXT,
+               color TEXT,
+               icon TEXT,
+               title TEXT,
+               pinned INTEGER NOT NULL DEFAULT 0 CHECK(pinned IN (0,1))
+             );
+             INSERT INTO workspace_presentation(workspace_key, pinned) VALUES('one', 1);",
+        )
+        .unwrap();
+    drop(connection);
+
+    let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+    let record = registry.presentation_snapshot().unwrap().workspace("one").cloned().unwrap();
+    assert!(record.pinned);
+    assert!(!record.marked_unread);
+
+    let update = WorkspacePresentationUpdate { marked_unread: Some(true), ..Default::default() };
+    registry
+        .commit_workspace_presentation(
+            &WorkspaceMutation::new("mark-one", "test").unwrap(),
+            &json!({"op":"set-workspace-metadata","key":"one","marked_unread":true}),
+            None,
+            None,
+            "workspace-changed",
+            "one",
+            &[workspace(1, "one", "Workspace")],
+            Some(&workspace(1, "one", "Workspace").public_id),
+            &update,
+            &json!({"key":"one"}),
+        )
+        .unwrap();
+    drop(registry);
+    let registry = WorkspaceRegistry::open(&root, "session").unwrap();
+    let record = registry.presentation_snapshot().unwrap().workspace("one").cloned().unwrap();
+    assert!(record.pinned);
+    assert!(record.marked_unread);
     drop(registry);
     fs::remove_dir_all(root).unwrap();
 }
@@ -6200,32 +6316,4 @@ fn terminal_keep_legacy_classification_keeps_only_unplaced_terminals() {
     fs::remove_dir_all(root).unwrap();
 }
 
-#[test]
-fn terminal_keep_persists_and_rejects_unknown_and_closed_terminals() {
-    let root = temp_root("terminal-keep-set");
-    {
-        let mut registry = WorkspaceRegistry::open(&root, "terminal-keep-set").unwrap();
-        seed_workspace(&mut registry, "one");
-        reserve_terminal(&mut registry, TERMINAL_ONE, 0);
-        assert!(!registry.terminal_keep(TERMINAL_ONE).unwrap());
-        registry.set_terminal_keep(TERMINAL_ONE, true).unwrap();
-        registry.set_terminal_keep(TERMINAL_ONE, true).unwrap();
-        let unknown = registry.set_terminal_keep(TERMINAL_TWO, true).unwrap_err();
-        assert!(unknown.to_string().contains("terminal_not_found"));
-    }
-    let mut registry = WorkspaceRegistry::open(&root, "terminal-keep-set").unwrap();
-    assert!(registry.terminal_keep(TERMINAL_ONE).unwrap());
-    assert_eq!(registry.kept_terminals().unwrap().len(), 1);
-    registry.set_terminal_keep(TERMINAL_ONE, false).unwrap();
-    assert!(!registry.terminal_keep(TERMINAL_ONE).unwrap());
-
-    registry.set_terminal_keep(TERMINAL_ONE, true).unwrap();
-    let close = WorkspaceMutation::new("close-kept", "test").unwrap();
-    registry.close_terminal(&close, None, Some(1), TERMINAL_ONE, None).unwrap();
-    assert_eq!(registry.prune_terminal_keep().unwrap(), 1);
-    assert!(registry.kept_terminals().unwrap().is_empty());
-    let closed = registry.set_terminal_keep(TERMINAL_ONE, true).unwrap_err();
-    assert!(closed.to_string().contains("terminal_not_found"));
-    drop(registry);
-    fs::remove_dir_all(root).unwrap();
-}
+mod terminal_keep_tests;

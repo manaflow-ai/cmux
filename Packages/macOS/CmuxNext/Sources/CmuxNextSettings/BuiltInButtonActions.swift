@@ -1,6 +1,7 @@
 /// The old app's built-in tab bar button IDs (`cmux.splitRight`, and the
 /// short and legacy aliases it accepted) mapped onto catalog action IDs.
-public enum BuiltInButtonActions {
+public struct BuiltInButtonActions {
+    public init() {}
     public struct Entry: Sendable, Hashable {
         /// Canonical config ID, used as the button id.
         public var configID: String

@@ -7,13 +7,13 @@ import QuartzCore
 /// Multi-item drags show stacked cards behind it and a count badge.
 final class DragLiftView: NSView {
     private let card = NSView()
-    private let content: SidebarRowView
+    private let content: NSView
     private var stack: [NSView] = []
     private let countBadge = NSTextField(labelWithString: "")
     private let badgeBackground = NSView()
     private var lifted = false
 
-    init(content: SidebarRowView, count: Int) {
+    init(content: NSView, count: Int) {
         self.content = content
         super.init(frame: .zero)
         card.wantsLayer = true
@@ -28,7 +28,7 @@ final class DragLiftView: NSView {
             back.wantsLayer = true
             back.layer?.cornerRadius = SidebarStyle.rowCornerRadius
             back.layer?.cornerCurve = .continuous
-            back.layer?.borderWidth = 0.5
+            back.layer?.borderWidth = Metrics.lineWidth(0.5)
             back.identifier = NSUserInterfaceItemIdentifier("\(depth)")
             addSubview(back)
             stack.append(back)
@@ -43,11 +43,9 @@ final class DragLiftView: NSView {
             countBadge.stringValue = "\(count)"
             countBadge.font = SidebarStyle.badgeFont
             countBadge.alignment = .center
-            countBadge.textColor = Palette.textOnPrimary
             addSubview(badgeBackground)
             addSubview(countBadge)
         }
-        layer?.shadowColor = Palette.shadow.cgColor
         layer?.shadowOpacity = 0
         layer?.shadowOffset = CGSize(width: 0, height: Metrics.space1)
         layer?.shadowRadius = Metrics.space2
@@ -82,14 +80,22 @@ final class DragLiftView: NSView {
         updateColors()
     }
 
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        updateColors()
+    }
+
     private func updateColors() {
-        card.layer?.backgroundColor = resolvedCGColor(Palette.elevatedBackground)
-        layer?.shadowColor = resolvedCGColor(Palette.shadow)
-        for back in stack {
-            back.layer?.backgroundColor = resolvedCGColor(Palette.elevatedBackground.withAlphaComponent(0.85))
-            back.layer?.borderColor = resolvedCGColor(Palette.separator)
+        performWithTheme {
+            card.layer?.backgroundColor = Palette.elevatedBackground.cgColor
+            layer?.shadowColor = Palette.shadow.cgColor
+            for back in stack {
+                back.layer?.backgroundColor = Palette.elevatedBackground.withAlphaComponent(0.85).cgColor
+                back.layer?.borderColor = Palette.separator.cgColor
+            }
+            badgeBackground.layer?.backgroundColor = Palette.textPrimary.cgColor
+            countBadge.textColor = Palette.textOnPrimary
         }
-        badgeBackground.layer?.backgroundColor = resolvedCGColor(Palette.textPrimary)
     }
 
     /// Lifted: deeper shadow. Landing: shadow fades as the card settles.
@@ -118,6 +124,6 @@ final class DragLiftView: NSView {
     func setRefused(_ refused: Bool) {
         let target: CGFloat = refused ? 0.55 : 1
         guard alphaValue != target else { return }
-        Motion.animate(.hover) { animator().alphaValue = target }
+        Motion.animate(.hover, in: self) { animator().alphaValue = target }
     }
 }

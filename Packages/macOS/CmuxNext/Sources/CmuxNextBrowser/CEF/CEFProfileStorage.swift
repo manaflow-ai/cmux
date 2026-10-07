@@ -5,7 +5,7 @@ public import Foundation
 ///
 /// `root_cache_path` is `<Application Support>/<bundle id>/Chromium`. Every
 /// cmux profile, the default one included, gets its own request context in
-/// `Profile-<uuid>`: Chrome 136+ refuses remote debugging on the default user
+/// `Profile-<uuid>`: Chromium 136+ refuses remote debugging on the default user
 /// data dir, and it keeps extensions and cookies per profile. Chrome style
 /// requires each profile directory to be a direct child of the root; any
 /// other path silently becomes an off-the-record profile.
@@ -69,6 +69,14 @@ public nonisolated struct CEFProfileStorage: Hashable, Sendable {
         let url = URL(filePath: path).standardizedFileURL.resolvingSymlinksInPath()
         return url.deletingLastPathComponent().path == root.standardizedFileURL.resolvingSymlinksInPath().path
             && url.lastPathComponent.hasPrefix("Profile-")
+    }
+
+    /// The cmux profile of a persistent store directory (`Profile-<UUID>`
+    /// or one of its remote-localhost stores `Profile-<UUID>-m-<key>`).
+    public func profile(forPath path: String) -> BrowserProfileID? {
+        guard isPersistentProfilePath(path) else { return nil }
+        let name = URL(filePath: path).lastPathComponent.dropFirst("Profile-".count)
+        return UUID(uuidString: String(name.prefix(36))).map(BrowserProfileID.init(rawValue:))
     }
 
     public var logFile: URL { root.appending(path: "cef.log") }

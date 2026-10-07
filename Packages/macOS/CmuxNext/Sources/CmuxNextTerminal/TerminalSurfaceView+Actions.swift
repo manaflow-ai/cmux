@@ -1,5 +1,5 @@
 import AppKit
-import GhosttyKit
+import GhosttyNextKit
 
 // Surface-targeted Ghostty actions (`action_cb`) applied to the session
 // model or forwarded to the delegate.
@@ -23,10 +23,8 @@ extension TerminalSurfaceView {
             if let delegate = session.delegate {
                 delegate.terminalSessionDidRingBell(session)
             } else {
-                NSSound.beep()
+                GhosttyRuntime.shared.bellSettings.ring()
             }
-        case .desktopNotification(let title, let body):
-            session.delegate?.terminalSession(session, didPostNotification: title, body: body)
         case .openURL(let text):
             guard let url = Self.url(from: text) else { return false }
             if let delegate = session.delegate {
@@ -61,14 +59,16 @@ extension TerminalSurfaceView {
             model.backgroundOverride = NSColor(srgbRed: CGFloat(red) / 255, green: CGFloat(green) / 255, blue: CGFloat(blue) / 255, alpha: 1)
         case .scrollbar(let scrollbar):
             model.scrollbar = scrollbar
+            // Output or a mouse scroll moved the viewport under the cursor box.
+            copyMode.syncCursor()
         case .startSearch(let needle):
-            model.search = TerminalSearchState(needle: needle, total: nil, selected: nil)
+            session.find.searchStarted(needle: needle)
         case .endSearch:
-            model.search = nil
+            session.find.searchEnded()
         case .searchTotal(let total):
-            model.search?.total = total
+            session.find.receiveTotal(total)
         case .searchSelected(let selected):
-            model.search?.selected = selected
+            session.find.receiveSelected(selected)
         case .copyTitleToClipboard:
             guard !model.title.isEmpty else { return false }
             TerminalPasteboard.write([TerminalClipboardItem(mime: "text/plain", text: model.title)], to: .standard)

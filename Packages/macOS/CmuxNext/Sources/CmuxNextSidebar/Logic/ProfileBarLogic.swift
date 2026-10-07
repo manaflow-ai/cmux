@@ -6,12 +6,20 @@ public nonisolated enum ProfileBarLogic {
     public static func isVisible(profileCount: Int) -> Bool { profileCount > 1 }
 
     /// The profile `delta` steps from `current` (swipe, next/previous),
-    /// clamped at the ends like Arc (no wrap). Nil when nothing changes.
+    /// clamped at the ends (no wrap). Nil when nothing changes.
     public static func step(from current: ProfileKey?, by delta: Int, in order: [ProfileKey]) -> ProfileKey? {
         guard !order.isEmpty, delta != 0 else { return nil }
         let index = current.flatMap { order.firstIndex(of: $0) } ?? 0
         let target = min(max(index + delta, 0), order.count - 1)
         return target == index ? nil : order[target]
+    }
+
+    /// Leading x of each room's slot, centered as a group in `width`, then
+    /// the "+" slot right after the last room. The "+" shows only on hover,
+    /// so it must not shift the dots.
+    public static func slotXs(count: Int, slot: Double, width: Double) -> [Double] {
+        let x0 = (width - slot * Double(count)) / 2
+        return (0...count).map { x0 + Double($0) * slot }
     }
 
     /// Insertion index (the `move-workspace` rule: an index into the list
@@ -30,7 +38,7 @@ public nonisolated enum ProfileBarLogic {
     }
 }
 
-/// Recognizes one two-finger horizontal swipe over the sidebar (Arc): a
+/// Recognizes one two-finger horizontal swipe over the sidebar: a
 /// trackpad gesture whose horizontal travel passes `threshold` and clearly
 /// dominates vertical travel switches the profile once per gesture.
 public nonisolated struct ProfileSwipeTracker: Sendable {

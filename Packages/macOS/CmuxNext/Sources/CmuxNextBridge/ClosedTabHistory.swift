@@ -1,4 +1,6 @@
-/// Recently closed tabs, for Chrome's "Reopen Closed Tab". The App feeds it
+public import Foundation
+
+/// Recently closed tabs, for "Reopen Closed Tab". The App feeds it
 /// every tab it sees; a tab that disappears while its workspace still
 /// exists counts as closed (moves keep their durable id, so they do not).
 public nonisolated struct ClosedTabHistory: Sendable {
@@ -17,9 +19,14 @@ public nonisolated struct ClosedTabHistory: Sendable {
         /// it; the daemon ends it after its reap grace period, so reopening
         /// within that window shows the same live terminal.
         public var terminalResourceID: String?
+        /// The tab's last title, for history lists.
+        public var title: String?
+        /// When the App saw the tab disappear.
+        public var closedAt: Date?
 
         public init(kind: Kind, tabID: String, paneID: String, workspaceID: String, index: Int,
-                    cwd: String? = nil, url: String? = nil, engine: String? = nil, terminalResourceID: String? = nil) {
+                    cwd: String? = nil, url: String? = nil, engine: String? = nil, terminalResourceID: String? = nil,
+                    title: String? = nil, closedAt: Date? = nil) {
             self.kind = kind
             self.tabID = tabID
             self.paneID = paneID
@@ -29,6 +36,8 @@ public nonisolated struct ClosedTabHistory: Sendable {
             self.url = url
             self.engine = engine
             self.terminalResourceID = terminalResourceID
+            self.title = title
+            self.closedAt = closedAt
         }
     }
 
@@ -60,5 +69,16 @@ public nonisolated struct ClosedTabHistory: Sendable {
 
     public mutating func popLast() -> Record? {
         closed.popLast()
+    }
+
+    /// Takes one record out (reopen from a history list).
+    public mutating func remove(tabID: String) -> Record? {
+        guard let index = closed.lastIndex(where: { $0.tabID == tabID }) else { return nil }
+        return closed.remove(at: index)
+    }
+
+    /// Forgets records closed at or after `since` (nil: all).
+    public mutating func removeAll(since: Date?) {
+        closed.removeAll { record in since.map { (record.closedAt ?? .distantPast) >= $0 } ?? true }
     }
 }

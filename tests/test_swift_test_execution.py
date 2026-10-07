@@ -27,6 +27,8 @@ class SwiftTestExecutionTests(unittest.TestCase):
             "✔ Test run with 11 tests in 1 suite passed after 1.230 seconds.",
             "✔ Test run with 11 tests in 2 suites passed after 1.230 seconds.",
             "\x1b[32m✔ Test run with 11 tests in 0 suites passed after 1.230 seconds.\x1b[0m",
+            # A run whose only issues are known issues (withKnownIssue) passes.
+            "━ Test run with 3 tests in 1 suite passed after 0.066 seconds with 1 known issue.",
         ):
             with self.subTest(summary=summary):
                 result = self.run_guard(summary)

@@ -33,7 +33,7 @@ missing, and an in-place upgrade plus a one-row backfill restored them
 | `cmux-tui` binary and `cmux-tui-hook` | Yes | `web/scripts/upgrade-fleet-cmux-tui.ts` (below) |
 | Coding-agent hook entries | Yes | Same run: the pinned install command re-runs `cmux-tui agent hook install` |
 | `cmux-devbox-boot`, systemd units, the daemon's argv and environment | No | Bake only. The supervisor that is running keeps its own copy |
-| Baked packages, agent pins, desktop, `/etc/cmux/*` | No | Bake only |
+| Baked packages, agent pins, desktop, `/etc/cmux/*` | No (agent pins: only on machines opted into `agentUpdates: "latest"`) | Bake only; opted-in machines update their coding agents on attach (`web/services/vms/guestAgentUpdates.ts`) |
 | Create-time provider config: inline TLS rules (coderouter), VPC, firewall | No | Fixed at `vms.create`; the platform ignores later rules |
 | `cloud_vms.provider_metadata` written at create | Only by a backfill | A reviewed SQL update, per machine, after verifying the guest |
 
@@ -64,6 +64,12 @@ else is image-only: design it so old machines keep working without it.
   adoptable. Never kill hosts on shutdown, and never move them into a path
   where `systemctl restart cmux-tui-daemon` is the only restart (the unit's
   `KillMode=control-group` kills every host).
+  Terminal hosts run in the daemon unit's cgroup. A host ignores a stray
+  SIGTERM, SIGHUP, SIGINT or SIGQUIT (it is the only holder of its PTY), but
+  it honors a SIGTERM from PID 1: a `systemctl stop`/`restart` of the unit or
+  a machine shutdown ends each terminal promptly through the host's normal
+  exit path (exit record written), never after the stop timeout. Such a stop
+  still ends every terminal; only the SIGTERM-to-the-daemon path keeps them.
 - **Journal and registry migrations are forward-only and one-way.** The new
   daemon must open every older on-disk schema. After it migrates, the old
   binary may not start, so a rollback is only safe before the new daemon runs.

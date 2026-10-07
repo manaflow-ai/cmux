@@ -12,8 +12,8 @@ connects to it.
 ## Build
 
 ```sh
-cd acpmux
-cargo build --release
+cd cmux-tui
+cargo build --release -p acpmux
 rm -f ~/.local/bin/acpmux && cp target/release/acpmux ~/.local/bin/
 ```
 
@@ -47,7 +47,12 @@ The daemon starts on demand, like the tmux server. `acpmux daemon` runs it in th
 
 The daemon serves a dashboard on the same port as its WebSocket, by default
 `http://127.0.0.1:47811/?token=…`. The token is generated on first run and saved in
-`config.json`; `acpmux web` prints the full link and opens it. The page follows the Codex
+`config.json`; `acpmux web` prints the full link and opens it. Only the local socket ever
+reads it back: a remote-origin (WebSocket) connection gets no `webUrl` and no peer URL query.
+Release note: earlier builds did send `webUrl` to WebSocket clients, so the first start of
+this build replaces a saved token once (`websocket.tokenRotated` records it). Open the new
+link from `acpmux web`, and give a `ws://` peer that pins the old token the new one; the app,
+the TUI and `ssh://` peers read it again by themselves. The page follows the Codex
 desktop app like the TUI does: a rail with `New session` (a draft: `What should we build in
 <project>?`, the harness and permission chips pick its settings, the project name opens the
 directory picker, with separate harness, model, and permission buttons, and the session is created when you send the first message), sessions
@@ -67,6 +72,16 @@ sheet behind a `Sessions` button. To reach it
 from another machine, set `websocket.listen` to a non-loopback address and put a tunnel or
 firewall in front.
 
+### Remote connections (`webRoots`, `webAskingModes`)
+
+A WebSocket connection other than the app's own pane (the dashboard, a paired or relayed
+device, a peer daemon) works only inside folders that are known projects (the cwds of local
+sessions) or listed in `webRoots`, and only in modes that ask before they act: the reviewed
+per-harness table in `src/server/remote_guard.rs` plus what `webAskingModes` adds, for example
+`"webAskingModes": {"myharness": ["ask"]}`. Both live in `config.json` and are never written over
+a WebSocket. **Warning: a mode that you add to `webAskingModes` lets paired devices start that
+mode without a per-action prompt.** See `plans/cmux-next/acp-remote-guard.md`.
+
 ## CLI
 
 Five everyday commands, three groups for the rest:
@@ -82,6 +97,7 @@ Five everyday commands, three groups for the rest:
 | `host setup HOST` / `host update [--all]` / `host add NAME URL` / `host ls` / `host rm NAME` | Remote daemons. `setup` installs over ssh; URL is `ssh://host`, `ws://…`, or `wss://…`. |
 | `session info\|cancel\|stop\|rename\|fork\|set\|allow\|deny\|export\|import\|tail NAME …` | Everything about one session. |
 | `daemon run\|status\|shutdown\|config\|harnesses\|reload\|models\|schema` | The daemon itself. |
+| `daemon shutdown [--keep-agents]` | Stop the daemon and every agent host it owns; exits 0 only when none is left, and names any host that survives SIGKILL. `--keep-agents` leaves the user sessions' hosts running for the next daemon. |
 
 The older flat spellings (`acpmux kill NAME`, `acpmux peer add …`, `acpmux status`) still
 work but are hidden from help.
@@ -366,6 +382,12 @@ there, and a selection covers only the useful text: the gutter, role markers and
 padding are never highlighted or copied. The composer grows to 12 rows before it scrolls; set `"composerMaxRows"` in
 `~/.acpmux/config.json` or `ACPMUX_COMPOSER_ROWS` to change it.
 
+## Bring your own harness
+
+Any harness can be added with one profile file (`~/.config/cmux/harnesses/<id>.toml`), checked
+with `acpmux harness doctor <id>` (also `cmux harness …`). Schema, secrets, terminal harnesses,
+folder profiles and the ACP adapter guide: [docs/add-your-harness.md](../../../docs/add-your-harness.md).
+
 ## Picking a harness and a model: `-m HARNESS[/MODEL]`, `-p PRESET`
 
 One flag names what runs. Its head is a **family** (`claude`, `codex`, `opencode`, `pi`, `omp`,
@@ -435,6 +457,32 @@ acpmux run -p deepseek "…"
 acpmux run -p omx --cwd ~/proj -m codex/gpt-5.5 "…"                 # -m and -e still win over the preset
 acpmux preset                                                        # list; `preset NAME --clear` removes one
 ```
+
+A preset's `args` are words appended to the harness command line, given as one JSON list
+(`acpmux preset compact harness=claude-sr 'args=["--tools", "", "--no-session-persistence"]'`).
+Each entry is one argv word passed as it is, never through a shell. They are an allowlist that
+can only take capabilities away: on a Claude Code harness `--tools ""` (an empty value only),
+`--strict-mcp-config` (no `--mcp-config` may be given) and `--no-session-persistence`; on any
+other harness none. Every other word is refused when the preset is set and when a session
+starts, `=` forms and short aliases included.
+
+A preset's `systemPrompt` is the text of a Claude Code system prompt (set over the RPC
+`_acpmux/presets`, never echoed back). acpmux writes it to `presets/<name>/system.md` next to
+its `config.json` (directory 0700, file read-only), records its sha256 (`systemPromptSha256`),
+checks the file against that hash at every session start (a mismatch or a missing file refuses
+the start) and passes `--system-prompt-file` with that path itself. Set the preset again when
+the text changes; the new hash applies to sessions that start after it. Preset names that carry
+one use ASCII letters, digits, `-`, `_` and `.`.
+
+A connection from the WebSocket listener (peer daemons, remote clients) is remote-origin:
+remote chains build their settings from scratch, so it never starts a session with, sets,
+changes or clears a preset that carries `args` or a `systemPrompt`, and a session it created
+never spawns with one later.
+
+On Claude Code harnesses, a text block's `cache_control` in `session/prompt` reaches Claude
+Code's stream-json input unchanged (other extra block fields are dropped), so a client can
+place its own cache breakpoint. Claude Code adds up to three breakpoints of its own and the API
+allows four, so a client has room for one.
 
 ### Bring your own ACP harness
 
@@ -686,7 +734,10 @@ in an ssh shell then works under the daemon. `ACPMUX_LOGIN_ENV=0` in the plist t
 so on a headless Mac without an API proxy run `claude` once in a terminal and log in. A
 discovered `claude-sr` launcher is checked at daemon start (`sr claude proxy --version`) and
 dropped, with a log line, when the installed subrouter cannot run it; `claude` then has no
-fallback instead of failing over into a launcher that dies at once.
+fallback instead of failing over into a launcher that dies at once. When a subrouter server is
+known, the launcher instead becomes a copy of `claude` routed through that server, but only when
+`claude` is acpmux's own adapter: `claude-sr` never becomes an ACP adapter, and the pool never
+falls back onto one.
 
 ## Claude Code: native stdio backend
 
@@ -695,7 +746,7 @@ Claude Code sessions run over Claude's own headless protocol, not ACP:
 session stays alive until you stop it. acpmux translates the stream into the same events the
 TUI, web page, and peers already understand, so nothing changes for the user.
 
-What this gives over the ACP adapter: no injected MCP servers or hooks, real permission
+What this gives over the ACP adapter: none of the adapter's injected MCP servers or hooks, real permission
 prompts with Claude's own options, `AskUserQuestion` and plan approval answered from the TUI
 or web page, model and mode changes mid-session, exact resume with `--resume`, fork with
 `--fork-session`, and background Bash tasks that live as long as the session because the
@@ -710,6 +761,17 @@ Everything after `claude` in `argv` is passed through, so `--settings`, `--mcp-c
 picks this backend automatically when `claude` is on PATH. Interrupt uses Claude's
 `control_request` `interrupt`; the interrupted turn ends with `stopReason: cancelled` and the
 process keeps running.
+
+### cmux tools in every session
+
+Every local session gets cmux's own agent tools: the `cmux-cua` MCP server (Computer Use)
+when `cmux-cua` sits next to the acpmux binary, the `cmux` MCP server with the browser REPL
+tools when `cmux.json` sets `"mcp": {"enabled": true}`, and, for Claude Code, a session-only
+plugin `cmux` with the skills `cmux:cmux-browser` and `cmux:cmux-cua`. Set
+`ACPMUX_AGENT_TOOLS=0` in the daemon's environment to turn all of them off, or in one
+profile's or preset's `env` to turn them off for that profile only. A Claude profile whose
+`argv` has `--strict-mcp-config` also gets none of them, so it keeps exactly the servers its
+own `--mcp-config` names.
 
 Stopping a session kills the agent's whole process group, so background shells the agent
 started stop with it. Resume afterwards is exact, but the agent no longer remembers those
@@ -754,7 +816,7 @@ Harnesses found on PATH join the configured ones at every start: `claude`, `code
 }
 ```
 
-When no config exists, harnesses are imported from `~/.acpx/config.json` (its `agents` block) and from adapters on PATH.
+When no config exists, harnesses are imported from `~/.acpx/config.json` (its `agents` block) and from adapters on PATH. `claude` and `claude-sr` are reserved for acpmux's own Claude Code adapter (`claude-stdio`): when `claude` or `sr` is on PATH, an `~/.acpx` entry of that name is ignored. Only `config.json` rebinds them.
 
 - `permissionPolicy`: `ask` routes `session/request_permission` to attached clients and waits.
   `approve-all`, `approve-reads`, `approve-edits` (reads and edits auto, shell asks), and `deny-all` answer locally. Per-session override with

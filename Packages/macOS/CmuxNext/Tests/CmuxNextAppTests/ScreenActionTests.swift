@@ -38,7 +38,7 @@ struct ScreenActionTests {
         let shortcut = Shortcut(stroke.key, modifiers: [.control, .option])
         registry.setShortcutOverride(shortcut, for: "screen.new")
         #expect(registry.effectiveShortcut(for: "screen.new") == Shortcut("s", modifiers: [.control, .option]))
-        #expect(registry.resolve(shortcut)?.id == "screen.new")
+        #expect(registry.keyWinner(shortcut)?.command == "screen.new")
     }
 
     @Test func screenActionsWithoutAWorkspaceAreRefused() {
@@ -62,7 +62,7 @@ struct ScreenActionTests {
     @Test func screenContextMenusOnlyReferenceScreenActions() {
         let registry = Coverage.boundServices().registry
         for context in [ActionMenuContext.screen, .screenGroup] {
-            let ids = ContextMenuCatalog.referencedIDs(ContextMenuCatalog.entries(for: context))
+            let ids = ContextMenuCatalog.shared.referencedIDs(ContextMenuCatalog.shared.entries(for: context))
             #expect(!ids.isEmpty)
             for id in ids { #expect(registry.descriptor(for: id) != nil, "\(context): \(id)") }
         }

@@ -23,11 +23,12 @@ import Testing
     }
 
     func install() -> (ControlRouter, FakeEngine) {
-        let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor())
+        let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor(), configuration: .loadTolerant)
         let engine = FakeEngine()
         BrowserPageService(engine: engine).install(on: router)
         var snapshot = ControlSnapshot.sample()
-        let browser = ControlTabInfo(id: "tab_0123abcd", surface: "12", kind: "browser", title: "Example", url: "https://example.com/")
+        var browser = ControlTabInfo(id: "tab_0123abcd", surface: "12", kind: "browser", title: "Example", url: "https://example.com/")
+        browser.browserProfileID = "a9e70000-0000-4000-8000-00000000c0de"
         let other = ControlTabInfo(id: "tab_0199ffff", surface: "13", kind: "browser", title: "Other")
         snapshot.topology.workspaces[0].screens[0].panes[0].tabs += [browser, other]
         router.snapshots.publish { $0 = snapshot }
@@ -51,6 +52,10 @@ import Testing
         let state = try await router.handle(ControlRequest(method: "browser.page.state", params: ["tab": "tab_0123abcd"])).get()
         #expect(state["title"] == "Example")
         #expect(state["url"] == "https://example.com/")
+        // Which browser profile the tab is in (agents check they got the clean agent profile).
+        #expect(state["profile"] == "a9e70000-0000-4000-8000-00000000c0de")
+        let other = try await router.handle(ControlRequest(method: "browser.page.state", params: ["tab": "tab_0199ffff"])).get()
+        #expect(other["profile"] == "default")
         let evaluated = try await router.handle(ControlRequest(method: "browser.page.eval",
                                                                params: ["tab": "tab_0123abcd", "script": "6 * 7"])).get()
         #expect(evaluated["value"] == 42)

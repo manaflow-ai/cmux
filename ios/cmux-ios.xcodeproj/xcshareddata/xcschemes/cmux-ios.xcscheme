@@ -28,25 +28,13 @@
       selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
       selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
       shouldUseLaunchSchemeArgsEnv = "YES">
-      <TestPlans>
-         <TestPlanReference
-            reference = "container:cmux/cmux.xctestplan"
-            default = "YES">
-         </TestPlanReference>
-         <TestPlanReference
-            reference = "container:cmux/cmux-ui.xctestplan">
-         </TestPlanReference>
-         <TestPlanReference
-            reference = "container:cmux/iroh-soak.xctestplan">
-         </TestPlanReference>
-      </TestPlans>
       <Testables>
          <TestableReference
             skipped = "NO">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "8B41F65B2DEDD0D6001A66F9"
-               BuildableName = "cmux.xctest"
+               BlueprintIdentifier = "E7B0A0000000000000000005"
+               BuildableName = "cmuxUITests.xctest"
                BlueprintName = "cmuxUITests"
                ReferencedContainer = "container:cmux-ios.xcodeproj">
             </BuildableReference>

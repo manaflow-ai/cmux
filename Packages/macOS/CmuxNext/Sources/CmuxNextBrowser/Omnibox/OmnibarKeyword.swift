@@ -5,7 +5,7 @@ public import Foundation
 /// keyword) in the omnibar starts a keyword session: the field then holds
 /// only the text after the keyword, the extension gets every change and
 /// answers with suggestions, and Enter hands the text to the extension
-/// (Chrome's keyword mode).
+/// (keyword mode).
 public nonisolated struct OmnibarKeyword: Hashable, Sendable {
     public var extensionID: String
     public var keyword: String

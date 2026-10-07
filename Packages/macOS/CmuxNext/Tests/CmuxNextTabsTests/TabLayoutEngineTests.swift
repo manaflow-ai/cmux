@@ -15,8 +15,9 @@ let m: TabStripMetrics = {
     m.pinnedTabWidth = 40
     m.compactTabWidth = 160
     m.pinnedGroupGap = 6
-    m.hoverCloseMinWidth = 36
-    m.titleMinWidth = 60
+    m.closeMinContentsWidth = 68
+    m.titleMinVisibleWidth = 12
+    m.iconTitleSpacing = 6
     m.contentLeadingInset = 10
     m.contentTrailingInset = 6
     m.iconSize = 16
@@ -160,6 +161,12 @@ struct OverflowTests {
         #expect(TabScrollMath.fadedEdges(offset: 300, contentWidth: 1000, viewportWidth: 400) == (true, true))
         #expect(TabScrollMath.fadedEdges(offset: 600, contentWidth: 1000, viewportWidth: 400) == (true, false))
         #expect(TabScrollMath.fadedEdges(offset: 0, contentWidth: 300, viewportWidth: 400) == (false, false))
+        // Half a point of slack, and a rubber band past either end, show no fade there.
+        #expect(TabScrollMath.fadedEdges(offset: 0.5, contentWidth: 1000, viewportWidth: 400) == (false, true))
+        #expect(TabScrollMath.fadedEdges(offset: 599.5, contentWidth: 1000, viewportWidth: 400) == (true, false))
+        #expect(TabScrollMath.fadedEdges(offset: -30, contentWidth: 1000, viewportWidth: 400) == (false, true))
+        #expect(TabScrollMath.fadedEdges(offset: 640, contentWidth: 1000, viewportWidth: 400) == (true, false))
+        #expect(TabScrollMath.fadedEdges(offset: -30, contentWidth: 300, viewportWidth: 400) == (false, false))
     }
 }
 

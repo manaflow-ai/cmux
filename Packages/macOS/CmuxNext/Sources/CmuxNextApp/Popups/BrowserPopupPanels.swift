@@ -10,6 +10,15 @@ import CmuxNextDesign
 /// has the keyboard, with its close button, and when its opener's window
 /// closes; closing it closes the page.
 final class BrowserPopupPanels {
+    private let contextMenus: BrowserContextMenuBuilder
+    /// The link, image and selection rows for a right-click, by the
+    /// opener's tab (`BrowserPageRequests.hitItems`).
+    var hitItems: ((BrowserContextMenuTarget, String) -> [NSMenuItem])?
+
+    init(contextMenus: BrowserContextMenuBuilder = .shared) {
+        self.contextMenus = contextMenus
+    }
+
     private struct Entry {
         let panel: BrowserPopupPanel
         weak var parent: NSWindow?
@@ -30,6 +39,9 @@ final class BrowserPopupPanels {
     func panel(for page: any BrowserTab) -> NSPanel? { entries[ObjectIdentifier(page)]?.panel }
 
     func openerKey(of page: any BrowserTab) -> String? { entries[ObjectIdentifier(page)]?.openerKey }
+
+    /// The popup pages tab `key` opened, at any depth (a popup's popups keep its opener key).
+    func pages(openedBy key: String) -> [any BrowserTab] { entries.values.filter { $0.openerKey == key }.map(\.panel.page) }
 
     var panels: [BrowserPopupPanel] { entries.values.map(\.panel) }
 
@@ -60,6 +72,7 @@ final class BrowserPopupPanels {
         panel.onClose = { [weak self] in self?.panelClosed(id) }
         observeParent(parent)
         parent.addChildWindow(panel, ordered: .above)
+        parent.themeScope.adopt(panel)
         guard ordersPanelsIn else { return }
         WindowActivation.show(panel, .raise)
         if panel.isKeyWindow { page.setFocused(true) }
@@ -103,7 +116,7 @@ final class BrowserPopupPanels {
 
     /// Handles an intent of a panel page; returns false for other pages
     /// and for the intents the caller routes through the opener's tab
-    /// (links opened in a new tab).
+    /// (links opened in a new tab, downloads).
     func handle(_ page: any BrowserTab, _ intent: BrowserTabIntent) -> Bool {
         guard let entry = entries[ObjectIdentifier(page)] else { return false }
         switch intent {
@@ -114,27 +127,41 @@ final class BrowserPopupPanels {
                 child.close()
                 return true
             }
+            // A popup an agent drives passes that on, as a tab does (BrowserPageRequests).
+            if page.isAgentDriven { child.markAgentDriven() }
             open(child, request: request, over: parent, openerKey: entry.openerKey)
         case .contextMenu(let request):
-            BrowserContextMenuBuilder.present(request, in: page.contentView)
-        case .activate, .download, .notice, .rerouteStore:
-            // A panel has no tab to select, no chrome for notices, and one store.
+            contextMenus.present(request, in: page.contentView, leading: hitItems?(request.target, entry.openerKey) ?? [])
+        case .resizePopup(let request):
+            resize(entry, to: request)
+        case .activate, .notice, .rerouteStore, .takeFocus, .unhandledKey:
+            // A panel has no tab to select, no chrome for notices or an
+            // omnibar to take focus, one store, and no page shortcuts.
             break
-        case .openURL, .adoptTab:
+        case .openURL, .adoptTab, .download:
+            // A download joins the App's list through the opener's tab.
             return false
         }
         return true
     }
 
-    // MARK: Keys
-
-    /// Cmd-W closes the popup that has the keyboard (its panel, or its
-    /// Chromium page window) instead of the opener's tab.
-    func interceptKeyDown(_ event: NSEvent, in window: NSWindow?) -> Bool {
-        guard let panel = panel(containing: window) else { return false }
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        guard flags == .command, event.charactersIgnoringModifiers?.lowercased() == "w" else { return false }
-        close(panel.page)
-        return true
+    /// `chrome.windows.update` bounds: the new content size (the title bar
+    /// stays), at the new position when the page gave one, else keeping the
+    /// panel's top-left; always inside the screen.
+    private func resize(_ entry: Entry, to request: BrowserPopupRequest) {
+        let panel = entry.panel
+        let screen = panel.screen ?? entry.parent?.screen ?? NSScreen.main
+        let visible = screen?.visibleFrame ?? panel.frame
+        let primaryHeight = NSScreen.screens.first?.frame.maxY ?? visible.maxY
+        var frame = BrowserPopupPanelGeometry.frame(for: request, opener: entry.parent?.frame ?? panel.frame, visibleFrame: visible,
+                                                    primaryHeight: primaryHeight, titleHeight: BrowserPopupPanel.titleHeight)
+        if request.origin == nil {
+            frame.origin = CGPoint(x: panel.frame.minX, y: panel.frame.maxY - frame.height)
+            if visible.width > 0, visible.height > 0 {
+                frame.origin.x = min(max(frame.minX, visible.minX), max(visible.maxX - frame.width, visible.minX))
+                frame.origin.y = min(max(frame.minY, visible.minY), max(visible.maxY - frame.height, visible.minY))
+            }
+        }
+        panel.setFrame(frame, display: true)
     }
 }

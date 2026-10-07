@@ -58,10 +58,10 @@ struct PageInfoSiteDataTests {
         }
         #expect(PageInfoCommand.show(.permission(.camera)).action == nil)
         #expect(throws: PageInfoCommandError.invalidArgument(name: "setting", value: "ask")) {
-            try PageInfoCommand.from(actionID: PageInfoCommand.ActionID.setPermission, arguments: ["permission": "sound", "setting": "ask"])
+            try PageInfoCommand.from(actionID: PageInfoCommand.setPermissionActionID, arguments: ["permission": "sound", "setting": "ask"])
         }
         #expect(throws: PageInfoCommandError.invalidArgument(name: "permission", value: "teleport")) {
-            try PageInfoCommand.from(actionID: PageInfoCommand.ActionID.setPermission, arguments: ["permission": "teleport", "setting": "allow"])
+            try PageInfoCommand.from(actionID: PageInfoCommand.setPermissionActionID, arguments: ["permission": "teleport", "setting": "allow"])
         }
     }
 
@@ -70,7 +70,7 @@ struct PageInfoSiteDataTests {
         tab.load(URL(string: "https://permission.site/")!)
         let controller = PageInfoController(tab: { tab }, anchor: { nil })
         try controller.run(.setPermission(.camera, .block))
-        let store = tab.sitePermissions
+        let store = tab.pageInfoSettings.permissions(for: tab.profileID)
         #expect(store.setting(.camera, for: "https://permission.site") == .block)
         #expect(tab.pageInfoActivity.changedSinceLoad == [.camera])
         await Task.yield()
@@ -103,7 +103,7 @@ struct SiteSettingsResetTests {
     @Test func resetForAnotherOriginResetsTheEngine() async throws {
         let tab = MockBrowserTab(configuration: BrowserTabConfiguration(), engineKind: .cef, completesNavigationsImmediately: true)
         let origin = "https://camera.example"
-        let store = tab.sitePermissions
+        let store = tab.pageInfoSettings.permissions(for: tab.profileID)
         await store.whenLoaded()
         store.set(.allow, .camera, for: origin)
         store.set(.allow, .microphone, for: origin)

@@ -15,7 +15,7 @@ struct IncognitoRecordTests {
         let services = ActionBindingCoverageTests.boundServices()
         let browserTabs = try #require(services.cache.browserTabs)
         var created: [String] = []
-        browserTabs.create = { _, url, _ in
+        browserTabs.create = { _, url, _, _, _, _ in
             created.append(url)
             return SurfaceID(rawValue: 9)
         }
@@ -59,9 +59,36 @@ struct IncognitoRecordTests {
         #expect(sent.isEmpty)
         withExtendedLifetime(services) {}
     }
+
+    /// R102: a tab moved out of an incognito window into a new workspace
+    /// must not name that workspace after its live page title (the name is
+    /// stored by the daemon and kept in closed history). A normal tab still
+    /// takes its page title (R15).
+    @Test func aMovedIncognitoTabNeverNamesItsWorkspaceAfterItsPage() async throws {
+        let services = ActionBindingCoverageTests.boundServices()
+        let store = services.daemon.store
+        let tab = #"{"kind":"browser","name":"","surface":9,"dead":false,"browser_renderer":"frontend","browser_engine":"cef","url":"about:blank"}"#
+        store.apply(snapshot: try BrowserRecordMoveTests.tree(pane: 3, tab: tab))
+        let browserTabs = try #require(services.cache.browserTabs)
+        let model = try #require(store.workspaces.first?.screens.first?.panes.first?.tabs.first)
+        let page = MockBrowserEngine().makeMockTab(BrowserTabConfiguration())
+        page.load(URL(string: Self.secret)!)
+        page.simulate(.titleChanged("Private page"))
+        services.cache.browsers[model.id] = BrowserEntry(tab: page)
+
+        browserTabs.isIncognitoTab = { _ in true }
+        let incognito = TabMoves.nameInput(model, services: services)
+        #expect(incognito.pageTitle == nil)
+        #expect(NewWorkspaceName.forTab(incognito) == nil)
+
+        browserTabs.isIncognitoTab = { _ in false }
+        #expect(TabMoves.nameInput(model, services: services).pageTitle == "Private page")
+        services.cache.browsers[model.id] = nil
+        withExtendedLifetime(services) {}
+    }
 }
 
-/// A new incognito tab showed "about:blank" as its title; Chrome shows
+/// A new incognito tab showed "about:blank" as its title; it must show
 /// "New Tab".
 struct IncognitoTabTitleTests {
     @Test func aBlankPageHasNoTitleOfItsOwn() {

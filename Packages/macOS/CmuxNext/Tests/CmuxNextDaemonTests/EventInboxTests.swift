@@ -14,7 +14,7 @@ import Testing
         let tree = try Fixture.response(DaemonTree.self, "list-workspaces.json")
         let store = DaemonStore()
         store.apply(snapshot: tree)
-        store.applyOptimistic(.renameTab(surface: 3, name: "mine"), transaction: "tx-early")
+        store.intend(.renameTab(surface: 3, name: "mine"), transaction: "tx-early")
         let inbox = EventInbox()
         var sequence: UInt64 = 0
         func push(_ event: DaemonEvent) {
@@ -31,7 +31,13 @@ import Testing
         #expect(batch.contains { if case .disconnected = $0.event { true } else { false } })
         #expect(batch.contains { if case .overflow = $0.event { true } else { false } })
         #expect(store.apply(batch: batch) == .resync)
-        #expect(!store.hasPendingPatches)
+        // The echo arrived as a `tree-changed`: the rename stays shown until
+        // the snapshot covering it is applied, then leaves the log.
+        #expect(store.hasPendingIntents)
+        #expect(store.tab(surface: 3)?.name == "mine")
+        store.apply(snapshot: tree)
+        store.advanceAppliedSequence(to: sequence)
+        #expect(!store.hasPendingIntents)
         #expect(inbox.take().isEmpty)
     }
 
@@ -56,12 +62,12 @@ import Testing
     @Test func reconnectToANewDaemonReplacesTheIdentity() throws {
         let store = DaemonStore()
         let first = try Self.identity(generation: "A", capabilities: [])
-        let second = try Self.identity(generation: "B", capabilities: [DaemonCapabilities.batchClose])
+        let second = try Self.identity(generation: "B", capabilities: [DaemonCapabilities.shared.batchClose])
         store.apply(.connected(first, generationChanged: false))
-        #expect(store.identity?.supports(DaemonCapabilities.batchClose) == false)
+        #expect(store.identity?.supports(DaemonCapabilities.shared.batchClose) == false)
         store.apply(.disconnected(reason: "eof"))
         #expect(store.identity == first)
         store.apply(.connected(second, generationChanged: true))
-        #expect(store.identity?.supports(DaemonCapabilities.batchClose) == true)
+        #expect(store.identity?.supports(DaemonCapabilities.shared.batchClose) == true)
     }
 }

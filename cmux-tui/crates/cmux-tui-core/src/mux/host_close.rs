@@ -2,10 +2,14 @@
 //!
 //! A terminal close commits its tombstone and removes every view first, so
 //! the tree and the reply reflect the close at once. Ending the host process
-//! can take up to [`TERMINAL_HOST_CLOSE_WAIT`]: the close path sends the host
-//! its termination request immediately and hands the wait for the durable
-//! exit receipt to a small worker pool. Many closes therefore end their hosts
-//! in parallel instead of one after another on the requesting connection.
+//! can take up to [`TERMINAL_HOST_CLOSE_WAIT`]: the close path hands the host
+//! to a small worker pool, which sends the termination request, awaits the
+//! host's receipt, and then awaits the durable exit receipt. The requesting
+//! connection never waits for the host: its termination receipt arrives
+//! through the surface's reader thread, behind the terminal's queued output,
+//! so a busy stream can hold it for the whole control timeout. Many closes
+//! therefore end their hosts in parallel instead of one after another on the
+//! requesting connection.
 
 #[cfg(unix)]
 use std::collections::VecDeque;
@@ -200,43 +204,29 @@ fn finish_host_close(close: PendingHostClose) {
 }
 
 impl Mux {
-    /// End one closed terminal's runtime. A hosted runtime is asked to exit
-    /// now and awaited on the host-close pool; a local runtime is killed
-    /// inline.
+    /// End one closed terminal's runtime. A hosted runtime is signaled and
+    /// awaited on the host-close pool, so the close reply never waits for
+    /// the host's termination receipt; a local runtime is killed inline.
     pub(super) fn terminate_terminal_runtime(&self, runtime: &Arc<Surface>) {
         let identity = self.resource_terminal_host_identity(runtime);
         #[cfg(unix)]
         {
-            let termination = match runtime.begin_host_termination() {
-                Ok(Some(termination)) => Some(termination),
-                Ok(None) => {
-                    // A local runtime: kill it inline, and end any host
-                    // record left for the same terminal.
-                    runtime.kill();
-                    if let Some(identity) = identity {
-                        self.terminate_discovered_terminal_host(
-                            &identity.terminal_id,
-                            Some(&identity.incarnation),
-                        );
-                    }
-                    return;
+            if !runtime.has_host_termination() {
+                // A local runtime: kill it inline, and end any host record
+                // left for the same terminal.
+                runtime.kill();
+                if let Some(identity) = identity {
+                    self.terminate_discovered_terminal_host(
+                        &identity.terminal_id,
+                        Some(&identity.incarnation),
+                    );
                 }
-                Err(error) => {
-                    // The host connection is gone. Re-adopting the host from
-                    // its record can take a second, so the pool does it.
-                    if let Some(identity) = identity.as_ref() {
-                        eprintln!(
-                            "cmux-tui: terminal {} close could not signal its host: {error:#}",
-                            identity.terminal_id
-                        );
-                    }
-                    None
-                }
-            };
+                return;
+            }
             let host_root = self.surface_options.lock().unwrap().terminal_host_root.clone();
             self.terminal_host_closes.enqueue(PendingHostClose {
                 runtime: runtime.clone(),
-                step: HostCloseStep::Await(termination),
+                step: HostCloseStep::Signal,
                 identity,
                 host_root,
                 deadline: Instant::now() + TERMINAL_HOST_CLOSE_WAIT,

@@ -15,6 +15,32 @@ public nonisolated enum ActionTargetKind: String, CaseIterable, Sendable, Hashab
     /// A room (`room:default`, `room:prof_…`; plans/cmux-next/data-model.md;
     /// the daemon calls rooms profiles).
     case profile = "room"
+    /// A browser profile (`browser-profile:default`, `browser-profile:<uuid>`;
+    /// plans/cmux-next/data-model.md section 5).
+    case browserProfile = "browser-profile"
+    /// A bookmark or bookmark folder (`bookmark:bm_…`; plans/cmux-next/bookmarks.md).
+    case bookmark
+    /// An item of a sidebar section (`sidebar-item:itm_…`, or a built-in
+    /// name such as `sidebar-item:home`; plans/cmux-next/sidebar-sections.md).
+    case sidebarItem = "sidebar-item"
+    /// A sidebar section (`sidebar-section:sec_…`).
+    case sidebarSection = "sidebar-section"
+}
+
+extension ActionTargetKind {
+    /// The kinds an object of this kind lies inside: a tab is in a pane, a
+    /// column, a screen and a workspace. Surface coverage counts a tab
+    /// menu row for a pane action, because the pane handlers resolve a tab
+    /// target to its pane (`ActionSurfaceParityTests`).
+    public nonisolated var containers: [ActionTargetKind] {
+        switch self {
+        case .tab: [.pane, .column, .screen, .workspace]
+        case .pane: [.column, .screen, .workspace]
+        case .column: [.screen, .workspace]
+        case .screen, .tabGroup: [.workspace]
+        default: []
+        }
+    }
 }
 
 /// A reference to one object: what the user right-clicked, what the CLI
@@ -41,8 +67,8 @@ public nonisolated struct ActionTargetRef: Sendable, Hashable, Codable, CustomSt
     public var description: String { "\(kind.rawValue):\(id)" }
 }
 
-/// Surfaces with a right-click menu. Each has an ordered list of action IDs
-/// in `ContextMenuCatalog`; the registry renders them.
+/// Surfaces with a right-click menu. `ContextMenuCatalog` generates each
+/// from the actions' placements; the registry renders them.
 public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hashable, Codable {
     case tab
     case tabGroup
@@ -51,13 +77,17 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
     /// A screen group chip in the screen bar.
     case screenGroup
     case pane
-    case column
     case workspaceRow
     case workspaceGroup
     case sidebarBackground
     case terminalSelection
     case browserPage
-    case link
+    /// A link in a page (both engines; `BrowserHitMenu` in the App).
+    case browserLink
+    /// An image in a page.
+    case browserImage
+    /// Selected text in a page (not in an editable field).
+    case browserSelection
     /// A Cloud machine's sidebar section header.
     case cloudMachine
     /// An SSH machine's sidebar section header.
@@ -66,6 +96,20 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
     case newTab
     /// A room dot in the sidebar.
     case profile
+    /// A browser profile (the omnibar's profile badge, a Settings row).
+    case browserProfile
+    /// A bookmark or folder on the bookmarks bar.
+    case bookmark
+    /// The bookmarks bar's empty area.
+    case bookmarksBar
+    /// The screen bar's empty area or its new screen (+) button.
+    case screenBar
+    /// A row of the notifications panel.
+    case notification
+    /// An item of a docked sidebar section (Home, Settings, a pinned row).
+    case sidebarItem
+    /// The header of a titled sidebar section.
+    case sidebarSection
 
     /// The object a right-click in this context targets, if any.
     public var targetKind: ActionTargetKind? {
@@ -74,13 +118,20 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
         case .tabGroup: .tabGroup
         case .screen: .screen
         case .screenGroup: .screenGroup
-        case .pane, .terminalSelection, .browserPage, .link, .newTab: .pane
-        case .column: .column
+        // A terminal or page right-click targets its tab (the App passes the
+        // tab; a tab names its pane).
+        case .terminalSelection, .browserPage, .browserLink, .browserImage, .browserSelection: .tab
+        case .pane, .newTab: .pane
         case .workspaceRow: .workspace
         case .workspaceGroup: .workspaceGroup
         case .sidebarBackground: nil
         case .cloudMachine, .sshMachine: .machine
         case .profile: .profile
+        case .browserProfile: .browserProfile
+        case .bookmark: .bookmark
+        case .bookmarksBar, .screenBar, .notification: nil
+        case .sidebarItem: .sidebarItem
+        case .sidebarSection: .sidebarSection
         }
     }
 }

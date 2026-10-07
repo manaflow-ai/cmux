@@ -34,24 +34,25 @@ import Testing
         let compat = DaemonCompatibility(identity: Self.identity(Self.cloudImage3412812))
         #expect(compat.level == .limited)
         #expect(compat.missingRequired.isEmpty)
-        #expect(compat.missingOptional == DaemonCapabilities.optional)
+        #expect(compat.missingOptional == DaemonCapabilities.shared.optional.filter { !Self.cloudImage3412812.contains($0) })
+        #expect(!compat.missingOptional.isEmpty)
         #expect(compat.buildCommit == "3412812eae76")
     }
 
     @Test func daemonWithEveryCapabilityIsCurrent() {
-        let compat = DaemonCompatibility(identity: Self.identity(DaemonCapabilities.required + DaemonCapabilities.optional))
+        let compat = DaemonCompatibility(identity: Self.identity(DaemonCapabilities.shared.required + DaemonCapabilities.shared.optional))
         #expect(compat.level == .current)
         #expect(compat.missingOptional.isEmpty)
     }
 
     @Test func personalStateOnTheHomeSessionIsNotAMissingRemoteFeature() {
-        let notNeeded = Set(DaemonCapabilities.homeOnly + DaemonCapabilities.personalOnHome)
+        let notNeeded = Set(DaemonCapabilities.shared.homeOnly + DaemonCapabilities.shared.personalOnHome)
         let compat = DaemonCompatibility(identity: Self.identity(Self.cloudImage3412812), notNeeded: notNeeded)
         #expect(compat.level == .limited)
-        #expect(!compat.missingOptional.contains(DaemonCapabilities.workspaceGroups))
-        #expect(!compat.missingOptional.contains(DaemonCapabilities.savedTabGroups))
-        #expect(!compat.missingOptional.contains(DaemonCapabilities.profiles))
-        let personalOnly = DaemonCapabilities.required + DaemonCapabilities.optional.filter { !notNeeded.contains($0) }
+        #expect(!compat.missingOptional.contains(DaemonCapabilities.shared.workspaceGroups))
+        #expect(!compat.missingOptional.contains(DaemonCapabilities.shared.savedTabGroups))
+        #expect(!compat.missingOptional.contains(DaemonCapabilities.shared.profiles))
+        let personalOnly = DaemonCapabilities.shared.required + DaemonCapabilities.shared.optional.filter { !notNeeded.contains($0) }
         #expect(DaemonCompatibility(identity: Self.identity(personalOnly), notNeeded: notNeeded).level == .current)
     }
 

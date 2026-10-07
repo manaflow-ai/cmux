@@ -335,8 +335,8 @@ fn surface_exit_detaches_terminal_view_and_emits_event() {
     mux.with_state(|state| {
         assert!(!state.surfaces.contains_key(&surface.id));
         assert_eq!(state.pane_of(surface.id), None, "exited view remained in the layout");
-        assert_eq!(state.workspaces.len(), 1);
-        assert!(state.workspaces[0].screens.is_empty());
+        // The process end took the last tab, so the workspace closed with it.
+        assert!(state.workspaces.is_empty(), "an emptied workspace was kept");
     });
     mux.shutdown();
 }

@@ -4,8 +4,8 @@ import CmuxNextDaemon
 import CmuxNextSidebar
 
 // The last tab of the last pane takes its workspace along (coordinator
-// decision 2026-09-30, REWRITE.md round 3; Chrome: dragging a window's only
-// tab moves the window). A drag that carries every tab of its workspace
+// decision 2026-09-30, REWRITE.md round 3), the same way dragging a window's
+// only tab moves the window. A drag that carries every tab of its workspace
 // either moves the workspace itself (tear-off, sidebar gap), or, when the
 // tabs land in another workspace, closes the emptied workspace instead of
 // leaving it for the empty-workspace repair to refill. When that workspace

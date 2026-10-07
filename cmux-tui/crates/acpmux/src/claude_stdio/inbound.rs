@@ -164,12 +164,20 @@ impl Translator {
                             "options": options,
                         })));
                     }
-                    Some(other) => {
-                        // Anything else (hook_callback, mcp_message) is declined.
+                    other => {
+                        // Anything else (hook_callback, mcp_message) is declined
+                        // with an error response, so claude does not wait on it.
+                        let other = other.unwrap_or("?");
                         tracing::debug!("claude control_request {other} declined");
-                        let _ = other;
+                        self.stdin_replies.lock().await.push(json!({
+                            "type": "control_response",
+                            "response": {
+                                "subtype": "error",
+                                "request_id": rid,
+                                "error": format!("acpmux does not support control request {other}"),
+                            }
+                        }));
                     }
-                    None => {}
                 }
             }
             "control_response" => {
@@ -180,6 +188,17 @@ impl Translator {
                 if let Some(acp) = rid.strip_prefix("init-") {
                     let id: Id = serde_json::from_str(acp).unwrap_or(Value::String(acp.to_owned()));
                     self.pending.lock().await.remove(&id.to_string());
+                    if !ok {
+                        out.push(Message::err(
+                            id,
+                            RpcError::internal(
+                                resp.get("error")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("claude initialize failed"),
+                            ),
+                        ));
+                        return out;
+                    }
                     if let Some(cmds) = inner.get("commands").and_then(Value::as_array) {
                         *self.slash_commands.lock().await = cmds.clone();
                     }
@@ -196,8 +215,16 @@ impl Translator {
                     }
                 } else if let Some(acp) = rid.strip_prefix("ctl-") {
                     let id: Id = serde_json::from_str(acp).unwrap_or(Value::String(acp.to_owned()));
-                    self.pending.lock().await.remove(&id.to_string());
+                    let change = self.pending.lock().await.remove(&id.to_string());
                     if ok {
+                        // The cached value changes only once claude accepted it.
+                        if let Some(Pending::Control(setting, value)) = change {
+                            match setting {
+                                Setting::Mode => *self.mode.lock().await = value,
+                                Setting::Model => *self.model.lock().await = value,
+                                Setting::Effort => *self.effort.lock().await = value,
+                            }
+                        }
                         let mode = self.mode.lock().await.clone();
                         out.push(upd(
                             json!({"sessionUpdate": "current_mode_update", "currentModeId": mode}),
@@ -217,10 +244,16 @@ impl Translator {
                 // "int-*" acks need no reply; the result message ends the turn.
             }
             "result" => {
+                // `is_error` with a success subtype is how Claude reports a
+                // usage limit or an API refusal: a failed turn, not a reply.
+                let is_error = line.get("is_error").and_then(Value::as_bool).unwrap_or(false);
                 // A resumed process emits one empty result (num_turns 0, no
                 // API time) right after its system/init, before the real
-                // turn. That is startup noise, not the end of our prompt.
-                let startup_noise = line.get("num_turns").and_then(Value::as_u64) == Some(0)
+                // turn. That is startup noise, not the end of our prompt; a
+                // failed result is never noise.
+                let startup_noise = sub == "success"
+                    && !is_error
+                    && line.get("num_turns").and_then(Value::as_u64) == Some(0)
                     && line.get("duration_api_ms").and_then(Value::as_u64) == Some(0)
                     && !self.cancelled.load(Ordering::SeqCst);
                 if startup_noise {
@@ -236,9 +269,6 @@ impl Translator {
                     .map(|(k, _)| k.clone())
                     .collect();
                 let cancelled = self.cancelled.swap(false, Ordering::SeqCst);
-                // `is_error` with a success subtype is how Claude reports a
-                // usage limit or an API refusal: a failed turn, not a reply.
-                let is_error = line.get("is_error").and_then(Value::as_bool).unwrap_or(false);
                 let stop = if cancelled
                     || (sub == "error_during_execution"
                         && line.get("result").map(Value::is_null).unwrap_or(true))
@@ -254,7 +284,12 @@ impl Translator {
                 for k in waiting {
                     self.pending.lock().await.remove(&k);
                     let id: Id = serde_json::from_str(&k).unwrap_or(Value::String(k.clone()));
-                    if (sub.starts_with("error") || is_error) && !cancelled && stop != "cancelled" {
+                    // Hitting the turn limit is a normal stop, not a failure.
+                    if (sub.starts_with("error") || is_error)
+                        && !cancelled
+                        && stop != "cancelled"
+                        && stop != "max_turn_requests"
+                    {
                         out.push(Message::err(
                             id,
                             RpcError::internal(

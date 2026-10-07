@@ -18,7 +18,7 @@ final class TabGroupChipCell {
     var isLifted = false {
         didSet {
             guard oldValue != isLifted else { return }
-            pill.shadowColor = Palette.shadow.cgColor
+            themeScope.perform { pill.shadowColor = Palette.shadow.cgColor }
             pill.shadowRadius = Metrics.space3
             pill.shadowOffset = CGSize(width: 0, height: Metrics.space1)
             pill.shadowOpacity = isLifted ? 0.22 : 0
@@ -27,7 +27,7 @@ final class TabGroupChipCell {
     }
     var metrics = TabStripMetrics.standard { didSet { if oldValue != metrics { contentChanged() } } }
     var font = Typography.caption { didSet { if oldValue != font { contentChanged() } } }
-    var appearance = NSAppearance.currentDrawing() { didSet { if oldValue !== appearance { updateColors(animated: false) } } }
+    var themeScope: ThemeScope = .app { didSet { updateColors(animated: false) } }
     /// Backing scale of the host window. Starts at 1 to match a new layer's
     /// `contentsScale`, so the first real assignment always reaches the layers.
     var scale: CGFloat = 1 {
@@ -156,7 +156,8 @@ final class TabGroupChipCell {
     }
 
     private func applyColors() {
-        appearance.performAsCurrentDrawingAppearance {
+        themeScope.perform {
+            pill.shadowColor = Palette.shadow.cgColor
             var fill = group.colorToken.fill
             if isPressed {
                 fill = fill.blended(withFraction: 0.16, of: Palette.textPrimary) ?? fill

@@ -31,7 +31,9 @@ struct WorkspaceBlueprint: Hashable, Sendable, Codable {
 
     enum Tab: Hashable, Sendable, Codable {
         case terminal(cwd: String?)
-        case browser(url: String, engine: BrowserEngine?)
+        /// `profile`: the tab's browser profile (nil: `default`); a
+        /// duplicate reopens the page in the same profile.
+        case browser(url: String, engine: BrowserEngine?, profile: String? = nil)
 
         var isTerminal: Bool {
             if case .terminal = self { return true }
@@ -135,8 +137,11 @@ extension WorkspaceBlueprint {
                 (screen.pane(handle)?.tabs ?? []).compactMap { tab in
                     switch tab.kind {
                     case .pty: .terminal(cwd: tab.cwd)
-                    case .browser: tab.url.map { .browser(url: $0, engine: tab.browserEngine.flatMap(BrowserEngine.init(rawValue:))) }
-                    case .other: nil
+                    case .browser: tab.url.map {
+                        .browser(url: $0, engine: tab.browserEngine.flatMap(BrowserEngine.init(rawValue:)), profile: tab.snapshot.browserProfileID)
+                    }
+                    // A remote reference or a conversation is not re-created on duplicate.
+                    case .remoteTerminal, .conversation, .other: nil
                     }
                 }
             }

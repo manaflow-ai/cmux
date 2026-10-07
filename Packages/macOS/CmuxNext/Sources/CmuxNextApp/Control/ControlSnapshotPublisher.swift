@@ -72,8 +72,8 @@ final class ControlSnapshotPublisher {
     func publishNow() {
         guard !isStopped else { return }
         let started = ContinuousClock.now
-        let (topology, settings) = withObservationTracking {
-            (buildTopology(), services.settings?.snapshot.root)
+        let (topology, settings, tabSearch) = withObservationTracking {
+            (Self.topology(services), services.settings?.snapshot.root, TabSearchFactsBuilder.facts(services))
         } onChange: { [weak self] in
             // Runs synchronously inside the mutation; publish after it lands.
             Task { @MainActor in self?.modelChanged() }
@@ -81,14 +81,18 @@ final class ControlSnapshotPublisher {
         router.snapshots.publish { snapshot in
             snapshot.topology = topology
             snapshot.settings = settings
+            snapshot.tabSearch = tabSearch
         }
+        services.apps.topologyPublished(topology)
         let elapsed = ContinuousClock.now - started
         if elapsed > .milliseconds(2) {
             logger.debug("control snapshot took \(elapsed.components.attoseconds / 1_000_000_000_000_000) ms for \(topology.tabCount) tabs")
         }
     }
 
-    private func buildTopology() -> ControlTopology {
+    /// The topology of every machine, window and focus as of now (also
+    /// what Search Tabs lists in the palette).
+    static func topology(_ services: AppServices) -> ControlTopology {
         let windows: WindowManager = services.windows
         var topology = ControlTopologyMapper.topology(store: services.daemon.store) { [services] pane in
             services.paneController(for: pane)?.selectedTab?.id
@@ -98,14 +102,24 @@ final class ControlSnapshotPublisher {
         // read waiting on its write barrier wakes (CompatWriteBarrier).
         topology.daemonSequence = services.daemon.store.appliedSequence
         let machines = services.machines
-        // Workspaces on Cloud and SSH machines, so their public ids resolve
-        // and the CLI sees every workspace a window lists.
+        // Remote sessions' workspaces, qualified by session (data-model.md 1.3).
+        topology.sessions = ControlSessions.sessions(machines: machines)
         for daemon in machines.remoteDaemons where daemon.store.isLoaded {
+            let session = ControlSessions.key(daemon)
+            topology.sessionSequences[session] = daemon.store.appliedSequence
             topology.workspaces += daemon.store.workspaces.map { model in
-                var info = ControlTopologyMapper.workspace(from: model) { [services] pane in services.paneController(for: pane)?.selectedTab?.id }
+                var info = ControlTopologyMapper.workspace(from: model) { [services] pane in
+                    services.paneController(for: pane)?.selectedTab?.id
+                }
+                info.sessionID = session
                 info.machine = daemon.machineID
                 return info
             }
+        }
+        // With the local daemon down, the remote sessions' workspaces are the
+        // whole tree: resolve their public ids instead of passing them through.
+        if !topology.isLoaded, topology.daemonFailure != nil, machines.remoteDaemons.contains(where: { $0.store.isLoaded }) {
+            topology.isLoaded = true
         }
         topology.windows = windows.controllers.map { controller in
             let members = windows.registry.members(of: controller.state.id)
@@ -127,8 +141,11 @@ final class ControlSnapshotPublisher {
         }
         if let active = windows.active {
             let pane = active.focusedPane
+            // The strip's selected tab: a daemon tab, or an internal page
+            // (Settings, Keyboard Shortcuts) or session browser tab the
+            // daemon does not hold, as debug.focus reports it (nxdog53).
             topology.focus = ControlFocus(windowID: active.state.id, workspaceID: active.state.workspaceID,
-                                          paneID: pane?.pane.id, tabID: pane?.selectedTab?.id)
+                                          paneID: pane?.pane.id, tabID: pane?.selectedTab?.id ?? pane?.stripModel.selectedID?.rawValue)
         }
         return topology
     }

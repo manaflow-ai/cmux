@@ -61,12 +61,16 @@ public struct WindowRecord: Codable, Sendable, Hashable, Identifiable {
     /// The workspace this window last showed in each profile, so switching
     /// back restores it (profile id -> workspace key).
     public var profileWorkspaces: [String: WorkspaceKey]
+    /// The top page the window shows in place of its workspace (an app
+    /// client's route, `home` or `page:<id>`); nil shows the workspace.
+    /// Opaque to the daemon and to other clients.
+    public var page: String?
 
     public init(id: String, workspaceKey: WorkspaceKey? = nil, workspaceKeys: [WorkspaceKey] = [], machine: String? = nil,
                 screenID: ResourceID? = nil, frame: WindowFrame? = nil, display: String? = nil, isFullScreen: Bool = false,
                 sidebarWidth: Double? = nil, sidebarHidden: Bool = false,
                 selectedTabs: [String: String] = [:], order: Int = 0, profile: ProfileID? = nil,
-                profileWorkspaces: [String: WorkspaceKey] = [:]) {
+                profileWorkspaces: [String: WorkspaceKey] = [:], page: String? = nil) {
         self.id = id
         self.workspaceKey = workspaceKey
         self.workspaceKeys = workspaceKeys
@@ -82,10 +86,11 @@ public struct WindowRecord: Codable, Sendable, Hashable, Identifiable {
         self.order = order
         self.profile = profile
         self.profileWorkspaces = profileWorkspaces
+        self.page = page
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, frame, order, machine, display, profile
+        case id, frame, order, machine, display, profile, page
         case profileWorkspaces = "profile_workspaces"
         case workspaceKey = "workspace_key"
         case workspaceKeys = "workspace_keys"
@@ -124,5 +129,6 @@ public struct WindowRecord: Codable, Sendable, Hashable, Identifiable {
         order = try c.decodeIfPresent(Int.self, forKey: .order) ?? 0
         profile = try c.decodeIfPresent(ProfileID.self, forKey: .profile)
         profileWorkspaces = try c.decodeIfPresent([String: WorkspaceKey].self, forKey: .profileWorkspaces) ?? [:]
+        page = try c.decodeIfPresent(String.self, forKey: .page)
     }
 }

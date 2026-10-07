@@ -137,7 +137,16 @@ class StoreRun:
     def extension_info(self, app):
         browser = self.browser_session(app)
         try:
-            target = browser.call("Target.createTarget", {"url": "chrome://extensions"})["targetId"]
+            # Open it as a cmux tab: CDP's createTarget uses the default
+            # browser context, which has no cmux window (cmux refuses the
+            # tab), and DevTools does not know the pane profiles' contexts.
+            before = {t.get("id") for t in cdp.targets(app.cdp_port)}
+            app.action("tab new-chromium", {"url": "chrome://extensions"})
+            opened = cdp.wait_target(app.cdp_port, lambda t: t.get("id") not in before
+                                     and t.get("url", "").startswith("chrome://extensions"), 15)
+            if not opened:
+                raise RuntimeError("chrome://extensions did not open")
+            target = opened["id"]
             page = cdp.wait_target(app.cdp_port, lambda t: t.get("id") == target, 10)
             session = cdp.Session(page["webSocketDebuggerUrl"])
             time.sleep(1)
@@ -174,17 +183,41 @@ class StoreRun:
             except Exception as error:  # noqa: BLE001
                 self.row(entry, check, "fail", error)
 
+    @staticmethod
+    def wait_tabs_settled(app, quiet=2.0, timeout=15):
+        def shown():
+            return [t.get("url") for t in (app.call("debug.cef").get("result") or {}).get("devtools") or []]
+        deadline = time.monotonic() + timeout
+        last, since = shown(), time.monotonic()
+        while time.monotonic() < deadline and time.monotonic() - since < quiet:
+            time.sleep(0.25)
+            now = shown()
+            if now != last:
+                last, since = now, time.monotonic()
+
     def popup(self, app, entry, name, action):
         if not action.get("default_popup"):
             self.row(entry, "popup", "unsupported", "no default_popup in the manifest")
             return
         prefix = f"chrome-extension://{entry['id']}/"
+        # Extensions open welcome tabs after install; a new foreground tab
+        # closes an open action popup. Click once the shown
+        # tabs stopped changing.
+        self.wait_tabs_settled(app)
         before = {t.get("id") for t in cdp.targets(app.cdp_port)}
-        app.call("debug.extensions.click", {"extension": entry["id"]})
+        clicked = app.call("debug.extensions.click", {"extension": entry["id"]}).get("result")
         target = cdp.wait_target(app.cdp_port, lambda t: t.get("id") not in before and t.get("type") == "page"
                                  and t.get("url", "").startswith(prefix), 8)
         if not target:
-            self.row(entry, "popup", "fail", "toolbar click opened no popup")
+            # Say what the first click did, then click once more: a popup on
+            # the second click means the first one was lost.
+            first = {"click": clicked, "popup": app.call("debug.extensions.popup").get("result"),
+                     "tabs": [t.get("url") for t in (app.call("debug.cef").get("result") or {}).get("devtools") or []]}
+            app.call("debug.extensions.click", {"extension": entry["id"]})
+            second = cdp.wait_target(app.cdp_port, lambda t: t.get("id") not in before and t.get("type") == "page"
+                                     and t.get("url", "").startswith(prefix), 8)
+            self.row(entry, "popup", "fail", f"toolbar click opened no popup; first click {first}; "
+                     f"second click {'opened it' if second else 'opened none'}")
             return
         session = cdp.Session(target["webSocketDebuggerUrl"])
         try:

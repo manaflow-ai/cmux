@@ -30,9 +30,13 @@ public struct ControlWorkspaceInfo: Sendable, Hashable {
 
     /// The id clients print and pass: `ws_…` on registry daemons, else the key.
     public var publicID: String { resourceID ?? id }
+    /// The workspace's home session (`ControlSessionInfo.id`); nil for the
+    /// app's home session. Its handles are valid only on that session.
+    public var sessionID: String?
 
     public init(id: String, handle: String, name: String, title: String? = nil, color: String? = nil, icon: String? = nil,
-                groupID: String? = nil, unreadCount: Int = 0, screens: [ControlScreenInfo] = []) {
+                groupID: String? = nil, unreadCount: Int = 0, screens: [ControlScreenInfo] = [], sessionID: String? = nil) {
+        self.sessionID = sessionID
         self.id = id
         self.handle = handle
         self.name = name

@@ -4,7 +4,7 @@ import Foundation
 /// Where a docked DevTools sits in a CEF tab's content view, and the
 /// page's share of it. Pure geometry in the content view's coordinates
 /// (not flipped: y grows upward, so "bottom" is y = 0). The last dock side
-/// and sizes are remembered for the next DevTools, like Chrome.
+/// and sizes are remembered for the next DevTools.
 nonisolated struct CEFDevToolsLayout: Hashable, Sendable {
     var dock: BrowserDevToolsDock = .bottom
     /// DevTools height as a share of the content height (bottom dock).

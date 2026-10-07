@@ -30,14 +30,14 @@ struct BrowserHibernationSettingsTests {
     }
 
     @Test func exclusionsMatchHostsAndSubdomains() throws {
-        let setting = try parse(#"{"browser": {"hibernationExclusions": ["example.com", "*.figma.com"], "hibernatePinnedTabs": true}}"#)
+        let setting = try parse(#"{"browser": {"hibernationExclusions": ["example.com", "*.example.org"], "hibernatePinnedTabs": true}}"#)
             .browserHibernation
         #expect(setting.includesPinnedTabs)
         #expect(setting.excludes(host: "example.com"))
         #expect(setting.excludes(host: "mail.EXAMPLE.com"))
         #expect(!setting.excludes(host: "notexample.com"))
-        #expect(setting.excludes(host: "www.figma.com"))
-        #expect(!setting.excludes(host: "figma.com"))
+        #expect(setting.excludes(host: "www.example.org"))
+        #expect(!setting.excludes(host: "example.org"))
         #expect(!setting.excludes(host: nil))
     }
 

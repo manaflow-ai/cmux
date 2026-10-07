@@ -121,7 +121,7 @@ import Testing
             case .query(let generation, let text): queries.append((generation, text))
             case .keywordInput(_, let text, let generation): queries.append((generation, text))
             case .cancelQuery: queries.removeAll()
-            case .began, .ended, .beep, .deleteSuggestion, .keywordStarted, .keywordEnded: break
+            case .began, .ended, .beep, .deleteSuggestion, .typedNavigation, .copyAnswer, .keywordStarted, .keywordEnded: break
             }
         }
         checkInvariants()

@@ -17,8 +17,10 @@ public final class SetWorkspaceMetadataRequest implements WireValue {
     private final Field<UInt64> expectedRevision;
     private final Field<String> icon;
     private final Field<String> key;
+    private final Field<Boolean> markedUnread;
     private final Field<String> mutationId;
     private final Field<String> origin;
+    private final Field<Boolean> pinned;
     private final Field<String> title;
     private final Field<UInt64> workspace;
 
@@ -28,8 +30,10 @@ public final class SetWorkspaceMetadataRequest implements WireValue {
         this.expectedRevision = builder.expectedRevision;
         this.icon = builder.icon;
         this.key = builder.key;
+        this.markedUnread = builder.markedUnread;
         this.mutationId = builder.mutationId;
         this.origin = builder.origin;
+        this.pinned = builder.pinned;
         this.title = builder.title;
         this.workspace = builder.workspace;
     }
@@ -41,8 +45,10 @@ public final class SetWorkspaceMetadataRequest implements WireValue {
     public Field<UInt64> expectedRevision() { return expectedRevision; }
     public Field<String> icon() { return icon; }
     public Field<String> key() { return key; }
+    public Field<Boolean> markedUnread() { return markedUnread; }
     public Field<String> mutationId() { return mutationId; }
     public Field<String> origin() { return origin; }
+    public Field<Boolean> pinned() { return pinned; }
     public Field<String> title() { return title; }
     public Field<UInt64> workspace() { return workspace; }
 
@@ -69,6 +75,10 @@ public final class SetWorkspaceMetadataRequest implements WireValue {
         if (!Wire.isMissing(rawKey)) {
             builder.key(rawKey == null ? null : Wire.string(rawKey, "SetWorkspaceMetadataRequest.key"));
         }
+        Object rawMarkedUnread = Wire.optional(object, "marked_unread");
+        if (!Wire.isMissing(rawMarkedUnread)) {
+            builder.markedUnread(rawMarkedUnread == null ? null : Wire.bool(rawMarkedUnread, "SetWorkspaceMetadataRequest.marked_unread"));
+        }
         Object rawMutationId = Wire.optional(object, "mutation_id");
         if (!Wire.isMissing(rawMutationId)) {
             builder.mutationId(rawMutationId == null ? null : Wire.string(rawMutationId, "SetWorkspaceMetadataRequest.mutation_id"));
@@ -76,6 +86,10 @@ public final class SetWorkspaceMetadataRequest implements WireValue {
         Object rawOrigin = Wire.optional(object, "origin");
         if (!Wire.isMissing(rawOrigin)) {
             builder.origin(rawOrigin == null ? null : Wire.string(rawOrigin, "SetWorkspaceMetadataRequest.origin"));
+        }
+        Object rawPinned = Wire.optional(object, "pinned");
+        if (!Wire.isMissing(rawPinned)) {
+            builder.pinned(rawPinned == null ? null : Wire.bool(rawPinned, "SetWorkspaceMetadataRequest.pinned"));
         }
         Object rawTitle = Wire.optional(object, "title");
         if (!Wire.isMissing(rawTitle)) {
@@ -96,8 +110,10 @@ public final class SetWorkspaceMetadataRequest implements WireValue {
         Wire.put(object, "expected_revision", expectedRevision);
         Wire.put(object, "icon", icon);
         Wire.put(object, "key", key);
+        Wire.put(object, "marked_unread", markedUnread);
         Wire.put(object, "mutation_id", mutationId);
         Wire.put(object, "origin", origin);
+        Wire.put(object, "pinned", pinned);
         Wire.put(object, "title", title);
         Wire.put(object, "workspace", workspace);
         return Collections.unmodifiableMap(object);
@@ -106,11 +122,11 @@ public final class SetWorkspaceMetadataRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof SetWorkspaceMetadataRequest that)) return false;
-        return Objects.equals(color, that.color) && Objects.equals(expectedGeneration, that.expectedGeneration) && Objects.equals(expectedRevision, that.expectedRevision) && Objects.equals(icon, that.icon) && Objects.equals(key, that.key) && Objects.equals(mutationId, that.mutationId) && Objects.equals(origin, that.origin) && Objects.equals(title, that.title) && Objects.equals(workspace, that.workspace);
+        return Objects.equals(color, that.color) && Objects.equals(expectedGeneration, that.expectedGeneration) && Objects.equals(expectedRevision, that.expectedRevision) && Objects.equals(icon, that.icon) && Objects.equals(key, that.key) && Objects.equals(markedUnread, that.markedUnread) && Objects.equals(mutationId, that.mutationId) && Objects.equals(origin, that.origin) && Objects.equals(pinned, that.pinned) && Objects.equals(title, that.title) && Objects.equals(workspace, that.workspace);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(color, expectedGeneration, expectedRevision, icon, key, mutationId, origin, title, workspace); }
+    public int hashCode() { return Objects.hash(color, expectedGeneration, expectedRevision, icon, key, markedUnread, mutationId, origin, pinned, title, workspace); }
 
     @Override
     public String toString() { return "SetWorkspaceMetadataRequest" + toWire(); }
@@ -121,8 +137,10 @@ public final class SetWorkspaceMetadataRequest implements WireValue {
         private Field<UInt64> expectedRevision = Field.omitted();
         private Field<String> icon = Field.omitted();
         private Field<String> key = Field.omitted();
+        private Field<Boolean> markedUnread = Field.omitted();
         private Field<String> mutationId = Field.omitted();
         private Field<String> origin = Field.omitted();
+        private Field<Boolean> pinned = Field.omitted();
         private Field<String> title = Field.omitted();
         private Field<UInt64> workspace = Field.omitted();
 
@@ -146,12 +164,20 @@ public final class SetWorkspaceMetadataRequest implements WireValue {
             this.key = Field.ofNullable(value);
             return this;
         }
+        public Builder markedUnread(Boolean value) {
+            this.markedUnread = Field.ofNullable(value);
+            return this;
+        }
         public Builder mutationId(String value) {
             this.mutationId = Field.ofNullable(value);
             return this;
         }
         public Builder origin(String value) {
             this.origin = Field.ofNullable(value);
+            return this;
+        }
+        public Builder pinned(Boolean value) {
+            this.pinned = Field.ofNullable(value);
             return this;
         }
         public Builder title(String value) {

@@ -25,6 +25,7 @@ public final class CreateTerminalRequest implements WireValue {
     private final Field<String> name;
     private final Field<String> origin;
     private final Field<Integer> rows;
+    private final Field<List<String>> shellArgs;
     private final Field<String> terminalId;
     private final Field<UInt64> workspace;
 
@@ -42,6 +43,7 @@ public final class CreateTerminalRequest implements WireValue {
         this.name = builder.name;
         this.origin = builder.origin;
         this.rows = builder.rows;
+        this.shellArgs = builder.shellArgs.map(value -> List.copyOf(value));
         this.terminalId = builder.terminalId;
         this.workspace = builder.workspace;
     }
@@ -61,6 +63,7 @@ public final class CreateTerminalRequest implements WireValue {
     public Field<String> name() { return name; }
     public Field<String> origin() { return origin; }
     public Field<Integer> rows() { return rows; }
+    public Field<List<String>> shellArgs() { return shellArgs; }
     public Field<String> terminalId() { return terminalId; }
     public Field<UInt64> workspace() { return workspace; }
 
@@ -119,6 +122,10 @@ public final class CreateTerminalRequest implements WireValue {
         if (!Wire.isMissing(rawRows)) {
             builder.rows(rawRows == null ? null : Wire.uint16(rawRows, "CreateTerminalRequest.rows"));
         }
+        Object rawShellArgs = Wire.optional(object, "shell_args");
+        if (!Wire.isMissing(rawShellArgs)) {
+            builder.shellArgs(rawShellArgs == null ? null : Wire.array(rawShellArgs, "CreateTerminalRequest.shell_args", item -> Wire.string(item, "CreateTerminalRequest.shell_args item")));
+        }
         Object rawTerminalId = Wire.optional(object, "terminal_id");
         if (!Wire.isMissing(rawTerminalId)) {
             builder.terminalId(rawTerminalId == null ? null : Wire.string(rawTerminalId, "CreateTerminalRequest.terminal_id"));
@@ -146,6 +153,7 @@ public final class CreateTerminalRequest implements WireValue {
         Wire.put(object, "name", name);
         Wire.put(object, "origin", origin);
         Wire.put(object, "rows", rows);
+        Wire.put(object, "shell_args", shellArgs);
         Wire.put(object, "terminal_id", terminalId);
         Wire.put(object, "workspace", workspace);
         return Collections.unmodifiableMap(object);
@@ -154,11 +162,11 @@ public final class CreateTerminalRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof CreateTerminalRequest that)) return false;
-        return Objects.equals(argv, that.argv) && Objects.equals(cols, that.cols) && Objects.equals(command, that.command) && Objects.equals(cwd, that.cwd) && Objects.equals(env, that.env) && Objects.equals(expectedGeneration, that.expectedGeneration) && Objects.equals(expectedRevision, that.expectedRevision) && Objects.equals(keep, that.keep) && Objects.equals(key, that.key) && Objects.equals(mutationId, that.mutationId) && Objects.equals(name, that.name) && Objects.equals(origin, that.origin) && Objects.equals(rows, that.rows) && Objects.equals(terminalId, that.terminalId) && Objects.equals(workspace, that.workspace);
+        return Objects.equals(argv, that.argv) && Objects.equals(cols, that.cols) && Objects.equals(command, that.command) && Objects.equals(cwd, that.cwd) && Objects.equals(env, that.env) && Objects.equals(expectedGeneration, that.expectedGeneration) && Objects.equals(expectedRevision, that.expectedRevision) && Objects.equals(keep, that.keep) && Objects.equals(key, that.key) && Objects.equals(mutationId, that.mutationId) && Objects.equals(name, that.name) && Objects.equals(origin, that.origin) && Objects.equals(rows, that.rows) && Objects.equals(shellArgs, that.shellArgs) && Objects.equals(terminalId, that.terminalId) && Objects.equals(workspace, that.workspace);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(argv, cols, command, cwd, env, expectedGeneration, expectedRevision, keep, key, mutationId, name, origin, rows, terminalId, workspace); }
+    public int hashCode() { return Objects.hash(argv, cols, command, cwd, env, expectedGeneration, expectedRevision, keep, key, mutationId, name, origin, rows, shellArgs, terminalId, workspace); }
 
     @Override
     public String toString() { return "CreateTerminalRequest" + toWire(); }
@@ -177,6 +185,7 @@ public final class CreateTerminalRequest implements WireValue {
         private Field<String> name = Field.omitted();
         private Field<String> origin = Field.omitted();
         private Field<Integer> rows = Field.omitted();
+        private Field<List<String>> shellArgs = Field.omitted();
         private Field<String> terminalId = Field.omitted();
         private Field<UInt64> workspace = Field.omitted();
 
@@ -230,6 +239,10 @@ public final class CreateTerminalRequest implements WireValue {
         }
         public Builder rows(Integer value) {
             this.rows = Field.ofNullable(value);
+            return this;
+        }
+        public Builder shellArgs(List<String> value) {
+            this.shellArgs = Field.ofNullable(value);
             return this;
         }
         public Builder terminalId(String value) {

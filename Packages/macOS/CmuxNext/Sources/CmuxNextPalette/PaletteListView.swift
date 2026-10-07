@@ -18,13 +18,14 @@ final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDel
     private var rowIndexByID: [String: Int] = [:]
     private var selectedID: String?
     private var hoveredID: String?
+    /// No rubber band while every result fits.
+    private var scrollFit: ScrollFitElasticity?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         drawsBackground = false
         hasVerticalScroller = true
-        autohidesScrollers = true
-        scrollerStyle = .overlay
+        SystemScrollers.follow(self)
         automaticallyAdjustsContentInsets = false
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("palette.column"))
         table.addTableColumn(column)
@@ -46,6 +47,7 @@ final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDel
         NotificationCenter.default.addObserver(
             self, selector: #selector(boundsChanged), name: NSView.boundsDidChangeNotification, object: contentView
         )
+        scrollFit = ScrollFitElasticity(scrollView: self)
     }
 
     @available(*, unavailable)
@@ -66,6 +68,9 @@ final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDel
         self.rows = rows
         rowIndexByID = index
         table.reloadData()
+        // Size the table now, not at the next display, so the rubber band
+        // matches the new results before the next scroll event.
+        table.tile()
     }
 
     func setSelection(_ id: String?) {
@@ -205,7 +210,7 @@ final class PaletteTableView: NSTableView {
 /// Section title row.
 final class PaletteSectionHeaderCell: NSTableCellView {
     static let identifier = NSUserInterfaceItemIdentifier("palette.header")
-    private let label = PaletteText.label(Typography.header, color: Palette.textSecondary)
+    private let label = PaletteText.label(Typography.header, tone: .secondary)
 
     var title: String {
         get { label.stringValue }

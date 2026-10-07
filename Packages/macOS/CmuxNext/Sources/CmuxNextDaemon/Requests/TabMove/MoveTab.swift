@@ -41,11 +41,16 @@ public struct MoveTabToNewWorkspaceRequest: DaemonRequest {
     public var surface: SurfaceID
     public var group: WorkspaceGroupID?
     public var index: Int?
+    /// The new workspace's name (`tab-workspace-name-v1`); nil keeps the
+    /// daemon's default. Sent only to a daemon that advertises it.
+    public var name: String?
     public var transaction: ClientTransactionID?
-    public init(surface: SurfaceID, group: WorkspaceGroupID? = nil, index: Int? = nil, transaction: ClientTransactionID? = nil) {
+    public init(surface: SurfaceID, group: WorkspaceGroupID? = nil, index: Int? = nil, name: String? = nil,
+                transaction: ClientTransactionID? = nil) {
         self.surface = surface
         self.group = group
         self.index = index
+        self.name = name
         self.transaction = transaction
     }
 }

@@ -1,11 +1,11 @@
 public import QuartzCore
 
 extension Motion {
-    /// Scale a floating panel opens from (Linear's command menu, Spotlight):
+    /// Scale a floating panel opens from,
     /// with an `appear` spring and a `fadeIn`, about the panel's center.
-    public static let panelOpenScale: CGFloat = 0.97
+    public static var panelOpenScale: CGFloat { CGFloat(MotionTunables.panelOpenScale.value) }
     /// Scale a floating panel closes to, with `fadeOut`: a slight shrink.
-    public static let panelCloseScale: CGFloat = 0.98
+    public static var panelCloseScale: CGFloat { CGFloat(MotionTunables.panelCloseScale.value) }
 
     /// A uniform scale about `pivot` (in `layer`'s bounds coordinates) for
     /// the layer's `transform` or `sublayerTransform`. Core Animation

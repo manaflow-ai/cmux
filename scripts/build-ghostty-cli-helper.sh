@@ -377,8 +377,16 @@ build_helper() {
     cli-helper
     -Dapp-runtime=none
     -Dcrash-report-subdir=cmux/crash
+    # -Di18n=false: cmux ships no Ghostty .mo catalogs, and with i18n on the
+    # helper statically links GNU libintl (LGPL-2.1-or-later). The release
+    # check scripts/verify_app_libintl.py fails if libintl is shipped.
+    -Di18n=false
     -Demit-macos-app=false
     -Demit-xcframework=false
+    # No build fetches packages it does not use, so each source archive equals
+    # the real fetch list: the helper never installs the iTerm2 theme set
+    # (the app ships its own checked-in themes, Resources/ghostty/themes).
+    -Demit-themes=false
     -Doptimize=ReleaseFast
     --prefix
     "$prefix"

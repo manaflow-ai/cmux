@@ -29,17 +29,25 @@ public nonisolated struct OnboardingStateFile: Sendable {
         var date: Date
     }
 
+    private func read() -> Record? {
+        // concurrency-allow: nonisolated; callers read it off the main thread
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return try? JSONDecoder().decode(Record.self, from: data)
+    }
+
+    private func write(_ record: Record) throws {
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try JSONEncoder().encode(record).write(to: url, options: .atomic)
+    }
+
     /// True when onboarding for the current version was never finished or skipped.
     public func needsOnboarding() -> Bool {
-        // concurrency-allow: nonisolated; the App reads it off the main thread at launch
-        guard let data = try? Data(contentsOf: url), let record = try? JSONDecoder().decode(Record.self, from: data) else { return true }
+        guard let record = read() else { return true }
         return record.version < Self.currentVersion
     }
 
     /// Records that onboarding ended (`completed` false: skipped).
     public func markDone(completed: Bool, now: Date = Date()) throws {
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        let record = Record(version: Self.currentVersion, completed: completed, date: now)
-        try JSONEncoder().encode(record).write(to: url, options: .atomic)
+        try write(Record(version: Self.currentVersion, completed: completed, date: now))
     }
 }

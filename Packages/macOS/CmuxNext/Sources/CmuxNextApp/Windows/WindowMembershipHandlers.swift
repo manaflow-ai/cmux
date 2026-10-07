@@ -65,7 +65,7 @@ enum WindowMembershipHandlers {
         if let source, let frame, Set(ids) == Set(windows.registry.members(of: source.state.id)) {
             source.window?.setFrame(frame, display: true)
             windows.bringToFront(source)
-            windows.stateDidChange(source.state)
+            windows.recordSaver.stateDidChange(source.state)
             return
         }
         guard let controller = windows.openWindow(workspaces: ids, frame: frame) else { return }

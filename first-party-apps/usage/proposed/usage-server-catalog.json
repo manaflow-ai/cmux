@@ -1,0 +1,459 @@
+{
+  "schema_version": 1,
+  "family": "account",
+  "owner": "app:cmux/usage",
+  "operations": [
+    {
+      "name": "account.list",
+      "owner": "app:cmux/usage",
+      "class": "read",
+      "risk": "read",
+      "docs": "Accounts the local router and the hosted router know, with session and weekly headroom, resets and a summary per provider (the router status schema).",
+      "cli": {
+        "path": "usage get",
+        "visible": true
+      },
+      "code_mode": {
+        "path": "mux.account.list"
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "usage"
+      },
+      "palette": null,
+      "focuses": false,
+      "idempotency": "forbidden",
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "since": "usage/1",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "provider": {
+            "type": "string",
+            "description": "Only this provider id (claude, codex, ...)"
+          }
+        },
+        "required": []
+      },
+      "x-implementation": "server",
+      "output": {
+        "$ref": "#/$defs/accountList"
+      }
+    },
+    {
+      "name": "account.usage",
+      "owner": "app:cmux/usage",
+      "class": "read",
+      "risk": "read",
+      "docs": "Earlier readings of every account's weekly headroom, newest first, for pace.",
+      "cli": {
+        "path": "usage history",
+        "visible": true
+      },
+      "code_mode": {
+        "path": "mux.account.usage"
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "usage"
+      },
+      "palette": null,
+      "focuses": false,
+      "idempotency": "forbidden",
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "since": "usage/1",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "before_ms": {
+            "type": "string",
+            "description": "Only readings taken at or before this time (epoch ms)"
+          },
+          "since_ms": {
+            "type": "string",
+            "description": "Only readings taken at or after this time (epoch ms)"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000,
+            "description": "Maximum number of readings (default 1)"
+          }
+        },
+        "required": []
+      },
+      "x-implementation": "server",
+      "output": {
+        "$ref": "#/$defs/accountUsage"
+      }
+    },
+    {
+      "name": "account.refresh",
+      "owner": "app:cmux/usage",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "docs": "Read the routers now. The server coalesces with a read in flight and allows one read per 30 s.",
+      "cli": {
+        "path": "usage refresh",
+        "visible": true
+      },
+      "code_mode": {
+        "path": "mux.account.refresh"
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "usage"
+      },
+      "palette": null,
+      "focuses": false,
+      "idempotency": "optional",
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "since": "usage/1",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "wait": {
+            "type": "boolean",
+            "description": "Return after the read finishes (default true)"
+          }
+        },
+        "required": []
+      },
+      "x-implementation": "server"
+    },
+    {
+      "name": "account.watch",
+      "owner": "app:cmux/usage",
+      "class": "stream",
+      "risk": "read",
+      "docs": "Stream a revision each time the server has a new reading. The demand filter tells the server how much is on screen.",
+      "cli": {
+        "path": "usage watch",
+        "visible": true
+      },
+      "code_mode": {
+        "path": "mux.account.watch"
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "usage"
+      },
+      "palette": null,
+      "focuses": false,
+      "idempotency": "forbidden",
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "since": "usage/1",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "demand": {
+            "type": "string",
+            "enum": [
+              "glance",
+              "detail"
+            ]
+          }
+        },
+        "required": []
+      },
+      "x-implementation": "server"
+    },
+    {
+      "name": "usage.status",
+      "owner": "app:cmux/usage",
+      "class": "read",
+      "risk": "read",
+      "docs": "Provider summaries and pace verdicts for agents; account rows with the router's labels only when asked for.",
+      "cli": {
+        "path": "usage status",
+        "visible": true
+      },
+      "code_mode": {
+        "path": "mux.usage.status"
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "usage"
+      },
+      "palette": null,
+      "focuses": false,
+      "idempotency": "forbidden",
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "since": "usage/1",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "provider": {
+            "type": "string"
+          },
+          "accounts": {
+            "type": "boolean"
+          },
+          "refresh": {
+            "type": "boolean"
+          }
+        },
+        "required": []
+      },
+      "x-implementation": "js:status"
+    },
+    {
+      "name": "usage.show",
+      "owner": "app:cmux/usage",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "docs": "Open the usage pane.",
+      "cli": null,
+      "code_mode": {
+        "path": "mux.usage.show"
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "usage"
+      },
+      "palette": null,
+      "focuses": true,
+      "idempotency": "forbidden",
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "since": "usage/1",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "gesture": {
+            "type": "string",
+            "description": "Gesture token of the user action (ctx.gesture)"
+          }
+        },
+        "required": [
+          "gesture"
+        ]
+      },
+      "x-implementation": "js:show"
+    }
+  ],
+  "trigger_events": [
+    "account.exhausted"
+  ],
+  "$defs": {
+    "account": {
+      "type": "object",
+      "required": [
+        "id",
+        "label",
+        "provider",
+        "state"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "plan": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "state": {
+          "enum": [
+            "error",
+            "cooked",
+            "temp",
+            "active",
+            "rec",
+            "protected",
+            "ready"
+          ]
+        },
+        "session_left_pct": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "session_reset_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "weekly_left_pct": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "weekly_reset_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "extra_usage_usd": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "source": {
+          "enum": [
+            "subrouter",
+            "coderouter"
+          ]
+        }
+      }
+    },
+    "accountList": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "fetched_at_ms",
+        "providers"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "generated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "fetched_at_ms": {
+          "type": "string"
+        },
+        "stale": {
+          "type": "boolean"
+        },
+        "error": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "code": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            }
+          }
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "ok": {
+                "type": "boolean"
+              },
+              "error": {
+                "type": [
+                  "object",
+                  "null"
+                ]
+              }
+            }
+          }
+        },
+        "providers": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "accounts": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/account"
+                }
+              },
+              "summary": {
+                "type": "object",
+                "properties": {
+                  "usable": {
+                    "type": "integer"
+                  },
+                  "total": {
+                    "type": "integer"
+                  },
+                  "weekly_left_sum_pct": {
+                    "type": "number"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "accountUsage": {
+      "type": "object",
+      "properties": {
+        "snapshots": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "taken_at_ms": {
+                "type": "string"
+              },
+              "accounts": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "provider": {
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "state": {
+                      "type": "string"
+                    },
+                    "weekly_left_pct": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "weekly_reset_at": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,5 +1,5 @@
 public import AppKit
-import GhosttyKit
+import GhosttyNextKit
 
 // IME and marked text. Preedit goes to `ghostty_surface_preedit`, the
 // candidate window is placed from `ghostty_surface_ime_point`, and text

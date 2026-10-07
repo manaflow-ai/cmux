@@ -1,0 +1,241 @@
+// The icon picker's state owner: tab, query, active cell, skin tone and recents. Every intent
+// recomputes the grid synchronously (search + layout cost about 1 ms for the full emoji table),
+// so one keystroke is one store change and one React commit of the visible rows only.
+// React reads it with useSyncExternalStore; tests drive it directly.
+import { withTone, type EmojiRecord, type EmojiTable, type SkinTone } from "./emojiData";
+import { layoutGrid, moveActive, type GridLayout, type GridMove, type GridSection } from "./gridModel";
+import { iconKey, type IconKind, type IconValue } from "./iconValue";
+import { EMPTY_PREFS, rankedKeys, recordUse, searchBoost, type PickerPrefs, type PickerPrefsStore } from "./recents";
+import { search, type Searchable } from "./search";
+import { symbolItems, type SymbolItem } from "./symbols";
+
+export type PickerTab = IconKind;
+export const GRID_TABS: readonly PickerTab[] = ["emoji", "symbol"];
+
+export interface PickerCell {
+  readonly key: string;
+  readonly value: IconValue;
+  /** The localized name (footer and accessibility label). */
+  readonly label: string;
+  /** The detail line: `:shortcode:` for an emoji, the symbol name for a symbol. */
+  readonly detail?: string;
+  readonly emoji?: string;
+  readonly symbol?: string;
+}
+
+export interface PickerSnapshot {
+  readonly tab: PickerTab;
+  readonly query: string;
+  readonly tone: SkinTone;
+  readonly layout: GridLayout<PickerCell>;
+  /** Index into layout.items; -1 when nothing is active. */
+  readonly active: number;
+  /** Bumped when the active cell moves by keyboard, so the grid scrolls it into view. */
+  readonly reveal: number;
+}
+
+export interface PickerStoreOptions {
+  readonly emoji: EmojiTable;
+  readonly symbols?: readonly string[];
+  readonly prefs?: PickerPrefsStore;
+  /** Emoji newer than the system font draws (Emoji version times 10) are hidden. */
+  readonly maxEmojiVersion?: number;
+  readonly language?: string;
+  /** Localized section titles by id ("recent", emoji group ids, "allSymbols"). */
+  readonly titles: (id: string) => string;
+  readonly now?: () => number;
+}
+
+export const CELL_SIZE = 44;
+export const HEADER_SIZE = 28;
+
+export class PickerStore {
+  private snapshot: PickerSnapshot;
+  private readonly listeners = new Set<() => void>();
+  private emoji: readonly EmojiRecord[] = [];
+  private symbols: readonly SymbolItem[] = [];
+  private readonly emojiByKey = new Map<string, EmojiRecord>();
+  private prefs: PickerPrefs = EMPTY_PREFS;
+  private prefsVersion = 0;
+  private columns = 9;
+  private cache?: { key: string; layout: GridLayout<PickerCell> };
+
+  constructor(private readonly options: PickerStoreOptions) {
+    this.load(options.symbols ?? [], options.maxEmojiVersion);
+    this.snapshot = this.compute({ tab: "emoji", query: "", tone: 0, active: 0, reveal: 0 });
+    const loaded = options.prefs?.load();
+    if (loaded instanceof Promise) void loaded.then((prefs) => this.applyPrefs(prefs));
+    else if (loaded) this.applyPrefs(loaded);
+  }
+
+  readonly subscribe = (listener: () => void) => {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  };
+
+  readonly getSnapshot = () => this.snapshot;
+
+  /** The host's catalog: SF Symbol names and the newest Emoji version the system font draws. */
+  configure(symbols: readonly string[], maxEmojiVersion?: number) {
+    this.load(symbols, maxEmojiVersion);
+    this.cache = undefined;
+    this.update({});
+  }
+
+  private load(symbols: readonly string[], maxEmojiVersion = Infinity) {
+    this.emoji = this.options.emoji.records.filter((record) => record.version <= maxEmojiVersion);
+    this.emojiByKey.clear();
+    for (const record of this.emoji) this.emojiByKey.set(`emoji:${record.emoji}`, record);
+    this.symbols = symbolItems(symbols);
+  }
+
+  /** A new picker session in a reused (prewarmed) page: empty query, first cell, chosen tab. */
+  reset(tab: PickerTab = "emoji") {
+    this.update({ tab, query: "", active: 0 });
+  }
+
+  setTab(tab: PickerTab) {
+    if (tab !== this.snapshot.tab) this.update({ tab, active: 0 });
+  }
+
+  setQuery(query: string) {
+    if (query !== this.snapshot.query) this.update({ query, active: 0 });
+  }
+
+  setColumns(columns: number) {
+    const next = Math.max(1, Math.floor(columns));
+    if (next === this.columns) return;
+    this.columns = next;
+    this.update({});
+  }
+
+  setTone(tone: SkinTone) {
+    this.prefs = { ...this.prefs, tone };
+    this.options.prefs?.save(this.prefs);
+    this.update({ tone });
+  }
+
+  setActive(index: number) {
+    if (index !== this.snapshot.active) this.update({ active: index });
+  }
+
+  move(move: GridMove, pageRows?: number) {
+    const active = moveActive(this.snapshot.layout, this.snapshot.active, move, pageRows);
+    this.update({ active, reveal: this.snapshot.reveal + 1 });
+  }
+
+  /** The active cell, or null when the grid is empty. */
+  activeCell(): PickerCell | null {
+    return this.snapshot.layout.items[this.snapshot.active] ?? null;
+  }
+
+  /** Records the use (recents) and returns the value to apply. */
+  pick(cell: PickerCell): IconValue {
+    const record = this.emojiByKey.get(cell.key);
+    // Recents keep the base emoji; the tone applies when it shows.
+    this.prefs = recordUse(this.prefs, record ? `emoji:${record.emoji}` : cell.key, this.now());
+    this.prefsVersion++;
+    this.options.prefs?.save(this.prefs);
+    this.update({});
+    return cell.value;
+  }
+
+  /** Records a copy of the cell (Cmd-C) as a use, without finishing the picker. */
+  copied(cell: PickerCell) {
+    this.pick(cell);
+  }
+
+  /** Records an image or SVG pick (they have no grid cell). */
+  recordAsset(value: IconValue) {
+    this.prefs = recordUse(this.prefs, iconKey(value), this.now());
+    this.prefsVersion++;
+    this.options.prefs?.save(this.prefs);
+  }
+
+  private now() {
+    return (this.options.now ?? Date.now)();
+  }
+
+  private applyPrefs(prefs: PickerPrefs) {
+    this.prefs = prefs;
+    this.prefsVersion++;
+    this.update({ tone: prefs.tone });
+  }
+
+  private update(change: Partial<Omit<PickerSnapshot, "layout">>) {
+    this.snapshot = this.compute({ ...this.snapshot, ...change });
+    for (const listener of this.listeners) listener();
+  }
+
+  private compute(state: Omit<PickerSnapshot, "layout"> & { layout?: unknown }): PickerSnapshot {
+    // Moving the active cell reuses the grid; only tab, query, tone, width or recents rebuild it.
+    const key = [state.tab, state.query, state.tone, this.columns, this.prefsVersion].join("\u0000");
+    if (this.cache?.key !== key) {
+      const sections =
+        state.tab === "symbol" ? this.symbolSections(state.query) : this.emojiSections(state.query, state.tone);
+      this.cache = { key, layout: layoutGrid(sections, this.columns, { cell: CELL_SIZE, header: HEADER_SIZE }) };
+    }
+    const layout = this.cache.layout;
+    const active = layout.items.length === 0 ? -1 : Math.min(Math.max(0, state.active), layout.items.length - 1);
+    return { tab: state.tab, query: state.query, tone: state.tone, active, reveal: state.reveal, layout };
+  }
+
+  private emojiCell(record: EmojiRecord, tone: SkinTone): PickerCell {
+    const emoji = withTone(record, tone);
+    const label = this.options.language === "ja" ? record.names.ja : record.names.en;
+    const code = record.shortcodes[0];
+    return { key: `emoji:${record.emoji}`, value: { emoji }, label, detail: code ? `:${code}:` : undefined, emoji };
+  }
+
+  private emojiSections(query: string, tone: SkinTone): GridSection<PickerCell>[] {
+    const now = this.now();
+    const title = this.options.titles;
+    if (query.trim()) {
+      const boost = searchBoost(this.prefs, (key) => this.emojiByKey.get(key)?.index, now);
+      const hits = search(this.emoji, query, boost);
+      return [{ id: "results", title: "", items: hits.map((record) => this.emojiCell(record, tone)) }];
+    }
+    const recent = rankedKeys(this.prefs, now)
+      .map((key) => this.emojiByKey.get(key))
+      .filter((record): record is EmojiRecord => !!record)
+      .slice(0, this.columns * 2);
+    const sections: GridSection<PickerCell>[] = [
+      { id: "recent", title: title("recent"), items: recent.map((record) => this.emojiCell(record, tone)) },
+    ];
+    const byGroup = new Map<string, PickerCell[]>();
+    for (const record of this.emoji) {
+      let cells = byGroup.get(record.group);
+      if (!cells) byGroup.set(record.group, (cells = []));
+      cells.push(this.emojiCell(record, tone));
+    }
+    for (const group of this.options.emoji.groups) {
+      sections.push({ id: group, title: title(group), items: byGroup.get(group) ?? [] });
+    }
+    return sections;
+  }
+
+  private symbolSections(query: string): GridSection<PickerCell>[] {
+    const items: readonly Searchable[] = this.symbols;
+    const hits = query.trim() ? (search(items, query) as SymbolItem[]) : this.symbols;
+    const recentSymbols = query.trim()
+      ? []
+      : rankedKeys(this.prefs, this.now())
+          .filter((key) => key.startsWith("symbol:"))
+          .slice(0, this.columns * 2)
+          .map((key) => key.slice("symbol:".length));
+    const cell = (name: string): PickerCell => ({
+      key: `symbol:${name}`,
+      value: { symbol: name },
+      label: name,
+      symbol: name,
+    });
+    return [
+      { id: "recent", title: this.options.titles("recent"), items: recentSymbols.map(cell) },
+      {
+        id: "allSymbols",
+        title: query.trim() ? "" : this.options.titles("allSymbols"),
+        items: hits.map((item) => cell(item.name)),
+      },
+    ];
+  }
+}

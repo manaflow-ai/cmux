@@ -1,0 +1,363 @@
+{
+  "description": "Viewer input (cmux.rb/1 InputEvent) to calls of the CEF fork's remote presentation ABI (manaflow-ai/cef include/cef_cmux.h, cmux_rp_*; plans/cmux-next/remote-tab-r2.md). map_input(input) must return exactly `expect`, or the reject `reject`. Modifier bits out are CMUX_RP_MOD_* (shift 1, control 2, option 4, command 8, caps 16, repeat 32); phases are CMUX_RP_PHASE_* (none 0, may_begin 1, began 2, changed 3, ended 4, cancelled 5); mouse kinds 0 move, 1 down, 2 up. Implementations: cmux-tui/crates/cmux-remote-browser (rp_input.rs).",
+  "version": 1,
+  "cases": [
+    {
+      "name": "a typed key keeps text, DOM code and the repeat bit",
+      "input": {
+        "e": "key",
+        "surface": 0,
+        "down": true,
+        "code": "KeyA",
+        "key": "a",
+        "text": "a",
+        "unmodified_text": "a",
+        "modifiers": 1,
+        "repeat": true,
+        "location": 0,
+        "edit_commands": []
+      },
+      "expect": {
+        "call": "send_key",
+        "down": true,
+        "code": "KeyA",
+        "key": "a",
+        "text": "a",
+        "unmodified_text": "a",
+        "modifiers": 33,
+        "commands": []
+      }
+    },
+    {
+      "name": "edit commands travel with the key down; Fn has no web bit",
+      "input": {
+        "e": "key",
+        "surface": 0,
+        "down": true,
+        "code": "Backspace",
+        "key": "Backspace",
+        "text": "",
+        "unmodified_text": "",
+        "modifiers": 36,
+        "repeat": false,
+        "location": 0,
+        "edit_commands": [
+          {
+            "name": "DeleteWordBackward",
+            "value": ""
+          }
+        ]
+      },
+      "expect": {
+        "call": "send_key",
+        "down": true,
+        "code": "Backspace",
+        "key": "Backspace",
+        "text": "",
+        "unmodified_text": "",
+        "modifiers": 4,
+        "commands": [
+          [
+            "DeleteWordBackward",
+            ""
+          ]
+        ]
+      }
+    },
+    {
+      "name": "a key up carries no text and no commands",
+      "input": {
+        "e": "key",
+        "surface": 0,
+        "down": false,
+        "code": "KeyW",
+        "key": "w",
+        "text": "w",
+        "unmodified_text": "w",
+        "modifiers": 8,
+        "repeat": false,
+        "location": 0,
+        "edit_commands": [
+          {
+            "name": "Copy",
+            "value": ""
+          }
+        ]
+      },
+      "expect": {
+        "call": "send_key",
+        "down": false,
+        "code": "KeyW",
+        "key": "w",
+        "text": "",
+        "unmodified_text": "",
+        "modifiers": 8,
+        "commands": []
+      }
+    },
+    {
+      "name": "text longer than Blink keeps is refused (use ime_commit)",
+      "input": {
+        "e": "key",
+        "surface": 0,
+        "down": true,
+        "code": "KeyA",
+        "key": "a",
+        "text": "abcd",
+        "unmodified_text": "a",
+        "modifiers": 0,
+        "repeat": false,
+        "location": 0,
+        "edit_commands": []
+      },
+      "reject": "text_too_long"
+    },
+    {
+      "name": "a malformed DOM code is refused",
+      "input": {
+        "e": "key",
+        "surface": 0,
+        "down": true,
+        "code": "Key A;",
+        "key": "a",
+        "text": "a",
+        "unmodified_text": "a",
+        "modifiers": 0,
+        "repeat": false,
+        "location": 0,
+        "edit_commands": []
+      },
+      "reject": "bad_code"
+    },
+    {
+      "name": "a malformed edit command is refused",
+      "input": {
+        "e": "key",
+        "surface": 0,
+        "down": true,
+        "code": "KeyA",
+        "key": "a",
+        "text": "",
+        "unmodified_text": "",
+        "modifiers": 0,
+        "repeat": false,
+        "location": 0,
+        "edit_commands": [
+          {
+            "name": "insertText:",
+            "value": "x"
+          }
+        ]
+      },
+      "reject": "bad_edit_commands"
+    },
+    {
+      "name": "keys to a popup surface are refused (pointer only)",
+      "input": {
+        "e": "key",
+        "surface": 2,
+        "down": true,
+        "code": "Escape",
+        "key": "Escape",
+        "text": "",
+        "unmodified_text": "",
+        "modifiers": 0,
+        "repeat": false,
+        "location": 0,
+        "edit_commands": []
+      },
+      "reject": "surface_input_unsupported"
+    },
+    {
+      "name": "a page click maps to a page mouse down",
+      "input": {
+        "e": "pointer",
+        "surface": 0,
+        "kind": "down",
+        "x": 120.5,
+        "y": 80.0,
+        "button": 0,
+        "buttons": 1,
+        "click_count": 2,
+        "modifiers": 2,
+        "pointer_type": "mouse"
+      },
+      "expect": {
+        "call": "page_mouse",
+        "kind": 1,
+        "x": 120.5,
+        "y": 80.0,
+        "button": 0,
+        "click_count": 2,
+        "modifiers": 2
+      }
+    },
+    {
+      "name": "a pointer on a popup surface goes to that surface",
+      "input": {
+        "e": "pointer",
+        "surface": 3,
+        "kind": "up",
+        "x": 10.0,
+        "y": 12.0,
+        "button": 0,
+        "buttons": 0,
+        "click_count": 1,
+        "modifiers": 0,
+        "pointer_type": "mouse"
+      },
+      "expect": {
+        "call": "surface_mouse",
+        "surface": 3,
+        "kind": 2,
+        "x": 10.0,
+        "y": 12.0,
+        "button": 0,
+        "click_count": 1,
+        "modifiers": 0
+      }
+    },
+    {
+      "name": "pointer enter is a move",
+      "input": {
+        "e": "pointer",
+        "surface": 0,
+        "kind": "enter",
+        "x": 1.0,
+        "y": 2.0,
+        "button": 0,
+        "buttons": 0,
+        "click_count": 0,
+        "modifiers": 0,
+        "pointer_type": "mouse"
+      },
+      "expect": {
+        "call": "page_mouse",
+        "kind": 0,
+        "x": 1.0,
+        "y": 2.0,
+        "button": 0,
+        "click_count": 0,
+        "modifiers": 0
+      }
+    },
+    {
+      "name": "a trackpad wheel keeps both phases",
+      "input": {
+        "e": "wheel",
+        "surface": 0,
+        "x": 300.0,
+        "y": 200.0,
+        "dx": 0.0,
+        "dy": -42.5,
+        "precise": true,
+        "phase": "changed",
+        "momentum_phase": "began",
+        "modifiers": 0
+      },
+      "expect": {
+        "call": "send_wheel",
+        "x": 300.0,
+        "y": 200.0,
+        "dx": 0.0,
+        "dy": -42.5,
+        "precise": true,
+        "phase": 3,
+        "momentum_phase": 2,
+        "modifiers": 0
+      }
+    },
+    {
+      "name": "a pinch update keeps its scale",
+      "input": {
+        "e": "pinch",
+        "surface": 0,
+        "phase": "changed",
+        "scale": 1.25,
+        "x": 400.0,
+        "y": 300.0
+      },
+      "expect": {
+        "call": "send_pinch",
+        "phase": 3,
+        "scale": 1.25,
+        "x": 400.0,
+        "y": 300.0
+      }
+    },
+    {
+      "name": "a pinch without a gesture phase is refused",
+      "input": {
+        "e": "pinch",
+        "surface": 0,
+        "phase": "may_begin",
+        "scale": 1.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "reject": "bad_phase"
+    },
+    {
+      "name": "IME composition and commit pass through",
+      "input": {
+        "e": "ime_set_composition",
+        "surface": 0,
+        "text": "にほ",
+        "underlines": [
+          {
+            "start": 0,
+            "end": 2,
+            "thick": false
+          }
+        ],
+        "selection_start": 2,
+        "selection_end": 2,
+        "replacement": null
+      },
+      "expect": {
+        "call": "ime_set_composition",
+        "text": "にほ",
+        "underlines": [
+          {
+            "start": 0,
+            "end": 2,
+            "thick": false
+          }
+        ],
+        "selection_start": 2,
+        "selection_end": 2,
+        "replacement": null
+      }
+    },
+    {
+      "name": "IME commit with a replacement range",
+      "input": {
+        "e": "ime_commit",
+        "surface": 0,
+        "text": "日本",
+        "replacement": [
+          0,
+          2
+        ]
+      },
+      "expect": {
+        "call": "ime_commit",
+        "text": "日本",
+        "replacement": [
+          0,
+          2
+        ]
+      }
+    },
+    {
+      "name": "IME cancel",
+      "input": {
+        "e": "ime_cancel",
+        "surface": 0
+      },
+      "expect": {
+        "call": "ime_cancel"
+      }
+    }
+  ]
+}

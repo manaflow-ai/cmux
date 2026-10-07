@@ -1,0 +1,367 @@
+# CI/CD for the cmux VM API Worker (workers/cmux-vm).
+#
+# `check` runs on every pull request and main push that touches the Worker:
+# typecheck (including the compile-time proof misuse cases), oxlint with the
+# gdp-ts preset, the workerd integration tests with a fake upstream, the
+# PGlite store tests against the real migration, and the bundle size budget.
+#
+# Deploy jobs are off until the repository variable CMUX_VM_DEPLOY_ENABLED is
+# "1". Each deploy job runs in a GitHub environment that holds its secrets:
+#
+#   environment          trigger                       Worker
+#   cmux-vm-preview      push to a feat-cmux-vm-<lane>  cmux-vm-preview-<lane> (workers.dev)
+#   cmux-vm-staging      push to main or feat-cmux-next cmux-vm-staging, then smoke-staging
+#
+# feat-cmux-next deploys staging while cmux VM lands there first (Lawrence,
+# 2026-10-07: "into feat-cmux-next is all we want rn, no main").
+#
+# smoke-staging runs scripts/smoke.ts against the staging Worker after each
+# staging deploy: create, exec, pause and delete by exact id on the test
+# tenant. It needs the cmux-vm-staging environment variable
+# CMUX_VM_STAGING_URL and secret CMUX_VM_SMOKE_API_KEY (an API key of the
+# dedicated smoke tenant with vm:read, vm:write and vm:exec); without them it
+# is skipped with a notice. With the optional secret CMUX_VM_SMOKE_API_KEY_B
+# (a key of a second smoke tenant with the same scopes) the smoke also proves
+# that the second tenant gets 404 for every call on the first tenant's VM.
+#
+# Production deploys are added with the protected cmux-vm-production
+# environment (cx-b4h.5), not here.
+#
+# Repository secrets: CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID.
+# Environment secrets (each environment): CMUX_VM_UPSTREAM_API_KEY,
+# CMUX_VM_STACK_PROJECT_ID, CMUX_VM_STACK_SECRET_SERVER_KEY and
+# CMUX_VM_DATABASE_URL. No Hyperdrive id is committed: each deploy first
+# creates or updates the Hyperdrive config named after the environment from
+# CMUX_VM_DATABASE_URL (idempotent), then resolves its id by that name.
+#
+# Manual runs (workflow_dispatch) choose one read-only or setup action:
+#   cloudflare-preflight  token, Workers scripts and Hyperdrive list checks
+#   hyperdrive-ensure     create or update the Hyperdrive config named after
+#                         the chosen environment from its CMUX_VM_DATABASE_URL
+#   deploy-staging        deploy the dispatched ref to staging, then smoke it
+
+name: cmux VM
+
+on:
+  pull_request:
+    # labeled/unlabeled: re-run when cmux-vm-breaking-change-ok is added or removed.
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+    paths:
+      - workers/cmux-vm/**
+      - .github/workflows/cmux-vm.yml
+  push:
+    # Lane branches deploy the preview Worker (decision V6). The preview
+    # environment admits only feat-cmux-vm-* refs, which a pull_request run
+    # (refs/pull/N/merge) never is, so preview deploys run on push.
+    branches: [main, feat-cmux-next, "feat-cmux-vm-*"]
+    paths:
+      - workers/cmux-vm/**
+      - .github/workflows/cmux-vm.yml
+  workflow_dispatch:
+    inputs:
+      action:
+        description: Manual action
+        type: choice
+        options: [cloudflare-preflight, hyperdrive-ensure, deploy-staging]
+        default: cloudflare-preflight
+      environment:
+        description: Environment for hyperdrive-ensure
+        type: choice
+        options: [cmux-vm-staging, cmux-vm-preview]
+        default: cmux-vm-staging
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    if: github.event_name != 'workflow_dispatch' || inputs.action == 'deploy-staging'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: workers/cmux-vm
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+      # Wrangler, Vitest and the Oxlint JS plugin (TypeScript sources) need a
+      # current Node; the Blacksmith image ships an older one.
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24"
+      - id: install
+        run: bun install --frozen-lockfile
+      # Every check below runs whenever install succeeded, so one run reports all failures.
+      - name: Typecheck (includes compile-time proof misuse cases)
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun run typecheck
+      - name: Oxlint with the gdp-ts preset
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun run lint
+      - name: gdp-ts preset rejects forged proofs (self-test)
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun run lint:selftest
+      - name: openapi.json matches the HttpApi definition
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun run openapi:check
+      # Breaking changes to the published contract against the PR's base.
+      # Add the label cmux-vm-breaking-change-ok to accept them deliberately.
+      - name: openapi.json has no breaking change against the base branch
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          ACCEPT_BREAKING: ${{ contains(github.event.pull_request.labels.*.name, 'cmux-vm-breaking-change-ok') }}
+        run: bash scripts/openapi-breaking.sh "$BASE_REF"
+      - name: Upstream coverage (every upstream operation wrapped, planned or denied)
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun run coverage:upstream
+      - name: Integration tests in workerd (fake upstream)
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun run test:workers
+      - name: Store tests on PGlite against the migration
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun run test:pg
+      - name: Bundle (staging config, dry run)
+        id: bundle
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun run bundle
+      - name: Bundle size budget
+        if: ${{ !cancelled() && steps.bundle.outcome == 'success' }}
+        run: bun run bundle:check
+      # On drift, openapi:check leaves the regenerated document in dist/.
+      - name: Upload regenerated openapi.json
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-vm-openapi
+          path: workers/cmux-vm/dist/openapi.json
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # Read-only: confirms the repository Cloudflare token works and can see
+  # Workers scripts and Hyperdrive configs. Prints HTTP codes and counts only.
+  cloudflare-preflight:
+    name: cloudflare preflight
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'cloudflare-preflight'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    steps:
+      - name: Read-only Cloudflare API checks
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          [ -n "$CLOUDFLARE_API_TOKEN" ] || { echo "::error::CLOUDFLARE_API_TOKEN is not set"; exit 1; }
+          [ -n "$CLOUDFLARE_ACCOUNT_ID" ] || { echo "::error::CLOUDFLARE_ACCOUNT_ID is not set"; exit 1; }
+          umask 077
+          work="$(mktemp -d)"
+          trap 'rm -rf "$work"' EXIT
+          # The token goes to curl through a header file, never argv or logs.
+          printf 'Authorization: Bearer %s\n' "$CLOUDFLARE_API_TOKEN" > "$work/auth"
+          api="https://api.cloudflare.com/client/v4"
+          get() { curl -sS -o "$work/body" -w '%{http_code}' -H @"$work/auth" "$api$1" || echo 000; }
+          # Prints only the HTTP code, the API success flag and a result count.
+          summary() { jq -r '"success=\(.success) results=\(if (.result|type)=="array" then (.result|length) else "n/a" end)"' "$work/body" 2>/dev/null || echo "unparseable body"; }
+          failed=0
+          code="$(get "/accounts/$CLOUDFLARE_ACCOUNT_ID/tokens/verify")"
+          if [ "$code" = 200 ]; then
+            echo "token verify (account token): HTTP $code $(summary)"
+          else
+            echo "token verify (account token): HTTP $code"
+            code="$(get "/user/tokens/verify")"
+            echo "token verify (user token): HTTP $code $(summary)"
+            [ "$code" = 200 ] || failed=1
+          fi
+          code="$(get "/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts")"
+          echo "workers scripts list: HTTP $code $(summary)"
+          [ "$code" = 200 ] || failed=1
+          code="$(get "/accounts/$CLOUDFLARE_ACCOUNT_ID/hyperdrive/configs")"
+          echo "hyperdrive configs list: HTTP $code $(summary)"
+          [ "$code" = 200 ] || failed=1
+          exit "$failed"
+
+  hyperdrive-ensure:
+    name: hyperdrive ensure
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'hyperdrive-ensure' && contains(fromJSON('["cmux-vm-staging","cmux-vm-preview"]'), inputs.environment)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    environment: ${{ inputs.environment }}
+    concurrency:
+      group: cmux-vm-hyperdrive-${{ inputs.environment }}
+      cancel-in-progress: false
+    defaults:
+      run:
+        working-directory: workers/cmux-vm
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24"
+      - name: Create or update the Hyperdrive config
+        env:
+          CONFIG_NAME: ${{ inputs.environment }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CMUX_VM_DATABASE_URL: ${{ secrets.CMUX_VM_DATABASE_URL }}
+        run: bash scripts/hyperdrive.sh ensure "$CONFIG_NAME"
+
+  deploy-preview:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/feat-cmux-vm-')
+    needs: check
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    environment: cmux-vm-preview
+    concurrency:
+      group: cmux-vm-deploy-preview-${{ github.ref_name }}
+      cancel-in-progress: false
+    defaults:
+      run:
+        working-directory: workers/cmux-vm
+    steps:
+      # The gate is an environment variable, which a job-level `if` cannot see
+      # (it is evaluated before the environment attaches), so it is read here.
+      - id: gate
+        working-directory: .
+        env:
+          ENABLED: ${{ vars.CMUX_VM_DEPLOY_ENABLED }}
+        run: |
+          if [ "$ENABLED" = 1 ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "Deploy skipped: CMUX_VM_DEPLOY_ENABLED is not 1 in this environment."
+          fi
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        if: steps.gate.outputs.enabled == 'true'
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        if: steps.gate.outputs.enabled == 'true'
+        with:
+          bun-version: "1.4.2"
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        if: steps.gate.outputs.enabled == 'true'
+        with:
+          node-version: "24"
+      - run: bun install --frozen-lockfile
+        if: steps.gate.outputs.enabled == 'true'
+      - name: Deploy and set secrets
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          TARGET: preview
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CMUX_VM_UPSTREAM_API_KEY: ${{ secrets.CMUX_VM_UPSTREAM_API_KEY }}
+          CMUX_VM_STACK_PROJECT_ID: ${{ secrets.CMUX_VM_STACK_PROJECT_ID }}
+          CMUX_VM_STACK_SECRET_SERVER_KEY: ${{ secrets.CMUX_VM_STACK_SECRET_SERVER_KEY }}
+          CMUX_VM_DATABASE_URL: ${{ secrets.CMUX_VM_DATABASE_URL }}
+        run: bash scripts/deploy.sh
+
+  deploy-staging:
+    if: >-
+      (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next')) ||
+      (github.event_name == 'workflow_dispatch' && inputs.action == 'deploy-staging')
+    needs: check
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    environment: cmux-vm-staging
+    concurrency:
+      group: cmux-vm-deploy-staging
+      cancel-in-progress: false
+    defaults:
+      run:
+        working-directory: workers/cmux-vm
+    steps:
+      # The gate is an environment variable, which a job-level `if` cannot see
+      # (it is evaluated before the environment attaches), so it is read here.
+      - id: gate
+        working-directory: .
+        env:
+          ENABLED: ${{ vars.CMUX_VM_DEPLOY_ENABLED }}
+        run: |
+          if [ "$ENABLED" = 1 ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "Deploy skipped: CMUX_VM_DEPLOY_ENABLED is not 1 in this environment."
+          fi
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        if: steps.gate.outputs.enabled == 'true'
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        if: steps.gate.outputs.enabled == 'true'
+        with:
+          bun-version: "1.4.2"
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        if: steps.gate.outputs.enabled == 'true'
+        with:
+          node-version: "24"
+      - run: bun install --frozen-lockfile
+        if: steps.gate.outputs.enabled == 'true'
+      - name: Deploy and set secrets
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          TARGET: staging
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CMUX_VM_UPSTREAM_API_KEY: ${{ secrets.CMUX_VM_UPSTREAM_API_KEY }}
+          CMUX_VM_STACK_PROJECT_ID: ${{ secrets.CMUX_VM_STACK_PROJECT_ID }}
+          CMUX_VM_STACK_SECRET_SERVER_KEY: ${{ secrets.CMUX_VM_STACK_SECRET_SERVER_KEY }}
+          CMUX_VM_DATABASE_URL: ${{ secrets.CMUX_VM_DATABASE_URL }}
+        run: bash scripts/deploy.sh
+
+  smoke-staging:
+    if: >-
+      (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next')) ||
+      (github.event_name == 'workflow_dispatch' && inputs.action == 'deploy-staging')
+    needs: deploy-staging
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    environment: cmux-vm-staging
+    concurrency:
+      group: cmux-vm-smoke-staging
+      cancel-in-progress: false
+    defaults:
+      run:
+        working-directory: workers/cmux-vm
+    steps:
+      - id: gate
+        working-directory: .
+        env:
+          ENABLED: ${{ vars.CMUX_VM_DEPLOY_ENABLED }}
+          URL: ${{ vars.CMUX_VM_STAGING_URL }}
+          HAS_KEY: ${{ secrets.CMUX_VM_SMOKE_API_KEY != '' }}
+        run: |
+          if [ "$ENABLED" = 1 ] && [ -n "$URL" ] && [ "$HAS_KEY" = true ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Staging smoke skipped: needs CMUX_VM_DEPLOY_ENABLED=1, CMUX_VM_STAGING_URL and CMUX_VM_SMOKE_API_KEY in cmux-vm-staging."
+          fi
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        if: steps.gate.outputs.enabled == 'true'
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        if: steps.gate.outputs.enabled == 'true'
+        with:
+          bun-version: "1.4.2"
+      - name: Smoke the staging Worker (create, exec, pause, delete by exact id)
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          CMUX_VM_SMOKE_URL: ${{ vars.CMUX_VM_STAGING_URL }}
+          CMUX_VM_SMOKE_API_KEY: ${{ secrets.CMUX_VM_SMOKE_API_KEY }}
+          CMUX_VM_SMOKE_API_KEY_B: ${{ secrets.CMUX_VM_SMOKE_API_KEY_B }}
+        run: bun scripts/smoke.ts

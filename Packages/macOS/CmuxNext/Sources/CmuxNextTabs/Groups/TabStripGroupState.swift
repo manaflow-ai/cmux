@@ -13,6 +13,8 @@ struct TabStripGroupState {
         /// Content x of the chip's leading edge (follows the pointer).
         var blockX: CGFloat
         var lastPoint: CGPoint
+        /// Press y in the clip (flipped); with `grabOffset`, the grabbed point.
+        var grabY: CGFloat = 0
     }
 
     struct Press {

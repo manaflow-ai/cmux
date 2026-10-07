@@ -29,12 +29,13 @@ public enum DaemonStartupState: Sendable, Equatable {
 /// is spent no timer runs and the loop waits for `wake` (app activation,
 /// network change, the socket appearing). It never re-spawns `server
 /// ensure` on a fixed period.
-public enum DaemonStartup {
+public struct DaemonStartup: Sendable {
+    public static let shared = Self()
     /// How the window shows "connecting" before it shows the failure.
-    public static let defaultDeadline: Duration = .seconds(10)
+    public let defaultDeadline: Duration = .seconds(10)
 
     /// Errors no retry can fix: the binary or daemon is wrong.
-    public static func isPermanent(_ error: DaemonError) -> Bool {
+    public func isPermanent(_ error: DaemonError) -> Bool {
         switch error {
         case .binaryNotFound, .wrongApp, .unsupportedProtocol, .missingCapabilities, .invalidSessionName, .endpointBlocked: true
         default: false
@@ -45,21 +46,36 @@ public enum DaemonStartup {
     /// succeeds. Calls `onFailure` after each failed attempt (the failed
     /// connection is already closed). Returns nil when the task is cancelled
     /// or the failure is permanent.
-    public static func connect(
+    ///
+    /// `first`, when given, is the first attempt's outcome (an attempt
+    /// already running, `DaemonPrestart`); `makeConnection` makes the rest.
+    public func connect(
         policy: RetryPolicy = .firstConnect,
         wake: RetryWake = RetryWake(owner: "DaemonStartup"),
         clock: any Clock<Duration> = ContinuousClock(),
+        first: (@Sendable () async -> DaemonPrestart.Outcome)? = nil,
         makeConnection: @Sendable () -> DaemonConnection,
         onFailure: @Sendable (DaemonError) async -> Void
     ) async -> (DaemonConnection, DaemonIdentity)? {
         var pacer = RetryPacer(policy)
+        if let first {
+            switch await first() {
+            case .success(let connected):
+                return connected
+            case .failure(let failure):
+                if Task.isCancelled { return nil }
+                await onFailure(failure)
+                if isPermanent(failure) { return nil }
+                guard await pacer.waitAfterFailure(wake: wake, clock: clock) else { return nil }
+            }
+        }
         // wakeup-allow: each iteration waits in RetryPacer (capped backoff, then events only)
         while !Task.isCancelled {
             let connection = makeConnection()
             do {
-                DaemonLaunchTimings.mark("daemon.connect_start")
+                DaemonLaunchTimings.shared.mark("daemon.connect_start")
                 let identity = try await connection.start()
-                DaemonLaunchTimings.mark("daemon.handshake_end")
+                DaemonLaunchTimings.shared.mark("daemon.handshake_end")
                 return (connection, identity)
             } catch {
                 await connection.close()

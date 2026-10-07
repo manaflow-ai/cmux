@@ -31,11 +31,12 @@ final class CEFHostView: NSView {
         updateBackground()
     }
 
-    /// Until Chromium's page window shows its first frame, the page area is
-    /// the theme color, never white (`PageBackground`).
+    /// Until Chromium's page window shows its first frame, the page area
+    /// follows the shared pane ground. It stays clear over Liquid Glass so
+    /// the window backdrop remains visible.
     private func updateBackground() {
-        effectiveAppearance.performAsCurrentDrawingAppearance {
-            layer?.backgroundColor = Palette.pageBackground.cgColor
+        performWithTheme {
+            layer?.backgroundColor = Palette.paneFill.cgColor
         }
     }
 
@@ -75,7 +76,7 @@ final class CEFHostView: NSView {
         if let windowObserver { NotificationCenter.default.removeObserver(windowObserver) }
         windowObserver = nil
         guard let window else { return }
-        windowObserver = NotificationCenter.default.addObserver(forName: BrowserChildWindowPages.needsUpdate, object: window, queue: .main) { [weak self] _ in
+        windowObserver = NotificationCenter.default.addObserver(forName: Notification.Name.browserChildWindowPagesNeedUpdate, object: window, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.postGeometryChange() }
         }
     }
@@ -111,9 +112,15 @@ final class CEFTabContentView: NSView {
     // Not flipped, like CEFHostView, so occlusion rects in this view's
     // coordinates are also valid in the host view that fills it.
 
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        tab?.pageThemeDidChange()
+    }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         guard let tab else { return }
+        tab.pageThemeDidChange()
         if window != nil {
             tab.contentDidAppear(in: self)
         } else {
@@ -134,12 +141,14 @@ final class CEFTabContentView: NSView {
     /// The page (the pane's shared `CEFHostView` and the snapshot) takes
     /// the page frame; a docked DevTools and its divider take the rest.
     func layoutContent() {
-        let frames = tab?.devToolsFrames(in: bounds)
+        let frames = tab?.devToolsController.frames(in: bounds)
             ?? CEFDevToolsLayout.Frames(page: bounds, devTools: .zero, line: .zero, grab: .zero)
-        let devToolsHost = tab?.devToolsViews?.host
+        let devToolsHost = tab?.devToolsController.views?.host
         for subview in subviews {
             let frame: CGRect
-            if subview === devToolsHost {
+            if subview is SidePanelHeaderView {
+                frame = tab?.sidePanel.headerFrame ?? .zero
+            } else if subview === devToolsHost {
                 frame = frames.devTools
             } else if subview is CEFDevToolsDivider {
                 frame = frames.grab
@@ -154,7 +163,7 @@ final class CEFTabContentView: NSView {
     /// Shows `image` over the page area (nil removes it).
     func showSnapshot(_ image: CGImage?) {
         if let image {
-            let page = tab?.devToolsFrames(in: bounds).page ?? bounds
+            let page = tab?.devToolsController.frames(in: bounds).page ?? bounds
             snapshotView.image = NSImage(cgImage: image, size: page.size)
             snapshotView.frame = page
             if snapshotView.superview == nil { addSubview(snapshotView) }

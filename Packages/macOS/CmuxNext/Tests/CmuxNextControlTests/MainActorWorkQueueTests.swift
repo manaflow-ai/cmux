@@ -24,16 +24,16 @@ import Testing
     @Test func aRequestThatTimesOutWhileQueuedNeverRuns() async throws {
         let frames = ManualFrameSource()
         let queue = MainActorWorkQueue(frameSource: frames)
-        let ran = Atomic<Bool>(false)
+        let ran = Shared(false)
         let started = ContinuousClock.now
         await #expect(throws: ControlError.self) {
-            try await queue.run(method: "workspace.create", deadline: .now + .milliseconds(100)) { ran.store(true, ordering: .relaxed) }
+            try await queue.run(method: "workspace.create", deadline: .now + .milliseconds(100)) { ran.withLock { $0 = true } }
         }
         #expect(ContinuousClock.now - started < .seconds(1))
         #expect(queue.stats.expired == 1)
         // The main thread comes back: the expired item is dropped, not run.
         await frames.fire()
-        let didRun = ran.load(ordering: .relaxed)
+        let didRun = ran.withLock { $0 }
         #expect(!didRun)
         #expect(queue.stats.executed == 0)
     }
@@ -42,7 +42,7 @@ import Testing
         let frames = ManualFrameSource()
         // A zero budget runs exactly one item per frame.
         let queue = MainActorWorkQueue(limits: .init(frameBudget: .zero), frameSource: frames)
-        let order = Mutex<[String]>([])
+        let order = Shared<[String]>([])
         let deadline = ContinuousClock.now + .seconds(10)
         let flood = ControlConnectionID(rawValue: 1)
         let polite = ControlConnectionID(rawValue: 2)
@@ -86,4 +86,13 @@ import Testing
         #expect(queue.stats.frames >= 5)
         #expect(queue.stats.executed == 10)
     }
+}
+
+/// State the test shares with queued work. `MainActorWorkQueue.run` takes
+/// `@escaping @Sendable` work, and an escaping closure cannot capture a
+/// noncopyable local `Atomic` or `Mutex`; a Sendable class that owns one can.
+private final class Shared<Value: Sendable>: Sendable {
+    private let mutex: Mutex<Value>
+    init(_ value: Value) { mutex = Mutex(value) }
+    func withLock<R>(_ body: (inout sending Value) -> sending R) -> sending R { mutex.withLock(body) }
 }

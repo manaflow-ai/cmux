@@ -18,6 +18,10 @@ public final class RegistryPaletteProvider: PaletteProvider {
     /// Objects captured when the palette opened; argument-taking actions
     /// target them (`PaletteArgumentFlow`).
     public var capturedTargets: [ActionTargetRef] = []
+    /// Live preview for enumeration argument pages (`PaletteSources.argumentPreview`).
+    public var argumentPreview: PaletteArgumentPreview?
+    /// Swatch strips for suggested argument values (`PaletteSources.argumentSwatches`).
+    public var argumentSwatches: PaletteArgumentSwatches?
     /// Palette-internal actions that should not list themselves.
     public var hiddenIDs: Set<ActionID> = ["commandPalette"]
     /// Opens the shortcut recorder for an action (the Actions menu's Edit
@@ -28,6 +32,11 @@ public final class RegistryPaletteProvider: PaletteProvider {
         self.registry = registry
         self.includeUnbound = includeUnbound
     }
+
+    // Palette searches can retain a page until a task finishes on a generic
+    // executor. The provider only stores closures and registry data, so its
+    // teardown must not require a main-actor hop when that task releases it.
+    nonisolated deinit {}
 
     public static var defaultIncludeUnbound: Bool {
         #if DEBUG
@@ -65,7 +74,7 @@ public final class RegistryPaletteProvider: PaletteProvider {
             let isEnabled = override != nil || registry.canPerform(descriptor.id)
             let effect = override ?? defaultEffect(for: descriptor)
             let actionID = descriptor.id
-            items.append(PaletteItem(
+            var item = PaletteItem(
                 id: "action:\(actionID.rawValue)",
                 title: descriptor.title,
                 // A disabled row says why (Chromium without a CEF runtime).
@@ -94,7 +103,9 @@ public final class RegistryPaletteProvider: PaletteProvider {
                 ],
                 frecencyKey: "action:\(actionID.rawValue)",
                 actionID: actionID
-            ))
+            )
+            item.actionRefs = [PaletteActionRef(actionID, isDestructive: descriptor.isDestructive)]
+            items.append(item)
         }
         return items
     }
@@ -108,8 +119,9 @@ public final class RegistryPaletteProvider: PaletteProvider {
         guard descriptor.arguments.contains(where: \.isRequired) else {
             return .perform { registry.perform(id, invocation: ActionInvocation()) }
         }
-        return .deferred { [targets, capturedTargets] in
-            PaletteArgumentFlow(registry: registry, descriptor: descriptor, targets: targets, captured: capturedTargets)
+        return .deferred { [targets, capturedTargets, argumentPreview, argumentSwatches] in
+            PaletteArgumentFlow(registry: registry, descriptor: descriptor, targets: targets, captured: capturedTargets,
+                                preview: argumentPreview, swatches: argumentSwatches)
                 .effect(collected: ActionInvocation())
         }
     }
@@ -120,7 +132,7 @@ public final class RegistryPaletteProvider: PaletteProvider {
 
     /// The section for a catalog category.
     public static func section(for category: ActionCategory) -> PaletteSection {
-        PaletteSection(id: "category.\(category.rawValue)", title: category.title, order: 100 + category.sortOrder)
+        PaletteSection(id: category.paletteSectionID, title: category.title, order: category.paletteSectionOrder)
     }
 }
 

@@ -3,7 +3,7 @@ import CoreGraphics
 import Testing
 @testable import CmuxNextLayout
 
-/// Focus reveal rules (plans/cmux-next/niri.md, "Focus"). Viewport 1000,
+/// Focus reveal rules (plans/cmux-next/column-scroll.md, "Focus"). Viewport 1000,
 /// gap 8; three 600 pt columns sit at 8, 616 and 1224 (max offset 832).
 struct ColumnScrollRevealTests {
     private let wide3 = makeStrip([600, 600, 600])
@@ -131,6 +131,25 @@ struct ColumnScrollRevealTests {
         var state = settledState(wide3, focused: "p0")
         state.focus("p2", animated: false)
         #expect(state.spring.value == 832)
+    }
+
+    /// A snapped reveal reports the jump so the strip scrollbar shows as it
+    /// would for the spring's frames; an animated one runs frames instead.
+    @Test func aSnappedRevealReportsTheJump() {
+        var snapped = settledState(wide3, focused: "p0")
+        #expect(snapped.reduce(.sync(wide3, focused: "p2", source: .keyboard, animated: false)).snapped)
+        var animated = settledState(wide3, focused: "p0")
+        let effects = animated.reduce(.sync(wide3, focused: "p2", source: .keyboard, animated: true))
+        #expect(!effects.snapped)
+        #expect(effects.needsFrames)
+    }
+
+    @Test func aSyncThatKeepsTheOffsetReportsNoJump() {
+        // Every column fits: focusing another one moves nothing.
+        let strip = makeStrip([300, 300, 300])
+        var state = settledState(strip, focused: "p0")
+        #expect(!state.reduce(.sync(strip, focused: "p1", source: .keyboard, animated: false)).snapped)
+        #expect(!state.reduce(.sync(strip, focused: "p1", source: .keyboard, animated: false)).snapped)
     }
 
     @Test func centerRequestCentersOnce() {

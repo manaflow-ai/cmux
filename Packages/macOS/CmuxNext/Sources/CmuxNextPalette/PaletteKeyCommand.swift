@@ -14,7 +14,7 @@ public enum PaletteKeyCommand: Equatable, Sendable {
     case submit
     /// Cmd-Return: run the alternate command.
     case submitAlternate
-    /// Cmd-K.
+    /// The footer's Actions button (no default key since decision K1; Tab opens the menu).
     case toggleActions
     /// Tab.
     case openActions
@@ -25,6 +25,14 @@ public enum PaletteKeyCommand: Equatable, Sendable {
     case escape
     /// Backspace in an empty field: pop a page.
     case back
+    /// Right with the caret at the end, on a tree page (`PaletteHierarchy`):
+    /// enter the selected row.
+    case enterRow
+    /// Left in an empty field, on a tree page: go up a level.
+    case leaveLevel
+    /// Cmd-W: run the selected row's `closeCommand` and keep the palette
+    /// open. Not consumed when the row has none.
+    case closeItem
     /// Typing while the Actions menu is open filters it.
     case actionsFilterAppend(String)
     case actionsFilterDeleteBackward

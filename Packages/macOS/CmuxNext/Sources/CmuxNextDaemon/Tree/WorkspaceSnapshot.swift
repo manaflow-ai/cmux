@@ -18,6 +18,14 @@ public struct WorkspaceSnapshot: Sendable, Hashable, Decodable {
     public var icon: String?
     /// Custom sidebar title that overrides `name` for display (`workspace-metadata-v1`).
     public var title: String?
+    /// Listed in the sidebar's Pinned section (`workspace-pin-v1`).
+    public var pinned: Bool
+    /// Marked unread by hand (`notification-mark-unread-v1`).
+    public var markedUnread: Bool
+    /// `home` for the store's home workspace (`workspace-kind-v1`), else `normal`; nil on older daemons.
+    public var kind: String?
+    /// The store's home workspace, which no close path closes (`home_not_closable`).
+    public var isHome: Bool { kind == "home" }
     /// Tabs with an unread marker (`notification-ack-v1`); nil on older daemons.
     public var unreadCount: Int?
     /// Contiguous screen group runs in screen order (`screen-groups-v1`).
@@ -41,6 +49,8 @@ public struct WorkspaceSnapshot: Sendable, Hashable, Decodable {
         color: String? = nil,
         icon: String? = nil,
         title: String? = nil,
+        pinned: Bool = false,
+        markedUnread: Bool = false,
         unreadCount: Int? = nil
     ) {
         self.id = id
@@ -54,11 +64,14 @@ public struct WorkspaceSnapshot: Sendable, Hashable, Decodable {
         self.color = color
         self.icon = icon
         self.title = title
+        self.pinned = pinned
+        self.markedUnread = markedUnread
         self.unreadCount = unreadCount
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, key, name, active, screens, group, color, icon, title
+        case id, key, name, active, screens, group, color, icon, title, pinned, kind
+        case markedUnread = "marked_unread"
         case resourceID = "resource_id"
         case shortID = "short_id"
         case unreadCount = "unread_count"
@@ -78,6 +91,9 @@ public struct WorkspaceSnapshot: Sendable, Hashable, Decodable {
         color = try c.decodeIfPresent(String.self, forKey: .color)
         icon = try c.decodeIfPresent(String.self, forKey: .icon)
         title = try c.decodeIfPresent(String.self, forKey: .title)
+        pinned = try c.decodeIfPresent(Bool.self, forKey: .pinned) ?? false
+        markedUnread = try c.decodeIfPresent(Bool.self, forKey: .markedUnread) ?? false
+        kind = try c.decodeIfPresent(String.self, forKey: .kind)
         unreadCount = try c.decodeIfPresent(Int.self, forKey: .unreadCount)
         screenGroups = try c.decodeIfPresent([ScreenGroupSnapshot].self, forKey: .screenGroups) ?? []
     }

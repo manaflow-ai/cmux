@@ -95,6 +95,11 @@ pub fn path() -> Option<OsString> {
     std::env::var_os("PATH")
 }
 
+/// A variable the import added, by name.
+pub fn var(key: &str) -> Option<String> {
+    IMPORTED.get()?.vars.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone())
+}
+
 /// Keys the import adds on top of the daemon's environment.
 pub fn imported_keys() -> Vec<String> {
     IMPORTED.get().map(|i| i.vars.iter().map(|(k, _)| k.clone()).collect()).unwrap_or_default()

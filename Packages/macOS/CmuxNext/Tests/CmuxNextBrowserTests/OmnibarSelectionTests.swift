@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import CmuxNextBrowser
 
-/// Selection and focus rules, matched to Chrome for Mac. Each test names the
+/// Selection and focus rules. Each test names the
 /// Chromium function it follows (chrome/browser/ui/views/omnibox/
 /// omnibox_view_views.cc, chrome/browser/ui/omnibox/omnibox_edit_model.cc,
 /// ui/views/selection_controller.cc, components/omnibox/browser/
@@ -76,7 +76,7 @@ import Testing
     @Test func aDoubleClickAfterAnUnelidingClickKeepsTheWordUnderThePointer() {
         // crbug.com/40693090: the first click of a double-click on the
         // all-selected elided URL unelides; the second press lands on another
-        // character of the shifted text. Chrome remembers the first word.
+        // character of the shifted text. The first word is remembered.
         let sim = OmnibarSim()
         sim.click(selecting: range(2, 0))
         sim.click(word: range(0, 6), selecting: range(2, 0))

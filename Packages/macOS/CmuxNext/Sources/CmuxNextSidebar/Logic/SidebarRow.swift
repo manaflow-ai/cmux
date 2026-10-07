@@ -8,8 +8,17 @@ public nonisolated enum SidebarRowKey: Hashable, Sendable {
     case section(SectionID)
     case group(GroupID)
     case workspace(WorkspaceID)
+    case tab(WorkspaceID, TabID)
     /// Drop zone shown for an empty section while dragging (pinned area).
     case emptySection(SectionID)
+}
+
+/// A workspace row's control for its inline tabs (`sidebar.showWorkspaceTabs`).
+public nonisolated enum SidebarTabDisclosure: Hashable, Sendable {
+    /// The workspace has no tabs: the control's place stays, drawn empty.
+    case empty
+    case collapsed
+    case expanded
 }
 
 /// One laid-out row in document (flipped) coordinates.
@@ -20,6 +29,8 @@ public nonisolated struct SidebarRow: Hashable, Sendable {
     public var section: SectionID
     /// Containing group for a workspace row; the group itself for a header.
     public var group: GroupID?
+    /// Workspace that owns a tab row, when this is a tab row.
+    public var workspace: WorkspaceID? = nil
     /// Index among the container's siblings, counting only rows not being
     /// dragged. For group headers this is the group's index in the section.
     public var siblingIndex: Int
@@ -31,6 +42,19 @@ public nonisolated struct SidebarRow: Hashable, Sendable {
     public var childCount: Int
     /// Color of the containing group, drawn as a rail beside grouped rows.
     public var groupColor: GroupColor?
+    /// Kind of tab represented by this row, when applicable.
+    public var tabKind: SidebarTabKind? = nil
+    /// A machine header standing for the only machine: titled "Projects".
+    public var titlesProjects = false
+    /// A workspace row's tab disclosure; nil when `sidebar.showWorkspaceTabs` is off.
+    public var tabDisclosure: SidebarTabDisclosure? = nil
+    /// What a workspace row draws (`WorkspaceRowContent`); nil for other rows.
+    public var content: WorkspaceRowContent? = nil
+
+    /// A workspace row's tab count, when `sidebar.workspaceRow.tabCount` is on.
+    public var tabCount: Int? { content?.tabCount }
+    /// A workspace row's second line.
+    public var detail: String? { content?.detail }
 
     public var maxY: CGFloat { y + height }
 }

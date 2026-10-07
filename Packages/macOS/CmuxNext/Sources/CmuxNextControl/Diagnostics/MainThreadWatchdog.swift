@@ -69,9 +69,22 @@ public final class MainThreadWatchdog: Sendable {
     private let running = Atomic<Bool>(false)
     // concurrency-allow: only the watchdog thread waits on it; the main thread only signals.
     private let wake = DispatchSemaphore(value: 0)
-    /// The stack sampled during the current stall, keyed by beat sequence.
-    private let pendingSample = Mutex<(beat: UInt64, addresses: [UInt])?>(nil)
+    /// The stall sample, published by the watchdog thread while the main
+    /// thread is still suspended (so a stall that ends right after the
+    /// sample still finds it): the beat it belongs to, and its frame count
+    /// in the sampler's buffer. Count first, then beat (release).
+    private let publishedSampleBeat = Atomic<UInt64>(.max)
+    private let publishedSampleCount = Atomic<Int>(0)
+    private let sampler = Mutex<ThreadStackSampler?>(nil)
     private let observer = Mutex<ObserverBox?>(nil)
+    #if DEBUG
+    /// Tests: runs on the watchdog thread right after a sample, to hold that
+    /// thread past the end of a stall. Debug builds only: release builds
+    /// carry no test seam.
+    let afterSampleForTesting = Mutex<(@Sendable () -> Void)?>(nil)
+    /// The heartbeat sequence (tests wait for it to move).
+    var currentBeat: UInt64 { beatSequence.load(ordering: .acquiring) }
+    #endif
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "hangs")
 
     public init(configuration: Configuration = Configuration()) {
@@ -126,6 +139,7 @@ public final class MainThreadWatchdog: Sendable {
         let box = ObserverBox([earlyObserver, lateObserver])
         observer.withLock { $0 = box }
         let sampler = configuration.sampleStacks ? ThreadStackSampler(thread: mach_thread_self()) : nil
+        self.sampler.withLock { $0 = sampler }
         let thread = Thread { [self] in watch(sampler: sampler) }
         thread.name = "cmux-next main-thread watchdog"
         thread.qualityOfService = .userInteractive
@@ -173,10 +187,9 @@ public final class MainThreadWatchdog: Sendable {
     }
 
     private func recordStall(start: UInt64, nanos: UInt64, cpuNanos: UInt64, beat: UInt64) {
-        let addresses = pendingSample.withLock { sample -> [UInt] in
-            defer { sample = nil }
-            guard let sample, sample.beat == beat else { return [] }
-            return sample.addresses
+        var addresses: [UInt] = []
+        if publishedSampleBeat.load(ordering: .acquiring) == beat, let sampler = sampler.withLock({ $0 }) {
+            addresses = sampler.copy(count: publishedSampleCount.load(ordering: .relaxed))
         }
         let record = log.append(startUptimeNanos: start, duration: .nanoseconds(Int64(nanos)),
                                 cpu: .nanoseconds(Int64(cpuNanos)), addresses: addresses)
@@ -215,8 +228,14 @@ public final class MainThreadWatchdog: Sendable {
                 sampledBeat = beat
                 if let sampler {
                     // Raw addresses only: symbolicating here can outlast a short stall.
-                    let addresses = sampler.sample()
-                    pendingSample.withLock { $0 = (beat, addresses) }
+                    // Published before the main thread resumes: atomics only in here.
+                    _ = sampler.sample { count in
+                        publishedSampleCount.store(count, ordering: .relaxed)
+                        publishedSampleBeat.store(beat, ordering: .releasing)
+                    }
+                    #if DEBUG
+                    afterSampleForTesting.withLock { $0 }?()
+                    #endif
                 }
             }
             // Check again one threshold later (or when the stall ends and the loop sleeps).

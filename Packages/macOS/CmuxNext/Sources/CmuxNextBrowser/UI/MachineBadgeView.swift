@@ -15,7 +15,6 @@ final class MachineBadgeView: NSView {
         translatesAutoresizingMaskIntoConstraints = false
         label.translatesAutoresizingMaskIntoConstraints = false
         label.font = Typography.caption
-        label.textColor = Palette.textSecondary
         label.lineBreakMode = .byTruncatingTail
         label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         addSubview(label)
@@ -43,7 +42,7 @@ final class MachineBadgeView: NSView {
     override var wantsUpdateLayer: Bool { true }
 
     override func updateLayer() {
-        effectiveAppearance.performAsCurrentDrawingAppearance {
+        performWithTheme {
             layer?.backgroundColor = Palette.hoverFill.cgColor
             label.textColor = Palette.textSecondary
         }
