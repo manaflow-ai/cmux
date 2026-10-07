@@ -11,7 +11,7 @@ use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use serde_json::{Map, Value, json};
 
-use super::{AppCommand, Options, READ_TIMEOUT, failure};
+use super::{AppCommand, Options, READ_TIMEOUT, WAITING_RUN_TIMEOUT, failure};
 use crate::cli::{OutputMode, UsageError};
 
 /// `browser.page.wait` answers by its own timeout (default 5 s, the old
@@ -20,6 +20,10 @@ const DEFAULT_WAIT_MS: u64 = 5_000;
 const WAIT_MARGIN: Duration = Duration::from_secs(5);
 /// The app gives a screenshot 30 s (a full page is captured tile by tile).
 pub(super) const SCREENSHOT_TIMEOUT: Duration = Duration::from_secs(35);
+/// Tab runs that may create or close something: `call` gives each an
+/// idempotency key, as it gives `action.run`, so a retried run is one run.
+pub(super) const KEYED_METHODS: &[&str] =
+    &["browser.page.new_tab", "browser.page.switch", "browser.page.close"];
 /// The input verbs and the old CLI's aliases (`input_verb`).
 const INPUT_VERBS: &[&str] = &[
     "hover",
@@ -104,13 +108,40 @@ pub(super) fn parse_page(target: &str, args: &[String]) -> Result<AppCommand, Us
             params.insert("text".into(), json!(text));
             if verb == "fill" { "browser.page.fill" } else { "browser.page.type" }
         }
+        ("tabs", []) => {
+            if Options::parse(rest, &[], &["all"])?.flag("all") {
+                params.insert("all".into(), json!(true));
+            }
+            "browser.page.tabs"
+        }
+        // The app's tab actions; they wait for the action unless `--no-wait`, as
+        // `action run` does. Tab selection is `switch`: `select` picks a form option.
+        ("new-tab", [] | [_]) | ("switch" | "close", []) => {
+            if let [url] = words.as_slice() {
+                params.insert("url".into(), json!(url));
+            }
+            let flags: Vec<String> =
+                rest.iter().filter(|arg| arg.starts_with("--")).cloned().collect();
+            if Options::parse(&flags, &[], &["wait", "no-wait"])?.flag("no-wait") {
+                params.insert("wait".into(), json!(false));
+            } else {
+                timeout = WAITING_RUN_TIMEOUT;
+            }
+            match verb.as_str() {
+                "new-tab" => "browser.page.new_tab",
+                "close" => "browser.page.close",
+                _ => "browser.page.switch",
+            }
+        }
         (verb, _) if INPUT_VERBS.contains(&verb) => input_verb(verb, rest, &mut params, usage)?,
         ("cookies", _) => cookies(rest, &mut params, usage)?,
         ("storage", _) => storage(rest, &mut params).ok_or_else(usage)?,
         _ => return Err(usage()),
     };
-    let flagged = matches!(verb.as_str(), "snapshot" | "wait" | "cookies" | "storage")
-        || INPUT_VERBS.contains(&verb.as_str());
+    let flagged = matches!(
+        verb.as_str(),
+        "snapshot" | "wait" | "cookies" | "storage" | "tabs" | "new-tab" | "switch" | "close"
+    ) || INPUT_VERBS.contains(&verb.as_str());
     if !flagged && words.len() != rest.len() {
         return Err(usage());
     }

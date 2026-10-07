@@ -282,12 +282,12 @@ fn browser_tab_verbs_list_open_select_and_close_app_tabs() {
         call(parse(&args(&["browser", "page", "new-tab"])).unwrap().unwrap()),
         ("browser.page.new_tab", json!({}))
     );
-    for verb in ["select", "switch"] {
-        assert_eq!(
-            call(parse(&args(&["browser", "tab_01ab", verb])).unwrap().unwrap()),
-            ("browser.page.select", json!({ "tab": "tab_01ab" }))
-        );
-    }
+    assert_eq!(
+        call(parse(&args(&["browser", "tab_01ab", "switch"])).unwrap().unwrap()),
+        ("browser.page.switch", json!({ "tab": "tab_01ab" }))
+    );
+    // `select` with no selector is not a tab verb: it picks a form option.
+    assert!(parse(&args(&["browser", "tab_01ab", "select"])).is_err());
     assert_eq!(
         call(parse(&args(&["browser", "tab_01ab", "close"])).unwrap().unwrap()),
         ("browser.page.close", json!({ "tab": "tab_01ab" }))
@@ -297,7 +297,7 @@ fn browser_tab_verbs_list_open_select_and_close_app_tabs() {
     let command = parse(&args(&["browser", "tab_01ab", "close", "--no-wait"])).unwrap().unwrap();
     assert_eq!(call_timeout(&command), Some(READ_TIMEOUT));
     assert_eq!(call(command), ("browser.page.close", json!({ "tab": "tab_01ab", "wait": false })));
-    assert!(parse(&args(&["browser", "tab_01ab", "select", "--all"])).is_err());
+    assert!(parse(&args(&["browser", "tab_01ab", "switch", "--all"])).is_err());
 }
 
 /// A retried open, select or close is one run: each carries a key.
