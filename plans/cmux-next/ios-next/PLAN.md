@@ -17,8 +17,10 @@ Two planes. Feature modules never import a transport; they talk to `CmuxLink` (l
 Stream carriers are built three ways, by separate lanes, behind the same `CmuxLink` seam:
 
 - V1 `webrtc`: WebRTC P2P with Cloudflare TURN fallback; signaling over the control plane.
-- V2 `webrtc-wg`: the same WebRTC session carried over the in-app userspace WireGuard overlay
-  (`cmux-wg`, `transport.md`), so every stream is end-to-end WireGuard with WebRTC above it.
+- V2 `webrtc-wg`: end-to-end WireGuard (`CmuxLinkWG`) whose datagrams ride one unreliable WebRTC
+  data channel, so ICE/TURN find the path and HostDO, TURN and DTLS see only ciphertext. Running
+  WebRTC ICE on top of the overlay was rejected: libwebrtc binds OS sockets and cannot use overlay
+  addresses on iOS without a Network Extension (`b3-webrtc-wg.md`).
 - V3 `direct`: no rendezvous; the phone dials a user-entered or discovered address (Tailscale
   100.x / MagicDNS, any WireGuard or LAN address) when it is reachable, pinned to the Mac's device key.
 
