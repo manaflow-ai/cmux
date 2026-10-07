@@ -376,11 +376,22 @@ pub enum HarnessCmd {
         #[arg(long)]
         folder: PathBuf,
     },
+    /// Secrets for harness env keys, kept in the system secret store.
+    #[command(subcommand)]
+    Secret(SecretCmd),
     /// Tell the running daemon to read the profile files again.
     Reload,
     /// Print the guide an agent follows to integrate a harness (schema,
     /// doctor loop, examples, security rules).
     Guide,
+}
+
+#[derive(Subcommand)]
+pub enum SecretCmd {
+    /// Store a value for ID's env KEY (Keychain on macOS, secret-tool
+    /// elsewhere) and write `KEY = { keychain = "cmux-harness/ID/KEY" }` into
+    /// the profile file. Reads a hidden prompt, or stdin; never prints it.
+    Set { id: String, key: String },
 }
 
 #[derive(Subcommand)]
