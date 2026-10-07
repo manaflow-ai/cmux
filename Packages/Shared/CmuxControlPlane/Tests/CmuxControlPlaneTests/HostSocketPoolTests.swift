@@ -165,4 +165,39 @@ extension HostSocketPoolTests {
         await workspaces.stop()
         #expect(await pool.openHosts.isEmpty)
     }
+    /// F1: a lease that stops reading is bounded like the client's own
+    /// subscriber: its backlog is dropped and the stream is subscribed again,
+    /// so the lease repairs from a fresh snapshot instead of queueing forever.
+    @Test func aLeaseThatStopsReadingIsBoundedAndResyncsFromASnapshot() async throws {
+        let transport = FakeControlPlaneTransport()
+        let pool = pool(transport)
+        let lease = await pool.session(host: host)
+        await lease.start()
+        var sockets = transport.sockets.makeAsyncIterator()
+        let server = try #require(await sockets.next())
+        _ = try await server.acceptHello()
+        await connected(lease)
+        let stream = "host:\(host)"
+        let updates = await lease.subscribe(stream)
+        _ = try await server.next(.subscribe)
+        try server.send(snapshot(stream, 0))
+        let total: UInt64 = 3000
+        for seq in 1...total {
+            try server.send(.event(EventFrame(stream: stream, seq: seq, tx: "tx_\(seq)", op: "host.presence.set",
+                                              params: .object([:]), actor: [:], origin: .user, at: Int64(seq))))
+        }
+        guard try await withTimeout(.seconds(5), { try await server.next(.subscribe) }) != nil else {
+            Issue.record("no resubscribe for a lease that stopped reading")
+            await lease.stop()
+            return
+        }
+        try server.send(snapshot(stream, total))
+        var before = 0
+        for await update in updates {
+            if case .snapshot(let s) = update, s.seq == total { break }
+            before += 1
+        }
+        #expect(before <= 1025, "\(before) updates were queued for the lease before the resync snapshot")
+        await lease.stop()
+    }
 }
