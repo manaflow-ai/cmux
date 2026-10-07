@@ -85,8 +85,21 @@ const context: StageContext = {
 };
 
 function markReady(): void {
+  if (window.cmuxGalleryPlayReport) root.dataset.galleryPlay = window.cmuxGalleryPlayReport.status;
   root.dataset.galleryReady = "1";
   parent.postMessage({ type: "cmux-gallery-stage", status: "ready", width: widthPx(env.width, entry.widths) }, "*");
+}
+
+/** The variant's play steps (play.ts), then ready: the state the stage shows is the played one. */
+async function playThenReady(): Promise<void> {
+  const play = entry.variants[variantName]?.play;
+  if (play) {
+    const { runPlay } = await import("./playRunner");
+    const report = await runPlay(play, { anchors: entry.anchors, checks: entry.checks });
+    window.cmuxGalleryPlayReport = report;
+    parent.postMessage({ type: "cmux-gallery-play", report }, "*");
+  }
+  markReady();
 }
 
 /** Ready once the page has painted and its DOM has been still for a moment (fonts loaded). */
@@ -95,7 +108,7 @@ function markReadyWhenStill(): void {
   const started = performance.now();
   const done = () => {
     observer.disconnect();
-    markReady();
+    void playThenReady();
   };
   const arm = () => {
     clearTimeout(timer);
@@ -129,7 +142,18 @@ async function mount(): Promise<void> {
 const windowed = env.frame === "window" && entry.host !== "native";
 const start = windowed
   ? import("./windowChrome").then(({ mountWindow }) =>
-      mountWindow({ entry, variant: variantName, env, tokens, metrics, onReady: markReady }),
+      mountWindow({
+        entry,
+        variant: variantName,
+        env,
+        tokens,
+        metrics,
+        onReady: markReady,
+        onPlay: (report) => {
+          window.cmuxGalleryPlayReport = report;
+          parent.postMessage({ type: "cmux-gallery-play", report }, "*");
+        },
+      }),
     )
   : mount().then(markReadyWhenStill);
 start.catch((error: unknown) =>
