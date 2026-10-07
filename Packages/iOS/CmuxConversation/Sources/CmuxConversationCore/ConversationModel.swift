@@ -233,6 +233,9 @@ public struct ConversationMessage: Sendable, Hashable, Identifiable {
     public var unsendFailed: Bool
     /// A Messages poll carried by this message (`text` holds its question).
     public var poll: ConversationPoll?
+    /// Send Later: when the server will send this message. Set only while it
+    /// waits (no seq yet); the sent message that replaces it carries none.
+    public var scheduledAt: Date?
 
     public init(
         id: String,
@@ -254,7 +257,8 @@ public struct ConversationMessage: Sendable, Hashable, Identifiable {
         linkPreview: ConversationLinkPreview? = nil,
         effect: ConversationMessageEffect? = nil,
         unsendFailed: Bool = false,
-        poll: ConversationPoll? = nil
+        poll: ConversationPoll? = nil,
+        scheduledAt: Date? = nil
     ) {
         self.id = id
         self.seq = seq
@@ -276,7 +280,11 @@ public struct ConversationMessage: Sendable, Hashable, Identifiable {
         self.effect = effect
         self.unsendFailed = unsendFailed
         self.poll = poll
+        self.scheduledAt = scheduledAt
     }
+
+    /// A Send Later message still waiting on the server (or failed to send).
+    public var isScheduled: Bool { scheduledAt != nil && seq == nil }
 
     /// Identity that survives the pending to acknowledged transition, so the
     /// row a sender sees never re-inserts when the server echo arrives.

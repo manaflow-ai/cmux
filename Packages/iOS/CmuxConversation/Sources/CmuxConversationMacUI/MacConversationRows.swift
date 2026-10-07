@@ -12,6 +12,8 @@ enum MacConversationRow: Hashable {
     case typing(participantIDs: [String])
     /// A centered system line in a message's place ("You unsent a message").
     case notice(ConversationNotice)
+    /// "Send Later <time> Edit" above a scheduled message.
+    case sendLaterHeader(rowID: String, date: Date, failed: Bool)
 
     var id: String {
         switch self {
@@ -21,6 +23,7 @@ enum MacConversationRow: Hashable {
         case let .message(model): return model.rowID
         case .typing: return "typing"
         case let .notice(notice): return notice.id
+        case let .sendLaterHeader(rowID, _, _): return "sl:\(rowID)"
         }
     }
 
@@ -134,6 +137,9 @@ enum MacConversationRowBuilder {
                 // Its own id, so the bubble row leaves and the notice arrives.
                 rows.append(.notice(unsentNotice(message, meID: meID, info: info)))
                 continue
+            }
+            if message.isScheduled, let scheduledAt = message.scheduledAt {
+                rows.append(.sendLaterHeader(rowID: message.rowID, date: scheduledAt, failed: message.delivery?.isFailed == true))
             }
             let isOutgoing = message.senderID == meID
             let sender = info.participant(message.senderID)

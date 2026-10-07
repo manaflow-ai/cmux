@@ -242,7 +242,9 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
 
     private func presentRetry(for model: MessageRowModel) {
         let sheet = UIAlertController(
-            title: String(localized: "conversation.retry.title", defaultValue: "Your message was not delivered.", bundle: .module),
+            title: model.message.isScheduled
+                ? String(localized: "conversation.sendLater.failedTryAgain", defaultValue: "Your scheduled message was not sent. Tap “Try Again” to schedule this message.", bundle: .module)
+                : String(localized: "conversation.retry.title", defaultValue: "Your message was not delivered.", bundle: .module),
             message: nil,
             preferredStyle: .actionSheet
         )

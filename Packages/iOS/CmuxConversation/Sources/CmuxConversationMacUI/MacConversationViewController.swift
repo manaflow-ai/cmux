@@ -111,6 +111,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
 
     // Reply / edit state.
     private(set) var replyTarget: ConversationMessage?
+    weak var sendLaterPopover: NSPopover?
     var replyFocus: MacReplyFocusView?
     private(set) var editingMessageID: String?
     /// Rows animating to zero height before Delete removes them.
@@ -211,6 +212,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         installCatchUp()
         store.onChange = { [weak self] change in self?.storeDidChange(change) }
         installAudio()
+        store.onScheduledActionFailed = { [weak self] in self?.presentScheduledActionFailure($0) }
         store.start()
     }
 
@@ -848,6 +850,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             let layout = layoutCache.layout(model, width: transcriptWidth)
             return layout.height + topSpacing(at: row, model)
         case .timestamp, .notice: return MacTimestampRowView.height
+        case .sendLaterHeader: return MacSendLaterHeaderRowView.height
         case .loadingOlder: return MacSpinnerRowView.height
         case .conversationStart: return MacConversationStartRowView.height
         case .typing: return max(0.01, MacTypingRowView.height * typingProgress)
@@ -859,6 +862,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         switch rows[row] {
         case .message: identifier = "m"
         case .timestamp, .notice: identifier = "t"
+        case .sendLaterHeader: identifier = "sl"
         case .loadingOlder: identifier = "l"
         case .conversationStart: identifier = "s"
         case .typing: identifier = "y"
@@ -867,6 +871,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             switch rows[row] {
             case .message: return MacMessageContainerView()
             case .timestamp, .notice: return MacTimestampRowView()
+            case .sendLaterHeader: return MacSendLaterHeaderRowView()
             case .loadingOlder: return MacSpinnerRowView()
             case .conversationStart: return MacConversationStartRowView()
             case .typing: return MacTypingRowView()
@@ -902,6 +907,13 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             (view as? MacTimestampRowView)?.configure(date: date)
         case let .notice(notice):
             (view as? MacTimestampRowView)?.configure(notice: notice)
+        case let .sendLaterHeader(rowID, date, failed):
+            guard let header = view as? MacSendLaterHeaderRowView else { return }
+            header.configure(date: date, failed: failed)
+            header.menuProvider = { [weak self, weak header] in
+                guard let self, let header else { return NSMenu() }
+                return self.sendLaterMenu(rowID: rowID, anchor: header)
+            }
         case .loadingOlder:
             (view as? MacSpinnerRowView)?.spinner.startAnimation(nil)
         case .conversationStart:
@@ -956,6 +968,10 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             composer.clearAfterSend()
             return
         }
+        if scheduleIfSendLater(composer) {
+            if replyTarget != nil, threadFocus == nil { exitReplyOrEdit(sent: true) }
+            return
+        }
         let images = composer.attachments.map { attachment in
             (data: attachment.data, width: Int(attachment.image.size.width), height: Int(attachment.image.size.height), mimeType: attachment.mimeType)
         }
@@ -1002,6 +1018,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         menu.addItem(photos)
         menu.addItem(effectsMenuItem())
         menu.addItem(pollsAppsMenuItem())
+        menu.addItem(sendLaterAppsMenuItem())
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: composer.appsButton.bounds.height + 4), in: composer.appsButton)
     }
 
@@ -1380,7 +1397,13 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(message.text, forType: .string)
         })
-        if message.delivery?.isFailed == true {
+        if message.isScheduled {
+            // Send Later: the Edit menu's actions, with Cancel Send Later.
+            for scheduledItem in sendLaterMenu(rowID: model.rowID, anchor: rowView, cancelTitle: true).items {
+                scheduledItem.menu?.removeItem(scheduledItem)
+                menu.addItem(scheduledItem)
+            }
+        } else if message.delivery?.isFailed == true {
             menu.addItem(item(String(localized: "conversation.retry.tryAgain", defaultValue: "Try Again", bundle: .module), "arrow.clockwise") { [weak self] in self?.store.retry(rowID: model.rowID) })
             menu.addItem(item(String(localized: "conversation.select.delete", defaultValue: "Delete", bundle: .module), "trash") { [weak self] in self?.deleteLocally([model.rowID]) })
         } else {
@@ -1434,6 +1457,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         guard let verb = parts.first else { return "error empty" }
         let argument = parts.count > 1 ? parts[1] : ""
         if let reply = catchUpLabCommand(verb) { return reply }
+        if verb.hasPrefix("sl.") { return sendLaterLabCommand(verb, argument) }
         switch verb {
         case "type":
             view.window?.makeFirstResponder(composer.textView)

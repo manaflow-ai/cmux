@@ -106,11 +106,28 @@ interface TextRun {
   styles?: TextStyle[];
   effect?: TextEffect;
 }
-interface LoggedEvent {
-  eventSeq: number;
-  kind: "message.created" | "message.updated";
-  message: Message; // snapshot at append time
+interface Scheduled {
+  id: string;
+  clientMessageId: string;
+  senderId: string;
+  createdAt: number;
+  scheduledAt: number;
+  text: string;
+  replyToId?: string;
+  attachments: AttachmentRef[];
+  state: "scheduled" | "failed";
+  error?: string;
 }
+interface ScheduledRemoval {
+  id: string;
+  clientMessageId: string;
+  reason: "cancelled" | "sent";
+  messageId?: string;
+}
+type LoggedEvent =
+  | { eventSeq: number; kind: "message.created" | "message.updated"; message: Message } // snapshot at append time
+  | { eventSeq: number; kind: "scheduled.upserted"; scheduled: Scheduled }
+  | ({ eventSeq: number; kind: "scheduled.removed" } & ScheduledRemoval);
 interface MediaEntry {
   width: number;
   height: number;
@@ -148,6 +165,7 @@ const knobs = {
   effectRate: 0.03,
   unsendFailRate: 0,
   pollVoteFailRate: 0.03,
+  scheduledFailRate: 0,
 };
 type Knobs = typeof knobs;
 
@@ -230,6 +248,9 @@ class Store {
   headEventSeq = 0;
   conns = new Set<Conn>();
   lastReadSeq = 0;
+  scheduled = new Map<string, Scheduled>();
+  scheduledByClientId = new Map<string, Scheduled>();
+  scheduledCounter = 0;
   constructor(public conv: Conversation) {}
 
   /** Messages from others after the read marker. */
@@ -280,8 +301,19 @@ class Store {
     return m;
   }
 
-  emit(kind: LoggedEvent["kind"], message: Message) {
-    const ev: LoggedEvent = { eventSeq: ++this.headEventSeq, kind, message: structuredClone(message) };
+  emit(kind: "message.created" | "message.updated", message: Message) {
+    this.record({ eventSeq: ++this.headEventSeq, kind, message: structuredClone(message) });
+  }
+
+  emitScheduled(s: Scheduled) {
+    this.record({ eventSeq: ++this.headEventSeq, kind: "scheduled.upserted", scheduled: structuredClone(s) });
+  }
+
+  emitScheduledRemoved(removal: ScheduledRemoval) {
+    this.record({ eventSeq: ++this.headEventSeq, kind: "scheduled.removed", ...removal });
+  }
+
+  private record(ev: LoggedEvent) {
     this.events.push(ev);
     if (this.events.length > EVENT_LOG_CAP) this.events.splice(0, this.events.length - EVENT_LOG_CAP);
     for (const c of this.conns) if (c.subscribed) c.pushEvent(ev);
@@ -628,7 +660,13 @@ class Conn {
     this.enqueue(JSON.stringify({ jsonrpc: "2.0", method, params }), delayed ? lat(15, 350) : 0);
   }
   pushEvent(ev: LoggedEvent, delayed = true) {
-    const params = { eventSeq: ev.eventSeq, kind: ev.kind, message: wireMessage(ev.message, this.base) };
+    let params: Record<string, unknown>;
+    if (ev.kind === "scheduled.upserted") params = { eventSeq: ev.eventSeq, kind: ev.kind, scheduled: wireScheduled(ev.scheduled, this.base) };
+    else if (ev.kind === "scheduled.removed") {
+      const { eventSeq, kind, id, clientMessageId, reason, messageId } = ev;
+      params = { eventSeq, kind, id, clientMessageId, reason };
+      if (messageId) params.messageId = messageId;
+    } else params = { eventSeq: ev.eventSeq, kind: ev.kind, message: wireMessage(ev.message, this.base) };
     this.notify("event", params, delayed);
     if (R() < knobs.duplicateRate) this.notify("event", params, delayed);
   }
@@ -694,7 +732,7 @@ function wireMessage(m: Message, base: string) {
     text: m.text,
     replyCount: m.replyCount,
     reactions: m.reactions,
-    attachments: m.attachments.map((a) => ({ ...a, url: `${base}/media/${a.id}.${media.get(a.id)?.ext ?? "png"}` })),
+    attachments: wireAttachments(m.attachments, base),
   };
   if (m.clientMessageId) out.clientMessageId = m.clientMessageId;
   if (m.replyToId) out.replyToId = m.replyToId;
@@ -785,6 +823,26 @@ function randomTextRuns(rng: Rng, text: string): TextRun[] | undefined {
   const styles: TextStyle[] = [pick(rng, TEXT_STYLES)];
   if (rng() < 0.25) styles.push(pick(rng, TEXT_STYLES));
   return [{ start: w.index!, length: w[0].length, styles: TEXT_STYLES.filter((x) => styles.includes(x)) }];
+}
+
+function wireAttachments(list: AttachmentRef[], base: string) {
+  return list.map((a) => ({ ...a, url: `${base}/media/${a.id}.${media.get(a.id)?.ext ?? "png"}` }));
+}
+
+function wireScheduled(s: Scheduled, base: string) {
+  const out: Record<string, unknown> = {
+    id: s.id,
+    clientMessageId: s.clientMessageId,
+    senderId: s.senderId,
+    createdAt: s.createdAt,
+    scheduledAt: s.scheduledAt,
+    text: s.text,
+    attachments: wireAttachments(s.attachments, base),
+    state: s.state,
+  };
+  if (s.replyToId) out.replyToId = s.replyToId;
+  if (s.error) out.error = s.error;
+  return out;
 }
 
 // ---------------------------------------------------------------- RPC
@@ -931,6 +989,43 @@ async function handleRpc(conn: Conn, rpcId: unknown, method: string, p: any): Pr
       store.emit("message.updated", m);
       return { message: wireMessage(m, conn.base) };
     }
+    case "scheduleSend":
+      return { scheduled: wireScheduled(await handleScheduleSend(conn, p), conn.base) };
+    case "scheduled": {
+      await sleep(lat(40, 200));
+      return { scheduled: sortedScheduled(store).map((s) => wireScheduled(s, conn.base)) };
+    }
+    case "reschedule": {
+      const s = store.scheduled.get(p?.id);
+      if (!s) throw invalid("unknown scheduled id");
+      const at = validScheduledAt(p?.scheduledAt);
+      await sleep(lat(120, 600));
+      if (R() < knobs.failRate) throw new RpcError(-32002, "not delivered");
+      if (!store.scheduled.has(s.id)) throw invalid("unknown scheduled id");
+      s.scheduledAt = at;
+      s.state = "scheduled";
+      delete s.error;
+      store.emitScheduled(s);
+      return { scheduled: wireScheduled(s, conn.base) };
+    }
+    case "cancelScheduled": {
+      const s = store.scheduled.get(p?.id);
+      if (!s) throw invalid("unknown scheduled id");
+      await sleep(lat(120, 600));
+      if (R() < knobs.failRate) throw new RpcError(-32002, "not delivered");
+      if (!store.scheduled.has(s.id)) throw invalid("unknown scheduled id");
+      store.scheduled.delete(s.id);
+      store.scheduledByClientId.delete(s.clientMessageId);
+      store.emitScheduledRemoved({ id: s.id, clientMessageId: s.clientMessageId, reason: "cancelled" });
+      return {};
+    }
+    case "sendScheduledNow": {
+      const s = store.scheduled.get(p?.id);
+      if (!s) throw invalid("unknown scheduled id");
+      await sleep(lat(120, 600));
+      if (!store.scheduled.has(s.id)) throw invalid("unknown scheduled id");
+      return { message: wireMessage(fireScheduled(store, s), conn.base) };
+    }
     case "typing":
       if (typeof p?.isTyping !== "boolean") throw invalid("isTyping");
       vlog(`typing conn=${conn.id} ${p.isTyping}`);
@@ -1007,6 +1102,80 @@ async function handleSend(conn: Conn, p: any): Promise<Message> {
   if (poll) void botsVote(store, m);
   if (fail) throw new RpcError(-32002, "not delivered");
   return m;
+}
+
+const SCHEDULE_HORIZON_MS = 14 * 24 * 3600_000;
+
+function validScheduledAt(v: unknown): number {
+  const now = Date.now();
+  if (typeof v !== "number" || !Number.isInteger(v) || v <= now - 5000 || v > now + SCHEDULE_HORIZON_MS) throw invalid("scheduledAt");
+  return v;
+}
+
+function sortedScheduled(store: Store): Scheduled[] {
+  return [...store.scheduled.values()].sort((a, b) => a.scheduledAt - b.scheduledAt || a.createdAt - b.createdAt);
+}
+
+async function handleScheduleSend(conn: Conn, p: any): Promise<Scheduled> {
+  const store = conn.store;
+  const cmid = p?.clientMessageId;
+  if (typeof cmid !== "string" || !cmid) throw invalid("clientMessageId");
+  const text = p?.text ?? "";
+  if (typeof text !== "string") throw invalid("text");
+  const attachmentIds: string[] = p?.attachmentIds ?? [];
+  if (!Array.isArray(attachmentIds)) throw invalid("attachmentIds");
+  for (const a of attachmentIds) if (!media.has(a)) throw invalid(`unknown attachment ${a}`);
+  if (!text && !attachmentIds.length) throw invalid("empty message");
+  if (p?.replyToId && !store.byId.get(p.replyToId)) throw invalid("unknown replyToId");
+  const scheduledAt = validScheduledAt(p?.scheduledAt);
+
+  await sleep(lat(120, 900));
+  const existing = store.scheduledByClientId.get(cmid);
+  if (existing) return existing;
+  if (store.byClientId.has(cmid)) throw invalid("already sent");
+  if (R() < knobs.failRate) throw new RpcError(-32002, "not delivered");
+  const s: Scheduled = {
+    id: `sched_${store.conv.id}_${++store.scheduledCounter}`,
+    clientMessageId: cmid,
+    senderId: ME.id,
+    createdAt: Date.now(),
+    scheduledAt,
+    text,
+    replyToId: p?.replyToId || undefined,
+    attachments: attachmentIds.map((id) => {
+      const e = media.get(id)!;
+      return { id, kind: "image" as const, width: e.width, height: e.height };
+    }),
+    state: "scheduled",
+  };
+  store.scheduled.set(s.id, s);
+  store.scheduledByClientId.set(cmid, s);
+  store.emitScheduled(s);
+  log(`scheduled conv=${store.conv.id} id=${s.id} at=${new Date(scheduledAt).toISOString()}`);
+  return s;
+}
+
+/** Sends a scheduled message now: message.created, then scheduled.removed(sent). */
+function fireScheduled(store: Store, s: Scheduled): Message {
+  store.scheduled.delete(s.id);
+  store.scheduledByClientId.delete(s.clientMessageId);
+  const m = store.create(ME.id, s.text, { clientMessageId: s.clientMessageId, replyToId: s.replyToId, attachments: s.attachments });
+  store.emitScheduledRemoved({ id: s.id, clientMessageId: s.clientMessageId, reason: "sent", messageId: m.id });
+  afterMySend(store, m);
+  log(`scheduled sent conv=${store.conv.id} id=${s.id} -> ${m.id}`);
+  return m;
+}
+
+/** A due scheduled message: fails at scheduledFailRate, otherwise sends. */
+function fireDue(store: Store, s: Scheduled): Message | undefined {
+  if (R() < knobs.scheduledFailRate) {
+    s.state = "failed";
+    s.error = "not delivered";
+    store.emitScheduled(s);
+    log(`scheduled failed conv=${store.conv.id} id=${s.id}`);
+    return undefined;
+  }
+  return fireScheduled(store, s);
 }
 
 function afterMySend(store: Store, m: Message) {
@@ -1242,7 +1411,7 @@ function json(body: unknown, status = 200) {
 }
 
 function applyKnobs(input: Record<string, unknown>): Knobs {
-  const unitRange = ["failRate", "historyFailRate", "duplicateRate", "effectRate", "unsendFailRate", "pollVoteFailRate"];
+  const unitRange = ["failRate", "historyFailRate", "duplicateRate", "effectRate", "unsendFailRate", "pollVoteFailRate", "scheduledFailRate"];
   for (const [k, v] of Object.entries(input)) {
     if (!(k in knobs)) throw new Error(`unknown knob ${k}`);
     const n = Number(v);
@@ -1444,6 +1613,14 @@ async function handleHttp(req: Request, server: ReturnType<typeof Bun.serve>): P
     log(`admin poll conv=${conv} id=${m.id} "${content.question}" options=${content.options.length}`);
     return json({ ok: true, message: wireMessage(m, base) });
   }
+  if (path === "/admin/scheduled/fire" && req.method === "POST") {
+    const store = stores.get(url.searchParams.get("conversation") ?? "group");
+    if (!store) return json({ error: "unknown conversation" }, 404);
+    const s = store.scheduled.get(url.searchParams.get("id") ?? "");
+    if (!s) return json({ error: "unknown scheduled id" }, 404);
+    const m = fireDue(store, s);
+    return json({ ok: true, sent: !!m, messageId: m?.id, state: m ? "sent" : s.state });
+  }
   if (path === "/admin/disconnect" && req.method === "POST") {
     return json({ ok: true, dropped: dropAll("admin disconnect") });
   }
@@ -1458,6 +1635,7 @@ async function handleHttp(req: Request, server: ReturnType<typeof Bun.serve>): P
         lastReadSeq: s.lastReadSeq,
         unreadCount: s.unreadCount(),
         listState: { pinned: s.conv.pinned, pinOrder: s.conv.pinOrder, muted: s.conv.muted, markedUnread: s.conv.markedUnread, deleted: s.conv.deleted },
+        scheduled: s.scheduled.size,
       };
     return json({ knobs, conversations, uploads: [...media.values()].filter((m) => m.bytes).length });
   }
@@ -1531,6 +1709,12 @@ setInterval(() => {
         c.ws.terminate();
       }
 }, 1000);
+
+setInterval(() => {
+  const now = Date.now();
+  for (const store of stores.values())
+    for (const s of sortedScheduled(store)) if (s.state === "scheduled" && s.scheduledAt <= now) fireDue(store, s);
+}, 250);
 
 for (const s of stores.values()) void botLoop(s);
 log(`conversation-sim listening on http://${HOST}:${server.port} (ws: /ws?conversation=group|direct)`);

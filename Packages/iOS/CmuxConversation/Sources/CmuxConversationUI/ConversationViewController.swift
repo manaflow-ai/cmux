@@ -138,6 +138,8 @@ public final class ConversationViewController: UIViewController {
         collectionView.register(LoadingCell.self, forCellWithReuseIdentifier: LoadingCell.reuseID)
         collectionView.register(ConversationStartCell.self, forCellWithReuseIdentifier: ConversationStartCell.reuseID)
         collectionView.register(TypingCell.self, forCellWithReuseIdentifier: TypingCell.reuseID)
+        collectionView.register(SendLaterHeaderCell.self, forCellWithReuseIdentifier: SendLaterHeaderCell.reuseID)
+        store.onScheduledActionFailed = { [weak self] in self?.presentScheduledActionFailure($0) }
         collectionView.accessibilityIdentifier = "conversation.transcript"
         collectionView.accessibilityLabel = ConversationAccessibilityText.transcript
         collectionView.translatesAutoresizingMaskIntoConstraints = false
@@ -833,6 +835,10 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
             let cell = collectionView.dequeueReusableCell(withReuseIdentifier: TimestampCell.reuseID, for: indexPath) as! TimestampCell
             cell.configure(notice: notice)
             return cell
+        case let .sendLaterHeader(rowID, date, failed):
+            let cell = collectionView.dequeueReusableCell(withReuseIdentifier: SendLaterHeaderCell.reuseID, for: indexPath) as! SendLaterHeaderCell
+            cell.configure(date: date, failed: failed, menu: sendLaterMenu(for: rowID))
+            return cell
         case .loadingOlder:
             let cell = collectionView.dequeueReusableCell(withReuseIdentifier: LoadingCell.reuseID, for: indexPath) as! LoadingCell
             cell.configure(active: true)
@@ -917,6 +923,7 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
         case let .message(model):
             return layoutCache.layout(for: model, width: width, margin: layoutMargin).height
         case .timestamp, .notice: return TimestampCell.height
+        case .sendLaterHeader: return SendLaterHeaderCell.height
         case .loadingOlder: return LoadingCell.height
         case .conversationStart: return ConversationStartCell.height
         case .typing: return TypingCell.height(isGroup: store.info?.kind == .group)

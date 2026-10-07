@@ -24,6 +24,7 @@ extension ConversationViewController: ConversationComposerViewDelegate {
     }
 
     func composerDidTapSend(_ composer: ConversationComposerView) {
+        if sendLaterIfNeeded(composer) { return }
         let effect = effects.pendingSendEffect
         effects.pendingSendEffect = nil
         let text = composer.text

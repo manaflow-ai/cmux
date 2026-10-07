@@ -40,7 +40,7 @@ public final class ConversationStore {
     public private(set) var info: ConversationInfo?
     public private(set) var meID: String?
     /// Acknowledged messages ascend by seq; pending sends follow in creation order.
-    public private(set) var messages: [ConversationMessage] = []
+    public internal(set) var messages: [ConversationMessage] = []
     public private(set) var older: ConversationOlderState = .idle
     public private(set) var hasLoadedNewest = false
     public private(set) var typingParticipantIDs: [String] = []
@@ -73,7 +73,7 @@ public final class ConversationStore {
         observers.append(observer)
     }
 
-    private func notify(_ change: ConversationStoreChange) {
+    func notify(_ change: ConversationStoreChange) {
         primaryObserver?(change)
         for observer in observers { observer(change) }
     }
@@ -83,12 +83,12 @@ public final class ConversationStore {
     /// (CKUIBehavior.defaultConversationLoadMoreCount); the Mac pages 100.
     public static let defaultPageSize = 50
     public static let macPageSize = 100
-    private let backend: any ConversationBackend
-    private let clock: any Clock<Duration>
-    private let makeClientMessageID: @Sendable () -> String
+    let backend: any ConversationBackend
+    let clock: any Clock<Duration>
+    let makeClientMessageID: @Sendable () -> String
 
     private var lastEventSeq = 0
-    private var indexByID: [String: Int] = [:]
+    var indexByID: [String: Int] = [:]
     private var eventTask: Task<Void, Never>?
     private var olderTask: Task<Void, Never>?
     private var newestTask: Task<Void, Never>?
@@ -104,6 +104,11 @@ public final class ConversationStore {
     /// overwrites a newer state.
     private var listStateGeneration = 0
     private var polls = PollState()
+    /// Send Later state (see ConversationStore+SendLater.swift).
+    var cancelledScheduleClientIDs: Set<String> = []
+    var scheduledRefreshTask: Task<Void, Never>?
+    /// A Send Later action the server refused; the row is restored.
+    public var onScheduledActionFailed: (@MainActor (ConversationScheduledActionFailure) -> Void)?
 
     public init(
         backend: any ConversationBackend,
@@ -130,6 +135,7 @@ public final class ConversationStore {
 
     public func stop() {
         eventTask?.cancel()
+        scheduledRefreshTask?.cancel()
         olderTask?.cancel()
         newestTask?.cancel()
         localTypingTask?.cancel()
@@ -162,12 +168,17 @@ public final class ConversationStore {
             if lagged || !hasLoadedNewest {
                 loadNewest(rebase: lagged)
             }
+            refreshScheduled()
         case let .message(message, eventSeq):
             guard eventSeq > lastEventSeq else { return }
             lastEventSeq = eventSeq
             ingestLive(message)
         case let .typing(participantID, isTyping):
             setTyping(participantID, isTyping)
+        case let .scheduledRemoved(id, clientMessageID, eventSeq):
+            guard eventSeq > lastEventSeq else { return }
+            lastEventSeq = eventSeq
+            removeScheduledRow(id: id, clientMessageID: clientMessageID)
         case .disconnected:
             connection = .reconnecting
             notify(.connection)
@@ -226,12 +237,28 @@ public final class ConversationStore {
 
     /// Inserts or merges a message. Returns true when a new row appeared.
     @discardableResult
-    private func upsert(_ serverMessage: ConversationMessage) -> Bool {
+    func upsert(_ serverMessage: ConversationMessage) -> Bool {
         // Deleted on this device: no update, ack or refetch brings it back.
         if deletedMessageIDs.contains(serverMessage.id) || serverMessage.clientMessageID.map(deletedClientIDs.contains) == true {
             return false
         }
         let incoming = absorbPoll(serverMessage)
+        if let clientID = incoming.clientMessageID {
+            if incoming.isScheduled {
+                // A late scheduled snapshot of a message that already went out.
+                if messages.contains(where: { $0.clientMessageID == clientID && $0.seq != nil }) { return false }
+                if cancelledScheduleClientIDs.contains(clientID) { return false }
+            } else if incoming.seq != nil, indexByID[incoming.id] == nil,
+                      let index = messages.firstIndex(where: { $0.clientMessageID == clientID && $0.isScheduled }) {
+                // The scheduled message went out: the same row becomes the sent message.
+                let scheduledID = messages[index].id
+                messages[index] = merged(existing: messages[index], incoming: incoming)
+                indexByID[scheduledID] = nil
+                indexByID[incoming.id] = index
+                sortAndReindex()
+                return false
+            }
+        }
         if let index = indexByID[incoming.id] {
             messages[index] = merged(existing: messages[index], incoming: incoming)
             return false
@@ -252,7 +279,8 @@ public final class ConversationStore {
 
     private func merged(existing: ConversationMessage, incoming: ConversationMessage) -> ConversationMessage {
         var result = incoming
-        result.delivery = Self.maxDelivery(existing.delivery, incoming.delivery)
+        // The server owns a scheduled message's state (waiting can turn failed).
+        result.delivery = incoming.isScheduled ? incoming.delivery : Self.maxDelivery(existing.delivery, incoming.delivery)
         if result.effect == nil, incoming.seq == nil || existing.seq == nil { result.effect = existing.effect }
         // Keep local bytes so the sender's image never flashes while the remote copy loads.
         result.attachments = incoming.attachments.enumerated().map { offset, attachment in
@@ -302,10 +330,14 @@ public final class ConversationStore {
 
     /// Acknowledged messages ascend by seq. A failed send keeps its place in
     /// time (later arrivals go below it); sends still in flight stay last.
-    private func sortAndReindex() {
+    func sortAndReindex() {
         var acked = messages.filter { $0.seq != nil }.sorted { $0.seq! < $1.seq! }
-        let failed = messages.filter { $0.seq == nil && $0.delivery?.isFailed == true }.sorted { $0.sentAt < $1.sentAt }
-        let inFlight = messages.filter { $0.seq == nil && $0.delivery?.isFailed != true }.sorted { $0.sentAt < $1.sentAt }
+        let failed = messages.filter { $0.seq == nil && !$0.isScheduled && $0.delivery?.isFailed == true }.sorted { $0.sentAt < $1.sentAt }
+        let inFlight = messages.filter { $0.seq == nil && !$0.isScheduled && $0.delivery?.isFailed != true }.sorted { $0.sentAt < $1.sentAt }
+        // Send Later messages sit below everything, earliest first.
+        let scheduled = messages.filter(\.isScheduled).sorted {
+            ($0.scheduledAt!, $0.sentAt) < ($1.scheduledAt!, $1.sentAt)
+        }
         for message in failed.reversed() {
             // A failed send stays where it failed: after the newest stored
             // message at that moment. Comparing its local time with server times
@@ -319,7 +351,7 @@ public final class ConversationStore {
             }
             acked.insert(message, at: position)
         }
-        messages = acked + inFlight
+        messages = acked + inFlight + scheduled
         indexByID.removeAll(keepingCapacity: true)
         for (index, message) in messages.enumerated() {
             indexByID[message.id] = index
@@ -518,6 +550,7 @@ public final class ConversationStore {
 
     /// Re-sends a failed message with the same client id (server dedupes).
     public func retry(rowID: String) {
+        if message(rowID: rowID)?.isScheduled == true { return retryScheduled(rowID: rowID) }
         guard let message = message(rowID: rowID), message.delivery?.isFailed == true,
               let clientID = message.clientMessageID,
               let index = indexByID[message.id] else { return }
@@ -541,6 +574,7 @@ public final class ConversationStore {
 
     /// Removes a failed local send (never acknowledged by the server).
     public func discardFailed(rowID: String) {
+        if message(rowID: rowID)?.isScheduled == true { return cancelScheduled(rowID: rowID) }
         guard let message = message(rowID: rowID), message.seq == nil, message.delivery?.isFailed == true else { return }
         deleteLocally(rowIDs: [rowID])
     }

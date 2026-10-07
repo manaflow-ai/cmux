@@ -32,6 +32,7 @@ connected with, so they resolve from the same network path.
 | `disconnectEverySeconds` | 240 | each socket is dropped at a jittered 0.5x to 1.5x interval; 0 disables |
 | `botIntervalScale` | 1 | multiplies bot pacing (typing, replies, tapbacks); large values silence bots |
 | `botLinkRate` | 0.05 | share of live bot messages that are links (cards, inline URLs, phone numbers, addresses) |
+| `scheduledFailRate` | 0 | a due Send Later message becomes `failed` instead of sending |
 
 ## Pressure CLI
 

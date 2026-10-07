@@ -45,6 +45,26 @@ final class BubbleBackgroundView: UIView {
     var screenGradient: ConversationTheme.ScreenGradient? { didSet { updateColors() } }
     private var gradientLayer: CAGradientLayer?
 
+    /// Send Later outline: a dashed stroke inset so it stays inside the shape.
+    var isDashed = false {
+        didSet {
+            guard isDashed != oldValue else { return }
+            shapeLayer.lineDashPattern = isDashed ? SendLaterStyle.dashPattern : nil
+            shapeLayer.lineWidth = isDashed ? SendLaterStyle.outlineWidth : 1
+            setNeedsLayout()
+        }
+    }
+
+    /// Fades the fill in from `color` (a scheduled bubble turning sent).
+    func animateFill(from color: UIColor, duration: CFTimeInterval) {
+        let fade = CABasicAnimation(keyPath: "fillColor")
+        fade.fromValue = color.resolvedColor(with: traitCollection).cgColor
+        fade.toValue = shapeLayer.fillColor
+        fade.duration = duration
+        fade.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        shapeLayer.add(fade, forKey: "sendLaterFill")
+    }
+
     override class var layerClass: AnyClass { CAShapeLayer.self }
     private var shapeLayer: CAShapeLayer { layer as! CAShapeLayer }
 
@@ -61,7 +81,8 @@ final class BubbleBackgroundView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        let path = BubbleShape.path(in: bounds, side: side, tail: hasTail).cgPath
+        let inset = isDashed ? SendLaterStyle.outlineWidth / 2 : 0
+        let path = BubbleShape.path(in: bounds.insetBy(dx: inset, dy: inset), side: side, tail: hasTail).cgPath
         // Animate the outline with the bounds when the change is animated.
         if let animation = layer.action(forKey: "bounds") as? CABasicAnimation ?? layer.animation(forKey: "bounds.size") as? CABasicAnimation {
             let pathAnimation = CABasicAnimation(keyPath: "path")

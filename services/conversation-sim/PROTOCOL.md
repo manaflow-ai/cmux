@@ -33,6 +33,11 @@ process and keep growing.
 | `updateConversation` | `{pinned?, pinOrder?, muted?, markedUnread?, deleted?}` | `{conversation}` |
 | `keepAudio` | `{messageId}` | `{message: Message}` |
 | `audioPlayed` | `{messageId}` | `{}` |
+| `scheduleSend` | `{clientMessageId, text, replyToId?, attachmentIds?, scheduledAt}` | `{scheduled: Scheduled}` |
+| `scheduled` | `{}` | `{scheduled: [Scheduled]}` |
+| `reschedule` | `{id, scheduledAt}` | `{scheduled: Scheduled}` |
+| `cancelScheduled` | `{id}` | `{}` |
+| `sendScheduledNow` | `{id}` | `{message: Message}` |
 
 `keepAudio` keeps an audio message (clears `expiresAt`, sets `kept`).
 `audioPlayed` reports that I listened to someone's recording; it starts that
@@ -41,6 +46,26 @@ recording's 2-minute expiry, as Messages does.
 `history` with `beforeSeq: null` returns the newest page. Messages are sorted
 ascending by `seq`. `send` is idempotent on `clientMessageId`: a retry returns
 the original message.
+
+### Send Later (scheduled messages)
+
+Scheduled messages live outside the message log: they carry no `seq`, never
+appear in `history`, and are listed by `scheduled` (ascending `scheduledAt`,
+then `createdAt`). `scheduledAt` is epoch ms, later than now (5 s grace) and at
+most 14 days ahead; otherwise `-32602`. `scheduleSend` is idempotent on
+`clientMessageId` while the message is scheduled, and fails with `-32602
+"already sent"` once it has fired. `reschedule` (Edit Time, or Try Again on a
+failed one) sets a new time and returns the state to `scheduled`.
+`scheduleSend`, `reschedule` and `cancelScheduled` fail with `-32002 "not
+delivered"` at `failRate` without changing anything.
+
+When a scheduled message is due (checked every 250 ms) or `sendScheduledNow`
+is called, the server creates a normal message with the same
+`clientMessageId` (`message.created`, then delivery updates and bot reactions
+as for `send`), then emits `scheduled.removed` with `reason: "sent"` and the
+new `messageId`. At `scheduledFailRate` a due message instead becomes `state:
+"failed"` (`scheduled.upserted`) and stays listed until it is rescheduled,
+sent now, or cancelled. `sendScheduledNow` works on failed messages too.
 
 When `resumeAfterEventSeq` is given, the server replays every event after it
 as `event` notifications, in order, then sends `replayDone`. If the gap exceeds
@@ -61,6 +86,9 @@ change is pushed to the conversation's subscribed clients as `conversation`.
 
 - `message.created {message}`
 - `message.updated {message}` (edit, unsend, reaction, delivery status, reply count)
+- `scheduled.upserted {scheduled}` (scheduled, rescheduled, failed)
+- `scheduled.removed {id, clientMessageId, reason: "cancelled"|"sent", messageId?}`
+  (`messageId` only when sent)
 
 `conversation {conversation}` carries the conversation after a list state
 change. It has no `eventSeq`; `hello` returns the current state, so a client
@@ -119,6 +147,12 @@ Mention { participantId, location, length }      // UTF-16 range of text, sorted
 TextRun = { start, length, styles?: [TextStyle], effect?: TextEffect }
 TextStyle  = "bold"|"italic"|"underline"|"strikethrough"
 TextEffect = "big"|"small"|"shake"|"nod"|"explode"|"ripple"|"bloom"|"jitter"
+Scheduled {
+  id ("sched_<conversation>_<n>"), clientMessageId, senderId, createdAt (epoch ms),
+  scheduledAt (epoch ms), text, replyToId?,
+  attachments: [{id, kind: "image", width, height, url}],
+  state: "scheduled"|"failed", error?
+}
 ```
 
 A mention is the participant's first name in `text` (no "@"). `send` rejects
@@ -176,8 +210,11 @@ edit without `textRuns` clears the formatting.
 - `POST /admin/disconnect`: drop every socket (reconnect testing).
 - `POST /admin/knobs` JSON `{latencyScale, failRate, historyFailRate,
   duplicateRate, disconnectEverySeconds, botIntervalScale, botLinkRate, effectRate,
-  unsendFailRate, pollVoteFailRate}`. `unsendFailRate` (default 0) makes `unsend` refuse with
+  unsendFailRate, pollVoteFailRate, scheduledFailRate}`. `unsendFailRate` (default 0) makes `unsend` refuse with
   `-32005 "not unsent"`.
+- `POST /admin/scheduled/fire?conversation=<id>&id=<scheduledId>`: make one
+  scheduled message due now (honors `scheduledFailRate`).
+- `GET /admin/state` includes a per-conversation `scheduled` count.
 
 ## Link previews
 

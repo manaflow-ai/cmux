@@ -137,6 +137,7 @@ final class MessageCell: UICollectionViewCell {
     }
 
     private func configureContents(model: MessageRowModel, layout: MessageCellLayout, text: NSAttributedString) {
+        let wasScheduled = self.model?.rowID == model.rowID && self.model?.message.isScheduled == true
         self.model = model
         self.cellLayout = layout
         let message = model.message
@@ -185,6 +186,7 @@ final class MessageCell: UICollectionViewCell {
             textLabel.effectSeed = ConversationTextEffectMotion.seed(model.rowID)
             textLabel.attributedText = text
             if let textFrame = layout.textFrame { textLabel.frame = textFrame }
+            applySendLaterStyle(scheduled: message.isScheduled, wasScheduled: wasScheduled, text: text)
         } else {
             bubble.isHidden = true
             textLabel.isHidden = true
@@ -266,7 +268,9 @@ final class MessageCell: UICollectionViewCell {
         case .notDelivered:
             footerLabel.isHidden = false
             footerLabel.font = ConversationTheme.footerFont
-            footerLabel.text = String(localized: "conversation.status.notDelivered", defaultValue: "Not Delivered", bundle: .module)
+            footerLabel.text = message.isScheduled
+                ? String(localized: "conversation.sendLater.failed", defaultValue: "Your scheduled message will not send.", bundle: .module)
+                : String(localized: "conversation.status.notDelivered", defaultValue: "Not Delivered", bundle: .module)
             footerLabel.textColor = ConversationTheme.notDelivered
         }
         if var frame = layout.footerFrame {
@@ -505,6 +509,27 @@ final class MessageCell: UICollectionViewCell {
     override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
         super.traitCollectionDidChange(previousTraitCollection)
         threadLine.strokeColor = ConversationTheme.replyThread.resolvedColor(with: traitCollection).cgColor
+    }
+}
+
+extension MessageCell {
+    /// A scheduled message is an outlined bubble (dashed, tint stroke, no
+    /// fill, label-colored text). When it is sent the same cell fills in.
+    fileprivate func applySendLaterStyle(scheduled: Bool, wasScheduled: Bool, text: NSAttributedString) {
+        bubble.isDashed = scheduled
+        guard scheduled else {
+            bubble.strokeColor = nil
+            if wasScheduled {
+                bubble.animateFill(from: .clear, duration: 0.3)
+                UIView.transition(with: textLabel, duration: 0.3, options: [.transitionCrossDissolve, .allowUserInteraction], animations: nil)
+            }
+            return
+        }
+        bubble.fillColor = .clear
+        bubble.strokeColor = SendLaterStyle.outline
+        let recolored = NSMutableAttributedString(attributedString: text)
+        recolored.addAttribute(.foregroundColor, value: ConversationTheme.incomingText, range: NSRange(location: 0, length: recolored.length))
+        textLabel.attributedText = recolored
     }
 }
 

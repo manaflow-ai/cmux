@@ -206,6 +206,12 @@ final class MacComposerView: MacFlippedView, NSTextViewDelegate {
     private let lineHeight = MacConversationTheme.lineHeight
     private let minFieldHeight: CGFloat = 32
     private let attachmentHeight: CGFloat = 80
+    /// Send Later: the time chip at the top of the field, and its time.
+    let sendLaterChip = MacSendLaterChipView()
+    private(set) var sendLaterDate: Date?
+    var onSendLaterEdit: (() -> Void)?
+    var onSendLaterClose: (() -> Void)?
+    private var sendLaterHeight: CGFloat { sendLaterDate == nil ? 0 : MacSendLaterChipView.height + 6 }
 
     /// Just the pill: the accessory adds its own bottom padding, and layout
     /// solves the remaining window-relative gap. A taller accessory would push
@@ -320,9 +326,28 @@ final class MacComposerView: MacFlippedView, NSTextViewDelegate {
         audioButton.setAccessibilityLabel(String(localized: "conversation.composer.audio", defaultValue: "Record audio", bundle: .module))
         fieldContent.addSubview(audioButton)
 
+        sendLaterChip.isHidden = true
+        sendLaterChip.onEdit = { [weak self] in self?.onSendLaterEdit?() }
+        sendLaterChip.onClose = { [weak self] in self?.onSendLaterClose?() }
+        fieldContent.addSubview(sendLaterChip)
+
         registerForDraggedTypes([.fileURL, .png, .tiff])
         updatePlaceholder()
         updateColors()
+    }
+
+    /// Turns Send Later on (a date) or off (nil): a chip at the top of the
+    /// field, the Send Later fill and placeholder.
+    func setSendLaterDate(_ date: Date?, animated: Bool) {
+        let wasOn = sendLaterDate != nil
+        sendLaterDate = date
+        if let date { sendLaterChip.configure(date: date, animated: animated && wasOn) }
+        needsLayout = true
+        guard wasOn != (date != nil) else { return }
+        sendLaterChip.isHidden = date == nil
+        fieldContent.layer?.backgroundColor = date == nil ? nil : resolved(MacSendLaterStyle.fieldFill, in: self)
+        updatePlaceholder()
+        updateHeight()
     }
 
     @available(*, unavailable)
@@ -390,6 +415,9 @@ final class MacComposerView: MacFlippedView, NSTextViewDelegate {
         if #unavailable(macOS 26.0) {
             field.layer?.backgroundColor = resolved(.controlBackgroundColor, in: self)
         }
+        if sendLaterDate != nil {
+            fieldContent.layer?.backgroundColor = resolved(MacSendLaterStyle.fieldFill, in: self)
+        }
     }
 
     override func setFrameSize(_ newSize: NSSize) {
@@ -425,11 +453,15 @@ final class MacComposerView: MacFlippedView, NSTextViewDelegate {
             glass.cornerRadius = min(fieldHeight, minFieldHeight) / 2
         }
         let content = fieldContent.bounds
-        var textTop: CGFloat = 0
+        fieldContent.layer?.cornerRadius = min(fieldHeight, minFieldHeight) / 2
+        var textTop: CGFloat = sendLaterHeight
+        if sendLaterDate != nil {
+            sendLaterChip.frame = CGRect(x: 6, y: 5, width: min(content.width - 12, sendLaterChip.fittingWidth), height: MacSendLaterChipView.height)
+        }
         attachmentStrip.isHidden = attachments.isEmpty
         if !attachments.isEmpty {
-            attachmentStrip.frame = CGRect(x: 8, y: 6, width: content.width - 16, height: attachmentHeight)
-            textTop = attachmentHeight + 10
+            attachmentStrip.frame = CGRect(x: 8, y: textTop + 6, width: content.width - 16, height: attachmentHeight)
+            textTop += attachmentHeight + 10
             var x: CGFloat = 0
             for (index, view) in attachmentStrip.subviews.enumerated() where index < attachments.count {
                 let image = attachments[index].image
@@ -486,7 +518,9 @@ final class MacComposerView: MacFlippedView, NSTextViewDelegate {
             ? ""
             : !attachments.isEmpty
                 ? String(localized: "conversation.composer.addComment", defaultValue: "Add comment or Send", bundle: .module)
-                : (isReplyMode ? String(localized: "conversation.composer.reply", defaultValue: "Reply", bundle: .module) : placeholderText)
+                : sendLaterDate != nil
+                    ? String(localized: "conversation.sendLater.placeholder", defaultValue: "Send Later", bundle: .module)
+                    : (isReplyMode ? String(localized: "conversation.composer.reply", defaultValue: "Reply", bundle: .module) : placeholderText)
         placeholder.isHidden = !textView.string.isEmpty
     }
 
@@ -499,6 +533,7 @@ final class MacComposerView: MacFlippedView, NSTextViewDelegate {
         var natural = minFieldHeight + (lines - 1) * lineHeight
         if !attachments.isEmpty { natural += attachmentHeight + 10 }
         natural += linkPreview.height(forContentWidth: fieldContent.bounds.width > 0 ? fieldContent.bounds.width : bounds.width - 100)
+        natural += sendLaterHeight
         let height = min(natural, maximumFieldHeight)
         guard height != fieldHeight else { return }
         fieldHeight = height
