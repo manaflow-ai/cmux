@@ -60,7 +60,8 @@ and `setBy`, pushes `conversation` to every connection, and appends a system
 line by the actor (`system: "backgroundChanged"` or `"backgroundRemoved"`).
 Removing when there is none changes nothing. A preset `look` fills in its
 `colors`; `luminance` defaults to the mean WCAG relative luminance of
-`colors`. A photo needs an uploaded image's `attachmentId` and its
+`colors` (Aurora and Glitter weight their first, base color 85%, as they
+are drawn). A photo needs an uploaded image's `attachmentId` and its
 `luminance` (the client measures it), so every device derives the same
 transcript contrast. Invalid input fails with `-32602`.
 
