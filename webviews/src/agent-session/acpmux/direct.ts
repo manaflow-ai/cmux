@@ -9,6 +9,7 @@ import { postNative } from "./native";
 import { readSummaryCheckpoint } from "./changes/turnCheckpointSource";
 import { HandoffClient } from "./handoff/client";
 import { PermissionGroupClient } from "./permissions/client";
+import { questionFromPermission } from "./question/model";
 import { supportsPermissionGroups, type PermissionDecision } from "./permissions/protocol";
 import { AcpmuxRpcError, supportsHandoff } from "./handoff/protocol";
 import { sessionEnforcement } from "./handoff/review";
@@ -102,7 +103,9 @@ export function permissionFromMessage(message: any, selectedSessionId: string): 
   const sessionId = envelope?.sessionId ?? raw?.sessionId;
   const permissionId = envelope?.permissionId ?? raw?.permissionId;
   if (!permissionId || sessionId !== selectedSessionId) return undefined;
+  const question = questionFromPermission({ permissionId: String(permissionId), session: sessionId, request: raw });
   return {
+    ...(question ? { question } : {}),
     permissionId: String(permissionId),
     groupId: typeof envelope.groupId === "string" ? envelope.groupId : undefined,
     turnId: typeof envelope.turnId === "string" ? envelope.turnId : undefined,
@@ -1522,12 +1525,15 @@ export class AcpmuxDirectClient {
     this.wire.sent(text, "session/cancel");
     this.socket.send(text);
   }
-  async permission(permissionId: string, optionId: string): Promise<void> {
+  /// Answers a permission: `optionId` picks an option (absent cancels the request), and
+  /// `answers` carries a question's harness-shaped answers (question/model.ts `reply`).
+  async permission(permissionId: string, optionId?: string, answers?: Record<string, unknown>): Promise<void> {
     if (this.selectedSessionId)
       await this.request("_acpmux/permission_respond", {
         sessionId: this.selectedSessionId,
         permissionId,
-        optionId,
+        ...(optionId === undefined ? {} : { optionId }),
+        ...(answers === undefined ? {} : { answers }),
       });
   }
   async permissionGroup(groupId: string, revision: number, decision: PermissionDecision): Promise<void> {
