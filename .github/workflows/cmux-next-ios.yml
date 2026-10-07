@@ -1,0 +1,336 @@
+name: cmux-next iOS
+
+# CI for the cmux-next iOS tree (plans/cmux-next/ios-next/PLAN.md): the
+# rewritten app package ios/CmuxiOS and the packages listed in
+# scripts/cmux-next/mobile-scan-roots.txt.
+#
+#   checks    string tables (the nine iOS languages), concurrency, crash
+#             safety, the iOS package lint and the workspace package groups
+#             over that tree, plus the router's tests (Linux, every run)
+#   packages  `swift test` for each listed package the change reaches
+#             (scripts/ci/cmux_next_ios_route.py: the package, its path
+#             dependencies and the schemas/ files its tests read), one macOS job
+#   backend   the protocol vitest when backend/ or schemas/mobile-rpc/ changed,
+#             the API vitest when schemas/mobile-rpc/ changed (backend.yml runs
+#             it for every backend/ change)
+#
+# A push and a dispatch run every package. The app's simulator build is
+# test-ios.yml's ios-simulator-build; the Next*UITests classes run in
+# ios-next-uitests.yml.
+
+on:
+  pull_request:
+    paths:
+      - ios/**
+      - Packages/Shared/**
+      - Packages/iOS/**
+      - schemas/**
+      - backend/**
+      - cmux.xcworkspace/**
+      - scripts/cmux-next/mobile-scan-roots.txt
+      - scripts/cmux-next/mobile-concurrency-baseline.json
+      - scripts/cmux-next/check-l10n.sh
+      - scripts/cmux-next/check-concurrency.sh
+      - scripts/cmux-next/check-crash-safety.sh
+      - scripts/cmux-next/crash_ratchet.py
+      - scripts/cmux-next/crash-safety-baseline.json
+      - scripts/lint-ios-package-conventions*
+      - scripts/lint_swift_namespaces.py
+      - scripts/lint-namespace-types-*.txt
+      - scripts/swift_source_mask.py
+      - scripts/tests/test_ios_package_conventions.py
+      - scripts/check-workspace-package-groups.py
+      - scripts/ci/cmux_next_ios_route.py
+      - scripts/ci/select_package_tests.py
+      - scripts/ci/hung_test_watchdog.py
+      - scripts/select-ci-xcode.sh
+      - scripts/ci/xcode-pins.txt
+      - .xcode-version
+      - tests/test_cmux_next_ios_route.py
+      - .github/workflows/cmux-next-ios.yml
+  push:
+    branches: [feat-cmux-next, feat-cmux-next-ios]
+    paths:
+      - ios/**
+      - Packages/Shared/**
+      - Packages/iOS/**
+      - schemas/**
+      - backend/**
+      - cmux.xcworkspace/**
+      - scripts/cmux-next/mobile-scan-roots.txt
+      - scripts/cmux-next/mobile-concurrency-baseline.json
+      - scripts/cmux-next/check-l10n.sh
+      - scripts/cmux-next/check-concurrency.sh
+      - scripts/cmux-next/check-crash-safety.sh
+      - scripts/cmux-next/crash_ratchet.py
+      - scripts/cmux-next/crash-safety-baseline.json
+      - scripts/lint-ios-package-conventions*
+      - scripts/lint_swift_namespaces.py
+      - scripts/lint-namespace-types-*.txt
+      - scripts/swift_source_mask.py
+      - scripts/tests/test_ios_package_conventions.py
+      - scripts/check-workspace-package-groups.py
+      - scripts/ci/cmux_next_ios_route.py
+      - scripts/ci/select_package_tests.py
+      - scripts/ci/hung_test_watchdog.py
+      - scripts/select-ci-xcode.sh
+      - scripts/ci/xcode-pins.txt
+      - .xcode-version
+      - tests/test_cmux_next_ios_route.py
+      - .github/workflows/cmux-next-ios.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cmux-next-ios-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  route:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    outputs:
+      packages: ${{ steps.route.outputs.packages }}
+      package_count: ${{ steps.route.outputs.package_count }}
+      protocol: ${{ steps.route.outputs.protocol }}
+      api: ${{ steps.route.outputs.api }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          # The pull request's merge commit and its first parent (the base).
+          fetch-depth: 2
+
+      - name: Route
+        id: route
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          args=()
+          changed="$RUNNER_TEMP/changed-files.txt"
+          if [ "$EVENT_NAME" = pull_request ] && git diff --no-renames --name-only HEAD^1 HEAD > "$changed"; then
+            args=(--changed-files "$changed")
+          fi
+          python3 scripts/ci/cmux_next_ios_route.py ${args[@]+"${args[@]}"} --github-output "$GITHUB_OUTPUT" \
+            | sed 's/^/    /' | { echo "cmux-next iOS routing:"; cat; } | tee -a "$GITHUB_STEP_SUMMARY"
+
+  checks:
+    name: cmux-next iOS checks (l10n, concurrency, crash safety, package lint)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      # Every check runs even when an earlier one fails; the last step fails
+      # the job once, naming each red check.
+      - name: String tables (iOS languages)
+        id: l10n
+        continue-on-error: true
+        run: scripts/cmux-next/check-l10n.sh --mobile "$GITHUB_WORKSPACE"
+
+      - name: Concurrency
+        id: concurrency
+        continue-on-error: true
+        run: scripts/cmux-next/check-concurrency.sh --mobile "$GITHUB_WORKSPACE"
+
+      - name: Crash safety
+        id: crash-safety
+        continue-on-error: true
+        run: scripts/cmux-next/check-crash-safety.sh --mobile "$GITHUB_WORKSPACE"
+
+      - name: iOS package conventions lint
+        id: package-conventions
+        continue-on-error: true
+        run: |
+          python3 scripts/tests/test_ios_package_conventions.py
+          ./scripts/lint-ios-package-conventions.sh
+
+      - name: Workspace package groups
+        id: package-groups
+        continue-on-error: true
+        run: python3 scripts/check-workspace-package-groups.py --check
+
+      - name: Router tests
+        id: router-tests
+        continue-on-error: true
+        run: python3 tests/test_cmux_next_ios_route.py
+
+      # `outcome`, not `conclusion`: continue-on-error makes every conclusion success.
+      - name: Fail on any red check
+        if: always()
+        env:
+          OUTCOMES: |
+            ${{ steps.l10n.outcome }}|String tables (iOS languages)
+            ${{ steps.concurrency.outcome }}|Concurrency
+            ${{ steps.crash-safety.outcome }}|Crash safety
+            ${{ steps.package-conventions.outcome }}|iOS package conventions lint
+            ${{ steps.package-groups.outcome }}|Workspace package groups
+            ${{ steps.router-tests.outcome }}|Router tests
+        run: |
+          failed=()
+          while IFS='|' read -r outcome name; do
+            [[ -n "$outcome$name" ]] || continue
+            [[ "$outcome" == success ]] || failed+=("$name (${outcome:-not run})")
+          done <<<"$OUTCOMES"
+          if (( ${#failed[@]} == 0 )); then
+            echo "All cmux-next iOS checks passed." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          {
+            echo "### ${#failed[@]} cmux-next iOS check(s) failed"
+            echo
+            printf -- '- %s\n' "${failed[@]}"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          exit 1
+
+  package-tests:
+    name: cmux-next iOS package tests
+    needs: route
+    if: ${{ needs.route.outputs.package_count != '0' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 75
+    env:
+      PACKAGES: ${{ needs.route.outputs.packages }}
+      # A hung test otherwise runs to the job ceiling. The slowest package
+      # (CmuxMobileHost, 109 tests) never went quiet for more than a minute
+      # locally; the build phase of a cold package prints continuously.
+      TEST_SILENCE_SECONDS: "300"
+    steps:
+      - name: Verify GitHub-hosted route
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          REQUESTED_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+          RUNNER_CONTEXT_NAME: ${{ runner.name }}
+        run: |
+          # The self-hosted fleet also carries a macos-26 label, so a macos-*
+          # request must prove it landed on GitHub-hosted capacity.
+          case "$REQUESTED_RUNNER" in
+            macos-*)
+              if [ "$RUNNER_ENVIRONMENT" != "github-hosted" ]; then
+                echo "::error::$REQUESTED_RUNNER resolved outside GitHub-hosted capacity: $RUNNER_CONTEXT_NAME"
+                exit 1
+              fi
+              ;;
+          esac
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Run package tests
+        run: |
+          set -uo pipefail
+          logs="$RUNNER_TEMP/package-test-logs"
+          mkdir -p "$logs"
+          results=()
+          failed=0
+          while IFS= read -r pkg; do
+            [ -n "$pkg" ] || continue
+            dir="$(find Packages -mindepth 2 -maxdepth 2 -type d -name "$pkg" -print -quit)"
+            if [ -z "$dir" ] || [ ! -f "$dir/Package.swift" ]; then
+              echo "::error::package $pkg is not under Packages/*/"
+              results+=("| $pkg | not found | |")
+              failed=1
+              continue
+            fi
+            # A scratch path per package, deleted after it, keeps a reused
+            # runner's disk flat across the 18 packages.
+            scratch="$RUNNER_TEMP/spm-$pkg"
+            echo "::group::$pkg"
+            started=$SECONDS
+            python3 scripts/ci/hung_test_watchdog.py --silence-seconds "$TEST_SILENCE_SECONDS" \
+              --label "$pkg" --log "$logs/$pkg.log" -- \
+              swift test --package-path "$dir" --scratch-path "$scratch"
+            status=$?
+            echo "::endgroup::"
+            rm -rf "$scratch"
+            seconds=$((SECONDS - started))
+            if [ "$status" -eq 0 ]; then
+              results+=("| $pkg | pass | ${seconds}s |")
+            else
+              echo "::error::$pkg: swift test exited $status (log in the package-test-logs artifact)"
+              results+=("| $pkg | **fail** ($status) | ${seconds}s |")
+              failed=1
+            fi
+          done < <(python3 -c 'import json, os; print("\n".join(json.loads(os.environ["PACKAGES"])))')
+          {
+            echo "### cmux-next iOS package tests"
+            echo
+            echo "| Package | Result | Time |"
+            echo "| --- | --- | --- |"
+            printf '%s\n' "${results[@]}"
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$failed"
+
+      - name: Upload package test logs
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: package-test-logs
+          path: ${{ runner.temp }}/package-test-logs/*.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+  backend:
+    name: cmux-next iOS protocol and API tests
+    needs: route
+    if: ${{ needs.route.outputs.protocol == 'true' || needs.route.outputs.api == 'true' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+      # vitest-pool-workers and node:sqlite need a current Node.
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24"
+      - run: bun install --frozen-lockfile
+      - name: Protocol tests (cmux.mobile/1 codec against schemas/mobile-rpc)
+        if: ${{ needs.route.outputs.protocol == 'true' }}
+        working-directory: backend/packages/protocol
+        run: bun run test
+      - name: API Worker tests (workerd)
+        if: ${{ needs.route.outputs.api == 'true' }}
+        working-directory: backend/apps/api
+        run: bun run test
+
+  status:
+    name: cmux-next iOS
+    # Always-run aggregate, so one check name reports the routed verdict.
+    needs: [route, checks, package-tests, backend]
+    if: ${{ !cancelled() }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    steps:
+      - name: Check results
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json, os, sys
+          needs = json.loads(os.environ["NEEDS"])
+          if needs["route"]["result"] != "success":
+              sys.exit(f"route: {needs['route']['result']}")
+          bad = {name: data["result"] for name, data in sorted(needs.items())
+                 if data["result"] not in ("success", "skipped")}
+          for name, data in sorted(needs.items()):
+              print(f"{name}={data['result']}")
+          if bad:
+              sys.exit("did not pass: " + ", ".join(f"{name} ({result})" for name, result in bad.items()))
+          PY
