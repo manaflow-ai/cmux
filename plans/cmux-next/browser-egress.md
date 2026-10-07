@@ -190,6 +190,23 @@ Order: .2 (direct + BYO HTTP/SOCKS5 proves the no-leak core), then .3 and .6 in 
 - Metering test: a known byte volume through each kind; listener count vs vendor stats within the drift bound.
 - Gate for each engine x source to appear in the UI: its leak-suite run on the current engine build passed.
 
+## 13a. Decisions (2026-10-07)
+
+Recorded by the coordinator (Lawrence's answers where noted); they replace the open options in section 13.
+
+| # | Decision |
+| --- | --- |
+| E1 | A tab with its own egress gets its own ephemeral store. |
+| E2 | A workspace egress is a derived store per profile x workspace. |
+| E3 | Chromium only until our WebKit leak probe passes. |
+| E4 | Headless: strict process-wide WebRTC and prediction settings. |
+| E5 | Bring-your-own proxy secrets stay on this Mac only at first. |
+| E6 | cmux exits are IPv4 only at first; IPv6 is blocked inside an egress store. |
+| E7 | Residential (later): one sticky exit per store; never rotated for agents. |
+| E8 | Exit logs: metadata only (no URLs, no bodies), 30 days, for abuse handling. |
+| E12 | Chromium's own process-level traffic (updates, safe browsing) goes direct and is disclosed in the egress badge. |
+| Scope | Lawrence: no residential vendor now. Ship bring-your-own proxy and cmux VPN exits only; residential (section 9, child cx-d0d.52.5) is deferred. Pricing is decided later; build metering behind a flag. |
+
 ## 13. Open decisions (options; recommendation first)
 
 - **E1 Tab target.** (a) A tab with its own egress gets an ephemeral store (no shared cookies) - recommended; (b) drop the tab target, keep profile and workspace only; (c) per-tab proxy inside one store (not possible without a fork patch; rejected).
