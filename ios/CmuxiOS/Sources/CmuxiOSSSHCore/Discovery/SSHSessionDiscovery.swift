@@ -25,6 +25,7 @@ public struct SSHSessionDiscovery: Sendable {
       printf '@tmux2\\t%s\\n' "$T"
       "$T" list-sessions -F 'S\t#{session_name}\t#{session_windows}\t#{session_attached}\t#{session_activity}' 2>/dev/null
       "$T" list-windows -a -F 'W2\t#{session_name}\t#{window_index}\t#{window_active}\t#{session_id}\t#{window_id}\t#{pid}\t#{start_time}\t#{window_name}' 2>/dev/null
+      "$T" list-panes -a -F 'P2\t#{window_id}\t#{pane_id}\t#{pane_active}' 2>/dev/null
     fi
     if command -v screen >/dev/null 2>&1; then
       printf '@screen\\t%s\\n' "$(command -v screen)"
@@ -56,6 +57,8 @@ public struct SSHSessionDiscovery: Sendable {
         var tmuxSessions: [SSHDiscoveredSession] = []
         var modernSessions = Set<String>()
         var windows: [String: [SSHDiscoveredSession.Window]] = [:]
+        var activePanes: [String: String] = [:]
+        var ambiguousPanes = Set<String>()
         var screens: [SSHDiscoveredSession] = []
         var cmuxSessions: [SSHDiscoveredSession] = []
         var seenCmux = Set<String>()
@@ -91,6 +94,17 @@ public struct SSHSessionDiscovery: Sendable {
                     windows[name.rawValue, default: []].append(SSHDiscoveredSession.Window(
                         index: index, name: String(fields[8...].joined(separator: "\t").prefix(200)), isActive: fields[3] == "1",
                         target: .tmuxControl(binary: tmux, window: window)))
+                } else if fields.first == "P2", fields.count >= 4,
+                          SSHTmuxWindow.validID(fields[1], prefix: "@"),
+                          SSHTmuxWindow.validID(fields[2], prefix: "%"),
+                          (fields[3] == "0" || fields[3] == "1") {
+                    // A split window has several panes. Keep only an
+                    // unambiguous active pane so control mode can target the
+                    // host-selected pane without guessing by list order.
+                    if fields[3] == "1" {
+                        if activePanes[fields[1]] != nil { ambiguousPanes.insert(fields[1]) }
+                        activePanes[fields[1]] = fields[2]
+                    }
                 } else if section == "@tmux", fields.first == "W", fields.count >= 5, let name = SSHSessionName(validating: fields[1]),
                           let index = Int(fields[2]), index >= 0 {
                     let title = fields[4...].joined(separator: "\t")
@@ -121,8 +135,20 @@ public struct SSHSessionDiscovery: Sendable {
             }
         }
         for i in tmuxSessions.indices {
-            tmuxSessions[i].windows = (windows[tmuxSessions[i].name.rawValue] ?? []).sorted { $0.index < $1.index }
-            if modernSessions.contains(tmuxSessions[i].name.rawValue), let first = tmuxSessions[i].windows.first {
+            var discovered = (windows[tmuxSessions[i].name.rawValue] ?? []).sorted { $0.index < $1.index }
+            if modernSessions.contains(tmuxSessions[i].name.rawValue) {
+                discovered = discovered.map { item in
+                    guard case .tmuxControl(let binary, let window) = item.target,
+                          !ambiguousPanes.contains(window.windowID),
+                          let paneID = activePanes[window.windowID],
+                          let targeted = window.targetingPane(paneID) else { return item }
+                    var item = item
+                    item.target = .tmuxControl(binary: binary, window: targeted)
+                    return item
+                }
+            }
+            tmuxSessions[i].windows = discovered
+            if modernSessions.contains(tmuxSessions[i].name.rawValue), let first = discovered.first {
                 tmuxSessions[i].target = first.target
             }
         }

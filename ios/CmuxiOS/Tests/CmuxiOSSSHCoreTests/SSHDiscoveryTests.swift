@@ -86,6 +86,7 @@ import Testing
         #expect(discovery.command == "/bin/sh -s")
         #expect(discovery.input.hasSuffix("exit 0\n"))
         #expect(SSHSessionDiscovery.script.contains("list-sessions -F 'S\t#{session_name}"))
+        #expect(SSHSessionDiscovery.script.contains("list-panes -a -F 'P2\t#{window_id}"))
         #expect(SSHSessionDiscovery.script.contains("screen -ls"))
     }
 

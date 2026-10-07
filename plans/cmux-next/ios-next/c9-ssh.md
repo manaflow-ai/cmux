@@ -175,3 +175,15 @@ history pages, complete terminal parser state, multi-pane composition and tmux-v
 need live verification and a richer renderer adapter before C9 parity can be marked complete. SSH
 create/rename/kill remain deferred: raw SSH commands have no durable idempotency receipt, so a
 reconnect-safe owner mutation path is still required.
+
+### Active-pane targeting follow-up (2026-10-07)
+
+Modern tmux discovery now emits one `P2` row per pane and carries the host's
+unambiguous active pane id alongside the stable window/server epoch. Control
+mode uses that pane id when inspecting a split window, so a matching-grid pane
+can be hydrated without selecting a different pane by list order; output from
+other panes remains muted. Missing or ambiguous active-pane identity, a stale
+server epoch, and a pane whose host-confirmed grid does not match the phone
+still fail closed. This is a safe targeting step toward multi-pane parity, not
+multi-pane composition: the current terminal source still exposes one pane per
+attachment and does not render a layout tree.

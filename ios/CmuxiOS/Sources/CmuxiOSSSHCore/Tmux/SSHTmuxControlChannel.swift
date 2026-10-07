@@ -168,11 +168,20 @@ actor SSHTmuxControlChannel: SSHShellChannel {
                 throw SSHSessionFailure.shellRejected
             }
             panes.append(fields[1])
-            if fields[0] == window.windowID {
+            let isTarget = if let paneID = window.paneID {
+                fields[0] == window.windowID && fields[1] == paneID
+            } else {
+                fields[0] == window.windowID
+            }
+            if isTarget {
                 guard width == cols, height == rows else { throw SSHSessionFailure.shellRejected }
                 selected.append(fields[1])
             }
         }
+        // Modern discovery may identify the host's active pane in a split
+        // window. If that identity is absent or duplicated, refuse rather
+        // than attaching whichever pane happens to be listed first. Legacy
+        // targets retain the original single-pane-only guard.
         guard selected.count == 1, Set(panes).count == panes.count else { throw SSHSessionFailure.shellRejected }
         let selectedPane = selected[0]
         pane = selectedPane

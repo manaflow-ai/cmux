@@ -49,6 +49,17 @@ import Testing
         #expect(discovery.parse(listing.replacingOccurrences(of: "/usr/bin/tmux", with: "/bad/../tmux")).isEmpty)
     }
 
+    @Test func modernDiscoveryPinsTheHostActivePaneInAStableWindow() throws {
+        let discovery = SSHSessionDiscovery()
+        let listing = "@tmux2\t/usr/bin/tmux\nS\twork\t1\t0\t1\nW2\twork\t0\t1\t$1\t@9\t42\t100\tshell\nP2\t@9\t%2\t0\nP2\t@9\t%3\t1\n"
+        let target = try #require(discovery.parse(listing).first?.windows.first?.target)
+        guard case .tmuxControl(_, let window) = target else {
+            Issue.record("modern tmux target was not control mode")
+            return
+        }
+        #expect(window.paneID == "%3")
+    }
+
     @Test func hydrationThenLiveOutputAndHexInputStayOnTheDiscoveredPane() async throws {
         let base = TmuxTestChannel()
         let window = try #require(SSHTmuxWindow(sessionID: "$1", windowID: "@9", serverPID: 42, serverStart: 100))
@@ -99,6 +110,31 @@ import Testing
         await base.reply([])
         await base.reply(["@9 %2 40 24", "@9 %3 40 24"])
         await #expect(throws: SSHSessionFailure.shellRejected) { try await starting.value }
+        await control.close()
+        #expect(await base.closed)
+    }
+
+    @Test func discoveredActivePaneCanHydrateOnePaneOfASecondSplit() async throws {
+        let base = TmuxTestChannel()
+        let window = try #require(SSHTmuxWindow(sessionID: "$1", windowID: "@9", serverPID: 42, serverStart: 100, paneID: "%3"))
+        let control = SSHTmuxControlChannel(base: base, window: window, cols: 80, rows: 24, changed: {})
+        let starting = Task { try await control.start() }
+        defer { starting.cancel() }
+        var writes = base.writes.makeAsyncIterator()
+        await base.reply([])
+        _ = try #require(await writes.next())
+        await base.reply(["42 100"])
+        _ = try #require(await writes.next())
+        await base.reply([])
+        await base.reply([])
+        await base.reply(["@9 %2 40 24", "@9 %3 80 24"])
+        let hydration = try #require(await writes.next())
+        #expect(hydration.contains("capture-pane -p -e -C -S -256 -E - -t '%3'"))
+        #expect(hydration.contains("-A '%2:off'"))
+        await base.reply(Array(repeating: "", count: 24))
+        await base.reply(["%3 80 24 0 0 0 0 23 1 0 0 0 1 0 1 0 0 0 0 0"])
+        await base.reply([])
+        try await starting.value
         await control.close()
         #expect(await base.closed)
     }
