@@ -234,6 +234,13 @@ Swift Testing:
 Rust (written, not run locally): `cmux-rd-proto/tests/desktop.rs` replays `schemas/remote-desktop/desktop.json`
 through `desktop::DesktopMessage` (feature `serde`).
 
+Status 2026-10-07: `CmuxRemoteDesktopTests` 24 pass; `CmuxMobileHostTests` 82 pass (13 remote desktop
+channel tests and 10 RFB tests new, the 59 earlier ones unchanged); `CmuxMobileWireTests` pass with the
+new rd errors and fixtures; `CmuxiOSRemoteDesktopCoreTests` 9 pass on macOS through a scratch package
+(the CmuxiOS package itself only builds for iOS) and compile for the simulator; `CmuxiOSApp` compiles
+for `arm64-apple-ios17.0-simulator`. The VNC DES response is checked against a vector computed with
+LibreSSL. The Rust test is formatted with rustfmt and not run.
+
 ## 11. Live verification needed (tagged Mac+iOS pair)
 
 ScreenCaptureKit display capture and CGEvent injection from the cmux-next app with real TCC grants;
