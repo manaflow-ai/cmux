@@ -105,6 +105,7 @@ extension SettingsSchema {
         "sidebar.topBandMaxShare",
         "sidebar.bottomBandMaxShare",
         "sidebar.pinnedBandsScroll", "sidebar.showWorkspaceTabs", "sidebar.showCounts",
+        "sidebar.showWorkspaceDirectory",
         "browser.defaultEngine",
         "browser.newTabPage",
         "browser.showBookmarksBar",

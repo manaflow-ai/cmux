@@ -9,6 +9,7 @@
 
 mod adoption;
 mod handoff;
+mod harness_view;
 mod idle;
 mod launchers;
 pub use handoff::{HANDOFF_OPERATIONS, MAX_CAPSULE_BYTES};
@@ -26,7 +27,9 @@ mod stream;
 mod tap;
 #[cfg(test)]
 mod tap_tests;
-pub use lifecycle::{NewRequest, profile_takes_model_at_spawn};
+pub use lifecycle::{
+    NewRequest, declared_model_json, profile_takes_model_at_spawn, terminal_harness_refusal,
+};
 pub use paging::{EventFilter, EventPage};
 pub use spawn::expand_env_value;
 mod peers;

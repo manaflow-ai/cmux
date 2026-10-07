@@ -143,7 +143,9 @@ const OBSERVE_SOURCE: &str = r#"async (m, ...a) => {
       return v ? MARK : v;
     }
   }
-  const value = await A[m](...a);
+  // The read runs inside the agent's reply, which settles the cuts it made
+  // before the values are scrubbed (a cut never ends inside a value).
+  const value = await A.reply(A[m](...a));
   if (!["snapshot", "read", "describe", "strictError"].includes(m)) return value;
   const secrets = [];
   const walk = (root) => {

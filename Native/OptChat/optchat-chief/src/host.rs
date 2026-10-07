@@ -679,13 +679,33 @@ fn start(
         }
     });
     // Section 9: spawn and tell, served beside zoom and date (acpmux only).
-    let workspaces: Option<Arc<dyn crate::workspaces::Workspaces>> =
-        if env("OPTCHAT_SUBAGENT_WORKSPACES").as_deref() == Some("0") {
-            None
-        } else {
-            crate::workspaces::AppWorkspaces::from_env(daemon_socket)
-                .map(|w| Arc::new(w) as Arc<dyn crate::workspaces::Workspaces>)
-        };
+    let workspaces_off = env("OPTCHAT_SUBAGENT_WORKSPACES").as_deref() == Some("0");
+    // Where subagent workspaces go: the app that started this host, else
+    // (an always-on brain with no app) this host's own session daemon, so
+    // any app connected to this machine's session shows them.
+    let cloud_install = match &source {
+        Source::Cloud { install } => install.install.clone(),
+        Source::Local { .. } => None,
+    };
+    let workspaces: Option<Arc<dyn crate::workspaces::Workspaces>> = if workspaces_off {
+        None
+    } else if let Some(app) = crate::workspaces::AppWorkspaces::from_env(daemon_socket) {
+        Some(Arc::new(app))
+    } else {
+        cloud_install.map(|install| {
+            Arc::new(crate::workspaces::DaemonWorkspaces {
+                daemon: daemon_socket.into(),
+                host: format!("install:{install}"),
+                host_name: crate::workspaces::host_name(),
+                harness: Some(sub_harness.clone()),
+            }) as Arc<dyn crate::workspaces::Workspaces>
+        })
+    };
+    let no_workspace_reason = if workspaces_off {
+        "subagent workspaces are turned off on this Chief host".to_owned()
+    } else {
+        "this Chief host has neither a cmux app nor a cloud install, so no cmux app shows this subagent".to_owned()
+    };
     let orchestrator = uses_acpmux.then(|| {
         let spawner = crate::subagents::Spawner::new(
             chat.clone(),
@@ -704,7 +724,8 @@ fn start(
             Arc::new(|line: &str| log(line)),
         )
         .with_trace(trace.clone())
-        .with_workspaces(workspaces.clone());
+        .with_workspaces(workspaces.clone())
+        .with_no_workspace_reason(no_workspace_reason.clone());
         Arc::new(spawner) as Arc<dyn crate::tools::Orchestrator>
     });
     log(format!(
@@ -714,11 +735,10 @@ fn start(
         } else {
             "off (no acpmux)".to_owned()
         },
-        if workspaces.is_some() {
-            "one per subagent, through the app's control socket"
-        } else {
-            "off (no CMUX_SOCKET_PATH or OPTCHAT_SUBAGENT_WORKSPACES=0)"
-        },
+        workspaces.as_ref().map_or_else(
+            || format!("off ({no_workspace_reason})"),
+            |w| format!("one per subagent, in {}", w.place())
+        ),
         if trace.is_on() {
             paths.traces.display().to_string()
         } else {

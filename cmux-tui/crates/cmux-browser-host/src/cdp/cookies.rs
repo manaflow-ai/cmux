@@ -90,6 +90,14 @@ impl Inner {
 /// profile's cookies (chief, 2026-10-06: a session keeps its sign-in in
 /// every store it makes; nothing is written back).
 pub(super) fn new_context(inner: &Inner, params: Value) -> Result<String, DriverError> {
+    new_store(inner, params, true)
+}
+
+/// A new browser context; `copy`: with the one-way copy of the profile's
+/// cookies (an incognito store starts empty). Chromium keeps every
+/// context it creates this way in memory (off the record): no disk cache,
+/// no persistent cookies.
+fn new_store(inner: &Inner, params: Value, copy: bool) -> Result<String, DriverError> {
     let created = inner.conn.call(None, "Target.createBrowserContext", params, INTERNAL_TIMEOUT)?;
     let context = created
         .get("browserContextId")
@@ -102,7 +110,9 @@ pub(super) fn new_context(inner: &Inner, params: Value) -> Result<String, Driver
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .insert(context.clone());
     super::clipboard::deny_clipboard_permissions(&inner.conn, Some(&context))?;
-    copy_profile_cookies(inner, &context)?;
+    if copy {
+        copy_profile_cookies(inner, &context)?;
+    }
     Ok(context)
 }
 
@@ -159,6 +169,12 @@ impl super::CdpDriver {
     /// A private store for a session's permissions (no proxy).
     pub fn create_private_context(&self) -> Result<String, DriverError> {
         new_context(&self.inner, json!({}))
+    }
+
+    /// An incognito store (private data P1): in memory, with no cookie of
+    /// the profile, never written back.
+    pub fn create_incognito_context(&self) -> Result<String, DriverError> {
+        new_store(&self.inner, json!({}), false)
     }
 
     /// Replaces a store's permission grants with `permissions` (CDP

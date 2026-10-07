@@ -243,3 +243,39 @@ fn next_expiry_names_the_oldest_incomplete_frame() {
     assert_eq!(r.take_losses(), vec![FrameLoss::Incomplete { frame: 1 }]);
     assert_eq!(r.next_expiry_us(), None);
 }
+
+/// Lossless tile top-offs (rd change C3): standalone frames on a tile stream
+/// whose `ref_frame` names the surface stream's video frame, never a frame
+/// of the tile stream itself.
+#[test]
+fn tile_frames_are_standalone_and_keep_their_video_reference() {
+    let mut p = Packetizer::new(7, MAX_DATAGRAM_VPC);
+    let mut r = Reassembler::new(10_000);
+    let mut send = |frame: u32, video_frame: u32, len: usize, now: u64, lose_all: bool| {
+        let b = FrameBody {
+            t_capture_us: now,
+            ref_frame: video_frame,
+            access_unit: vec![frame as u8; len],
+        };
+        let out = p.packetize(frame, flags::TILE, &b, 1).expect("packetize");
+        let mut released = Vec::new();
+        if !lose_all {
+            for d in &out.datagrams {
+                let (h, payload) = DatagramHeader::decode(d).expect("a tile shard decodes");
+                assert_ne!(h.flags & flags::TILE, 0, "every shard says tile");
+                released.extend(r.push(&h, payload, now));
+            }
+        }
+        released
+    };
+    // Frame 1 of the tile stream tops off video frame 900 of the surface stream.
+    let first = send(1, 900, 3_000, 0, false);
+    assert_eq!(
+        first.iter().map(|f| (f.frame, f.body.ref_frame)).collect::<Vec<_>>(),
+        vec![(1, 900)]
+    );
+    // A lost tile frame does not block a later one (tiles have no chain).
+    assert!(send(2, 905, 3_000, 1_000, true).is_empty());
+    let third = send(3, 910, 500, 2_000, false);
+    assert_eq!(third.iter().map(|f| f.frame).collect::<Vec<_>>(), vec![3]);
+}

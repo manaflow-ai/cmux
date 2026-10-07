@@ -357,6 +357,9 @@ impl TabSource for SharedHeadless {
                         .and_then(|target| self.0.data_store_of(target))
                         .unwrap_or_else(|| self.0.profile.clone()),
                     opener: tab["openerTargetId"].as_str().map(str::to_owned),
+                    incognito: tab["targetId"]
+                        .as_str()
+                        .is_some_and(|target| self.0.is_incognito(target)),
                 })
             })
             .collect()
@@ -370,8 +373,14 @@ impl TabSource for SharedHeadless {
     }
 
     /// The driver refuses browser pages itself.
-    fn refusal(&self, _method: &str, _target_id: &str) -> Option<DriverError> {
-        None
+    /// An incognito tab is never kept: its store closes with its session.
+    fn refusal(&self, method: &str, target_id: &str) -> Option<DriverError> {
+        (method == "tab.keep" && self.0.is_incognito(target_id)).then(|| {
+            DriverError::new(
+                crate::protocol::ErrorCode::Forbidden,
+                "tab.keep: an incognito tab closes with its session; it cannot be kept",
+            )
+        })
     }
 
     fn lease(&self, op: &LeaseOp, caller: &LeaseCaller) -> Result<(), LeaseError> {
@@ -435,10 +444,20 @@ impl TabSource for SharedHeadless {
         if let Some(fields) = params.as_object_mut() {
             fields.remove("browserContextId");
         }
-        if method.starts_with("cookies.")
-            && let Some(context) = self.0.proxy_of(session)
-        {
-            params["browserContextId"] = json!(context);
+        if method.starts_with("cookies.") {
+            match self.0.cookie_store_of(session) {
+                Ok(Some(context)) => params["browserContextId"] = json!(context),
+                Ok(None) => {}
+                Err(error) => return Some(Err(error)),
+            }
+        }
+        // A tab-less fetch runs in a hidden shell of the profile's store,
+        // which would send and keep the profile's cookies.
+        if method == "net.fetch" && self.0.session_incognito(session) {
+            return Some(Err(DriverError::new(
+                crate::protocol::ErrorCode::Unsupported,
+                "net.fetch: a fetch with no tab is not supported in an incognito session; pass the targetId of one of its tabs",
+            )));
         }
         Some(self.0.driver.call(method, &params))
     }
@@ -582,7 +601,10 @@ impl TabSource for SharedHeadless {
     }
 
     fn capabilities(&self, _engine: &str) -> Vec<&'static str> {
-        self.0.driver.capabilities()
+        let mut capabilities = self.0.driver.capabilities();
+        // Incognito tabs (private data P1, headless_configure.rs).
+        capabilities.push("incognito");
+        capabilities
     }
 }
 
