@@ -14,6 +14,7 @@ use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
 
 use cmux_link::dial::{MAX_LINE_BYTES, Service, ServiceHello, parse_line};
+use cmux_link::owner_session::{IDENTIFY_REQUEST, OwnerRefused, OwnerSession, is_brain_identity};
 use cmux_link::pairing::Pairings;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 
@@ -32,6 +33,8 @@ pub(super) enum InboundRefused {
     EntryUnavailable,
     /// The socket at the entry path did not greet with the entry banner.
     NotAnEntry,
+    /// An owner session that the link refused (who, or which socket).
+    Owner(OwnerRefused),
 }
 
 /// The daemon entry a link stream may reach for the session listening on
@@ -41,13 +44,35 @@ pub(super) fn daemon_entry(session_socket: &Path) -> PathBuf {
 }
 
 /// Check `stream` from the peer with WireGuard key `peer_key` and overlay
-/// source `peer_addr`, then splice it into the daemon's remote entry.
+/// source `peer_addr`, then splice it into the daemon's remote entry, or
+/// (owner session, the server's owner only) into the brain daemon's
+/// trusted socket that `owner` names.
+#[cfg(test)]
 pub(super) async fn serve_inbound<S>(
+    stream: S,
+    peer_key: [u8; 32],
+    peer_addr: SocketAddr,
+    pairings: &Pairings,
+    session_socket: &Path,
+    owner: Option<&OwnerSession>,
+) -> Result<(), InboundRefused>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    serve_inbound_watched(stream, peer_key, peer_addr, pairings, session_socket, owner, None).await
+}
+
+/// [`serve_inbound`], where `revocations` carries every new pairing view: an
+/// open owner session closes as soon as a view no longer pairs its key to
+/// the same owner (`server.revoke`, `cmux link peer remove`).
+pub(super) async fn serve_inbound_watched<S>(
     mut stream: S,
     peer_key: [u8; 32],
     peer_addr: SocketAddr,
     pairings: &Pairings,
     session_socket: &Path,
+    owner: Option<&OwnerSession>,
+    revocations: Option<tokio::sync::watch::Receiver<std::sync::Arc<Pairings>>>,
 ) -> Result<(), InboundRefused>
 where
     S: AsyncRead + AsyncWrite + Unpin,
@@ -58,14 +83,92 @@ where
     }
     let hello =
         read_line(&mut stream, MAX_LINE_BYTES).await.map_err(|_| InboundRefused::BadHello)?;
-    // A paired peer reaches only the daemon entry, and carries no token.
-    let Some(ServiceHello { service: Service::Daemon, link_token: None, epoch: None }) =
-        parse_line::<ServiceHello>(&hello)
-    else {
-        return Err(InboundRefused::BadHello);
+    // A paired peer carries no token. It reaches the daemon entry, and its
+    // owner (decided here, from the key's pairing record) the owner session.
+    match parse_line::<ServiceHello>(&hello) {
+        Some(ServiceHello { service: Service::Daemon, link_token: None, epoch: None }) => {
+            // A paired peer's stream carries no control-plane check.
+            hand_to_entry(stream, &record.peer(), None, session_socket).await
+        }
+        Some(ServiceHello { service: Service::OwnerSession, link_token: None, epoch: None }) => {
+            serve_owner_session(stream, peer_key, &record.peer(), owner, revocations).await
+        }
+        _ => Err(InboundRefused::BadHello),
+    }
+}
+
+/// The owner session: only the configured owner, only to the configured
+/// brain socket after its checks (same uid as this link, inside the brain
+/// home, not a symlink, answers `identify` as a brain daemon). The stream
+/// gets no stamp: it is the owner's trusted local session.
+async fn serve_owner_session<S>(
+    mut stream: S,
+    peer_key: [u8; 32],
+    peer: &cmux_link::stamp::LinkPeer,
+    owner: Option<&OwnerSession>,
+    revocations: Option<tokio::sync::watch::Receiver<std::sync::Arc<Pairings>>>,
+) -> Result<(), InboundRefused>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    let owner = owner.ok_or(InboundRefused::Owner(OwnerRefused::NotConfigured))?;
+    owner.authorize(peer).map_err(InboundRefused::Owner)?;
+    let uid = cmux_tui_core::platform::effective_uid();
+    let socket = owner.check_socket(uid).map_err(InboundRefused::Owner)?;
+    let mut probe = connect_same_uid(&socket, uid).await?;
+    probe
+        .write_all(IDENTIFY_REQUEST.as_bytes())
+        .await
+        .map_err(|_| InboundRefused::EntryUnavailable)?;
+    let reply = read_line(&mut probe, 64 * 1024)
+        .await
+        .map_err(|_| InboundRefused::Owner(OwnerRefused::NotABrain))?;
+    if !is_brain_identity(&reply) {
+        return Err(InboundRefused::Owner(OwnerRefused::NotABrain));
+    }
+    drop(probe);
+    let mut daemon = connect_same_uid(&socket, uid).await?;
+    let splice = tokio::io::copy_bidirectional(&mut stream, &mut daemon);
+    let Some(mut revocations) = revocations else {
+        let _ = splice.await;
+        return Ok(());
     };
-    // A paired peer's stream carries no control-plane check.
-    hand_to_entry(stream, &record.peer(), None, session_socket).await
+    // The owner stays the owner only while the current pairing view still
+    // maps this key to the same peer and that peer is still authorized.
+    let still_owner = |pairings: &Pairings| {
+        pairings
+            .by_key(&peer_key)
+            .is_some_and(|record| record.peer() == *peer && owner.authorize(&record.peer()).is_ok())
+    };
+    let revoked = async {
+        loop {
+            if revocations.changed().await.is_err() {
+                // The link is shutting down its pairing view: keep serving.
+                std::future::pending::<()>().await;
+            }
+            if !still_owner(&revocations.borrow_and_update()) {
+                return;
+            }
+        }
+    };
+    tokio::select! {
+        _ = splice => Ok(()),
+        () = revoked => Err(InboundRefused::Owner(OwnerRefused::NotOwner)),
+    }
+}
+
+/// Connect to `socket` and require that its listener runs as `uid`.
+async fn connect_same_uid(
+    socket: &Path,
+    uid: u32,
+) -> Result<tokio::net::UnixStream, InboundRefused> {
+    let stream = tokio::net::UnixStream::connect(socket)
+        .await
+        .map_err(|_| InboundRefused::EntryUnavailable)?;
+    match stream.peer_cred() {
+        Ok(credentials) if credentials.uid() == uid => Ok(stream),
+        _ => Err(InboundRefused::Owner(OwnerRefused::WrongOwner)),
+    }
 }
 
 /// Splice `stream` into the session's remote entry with `peer` (and the

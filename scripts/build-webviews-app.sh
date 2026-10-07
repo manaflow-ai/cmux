@@ -6,7 +6,33 @@ SRC_DIR="$ROOT/webviews"
 OUT_DIR="$ROOT/Resources/markdown-viewer/webviews-app"
 MARKED_JS="$ROOT/Resources/markdown-viewer/marked.min.js"
 
+MODE=build
+# The source checks of `bun run build` (verify:tanstack-router, typecheck) do not
+# change the output. --skip-checks runs only `vp build`: the app build path
+# (build-web-bundles.sh) uses it, and CI keeps the checks.
+RUN_CHECKS=1
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --check) MODE=--check ;;
+    --skip-checks) RUN_CHECKS=0 ;;
+    --out)
+      [ $# -ge 2 ] || { echo "error: --out needs a directory" >&2; exit 2; }
+      case "$2" in /*) OUT_DIR="$2" ;; *) OUT_DIR="$PWD/$2" ;; esac
+      shift ;;
+    *) echo "usage: $0 [--check] [--skip-checks] [--out DIR]" >&2; exit 2 ;;
+  esac
+  shift
+done
+
 "$ROOT/scripts/check-webviews-bun-version.sh"
+
+build_app() {
+  if [ "$RUN_CHECKS" = 1 ]; then
+    bun run build
+  else
+    bun run vp build
+  fi
+}
 
 write_agent_session_html() {
   out_dir="$1"
@@ -42,13 +68,13 @@ normalize_webviews_output() {
   strip_trailing_line_whitespace "$out_dir/main.mjs" "$out_dir/agent-session.html" "$out_dir/diff-page.html" "$out_dir/markdown-page.html" "$out_dir/editor-page.html"
 }
 
-if [ "${1:-}" = "--check" ]; then
+if [ "$MODE" = "--check" ]; then
   tmp_dir="$(mktemp -d)"
   trap 'rm -rf "$tmp_dir"' EXIT
   (
     cd "$SRC_DIR"
     bun install --frozen-lockfile
-    CMUX_WEBVIEWS_OUT_DIR="$tmp_dir" bun run build
+    CMUX_WEBVIEWS_OUT_DIR="$tmp_dir" build_app
     write_agent_session_html "$tmp_dir"
     normalize_webviews_output "$tmp_dir"
   )
@@ -71,10 +97,11 @@ if [ "${1:-}" = "--check" ]; then
   exit 0
 fi
 
+mkdir -p "$OUT_DIR"
 (
   cd "$SRC_DIR"
   bun install --frozen-lockfile
-  bun run build
+  CMUX_WEBVIEWS_OUT_DIR="$OUT_DIR" build_app
 )
 write_agent_session_html "$OUT_DIR"
 normalize_webviews_output "$OUT_DIR"

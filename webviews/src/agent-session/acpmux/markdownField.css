@@ -3,7 +3,9 @@
    user formats. Theme tokens only. */
 .acpmux-md-field {
   position: relative;
-  max-height: 40vh;
+  /* Keep long drafts inside the composer. Eight lines matches the reference composer and
+     leaves the transcript and location shelf anchored while the draft grows. */
+  max-height: calc(22px * 8 + 23px);
   overflow-y: auto;
   padding: 15px 16px 8px;
   font-size: 15px;
