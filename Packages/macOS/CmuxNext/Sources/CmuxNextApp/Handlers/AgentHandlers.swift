@@ -82,13 +82,13 @@ enum AgentHandlers {
             }
             view.toggleDictation()
         })
-        // Cmd-K in an agent chat: the page's "Search chats" palette over its sessions.
-        registry.bind("agentPane.searchChats", run: { invocation in
-            guard let pane = context.scope(invocation).pane, let key = pane.currentTabKey,
-                  let view = context.services.agentTabs.existingView(key) else {
-                return context.refuse(MiscHandlerStrings.noAgentChat)
-            }
-            view.showSearchChats()
+        // Search Agent Chats (decision K1): the command palette's chats page, from anywhere.
+        context.services.palette.sources.actionPages["agentPane.searchChats"] = { [weak services = context.services] in
+            services.map { AgentChatsPalettePage(services: $0).page() }
+        }
+        registry.bind("agentPane.searchChats", run: { _ in
+            context.services.palette.show(page: AgentChatsPalettePage(services: context.services).page(),
+                                          relativeTo: context.activeWindow?.window)
         })
         let permissionCommands: [(ActionID, String)] = [
             ("agentPane.permission.allowOnce", "permissionAllowOnce"),
