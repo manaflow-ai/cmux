@@ -1324,6 +1324,49 @@ test("input: a refused key down or mouse move leaves no modifier or coordinate f
   assert.deepEqual([press.params.x, press.params.y, press.params.modifiers], [10, 20, []], JSON.stringify(press.params));
 });
 
+// A shortcut the driver refuses (Undo or Redo in a tab that shows a blocked
+// frame, Copy in a user's tab, a timeout or any other error) must release
+// the modifiers it pressed, as a delivered one does: a Meta left held turns
+// the next key into Meta+key (seen live: a refused Meta+z, then "y" typed
+// Meta+y).
+test("input: a refused shortcut releases the modifiers it pressed", async () => {
+  const calls = [];
+  let refuse = () => false;
+  const host = { setTimeout: () => 0, clearTimeout: () => {}, now: Date.now, print: () => {} };
+  const driver = {
+    call: async (method, params) => {
+      calls.push({ method, params });
+      if (refuse(method, params)) throw Object.assign(new Error("blocked: Undo is refused"), { code: "blocked" });
+      if (method === "tab.info") return { url: "https://example.com/", title: "T", viewport: { width: 800, height: 600 } };
+      return null;
+    },
+    on: () => () => {},
+    capabilities: () => [],
+  };
+  const session = new ns.core.Session({ driver, host });
+  const page = session.pageFor("t1");
+  for (const combo of ["Meta+z", "Control+Meta+c"]) {
+    calls.length = 0;
+    const last = combo.split("+").at(-1);
+    refuse = (method, params) => method === "input.key" && params.type === "down" && params.key === last;
+    await assert.rejects(page.keyboard.press(combo), /refused/);
+    refuse = () => false;
+    const ups = calls.filter((c) => c.method === "input.key" && c.params.type === "up").map((c) => c.params.key);
+    assert.deepEqual(ups, combo.split("+").slice(0, -1).reverse(), `${combo}: ${JSON.stringify(calls.map((c) => c.params))}`);
+    await page.keyboard.press("y");
+    const key = calls.filter((c) => c.method === "input.key" && c.params.type === "down").at(-1);
+    assert.deepEqual([key.params.key, key.params.modifiers], ["y", []], `${combo}: ${JSON.stringify(key.params)}`);
+  }
+  // A modifier the driver refuses mid-combo: the ones pressed before it are released.
+  calls.length = 0;
+  refuse = (method, params) => method === "input.key" && params.type === "down" && params.key === "Shift";
+  await assert.rejects(page.keyboard.press("Meta+Shift+z"));
+  refuse = () => false;
+  assert.deepEqual(calls.filter((c) => c.params.type === "up").map((c) => c.params.key), ["Meta"]);
+  await page.keyboard.press("y");
+  assert.deepEqual(calls.filter((c) => c.params.type === "down").at(-1).params.modifiers, []);
+});
+
 test("diagnostics: hit-target and strict-mode errors name elements by tag and role, never the page's text or attributes", async () => {
   // Playwright's previews cut page text at 50 characters and attributes at
   // 500, and its "aka" locators cut text at word boundaries. Secrets are
