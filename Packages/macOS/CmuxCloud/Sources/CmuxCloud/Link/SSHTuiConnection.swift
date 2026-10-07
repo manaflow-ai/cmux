@@ -99,6 +99,26 @@ public struct SSHTuiConnection: Sendable {
     /// cmux-owned ControlPath an open used, so these defaults restore the rest;
     /// without a shared master, batch mode can't log in on a password-only host.
     private var sshOptions: [String] {
+        let sharing = SSHConnectionSharingOptions()
+        let resolver = SSHAgentSocketResolver(environment: [:])
+        let effectiveAgent = sshProcessEnvironment["SSH_AUTH_SOCK"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let agentRouteIsSensitive = configuration.agentSocketPathOverrideIsSet
+            || (effectiveAgent?.isEmpty == false)
+        var options = configuration.sshOptions
+        if agentRouteIsSensitive,
+           let suppliedControlPath = resolver.optionValue(named: "ControlPath", in: options),
+           suppliedControlPath.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() != "none" {
+            if sharing.cmuxOwnedControlPath(in: options) != nil {
+                // Recompute a cmux-owned path from the captured agent route.
+                options.removeAll { resolver.optionKey($0) == "controlpath" }
+            } else {
+                // A caller-owned path cannot encode the agent route. Never let
+                // it connect a master opened with a different credential.
+                options = options.filter { resolver.optionKey($0) != "controlpath" }
+                options.append("ControlPath=none")
+            }
+        }
         var routeSensitiveOptions = configuration.identityFile.map { ["IdentityFile=\($0)"] } ?? []
         if let agent = configuration.agentSocketPath?.trimmingCharacters(in: .whitespacesAndNewlines), !agent.isEmpty {
             routeSensitiveOptions.append("IdentityAgent=\(agent)")
@@ -108,8 +128,13 @@ public struct SSHTuiConnection: Sendable {
             // reflect that OpenSSH behavior.
             routeSensitiveOptions.append("IdentityAgent=none")
         }
-        return SSHConnectionSharingOptions().mergingDefaults(
-            into: configuration.sshOptions,
+        if agentRouteIsSensitive, configuration.agentSocketPathOverrideIsSet == false {
+            // An inherited socket is not an SSH option, but it is still part
+            // of the credentials carried by a multiplexed master.
+            routeSensitiveOptions.append("inherited-agent-route")
+        }
+        return sharing.mergingDefaults(
+            into: options,
             routeSensitiveOptions: routeSensitiveOptions,
             routeIdentifier: routeIdentityDigest
         )

@@ -71,6 +71,24 @@ struct SSHTuiPreflightTests {
             != second.authenticationArguments.first { $0.hasPrefix("ControlPath=") })
     }
 
+    @Test("A caller-owned ControlPath cannot cross inherited agent routes")
+    func callerControlPathDisablesCrossAgentReuse() throws {
+        let options = ["ControlMaster=auto", "ControlPersist=600", "ControlPath=/tmp/shared-cmux-agent"]
+        let first = SSHTuiConnection(
+            configuration: configuration(options: options, identityFile: nil),
+            environment: ["PATH": "/usr/bin", "SSH_AUTH_SOCK": "/tmp/inherited-agent-a.sock"]
+        )
+        let second = SSHTuiConnection(
+            configuration: configuration(options: options, identityFile: nil),
+            environment: ["PATH": "/usr/bin", "SSH_AUTH_SOCK": "/tmp/inherited-agent-b.sock"]
+        )
+
+        #expect(first.authenticationArguments.contains("ControlPath=none"))
+        #expect(second.authenticationArguments.contains("ControlPath=none"))
+        #expect(!first.authenticationArguments.contains("ControlPath=/tmp/shared-cmux-agent"))
+        #expect(!second.authenticationArguments.contains("ControlPath=/tmp/shared-cmux-agent"))
+    }
+
     /// Explicit disable must not reuse an inherited-agent control master.
     @Test("An explicitly disabled agent uses a separate route from an inherited agent")
     func disabledAgentDoesNotShareInheritedRoute() throws {
