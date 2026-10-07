@@ -61,7 +61,7 @@ export interface UpstreamMeshService {
 
   /**
    * Creates the device's tunnel with the device's own public key, routes
-   * limited to the mesh, attached to the mesh's network. Fails closed (and
+   * limited to the mesh (its IPv4 /20 and the provider's IPv6 /64 for it), attached to the mesh's network. Fails closed (and
    * deletes the tunnel) if the provider minted a private key.
    */
   readonly createTunnel: <C, M>(
