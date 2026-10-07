@@ -45,6 +45,14 @@ struct DebugPageTargetTests {
         }
         #expect(ready)
 
+        // Only the parked spare is live here: debug.page names no page (or another suite's visible
+        // one) unless the probe asks for the spare.
+        let alone = await DebugPages.handle(["page": "cmux.settings", "action": "state"], services: nil)
+        #expect(alone["error"]?.stringValue == "no live page cmux.settings" || alone["parked"]?.boolValue == false,
+                "debug.page read the parked spare: \(alone)")
+        let asked = await DebugPages.handle(["page": "cmux.settings", "action": "state", "parked": true], services: nil)
+        #expect(asked["parked"]?.boolValue == true, "\(asked)")
+
         // A Settings page opened without the pool while the spare stays parked: the spare is older.
         let page = try #require(PageWebView(descriptor: .settings,
                                             routes: [PageRoute(prefix: "cmux.settings.", provider: Provider())],
