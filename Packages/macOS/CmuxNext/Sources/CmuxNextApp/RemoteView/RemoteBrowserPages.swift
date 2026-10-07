@@ -155,7 +155,8 @@ enum RemoteBrowserPages {
     /// runs the shared open path in that pane or the focused one; `open_local`
     /// (`url`?, `pane`?) runs `openLocal`; `state` (default) lists live
     /// sessions; `navigate` (`url`, `tab`?) loads a page the way the omnibar
-    /// does (`BrowserTab.load`); `menu_choose` (`id` or `index`, `tab`?)
+    /// does (`BrowserTab.load`); `scroll` (`x`, `y`, `dy`, `dx`) and `move`
+    /// (`x`, `y`) send a wheel or hover event; `menu_choose` (`id` or `index`, `tab`?)
     /// answers the open native menu; `menu_cancel` dismisses it; `click`
     /// (`x`, `y`, `button`, `modifiers`) clicks the page.
     @MainActor
@@ -191,6 +192,8 @@ enum RemoteBrowserPages {
                     "menu": session.nativeUI.openMenuTitles.map { .array($0.map(JSONValue.string)) } ?? .null,
                     "dialog": session.nativeUI.openDialogToken.map { .number(Double($0)) } ?? .null,
                     "note": session.lastNote.map(JSONValue.string) ?? .null,
+                    "cursor": session.nativeUI.cursorKind.map(JSONValue.string) ?? .null,
+                    "surfaces": .array(session.surfaces.surfaceIDs.map { .number(Double($0)) }),
                     "frame": .string("\(Int(session.pane.view.frame.width))x\(Int(session.pane.view.frame.height))"),
                 ])
             }
@@ -235,6 +238,33 @@ enum RemoteBrowserPages {
                 tab.handlePointer(event)
             }
             return ["clicked": true]
+        case "scroll", "move":
+            // `scroll`: a pixel wheel event of `dy` (and `dx`) at `x`,`y`;
+            // `move`: the pointer moves to `x`,`y` (hover). Page CSS pixels
+            // from the top left, through the page view's own pointer path.
+            guard let tab = target?.tab else { return ["error": "no session"] }
+            let view = tab.pane.view
+            guard let window = view.window else { return ["error": "the tab is not in a window"] }
+            let point = view.convert(NSPoint(x: params["x"]?.doubleValue ?? 10, y: params["y"]?.doubleValue ?? 10), to: nil)
+            let scroll = params["action"]?.stringValue == "scroll"
+            let event: NSEvent?
+            if scroll {
+                // A wheel NSEvent comes only from a CGEvent: global top-left
+                // coordinates, aimed at this window.
+                let cgEvent = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2,
+                                      wheel1: Int32(params["dy"]?.doubleValue ?? 0), wheel2: Int32(params["dx"]?.doubleValue ?? 0), wheel3: 0)
+                let screen = window.convertPoint(toScreen: point)
+                cgEvent?.location = CGPoint(x: screen.x, y: (NSScreen.screens.first?.frame.maxY ?? 0) - screen.y)
+                cgEvent?.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: Int64(window.windowNumber))
+                cgEvent?.setIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent, value: Int64(window.windowNumber))
+                event = cgEvent.flatMap { NSEvent(cgEvent: $0) }
+            } else {
+                event = NSEvent.mouseEvent(with: .mouseMoved, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                           windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0)
+            }
+            guard let event else { return ["error": "no event"] }
+            tab.handlePointer(event)
+            return [scroll ? "scrolled" : "moved": true]
         case "menu_choose":
             guard let target else { return ["error": "no session"] }
             if let id = params["id"]?.intValue { return ["chosen": .bool(target.nativeUI.choose(.command(Int64(id))))] }
