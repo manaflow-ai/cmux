@@ -16,6 +16,14 @@ import Testing
         #expect(!ConversationBackgroundDraft(look: ice).optimisticBackground(id: "x", setBy: nil).prefersDarkContent)
     }
 
+    @Test func auroraAndGlitterAreAsDarkAsTheirBase() {
+        // Their bright accents are small; the base fills the screen.
+        for look in ConversationBackgroundLook.all where look.kind == .aurora || look.kind == .glitter {
+            #expect(look.luminance < ConversationBackground.darkContentThreshold, "\(look.id) L=\(look.luminance)")
+        }
+        #expect(ConversationBackground.luminance(kind: .color, colors: ["#000000", "#FFFFFF"]) == 0.5)
+    }
+
     @Test func everyLookHasValidColorsAndAName() {
         for look in ConversationBackgroundLook.all {
             #expect(!look.colors.isEmpty && look.colors.allSatisfy { ConversationBackground.rgb(hex: $0) != nil }, "\(look.id)")

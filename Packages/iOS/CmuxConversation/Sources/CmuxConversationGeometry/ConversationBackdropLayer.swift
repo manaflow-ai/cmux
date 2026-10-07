@@ -125,9 +125,12 @@ public final class ConversationBackdropLayer: CALayer {
         let width = bounds.width
         let height = bounds.height
         let cloudColor = CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1)
-        for index in 0..<9 {
-            let depth = CGFloat(index) / 8 // 0 far ... 1 near
-            let size = CGSize(width: width * (0.55 + 0.6 * depth), height: height * (0.10 + 0.08 * depth))
+        // Clouds keep a phone-sized scale on a large window; more of them fill it.
+        let unit = min(width, 520)
+        let count = min(24, max(7, Int((9 * width * height / (400 * 870)).rounded())))
+        for index in 0..<count {
+            let depth = CGFloat(index) / CGFloat(count - 1) // 0 far ... 1 near
+            let size = CGSize(width: unit * (0.5 + 0.55 * depth), height: unit * (0.16 + 0.12 * depth))
             let cloud = CALayer()
             cloud.frame = CGRect(origin: .zero, size: size)
             for puff in 0..<5 {
@@ -136,7 +139,7 @@ public final class ConversationBackdropLayer: CALayer {
                 let w = size.width * random(0.35...0.6)
                 let h = size.height * random(0.7...1.1)
                 blob.frame = CGRect(x: CGFloat(puff) / 5 * (size.width - w) + random(-10...10), y: (size.height - h) * random(0.2...0.8), width: w, height: h)
-                blob.colors = [cloudColor.copy(alpha: 0.55 - 0.25 * (1 - depth))!, cloudColor.copy(alpha: 0)!]
+                blob.colors = [cloudColor.copy(alpha: 0.2 + 0.28 * depth)!, cloudColor.copy(alpha: 0)!]
                 blob.startPoint = CGPoint(x: 0.5, y: 0.5)
                 blob.endPoint = CGPoint(x: 1, y: 1)
                 cloud.addSublayer(blob)

@@ -348,7 +348,7 @@ enum WireDecoding {
             photo = ConversationBackground.Photo(url: url, width: p["width"] as? Int ?? 0, height: p["height"] as? Int ?? 0)
         }
         if kind == .photo, photo == nil { return nil }
-        let luminance = (raw["luminance"] as? NSNumber)?.doubleValue ?? ConversationBackground.luminance(colors: colors) ?? 0.5
+        let luminance = (raw["luminance"] as? NSNumber)?.doubleValue ?? ConversationBackground.luminance(kind: kind, colors: colors) ?? 0.5
         return ConversationBackground(
             id: id,
             kind: kind,

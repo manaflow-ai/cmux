@@ -494,6 +494,7 @@ async function main() {
   check(!ba.events().slice(bgEventsBefore).some((e) => e.message.system), "removing when there is none writes nothing");
   const byBot = await post("/admin/background?conversation=direct&sender=john&look=glitter.gold");
   check(byBot.conversation.background.kind === "glitter" && byBot.conversation.background.setBy === "john", "admin background: John sets Glitter");
+  check(byBot.conversation.background.luminance < 0.18, `Glitter is as dark as its base, not the mean of its sparkle colors (L=${byBot.conversation.background.luminance})`);
   const botNotice = await ba.waitFor(() => ba.events().find((e) => e.message.system === "backgroundChanged" && e.message.senderId === "john"), 3000, "bot notice");
   const afterBot = await ba.call("hello", { clientId: "bg-a2" });
   check(afterBot.unreadCount === bgUnreadBefore && afterBot.conversation.background.setBy === "john", "a system line from someone else is not unread; hello carries the background");

@@ -55,6 +55,13 @@ export function hexLuminance(hex: string): number {
 
 export const colorsLuminance = (colors: string[]) => colors.reduce((n, c) => n + hexLuminance(c), 0) / colors.length;
 
+/** Luminance as `kind` draws `colors`: gradients cover each stop evenly; Aurora and Glitter are mostly their base (first) color. */
+export function kindLuminance(kind: BackgroundKind, colors: string[]): number {
+  if ((kind === "aurora" || kind === "glitter") && colors.length > 1)
+    return 0.85 * hexLuminance(colors[0]) + 0.15 * colorsLuminance(colors.slice(1));
+  return colorsLuminance(colors);
+}
+
 /**
  * Validates a client `setBackground.background`. Returns the parts the server
  * keeps (id and setBy are assigned by the caller) or throws a message.
@@ -83,7 +90,7 @@ export function parseBackground(raw: any): Omit<Background, "id" | "setBy" | "ph
   const preset = LOOKS.find((l) => l.id === look);
   if (!colors && preset && preset.kind === kind) colors = preset.colors;
   if (!colors) throw new Error("background.colors");
-  if (luminance === undefined) luminance = colorsLuminance(colors);
+  if (luminance === undefined) luminance = kindLuminance(kind, colors);
   return { kind, colors, luminance, ...(look ? { look } : {}) };
 }
 

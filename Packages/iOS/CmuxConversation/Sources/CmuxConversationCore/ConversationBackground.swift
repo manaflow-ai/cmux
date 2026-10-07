@@ -108,6 +108,20 @@ public struct ConversationBackground: Sendable, Hashable {
         return values.reduce(0, +) / Double(values.count)
     }
 
+    /// Luminance of `colors` as `kind` draws them: gradients (Color, Sky,
+    /// Water) cover each stop evenly; Aurora and Glitter fill the screen
+    /// with their first (base) color and only accent it with the others.
+    public static func luminance(kind: Kind, colors: [String]) -> Double? {
+        switch kind {
+        case .color, .photo, .sky, .water:
+            return luminance(colors: colors)
+        case .aurora, .glitter:
+            guard let base = colors.first.flatMap(relativeLuminance(hex:)) else { return nil }
+            guard let accents = luminance(colors: Array(colors.dropFirst())), colors.count > 1 else { return base }
+            return 0.85 * base + 0.15 * accents
+        }
+    }
+
     /// sRGB components in 0...1 of `#RRGGBB`.
     public static func rgb(hex: String) -> (Double, Double, Double)? {
         var digits = Substring(hex)
@@ -191,7 +205,7 @@ public struct ConversationBackgroundDraft: Sendable, Hashable {
             colors: colors,
             look: look,
             photo: photo,
-            luminance: luminance ?? ConversationBackground.luminance(colors: colors) ?? 0.5,
+            luminance: luminance ?? ConversationBackground.luminance(kind: kind, colors: colors) ?? 0.5,
             setBy: setBy
         )
     }
@@ -211,7 +225,7 @@ public struct ConversationBackgroundLook: Sendable, Hashable, Identifiable {
         self.colors = colors
     }
 
-    public var luminance: Double { ConversationBackground.luminance(colors: colors) ?? 0.5 }
+    public var luminance: Double { ConversationBackground.luminance(kind: kind, colors: colors) ?? 0.5 }
 
     /// The preset for `id`, if it is one.
     public static func named(_ id: String?) -> ConversationBackgroundLook? {
