@@ -21,6 +21,8 @@ export interface FakeTunnel {
   readonly routes: ReadonlyArray<string>;
   readonly vpc: string;
   readonly ipv4: string;
+  /** Changes on every key rotation, as the provider's does. */
+  readonly serverPublicKey?: string;
 }
 
 export interface FakeRule {
@@ -45,7 +47,12 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
   const rules = new Map<string, FakeRule>();
   /** VM provider id -> network id. */
   const vmNetworks = new Map<string, string>();
-  const state: { mintKey: boolean; ruleCreateStatus: number | null; ruleCreates: number } = { mintKey: false, ruleCreateStatus: null, ruleCreates: 0 };
+  const state: { mintKey: boolean; ruleCreateStatus: number | null; ruleCreates: number; rotations: number } = {
+    mintKey: false,
+    ruleCreateStatus: null,
+    ruleCreates: 0,
+    rotations: 0,
+  };
   let hostCounter = 10;
 
   const tunnelBody = (tunnel: FakeTunnel, privateKey: string) => ({
@@ -53,7 +60,7 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
     tunnelId: tunnel.id,
     endpointHost: `tun-${tunnel.id}.beta-vpn.example`,
     endpointPort: 51820,
-    serverPublicKey: "c2VydmVyLXB1YmxpYy1rZXktMzItYnl0ZXMtbG9uZyE=",
+    serverPublicKey: tunnel.serverPublicKey ?? "c2VydmVyLXB1YmxpYy1rZXktMzItYnl0ZXMtbG9uZyE=",
     clientPublicKey: tunnel.clientPublicKey ?? "bWludGVkLXB1YmxpYy1rZXktMzItYnl0ZXMtbG9uZyE=",
     clientAddressV4: "100.64.0.1/32",
     clientAddressV6: "fd00::1/128",
@@ -97,6 +104,10 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
       return json({ id, cidr, cidrV6: "fd00:1::/64", createdAt: "2026-10-07T00:00:00Z" });
     }
     const vpcMatch = /^\/v5\/vpcs\/([^/]+)$/u.exec(path);
+    if (vpcMatch !== null && method === "GET") {
+      const found = vpcs.get(decodeURIComponent(vpcMatch[1] ?? ""));
+      return found === undefined ? json({ message: "not found" }, 404) : json({ ...found, cidrV6: "fd00:1::/64", createdAt: "2026-10-07T00:00:00Z" });
+    }
     if (vpcMatch !== null && method === "DELETE") {
       const id = decodeURIComponent(vpcMatch[1] ?? "");
       if (!vpcs.has(id)) return json({ message: "not found" }, 404);
@@ -108,6 +119,8 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
       const attach = Array.isArray(fields["vpcs"]) ? fields["vpcs"][0] : undefined;
       const vpc = typeof attach === "object" && attach !== null && "vpc" in attach && typeof attach.vpc === "string" ? attach.vpc : "";
       if (!vpcs.has(vpc)) return json({ message: "no such network" }, 404);
+      const routesIn = Array.isArray(fields["routes"]) ? fields["routes"] : [];
+      if (!routesIn.includes("fd00:1::/64")) return json({ code: "CONFLICT", message: "network IPv6 range outside the tunnel's routes" }, 409);
       const routes = Array.isArray(fields["routes"]) ? fields["routes"].filter((route): route is string => typeof route === "string") : [];
       const tunnel: FakeTunnel = {
         id: `tun-${crypto.randomUUID()}`,
@@ -120,6 +133,18 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
       // The provider mints a key when none is supplied; the test switch makes it mint one anyway.
       const minted = tunnel.clientPublicKey === null || state.mintKey ? "bWludGVkLXByaXZhdGUta2V5LTMyLWJ5dGVzLWxvbmch" : "";
       return json(tunnelBody(tunnel, minted));
+    }
+    const rotateMatch = /^\/v5\/tunnels\/([^/]+)\/rotate-key$/u.exec(path);
+    if (rotateMatch !== null && method === "POST") {
+      const id = decodeURIComponent(rotateMatch[1] ?? "");
+      const tunnel = tunnels.get(id);
+      if (tunnel === undefined) return json({ message: "not found" }, 404);
+      const clientPublicKey = typeof fields["clientPublicKey"] === "string" ? fields["clientPublicKey"] : null;
+      state.rotations += 1;
+      const rotated: FakeTunnel = { ...tunnel, clientPublicKey, serverPublicKey: btoa(`rotated-server-key-${String(state.rotations).padStart(13, "0")}`) };
+      tunnels.set(id, rotated);
+      const minted = clientPublicKey === null || state.mintKey ? "bWludGVkLXByaXZhdGUta2V5LTMyLWJ5dGVzLWxvbmch" : "";
+      return json(tunnelBody(rotated, minted));
     }
     const tunnelMatch = /^\/v5\/tunnels\/([^/]+)$/u.exec(path);
     if (tunnelMatch !== null) {

@@ -4,9 +4,10 @@
  * with an ACL the cmux VM API owns. Off unless the experiment is enabled for
  * the team; every route then answers 404.
  */
-import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
+import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "@effect/platform";
 import { Schema } from "effect";
-import { BadRequest, Conflict, NotFound, PaymentRequired, QuotaExceeded } from "../errors.ts";
+import { BadRequest, Conflict, Forbidden, NotFound, PaymentRequired, QuotaExceeded, ServiceUnavailable } from "../errors.ts";
+import { InstallPublicKey, Nonce, Signature, SignedAt } from "../mesh/signed-request.ts";
 import { DeviceId, MeshId, TunnelId, VmId } from "../lib/ids.ts";
 import { describe, DisplayName, GroupCreateHeaders, GroupTeamHeaders } from "./common.ts";
 
@@ -32,16 +33,66 @@ export class CreateMeshRequest extends Schema.Class<CreateMeshRequest>("CreateMe
   displayName: Schema.optional(DisplayName),
 }) {}
 
-export class EnrollDeviceRequest extends Schema.Class<EnrollDeviceRequest>("EnrollDeviceRequest")({
-  name: DeviceName,
-  wgPublicKey: WgPublicKey,
-}) {}
+const SIGNED =
+  "Signed by the device's install key over the cmux-mesh-v1 message (workers/cmux-vm/src/mesh/signed-request.ts); a stale (more than 120 s off), forged or tampered request is 403, a replayed one 409.";
+
+export class EnrollDeviceRequest extends Schema.Class<EnrollDeviceRequest>("EnrollDeviceRequest")(
+  {
+    name: DeviceName,
+    wgPublicKey: WgPublicKey,
+    installPublicKey: InstallPublicKey,
+    signedAt: SignedAt,
+    nonce: Nonce,
+    signature: Signature,
+  },
+  { description: SIGNED },
+) {}
+
+/** A one-time enrollment code: `mec_` and 26 base32 characters (130 random bits). */
+export const EnrollmentCodeValue = Schema.String.pipe(Schema.pattern(/^mec_[0-9a-hjkmnp-tv-z]{26}$/u)).annotations({
+  description: "A one-time enrollment code. Shown once; the server stores only its SHA-256.",
+});
+
+export class CodeEnrollDeviceRequest extends Schema.Class<CodeEnrollDeviceRequest>("CodeEnrollDeviceRequest")(
+  {
+    code: EnrollmentCodeValue,
+    name: DeviceName,
+    wgPublicKey: WgPublicKey,
+    installPublicKey: InstallPublicKey,
+    signedAt: SignedAt,
+    nonce: Nonce,
+    signature: Signature,
+  },
+  { description: `Enroll with a one-time code instead of a credential. ${SIGNED}` },
+) {}
+
+export class CreateEnrollmentCodeRequest extends Schema.Class<CreateEnrollmentCodeRequest>("CreateEnrollmentCodeRequest")({}) {}
+
+export class EnrollmentCode extends Schema.Class<EnrollmentCode>("EnrollmentCode")(
+  {
+    code: EnrollmentCodeValue,
+    meshId: MeshId,
+    expiresAt: Schema.String,
+  },
+  { description: "Single use, valid for 10 minutes. A device enrolled with it belongs to the principal that created it." },
+) {}
+
+export class RotateKeyRequest extends Schema.Class<RotateKeyRequest>("RotateKeyRequest")(
+  {
+    newPublicKey: WgPublicKey,
+    signedAt: SignedAt,
+    nonce: Nonce,
+    signature: Signature,
+  },
+  { description: `The device's new WireGuard public key. ${SIGNED} The install key must be the one the device enrolled with.` },
+) {}
 
 export class Device extends Schema.Class<Device>("Device")({
   id: DeviceId,
   meshId: MeshId,
   name: Schema.String,
   wgPublicKey: Schema.String,
+  installPublicKey: Schema.NullOr(Schema.String).annotations({ description: "The install key that signs this device's enroll and key rotation; null for a device enrolled before install keys." }),
   tunnelId: TunnelId,
   createdAt: Schema.String,
 }) {}
@@ -136,7 +187,31 @@ export class PeerMap extends Schema.Class<PeerMap>("PeerMap")({
   peers: Schema.Array(Peer),
 }) {}
 
+const OWN =
+  "Only the principal that enrolled the device or a tenant admin (an API key with the admin scope, or a team admin session) sees it; anyone else gets 404.";
+
 const MeshPath = Schema.Struct({ meshId: Schema.String });
+
+/** Unauthenticated: the one-time code is the credential. src/api.ts adds this group without the Authentication middleware. */
+export class MeshEnrollGroupDefinition extends HttpApiGroup.make("meshEnroll").add(
+  HttpApiEndpoint.post("codeEnrollDevice", "/v1/meshes/:meshId/device-enrollments")
+    .setPath(MeshPath)
+    .setPayload(CodeEnrollDeviceRequest)
+    .addSuccess(DeviceEnrollment, { status: 201 })
+    .addError(BadRequest)
+    .addError(Forbidden)
+    .addError(NotFound)
+    .addError(Conflict)
+    .addError(PaymentRequired)
+    .addError(QuotaExceeded)
+    .addError(ServiceUnavailable)
+    .annotateContext(
+      OpenApi.annotations({
+        summary: "Enroll a headless device with a one-time code",
+        description: `Enroll a headless device with a one-time code. No credential: the code is single use and valid for 10 minutes, and the device belongs to the principal that created the code. An unknown, used, expired or other mesh's code is 404 and is not used up by a refused request. ${EXPERIMENT}`,
+      }),
+    ),
+) {}
 const DevicePath = Schema.Struct({ deviceId: Schema.String });
 const TunnelPath = Schema.Struct({ tunnelId: Schema.String });
 const MemberPath = Schema.Struct({ meshId: Schema.String, vmId: Schema.String });
@@ -187,6 +262,7 @@ export class MeshGroupDefinition extends HttpApiGroup.make("mesh")
       .setHeaders(GroupCreateHeaders)
       .addSuccess(DeviceEnrollment, { status: 201 })
       .addError(BadRequest)
+      .addError(Forbidden)
       .addError(NotFound)
       .addError(Conflict)
       .addError(PaymentRequired)
@@ -206,7 +282,7 @@ export class MeshGroupDefinition extends HttpApiGroup.make("mesh")
       .addSuccess(DeviceList)
       .addError(NotFound)
       .addError(QuotaExceeded)
-      .annotateContext(describe("List a mesh's devices", "mesh:read", EXPERIMENT)),
+      .annotateContext(describe("List a mesh's devices", "mesh:read", `A tenant admin sees every device; any other principal only the devices it enrolled. ${EXPERIMENT}`)),
   )
   .add(
     HttpApiEndpoint.get("getDevice", "/v1/devices/:deviceId")
@@ -215,7 +291,7 @@ export class MeshGroupDefinition extends HttpApiGroup.make("mesh")
       .addSuccess(Device)
       .addError(NotFound)
       .addError(QuotaExceeded)
-      .annotateContext(describe("Get a device", "mesh:read", EXPERIMENT)),
+      .annotateContext(describe("Get a device", "mesh:read", `Only the principal that enrolled the device or a tenant admin (an API key with the admin scope, or a team admin session) sees it; anyone else gets 404. ${EXPERIMENT}`)),
   )
   .add(
     HttpApiEndpoint.del("deleteDevice", "/v1/devices/:deviceId")
@@ -224,7 +300,7 @@ export class MeshGroupDefinition extends HttpApiGroup.make("mesh")
       .addSuccess(HttpApiSchema.NoContent)
       .addError(NotFound)
       .addError(QuotaExceeded)
-      .annotateContext(describe("Remove a device and its tunnel", "mesh:join", `Access ends within a second. ${EXPERIMENT}`)),
+      .annotateContext(describe("Remove a device and its tunnel", "mesh:join", `Access ends within a second. Only the principal that enrolled the device or a tenant admin (an API key with the admin scope, or a team admin session) sees it; anyone else gets 404. ${EXPERIMENT}`)),
   )
   .add(
     HttpApiEndpoint.get("getDevicePeers", "/v1/devices/:deviceId/peers")
@@ -233,7 +309,39 @@ export class MeshGroupDefinition extends HttpApiGroup.make("mesh")
       .addSuccess(PeerMap)
       .addError(NotFound)
       .addError(QuotaExceeded)
-      .annotateContext(describe("What this device may reach", "mesh:join", `Compiled from the current ACL. ${EXPERIMENT}`)),
+      .annotateContext(describe("What this device may reach", "mesh:join", `Compiled from the current ACL. Only the principal that enrolled the device or a tenant admin (an API key with the admin scope, or a team admin session) sees it; anyone else gets 404. ${EXPERIMENT}`)),
+  )
+  .add(
+    HttpApiEndpoint.post("createEnrollmentCode", "/v1/meshes/:meshId/enrollment-codes")
+      .setPath(MeshPath)
+      .setPayload(CreateEnrollmentCodeRequest)
+      .setHeaders(GroupCreateHeaders)
+      .addSuccess(EnrollmentCode, { status: 201 })
+      .addError(NotFound)
+      .addError(QuotaExceeded)
+      .annotateContext(
+        describe("Create a one-time enrollment code for a headless machine", "mesh:join", `Single use, 10 minutes; at most 20 per mesh per hour. ${EXPERIMENT}`),
+      ),
+  )
+  .add(
+    HttpApiEndpoint.post("rotateDeviceKey", "/v1/devices/:deviceId/rotate-key")
+      .setPath(DevicePath)
+      .setPayload(RotateKeyRequest)
+      .setHeaders(GroupTeamHeaders)
+      .addSuccess(TunnelConfig)
+      .addError(BadRequest)
+      .addError(Forbidden)
+      .addError(NotFound)
+      .addError(Conflict)
+      .addError(QuotaExceeded)
+      .addError(ServiceUnavailable)
+      .annotateContext(
+        describe(
+          "Rotate a device's WireGuard key",
+          "mesh:join",
+          `The tunnel keeps its id and addresses; the server key changes too, so switch to the returned config at once. The old key stops working within about a second. ${OWN} ${EXPERIMENT}`,
+        ),
+      ),
   )
   .add(
     HttpApiEndpoint.get("getTunnel", "/v1/tunnels/:tunnelId")
@@ -242,7 +350,7 @@ export class MeshGroupDefinition extends HttpApiGroup.make("mesh")
       .addSuccess(TunnelConfig)
       .addError(NotFound)
       .addError(QuotaExceeded)
-      .annotateContext(describe("Get a device tunnel's config", "mesh:read", `Never includes a private key. ${EXPERIMENT}`)),
+      .annotateContext(describe("Get a device tunnel's config", "mesh:read", `Never includes a private key. Only the principal that enrolled the device or a tenant admin (an API key with the admin scope, or a team admin session) sees it; anyone else gets 404. ${EXPERIMENT}`)),
   )
   .add(
     HttpApiEndpoint.put("attachMeshVm", "/v1/meshes/:meshId/vms/:vmId")
