@@ -605,6 +605,81 @@ describe("direct client session state", () => {
     expect(snapshots.flatMap((snapshot) => snapshot.rows).some((row) => row.kind === "notice")).toBe(false);
   });
 
+  // A Claude Code chat still running in a terminal (`claude --resume <id>`): acpmux refuses to
+  // adopt it (`adopt.live`); the pane offers Fork It and Open Anyway instead of a dead end, and the
+  // fork is the tab's session.
+  test("a chat open in another process is offered fork or open, and the fork becomes the tab's session", async () => {
+    const adopt = { harness: "claude", agentSessionId: "0a1b2c3d" };
+    ScriptedSocket.respond = ({ method, params }) => {
+      if (method === "_acpmux/watch") return { sessions: [] };
+      if (method === "session/new") return { sessionId: "forked", _meta: { acpmux: { agentSessionId: "its-own" } } };
+      if (method === "_acpmux/attach") return { session: { sessionId: params.sessionId, status: "idle" }, events: [] };
+      return {};
+    };
+    ScriptedSocket.held = new Set(["session/new"]);
+    const connecting = AcpmuxDirectClient.connect(
+      { ...host, sessionId: undefined, newSession: true, adopt },
+      (snapshot) => snapshots.push(snapshot),
+    );
+    for (let tries = 0; tries < 20 && ScriptedSocket.current?.waiting.length === 0; tries += 1) await settle();
+    ScriptedSocket.current.fail("session/new", {
+      code: -32602,
+      message: "claude session 0a1b2c3d is open in another process (pid 812: claude --resume 0a1b2c3d)",
+      data: {
+        reason: "adopt.live",
+        details: { signal: "process", pid: 812, command: "claude --resume 0a1b2c3d", canFork: true },
+      },
+    });
+    const client = await connecting;
+    expect(snapshots.at(-1)?.liveChat).toEqual({ canFork: true, command: "claude --resume 0a1b2c3d" });
+    expect(snapshots.at(-1)?.rows.some((row) => row.kind === "notice")).toBe(false);
+    expect(client.adopted).toBeUndefined();
+
+    ScriptedSocket.held = new Set();
+    await client.adoptLive("fork");
+    const news = ScriptedSocket.current.sent.filter((request) => request.method === "session/new");
+    expect(news.at(-1)?.params._meta.acpmux.adopt).toEqual({ ...adopt, ifLive: "fork" });
+    expect(client.adopted).toBe("forked");
+    expect(snapshots.at(-1)?.liveChat).toBeUndefined();
+    expect(snapshots.at(-1)?.summary?.sessionId).toBe("forked");
+    expect(ScriptedSocket.current.sent.some((request) => request.method === "_acpmux/kill")).toBe(false);
+  });
+
+  test("a live Codex chat offers no fork, and Open Anyway adopts it as it is", async () => {
+    const adopt = { harness: "codex", agentSessionId: "01999a2b" };
+    ScriptedSocket.respond = ({ method, params }) => {
+      if (method === "_acpmux/watch") return { sessions: [] };
+      if (method === "session/new")
+        return {
+          sessionId: "opened",
+          _meta: { acpmux: { agentSessionId: params._meta.acpmux.adopt?.agentSessionId } },
+        };
+      if (method === "_acpmux/attach") return { session: { sessionId: params.sessionId, status: "idle" }, events: [] };
+      return {};
+    };
+    ScriptedSocket.held = new Set(["session/new"]);
+    const connecting = AcpmuxDirectClient.connect(
+      { ...host, sessionId: undefined, newSession: true, adopt },
+      (snapshot) => snapshots.push(snapshot),
+    );
+    for (let tries = 0; tries < 20 && ScriptedSocket.current?.waiting.length === 0; tries += 1) await settle();
+    ScriptedSocket.current.fail("session/new", {
+      code: -32602,
+      message: "codex session 01999a2b was written 30s ago by a harness outside cmux",
+      data: { reason: "adopt.live", details: { signal: "recentWrite", agoSeconds: 30, canFork: false } },
+    });
+    const client = await connecting;
+    expect(snapshots.at(-1)?.liveChat).toEqual({ canFork: false });
+
+    ScriptedSocket.held = new Set();
+    await client.adoptLive("fork");
+    expect(ScriptedSocket.current.sent.filter((request) => request.method === "session/new")).toHaveLength(1);
+    await client.adoptLive("open");
+    const news = ScriptedSocket.current.sent.filter((request) => request.method === "session/new");
+    expect(news.at(-1)?.params._meta.acpmux.adopt).toEqual({ ...adopt, ifLive: "open" });
+    expect(client.adopted).toBe("opened");
+  });
+
   test("a chat started in a chosen project leaves the inherited cwd for the next default chat", async () => {
     let created = 0;
     ScriptedSocket.respond = ({ method, params }) => {
