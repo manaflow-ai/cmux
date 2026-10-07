@@ -8,6 +8,253 @@ use progenitor_client::{ClientHooks, OperationInfo, RequestBuilderExt, encode_pa
 /// Types used as operation parameters and responses.
 #[allow(clippy::all)]
 pub mod types {
+    ///`ApiKey`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct ApiKey {
+        #[serde(rename = "createdAt")]
+        pub created_at: ::std::string::String,
+        #[serde(rename = "createdBy")]
+        pub created_by: ::std::string::String,
+        #[serde(
+            rename = "expiresAt",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        pub expires_at: ::std::option::Option<::std::string::String>,
+        ///a string matching the pattern ^vmk_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+        pub id: ApiKeyId,
+        pub name: ::std::string::String,
+        #[serde(
+            rename = "resourceAllowlist",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        pub resource_allowlist: ::std::option::Option<::std::vec::Vec<::std::string::String>>,
+        #[serde(
+            rename = "revokedAt",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        pub revoked_at: ::std::option::Option<::std::string::String>,
+        pub scopes: ::std::vec::Vec<::std::string::String>,
+    }
+    ///a string matching the pattern ^vmk_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct ApiKeyId(::std::string::String);
+    impl ::std::ops::Deref for ApiKeyId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<ApiKeyId> for ::std::string::String {
+        fn from(value: ApiKeyId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for ApiKeyId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^vmk_[0123456789abcdefghjkmnpqrstvwxyz]{26}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err(
+                    "doesn't match pattern \"^vmk_[0123456789abcdefghjkmnpqrstvwxyz]{26}$\"".into(),
+                );
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for ApiKeyId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for ApiKeyId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for ApiKeyId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///`ApiKeyList`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct ApiKeyList {
+        pub items: ::std::vec::Vec<ApiKey>,
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct ApiKeysCreateApiKeyXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for ApiKeysCreateApiKeyXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<ApiKeysCreateApiKeyXCmuxTeamId> for ::std::string::String {
+        fn from(value: ApiKeysCreateApiKeyXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for ApiKeysCreateApiKeyXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for ApiKeysCreateApiKeyXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for ApiKeysCreateApiKeyXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for ApiKeysCreateApiKeyXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct ApiKeysListApiKeysXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for ApiKeysListApiKeysXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<ApiKeysListApiKeysXCmuxTeamId> for ::std::string::String {
+        fn from(value: ApiKeysListApiKeysXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for ApiKeysListApiKeysXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for ApiKeysListApiKeysXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for ApiKeysListApiKeysXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for ApiKeysListApiKeysXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct ApiKeysRevokeApiKeyXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for ApiKeysRevokeApiKeyXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<ApiKeysRevokeApiKeyXCmuxTeamId> for ::std::string::String {
+        fn from(value: ApiKeysRevokeApiKeyXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for ApiKeysRevokeApiKeyXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for ApiKeysRevokeApiKeyXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for ApiKeysRevokeApiKeyXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for ApiKeysRevokeApiKeyXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
     ///`BadRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     pub struct BadRequest {
@@ -61,6 +308,50 @@ pub mod types {
             value.parse()
         }
     }
+    ///a string to be decoded into a boolean
+    #[derive(
+        ::serde::Deserialize, ::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd,
+    )]
+    #[serde(transparent)]
+    pub struct BooleanFromString(pub ::std::string::String);
+    impl ::std::ops::Deref for BooleanFromString {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<BooleanFromString> for ::std::string::String {
+        fn from(value: BooleanFromString) -> Self {
+            value.0
+        }
+    }
+    impl ::std::convert::From<::std::string::String> for BooleanFromString {
+        fn from(value: ::std::string::String) -> Self {
+            Self(value)
+        }
+    }
+    impl ::std::fmt::Display for BooleanFromString {
+        fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+            self.0.fmt(f)
+        }
+    }
+    impl ::std::str::FromStr for BooleanFromString {
+        type Err = ::std::convert::Infallible;
+        fn from_str(value: &str) -> ::std::result::Result<Self, Self::Err> {
+            Ok(Self(value.to_string()))
+        }
+    }
+    ///`ClosedTerminal`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct ClosedTerminal {
+        #[serde(
+            rename = "exitCode",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        pub exit_code: ::std::option::Option<Int>,
+        #[serde(rename = "sessionId")]
+        pub session_id: Int,
+    }
     ///`Conflict`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     pub struct Conflict {
@@ -112,6 +403,215 @@ pub mod types {
             value: ::std::string::String,
         ) -> ::std::result::Result<Self, self::error::ConversionError> {
             value.parse()
+        }
+    }
+    ///`CreateApiKeyRequest`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct CreateApiKeyRequest {
+        #[serde(
+            rename = "expiresAt",
+            skip_serializing_if = "::std::option::Option::is_none"
+        )]
+        pub expires_at: ::std::option::Option<DateFromString>,
+        ///a string at most 200 character(s) long
+        pub name: CreateApiKeyRequestName,
+        ///an array of at most 100 item(s)
+        #[serde(
+            rename = "resourceAllowlist",
+            default,
+            skip_serializing_if = "::std::vec::Vec::is_empty"
+        )]
+        pub resource_allowlist: ::std::vec::Vec<CreateApiKeyRequestResourceAllowlistItem>,
+        ///an array of at most 32 item(s)
+        pub scopes: ::std::vec::Vec<::std::string::String>,
+    }
+    ///a string at most 200 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct CreateApiKeyRequestName(::std::string::String);
+    impl ::std::ops::Deref for CreateApiKeyRequestName {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<CreateApiKeyRequestName> for ::std::string::String {
+        fn from(value: CreateApiKeyRequestName) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for CreateApiKeyRequestName {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 200usize {
+                return Err("longer than 200 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for CreateApiKeyRequestName {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for CreateApiKeyRequestName {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for CreateApiKeyRequestName {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///`CreateApiKeyRequestResourceAllowlistItem`
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct CreateApiKeyRequestResourceAllowlistItem(::std::string::String);
+    impl ::std::ops::Deref for CreateApiKeyRequestResourceAllowlistItem {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<CreateApiKeyRequestResourceAllowlistItem> for ::std::string::String {
+        fn from(value: CreateApiKeyRequestResourceAllowlistItem) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for CreateApiKeyRequestResourceAllowlistItem {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> = ::std::sync::LazyLock::new(
+                || {
+                    ::regress::Regex::new(
+                        "(?:^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$)|(?:^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$)",
+                    )
+                    .unwrap()
+                },
+            );
+            if PATTERN.find(value).is_none() {
+                return Err(
+                    "doesn't match pattern \"(?:^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$)|(?:^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$)\""
+                        .into(),
+                );
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for CreateApiKeyRequestResourceAllowlistItem {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for CreateApiKeyRequestResourceAllowlistItem {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for CreateApiKeyRequestResourceAllowlistItem {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///`CreateSnapshotRequest`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
+    pub struct CreateSnapshotRequest {
+        #[serde(
+            rename = "autoDeleteSeconds",
+            skip_serializing_if = "::std::option::Option::is_none"
+        )]
+        pub auto_delete_seconds: ::std::option::Option<i64>,
+        ///a string at most 100 character(s) long
+        #[serde(
+            rename = "displayName",
+            skip_serializing_if = "::std::option::Option::is_none"
+        )]
+        pub display_name: ::std::option::Option<CreateSnapshotRequestDisplayName>,
+        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+        pub labels: ::std::option::Option<SnapshotLabels>,
+        #[serde(
+            rename = "ttlSeconds",
+            skip_serializing_if = "::std::option::Option::is_none"
+        )]
+        pub ttl_seconds: ::std::option::Option<i64>,
+    }
+    ///a string at most 100 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct CreateSnapshotRequestDisplayName(::std::string::String);
+    impl ::std::ops::Deref for CreateSnapshotRequestDisplayName {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<CreateSnapshotRequestDisplayName> for ::std::string::String {
+        fn from(value: CreateSnapshotRequestDisplayName) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for CreateSnapshotRequestDisplayName {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 100usize {
+                return Err("longer than 100 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for CreateSnapshotRequestDisplayName {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for CreateSnapshotRequestDisplayName {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for CreateSnapshotRequestDisplayName {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
         }
     }
     ///Without snapshotId the VM boots the cmux base image, Ubuntu 24.04 LTS, with 4 vCPUs, 8192 MiB memory and 32768 MiB disk unless resources says otherwise.
@@ -257,6 +757,116 @@ pub mod types {
                 .map_err(|e: self::error::ConversionError| {
                     <D::Error as ::serde::de::Error>::custom(e.to_string())
                 })
+        }
+    }
+    ///`CreatedApiKey`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct CreatedApiKey {
+        #[serde(rename = "createdAt")]
+        pub created_at: ::std::string::String,
+        #[serde(
+            rename = "expiresAt",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        pub expires_at: ::std::option::Option<::std::string::String>,
+        ///a string matching the pattern ^vmk_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+        pub id: CreatedApiKeyId,
+        pub key: ::std::string::String,
+        pub name: ::std::string::String,
+        #[serde(
+            rename = "resourceAllowlist",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        pub resource_allowlist: ::std::option::Option<::std::vec::Vec<::std::string::String>>,
+        pub scopes: ::std::vec::Vec<::std::string::String>,
+    }
+    ///a string matching the pattern ^vmk_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct CreatedApiKeyId(::std::string::String);
+    impl ::std::ops::Deref for CreatedApiKeyId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<CreatedApiKeyId> for ::std::string::String {
+        fn from(value: CreatedApiKeyId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for CreatedApiKeyId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^vmk_[0123456789abcdefghjkmnpqrstvwxyz]{26}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err(
+                    "doesn't match pattern \"^vmk_[0123456789abcdefghjkmnpqrstvwxyz]{26}$\"".into(),
+                );
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for CreatedApiKeyId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for CreatedApiKeyId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for CreatedApiKeyId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string to be decoded into a Date
+    #[derive(
+        ::serde::Deserialize, ::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd,
+    )]
+    #[serde(transparent)]
+    pub struct DateFromString(pub ::std::string::String);
+    impl ::std::ops::Deref for DateFromString {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<DateFromString> for ::std::string::String {
+        fn from(value: DateFromString) -> Self {
+            value.0
+        }
+    }
+    impl ::std::convert::From<::std::string::String> for DateFromString {
+        fn from(value: ::std::string::String) -> Self {
+            Self(value)
+        }
+    }
+    impl ::std::fmt::Display for DateFromString {
+        fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+            self.0.fmt(f)
+        }
+    }
+    impl ::std::str::FromStr for DateFromString {
+        type Err = ::std::convert::Infallible;
+        fn from_str(value: &str) -> ::std::result::Result<Self, Self::Err> {
+            Ok(Self(value.to_string()))
         }
     }
     ///a string at most 128 character(s) long
@@ -1305,6 +1915,59 @@ pub mod types {
             value.parse()
         }
     }
+    ///`InvalidRequest`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct InvalidRequest {
+        pub message: ::std::string::String,
+        #[serde(rename = "_tag")]
+        pub tag: InvalidRequestTag,
+    }
+    ///`InvalidRequestTag`
+    #[derive(
+        ::serde::Deserialize,
+        ::serde::Serialize,
+        Clone,
+        Copy,
+        Debug,
+        Eq,
+        Hash,
+        Ord,
+        PartialEq,
+        PartialOrd,
+    )]
+    pub enum InvalidRequestTag {
+        InvalidRequest,
+    }
+    impl ::std::fmt::Display for InvalidRequestTag {
+        fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+            match *self {
+                Self::InvalidRequest => f.write_str("InvalidRequest"),
+            }
+        }
+    }
+    impl ::std::str::FromStr for InvalidRequestTag {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            match value {
+                "InvalidRequest" => Ok(Self::InvalidRequest),
+                _ => Err("invalid value".into()),
+            }
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for InvalidRequestTag {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for InvalidRequestTag {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
     ///Represents an error encountered while parsing a value to match the schema
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     pub struct Issue {
@@ -1622,6 +2285,8 @@ pub mod types {
     ///`QuotaExceeded`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     pub struct QuotaExceeded {
+        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+        pub budget: ::std::option::Option<::std::string::String>,
         pub message: ::std::string::String,
         #[serde(
             rename = "retryAfterSeconds",
@@ -1746,6 +2411,1037 @@ pub mod types {
             value.parse()
         }
     }
+    ///A VM's memory and disk, captured. A VM booted from a snapshot resumes from the captured memory. Whether the guest kernel's random number generator is reseeded, and whether the machine id, hostname and clock change on restore, is not documented by the platform and is not yet verified: assume every VM booted from one snapshot starts with identical RNG state, machine id and hostname, and reseed, regenerate and resync them in the guest when that matters.
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct Snapshot {
+        #[serde(
+            rename = "autoDeleteSeconds",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        pub auto_delete_seconds: ::std::option::Option<f64>,
+        #[serde(rename = "createdAt")]
+        pub created_at: ::std::string::String,
+        #[serde(
+            rename = "displayName",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        pub display_name: ::std::option::Option<::std::string::String>,
+        ///a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+        pub id: SnapshotId,
+        pub labels: SnapshotLabels,
+        #[serde(
+            rename = "lastUsedAt",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        pub last_used_at: ::std::option::Option<::std::string::String>,
+        ///a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+        #[serde(
+            rename = "sourceVmId",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        pub source_vm_id: ::std::option::Option<SnapshotSourceVmId>,
+        #[serde(
+            rename = "ttlSeconds",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        pub ttl_seconds: ::std::option::Option<f64>,
+    }
+    ///a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct SnapshotId(::std::string::String);
+    impl ::std::ops::Deref for SnapshotId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<SnapshotId> for ::std::string::String {
+        fn from(value: SnapshotId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for SnapshotId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err(
+                    "doesn't match pattern \"^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$\""
+                        .into(),
+                );
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for SnapshotId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for SnapshotId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for SnapshotId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///`SnapshotLabels`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    #[serde(transparent)]
+    pub struct SnapshotLabels(
+        pub ::std::collections::HashMap<::std::string::String, SnapshotLabelsValue>,
+    );
+    impl ::std::ops::Deref for SnapshotLabels {
+        type Target = ::std::collections::HashMap<::std::string::String, SnapshotLabelsValue>;
+        fn deref(
+            &self,
+        ) -> &::std::collections::HashMap<::std::string::String, SnapshotLabelsValue> {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<SnapshotLabels>
+        for ::std::collections::HashMap<::std::string::String, SnapshotLabelsValue>
+    {
+        fn from(value: SnapshotLabels) -> Self {
+            value.0
+        }
+    }
+    impl
+        ::std::convert::From<
+            ::std::collections::HashMap<::std::string::String, SnapshotLabelsValue>,
+        > for SnapshotLabels
+    {
+        fn from(
+            value: ::std::collections::HashMap<::std::string::String, SnapshotLabelsValue>,
+        ) -> Self {
+            Self(value)
+        }
+    }
+    ///a string matching the pattern ^[A-Za-z0-9._:/@-]{0,63}$
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct SnapshotLabelsValue(::std::string::String);
+    impl ::std::ops::Deref for SnapshotLabelsValue {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<SnapshotLabelsValue> for ::std::string::String {
+        fn from(value: SnapshotLabelsValue) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for SnapshotLabelsValue {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^[A-Za-z0-9._:/@-]{0,63}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err("doesn't match pattern \"^[A-Za-z0-9._:/@-]{0,63}$\"".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for SnapshotLabelsValue {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for SnapshotLabelsValue {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for SnapshotLabelsValue {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///`SnapshotList`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct SnapshotList {
+        pub items: ::std::vec::Vec<SnapshotSummary>,
+        #[serde(
+            rename = "nextCursor",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        pub next_cursor: ::std::option::Option<::std::string::String>,
+    }
+    ///a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct SnapshotSourceVmId(::std::string::String);
+    impl ::std::ops::Deref for SnapshotSourceVmId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<SnapshotSourceVmId> for ::std::string::String {
+        fn from(value: SnapshotSourceVmId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for SnapshotSourceVmId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err(
+                    "doesn't match pattern \"^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$\"".into(),
+                );
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for SnapshotSourceVmId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for SnapshotSourceVmId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for SnapshotSourceVmId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///`SnapshotSummary`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct SnapshotSummary {
+        #[serde(rename = "createdAt")]
+        pub created_at: ::std::string::String,
+        #[serde(
+            rename = "displayName",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        pub display_name: ::std::option::Option<::std::string::String>,
+        ///a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+        pub id: SnapshotSummaryId,
+        pub labels: SnapshotLabels,
+        ///a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+        #[serde(
+            rename = "sourceVmId",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        pub source_vm_id: ::std::option::Option<SnapshotSummarySourceVmId>,
+    }
+    ///a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct SnapshotSummaryId(::std::string::String);
+    impl ::std::ops::Deref for SnapshotSummaryId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<SnapshotSummaryId> for ::std::string::String {
+        fn from(value: SnapshotSummaryId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for SnapshotSummaryId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err(
+                    "doesn't match pattern \"^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$\""
+                        .into(),
+                );
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for SnapshotSummaryId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for SnapshotSummaryId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for SnapshotSummaryId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct SnapshotSummarySourceVmId(::std::string::String);
+    impl ::std::ops::Deref for SnapshotSummarySourceVmId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<SnapshotSummarySourceVmId> for ::std::string::String {
+        fn from(value: SnapshotSummarySourceVmId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for SnapshotSummarySourceVmId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err(
+                    "doesn't match pattern \"^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$\"".into(),
+                );
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for SnapshotSummarySourceVmId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for SnapshotSummarySourceVmId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for SnapshotSummarySourceVmId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 255 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct SnapshotsCreateSnapshotIdempotencyKey(::std::string::String);
+    impl ::std::ops::Deref for SnapshotsCreateSnapshotIdempotencyKey {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<SnapshotsCreateSnapshotIdempotencyKey> for ::std::string::String {
+        fn from(value: SnapshotsCreateSnapshotIdempotencyKey) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for SnapshotsCreateSnapshotIdempotencyKey {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 255usize {
+                return Err("longer than 255 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for SnapshotsCreateSnapshotIdempotencyKey {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for SnapshotsCreateSnapshotIdempotencyKey {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for SnapshotsCreateSnapshotIdempotencyKey {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct SnapshotsCreateSnapshotXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for SnapshotsCreateSnapshotXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<SnapshotsCreateSnapshotXCmuxTeamId> for ::std::string::String {
+        fn from(value: SnapshotsCreateSnapshotXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for SnapshotsCreateSnapshotXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for SnapshotsCreateSnapshotXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for SnapshotsCreateSnapshotXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for SnapshotsCreateSnapshotXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct SnapshotsDeleteSnapshotXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for SnapshotsDeleteSnapshotXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<SnapshotsDeleteSnapshotXCmuxTeamId> for ::std::string::String {
+        fn from(value: SnapshotsDeleteSnapshotXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for SnapshotsDeleteSnapshotXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for SnapshotsDeleteSnapshotXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for SnapshotsDeleteSnapshotXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for SnapshotsDeleteSnapshotXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct SnapshotsGetSnapshotXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for SnapshotsGetSnapshotXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<SnapshotsGetSnapshotXCmuxTeamId> for ::std::string::String {
+        fn from(value: SnapshotsGetSnapshotXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for SnapshotsGetSnapshotXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for SnapshotsGetSnapshotXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for SnapshotsGetSnapshotXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for SnapshotsGetSnapshotXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 512 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct SnapshotsListSnapshotsCursor(::std::string::String);
+    impl ::std::ops::Deref for SnapshotsListSnapshotsCursor {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<SnapshotsListSnapshotsCursor> for ::std::string::String {
+        fn from(value: SnapshotsListSnapshotsCursor) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for SnapshotsListSnapshotsCursor {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 512usize {
+                return Err("longer than 512 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for SnapshotsListSnapshotsCursor {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for SnapshotsListSnapshotsCursor {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for SnapshotsListSnapshotsCursor {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 2048 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct SnapshotsListSnapshotsLabels(::std::string::String);
+    impl ::std::ops::Deref for SnapshotsListSnapshotsLabels {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<SnapshotsListSnapshotsLabels> for ::std::string::String {
+        fn from(value: SnapshotsListSnapshotsLabels) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for SnapshotsListSnapshotsLabels {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 2048usize {
+                return Err("longer than 2048 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for SnapshotsListSnapshotsLabels {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for SnapshotsListSnapshotsLabels {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for SnapshotsListSnapshotsLabels {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 64 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct SnapshotsListSnapshotsSourceVmId(::std::string::String);
+    impl ::std::ops::Deref for SnapshotsListSnapshotsSourceVmId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<SnapshotsListSnapshotsSourceVmId> for ::std::string::String {
+        fn from(value: SnapshotsListSnapshotsSourceVmId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for SnapshotsListSnapshotsSourceVmId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 64usize {
+                return Err("longer than 64 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for SnapshotsListSnapshotsSourceVmId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for SnapshotsListSnapshotsSourceVmId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for SnapshotsListSnapshotsSourceVmId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct SnapshotsListSnapshotsXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for SnapshotsListSnapshotsXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<SnapshotsListSnapshotsXCmuxTeamId> for ::std::string::String {
+        fn from(value: SnapshotsListSnapshotsXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for SnapshotsListSnapshotsXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for SnapshotsListSnapshotsXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for SnapshotsListSnapshotsXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for SnapshotsListSnapshotsXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///`TerminalSession`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct TerminalSession {
+        pub cols: Int,
+        #[serde(rename = "createdAt")]
+        pub created_at: ::std::string::String,
+        #[serde(
+            rename = "exitCode",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        pub exit_code: ::std::option::Option<Int>,
+        #[serde(deserialize_with = "::std::option::Option::deserialize")]
+        pub name: ::std::option::Option<::std::string::String>,
+        pub rows: Int,
+        #[serde(rename = "sessionId")]
+        pub session_id: Int,
+        pub state: ::std::string::String,
+        #[serde(deserialize_with = "::std::option::Option::deserialize")]
+        pub user: ::std::option::Option<::std::string::String>,
+    }
+    ///`TerminalSessionList`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct TerminalSessionList {
+        pub items: ::std::vec::Vec<TerminalSession>,
+    }
+    ///a string matching the pattern ^[a-z_][a-z0-9_-]{0,31}$
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct TerminalsCloseTerminalUser(::std::string::String);
+    impl ::std::ops::Deref for TerminalsCloseTerminalUser {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<TerminalsCloseTerminalUser> for ::std::string::String {
+        fn from(value: TerminalsCloseTerminalUser) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for TerminalsCloseTerminalUser {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^[a-z_][a-z0-9_-]{0,31}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err("doesn't match pattern \"^[a-z_][a-z0-9_-]{0,31}$\"".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for TerminalsCloseTerminalUser {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for TerminalsCloseTerminalUser {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for TerminalsCloseTerminalUser {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct TerminalsCloseTerminalXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for TerminalsCloseTerminalXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<TerminalsCloseTerminalXCmuxTeamId> for ::std::string::String {
+        fn from(value: TerminalsCloseTerminalXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for TerminalsCloseTerminalXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for TerminalsCloseTerminalXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for TerminalsCloseTerminalXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for TerminalsCloseTerminalXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string matching the pattern ^[a-z_][a-z0-9_-]{0,31}$
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct TerminalsListTerminalsUser(::std::string::String);
+    impl ::std::ops::Deref for TerminalsListTerminalsUser {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<TerminalsListTerminalsUser> for ::std::string::String {
+        fn from(value: TerminalsListTerminalsUser) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for TerminalsListTerminalsUser {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^[a-z_][a-z0-9_-]{0,31}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err("doesn't match pattern \"^[a-z_][a-z0-9_-]{0,31}$\"".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for TerminalsListTerminalsUser {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for TerminalsListTerminalsUser {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for TerminalsListTerminalsUser {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct TerminalsListTerminalsXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for TerminalsListTerminalsXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<TerminalsListTerminalsXCmuxTeamId> for ::std::string::String {
+        fn from(value: TerminalsListTerminalsXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for TerminalsListTerminalsXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for TerminalsListTerminalsXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for TerminalsListTerminalsXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for TerminalsListTerminalsXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
     ///`Unauthorized`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     pub struct Unauthorized {
@@ -1792,6 +3488,59 @@ pub mod types {
         }
     }
     impl ::std::convert::TryFrom<::std::string::String> for UnauthorizedTag {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    ///`UpgradeRequired`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct UpgradeRequired {
+        pub message: ::std::string::String,
+        #[serde(rename = "_tag")]
+        pub tag: UpgradeRequiredTag,
+    }
+    ///`UpgradeRequiredTag`
+    #[derive(
+        ::serde::Deserialize,
+        ::serde::Serialize,
+        Clone,
+        Copy,
+        Debug,
+        Eq,
+        Hash,
+        Ord,
+        PartialEq,
+        PartialOrd,
+    )]
+    pub enum UpgradeRequiredTag {
+        UpgradeRequired,
+    }
+    impl ::std::fmt::Display for UpgradeRequiredTag {
+        fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+            match *self {
+                Self::UpgradeRequired => f.write_str("UpgradeRequired"),
+            }
+        }
+    }
+    impl ::std::str::FromStr for UpgradeRequiredTag {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            match value {
+                "UpgradeRequired" => Ok(Self::UpgradeRequired),
+                _ => Err("invalid value".into()),
+            }
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for UpgradeRequiredTag {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for UpgradeRequiredTag {
         type Error = self::error::ConversionError;
         fn try_from(
             value: ::std::string::String,
@@ -2795,6 +4544,324 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
+    /**List the team's API keys, newest first, without their secrets
+
+    List the team's API keys, newest first, without their secrets. Requires the admin scope, or a session of a team admin.
+
+    Sends a `GET` request to `/v1/api-keys`
+
+    Arguments:
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    */
+    pub async fn api_keys_list_api_keys<'a>(
+        &'a self,
+        x_cmux_team_id: Option<&'a types::ApiKeysListApiKeysXCmuxTeamId>,
+    ) -> Result<ResponseValue<types::ApiKeyList>, Error<ByteStream>> {
+        let url = format!("{}/v1/api-keys", self.baseurl,);
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self
+            .client
+            .get(url)
+            .header(
+                ::reqwest::header::ACCEPT,
+                ::reqwest::header::HeaderValue::from_static("application/json"),
+            )
+            .headers(header_map)
+            .build()?;
+        let info = OperationInfo {
+            operation_id: "api_keys_list_api_keys",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            200u16 => ResponseValue::from_response(response).await,
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**Create an API key for the team; the full key is returned only here
+
+    Create an API key for the team; the full key is returned only here. Requires the admin scope, or a session of a team admin.
+
+    Sends a `POST` request to `/v1/api-keys`
+
+    Arguments:
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    - `body`
+    */
+    pub async fn api_keys_create_api_key<'a>(
+        &'a self,
+        x_cmux_team_id: Option<&'a types::ApiKeysCreateApiKeyXCmuxTeamId>,
+        body: &'a types::CreateApiKeyRequest,
+    ) -> Result<ResponseValue<types::CreatedApiKey>, Error<ByteStream>> {
+        let url = format!("{}/v1/api-keys", self.baseurl,);
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self
+            .client
+            .post(url)
+            .header(
+                ::reqwest::header::ACCEPT,
+                ::reqwest::header::HeaderValue::from_static("application/json"),
+            )
+            .json(&body)
+            .headers(header_map)
+            .build()?;
+        let info = OperationInfo {
+            operation_id: "api_keys_create_api_key",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            201u16 => ResponseValue::from_response(response).await,
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**Revoke an API key; it stops working at once
+
+    Revoke an API key; it stops working at once. Requires the admin scope, or a session of a team admin.
+
+    Sends a `DELETE` request to `/v1/api-keys/{keyId}`
+
+    Arguments:
+    - `key_id`
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    */
+    pub async fn api_keys_revoke_api_key<'a>(
+        &'a self,
+        key_id: &'a str,
+        x_cmux_team_id: Option<&'a types::ApiKeysRevokeApiKeyXCmuxTeamId>,
+    ) -> Result<ResponseValue<()>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/api-keys/{}",
+            self.baseurl,
+            encode_path(&key_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self.client.delete(url).headers(header_map).build()?;
+        let info = OperationInfo {
+            operation_id: "api_keys_revoke_api_key",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            204u16 => Ok(ResponseValue::empty(response)),
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**List the tenant's snapshots, newest first
+
+    List the tenant's snapshots, newest first. Requires the snapshot:read scope.
+
+    Sends a `GET` request to `/v1/snapshots`
+
+    Arguments:
+    - `cursor`: a string at most 512 character(s) long
+    - `labels`: a string at most 2048 character(s) long
+    - `limit`: a string to be decoded into a number
+    - `source_vm_id`: a string at most 64 character(s) long
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    */
+    pub async fn snapshots_list_snapshots<'a>(
+        &'a self,
+        cursor: Option<&'a types::SnapshotsListSnapshotsCursor>,
+        labels: Option<&'a types::SnapshotsListSnapshotsLabels>,
+        limit: Option<&'a str>,
+        source_vm_id: Option<&'a types::SnapshotsListSnapshotsSourceVmId>,
+        x_cmux_team_id: Option<&'a types::SnapshotsListSnapshotsXCmuxTeamId>,
+    ) -> Result<ResponseValue<types::SnapshotList>, Error<ByteStream>> {
+        let url = format!("{}/v1/snapshots", self.baseurl,);
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self
+            .client
+            .get(url)
+            .header(
+                ::reqwest::header::ACCEPT,
+                ::reqwest::header::HeaderValue::from_static("application/json"),
+            )
+            .query(&progenitor_client::QueryParam::new("cursor", &cursor))
+            .query(&progenitor_client::QueryParam::new("labels", &labels))
+            .query(&progenitor_client::QueryParam::new("limit", &limit))
+            .query(&progenitor_client::QueryParam::new(
+                "sourceVmId",
+                &source_vm_id,
+            ))
+            .headers(header_map)
+            .build()?;
+        let info = OperationInfo {
+            operation_id: "snapshots_list_snapshots",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            200u16 => ResponseValue::from_response(response).await,
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**Get a snapshot
+
+    Get a snapshot. Requires the snapshot:read scope.
+
+    Sends a `GET` request to `/v1/snapshots/{snapshotId}`
+
+    Arguments:
+    - `snapshot_id`
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    */
+    pub async fn snapshots_get_snapshot<'a>(
+        &'a self,
+        snapshot_id: &'a str,
+        x_cmux_team_id: Option<&'a types::SnapshotsGetSnapshotXCmuxTeamId>,
+    ) -> Result<ResponseValue<types::Snapshot>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/snapshots/{}",
+            self.baseurl,
+            encode_path(&snapshot_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self
+            .client
+            .get(url)
+            .header(
+                ::reqwest::header::ACCEPT,
+                ::reqwest::header::HeaderValue::from_static("application/json"),
+            )
+            .headers(header_map)
+            .build()?;
+        let info = OperationInfo {
+            operation_id: "snapshots_get_snapshot",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            200u16 => ResponseValue::from_response(response).await,
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**Delete a snapshot permanently
+
+    Delete a snapshot permanently. Requires the snapshot:write scope. VMs already created from it keep running.
+
+    Sends a `DELETE` request to `/v1/snapshots/{snapshotId}`
+
+    Arguments:
+    - `snapshot_id`
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    */
+    pub async fn snapshots_delete_snapshot<'a>(
+        &'a self,
+        snapshot_id: &'a str,
+        x_cmux_team_id: Option<&'a types::SnapshotsDeleteSnapshotXCmuxTeamId>,
+    ) -> Result<ResponseValue<()>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/snapshots/{}",
+            self.baseurl,
+            encode_path(&snapshot_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self.client.delete(url).headers(header_map).build()?;
+        let info = OperationInfo {
+            operation_id: "snapshots_delete_snapshot",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            204u16 => Ok(ResponseValue::empty(response)),
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            409u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
     /**List the tenant's VMs, newest first
 
     List the tenant's VMs, newest first. Requires the vm:read scope. A key with a resource allowlist sees only those VMs. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.
@@ -3454,6 +5521,72 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
+    /**Snapshot a running or paused VM
+
+    Snapshot a running or paused VM. Requires the snapshot:write scope. The snapshot captures memory and disk; VMs can boot from it as soon as this returns. A VM booted from a snapshot resumes from the captured memory. Whether the guest kernel's random number generator is reseeded, and whether the machine id, hostname and clock change on restore, is not documented by the platform and is not yet verified: assume every VM booted from one snapshot starts with identical RNG state, machine id and hostname, and reseed, regenerate and resync them in the guest when that matters.
+
+    Sends a `POST` request to `/v1/vms/{vmId}/snapshots`
+
+    Arguments:
+    - `vm_id`
+    - `idempotency_key`: a string at most 255 character(s) long
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    - `body`
+    */
+    pub async fn snapshots_create_snapshot<'a>(
+        &'a self,
+        vm_id: &'a str,
+        idempotency_key: Option<&'a types::SnapshotsCreateSnapshotIdempotencyKey>,
+        x_cmux_team_id: Option<&'a types::SnapshotsCreateSnapshotXCmuxTeamId>,
+        body: &'a types::CreateSnapshotRequest,
+    ) -> Result<ResponseValue<types::Snapshot>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/vms/{}/snapshots",
+            self.baseurl,
+            encode_path(&vm_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(3usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = idempotency_key {
+            header_map.append("idempotency-key", value.to_string().try_into()?);
+        }
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self
+            .client
+            .post(url)
+            .header(
+                ::reqwest::header::ACCEPT,
+                ::reqwest::header::HeaderValue::from_static("application/json"),
+            )
+            .json(&body)
+            .headers(header_map)
+            .build()?;
+        let info = OperationInfo {
+            operation_id: "snapshots_create_snapshot",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            201u16 => ResponseValue::from_response(response).await,
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            402u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            409u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
     /**Start a VM
 
     Start a VM. Requires the vm:write scope. Boots a stopped VM, or resumes a paused one exactly where it was (on a paused VM, start and resume do the same thing). Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.
@@ -3551,6 +5684,128 @@ impl Client {
             .build()?;
         let info = OperationInfo {
             operation_id: "vms_stop_vm",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            200u16 => ResponseValue::from_response(response).await,
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            409u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**List the VM's terminal sessions, running and recently exited
+
+    List the VM's terminal sessions, running and recently exited. Requires the vm:terminal scope.
+
+    Sends a `GET` request to `/v1/vms/{vmId}/terminals`
+
+    Arguments:
+    - `vm_id`
+    - `user`: a string matching the pattern ^[a-z_][a-z0-9_-]{0,31}$
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    */
+    pub async fn terminals_list_terminals<'a>(
+        &'a self,
+        vm_id: &'a str,
+        user: Option<&'a types::TerminalsListTerminalsUser>,
+        x_cmux_team_id: Option<&'a types::TerminalsListTerminalsXCmuxTeamId>,
+    ) -> Result<ResponseValue<types::TerminalSessionList>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/vms/{}/terminals",
+            self.baseurl,
+            encode_path(&vm_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self
+            .client
+            .get(url)
+            .header(
+                ::reqwest::header::ACCEPT,
+                ::reqwest::header::HeaderValue::from_static("application/json"),
+            )
+            .query(&progenitor_client::QueryParam::new("user", &user))
+            .headers(header_map)
+            .build()?;
+        let info = OperationInfo {
+            operation_id: "terminals_list_terminals",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            200u16 => ResponseValue::from_response(response).await,
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**Kill a terminal session and remove it
+
+    Kill a terminal session and remove it. Requires the vm:terminal scope.
+
+    Sends a `DELETE` request to `/v1/vms/{vmId}/terminals/{terminal}`
+
+    Arguments:
+    - `vm_id`
+    - `terminal`
+    - `user`: a string matching the pattern ^[a-z_][a-z0-9_-]{0,31}$
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    */
+    pub async fn terminals_close_terminal<'a>(
+        &'a self,
+        vm_id: &'a str,
+        terminal: &'a str,
+        user: Option<&'a types::TerminalsCloseTerminalUser>,
+        x_cmux_team_id: Option<&'a types::TerminalsCloseTerminalXCmuxTeamId>,
+    ) -> Result<ResponseValue<types::ClosedTerminal>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/vms/{}/terminals/{}",
+            self.baseurl,
+            encode_path(&vm_id.to_string()),
+            encode_path(&terminal.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self
+            .client
+            .delete(url)
+            .header(
+                ::reqwest::header::ACCEPT,
+                ::reqwest::header::HeaderValue::from_static("application/json"),
+            )
+            .query(&progenitor_client::QueryParam::new("user", &user))
+            .headers(header_map)
+            .build()?;
+        let info = OperationInfo {
+            operation_id: "terminals_close_terminal",
         };
         self.pre(&mut request, &info).await?;
         let result = self.exec(request, &info).await;

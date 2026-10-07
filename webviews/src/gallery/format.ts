@@ -119,6 +119,8 @@ export type AgentPaneVariant = VariantBase & {
   ready?: Record<string, unknown>;
   /** The snapshot the bridge delivers after `ready`. */
   snapshot: AcpmuxSnapshot;
+  /** Answers for native page methods (`turn.undo`, ...) by name; any other method answers null. */
+  native?: Record<string, unknown>;
   /** Gallery-only answers for the reply chips and preview card's host calls. */
   chipHost?: ChipHostFixture;
 };
