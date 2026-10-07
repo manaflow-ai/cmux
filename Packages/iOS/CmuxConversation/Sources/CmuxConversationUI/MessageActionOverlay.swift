@@ -127,7 +127,7 @@ final class MessageActionOverlay: UIView {
         dim.frame = bounds
         // Measured: the menu dims the screen ~15%; the reactor list ~50%;
         // double-tap's bar alone dims less (light: white -> 229, ~10% black,
-        // against 206 for long-press).
+        // against a blue-tinted 206 for long-press).
         let detail = mode == .reactionDetail
         let light = mode == .tapbacks
         dim.backgroundColor = UIColor {
@@ -135,7 +135,10 @@ final class MessageActionOverlay: UIView {
                 ? (detail ? UIColor.black.withAlphaComponent(0.5)
                     : light ? UIColor(red: 0.08, green: 0.08, blue: 0.16, alpha: 0.08)
                     : UIColor(red: 0.08, green: 0.08, blue: 0.16, alpha: 0.15))
-                : UIColor.black.withAlphaComponent(detail ? 0.25 : light ? 0.1 : 0.06)
+                : detail ? UIColor.black.withAlphaComponent(0.25)
+                : light ? UIColor.black.withAlphaComponent(0.1)
+                // iOS 26.5 light mode (d01): white -> (206, 206, 210).
+                : UIColor(red: 0.08, green: 0.08, blue: 0.16, alpha: 0.21)
         }
         dim.alpha = 0
         addSubview(dim)
