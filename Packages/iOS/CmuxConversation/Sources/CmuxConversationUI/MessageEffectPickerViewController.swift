@@ -152,11 +152,12 @@ final class MessageEffectPickerViewController: UIViewController, UIScrollViewDel
     /// Draft bubble size (body + tail) for the picker preview.
     private var bubbleSize: CGSize {
         let t = ConversationTheme.self
-        let maxBubble = floor(view.bounds.width * t.maxBubbleWidthFraction)
+        // The transcript's own bubble rule (85% between the margins, wider at AX sizes).
+        let maxBubble = t.maxBubbleWidth(forAvailableWidth: view.bounds.width - 2 * margin)
         let measured = MessageCellLayout.measure(stage.label.attributedText ?? text, maxWidth: maxBubble - 2 * t.bubbleHorizontalPadding)
         let lines = min(CGFloat(Self.previewLineLimit), max(1, round(measured.height / t.lineHeight)))
         let textHeight = lines * t.lineHeight
-        let body = max(measured.width + 2 * t.bubbleHorizontalPadding, t.lineHeight + 2 * t.bubbleVerticalPadding)
+        let body = max(measured.width + 2 * t.bubbleHorizontalPadding, t.minBubbleWidth)
         return CGSize(width: body + t.tailWidth, height: textHeight + 2 * t.bubbleVerticalPadding)
     }
 
