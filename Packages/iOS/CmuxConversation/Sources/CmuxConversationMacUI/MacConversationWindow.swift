@@ -341,12 +341,20 @@ final class MacTitleNameAccessoryView: MacFlippedView {
     }
 }
 
-/// Sidebar conversation list, like the left column of Messages.
+/// Sidebar conversation list, like the left column of Messages: pinned
+/// conversations as large avatars on top, then everything else newest first.
 @MainActor
-final class MacConversationListViewController: NSViewController, NSTableViewDataSource, NSTableViewDelegate, NSSearchFieldDelegate {
+final class MacConversationListViewController: NSViewController, NSTableViewDataSource, NSTableViewDelegate, NSSearchFieldDelegate, NSMenuDelegate {
     private let entries: [MacConversationEntry]
-    /// Rows as shown: newest conversation first, narrowed by the search query.
+    /// List rows as shown: unpinned conversations newest first, or every match while searching.
     private var visible: [MacConversationEntry] = []
+    /// Pinned conversations in pin order (none while searching).
+    private var pinned: [MacConversationEntry] = []
+    /// Whether table row 0 is the pins grid.
+    private var pinsRowShown = false
+    /// A list row is being dragged, so an empty pins area shows "Drag here to pin".
+    private var isDraggingRow = false
+    private let pinsGrid = MacPinnedGridView()
     private var selectedID: String?
     /// Newest seq each conversation had while it was on screen.
     private var seenSeq: [String: Int] = [:]
@@ -354,6 +362,7 @@ final class MacConversationListViewController: NSViewController, NSTableViewData
     private let search = NSSearchField()
     private let searchPill = MacFlippedView()
     private let noResults = makeMacLabel()
+    private var lastTableWidth: CGFloat = 0
     var onSelect: ((MacConversationEntry) -> Void)?
 
     init(entries: [MacConversationEntry]) {
@@ -390,6 +399,19 @@ final class MacConversationListViewController: NSViewController, NSTableViewData
         table.backgroundColor = .clear
         table.dataSource = self
         table.delegate = self
+        let menu = NSMenu()
+        menu.delegate = self
+        table.menu = menu
+        table.registerForDraggedTypes([.cmuxConversationID])
+        table.setDraggingSourceOperationMask(.move, forLocal: true)
+        table.setDraggingSourceOperationMask([], forLocal: false)
+        table.draggingDestinationFeedbackStyle = .none
+        pinsGrid.onSelect = { [weak self] id in self?.selectFromPins(id) }
+        pinsGrid.menuProvider = { [weak self] id in
+            guard let self, let entry = self.entry(id) else { return nil }
+            return self.contextMenu(for: entry)
+        }
+        pinsGrid.onDropAt = { [weak self] id, index in self?.dropOnPins(id, at: index) }
         let scroll = NSScrollView()
         scroll.documentView = table
         scroll.drawsBackground = false
@@ -423,7 +445,8 @@ final class MacConversationListViewController: NSViewController, NSTableViewData
         ])
         view = root
         updateColors()
-        visible = ordered()
+        (pinned, visible) = arrangement()
+        pinsRowShown = !pinned.isEmpty
         for entry in entries {
             entry.store.addObserver { [weak self] change in
                 guard let self, change != .typing else { return }
@@ -436,22 +459,41 @@ final class MacConversationListViewController: NSViewController, NSTableViewData
         entry.store.messages.last?.sentAt ?? .distantPast
     }
 
-    private func ordered() -> [MacConversationEntry] {
-        let query = search.stringValue.trimmingCharacters(in: .whitespaces)
+    private func entry(_ id: String) -> MacConversationEntry? {
+        entries.first { $0.id == id }
+    }
+
+    private var query: String { search.stringValue.trimmingCharacters(in: .whitespaces) }
+
+    /// Pins and list rows. While searching, every match is a list row.
+    private func arrangement() -> (pinned: [MacConversationEntry], others: [MacConversationEntry]) {
+        let query = query
         let matching = query.isEmpty ? entries : entries.filter { entry in
             let store = entry.store
             if store.info?.title.localizedCaseInsensitiveContains(query) == true { return true }
             if store.info?.participants.contains(where: { !$0.isMe && $0.name.localizedCaseInsensitiveContains(query) }) == true { return true }
             return store.messages.contains { $0.text.localizedCaseInsensitiveContains(query) }
         }
-        return matching.sorted { lastActivity($0) > lastActivity($1) }
+        let arranged = ConversationListArrangement.arrange(matching.map {
+            ConversationListArrangement.Item(id: $0.id, state: $0.store.listState, lastActivity: lastActivity($0))
+        })
+        let byID = Dictionary(uniqueKeysWithValues: matching.map { ($0.id, $0) })
+        let pins = arranged.pinned.compactMap { byID[$0] }
+        let others = arranged.others.compactMap { byID[$0] }
+        guard query.isEmpty else {
+            return ([], (pins + others).sorted { lastActivity($0) > lastActivity($1) })
+        }
+        return (pins, others)
     }
 
     private func newestIncomingSeq(_ entry: MacConversationEntry) -> Int {
         entry.store.messages.last { $0.seq != nil && $0.senderID != entry.store.meID }?.seq ?? 0
     }
 
+    /// Unread: new incoming messages since the conversation was last on
+    /// screen, or Mark as Unread.
     private func isUnread(_ entry: MacConversationEntry) -> Bool {
+        if entry.store.listState.markedUnread { return true }
         if entry.id == selectedID {
             seenSeq[entry.id] = newestIncomingSeq(entry)
             return false
@@ -464,18 +506,52 @@ final class MacConversationListViewController: NSViewController, NSTableViewData
         return newestIncomingSeq(entry) > seen
     }
 
+    // MARK: Rows
+
+    private var rowOffset: Int { pinsRowShown ? 1 : 0 }
+
+    private func listEntry(atRow row: Int) -> MacConversationEntry? {
+        let index = row - rowOffset
+        return visible.indices.contains(index) ? visible[index] : nil
+    }
+
+    private func row(of id: String) -> Int? {
+        visible.firstIndex { $0.id == id }.map { $0 + rowOffset }
+    }
+
     private func refresh(changed entry: MacConversationEntry? = nil) {
-        let next = ordered()
-        if next.map(\.id) == visible.map(\.id), let entry, let index = visible.firstIndex(where: { $0 === entry }) {
-            table.reloadData(forRowIndexes: IndexSet(integer: index), columnIndexes: IndexSet(integer: 0))
+        let next = arrangement()
+        let showsPins = !next.pinned.isEmpty || (isDraggingRow && query.isEmpty)
+        let sameShape = next.pinned.map(\.id) == pinned.map(\.id) && next.others.map(\.id) == visible.map(\.id) && showsPins == pinsRowShown
+        if sameShape, let entry {
+            if let row = row(of: entry.id) {
+                table.reloadData(forRowIndexes: IndexSet(integer: row), columnIndexes: IndexSet(integer: 0))
+            } else if pinned.contains(where: { $0 === entry }) {
+                configurePins()
+            }
             return
         }
-        visible = next
-        noResults.isHidden = !(visible.isEmpty && !search.stringValue.trimmingCharacters(in: .whitespaces).isEmpty)
+        pinned = next.pinned
+        visible = next.others
+        pinsRowShown = showsPins
+        noResults.isHidden = !(visible.isEmpty && !query.isEmpty)
         table.reloadData()
-        if let selectedID, let index = visible.firstIndex(where: { $0.id == selectedID }) {
-            table.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
+        syncTableSelection()
+    }
+
+    private func syncTableSelection() {
+        if let selectedID, let row = row(of: selectedID) {
+            table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        } else {
+            table.deselectAll(nil)
         }
+        pinsGrid.selectedID = selectedID
+    }
+
+    private func configurePins() {
+        pinsGrid.showsDropTarget = isDraggingRow && pinned.isEmpty
+        pinsGrid.configure(pinned.map { .init(id: $0.id, store: $0.store, isUnread: isUnread($0)) })
+        pinsGrid.selectedID = selectedID
     }
 
     func controlTextDidChange(_ notification: Notification) {
@@ -488,11 +564,17 @@ final class MacConversationListViewController: NSViewController, NSTableViewData
         refresh()
     }
 
-    var visibleIDs: [String] { visible.map(\.id) }
+    /// Every listed conversation in order: pins, then list rows.
+    var visibleIDs: [String] { pinned.map(\.id) + visible.map(\.id) }
+    var pinnedIDs: [String] { pinned.map(\.id) }
 
     override func viewDidLayout() {
         super.viewDidLayout()
         updateColors()
+        if pinsRowShown, table.bounds.width != lastTableWidth {
+            lastTableWidth = table.bounds.width
+            table.noteHeightOfRows(withIndexesChanged: IndexSet(integer: 0))
+        }
     }
 
     private func updateColors() {
@@ -500,39 +582,329 @@ final class MacConversationListViewController: NSViewController, NSTableViewData
     }
 
     func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
-        MacConversationListRowView()
+        pinsRowShown && row == 0 ? MacPinsRowView() : MacConversationListRowView()
+    }
+
+    func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
+        guard pinsRowShown, row == 0 else { return tableView.rowHeight }
+        return MacPinnedGridView.height(count: pinned.count, showsDropTarget: isDraggingRow)
+    }
+
+    func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {
+        !(pinsRowShown && row == 0)
     }
 
     func markSelected(_ id: String) {
         selectedID = id
-        if let index = visible.firstIndex(where: { $0.id == id }) {
-            seenSeq[id] = newestIncomingSeq(visible[index])
-            table.reloadData(forRowIndexes: IndexSet(integer: index), columnIndexes: IndexSet(integer: 0))
+        if let entry = entry(id), entry.store.listState.markedUnread {
+            // Opening a conversation clears Mark as Unread.
+            entry.store.updateListState(.init(markedUnread: false))
         }
-        guard let index = visible.firstIndex(where: { $0.id == id }) else { return }
-        table.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
+        if let row = row(of: id), let entry = listEntry(atRow: row) {
+            seenSeq[id] = newestIncomingSeq(entry)
+            table.reloadData(forRowIndexes: IndexSet(integer: row), columnIndexes: IndexSet(integer: 0))
+        } else if let entry = entry(id) {
+            seenSeq[id] = newestIncomingSeq(entry)
+            if pinsRowShown { configurePins() }
+        }
+        syncTableSelection()
     }
 
-    func numberOfRows(in tableView: NSTableView) -> Int { visible.count }
+    func numberOfRows(in tableView: NSTableView) -> Int { visible.count + rowOffset }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+        if pinsRowShown, row == 0 {
+            configurePins()
+            return pinsGrid
+        }
+        guard let entry = listEntry(atRow: row) else { return nil }
         let view = tableView.makeView(withIdentifier: .init("r"), owner: nil) as? MacConversationListRow ?? MacConversationListRow()
         view.identifier = .init("r")
-        view.configure(store: visible[row].store)
-        view.isUnread = isUnread(visible[row])
-        view.hidesSeparator = tableView.selectedRow == row || tableView.selectedRow == row + 1 || row == visible.count - 1
+        view.configure(store: entry.store)
+        view.isUnread = isUnread(entry)
+        view.isMuted = entry.store.listState.muted
+        view.hidesSeparator = tableView.selectedRow == row || tableView.selectedRow == row + 1 || row == visible.count - 1 + rowOffset
         return view
     }
 
     func tableViewSelectionDidChange(_ notification: Notification) {
         let row = table.selectedRow
+        let last = visible.count - 1 + rowOffset
         table.enumerateAvailableRowViews { rowView, index in
-            (rowView.view(atColumn: 0) as? MacConversationListRow)?.hidesSeparator = index == row || index == row - 1 || index == self.visible.count - 1
+            (rowView.view(atColumn: 0) as? MacConversationListRow)?.hidesSeparator = index == row || index == row - 1 || index == last
         }
-        guard row >= 0, row < visible.count, visible[row].id != selectedID else { return }
-        selectedID = visible[row].id
-        onSelect?(visible[row])
+        guard let entry = listEntry(atRow: row), entry.id != selectedID else { return }
+        selectedID = entry.id
+        pinsGrid.selectedID = selectedID
+        onSelect?(entry)
     }
+
+    private func selectFromPins(_ id: String) {
+        guard let entry = entry(id), id != selectedID else { return }
+        selectedID = id
+        syncTableSelection()
+        onSelect?(entry)
+    }
+
+    // MARK: Actions
+
+    /// The one path every list action takes (menu, swipe, drag, lab).
+    func perform(_ action: MacConversationListAction, on entry: MacConversationEntry) {
+        let state = entry.store.listState
+        switch action {
+        case .togglePin:
+            if state.pinned {
+                entry.store.updateListState(.init(pinned: false))
+            } else {
+                pin(entry, at: pinned.count)
+            }
+        case .toggleUnread:
+            if isUnread(entry) {
+                seenSeq[entry.id] = newestIncomingSeq(entry)
+                if state.markedUnread {
+                    entry.store.updateListState(.init(markedUnread: false))
+                } else {
+                    refresh(changed: entry)
+                }
+            } else {
+                entry.store.updateListState(.init(markedUnread: true))
+            }
+        case .toggleAlerts:
+            entry.store.updateListState(.init(muted: !state.muted))
+        case .delete:
+            confirmDelete(entry)
+        }
+    }
+
+    /// Pins (or moves a pin) to `index`, unless that would pass Messages' limit.
+    private func pin(_ entry: MacConversationEntry, at index: Int) {
+        let alreadyPinned = entry.store.listState.pinned
+        guard alreadyPinned || ConversationListArrangement.canPin(pinnedCount: pinned.count) else {
+            showPinLimitAlert()
+            return
+        }
+        let current = Dictionary(uniqueKeysWithValues: pinned.compactMap { pin in pin.store.listState.pinOrder.map { (pin.id, $0) } })
+        let orders = ConversationListArrangement.pinOrders(pinned: pinned.map(\.id), current: current, moving: entry.id, to: index)
+        if !alreadyPinned {
+            entry.store.updateListState(.init(pinned: true, pinOrder: orders[entry.id] ?? index))
+        }
+        for (id, order) in orders where id != entry.id || alreadyPinned {
+            self.entry(id)?.store.updateListState(.init(pinOrder: order))
+        }
+    }
+
+    private func dropOnPins(_ id: String, at index: Int) {
+        guard let entry = entry(id) else { return }
+        pin(entry, at: index)
+    }
+
+    private func showPinLimitAlert() {
+        let alert = NSAlert()
+        alert.messageText = MacListStrings.pinLimitTitle
+        alert.informativeText = MacListStrings.pinLimitMessage
+        alert.addButton(withTitle: MacListStrings.ok)
+        if let window = view.window {
+            alert.beginSheetModal(for: window)
+        } else {
+            alert.runModal()
+        }
+    }
+
+    private func confirmDelete(_ entry: MacConversationEntry) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = MacListStrings.deleteAlertTitle
+        alert.informativeText = MacListStrings.deleteAlertMessage
+        let delete = alert.addButton(withTitle: MacListStrings.delete)
+        delete.hasDestructiveAction = true
+        alert.addButton(withTitle: MacListStrings.cancel)
+        let finish: (NSApplication.ModalResponse) -> Void = { [weak self] response in
+            guard let self else { return }
+            self.table.rowActionsVisible = false
+            guard response == .alertFirstButtonReturn else { return }
+            self.delete(entry)
+        }
+        if let window = view.window {
+            alert.beginSheetModal(for: window, completionHandler: finish)
+        } else {
+            finish(alert.runModal())
+        }
+    }
+
+    /// Deletes without asking (the confirmation already happened). Messages
+    /// moves the selection to the next conversation.
+    func delete(_ entry: MacConversationEntry) {
+        let order = visibleIDs
+        entry.store.updateListState(.init(deleted: true))
+        guard entry.id == selectedID, let index = order.firstIndex(of: entry.id) else { return }
+        let remaining = order.filter { $0 != entry.id }
+        guard !remaining.isEmpty, let next = self.entry(remaining[min(index, remaining.count - 1)]) else { return }
+        selectedID = next.id
+        syncTableSelection()
+        onSelect?(next)
+    }
+
+    // MARK: Context menu
+
+    private func contextMenu(for entry: MacConversationEntry) -> NSMenu {
+        let menu = NSMenu()
+        fillMenu(menu, for: entry)
+        return menu
+    }
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        menu.removeAllItems()
+        guard let entry = listEntry(atRow: table.clickedRow) else { return }
+        fillMenu(menu, for: entry)
+    }
+
+    /// Messages' order: Pin, Mark as Unread, Hide Alerts, Delete (red).
+    private func fillMenu(_ menu: NSMenu, for entry: MacConversationEntry) {
+        let state = entry.store.listState
+        func item(_ title: String, _ symbol: String, _ action: MacConversationListAction) -> NSMenuItem {
+            let item = NSMenuItem(title: title, action: #selector(menuAction(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = MacListMenuTarget(id: entry.id, action: action)
+            item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+            item.identifier = .init("conversation.list.\(action.rawValue)")
+            return item
+        }
+        menu.addItem(item(state.pinned ? MacListStrings.unpin : MacListStrings.pin, state.pinned ? "pin.slash" : "pin", .togglePin))
+        menu.addItem(isUnread(entry)
+            ? item(MacListStrings.markRead, "message", .toggleUnread)
+            : item(MacListStrings.markUnread, "message.badge", .toggleUnread))
+        // The Mac shows Hide Alerts as a checkmark toggle.
+        let alerts = item(MacListStrings.hideAlerts, "bell.slash", .toggleAlerts)
+        alerts.state = state.muted ? .on : .off
+        menu.addItem(alerts)
+        menu.addItem(.separator())
+        let delete = item(MacListStrings.deleteConversation, "trash", .delete)
+        delete.attributedTitle = NSAttributedString(string: MacListStrings.deleteConversation, attributes: [
+            .foregroundColor: NSColor.systemRed, .font: NSFont.menuFont(ofSize: 0),
+        ])
+        delete.image = delete.image?.withSymbolConfiguration(.init(paletteColors: [.systemRed]))
+        menu.addItem(delete)
+    }
+
+    @objc private func menuAction(_ sender: NSMenuItem) {
+        guard let target = sender.representedObject as? MacListMenuTarget, let entry = entry(target.id) else { return }
+        perform(target.action, on: entry)
+    }
+
+    // MARK: Swipe actions
+
+    /// Messages: swipe left for Hide Alerts and Delete (a full swipe deletes),
+    /// swipe right for Mark as Unread.
+    func tableView(_ tableView: NSTableView, rowActionsForRow row: Int, edge: NSTableView.RowActionEdge) -> [NSTableViewRowAction] {
+        guard let entry = listEntry(atRow: row) else { return [] }
+        switch edge {
+        case .trailing:
+            let delete = NSTableViewRowAction(style: .destructive, title: MacListStrings.delete) { [weak self] _, _ in
+                self?.perform(.delete, on: entry)
+            }
+            delete.image = NSImage(systemSymbolName: "trash.fill", accessibilityDescription: MacListStrings.delete)
+            let muted = entry.store.listState.muted
+            let alertsTitle = muted ? MacListStrings.showAlerts : MacListStrings.hideAlerts
+            let alerts = NSTableViewRowAction(style: .regular, title: alertsTitle) { [weak self] _, _ in
+                self?.table.rowActionsVisible = false
+                self?.perform(.toggleAlerts, on: entry)
+            }
+            alerts.image = NSImage(systemSymbolName: muted ? "bell.fill" : "bell.slash.fill", accessibilityDescription: alertsTitle)
+            // Measured on iOS 26: Hide Alerts is indigo (#5E5CE6).
+            alerts.backgroundColor = .systemIndigo
+            // The first trailing action sits at the edge and runs on a full swipe.
+            return [delete, alerts]
+        case .leading:
+            let unread = isUnread(entry)
+            let title = unread ? MacListStrings.readButton : MacListStrings.unreadButton
+            let mark = NSTableViewRowAction(style: .regular, title: title) { [weak self] _, _ in
+                self?.table.rowActionsVisible = false
+                self?.perform(.toggleUnread, on: entry)
+            }
+            mark.image = NSImage(systemSymbolName: unread ? "message.fill" : "message.badge.filled.fill", accessibilityDescription: title)
+            mark.backgroundColor = .systemBlue
+            return [mark]
+        @unknown default:
+            return []
+        }
+    }
+
+    // MARK: Drag to pin and unpin
+
+    func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> (any NSPasteboardWriting)? {
+        guard query.isEmpty, let entry = listEntry(atRow: row) else { return nil }
+        let item = NSPasteboardItem()
+        item.setString(entry.id, forType: .cmuxConversationID)
+        return item
+    }
+
+    func tableView(_ tableView: NSTableView, draggingSession session: NSDraggingSession, willBeginAt screenPoint: NSPoint, forRowIndexes rowIndexes: IndexSet) {
+        isDraggingRow = true
+        if pinned.isEmpty { refresh() } else { configurePins() }
+    }
+
+    func tableView(_ tableView: NSTableView, draggingSession session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
+        isDraggingRow = false
+        refresh()
+    }
+
+    func tableView(_ tableView: NSTableView, validateDrop info: any NSDraggingInfo, proposedRow row: Int, proposedDropOperation dropOperation: NSTableView.DropOperation) -> NSDragOperation {
+        guard let id = info.draggingPasteboard.string(forType: .cmuxConversationID), let entry = entry(id) else { return [] }
+        // Dropping a pin anywhere on the list unpins it; list rows only
+        // reorder by activity, so a list row dropped on the list does nothing.
+        return entry.store.listState.pinned ? .move : []
+    }
+
+    func tableView(_ tableView: NSTableView, acceptDrop info: any NSDraggingInfo, row: Int, dropOperation: NSTableView.DropOperation) -> Bool {
+        guard let id = info.draggingPasteboard.string(forType: .cmuxConversationID), let entry = entry(id),
+              entry.store.listState.pinned else { return false }
+        entry.store.updateListState(.init(pinned: false))
+        return true
+    }
+
+    // MARK: Lab
+
+    func entryState(_ id: String) -> (state: ConversationListState, isUnread: Bool)? {
+        entry(id).map { ($0.store.listState, isUnread($0)) }
+    }
+
+    func menuTitles(for id: String) -> [String] {
+        guard let entry = entry(id) else { return [] }
+        return contextMenu(for: entry).items.map { $0.isSeparatorItem ? "-" : ($0.state == .on ? "✓ " : "") + $0.title }
+    }
+
+    func swipeTitles(for id: String) -> (leading: [String], trailing: [String]) {
+        guard let row = row(of: id) else { return ([], []) }
+        return (
+            tableView(table, rowActionsForRow: row, edge: .leading).map(\.title),
+            tableView(table, rowActionsForRow: row, edge: .trailing).map(\.title)
+        )
+    }
+
+    func perform(_ action: MacConversationListAction, id: String, confirm: Bool) {
+        guard let entry = entry(id) else { return }
+        if action == .delete, !confirm { delete(entry) } else { perform(action, on: entry) }
+    }
+
+    func movePin(_ id: String, to index: Int) {
+        dropOnPins(id, at: index)
+    }
+}
+
+private final class MacListMenuTarget: NSObject {
+    let id: String
+    let action: MacConversationListAction
+
+    init(id: String, action: MacConversationListAction) {
+        self.id = id
+        self.action = action
+    }
+}
+
+/// Row 0 when pins exist: no selection or separator of its own.
+final class MacPinsRowView: NSTableRowView {
+    override func drawSelection(in dirtyRect: NSRect) {}
+    override func drawSeparator(in dirtyRect: NSRect) {}
 }
 
 final class MacConversationListRow: MacFlippedView {
@@ -544,13 +916,22 @@ final class MacConversationListRow: MacFlippedView {
     private let separator = NSBox()
     private let clusterDisc = MacFlippedView()
     private let unreadDot = MacFlippedView()
-    var isUnread = false { didSet { unreadDot.isHidden = !isUnread } }
+    private let mutedGlyph = NSImageView()
+    var isUnread = false { didSet { updateIndicators() } }
+    /// Hide Alerts: a bell.slash in the unread dot's column (the dot wins when both apply).
+    var isMuted = false { didSet { updateIndicators() } }
+
+    private func updateIndicators() {
+        unreadDot.isHidden = !isUnread
+        mutedGlyph.isHidden = !isMuted || isUnread
+    }
     /// White text on the accent-filled selection.
     var isEmphasized = false {
         didSet {
             title.textColor = isEmphasized ? .white : .labelColor
             preview.textColor = isEmphasized ? NSColor.white.withAlphaComponent(0.85) : .secondaryLabelColor
             time.textColor = isEmphasized ? NSColor.white.withAlphaComponent(0.85) : .secondaryLabelColor
+            mutedGlyph.contentTintColor = isEmphasized ? NSColor.white.withAlphaComponent(0.85) : .secondaryLabelColor
         }
     }
     var hidesSeparator = false { didSet { separator.isHidden = hidesSeparator } }
@@ -568,6 +949,12 @@ final class MacConversationListRow: MacFlippedView {
         unreadDot.isHidden = true
         unreadDot.setAccessibilityLabel(String(localized: "conversation.sidebar.unread", defaultValue: "Unread", bundle: .module))
         addSubview(unreadDot)
+        mutedGlyph.image = NSImage(systemSymbolName: "bell.slash.fill", accessibilityDescription: MacListStrings.alertsHidden)?
+            .withSymbolConfiguration(.init(pointSize: 10, weight: .semibold))
+        mutedGlyph.contentTintColor = .secondaryLabelColor
+        mutedGlyph.isHidden = true
+        mutedGlyph.setAccessibilityIdentifier("conversation.sidebar.muted")
+        addSubview(mutedGlyph)
         title.font = .systemFont(ofSize: 13, weight: .bold)
         title.maximumNumberOfLines = 1
         time.font = .systemFont(ofSize: 12)
@@ -627,6 +1014,7 @@ final class MacConversationListRow: MacFlippedView {
         avatar.frame = disc
         // Measured: a 10 pt dot centered 30 pt left of the avatar's center.
         unreadDot.frame = CGRect(x: disc.midX - 30 - 5, y: disc.midY - 5, width: 10, height: 10)
+        mutedGlyph.frame = CGRect(x: disc.midX - 30 - 7, y: disc.midY - 7, width: 14, height: 14)
         clusterDisc.frame = disc
         let frames = [
             CGRect(x: disc.midX - 6 - 9, y: disc.midY - 6 - 9, width: 18, height: 18),
@@ -766,6 +1154,51 @@ public enum MacConversationLab {
         guard let split = windows.last?.window?.contentViewController as? MacConversationSplitController,
               let entry = split.entries.first(where: { $0.id == id }) else { return }
         split.select(entry)
+    }
+
+    private static var sidebar: MacConversationListViewController? {
+        (windows.last?.window?.contentViewController as? MacConversationSplitController)?.sidebar
+    }
+
+    /// Runs a list action through the same path as the menu and swipes.
+    /// `confirm: false` skips the delete alert.
+    public static func listAction(_ action: MacConversationListAction, conversation id: String, confirm: Bool = true) {
+        sidebar?.perform(action, id: id, confirm: confirm)
+    }
+
+    /// Pins `id` (or moves its pin) to `index`, as a drop on the pins does.
+    public static func movePin(_ id: String, to index: Int) {
+        sidebar?.movePin(id, to: index)
+    }
+
+    /// The sidebar as listed: pinned ids, all ids in order, and per
+    /// conversation its list state, unread dot, menu and swipe titles.
+    public static func listSnapshot() -> [String: Any] {
+        guard let sidebar else { return [:] }
+        var conversations: [String: Any] = [:]
+        for id in ["group", "direct"] {
+            guard let (state, unread) = sidebar.entryState(id) else { continue }
+            let swipes = sidebar.swipeTitles(for: id)
+            conversations[id] = [
+                "pinned": state.pinned, "pinOrder": state.pinOrder as Any, "muted": state.muted,
+                "markedUnread": state.markedUnread, "deleted": state.deleted, "unreadDot": unread,
+                "menu": sidebar.menuTitles(for: id), "swipeLeading": swipes.leading, "swipeTrailing": swipes.trailing,
+            ]
+        }
+        return ["pinned": sidebar.pinnedIDs, "listed": sidebar.visibleIDs, "conversations": conversations]
+    }
+
+    /// Renders the lab window's content in-process to a PNG (no screen
+    /// capture permission needed). `sidebarOnly` crops to the sidebar.
+    @discardableResult
+    public static func renderPNG(to path: String, sidebarOnly: Bool = false) -> Bool {
+        guard let window = windows.last?.window, let content = window.contentView else { return false }
+        let target: NSView = sidebarOnly ? (sidebar?.view ?? content) : content
+        content.layoutSubtreeIfNeeded()
+        guard let rep = target.bitmapImageRepForCachingDisplay(in: target.bounds) else { return false }
+        target.cacheDisplay(in: target.bounds, to: rep)
+        guard let data = rep.representation(using: .png, properties: [:]) else { return false }
+        return (try? data.write(to: URL(fileURLWithPath: path))) != nil
     }
 }
 #endif

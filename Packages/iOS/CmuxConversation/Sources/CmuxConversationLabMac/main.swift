@@ -64,6 +64,31 @@ if arguments.count > 3 {
                             reply = "window \(NSApp.windows.first(where: { $0.identifier?.rawValue == "cmux.conversationLab" })?.windowNumber ?? 0)"
                         } else if line.hasPrefix("search") {
                             reply = "visible " + MacConversationLab.search(String(line.dropFirst(6)).trimmingCharacters(in: .whitespaces)).joined(separator: ",")
+                        } else if line == "list" {
+                            let snapshot = MacConversationLab.listSnapshot()
+                            let data = (try? JSONSerialization.data(withJSONObject: snapshot, options: [.sortedKeys])) ?? Data()
+                            reply = String(decoding: data, as: UTF8.self)
+                        } else if line.hasPrefix("listaction ") {
+                            // listaction <togglePin|toggleUnread|toggleAlerts|delete> <id> [noconfirm]
+                            let words = line.split(separator: " ").map(String.init)
+                            if words.count >= 3, let action = MacConversationListAction(rawValue: words[1]) {
+                                MacConversationLab.listAction(action, conversation: words[2], confirm: words.count < 4)
+                                reply = "ok"
+                            } else {
+                                reply = "error usage listaction <action> <id> [noconfirm]"
+                            }
+                        } else if line.hasPrefix("movepin ") {
+                            let words = line.split(separator: " ").map(String.init)
+                            if words.count == 3, let index = Int(words[2]) {
+                                MacConversationLab.movePin(words[1], to: index)
+                                reply = "ok"
+                            } else {
+                                reply = "error usage movepin <id> <index>"
+                            }
+                        } else if line.hasPrefix("png ") || line.hasPrefix("sidebarpng ") {
+                            let sidebarOnly = line.hasPrefix("sidebarpng ")
+                            let path = String(line.split(separator: " ", maxSplits: 1)[1])
+                            reply = MacConversationLab.renderPNG(to: path, sidebarOnly: sidebarOnly) ? "ok \(path)" : "error render"
                         } else if line == "deactivate" {
                             app.deactivate()
                             reply = "ok"
