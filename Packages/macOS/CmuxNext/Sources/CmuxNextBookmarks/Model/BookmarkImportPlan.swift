@@ -91,7 +91,7 @@ public nonisolated enum BookmarkImportPlan {
         @discardableResult
         func add(_ draft: BookmarkDraft, at path: ArraySlice<String>) -> Bool {
             guard let name = path.first else {
-                if let url = draft.url { urls.insert(url.absoluteString) }
+                if let url = draft.url, !urls.insert(url.absoluteString).inserted { return false }
                 entries.append(.leaf(draft))
                 return true
             }

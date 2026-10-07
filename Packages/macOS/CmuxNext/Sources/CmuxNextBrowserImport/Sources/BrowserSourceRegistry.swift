@@ -101,7 +101,6 @@ public struct BrowserSourceRegistry: Sendable, Codable, Equatable {
     /// Checked by the registry test, so a bad row never ships.
     public func validationProblems() -> [String] {
         var problems: [String] = []
-        if !engines.isEmpty { return problems }
         if schemaVersion != 1 { problems.append("unknown schemaVersion \(schemaVersion)") }
         for family in [BrowserFamily.chromium, .firefox, .safari, .webkit, .other] where engines[family] == nil {
             problems.append("engine \(family.rawValue) has no defaults")

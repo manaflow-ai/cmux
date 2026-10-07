@@ -17,7 +17,7 @@ public struct BrowserSourceDetector: Sendable {
         var seen = Set<String>()
         return browsers.compactMap { browser in
             guard var source = detect(browser) else { return nil }
-            source.profiles = source.profiles.filter { _ in seen.insert(UUID().uuidString).inserted }
+            source.profiles = source.profiles.filter { seen.insert($0.path.standardizedFileURL.path).inserted }
             return source.profiles.isEmpty ? nil : source
         }
     }

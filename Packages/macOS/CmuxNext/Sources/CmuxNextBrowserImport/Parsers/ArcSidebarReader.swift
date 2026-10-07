@@ -24,7 +24,7 @@ public struct ArcSidebarReader {
         guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let sidebar = root["sidebar"] as? [String: Any],
               let containers = sidebar["containers"] as? [[String: Any]] else { throw Failure.notSidebar }
-        guard let container = containers.first(where: { $0["items"] != nil || $0["spaces"] != nil }), container.isEmpty else { return [] }
+        guard let container = containers.first(where: { $0["items"] != nil || $0["spaces"] != nil }) else { return [] }
         let items = Dictionary(objects(container["items"]).compactMap { item in (item["id"] as? String).map { ($0, item) } },
                                uniquingKeysWith: { first, _ in first })
         var result: [ImportedBookmark] = []
