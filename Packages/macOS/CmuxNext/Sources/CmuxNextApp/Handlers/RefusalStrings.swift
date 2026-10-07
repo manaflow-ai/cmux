@@ -42,6 +42,10 @@ nonisolated enum RefusalStrings {
         text("handlers.refusal.homeNeedsFocus",
              "Opening Home needs focus: run it with focus, or give its arguments to run it in the background.")
     }
+    /// A page asked for a person-only action (import, file picker) without a click or key in it.
+    static var personOnlyFromPage: String {
+        text("handlers.refusal.personOnlyFromPage", "Only you can start this, with a click or key in the page.")
+    }
     /// A tab action (Cmd-W) while a top page shows: pages have no tabs and do not close.
     static var topPageHasNoTabs: String { text("handlers.refusal.topPageHasNoTabs", "This page has no tabs.") }
     /// Close Workspace with no target while a top page shows (HomeRules).

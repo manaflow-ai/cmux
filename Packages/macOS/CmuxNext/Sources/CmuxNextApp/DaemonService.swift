@@ -183,8 +183,9 @@ final class DaemonService {
     /// the same link, and the next event then connects to the new build.
     /// `admit` checks each handshake's identity before use; when it throws,
     /// the connection closes, the service stops and the store shows why.
-    /// `preamble`: the line each connection sends first (``DaemonEndpoint/preamble``).
-    func start(remote endpoint: @escaping @Sendable () async throws -> String, preamble: String? = nil,
+    /// `bridge`: each connection runs this child instead of connecting to the
+    /// socket (``DaemonEndpoint/bridge``).
+    func start(remote endpoint: @escaping @Sendable () async throws -> String, bridge: DaemonBridge? = nil,
                admit: (@MainActor (DaemonIdentity) throws -> Void)? = nil) {
         guard runTask == nil, !policyBlock.isBlocked else { return }
         let store = store
@@ -207,7 +208,7 @@ final class DaemonService {
                 let connected = await DaemonStartup.shared.connect(wake: wake, clock: clock) {
                     DaemonConnection(configuration: DaemonConnection.Configuration(retryWake: wake, terminalEnvironment: nil,
                                                                                     sessionEvents: true)) {
-                        DaemonEndpoint(socketPath: try await endpoint(), preamble: preamble)
+                        DaemonEndpoint(socketPath: try await endpoint(), bridge: bridge)
                     }
                 } onFailure: { error in
                     logger.error("\(machineID, privacy: .public): daemon unavailable: \(error.description, privacy: .public)")

@@ -5,8 +5,10 @@ import CmuxNextBrowserImport
 import Foundation
 import UniformTypeIdentifiers
 
-/// Import Passwords from CSV… (`password.importCSV`): the person picks the
-/// file in an open panel, which is the confirmation; there is no path
+/// Import Passwords from CSV… (`password.importCSV`): the person says where
+/// the passwords are (Safari / Apple Passwords, 1Password and Bitwarden get
+/// their export steps first) and picks the file in an open panel, which is
+/// the confirmation; there is no path
 /// argument, and the action is person-only, so the control socket cannot
 /// open the panel for a file an agent staged. The passwords go into
 /// the browser profile's Chromium password store, counts only come back, and
@@ -16,26 +18,23 @@ import UniformTypeIdentifiers
 struct PasswordCSVFiles {
     let services: AppServices
 
+    /// The guided steps (source, the source's export steps, the open panel), then the import of
+    /// the picked file and the Trash offer for it.
     func chooseImport(profile: String) throws {
         guard let cef = services.cache?.cef else { throw ActionFailure(message: PasswordCSVStrings.unavailable) }
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.commaSeparatedText]
-        panel.allowsMultipleSelection = false
-        panel.message = PasswordCSVStrings.prompt
-        panel.beginForCmux { url in
-            guard let url else { return }
-            services.registry.track(Task { @MainActor in
-                guard await cef.canImportPasswords() else { return ActionWorkFailure(PasswordCSVStrings.unavailable) }
-                let destination = AppPasswordDestination(available: true) { rows, profile in try await cef.importPasswords(rows, into: profile) }
-                do {
-                    let report = try await PasswordCSVImporter(destination: destination).run(file: url, intoProfile: profile)
-                    Self.offerTrash(url, report: report)
-                    return nil
-                } catch {
-                    return ActionWorkFailure(PasswordCSVStrings.failure(error))
-                }
-            })
-        }
+        let guide = PasswordCSVGuide(presenter: LivePasswordCSVGuidePresenter())
+        services.registry.track(Task { @MainActor in
+            guard let url = await guide.run() else { return nil }
+            guard await cef.canImportPasswords() else { return ActionWorkFailure(PasswordCSVStrings.unavailable) }
+            let destination = AppPasswordDestination(available: true) { rows, profile in try await cef.importPasswords(rows, into: profile) }
+            do {
+                let report = try await PasswordCSVImporter(destination: destination).run(file: url, intoProfile: profile)
+                Self.offerTrash(url, report: report)
+                return nil
+            } catch {
+                return ActionWorkFailure(PasswordCSVStrings.failure(error))
+            }
+        })
     }
 
     /// Counts only. Sign-ins saved with another password get their own line:
