@@ -70,21 +70,38 @@ pub fn next_step(r: &FolderProfile) -> Option<String> {
     }
 }
 
-pub fn enable_cmd(id: &str, folder: &Path, yes: bool, json_out: bool) -> Result<()> {
-    let cfg = Config::load()?;
-    let gate = gate(&cfg)?;
-    let fp = folder_profiles::load_one(&cfg, gate, folder, id).ok_or_else(|| {
+/// What `enable` shows before it asks: the confirmation text and the hash
+/// it confirms, or that these bytes are already enabled.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Confirmation {
+    AlreadyEnabled { folder: String },
+    Ask { text: String, sha256: String },
+}
+
+/// The confirmation `enable` shows for folder profile `id` of `folder`.
+pub fn confirmation(cfg: &Config, folder: &Path, id: &str) -> Result<Confirmation> {
+    let gate = gate(cfg)?;
+    let fp = folder_profiles::load_one(cfg, gate, folder, id).ok_or_else(|| {
         anyhow!("{} has no {id}.toml", folder_profiles::profile_dir(folder).display())
     })?;
     let program = fp.profile.as_ref().and_then(|p| super::harness::find_program(&p.argv[0]));
     let text = folder_profiles::confirmation_text(&fp, program.as_deref());
-    let sha = match (fp.state, fp.sha256.clone()) {
-        (FolderState::Enabled, _) => {
-            println!("{id} is already enabled for {}", fp.folder);
+    match (fp.state, fp.sha256.clone()) {
+        (FolderState::Enabled, _) => Ok(Confirmation::AlreadyEnabled { folder: fp.folder }),
+        (FolderState::NeedsEnable, Some(sha256)) => Ok(Confirmation::Ask { text, sha256 }),
+        _ => bail!(folder_profiles::refusal(&fp).unwrap_or_else(|| format!("cannot enable {id}"))),
+    }
+}
+
+pub fn enable_cmd(id: &str, folder: &Path, yes: bool, json_out: bool) -> Result<()> {
+    let cfg = Config::load()?;
+    let gate = gate(&cfg)?;
+    let (text, sha) = match confirmation(&cfg, folder, id)? {
+        Confirmation::AlreadyEnabled { folder } => {
+            println!("{id} is already enabled for {folder}");
             return Ok(());
         }
-        (FolderState::NeedsEnable, Some(sha)) => sha,
-        _ => bail!(folder_profiles::refusal(&fp).unwrap_or_else(|| format!("cannot enable {id}"))),
+        Confirmation::Ask { text, sha256 } => (text, sha256),
     };
     eprint!("{text}");
     if !yes {
