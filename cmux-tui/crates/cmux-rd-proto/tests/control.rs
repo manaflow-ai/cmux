@@ -42,3 +42,13 @@ fn a_secret_never_reaches_debug_output() {
     let hello: Control = serde_json::from_value(v["json"].clone()).expect("hello");
     assert!(!format!("{hello:?}").contains("abab"));
 }
+
+#[test]
+fn a_service_body_passes_through_untouched() {
+    let v = vectors().into_iter().find(|v| v["name"] == "service").expect("vector");
+    let control: Control = serde_json::from_value(v["json"].clone()).expect("service");
+    let Control::Service { service, body } = &control else { panic!("not a service message") };
+    assert_eq!(service, "rb/1");
+    assert_eq!(body, &v["json"]["body"]);
+    assert_eq!(serde_json::to_value(&control).expect("encode"), v["json"]);
+}

@@ -117,6 +117,8 @@ final class SidebarItemRowView: NSView {
 
     func configure(_ info: SidebarItemInfo, style: Style) {
         guard info != self.info || style != self.style else { return }
+        // A selection change paints at once (SIDEBAR-SELECTION-NO-TRAVEL-ANIMATION).
+        if info.isActive != self.info.isActive { fadesNextFill = false }
         self.info = info
         self.style = style
         title.stringValue = style == .favorite ? info.caption ?? info.title : info.title
@@ -164,17 +166,11 @@ final class SidebarItemRowView: NSView {
         }
     }
 
-    /// Where the sidebar's selection highlight sits under this item.
-    var selectionRect: CGRect { pill.frame }
-    /// Tiles keep their own selected fill (the shared highlight would sit under the tile card).
-    var drawsOwnSelection: Bool { style == .tile || style == .favorite }
-
     /// The pill's fill: pressed, then active, then hovered, then the
     /// tile's resting fill. A tile rests on `hoverFill`, so its hover takes
     /// the next tonal step (`selectionFill`) and still shows a change (R97).
     var fill: NSColor? {
-        // A selected list or rail item: the sidebar's one highlight draws under it.
-        let state = ChromeHover.State(hovering: isHovered, pressed: isPressed, selected: info.isActive && drawsOwnSelection)
+        let state = ChromeHover.State(hovering: isHovered, pressed: isPressed, selected: info.isActive)
         return performWithTheme {
             guard style == .tile else { return ChromeHover.fillColor(state) }
             if state.hovering, !state.pressed, !state.selected { return Palette.selectionFill }
