@@ -193,7 +193,7 @@ final class MessageCell: UICollectionViewCell {
             reactionBadge.isHidden = true
         }
 
-        // "Delivered" fades in over ~0.4 s when it first lands on this row.
+        // Status transitions measured on iOS 26 Messages.
         let sameRow = previousRowID == model.rowID
         let footerWasHidden = footerLabel.isHidden
         let previousFooterText = footerLabel.attributedText
@@ -201,17 +201,11 @@ final class MessageCell: UICollectionViewCell {
             // Explicit layer animations: these run the same inside a batch
             // update, a spring, or performWithoutAnimation.
             if sameRow, footerWasHidden, !footerLabel.isHidden {
-                // A status landing on this row fades in over ~0.45 s.
+                // A status landing on this row grows out of its own center.
                 footerLabel.alpha = 1
-                let fade = CABasicAnimation(keyPath: "opacity")
-                fade.fromValue = 0
-                fade.toValue = 1
-                // Linear: ~90% at 0.4 s, complete at 0.45 s.
-                fade.duration = 0.45
-                fade.timingFunction = CAMediaTimingFunction(name: .linear)
-                footerLabel.layer.add(fade, forKey: "statusFade")
+                footerLabel.layer.add(Self.statusAnimation(appearing: true), forKey: "statusFade")
             } else if sameRow, !footerWasHidden, footerLabel.isHidden {
-                // A status leaving this row fades out over ~0.3 s instead of vanishing.
+                // A status leaving this row shrinks slightly and fades in ~0.1 s.
                 footerLabel.isHidden = false
                 footerLabel.attributedText = previousFooterText
                 footerLabel.alpha = 0
@@ -220,11 +214,7 @@ final class MessageCell: UICollectionViewCell {
                     guard let self, self.model?.footer == MessageFooter.none else { return }
                     self.footerLabel.isHidden = true
                 }
-                let fade = CABasicAnimation(keyPath: "opacity")
-                fade.fromValue = 1
-                fade.toValue = 0
-                fade.duration = 0.3
-                footerLabel.layer.add(fade, forKey: "statusFade")
+                footerLabel.layer.add(Self.statusAnimation(appearing: false), forKey: "statusFade")
                 CATransaction.commit()
             } else if !footerLabel.isHidden {
                 footerLabel.alpha = 1
@@ -243,7 +233,11 @@ final class MessageCell: UICollectionViewCell {
             footerLabel.text = String(localized: "conversation.status.notDelivered", defaultValue: "Not Delivered", bundle: .module)
             footerLabel.textColor = ConversationTheme.notDelivered
         }
-        if let frame = layout.footerFrame {
+        if var frame = layout.footerFrame {
+            // Hug the text so the status scales about its own center.
+            let textWidth = min(frame.width, ceil(footerLabel.intrinsicContentSize.width))
+            if model.isOutgoing { frame.origin.x = frame.maxX - textWidth }
+            frame.size.width = textWidth
             // Never animate the status label's frame (that reads as a wipe).
             UIView.performWithoutAnimation { footerLabel.setUntransformedFrame(frame) }
             footerLabel.textAlignment = model.isOutgoing ? .right : .left
@@ -388,6 +382,41 @@ final class MessageCell: UICollectionViewCell {
         let arrowX = model.isOutgoing ? max(0, layoutOrigin(model) - 34) : max(4, replyDrag - 34)
         replyArrow.frame.origin.x = arrowX
         replyArrow.transform = CGAffineTransform(scaleX: 0.5 + 0.5 * replyProgress, y: 0.5 + 0.5 * replyProgress)
+    }
+
+    /// Appearing: grows from its center on a critically damped spring
+    /// (response 0.52 s) while fading in over 0.25 s; leaving: fades and
+    /// shrinks to 0.9 in 0.1 s.
+    static func statusAnimation(appearing: Bool) -> CAAnimation {
+        let group = CAAnimationGroup()
+        if appearing {
+            let scale = CASpringAnimation(keyPath: "transform")
+            scale.isAdditive = true
+            scale.mass = 1
+            scale.stiffness = 144
+            scale.damping = 24
+            scale.fromValue = CATransform3DMakeScale(0.01, 0.01, 1)
+            scale.toValue = CATransform3DIdentity
+            scale.duration = scale.settlingDuration
+            let fade = CABasicAnimation(keyPath: "opacity")
+            fade.fromValue = 0
+            fade.toValue = 1
+            fade.duration = 0.25
+            fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            group.animations = [scale, fade]
+            group.duration = scale.duration
+        } else {
+            let scale = CABasicAnimation(keyPath: "transform")
+            scale.isAdditive = true
+            scale.fromValue = CATransform3DIdentity
+            scale.toValue = CATransform3DMakeScale(0.9, 0.9, 1)
+            let fade = CABasicAnimation(keyPath: "opacity")
+            fade.fromValue = 1
+            fade.toValue = 0
+            group.animations = [scale, fade]
+            group.duration = 0.1
+        }
+        return group
     }
 
     /// Messages sets "Read" semibold and its time regular, both in the status gray.
