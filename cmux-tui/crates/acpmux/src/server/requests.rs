@@ -201,14 +201,6 @@ async fn dispatch_request(
             }
             let adopt =
                 crate::adopt::AdoptRequest::from_meta(meta).map_err(RpcError::invalid_params)?;
-            // A remote-origin session (a Web device, or a peer) never resumes
-            // a local harness session (REMOTE-FLOOR v3, D13).
-            if adopt.is_some() && conn.origin.web_class() {
-                return Err(RpcError::invalid_params(
-                    "a remote device cannot adopt a local agent session; start a new chat from this device",
-                )
-                .with_data(json!({"reason": "remote.adopt_refused"})));
-            }
             let pick = |key: &str| {
                 meta.and_then(|m| m.get(key))
                     .and_then(Value::as_str)

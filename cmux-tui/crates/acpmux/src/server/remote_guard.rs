@@ -125,6 +125,16 @@ pub(super) async fn check(
     }
     if web {
         web_only(m, params)?;
+        // A remote-origin session (a Web device, or a peer) never resumes a
+        // local harness session (REMOTE-FLOOR v3, D13).
+        if m == method::SESSION_NEW
+            && params.pointer("/_meta/acpmux/adopt").is_some_and(|v| !v.is_null())
+        {
+            return Err(RpcError::invalid_params(
+                "a remote device cannot adopt a local agent session; start a new chat from this device",
+            )
+            .with_data(serde_json::json!({"reason": "remote.adopt_refused"})));
+        }
     }
     let folders = matches!(
         m,
@@ -349,15 +359,6 @@ async fn web_starts_asking(
 ) -> Result<(), RpcError> {
     // A remote chain never resumes a local harness session (REMOTE-FLOOR v3).
     let web = control == crate::hub::Control::Web;
-    if web
-        && m == method::SESSION_NEW
-        && params.pointer("/_meta/acpmux/adopt").is_some_and(|v| !v.is_null())
-    {
-        return Err(RpcError::invalid_params(
-            "a remote device cannot adopt a local agent session; start a new chat from this device",
-        )
-        .with_data(serde_json::json!({"reason": "remote.adopt_refused"})));
-    }
     if m == method::SESSION_NEW
         && params.get("policy").is_none_or(Value::is_null)
         && params.pointer("/_meta/acpmux/policy").is_none_or(Value::is_null)
