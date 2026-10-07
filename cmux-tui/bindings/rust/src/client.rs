@@ -1,17 +1,16 @@
 use crate::CommandMetadata;
 use crate::codec::JsonLineConnection;
+use crate::codec::UnixStream;
 use crate::generated::{Event, IdentifyResult, decode_event};
+pub(crate) use crate::socket_paths::{
+    current_uid_component, fallback_root, runtime_base, unix_socket_path_fits,
+};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
 use std::collections::VecDeque;
 use std::fmt;
-#[cfg(unix)]
-use std::mem::{offset_of, size_of};
 use std::net::Shutdown;
-#[cfg(unix)]
-use std::os::unix::ffi::OsStrExt;
-use crate::codec::UnixStream;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -768,34 +767,6 @@ pub fn default_socket_path(session: &str) -> PathBuf {
     }
 }
 
-#[cfg(windows)]
-fn runtime_base() -> PathBuf {
-    // The daemon's base on Windows (cmux-tui-core `platform::runtime_base_dir`).
-    std::env::temp_dir()
-}
-
-#[cfg(unix)]
-fn runtime_base() -> PathBuf {
-    std::env::var_os("XDG_RUNTIME_DIR")
-        .filter(|value| !value.is_empty())
-        .or_else(|| std::env::var_os("TMPDIR").filter(|value| !value.is_empty()))
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("/tmp"))
-}
-
-/// Where short socket paths go when the runtime directory's are too long:
-/// `/tmp` on Unix, the temp directory on Windows.
-fn fallback_root() -> PathBuf {
-    #[cfg(unix)]
-    {
-        PathBuf::from("/tmp")
-    }
-    #[cfg(windows)]
-    {
-        std::env::temp_dir()
-    }
-}
-
 fn default_socket_path_for_session(session: &str) -> Result<PathBuf> {
     let base = runtime_base();
     default_socket_path_in_runtime_dir(session, base.join(private_runtime_dir_name()))
@@ -856,33 +827,6 @@ pub(crate) fn private_runtime_dir_name() -> String {
     format!("cmux-tui-{}", current_uid_component())
 }
 
-#[cfg(unix)]
-pub(crate) fn unix_socket_path_fits(path: &Path) -> bool {
-    const SUN_PATH_CAPACITY: usize =
-        size_of::<libc::sockaddr_un>() - offset_of!(libc::sockaddr_un, sun_path);
-    path.as_os_str().as_bytes().len() < SUN_PATH_CAPACITY
-}
-
-/// Windows AF_UNIX: `sockaddr_un.sun_path` is 108 bytes of UTF-8 with its
-/// NUL.
-#[cfg(windows)]
-pub(crate) fn unix_socket_path_fits(path: &Path) -> bool {
-    path.to_str().is_some_and(|p| p.len() < 108)
-}
-
-#[cfg(unix)]
-pub(crate) fn current_uid_component() -> String {
-    // SAFETY: getuid has no preconditions and does not dereference pointers.
-    unsafe { libc::getuid() }.to_string()
-}
-
-/// Windows: the user name, as the daemon names its socket directory
-/// (cmux-tui-core `platform::user_id_component`).
-#[cfg(windows)]
-pub(crate) fn current_uid_component() -> String {
-    std::env::var("USERNAME").unwrap_or_else(|_| "user".to_string())
-}
-
 fn invalid_session_socket_leaf(session: &str) -> String {
     crate::socket_hash::invalid_session_leaf(session)
 }
@@ -892,6 +836,8 @@ mod tests {
     #![cfg_attr(not(feature = "socket-path-hash"), allow(dead_code, unused_imports))]
     use super::*;
     use std::io::{BufRead, BufReader, Write};
+    use std::mem::{offset_of, size_of};
+    use std::os::unix::ffi::OsStrExt;
     use std::os::unix::net::UnixListener;
     use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
     use std::thread;

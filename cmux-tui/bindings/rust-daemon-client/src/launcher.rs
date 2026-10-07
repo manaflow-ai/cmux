@@ -271,7 +271,9 @@ fn kill(pid: u32) {
     #[cfg(windows)]
     {
         use windows_sys::Win32::Foundation::CloseHandle;
-        use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_TERMINATE, TerminateProcess};
+        use windows_sys::Win32::System::Threading::{
+            OpenProcess, PROCESS_TERMINATE, TerminateProcess,
+        };
         // SAFETY: plain calls; the handle is checked and closed.
         unsafe {
             let process = OpenProcess(PROCESS_TERMINATE, 0, pid);

@@ -48,6 +48,7 @@ pub mod raw;
 mod raw_support;
 mod resource;
 mod socket_hash;
+mod socket_paths;
 #[cfg(all(test, unix))]
 mod test_roots;
 mod topology;

@@ -1,5 +1,4 @@
-// Unix sockets and a live Unix daemon; the Windows suite is separate.
-#![cfg(unix)]
+#![cfg(unix)] // Unix sockets; the Windows suite is separate.
 use cmux::{
     BrowserAttachOptions, BrowserCreateOptions, BrowserId, BrowserMouseButton, BrowserMouseKind,
     BrowserMouseOptions, CancellationToken, CellPixelsOptions, ClientMetadataOptions,
@@ -21,7 +20,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
-
 const MACHINE: &str = "machine_00000000000000000000000000000001";
 const SESSION: &str = "session_00000000000000000000000000000002";
 const WORKSPACE_A: &str = "ws_00000000000000000000000000000003";

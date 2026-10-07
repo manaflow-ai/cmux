@@ -614,12 +614,13 @@ fn connect_unix_with_poll_checks(
         ));
     }
     let mut failed_check = None;
-    let result = cmux_local_socket::connect_with_deadline(socket_path, timeout, poll_interval, || {
-        check().map_err(|error| {
-            failed_check = Some(error);
-            std::io::Error::other("connect check failed")
-        })
-    });
+    let result =
+        cmux_local_socket::connect_with_deadline(socket_path, timeout, poll_interval, || {
+            check().map_err(|error| {
+                failed_check = Some(error);
+                std::io::Error::other("connect check failed")
+            })
+        });
     match result {
         Ok(stream) => Ok(stream),
         Err(_) if failed_check.is_some() => Err(failed_check.take().expect("checked")),

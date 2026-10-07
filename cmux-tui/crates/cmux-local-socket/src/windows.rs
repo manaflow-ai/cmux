@@ -15,10 +15,10 @@ use windows_sys::Win32::Security::Authorization::{
 };
 use windows_sys::Win32::Security::{
     ACCESS_ALLOWED_ACE, ACE_HEADER, ACL, DACL_SECURITY_INFORMATION, GetAce,
-    GetSecurityDescriptorControl, GetSidSubAuthority, GetSidSubAuthorityCount,
-    GetTokenInformation, OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID,
-    SE_DACL_PROTECTED, SECURITY_ATTRIBUTES, TOKEN_MANDATORY_LABEL, TOKEN_QUERY, TOKEN_USER,
-    TokenIntegrityLevel, TokenIsAppContainer, TokenUser,
+    GetSecurityDescriptorControl, GetSidSubAuthority, GetSidSubAuthorityCount, GetTokenInformation,
+    OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID, SE_DACL_PROTECTED, SECURITY_ATTRIBUTES,
+    TOKEN_MANDATORY_LABEL, TOKEN_QUERY, TOKEN_USER, TokenIntegrityLevel, TokenIsAppContainer,
+    TokenUser,
 };
 use windows_sys::Win32::Storage::FileSystem::CreateDirectoryW;
 use windows_sys::Win32::System::Threading::{
@@ -40,7 +40,10 @@ fn denied(message: String) -> io::Error {
 }
 
 fn win32(code: u32, what: &str) -> io::Error {
-    io::Error::new(io::Error::from_raw_os_error(code as i32).kind(), format!("{what}: {}", io::Error::from_raw_os_error(code as i32)))
+    io::Error::new(
+        io::Error::from_raw_os_error(code as i32).kind(),
+        format!("{what}: {}", io::Error::from_raw_os_error(code as i32)),
+    )
 }
 
 fn wide(path: &Path) -> Vec<u16> {
@@ -92,7 +95,9 @@ fn token_info(token: HANDLE, class: i32) -> io::Result<Vec<u8>> {
     unsafe { GetTokenInformation(token, class, null_mut(), 0, &mut size) };
     let mut buffer = vec![0u8; size.max(4) as usize];
     // SAFETY: the buffer has `size` bytes.
-    if unsafe { GetTokenInformation(token, class, buffer.as_mut_ptr().cast(), size, &mut size) } == 0 {
+    if unsafe { GetTokenInformation(token, class, buffer.as_mut_ptr().cast(), size, &mut size) }
+        == 0
+    {
         return Err(io::Error::last_os_error());
     }
     Ok(buffer)
@@ -110,7 +115,8 @@ fn token_identity(token: HANDLE) -> io::Result<PeerIdentity> {
         if count == 0 { 0 } else { *GetSidSubAuthority(sid, u32::from(count) - 1) }
     };
     let container = token_info(token, TokenIsAppContainer)?;
-    let app_container = u32::from_ne_bytes([container[0], container[1], container[2], container[3]]) != 0;
+    let app_container =
+        u32::from_ne_bytes([container[0], container[1], container[2], container[3]]) != 0;
     Ok(PeerIdentity { user_sid, integrity_rid, app_container })
 }
 
@@ -149,7 +155,16 @@ pub fn owner_of(path: &Path) -> io::Result<String> {
     let mut descriptor: PSECURITY_DESCRIPTOR = null_mut();
     // SAFETY: out-pointers valid; `descriptor` is freed by `Local`.
     let status = unsafe {
-        GetNamedSecurityInfoW(name.as_ptr(), SE_FILE_OBJECT, OWNER_SECURITY_INFORMATION, &mut owner, null_mut(), null_mut(), null_mut(), &mut descriptor)
+        GetNamedSecurityInfoW(
+            name.as_ptr(),
+            SE_FILE_OBJECT,
+            OWNER_SECURITY_INFORMATION,
+            &mut owner,
+            null_mut(),
+            null_mut(),
+            null_mut(),
+            &mut descriptor,
+        )
     };
     let _free = Local(descriptor);
     if status != ERROR_SUCCESS {
@@ -210,7 +225,9 @@ pub fn directory_is_owner_only(path: &Path, our_user_sid: &str) -> io::Result<bo
             return Ok(false);
         }
         // SAFETY: an ACCESS_ALLOWED_ACE; its SID starts at SidStart.
-        let sid = unsafe { (&raw mut (*(ace as *mut ACCESS_ALLOWED_ACE)).SidStart).cast::<core::ffi::c_void>() };
+        let sid = unsafe {
+            (&raw mut (*(ace as *mut ACCESS_ALLOWED_ACE)).SidStart).cast::<core::ffi::c_void>()
+        };
         if owner_allowed(&sid_string(sid)?, our_user_sid).is_err() {
             return Ok(false);
         }
@@ -234,7 +251,15 @@ fn ensure_private_directory(dir: &Path, user_sid: &str) -> io::Result<()> {
     let sddl = owner_only_sddl(user_sid);
     let mut descriptor: PSECURITY_DESCRIPTOR = null_mut();
     // SAFETY: a NUL-terminated SDDL string; `descriptor` is freed by `Local`.
-    if unsafe { ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl.as_ptr(), SDDL_REVISION_1, &mut descriptor, null_mut()) } == 0 {
+    if unsafe {
+        ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            sddl.as_ptr(),
+            SDDL_REVISION_1,
+            &mut descriptor,
+            null_mut(),
+        )
+    } == 0
+    {
         return Err(io::Error::last_os_error());
     }
     let _free = Local(descriptor);
@@ -267,20 +292,43 @@ fn set_owner(path: &Path, user_sid: &str) -> io::Result<()> {
     let sddl: Vec<u16> = format!("O:{user_sid}").encode_utf16().chain([0]).collect();
     let mut descriptor: PSECURITY_DESCRIPTOR = null_mut();
     // SAFETY: as in `ensure_private_directory`.
-    if unsafe { ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl.as_ptr(), SDDL_REVISION_1, &mut descriptor, null_mut()) } == 0 {
+    if unsafe {
+        ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            sddl.as_ptr(),
+            SDDL_REVISION_1,
+            &mut descriptor,
+            null_mut(),
+        )
+    } == 0
+    {
         return Err(io::Error::last_os_error());
     }
     let _free = Local(descriptor);
     let mut owner: PSID = null_mut();
     let mut defaulted = 0;
     // SAFETY: a valid descriptor.
-    if unsafe { windows_sys::Win32::Security::GetSecurityDescriptorOwner(descriptor, &mut owner, &mut defaulted) } == 0 {
+    if unsafe {
+        windows_sys::Win32::Security::GetSecurityDescriptorOwner(
+            descriptor,
+            &mut owner,
+            &mut defaulted,
+        )
+    } == 0
+    {
         return Err(io::Error::last_os_error());
     }
     let mut name = wide(path);
     // SAFETY: valid name and SID.
     let status = unsafe {
-        SetNamedSecurityInfoW(name.as_mut_ptr(), SE_FILE_OBJECT, OWNER_SECURITY_INFORMATION, owner, null_mut(), null_mut(), null_mut())
+        SetNamedSecurityInfoW(
+            name.as_mut_ptr(),
+            SE_FILE_OBJECT,
+            OWNER_SECURITY_INFORMATION,
+            owner,
+            null_mut(),
+            null_mut(),
+            null_mut(),
+        )
     };
     if status != ERROR_SUCCESS {
         return Err(win32(status, "set the socket's owner"));
@@ -298,7 +346,10 @@ pub struct Listener {
 /// is refused) and makes our token user the socket file's owner.
 pub fn listen(path: &Path) -> io::Result<Listener> {
     let dir = path.parent().filter(|d| !d.as_os_str().is_empty()).ok_or_else(|| {
-        io::Error::new(io::ErrorKind::InvalidInput, format!("socket path {} has no directory", path.display()))
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("socket path {} has no directory", path.display()),
+        )
     })?;
     private_directory(dir)?;
     listen_explicit(path)
@@ -362,7 +413,8 @@ pub fn connect(path: &Path) -> io::Result<Stream> {
 pub fn connect_same_user(path: &Path) -> io::Result<Stream> {
     let me = current_identity()?;
     let owner = owner_of(path)?;
-    owner_allowed(&owner, &me.user_sid).map_err(|refusal| denied(format!("{refusal}: {}", path.display())))?;
+    owner_allowed(&owner, &me.user_sid)
+        .map_err(|refusal| denied(format!("{refusal}: {}", path.display())))?;
     connect(path)
 }
 
@@ -377,7 +429,10 @@ pub fn connect_with_deadline(
     mut check: impl FnMut() -> io::Result<()>,
 ) -> io::Result<Stream> {
     if poll_interval.is_zero() {
-        return Err(io::Error::new(io::ErrorKind::InvalidInput, "connect poll interval must be greater than zero"));
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "connect poll interval must be greater than zero",
+        ));
     }
     let deadline = Instant::now() + timeout;
     loop {
@@ -387,7 +442,10 @@ pub fn connect_with_deadline(
             Err(e) => {
                 let now = Instant::now();
                 if now >= deadline {
-                    return Err(io::Error::new(io::ErrorKind::TimedOut, format!("connect {}: {e}", path.display())));
+                    return Err(io::Error::new(
+                        io::ErrorKind::TimedOut,
+                        format!("connect {}: {e}", path.display()),
+                    ));
                 }
                 check()?;
                 std::thread::sleep(deadline.saturating_duration_since(now).min(poll_interval));
@@ -403,7 +461,17 @@ pub fn peer_pid(stream: &Stream) -> io::Result<u32> {
     let mut returned = 0u32;
     // SAFETY: a connected socket; the output buffer is 4 bytes.
     let status = unsafe {
-        WSAIoctl(socket, SIO_AF_UNIX_GETPEERPID, null_mut(), 0, (&raw mut pid).cast(), 4, &mut returned, null_mut(), None)
+        WSAIoctl(
+            socket,
+            SIO_AF_UNIX_GETPEERPID,
+            null_mut(),
+            0,
+            (&raw mut pid).cast(),
+            4,
+            &mut returned,
+            null_mut(),
+            None,
+        )
     };
     if status == SOCKET_ERROR {
         // SAFETY: plain call.
@@ -417,6 +485,9 @@ mod tests {
     #[test]
     fn owner_only_sddl_is_protected_and_inherited_by_children() {
         let s = String::from_utf16_lossy(&super::owner_only_sddl("S-1-5-21-1-2-3-1002"));
-        assert_eq!(s.trim_end_matches('\0'), "O:S-1-5-21-1-2-3-1002D:P(A;OICI;FA;;;S-1-5-21-1-2-3-1002)");
+        assert_eq!(
+            s.trim_end_matches('\0'),
+            "O:S-1-5-21-1-2-3-1002D:P(A;OICI;FA;;;S-1-5-21-1-2-3-1002)"
+        );
     }
 }

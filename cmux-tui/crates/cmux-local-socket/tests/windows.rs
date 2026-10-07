@@ -140,13 +140,17 @@ fn low_integrity_child() {
 
 // --- helpers ------------------------------------------------------------
 
-use windows_sys::Win32::Foundation::{CloseHandle, GetHandleInformation, HANDLE, HANDLE_FLAG_INHERIT, LocalFree};
+use windows_sys::Win32::Foundation::{
+    CloseHandle, GetHandleInformation, HANDLE, HANDLE_FLAG_INHERIT, LocalFree,
+};
 use windows_sys::Win32::Security::Authorization::{
-    ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1, SE_FILE_OBJECT, SetNamedSecurityInfoW,
+    ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1, SE_FILE_OBJECT,
+    SetNamedSecurityInfoW,
 };
 use windows_sys::Win32::Security::{
-    ACL, DACL_SECURITY_INFORMATION, GetSecurityDescriptorDacl, GetSecurityDescriptorSacl, LABEL_SECURITY_INFORMATION,
-    OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID, CreateWellKnownSid, WinBuiltinAdministratorsSid,
+    ACL, CreateWellKnownSid, DACL_SECURITY_INFORMATION, GetSecurityDescriptorDacl,
+    GetSecurityDescriptorSacl, LABEL_SECURITY_INFORMATION, OWNER_SECURITY_INFORMATION,
+    PSECURITY_DESCRIPTOR, PSID, WinBuiltinAdministratorsSid,
 };
 
 fn wide(p: &std::path::Path) -> Vec<u16> {
@@ -163,7 +167,14 @@ fn inheritable(raw: u64) -> bool {
 fn sd(sddl: &str) -> PSECURITY_DESCRIPTOR {
     let w: Vec<u16> = sddl.encode_utf16().chain([0]).collect();
     let mut sd: PSECURITY_DESCRIPTOR = std::ptr::null_mut();
-    let ok = unsafe { ConvertStringSecurityDescriptorToSecurityDescriptorW(w.as_ptr(), SDDL_REVISION_1, &mut sd, std::ptr::null_mut()) };
+    let ok = unsafe {
+        ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            w.as_ptr(),
+            SDDL_REVISION_1,
+            &mut sd,
+            std::ptr::null_mut(),
+        )
+    };
     assert_ne!(ok, 0, "SDDL {sddl}");
     sd
 }
@@ -173,7 +184,17 @@ fn grant_everyone(dir: &std::path::Path) {
     let (mut present, mut acl, mut defaulted) = (0, std::ptr::null_mut::<ACL>(), 0);
     unsafe { GetSecurityDescriptorDacl(d, &mut present, &mut acl, &mut defaulted) };
     let mut p = wide(dir);
-    let r = unsafe { SetNamedSecurityInfoW(p.as_mut_ptr(), SE_FILE_OBJECT, DACL_SECURITY_INFORMATION, std::ptr::null_mut(), std::ptr::null_mut(), acl, std::ptr::null_mut()) };
+    let r = unsafe {
+        SetNamedSecurityInfoW(
+            p.as_mut_ptr(),
+            SE_FILE_OBJECT,
+            DACL_SECURITY_INFORMATION,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            acl,
+            std::ptr::null_mut(),
+        )
+    };
     assert_eq!(r, 0, "grant Everyone");
     unsafe { LocalFree(d as _) };
 }
@@ -181,9 +202,26 @@ fn grant_everyone(dir: &std::path::Path) {
 fn set_owner_administrators(path: &std::path::Path) -> bool {
     let mut sid = [0u8; 68];
     let mut size = sid.len() as u32;
-    unsafe { CreateWellKnownSid(WinBuiltinAdministratorsSid, std::ptr::null_mut(), sid.as_mut_ptr() as PSID, &mut size) };
+    unsafe {
+        CreateWellKnownSid(
+            WinBuiltinAdministratorsSid,
+            std::ptr::null_mut(),
+            sid.as_mut_ptr() as PSID,
+            &mut size,
+        )
+    };
     let mut p = wide(path);
-    let r = unsafe { SetNamedSecurityInfoW(p.as_mut_ptr(), SE_FILE_OBJECT, OWNER_SECURITY_INFORMATION, sid.as_mut_ptr() as PSID, std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut()) };
+    let r = unsafe {
+        SetNamedSecurityInfoW(
+            p.as_mut_ptr(),
+            SE_FILE_OBJECT,
+            OWNER_SECURITY_INFORMATION,
+            sid.as_mut_ptr() as PSID,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        )
+    };
     r == 0
 }
 
@@ -192,39 +230,89 @@ fn label_low(path: &std::path::Path) {
     let (mut present, mut acl, mut defaulted) = (0, std::ptr::null_mut::<ACL>(), 0);
     unsafe { GetSecurityDescriptorSacl(d, &mut present, &mut acl, &mut defaulted) };
     let mut p = wide(path);
-    let r = unsafe { SetNamedSecurityInfoW(p.as_mut_ptr(), SE_FILE_OBJECT, LABEL_SECURITY_INFORMATION, std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut(), acl) };
+    let r = unsafe {
+        SetNamedSecurityInfoW(
+            p.as_mut_ptr(),
+            SE_FILE_OBJECT,
+            LABEL_SECURITY_INFORMATION,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            acl,
+        )
+    };
     assert_eq!(r, 0, "label Low");
     unsafe { LocalFree(d as _) };
 }
 
 fn spawn_low_integrity_child(path: &std::path::Path) -> HANDLE {
-    use windows_sys::Win32::Security::{
-        DuplicateTokenEx, SecurityImpersonation, SetTokenInformation, TOKEN_ALL_ACCESS, TOKEN_MANDATORY_LABEL,
-        TokenIntegrityLevel, TokenPrimary, SID_AND_ATTRIBUTES,
-    };
     use windows_sys::Win32::Security::Authorization::ConvertStringSidToSidW;
+    use windows_sys::Win32::Security::{
+        DuplicateTokenEx, SID_AND_ATTRIBUTES, SecurityImpersonation, SetTokenInformation,
+        TOKEN_ALL_ACCESS, TOKEN_MANDATORY_LABEL, TokenIntegrityLevel, TokenPrimary,
+    };
     use windows_sys::Win32::System::SystemServices::SE_GROUP_INTEGRITY;
     use windows_sys::Win32::System::Threading::{
-        CreateProcessAsUserW, GetCurrentProcess, OpenProcessToken, PROCESS_INFORMATION, STARTUPINFOW,
+        CreateProcessAsUserW, GetCurrentProcess, OpenProcessToken, PROCESS_INFORMATION,
+        STARTUPINFOW,
     };
     unsafe {
         let mut token: HANDLE = std::ptr::null_mut();
         assert_ne!(OpenProcessToken(GetCurrentProcess(), TOKEN_ALL_ACCESS, &mut token), 0);
         let mut low: HANDLE = std::ptr::null_mut();
-        assert_ne!(DuplicateTokenEx(token, TOKEN_ALL_ACCESS, std::ptr::null(), SecurityImpersonation, TokenPrimary, &mut low), 0);
+        assert_ne!(
+            DuplicateTokenEx(
+                token,
+                TOKEN_ALL_ACCESS,
+                std::ptr::null(),
+                SecurityImpersonation,
+                TokenPrimary,
+                &mut low
+            ),
+            0
+        );
         let sid_text: Vec<u16> = "S-1-16-4096".encode_utf16().chain([0]).collect();
         let mut sid: PSID = std::ptr::null_mut();
         assert_ne!(ConvertStringSidToSidW(sid_text.as_ptr(), &mut sid), 0);
-        let label = TOKEN_MANDATORY_LABEL { Label: SID_AND_ATTRIBUTES { Sid: sid, Attributes: SE_GROUP_INTEGRITY as u32 } };
-        assert_ne!(SetTokenInformation(low, TokenIntegrityLevel, (&raw const label).cast(), size_of::<TOKEN_MANDATORY_LABEL>() as u32), 0, "set Low");
+        let label = TOKEN_MANDATORY_LABEL {
+            Label: SID_AND_ATTRIBUTES { Sid: sid, Attributes: SE_GROUP_INTEGRITY as u32 },
+        };
+        assert_ne!(
+            SetTokenInformation(
+                low,
+                TokenIntegrityLevel,
+                (&raw const label).cast(),
+                size_of::<TOKEN_MANDATORY_LABEL>() as u32
+            ),
+            0,
+            "set Low"
+        );
         let exe = std::env::current_exe().unwrap();
-        let mut cmd: Vec<u16> = format!("\"{}\" --exact low_integrity_child --nocapture --test-threads 1", exe.display()).encode_utf16().chain([0]).collect();
+        let mut cmd: Vec<u16> = format!(
+            "\"{}\" --exact low_integrity_child --nocapture --test-threads 1",
+            exe.display()
+        )
+        .encode_utf16()
+        .chain([0])
+        .collect();
         // The child reads the socket path from its environment.
         std::env::set_var("CLS_LOW_CHILD_SOCKET", path);
         let mut si: STARTUPINFOW = std::mem::zeroed();
         si.cb = size_of::<STARTUPINFOW>() as u32;
         let mut pi: PROCESS_INFORMATION = std::mem::zeroed();
-        let ok = CreateProcessAsUserW(low, std::ptr::null(), cmd.as_mut_ptr(), std::ptr::null(), std::ptr::null(), 0, 0, std::ptr::null(), std::ptr::null(), &si, &mut pi);
+        let ok = CreateProcessAsUserW(
+            low,
+            std::ptr::null(),
+            cmd.as_mut_ptr(),
+            std::ptr::null(),
+            std::ptr::null(),
+            0,
+            0,
+            std::ptr::null(),
+            std::ptr::null(),
+            &si,
+            &mut pi,
+        );
         std::env::remove_var("CLS_LOW_CHILD_SOCKET");
         assert_ne!(ok, 0, "CreateProcessAsUserW: {}", std::io::Error::last_os_error());
         CloseHandle(pi.hThread);

@@ -32,8 +32,12 @@ pub enum Refusal {
 impl std::fmt::Display for Refusal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::OtherUser(sid) => write!(f, "refused: owned by or running as another user ({sid})"),
-            Self::LowIntegrity(rid) => write!(f, "refused: a sandboxed peer (integrity {rid:#x}, below Medium)"),
+            Self::OtherUser(sid) => {
+                write!(f, "refused: owned by or running as another user ({sid})")
+            }
+            Self::LowIntegrity(rid) => {
+                write!(f, "refused: a sandboxed peer (integrity {rid:#x}, below Medium)")
+            }
             Self::AppContainer => write!(f, "refused: a peer in an AppContainer"),
         }
     }
@@ -84,10 +88,16 @@ mod tests {
     #[test]
     fn another_user_is_refused() {
         let other = "S-1-5-21-1-2-3-1003";
-        assert_eq!(peer_allowed(&peer(other, 0x2000, false), ME), Err(Refusal::OtherUser(other.into())));
+        assert_eq!(
+            peer_allowed(&peer(other, 0x2000, false), ME),
+            Err(Refusal::OtherUser(other.into()))
+        );
         // SYSTEM and the Administrators group are other principals too.
         for sid in ["S-1-5-18", "S-1-5-32-544", "S-1-5-19"] {
-            assert_eq!(peer_allowed(&peer(sid, 0x4000, false), ME), Err(Refusal::OtherUser(sid.into())));
+            assert_eq!(
+                peer_allowed(&peer(sid, 0x4000, false), ME),
+                Err(Refusal::OtherUser(sid.into()))
+            );
         }
     }
 
@@ -107,7 +117,10 @@ mod tests {
     #[test]
     fn owner_must_be_our_user_not_a_group() {
         assert_eq!(owner_allowed(ME, ME), Ok(()));
-        assert_eq!(owner_allowed("S-1-5-32-544", ME), Err(Refusal::OtherUser("S-1-5-32-544".into())));
+        assert_eq!(
+            owner_allowed("S-1-5-32-544", ME),
+            Err(Refusal::OtherUser("S-1-5-32-544".into()))
+        );
         assert!(owner_allowed("S-1-5-21-1-2-3-1003", ME).is_err());
     }
 }
