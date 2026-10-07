@@ -14,7 +14,7 @@ extension PaneContentView {
     /// content before the first one), and the page it replaces leaves.
     func keepsBackdrop(_ hosted: NSView) -> Bool {
         defer { placeFrost() }
-        guard WindowBackdrop(themeTokens).panesPaintBackground, !hasBackdrop else { return false }
+        guard WindowBackdrop.current(themeTokens).panesPaintBackground, !hasBackdrop else { return false }
         underlay = hosted
         // It no longer moves this pane's strip (the page's header is the pane's).
         (hosted as? PaneContentChrome)?.onPaneHeaderHeightChange = nil

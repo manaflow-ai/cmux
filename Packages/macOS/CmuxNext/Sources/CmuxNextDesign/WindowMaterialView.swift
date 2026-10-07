@@ -127,7 +127,8 @@ public final class WindowMaterialView: NSView {
                 addSubview(materialView, positioned: .below, relativeTo: tintView)
             }
         }
-        let alpha = backdrop.tintOpacity * (1 - backdrop.tuning.glassTransparency)
+        // Over art the tuner thins the glass only down to the legible tint.
+        let alpha = max(backdrop.tintOpacity * (1 - backdrop.tuning.glassTransparency), backdrop.legibleTintOpacity)
         let color = tunedTint(tint, tuning: backdrop.tuning).withAlphaComponent(alpha)
         let glass = materialView as? NSGlassEffectView
         glass?.tintColor = color

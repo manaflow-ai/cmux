@@ -37,7 +37,7 @@ public struct Palette {
     /// host's own layer paints nothing: the pane paints under it.
     public static var paneFill: NSColor {
         let tokens = ThemeContext.active ?? ThemeScope.app.tokens
-        return WindowBackdrop(tokens).panesPaintBackground ? tokens.surfaceBackground.withAlpha(1).nsColor : .clear
+        return WindowBackdrop.current(tokens).panesPaintBackground ? tokens.surfaceBackground.withAlpha(1).nsColor : .clear
     }
     /// Fields and toolbars that need a faint lift (omnibar, find bar).
     public static var chromeBackground: NSColor { color(\.chromeBackground, dynamic: PaletteDynamic.chromeBackground) }
