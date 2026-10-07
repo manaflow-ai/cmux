@@ -21,6 +21,8 @@ import { CompareView } from "./CompareView";
 import { Controls, SAMPLE_THEMES, Stage, useRoom } from "./Stage";
 import { EXPERIMENTAL_AREA, sidebarGroups } from "./groups";
 import { experimentalLabel } from "./strings";
+import { UiProvider, languageDirection } from "../../ui/UiProvider";
+import { Toolbar, ToolbarToggleGroup } from "../../ui/Toolbar";
 
 const VIEW_LABELS: Record<View, string> = {
   variant: "Variant",
@@ -293,26 +295,29 @@ function Layout() {
   const status = useSyncExternalStore(liveStatus.subscribe, liveStatus.get);
   const address = useAddress(states);
   const { state, search } = address;
+  const [container, setContainer] = useState<HTMLDivElement | null>(null);
   return (
-    <div className="gallery" style={shellColors(search)}>
-      <Sidebar address={address} states={states} status={status} />
-      <main className="gallery-main">
-        <ErrorBanner states={states} status={status} />
-        {state ? (
-          <EntryBoundary
-            key={state.path}
-            state={state}
-            loading={<p className="gallery-empty">Loading {state.path}</p>}
-            render={(entry) => <EntryView entry={entry} address={address} />}
-          />
-        ) : states.length === 0 ? (
-          <p className="gallery-empty">No gallery entries. Add a *.gallery.ts file.</p>
-        ) : states.every((each) => each.status === "error") ? (
-          <p className="gallery-empty">No entry loads. Each file's error is in the list.</p>
-        ) : (
-          <p className="gallery-empty">Loading</p>
-        )}
-      </main>
+    <div ref={setContainer} className="gallery" style={shellColors(search)}>
+      <UiProvider container={container} dir={languageDirection(search.locale)}>
+        <Sidebar address={address} states={states} status={status} />
+        <main className="gallery-main">
+          <ErrorBanner states={states} status={status} />
+          {state ? (
+            <EntryBoundary
+              key={state.path}
+              state={state}
+              loading={<p className="gallery-empty">Loading {state.path}</p>}
+              render={(entry) => <EntryView entry={entry} address={address} />}
+            />
+          ) : states.length === 0 ? (
+            <p className="gallery-empty">No gallery entries. Add a *.gallery.ts file.</p>
+          ) : states.every((each) => each.status === "error") ? (
+            <p className="gallery-empty">No entry loads. Each file's error is in the list.</p>
+          ) : (
+            <p className="gallery-empty">Loading</p>
+          )}
+        </main>
+      </UiProvider>
     </div>
   );
 }
@@ -354,25 +359,23 @@ function EntryView({ entry, address }: { entry: GalleryEntry; address: Address }
           {entry.title} <small>{entry.id}</small> <small>· {variant}</small>
           {entry.experimental && <span className="gallery-experimental">{experimentalLabel(env.locale)}</span>}
         </h1>
-        <fieldset className="gallery-segmented">
-          <legend>View</legend>
-          {VIEWS.filter((view) => view !== "compare" || entry.experiment).map((view) => (
-            <label key={view}>
-              <input
-                type="radio"
-                name="view"
-                aria-label={VIEW_LABELS[view]}
-                checked={search.view === view}
-                onChange={() => go({ ...address, search: { ...search, view } })}
-              />
-              {VIEW_LABELS[view]}
-            </label>
-          ))}
-        </fieldset>
-        <Controls
-          env={env}
-          onChange={(next) => go({ ...address, search: { ...next, view: search.view, compare: search.compare } }, true)}
-        />
+        <Toolbar label="Gallery controls" className="gallery-toolbar">
+          <ToolbarToggleGroup
+            label="View"
+            value={search.view}
+            options={VIEWS.filter((view) => view !== "compare" || entry.experiment).map((view) => ({
+              value: view,
+              label: VIEW_LABELS[view],
+            }))}
+            onValueChange={(value) => {
+              if ((VIEWS as readonly string[]).includes(value)) go({ ...address, search: { ...search, view: value as View } });
+            }}
+          />
+          <Controls
+            env={env}
+            onChange={(next) => go({ ...address, search: { ...next, view: search.view, compare: search.compare } }, true)}
+          />
+        </Toolbar>
         <details className="gallery-covers">
           <summary>
             {entry.host} · covers {entry.covers.length}

@@ -99,9 +99,9 @@ body {
 .gallery-variants a {
   display: inline-flex;
   align-items: center;
-  min-height: 28px;
-  padding: 0 10px;
-  border-radius: 14px;
+  min-height: 26px;
+  padding: 0 8px;
+  border-radius: 4px;
   border: 1px solid var(--g-line);
   color: var(--g-text);
   text-decoration: none;
@@ -156,14 +156,19 @@ body {
   font-weight: 500;
   vertical-align: middle;
 }
+.gallery-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
 .gallery-controls {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px 14px;
-  align-items: end;
-  margin-top: 8px;
+  align-items: center;
+  gap: 6px;
 }
-.gallery-controls label {
+.gallery-controls label,
+.gallery-more-grid label {
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -176,34 +181,82 @@ body {
   gap: 4px;
   color: var(--g-text);
 }
-.gallery-controls select,
-.gallery-controls input:not([type="checkbox"]):not([type="radio"]) {
+.gallery-controls input:not([type="checkbox"]):not([type="radio"]),
+.gallery-more-grid input:not([type="checkbox"]):not([type="radio"]) {
   font: inherit;
   color: var(--g-text);
   max-width: 220px;
 }
-.gallery-controls input[type="number"] {
+.gallery-controls input[type="number"],
+.gallery-more-grid input[type="number"] {
   width: 70px;
 }
-.gallery-segmented {
-  display: inline-flex;
-  gap: 8px;
+.gallery-control-select .ui-select-button {
+  min-width: 112px;
+  height: 26px;
+  padding: 0 7px;
   border: 1px solid var(--g-line);
-  border-radius: 6px;
-  padding: 2px 8px 4px;
-  margin: 0;
+  border-radius: 5px;
+  background: var(--g-panel);
+  color: var(--g-text);
+  font-size: 12px;
 }
-.gallery-segmented legend {
-  font-size: 11px;
-  color: var(--g-muted);
-  padding: 0 4px;
+.gallery-control-select .ui-select-value {
+  max-width: 190px;
 }
-.gallery-segmented label {
-  display: inline-flex;
+.gallery-more-button {
+  height: 26px;
+  padding: 0 9px;
+  border: 1px solid var(--g-line);
+  border-radius: 5px;
+  background: var(--g-panel);
+  color: var(--g-text);
+  font: inherit;
+  font-size: 12px;
+}
+.gallery-more-button:hover,
+.gallery-more-button[aria-expanded="true"] {
+  background: var(--g-hover);
+}
+.gallery-more-popover {
+  width: min(620px, calc(100vw - 32px));
+  max-height: min(620px, calc(100vh - 96px));
+  overflow: auto;
+}
+.gallery-more-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(120px, 1fr));
+  gap: 10px;
+  align-items: end;
+}
+.gallery-more-grid .ui-select-button {
+  min-width: 0;
+  width: 100%;
+  height: 26px;
+  padding: 0 7px;
+  border: 1px solid var(--g-line);
+  border-radius: 5px;
+  background: var(--g-panel);
+  color: var(--g-text);
+  font-size: 12px;
+}
+.gallery-more-grid .ui-select-value {
+  max-width: 170px;
+}
+.gallery-more-grid .gallery-check {
   flex-direction: row;
   align-items: center;
-  gap: 3px;
+  gap: 4px;
   color: var(--g-text);
+}
+.gallery-more-reset {
+  min-height: 26px;
+  border: 1px solid var(--g-line);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--g-text);
+  font: inherit;
+  font-size: 12px;
 }
 .gallery-covers {
   margin: 8px 0 0;
