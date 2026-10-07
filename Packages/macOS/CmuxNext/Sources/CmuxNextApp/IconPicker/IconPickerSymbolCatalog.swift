@@ -41,13 +41,32 @@ nonisolated struct IconPickerSymbolCatalog: Equatable, Sendable {
     /// The catalog from the plists in `resources` plus the names in `snapshot` (one per line).
     /// Synchronous file reads: call it off the main actor (``load(resources:snapshot:)``).
     static func read(resources: URL, snapshot: URL?) -> IconPickerSymbolCatalog {
-        // Red stub: the old behavior (sorted names, nothing else).
         var available = Set(lines(snapshot).filter(IconValue.isSymbolName))
         if let symbols = (plist(resources, "name_availability") as? [String: Any])?["symbols"] as? [String: Any] {
             available.formUnion(symbols.keys.filter(IconValue.isSymbolName))
         }
-        let names = available.sorted()
-        return IconPickerSymbolCatalog(names: names, keywords: names.map { _ in "" }, categories: [])
+        var names: [String] = []
+        var placed = Set<String>()
+        for name in plist(resources, "symbol_order") as? [String] ?? [] where available.contains(name) {
+            if placed.insert(name).inserted { names.append(name) }
+        }
+        names += available.subtracting(placed).sorted()
+
+        let search = plist(resources, "symbol_search") as? [String: [String]] ?? [:]
+        let keywords = names.map { lookup($0, in: search)?.joined(separator: " ") ?? "" }
+
+        let memberships = plist(resources, "symbol_categories") as? [String: [String]] ?? [:]
+        var members: [String: [Int]] = [:]
+        for (index, name) in names.enumerated() {
+            for key in lookup(name, in: memberships) ?? [] {
+                members[key, default: []].append(index)
+            }
+        }
+        let categories = (plist(resources, "categories") as? [[String: Any]] ?? []).compactMap { entry -> Category? in
+            guard let key = entry["key"] as? String, let icon = entry["icon"] as? String, IconValue.isSymbolName(icon) else { return nil }
+            return Category(key: key, icon: icon, members: members[key] ?? [])
+        }
+        return IconPickerSymbolCatalog(names: names, keywords: keywords, categories: categories)
     }
 
     /// `name`'s entry in `table`, else the entry of its nearest dotted prefix
@@ -64,7 +83,17 @@ nonisolated struct IconPickerSymbolCatalog: Equatable, Sendable {
     /// The session event's catalog members: `symbols`, `symbolKeywords`, `symbolCategories`
     /// (webviews/src/pages/icon-picker/host.ts PickerSession).
     var eventMembers: [String: JSONValue] {
-        ["symbols": .array(names.map(JSONValue.string))]
+        [
+            "symbols": .array(names.map(JSONValue.string)),
+            "symbolKeywords": .array(keywords.map(JSONValue.string)),
+            "symbolCategories": .array(categories.map { category in
+                .object([
+                    "key": .string(category.key),
+                    "icon": .string(category.icon),
+                    "members": .array(category.members.map { JSONValue($0) }),
+                ])
+            }),
+        ]
     }
 
     private static func plist(_ resources: URL, _ name: String) -> Any? {
