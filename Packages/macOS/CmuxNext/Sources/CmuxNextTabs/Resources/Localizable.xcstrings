@@ -4854,127 +4854,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Save Group"
+            "value": "Pin Group"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "グループを保存"
+            "value": "グループをピン留め"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "حفظ المجموعة"
+            "state": "translated",
+            "value": "تثبيت المجموعة"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Sačuvaj grupu"
+            "state": "translated",
+            "value": "Prikači grupu"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Gem gruppe"
+            "state": "translated",
+            "value": "Fastgør gruppe"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Gruppe sichern"
+            "state": "translated",
+            "value": "Gruppe anheften"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Guardar grupo"
+            "state": "translated",
+            "value": "Fijar grupo"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Enregistrer le groupe"
+            "state": "translated",
+            "value": "Épingler le groupe"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Salva gruppo"
+            "state": "translated",
+            "value": "Fissa gruppo"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "រក្សាទុកក្រុម"
+            "state": "translated",
+            "value": "ខ្ទាស់ក្រុម"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "그룹 저장"
+            "state": "translated",
+            "value": "그룹 고정"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Lagre gruppe"
+            "state": "translated",
+            "value": "Fest gruppe"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Zapisz grupę"
+            "state": "translated",
+            "value": "Przypnij grupę"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Salvar Grupo"
+            "state": "translated",
+            "value": "Fixar Grupo"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Сохранить группу"
+            "state": "translated",
+            "value": "Закрепить группу"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "บันทึกกลุ่ม"
+            "state": "translated",
+            "value": "ปักหมุดกลุ่ม"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Grubu Kaydet"
+            "state": "translated",
+            "value": "Grubu Sabitle"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Зберегти групу"
+            "state": "translated",
+            "value": "Закріпити групу"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Lưu nhóm"
+            "state": "translated",
+            "value": "Ghim nhóm"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "存储组"
+            "state": "translated",
+            "value": "固定组"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "儲存群組"
+            "state": "translated",
+            "value": "固定群組"
           }
         }
       }
@@ -5116,127 +5116,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unsave Group"
+            "value": "Unpin Group"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "グループの保存を解除"
+            "value": "グループのピン留めを解除"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "إلغاء حفظ المجموعة"
+            "state": "translated",
+            "value": "إلغاء تثبيت المجموعة"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Ukloni sačuvanu grupu"
+            "state": "translated",
+            "value": "Otkači grupu"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Glem gemt gruppe"
+            "state": "translated",
+            "value": "Frigør gruppe"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Gruppe nicht mehr sichern"
+            "state": "translated",
+            "value": "Gruppe loslösen"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Dejar de guardar grupo"
+            "state": "translated",
+            "value": "Dejar de fijar grupo"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Ne plus enregistrer le groupe"
+            "state": "translated",
+            "value": "Détacher le groupe"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Non salvare più gruppo"
+            "state": "translated",
+            "value": "Sblocca gruppo"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ឈប់រក្សាទុកក្រុម"
+            "state": "translated",
+            "value": "ឈប់ខ្ទាស់ក្រុម"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "그룹 저장 해제"
+            "state": "translated",
+            "value": "그룹 고정 해제"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Slutt å lagre gruppe"
+            "state": "translated",
+            "value": "Løsne gruppe"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Cofnij zapis grupy"
+            "state": "translated",
+            "value": "Odepnij grupę"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Deixar de Salvar Grupo"
+            "state": "translated",
+            "value": "Desafixar Grupo"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Не сохранять группу"
+            "state": "translated",
+            "value": "Открепить группу"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "เลิกบันทึกกลุ่ม"
+            "state": "translated",
+            "value": "เลิกปักหมุดกลุ่ม"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Grubu Kayıttan Çıkar"
+            "state": "translated",
+            "value": "Grubun Sabitlemesini Kaldır"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Скасувати збереження групи"
+            "state": "translated",
+            "value": "Відкріпити групу"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Bỏ lưu nhóm"
+            "state": "translated",
+            "value": "Bỏ ghim nhóm"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "取消存储组"
+            "state": "translated",
+            "value": "取消固定组"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "取消儲存群組"
+            "state": "translated",
+            "value": "取消固定群組"
           }
         }
       }
