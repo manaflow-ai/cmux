@@ -1563,6 +1563,10 @@ final class BrowserReplTabAttachment {
             focus: false,
             preferredProfileID: panel.profileID,
             creationPolicy: .automationPreload,
+            // The page controls this URL: a disabled browser refuses the
+            // popup, never hands it to the system browser outside the
+            // session's domain policy.
+            allowsExternalBrowserFallback: false,
             websiteDataStore: panel.websiteDataStore
         ) else {
             return nil
@@ -1655,6 +1659,7 @@ final class BrowserReplTabAttachment {
                     focus: false,
                     preferredProfileID: profileID,
                     creationPolicy: .automationPreload,
+                    allowsExternalBrowserFallback: false,
                     websiteDataStore: store
                 )
             },

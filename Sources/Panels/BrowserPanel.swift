@@ -9046,6 +9046,10 @@ final class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
                 if attachment.handlePopup(request: navigationAction.request) {
                     return nil
                 }
+                // No tab could open (for example, the user turned the
+                // browser off): the popup is refused. It never falls through
+                // to the user's popup window, new tab or system browser.
+                return nil
             case .inputSession(let sessionID):
                 // A user's tab opened the window for an agent's click: a
                 // background tab for that agent, never a key popup window

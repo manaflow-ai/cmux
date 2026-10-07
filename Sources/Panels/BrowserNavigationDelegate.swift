@@ -552,11 +552,18 @@ import WebKit
                     if replAttachment.opensPopupsInBackground,
                        replAttachment.handlePopup(request: request, announce: false) { return }
                 case .session:
-                    if replAttachment.handlePopup(request: request) { return }
+                    // A tab that could not open (for example, the user
+                    // turned the browser off) refuses the new tab: it never
+                    // falls through to the user's new tab or the system
+                    // browser.
+                    _ = replAttachment.handlePopup(request: request)
+                    return
                 case .inputSession(let sessionID):
                     // A user's tab opening a tab for an agent's click: a
-                    // background tab for that agent, never a focused one.
-                    if replAttachment.handlePopup(request: request, forInputSession: sessionID) { return }
+                    // background tab for that agent, never a focused one,
+                    // and refused when it could not open.
+                    _ = replAttachment.handlePopup(request: request, forInputSession: sessionID)
+                    return
                 }
             }
             if let requestNavigation {

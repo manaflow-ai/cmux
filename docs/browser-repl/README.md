@@ -625,6 +625,10 @@ rest. Measurements: [performance.md](performance.md).
   rule, a signed-in cmux app link (which opens a split) and another app's
   URL scheme (`mailto:`, `intent:`), which opens nothing (no prompt) and
   reaches the sessions as `navigation.blocked`.
+  A tab a session opens, and a popup or new tab cmux opens for a session,
+  never falls back to the system browser: when the user has turned the
+  embedded browser off while such a tab stays open, the window or tab the
+  page asks for is refused (the page gets no window).
   The domain policy there only refuses the session's reads and input while
   the tab, or a frame of it, shows a blocked page (the console messages and
   page errors of a main frame the policy blocks do not reach the session

@@ -1377,6 +1377,8 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                   focus: false,
                   preferredProfileID: profileID,
                   creationPolicy: .automationPreload,
+                  // A session's tab never opens in the system browser.
+                  allowsExternalBrowserFallback: false,
                   websiteDataStore: store
               ) else {
             throw Self.error("invalid", "Could not open a browser tab")
