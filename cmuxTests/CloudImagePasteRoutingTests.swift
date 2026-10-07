@@ -1,4 +1,5 @@
 import AppKit
+import CmuxCloud
 import CmuxTerminal
 import CmuxCore
 import CmuxSurfaceCatalogModel
@@ -13,6 +14,7 @@ import Testing
 
 @Suite("Cloud clipboard image routing")
 struct CloudImagePasteRoutingTests {
+    /// Covers paste and drop before a native SSH projection registers a legacy remote surface.
     @Test("Native SSH image paste and file drop use the SSH upload route", arguments: [TerminalImageTransferMode.paste, .drop])
     @MainActor
     func nativeSSHTuiUsesRemoteFileUpload(mode: TerminalImageTransferMode) async throws {

@@ -84,6 +84,7 @@ struct RemotePasteFileTransferPolicyTests {
         #expect(FileManager.default.fileExists(atPath: otherFile.path))
     }
 
+    /// Executes finalization with system utilities and verifies the uploaded bytes and private mode.
     @Test("finalization succeeds with system chmod and makes uploaded files private", arguments: ["png", "txt"])
     func finalizeUploadedFileWithSystemShell(fileExtension: String) throws {
         let policy = RemotePasteFileTransferPolicy()
@@ -105,6 +106,7 @@ struct RemotePasteFileTransferPolicyTests {
         #expect(try FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? NSNumber == 0o600)
     }
 
+    /// Runs a generated remote script in an isolated home using only system utilities.
     private func runShell(_ script: String, home: URL) throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")

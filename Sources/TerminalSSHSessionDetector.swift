@@ -382,6 +382,7 @@ struct DetectedSSHSession: Equatable, Sendable {
         let stderr: String
     }
 
+    /// Runs an SSH transfer subprocess with a deadline and optional cancellation, capturing its output.
     private static func runProcess(
         executable: String,
         arguments: [String],
@@ -498,6 +499,7 @@ struct DetectedSSHSession: Equatable, Sendable {
             .lowercased()
     }
 
+    /// Returns the first matching separate `-o` option value, preserving OpenSSH's first-value precedence.
     private static func sshOptionValue(named key: String, in arguments: [String]) -> String? {
         let loweredKey = key.lowercased()
         guard arguments.count > 1 else { return nil }
@@ -515,6 +517,7 @@ struct DetectedSSHSession: Equatable, Sendable {
         return nil
     }
 
+    /// Escapes line breaks and limits captured output to 240 characters for process diagnostics.
     private static func processOutputSnippet(_ output: String) -> String {
         let normalized = output
             .replacingOccurrences(of: "\n", with: "\\n")
