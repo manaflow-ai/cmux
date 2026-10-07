@@ -2,18 +2,21 @@
 //! `session/new` (`_meta.acpmux.adopt`): the id is checked against the
 //! harness store before anything is created, the session runs in the
 //! conversation's recorded cwd, one id gets one session, and an agent that
-//! started fresh instead of resuming fails creation.
+//! started fresh instead of resuming fails creation. A conversation live in
+//! another process is refused (`adopt.live`) unless `ifLive` forks it or
+//! opens it anyway (`adopt_live.rs`).
 
 use super::*;
-use crate::adopt::AdoptRequest;
+use crate::adopt::{AdoptRequest, IfLive};
 use std::collections::BTreeMap;
 
 /// What adopting resolved to before a session is created.
 pub(super) enum Adoption {
     /// A session already adopted this id; `session/new` returns it.
     Existing(Arc<Session>),
-    /// Create a session, in the adopted conversation's recorded cwd if any.
-    Found(Option<PathBuf>),
+    /// Create a session, in the adopted conversation's recorded cwd if any;
+    /// `fork`: a new conversation forked from it (`--fork-session`).
+    Found { cwd: Option<PathBuf>, fork: bool },
 }
 
 impl Hub {
@@ -46,7 +49,7 @@ impl Hub {
         family: &str,
         env: &[&BTreeMap<String, String>],
     ) -> Result<Adoption, RpcError> {
-        let Some(a) = adopt else { return Ok(Adoption::Found(None)) };
+        let Some(a) = adopt else { return Ok(Adoption::Found { cwd: None, fork: false }) };
         if let Some(asked) = &a.harness
             && asked != agent
             && asked != family
@@ -55,18 +58,43 @@ impl Hub {
                 "adopt names harness {asked} but the session resolves to {agent}"
             )));
         }
+        if a.if_live == IfLive::Fork && family != "claude" {
+            return Err(RpcError::invalid_params(format!(
+                "only Claude Code chats fork on adopt; open this {family} chat anyway or close it where it runs"
+            )));
+        }
         if let Some(existing) = self.adopted_session(family, &a.agent_session_id) {
             return Ok(Adoption::Existing(existing));
         }
         // The store the resuming harness reads: its spawn env's home, else
-        // the daemon's. The store walk and the record read are file I/O.
+        // the daemon's. The store walk, the record read and the process
+        // table are blocking I/O.
         let homes = self.harness_homes.lock().unwrap().with_env(env);
-        let (fam, id) = (family.to_owned(), a.agent_session_id.clone());
-        let found = tokio::task::spawn_blocking(move || crate::adopt::find(&fam, &id, &homes))
-            .await
-            .map_err(|e| RpcError::internal(e.to_string()))?
-            .map_err(RpcError::invalid_params)?;
-        Ok(Adoption::Found(found.cwd))
+        let (fam, id, check) =
+            (family.to_owned(), a.agent_session_id.clone(), a.if_live == IfLive::Refuse);
+        let (found, live) = tokio::task::spawn_blocking(move || {
+            let found = crate::adopt::find(&fam, &id, &homes)?;
+            let live = check
+                .then(|| {
+                    let procs = crate::adopt_live::processes();
+                    crate::adopt_live::live_use(
+                        &id,
+                        &found.file,
+                        &procs,
+                        std::time::SystemTime::now(),
+                    )
+                })
+                .flatten();
+            Ok::<_, String>((found, live))
+        })
+        .await
+        .map_err(|e| RpcError::internal(e.to_string()))?
+        .map_err(RpcError::invalid_params)?;
+        if let Some(live) = live {
+            return Err(RpcError::invalid_params(live.refusal(family, &a.agent_session_id))
+                .with_data(json!({"reason": "adopt.live", "details": live.details(family)})));
+        }
+        Ok(Adoption::Found { cwd: found.cwd, fork: a.if_live == IfLive::Fork })
     }
 
     /// The session that already adopted `agent_session_id` in `family`, so

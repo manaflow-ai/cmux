@@ -188,12 +188,15 @@ import Testing
         #expect(events.count == 2)
     }
 
+    /// The page reaches its own namespace plus exactly the two person-only import actions behind
+    /// its Import buttons (`cmux.app.action.run`); no clipboard write and no other app action.
     @Test func thePageIsFirstPartyAndReachesOnlyItsOwnNamespace() {
         let page = PageDescriptor.passwords
         #expect(PageID.isFirstParty(page.id))
         #expect(page.admits(PasswordOps.reveal))
-        #expect(!page.admits(PageNativeOp.actionRun) && !page.admits(PageNativeOp.clipboardWrite))
+        #expect(page.admits(PageNativeOp.actionRun))
+        #expect(!page.admits(PageNativeOp.clipboardWrite))
         #expect(!page.admits("cmux.settings.set"))
-        #expect(page.actions.isEmpty)
+        #expect(page.actions == ["importFromBrowser", "password.importCSV"])
     }
 }
