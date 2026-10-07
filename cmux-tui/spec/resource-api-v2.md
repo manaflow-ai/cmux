@@ -110,7 +110,14 @@ that hosts a frontend-rendered browser, its record's only writer), `relaunch`
 (`{cwd}` for a tab kept by `shutdown-daemon {end_terminals, keep_layout}`,
 absent otherwise); screen `pinned`, `color`, `icon`,
 `screen_group_id`; terminal `progress` (the parsed OSC 9;4 state and percent
-of every terminal). Other state resources travel as `state_upsert` and
+of every terminal) and `program_status` (the OSC 7501 program status records
+of the terminal, sorted by `id`: `{id, state, progress, kind, app, title, msg,
+updated_seq, updated_at_ms}`; `state` is `idle`, `working`, `done`, `blocked`
+or `error`; `title` and `msg` are untrusted display text without control or
+invisible formatting characters, at most 256 and 1024 characters; a primary
+prompt start removes `working`, `blocked` and `idle` records, an exited
+terminal shows only `done` and `error`, at most 256 records; absent when
+there are none; `cmux terminal <selector> status` prints it). Other state resources travel as `state_upsert` and
 `state_delete` changes whose `resource` is a `StateResourceKind`, and the
 session snapshot lists them under `extra.state`. Clients that predate them
 decode these changes as `Unknown`.

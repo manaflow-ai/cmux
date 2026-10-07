@@ -259,11 +259,13 @@ impl Brain {
         self.turn_ask = self.turn_remote && !self.chief.remote_auto_approve;
         self.clear_turn_approvals();
         self.interrupt.set_gate(self.turn_ask);
-        let policy = if self.turn_ask {
-            "ask".to_owned()
-        } else {
-            self.settings.policy.clone()
-        };
+        // The shared rule (cmux_chief::policy::turn_policy, the corpus's
+        // `policy` cases).
+        let policy = cmux_chief::policy::turn_policy(
+            self.turn_remote,
+            self.chief.remote_auto_approve,
+            &self.settings.policy,
+        );
         let images: Vec<super::images::TurnImage> = items
             .iter()
             .flat_map(|i| i.images.iter().cloned())
