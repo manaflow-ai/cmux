@@ -1,0 +1,8 @@
+[workspace]
+resolver = "3"
+members = []
+
+[workspace.package]
+edition = "2024"
+license = "GPL-3.0-or-later"
+publish = false
