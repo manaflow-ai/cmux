@@ -11,6 +11,8 @@ public enum ConversationBackendEvent: Sendable {
     case message(ConversationMessage, eventSeq: Int)
     case typing(participantID: String, isTyping: Bool)
     case disconnected(reason: String)
+    /// The read marker moved (any device read or sent) or the session began.
+    case readState(ConversationReadState)
 }
 
 public struct ConversationBackendError: Error, Sendable, Hashable, CustomStringConvertible {

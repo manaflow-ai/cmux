@@ -19,13 +19,13 @@ process and keep growing.
 
 | method | params | result |
 | --- | --- | --- |
-| `hello` | `{clientId, resumeAfterEventSeq?}` | `{conversation, me: Participant, headSeq, headEventSeq, serverTime, lagged}` |
+| `hello` | `{clientId, resumeAfterEventSeq?}` | `{conversation, me: Participant, headSeq, headEventSeq, serverTime, lagged, lastReadSeq, unreadCount}` |
 | `history` | `{beforeSeq: Int?, limit: Int}` | `{messages: [Message], hasMore: Bool}` |
 | `send` | `{clientMessageId, text, replyToId?, attachmentIds?}` | `{message: Message}` |
 | `react` | `{messageId, reaction: Reaction?}` | `{message: Message}` |
 | `edit` | `{messageId, text}` | `{message: Message}` |
 | `typing` | `{isTyping: Bool}` | `{}` |
-| `markRead` | `{upToSeq: Int}` | `{}` |
+| `markRead` | `{upToSeq: Int}` | `{}` (the read receipt; never moves the marker back) |
 
 `history` with `beforeSeq: null` returns the newest page. Messages are sorted
 ascending by `seq`. `send` is idempotent on `clientMessageId`: a retry returns
@@ -44,6 +44,14 @@ the newest page and rebase.
 - `message.updated {message}` (edit, reaction, delivery status, reply count)
 
 `typing {participantId, isTyping}` is ephemeral and carries no `eventSeq`.
+
+`readState {lastReadSeq, unreadCount, headSeq}` goes to every connection on
+the conversation whenever the shared read marker moves (`markRead` from any
+device, my `send`, which reads the conversation, or `/admin/unread`).
+`unreadCount` counts messages from others with `seq > lastReadSeq` as of
+`headSeq`; later arrivals from others add to it until the next `readState`.
+It carries no `eventSeq` and is not replayed: `hello` returns the current
+marker.
 `replayDone {}` ends a resume replay.
 
 Event delivery is ordered per connection. Duplicates are possible; the client
@@ -73,6 +81,9 @@ Reaction = "heart"|"thumbsup"|"thumbsdown"|"haha"|"exclamation"|"question"
 - `GET /healthz`: `ok`.
 - `POST /admin/burst?conversation=<id>&count=<n>`: make participants send `n`
   messages rapidly (pressure testing).
+- `POST /admin/unread?conversation=<id>&count=<n>`: move the read marker so
+  exactly `n` messages from others are unread (catch-up testing). Boot leaves
+  `GROUP_UNREAD` (60) and `DIRECT_UNREAD` (3) unread.
 - `POST /admin/disconnect`: drop every socket (reconnect testing).
 - `POST /admin/knobs` JSON `{latencyScale, failRate, historyFailRate,
   duplicateRate, disconnectEverySeconds, botIntervalScale}`.

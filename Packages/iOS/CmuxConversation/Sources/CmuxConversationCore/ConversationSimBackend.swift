@@ -162,6 +162,7 @@ public final class ConversationSimBackend: ConversationBackend, @unchecked Senda
             connectedWaiters = []
             waiters.forEach { $0.resume() }
             continuation?.yield(.connected(info: info, meID: me, lagged: lagged))
+            if let read = WireDecoding.readState(result) { continuation?.yield(.readState(read)) }
         }
 
         private func receiveLoop(_ socket: URLSessionWebSocketTask) async {
@@ -200,6 +201,9 @@ public final class ConversationSimBackend: ConversationBackend, @unchecked Senda
                 if let last = lastEventSeq, eventSeq <= last { return }
                 lastEventSeq = eventSeq
                 continuation?.yield(.message(message, eventSeq: eventSeq))
+            case "readState":
+                guard let read = WireDecoding.readState(params) else { return }
+                continuation?.yield(.readState(read))
             case "typing":
                 guard let participant = params["participantId"] as? String else { return }
                 continuation?.yield(.typing(participantID: participant, isTyping: params["isTyping"] as? Bool ?? false))
@@ -270,6 +274,11 @@ struct JSONBox: @unchecked Sendable {
 }
 
 enum WireDecoding {
+    static func readState(_ raw: [String: Any]) -> ConversationReadState? {
+        guard let lastRead = raw["lastReadSeq"] as? Int, let unread = raw["unreadCount"] as? Int else { return nil }
+        return ConversationReadState(lastReadSeq: lastRead, unreadCount: unread, headSeq: raw["headSeq"] as? Int ?? lastRead)
+    }
+
     static func conversation(_ raw: [String: Any]) -> ConversationInfo? {
         guard let id = raw["id"] as? String else { return nil }
         let participants = (raw["participants"] as? [[String: Any]] ?? []).compactMap { p -> ConversationParticipant? in
