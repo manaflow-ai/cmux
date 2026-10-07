@@ -7,7 +7,7 @@ import CmuxNextDesign
 /// Workspace names, colors, notifications, identifiers, and Finder reveal.
 /// Colors go through the sidebar bridge (optimistic row update, then
 /// `set-workspace-metadata`), the same path as the row's context menu.
-/// Pin goes through the sidebar bridge the same way (`workspace-pin-v1`).
+/// Pin goes through the one pin path (`PinCommands`).
 /// Fields the daemon tree does not have (description, status, checklist)
 /// report the missing daemon capability.
 enum WorkspaceMetadataHandlers {
@@ -24,20 +24,19 @@ enum WorkspaceMetadataHandlers {
             }
             try setColor(color, invocation, context)
         })
-        registry.bind("palette.toggleWorkspacePin", requires: DaemonCapabilities.shared.workspacePin, daemon: context.services.activeDaemon, run: { invocation in
-            try context.require(DaemonCapabilities.shared.workspacePin)
-            let (workspace, key) = try context.workspace(invocation)
-            let pinned = !workspace.pinned
-            if let sidebar = context.activeWindow?.sidebar {
-                sidebar.handle(.setPinned([SidebarWorkspaceID(workspace.id)], pinned))
-            } else {
-                context.services.activeDaemon.send("set-workspace-metadata") { _ = try await $0.setWorkspaceMetadata(key, pinned: pinned) }
-            }
+        // One pin path (PinCommands): a layout tile once the store serves the
+        // layout, else the legacy flag, which then needs `workspace-pin-v1`.
+        registry.bind("palette.toggleWorkspacePin", requires: DaemonCapabilities.shared.workspacePin, daemon: {
+            PinCommands(context: context).pinsAreTiles ? nil : context.services.activeDaemon
+        }(), run: { invocation in
+            let commands = PinCommands(context: context)
+            let workspace = try context.workspace(invocation).model
+            try commands.setWorkspacePinned(workspace.id, pinned: !commands.isWorkspacePinned(workspace), origin: invocation.origin)
         })
         // The workspace menu reads Pin Workspace or Unpin Workspace for the right-clicked row.
         ActionTargetTitles.set("palette.toggleWorkspacePin", in: registry) { invocation in
             guard let workspace = try? context.workspace(invocation).model else { return nil }
-            return workspace.pinned ? PinStrings.unpinWorkspace : PinStrings.pinWorkspace
+            return PinCommands(context: context).isWorkspacePinned(workspace) ? PinStrings.unpinWorkspace : PinStrings.pinWorkspace
         }
         registry.bind("palette.resetWorkspaceColor", requires: DaemonCapabilities.shared.workspaceMetadata, daemon: context.services.activeDaemon, run: { invocation in try setColor(nil, invocation, context) })
         for id: ActionID in ["palette.markWorkspaceRead", "clearWorkspaceNotifications"] {

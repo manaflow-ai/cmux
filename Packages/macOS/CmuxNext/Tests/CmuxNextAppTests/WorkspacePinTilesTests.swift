@@ -1,0 +1,133 @@
+import AppKit
+@testable import CmuxNextApp
+import CmuxNextActions
+import CmuxNextBridge
+import CmuxNextControl
+import CmuxNextDaemon
+import CmuxNextSidebar
+import Foundation
+import Testing
+
+/// Pinned workspaces as layout tiles (PINNED-ITEMS-END-TO-END P2): once the
+/// layout owner serves `sidebar-layout-v1`, Pin Workspace writes the
+/// qualified `<session>:ws_…` ref into `sec_pinned`, the list leaves the row
+/// out (its place stays, so unpin returns it there), the tile draws the
+/// workspace and carries the one selection. Without the owner the legacy
+/// flag path is unchanged. Windows are never put on screen.
+@MainActor
+struct WorkspacePinTilesTests {
+    nonisolated static let session = "33333333-4444-4555-8666-777777777777"
+    nonisolated static let keys = (1...3).map { WorkspaceKey(rawValue: "6c3e8d2f-9a4b-4f7c-8d1e-2b3c4d5e6f7\($0)") }
+
+    nonisolated static func id(_ index: Int) -> String { keys[index - 1].rawValue }
+    static func ref(_ index: Int) -> LayoutItemRef { .workspace("\(session):ws_\(index)") }
+
+    /// w1..w3 with resource ids `ws_1..3` in session `session`; w2 carries
+    /// the legacy pin flag. `owner` (served) or none (legacy).
+    static func services(owner: SidebarLayoutServiceTests.FakeOwner?) -> AppServices {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        if let owner {
+            services.sidebarLayout = SidebarLayoutService(remote: owner, prototypeEnabled: { false },
+                                                          recentsOffered: SidebarLayoutServiceTests.freshDefaults())
+        }
+        AppActions.bind(services)
+        services.palette.bindRegistryActions()
+        services.windows.ordersWindowsIn = false
+        let snapshots = keys.enumerated().map { index, key in
+            let pane = PaneID(rawValue: UInt64(index + 1) * 10)
+            let screen = ScreenSnapshot(id: ScreenID(rawValue: UInt64(index + 1) * 100), layout: .leaf(pane),
+                                        panes: [PaneSnapshot(id: pane, tabs: [TabSnapshot(surface: SurfaceID(rawValue: UInt64(index + 1)), title: "zsh")])])
+            return WorkspaceSnapshot(id: WorkspaceHandle(rawValue: UInt64(index + 1)), key: key, resourceID: ResourceID(rawValue: "ws_\(index + 1)"),
+                                     name: "w\(index + 1)", screens: [screen], pinned: index == 1)
+        }
+        services.daemon.store.apply(snapshot: DaemonTree(registryID: session, workspaceRevision: 10, workspaces: snapshots))
+        return services
+    }
+
+    private static func togglePin(_ services: AppServices, _ index: Int) -> ControlActionOutcome {
+        ActionBindingCoverageTests.run(services, "palette.toggleWorkspacePin", target: ActionTargetRef(kind: .workspace, id: id(index)))
+    }
+
+    private static func rows(_ services: AppServices) -> [String] {
+        let top = SidebarTopProjection.make(services.sidebarLayout, machines: services.machines, room: ProfileID.defaultProfile.rawValue)
+        return SidebarBridge.sections(services.machines, members: keys.map(\.rawValue), profile: .defaultProfile, top: top)
+            .flatMap(\.workspaces).map(\.id.rawValue)
+    }
+
+    /// Answers every update the owner holds, so no continuation leaks.
+    private static func drain(_ owner: SidebarLayoutServiceTests.FakeOwner) async {
+        for _ in 0..<500 {
+            for call in owner.calls { owner.accept(call.key) }
+            await Task.yield()
+        }
+    }
+
+    @Test func refsAreQualifiedAndResolveBothWays() {
+        let services = Self.services(owner: nil)
+        let refs = WorkspaceLayoutRefs(machines: services.machines)
+        #expect(refs.ref(forWorkspace: Self.id(1)) == Self.ref(1))
+        #expect(refs.workspaceID(for: Self.ref(1)) == Self.id(1))
+        #expect(refs.workspaceID(for: .workspace("other-session:ws_1")) == nil)
+        #expect(refs.workspaceID(for: .workspace(Self.id(1))) == nil, "a bare id is not a layout ref")
+    }
+
+    @Test func pinWritesATileAndTheListLeavesTheRowOutUntilUnpin() async throws {
+        let owner = SidebarLayoutServiceTests.FakeOwner()
+        let services = Self.services(owner: owner)
+        let before = Self.rows(services)
+        #expect(before == [Self.id(1), Self.id(2), Self.id(3)], "the legacy flag draws no Pinned section once pins are tiles")
+        #expect(Self.togglePin(services, 1) == .ran)
+        let layout = services.sidebarLayout.document
+        #expect(layout.section(SidebarLayoutDocument.pinnedSectionID)?.items.map(\.ref) == [Self.ref(1)])
+        #expect(Self.rows(services) == [Self.id(2), Self.id(3)])
+        #expect(Self.togglePin(services, 1) == .ran)
+        #expect(!services.sidebarLayout.document.isPinned(Self.ref(1)))
+        #expect(Self.rows(services) == before, "unpin returns the row to its old place")
+        await Self.drain(owner)
+    }
+
+    @Test func theMenuTitleFollowsTheTile() async throws {
+        let owner = SidebarLayoutServiceTests.FakeOwner()
+        let services = Self.services(owner: owner)
+        let invocation = ActionInvocation(target: ActionTargetRef(kind: .workspace, id: Self.id(2)))
+        let title = { services.registry.action(for: "palette.toggleWorkspacePin")?.targetTitle?(invocation) }
+        #expect(title() == PinStrings.pinWorkspace, "the legacy flag is not the tile")
+        #expect(Self.togglePin(services, 2) == .ran)
+        #expect(title() == PinStrings.unpinWorkspace)
+        await Self.drain(owner)
+    }
+
+    @Test func aTileDrawsItsWorkspaceAndAClosedOneIsDimmed() throws {
+        let services = Self.services(owner: nil)
+        let refs = WorkspaceLayoutRefs(machines: services.machines)
+        var layout = SidebarLayoutDocument.defaults
+        for op in [layout.pinOp(Self.ref(3)), layout.pinOp(.workspace("\(Self.session):ws_gone"))] {
+            layout = try SidebarLayoutReducer.reduce(layout, try #require(op)).get()
+        }
+        let workspaces = SidebarWorkspaceItems.workspaceInfos(layout, refs: refs)
+        let infos = SidebarBridge.itemInfo(for: layout, registered: { _ in true }, workspace: { workspaces[$0] })
+        let items = try #require(layout.section(SidebarLayoutDocument.pinnedSectionID)?.items)
+        #expect(infos[items[0].id]?.title == "w3")
+        #expect(infos[items[0].id]?.isMissing == false)
+        #expect(infos[items[1].id]?.isMissing == true)
+    }
+
+    @Test func theSelectionMarksTheTileOfTheShownWorkspace() throws {
+        let services = Self.services(owner: nil)
+        let refs = WorkspaceLayoutRefs(machines: services.machines)
+        var layout = SidebarLayoutDocument.defaults
+        layout = try SidebarLayoutReducer.reduce(layout, try #require(layout.pinOp(Self.ref(2)))).get()
+        let tile = try #require(layout.section(SidebarLayoutDocument.pinnedSectionID)?.items.first)
+        #expect(SidebarNavigation.selectedItem(page: nil, workspace: Self.id(2), layout: layout, refs: refs) == .topItem(tile.id))
+        #expect(SidebarNavigation.selectedItem(page: nil, workspace: Self.id(1), layout: layout, refs: refs)
+            == .workspace(CmuxNextSidebar.WorkspaceID(Self.id(1))))
+    }
+
+    @Test func withoutTheOwnerPinsKeepTheLegacyPinnedSection() {
+        let services = Self.services(owner: nil)
+        let sections = SidebarBridge.sections(services.machines, members: Self.keys.map(\.rawValue), profile: .defaultProfile)
+        #expect(sections.first?.id == .pinned)
+        #expect(sections.first?.workspaces.map(\.id.rawValue) == [Self.id(2)])
+    }
+}

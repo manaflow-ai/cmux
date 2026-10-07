@@ -11,4 +11,13 @@ enum PinStrings {
     static var unpinWorkspace: String {
         String(localized: "pins.unpinWorkspace", defaultValue: "Unpin Workspace", table: "Handlers", bundle: .module)
     }
+    static var addToTop: String { String(localized: "pins.addToTop", defaultValue: "Add to Top", table: "Handlers", bundle: .module) }
+    static var removeFromTop: String {
+        String(localized: "pins.removeFromTop", defaultValue: "Remove from Top", table: "Handlers", bundle: .module)
+    }
+    /// The workspace's machine gives it no id other devices can name.
+    static var workspaceCannotPin: String {
+        String(localized: "pins.workspaceCannotPin", defaultValue: "This workspace cannot be pinned: its machine has no shared workspace ID.",
+               table: "Handlers", bundle: .module)
+    }
 }

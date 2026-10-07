@@ -36,7 +36,7 @@ struct PinCommands {
     }
 
     /// Registers `inverse` on the key window's undo manager.
-    private func registerUndo(title: String, _ inverse: @escaping @MainActor (PinCommands) -> Void) {
+    func registerUndo(title: String, _ inverse: @escaping @MainActor (PinCommands) -> Void) {
         guard let undoManager = NSApp.keyWindow?.undoManager ?? NSApp.mainWindow?.undoManager else { return }
         let record = PinUndoRecord { inverse(self) }
         // The record is the target and the retained object, so it lives as long as the undo entry.

@@ -47,7 +47,8 @@ extension SidebarBridge {
             return
         }
         switch ref.kind {
-        case LayoutItemRef.workspaceKind: handle(.select(SidebarWorkspaceID(ref.value)))
+        case LayoutItemRef.workspaceKind:
+            if let id = WorkspaceLayoutRefs(machines: services.machines).activationID(for: ref) { handle(.select(SidebarWorkspaceID(id))) }
         case LayoutItemRef.tabKind: revealPinnedTab(ref.value)
         case LayoutItemRef.urlKind: openPinnedPage(ref.value)
         case LayoutItemRef.roomKind: switchToPinnedSpace(ref.value)
@@ -79,21 +80,24 @@ extension SidebarBridge {
         let service = services.sidebarLayout
         let apps = services.apps.registry
         let store = services.machines.local.store
+        let refs = WorkspaceLayoutRefs(machines: services.machines)
         sectionsObservation = Task { [weak self] in
-            // The app registry is observed too: hiding or installing an app
-            // changes its item at once.
-            // So are the unread count (Notifications' dot) and the built-ins'
-            // shortcuts (their tooltips, e.g. the footer gear's "Settings (⌘,)").
+            // The app registry is observed too: hiding or installing an app changes its item at once.
+            // So are the unread count (Notifications' dot), the built-ins' shortcuts (their tooltips,
+            // e.g. the footer gear's "Settings (⌘,)") and the workspaces tiles and top rows name.
             // The selected item comes from the one selection (SidebarModel.selectedItem).
-            for await (layout, unread, shortcuts) in Observations({ () -> (SidebarLayoutDocument, Int, [ActionID: String]) in
+            for await (layout, unread, shortcuts, workspaces) in Observations({ () -> (SidebarLayoutDocument, Int, [ActionID: String], [LayoutItemRef: SidebarItemInfo]) in
                 _ = apps.apps
-                return (service.document, NotificationCenterService.unreadCount(store), Self.builtInShortcuts(registry))
+                let layout = service.document
+                return (layout, NotificationCenterService.unreadCount(store), Self.builtInShortcuts(registry),
+                        SidebarWorkspaceItems.workspaceInfos(layout, refs: refs))
             }) {
                 guard self != nil else { return }
                 if model.layout != layout { model.layout = layout }
                 let infos = Self.itemInfo(for: layout, registered: { registry.action(for: $0) != nil },
                                           unread: unread,
-                                          app: { Self.appInfo($0, registry: apps) }, shortcut: { shortcuts[$0] })
+                                          app: { Self.appInfo($0, registry: apps) }, shortcut: { shortcuts[$0] },
+                                          workspace: { workspaces[$0] })
                 if model.itemInfo != infos { model.itemInfo = infos }
                 let suppressed = AppPresence(apps.apps).suppressed
                 if model.suppressedApps != suppressed { model.suppressedApps = suppressed }
@@ -110,17 +114,20 @@ extension SidebarBridge {
         return shortcuts
     }
 
-    /// Presentation of every built-in item in `layout`; `registered` says
+    /// Presentation of every built-in, app and workspace item in `layout`
+    /// (a closed workspace draws dimmed); `registered` says
     /// whether an action exists. Notifications carries `unread`, and each
     /// built-in carries its action's `shortcut` for its tooltip. The update
     /// notice is the footer's pill, never an item control (SIDEBAR-FOOTER-MINIMAL).
     static func itemInfo(for layout: SidebarLayoutDocument, registered: (ActionID) -> Bool,
                          unread: Int = 0,
                          app: (String) -> SidebarItemInfo = { SidebarItemInfo.fallback(for: .app($0)) },
-                         shortcut: (ActionID) -> String? = { _ in nil }) -> [LayoutItemID: SidebarItemInfo] {
+                         shortcut: (ActionID) -> String? = { _ in nil },
+                         workspace: (LayoutItemRef) -> SidebarItemInfo? = { _ in nil }) -> [LayoutItemID: SidebarItemInfo] {
         var infos: [LayoutItemID: SidebarItemInfo] = [:]
         for section in layout.sections {
             for item in section.items {
+                if item.ref.kind == LayoutItemRef.workspaceKind { infos[item.id] = workspace(item.ref) ?? .fallback(for: item.ref); continue }
                 if item.ref.kind == LayoutItemRef.appKind {
                     infos[item.id] = app(item.ref.value)
                     continue
