@@ -145,6 +145,10 @@ extension LinkSession {
         handshakeTask = nil
         if !resumed, epoch != 0 { resetForNewEpoch() }
         epoch = newEpoch
+        // Channels with nothing received yet count from the session's epoch.
+        for (id, record) in channels where record.lastReceived == 0 && record.cursorEpoch != newEpoch {
+            channels[id]?.cursorEpoch = newEpoch
+        }
         retryTask?.cancel()
         retryTask = nil
         switchTransport(to: attached)

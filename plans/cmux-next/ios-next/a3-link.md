@@ -71,6 +71,8 @@ Semantics:
   it delivered; the sender drops a queued message older than `maxLifetime`. Not resumed.
 - unreliable-unordered: delivered as it arrives; a full send queue drops the oldest (media
   semantics, transport.md 12a). Not resumed.
+- partial and unreliable sends made while the channel is not declared on a live transport (before
+  the open handshake, while reconnecting) are dropped; they still consume a revision.
 
 Priority: one send pump per session drains its queues strictly by priority, so an input frame
 queued behind 4 MiB of bulk leaves next. Payloads above the path's `maxFrameBytes` are refused

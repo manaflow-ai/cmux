@@ -35,6 +35,7 @@ public final class ManualClock: Clock, Sendable {
         var sleeperWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
     }
 
+    // carve-out: `Clock.now` is synchronous, so an actor cannot hold this state.
     private let state = OSAllocatedUnfairLock(initialState: State())
 
     public init() {}
