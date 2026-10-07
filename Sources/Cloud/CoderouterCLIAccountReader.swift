@@ -3,8 +3,9 @@ import Foundation
 import OSLog
 
 /// Reads the same CodeRouter Cloud account view shown by `cmux cr accounts`.
-/// CodeRouter organizations have their own IDs, so the cmux team UUID is never
-/// passed to CodeRouter directly.
+/// CodeRouter's organization catalog is keyed by the Stack team UUID. Newer
+/// CLI versions accept that ID on the account read, so a sidebar refresh does
+/// not need to mutate the user's active organization.
 enum CoderouterCLIAccountReader {
     typealias Run = @Sendable (_ arguments: [String]) async throws -> Data
 
@@ -34,10 +35,10 @@ enum CoderouterCLIAccountReader {
         run: Run = runCLI
     ) async throws -> Snapshot {
         try Task.checkCancellation()
-        guard let cmuxTeamName = cmuxTeamName?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !cmuxTeamName.isEmpty,
-              let organizationID = try await resolvedOrganizationID(
-                  for: cmuxTeamID,
+        guard let teamID = cmuxTeamID?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !teamID.isEmpty,
+              var organizationID = try await resolvedOrganizationID(
+                  for: teamID,
                   name: cmuxTeamName,
                   knownOrganizationID: knownOrganizationID,
                   run: run
@@ -46,20 +47,34 @@ enum CoderouterCLIAccountReader {
             throw accountError("The selected cmux team is not mapped to a coderouter organization.")
         }
 
-        // `accounts` reads the CLI's active organization, which the user's terminal
-        // shares. Its payload names that organization as `teamId`, so trust only the
-        // payload and switch only when the selected team's organization is not active.
+        // Prefer the team-scoped read. It sends the selected organization in the
+        // request and leaves the terminal's shared active organization untouched.
         try Task.checkCancellation()
-        var payload = try await readAccounts(run: run)
-        if payload.organizationID != organizationID {
-            try Task.checkCancellation()
-            _ = try await run(["org", "switch", organizationID])
-            try Task.checkCancellation()
-            payload = try await readAccounts(run: run)
+        let payload: (organizationID: String?, accounts: [CloudTreeNode.CoderouterAccount])
+        do {
+            payload = try await readAccounts(for: organizationID, run: run)
+        } catch {
+            // Bundled CodeRouter 0.3.15 predates `accounts --team`. Keep the
+            // old path as a compatibility fallback until that binary is
+            // released and included in cmux.
+            guard let name = cmuxTeamName?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !name.isEmpty else { throw error }
+            let legacyOrganizationID = try await matchingOrganizationID(for: cmuxTeamID, name: name, run: run)
+            guard let legacyOrganizationID else { throw error }
+            organizationID = legacyOrganizationID
+            logger.info("Falling back to active CodeRouter organization selection for legacy CLI")
+            var legacyPayload = try await readAccounts(run: run)
+            if legacyPayload.organizationID != legacyOrganizationID {
+                try Task.checkCancellation()
+                _ = try await run(["org", "switch", legacyOrganizationID])
+                try Task.checkCancellation()
+                legacyPayload = try await readAccounts(run: run)
+            }
+            payload = legacyPayload
         }
         guard payload.organizationID == organizationID else {
             logger.error("CodeRouter accounts were for org ID \(payload.organizationID ?? "<nil>", privacy: .public), expected \(organizationID, privacy: .public)")
-            throw accountError("coderouter organization did not switch to the selected team.")
+            throw accountError("coderouter returned accounts for a different team.")
         }
         logger.info("Loaded \(payload.accounts.count, privacy: .public) CodeRouter accounts for org ID \(organizationID, privacy: .public)")
         return Snapshot(organizationID: organizationID, accounts: payload.accounts)
@@ -76,6 +91,12 @@ enum CoderouterCLIAccountReader {
            UUID(uuidString: knownOrganizationID) != nil {
             return knownOrganizationID
         }
+        if let cmuxTeamID = cmuxTeamID?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !cmuxTeamID.isEmpty,
+           UUID(uuidString: cmuxTeamID) != nil {
+            return cmuxTeamID
+        }
+        guard !cmuxTeamName.isEmpty else { return nil }
         return try await matchingOrganizationID(for: cmuxTeamID, name: cmuxTeamName, run: run)
     }
 
@@ -91,18 +112,42 @@ enum CoderouterCLIAccountReader {
         guard UUID(uuidString: accountID) != nil else {
             throw accountError("That coderouter account ID is not valid.")
         }
-        _ = try await snapshot(
+        let snapshot = try await snapshot(
             for: cmuxTeamID,
             name: cmuxTeamName,
             knownOrganizationID: knownOrganizationID,
             run: run
         )
-        _ = try await run(["remove", accountID, "--yes"])
+        do {
+            _ = try await run(["remove", accountID, "--yes", "--team", snapshot.organizationID])
+        } catch {
+            // Compatibility with the pre-team-scoped CLI. This legacy path is
+            // only used when the direct command is not understood.
+            _ = try await run(["org", "switch", snapshot.organizationID])
+            _ = try await run(["remove", accountID, "--yes"])
+        }
         logger.info("Removed CodeRouter account \(accountID, privacy: .public)")
     }
 
+    private static func readAccounts(
+        for organizationID: String,
+        run: Run
+    ) async throws -> (organizationID: String?, accounts: [CloudTreeNode.CoderouterAccount]) {
+        try await readAccounts(
+            arguments: ["accounts", "--json", "--team", organizationID],
+            run: run
+        )
+    }
+
     private static func readAccounts(run: Run) async throws -> (organizationID: String?, accounts: [CloudTreeNode.CoderouterAccount]) {
-        let output = try await run(["accounts", "--json"])
+        try await readAccounts(arguments: ["accounts", "--json"], run: run)
+    }
+
+    private static func readAccounts(
+        arguments: [String],
+        run: Run
+    ) async throws -> (organizationID: String?, accounts: [CloudTreeNode.CoderouterAccount]) {
+        let output = try await run(arguments)
         let object = try JSONSerialization.jsonObject(with: output) as? [String: Any]
         let accounts = object?["accounts"] as? [[String: Any]] ?? []
         let result: [CloudTreeNode.CoderouterAccount] = accounts.compactMap { account in

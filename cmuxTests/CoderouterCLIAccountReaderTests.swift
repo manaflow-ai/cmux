@@ -9,9 +9,9 @@ import Testing
 
 @Suite("CodeRouter CLI account reader")
 struct CoderouterCLIAccountReaderTests {
-    /// The cmux team ID never equals the CodeRouter organization ID; the reader
-    /// maps "Austin Wang's Team" to the "Austin Wang" organization by name.
-    private static let cmuxTeamID = "fa8d2c52-5c8b-4ee5-97c4-f123e320f08f"
+    /// Current CodeRouter organization IDs are the Stack team UUIDs returned by
+    /// the catalog, so the sidebar can issue a team-scoped read directly.
+    private static let cmuxTeamID = "17a2ba34-5a88-412e-8380-0ea4118139c3"
     private static let austinOrganizationID = "17a2ba34-5a88-412e-8380-0ea4118139c3"
     private static let cmuxOrganizationID = "d13acd51-c77d-438a-9610-5369455e2a2f"
 
@@ -55,7 +55,7 @@ struct CoderouterCLIAccountReaderTests {
             run: { try await cli.run($0) }
         )
 
-        #expect(await cli.commands == [["accounts", "--json"]])
+        #expect(await cli.commands == [["accounts", "--json", "--team", Self.austinOrganizationID]])
     }
 
     @Test("An exact team ID wins over an earlier team with the same name")
@@ -67,7 +67,8 @@ struct CoderouterCLIAccountReaderTests {
                 switch arguments {
                 case ["org", "list"]:
                     return Data("Example\t\(Self.cmuxOrganizationID)\nExample\t\(organizationID)\n".utf8)
-                case ["accounts", "--json"]:
+                case ["accounts", "--json", "--team", let requested]
+                    where requested == organizationID:
                     return Data("{\"teamId\":\"\(organizationID)\",\"accounts\":[]}".utf8)
                 default:
                     throw NSError(domain: "UnexpectedCLICommand", code: 1)
@@ -81,7 +82,7 @@ struct CoderouterCLIAccountReaderTests {
     func ambiguousNamesFailClosed() async {
         await #expect(throws: NSError.self) {
             try await CoderouterCLIAccountReader.snapshot(
-                for: Self.cmuxTeamID, name: "Example",
+                for: "legacy-team", name: "Example",
                 run: { arguments in
                     #expect(arguments == ["org", "list"])
                     return Data("Example\t\(Self.cmuxOrganizationID)\nExample's Team\t\(Self.austinOrganizationID)\n".utf8)
@@ -98,11 +99,11 @@ struct CoderouterCLIAccountReaderTests {
             for: Self.cmuxTeamID, name: "Austin Wang's Team", run: { try await cli.run($0) }
         )
 
-        #expect(await cli.commands.allSatisfy { $0.prefix(2) != ["org", "switch"] })
+        #expect(await cli.commands == [["accounts", "--json", "--team", Self.austinOrganizationID]])
     }
 
-    @Test("Selected team switches the CLI away from another organization")
-    func otherOrganizationIsSwitched() async throws {
+    @Test("Selected team reads directly without switching another organization")
+    func otherOrganizationIsNotSwitched() async throws {
         let cli = FakeCoderouterCLI(activeOrganizationID: Self.cmuxOrganizationID)
 
         let accounts = try await CoderouterCLIAccountReader.accounts(
@@ -110,19 +111,17 @@ struct CoderouterCLIAccountReaderTests {
         )
 
         #expect(accounts.map(\.label) == ["austin+10@manaflow.com", "austin+3@manaflow.com"])
-        #expect(await cli.commands.contains(["org", "switch", Self.austinOrganizationID]))
+        #expect(await cli.commands == [["accounts", "--json", "--team", Self.austinOrganizationID]])
     }
 
     @Test("Accounts from another organization never reach the sidebar")
-    func concurrentSwitchIsRejected() async throws {
-        let cli = FakeCoderouterCLI(
-            activeOrganizationID: Self.cmuxOrganizationID,
-            switchOverride: Self.cmuxOrganizationID
-        )
-
+    func wrongScopedPayloadIsRejected() async throws {
         await #expect(throws: NSError.self) {
             try await CoderouterCLIAccountReader.accounts(
-                for: Self.cmuxTeamID, name: "Austin Wang's Team", run: { try await cli.run($0) }
+                for: Self.cmuxTeamID, name: "Austin Wang's Team", run: { arguments in
+                    #expect(arguments == ["accounts", "--json", "--team", Self.austinOrganizationID])
+                    return Data("{\"teamId\":\"\(Self.cmuxOrganizationID)\",\"accounts\":[]}".utf8)
+                }
             )
         }
     }
@@ -137,9 +136,8 @@ struct CoderouterCLIAccountReaderTests {
         )
 
         let commands = await cli.commands
-        let switchIndex = try #require(commands.firstIndex(of: ["org", "switch", Self.austinOrganizationID]))
-        let removeIndex = try #require(commands.firstIndex(of: ["remove", accountID, "--yes"]))
-        #expect(switchIndex < removeIndex)
+        #expect(commands.contains(["accounts", "--json", "--team", Self.austinOrganizationID]))
+        #expect(commands.contains(["remove", accountID, "--yes", "--team", Self.austinOrganizationID]))
     }
 
     @Test("The sidebar runs the same CodeRouter CLI as cmux cr: bundled, then PATH, then the installer's")
@@ -252,8 +250,21 @@ private actor FakeCoderouterCLI {
             return Data("Switched organization.\n".utf8)
         case _ where arguments.count == 3 && arguments[0] == "remove" && arguments[2] == "--yes":
             return Data("Removed.\n".utf8)
+        case _ where arguments.count == 5 && arguments[0] == "remove" && arguments[2] == "--yes" && arguments[3] == "--team":
+            return Data("Removed.\n".utf8)
+        case ["accounts", "--json", "--team", let organizationID]:
+            return try accountPayload(for: organizationID)
         case ["accounts", "--json"]:
-            let accounts = (Self.accountLabels[activeOrganizationID] ?? []).enumerated().map { index, label in
+            return try accountPayload(for: activeOrganizationID)
+        default:
+            throw NSError(domain: "FakeCoderouterCLI", code: 64, userInfo: [
+                NSLocalizedDescriptionKey: "coderouter: unexpected arguments \(arguments)",
+            ])
+        }
+    }
+
+    private func accountPayload(for organizationID: String) throws -> Data {
+        let accounts = (Self.accountLabels[organizationID] ?? []).enumerated().map { index, label in
                 var account: [String: Any] = ["id": "account-\(index)", "provider": "codex", "label": label, "state": "active"]
                 // The first account reports a rate-limit window, as Codex does.
                 if index == 0 {
@@ -261,13 +272,8 @@ private actor FakeCoderouterCLI {
                 }
                 return account
             }
-            let payload: [String: Any] = ["teamId": activeOrganizationID, "accounts": accounts]
-            return try JSONSerialization.data(withJSONObject: payload) + Data("\n".utf8)
-        default:
-            throw NSError(domain: "FakeCoderouterCLI", code: 64, userInfo: [
-                NSLocalizedDescriptionKey: "coderouter: unexpected arguments \(arguments)",
-            ])
-        }
+        let payload: [String: Any] = ["teamId": organizationID, "accounts": accounts]
+        return try JSONSerialization.data(withJSONObject: payload) + Data("\n".utf8)
     }
 }
 
