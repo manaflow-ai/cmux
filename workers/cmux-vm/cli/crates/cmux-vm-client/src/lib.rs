@@ -20,11 +20,17 @@ pub use generated::*;
 /// The production cmux VM API.
 pub const DEFAULT_BASE_URL: &str = "https://vm.cmux.com";
 
+/// The header that names the team a session token acts for. API keys belong
+/// to one team already, so it is optional for them.
+pub const TEAM_HEADER: &str = "x-cmux-team-id";
+
 /// Why a client could not be built.
 #[derive(Debug)]
 pub enum ClientBuildError {
     /// The API key contains bytes that are not allowed in an HTTP header.
     InvalidApiKey,
+    /// The team id contains bytes that are not allowed in an HTTP header.
+    InvalidTeamId,
     /// The HTTP client could not be constructed.
     Http(reqwest::Error),
 }
@@ -33,6 +39,7 @@ impl std::fmt::Display for ClientBuildError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::InvalidApiKey => f.write_str("the API key is not a valid HTTP header value"),
+            Self::InvalidTeamId => f.write_str("the team id is not a valid HTTP header value"),
             Self::Http(e) => write!(f, "could not build the HTTP client: {e}"),
         }
     }
@@ -40,11 +47,14 @@ impl std::fmt::Display for ClientBuildError {
 
 impl std::error::Error for ClientBuildError {}
 
-/// Builds a client that sends `Authorization: Bearer <api_key>` on every
-/// request. The header is marked sensitive so it never appears in debug output.
+/// Builds a client that sends `Authorization: Bearer <api_key>` (marked
+/// sensitive, so it never appears in debug output) and, when `team_id` is set,
+/// [`TEAM_HEADER`] on every request. Pass `None` for the per-operation team
+/// header arguments of the generated methods; this client already sends it.
 pub fn authenticated_client(
     base_url: &str,
     api_key: &str,
+    team_id: Option<&str>,
     user_agent: &str,
 ) -> Result<Client, ClientBuildError> {
     let mut auth = reqwest::header::HeaderValue::try_from(format!("Bearer {api_key}"))
@@ -52,6 +62,11 @@ pub fn authenticated_client(
     auth.set_sensitive(true);
     let mut headers = reqwest::header::HeaderMap::new();
     headers.insert(reqwest::header::AUTHORIZATION, auth);
+    if let Some(team_id) = team_id {
+        let team = reqwest::header::HeaderValue::try_from(team_id)
+            .map_err(|_| ClientBuildError::InvalidTeamId)?;
+        headers.insert(reqwest::header::HeaderName::from_static(TEAM_HEADER), team);
+    }
     let http = reqwest::Client::builder()
         .default_headers(headers)
         .user_agent(user_agent)

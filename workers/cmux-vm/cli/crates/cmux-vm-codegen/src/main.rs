@@ -21,9 +21,7 @@ fn parse_args() -> Result<Args, String> {
     let mut label = None;
     let mut args = std::env::args().skip(1);
     while let Some(flag) = args.next() {
-        let value = args
-            .next()
-            .ok_or_else(|| format!("{flag} needs a value"))?;
+        let value = args.next().ok_or_else(|| format!("{flag} needs a value"))?;
         match flag.as_str() {
             "--spec" => spec = Some(PathBuf::from(value)),
             "--out" => out = Some(PathBuf::from(value)),
@@ -44,15 +42,20 @@ fn generate(args: &Args) -> Result<(), String> {
     let mut doc: serde_json::Value =
         serde_json::from_str(&text).map_err(|e| format!("parse {}: {e}", args.spec.display()))?;
     normalize::normalize(&mut doc);
-    let spec: openapiv3::OpenAPI = serde_json::from_value(doc)
-        .map_err(|e| format!("{} is not an OpenAPI 3.0 document after normalization: {e}", args.spec.display()))?;
+    let spec: openapiv3::OpenAPI = serde_json::from_value(doc).map_err(|e| {
+        format!(
+            "{} is not an OpenAPI 3.0 document after normalization: {e}",
+            args.spec.display()
+        )
+    })?;
 
     let settings = progenitor::GenerationSettings::default();
     let mut generator = progenitor::Generator::new(&settings);
     let tokens = generator
         .generate_tokens(&spec)
         .map_err(|e| format!("progenitor: {e}"))?;
-    let file: syn::File = syn::parse2(tokens).map_err(|e| format!("generated code does not parse: {e}"))?;
+    let file: syn::File =
+        syn::parse2(tokens).map_err(|e| format!("generated code does not parse: {e}"))?;
     let body = prettyplease::unparse(&file);
 
     let header = format!(

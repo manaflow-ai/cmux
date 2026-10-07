@@ -19,6 +19,9 @@ use serde_json::{Map, Value};
 /// - Schema `title`s are dropped. Effect fills them with refinement names such
 ///   as `maxLength(100)`, and the type generator would turn them into Rust type
 ///   names that change whenever a constraint changes.
+/// - `additionalProperties: false` is dropped. Effect puts it on every struct,
+///   and the generated types would then reject any field the server adds, so
+///   an older CLI would break on every additive API change.
 /// - Every 4xx/5xx response body becomes an untyped byte stream. Progenitor
 ///   needs one error type per operation, but Effect gives every error its own
 ///   schema. A byte stream keeps the status code and the body for every error,
@@ -111,7 +114,11 @@ fn normalize_parameters(params: &mut Value) {
 }
 
 fn normalize_content(content: &mut Value) {
-    for media in content.as_object_mut().into_iter().flat_map(|m| m.values_mut()) {
+    for media in content
+        .as_object_mut()
+        .into_iter()
+        .flat_map(|m| m.values_mut())
+    {
         if let Some(schema) = media.get_mut("schema") {
             normalize_schema(schema);
         }
@@ -148,6 +155,9 @@ fn normalize_schema(schema: &mut Value) {
 
     obj.remove("title");
     obj.remove("examples");
+    if obj.get("additionalProperties") == Some(&Value::Bool(false)) {
+        obj.remove("additionalProperties");
+    }
     obj.remove("$schema");
 
     if let Some(value) = obj.remove("const") {
@@ -172,7 +182,10 @@ fn normalize_schema(schema: &mut Value) {
                 obj.remove("type");
             }
             1 => {
-                obj.insert("type".to_owned(), rest.into_iter().next().unwrap_or_default());
+                obj.insert(
+                    "type".to_owned(),
+                    rest.into_iter().next().unwrap_or_default(),
+                );
             }
             _ => {
                 obj.remove("type");
@@ -251,7 +264,7 @@ mod tests {
                 "B": { "anyOf": [{ "$ref": "#/components/schemas/A" }, { "type": "null" }] },
                 "C": { "type": ["string", "null"], "title": "maxLength(3)" },
                 "D": { "const": "x", "exclusiveMinimum": 0 },
-                "E": { "type": "object", "properties": {
+                "E": { "type": "object", "additionalProperties": false, "properties": {
                     "title": { "type": "string", "title": "dropped" },
                     "type": { "oneOf": [{ "type": "string" }, { "type": "integer" }, { "type": "null" }] }
                 } }
@@ -260,17 +273,24 @@ mod tests {
         normalize(&mut doc);
         assert_eq!(doc["openapi"], "3.0.3");
         assert_eq!(doc["info"]["title"], "kept");
-        assert_eq!(schema(&doc, "A"), json!({ "type": "number", "nullable": true }));
+        assert_eq!(
+            schema(&doc, "A"),
+            json!({ "type": "number", "nullable": true })
+        );
         assert_eq!(
             schema(&doc, "B"),
             json!({ "allOf": [{ "$ref": "#/components/schemas/A" }], "nullable": true })
         );
-        assert_eq!(schema(&doc, "C"), json!({ "type": "string", "nullable": true }));
+        assert_eq!(
+            schema(&doc, "C"),
+            json!({ "type": "string", "nullable": true })
+        );
         assert_eq!(
             schema(&doc, "D"),
             json!({ "enum": ["x"], "minimum": 0, "exclusiveMinimum": true })
         );
         let e = schema(&doc, "E");
+        assert!(e.get("additionalProperties").is_none());
         assert_eq!(e["properties"]["title"], json!({ "type": "string" }));
         assert_eq!(
             e["properties"]["type"],
