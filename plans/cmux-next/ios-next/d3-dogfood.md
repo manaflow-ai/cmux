@@ -322,8 +322,10 @@ session that outruns its reader; an offer past an acceptor's 64 pending sessions
 registering an inbox (before, `bufferingNewest(64)` silently dropped an `Incoming` and leaked its inbox).
 `PathSelector` sizes its outcome stream to its attempts; the in-memory signaling hub and underlay network
 doubles are bounded. Left in the concurrency baseline: app-layer streams (CmuxiOS sources, mocks,
-CmuxMobileHost remote desktop/simulator, CmuxMobileSSH, CmuxRemoteDesktop, CmuxBrowserStream client) and
-the `DirectTransport.close` drain race (the socket is cut inside the group, so the loser finishes).
+CmuxMobileHost remote desktop/simulator, CmuxMobileSSH control/attachment streams, CmuxRemoteDesktop,
+CmuxBrowserStream client) and the `DirectTransport.close` drain race (the socket is cut inside the group,
+so the loser finishes). The CmuxMobileSSH session output ingress is now bounded oldest-first at 256
+events; a stalled reader closes that SSH channel on overflow instead of dropping terminal bytes.
 The crash ratchet reports 11 lower counts in Mac and Rust modules this lane did not touch; its baseline
 was left for those owners.
 

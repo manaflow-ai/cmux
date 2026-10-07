@@ -148,7 +148,12 @@ public actor SSHConnection {
         environment: [String: String] = [:],
         start: SSHSessionStart
     ) async throws -> SSHSessionChannel {
-        let (stream, continuation) = AsyncStream<SSHSessionEvent>.makeStream(bufferingPolicy: .unbounded)
+        // Session output is network ingress. Keep a finite oldest-first queue so a
+        // stalled reader cannot retain an unbounded transcript. The channel handler
+        // closes the session when this queue fills instead of dropping bytes.
+        let (stream, continuation) = AsyncStream<SSHSessionEvent>.makeStream(
+            bufferingPolicy: .bufferingOldest(SSHSessionChannelHandler.eventBufferLimit)
+        )
         let sessionHandler = SSHSessionChannelHandler(continuation: continuation)
         let child = try await createChannel(type: .session) { child in
             child.pipeline.addHandler(sessionHandler)
