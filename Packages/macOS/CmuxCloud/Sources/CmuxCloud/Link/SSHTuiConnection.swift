@@ -77,11 +77,15 @@ public struct SSHTuiConnection: Sendable {
     /// without a shared master, batch mode can't log in on a password-only host.
     private var sshOptions: [String] {
         var routeSensitiveOptions = configuration.identityFile.map { ["IdentityFile=\($0)"] } ?? []
+        var effectiveOptions = configuration.sshOptions
         if let agent = configuration.agentSocketPath?.trimmingCharacters(in: .whitespacesAndNewlines), !agent.isEmpty {
             routeSensitiveOptions.append("IdentityAgent=\(agent)")
+            if !SSHAgentSocketResolver(environment: [:]).hasOptionKey(effectiveOptions, key: "IdentityAgent") {
+                effectiveOptions.append("IdentityAgent=\(agent)")
+            }
         }
         return SSHConnectionSharingOptions().mergingDefaults(
-            into: configuration.sshOptions,
+            into: effectiveOptions,
             routeSensitiveOptions: routeSensitiveOptions,
             routeIdentifier: routeIdentityDigest
         )

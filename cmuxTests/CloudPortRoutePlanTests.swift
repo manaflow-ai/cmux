@@ -120,11 +120,11 @@ struct CloudPortRoutePlanTests {
         let ipv4 = store.model(
             machineID: "ssh-1", target: CloudPortForwardTarget(host: "127.0.0.1", port: 3000),
             loopbackHost: "127.0.0.1"
-        ) { makeModel(port: 3000, route: .loopback) }
+        ) { makeModel(port: 3000, host: "127.0.0.1", route: .loopback) }
         let ipv6 = store.model(
             machineID: "ssh-1", target: CloudPortForwardTarget(host: "::1", port: 3000),
             loopbackHost: "::1"
-        ) { makeModel(port: 3000, route: .loopback) }
+        ) { makeModel(port: 3000, host: "::1", route: .loopback) }
         #expect(ipv4 !== ipv6)
         #expect(ipv4.target.host == "127.0.0.1")
         #expect(ipv6.target.host == "::1")
@@ -380,13 +380,14 @@ struct CloudPortRoutePlanTests {
 
     private func makeModel(
         port: Int = 3000,
+        host: String = "10.0.0.7",
         coordinator: CloudTunnelCoordinator? = nil,
         wake: @escaping @MainActor () async throws -> Void = {},
         forward: @escaping @MainActor (CloudPortForwardTarget) async throws -> UInt16 = { _ in 41000 },
         stop: @escaping @MainActor () async -> Void = {},
         route: CloudPortAccessRoute = .privateNetwork
     ) -> CloudPortAccessModel {
-        CloudPortAccessModel(target: CloudPortForwardTarget(host: "10.0.0.7", port: port), coordinator: coordinator, wake: wake, startForward: forward, stopForward: stop, route: route)
+        CloudPortAccessModel(target: CloudPortForwardTarget(host: host, port: port), coordinator: coordinator, wake: wake, startForward: forward, stopForward: stop, route: route)
     }
 
     private enum TestForwardError: Error { case unavailable }

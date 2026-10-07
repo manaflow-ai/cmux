@@ -120,6 +120,14 @@ struct CloudBrowserProxyIntegrationTests {
             preloadInitialNavigationInBackground: true, websiteDataStore: .nonPersistent()
         )
         defer { panel.close() }
+        let hostWindow = NSWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.borderless], backing: .buffered, defer: false
+        )
+        hostWindow.isReleasedWhenClosed = false
+        hostWindow.contentView = panel.webView
+        hostWindow.orderFrontRegardless()
+        defer { hostWindow.contentView = nil; hostWindow.close() }
 
         let stoppedTarget = CloudLinkFirstValue<CloudPortForwardTarget>()
         let model = CloudPortAccessModel(
