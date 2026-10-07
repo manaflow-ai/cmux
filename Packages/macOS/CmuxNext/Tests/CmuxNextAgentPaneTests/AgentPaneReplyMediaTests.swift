@@ -85,7 +85,8 @@ import Testing
         let src = try #require(AgentPaneReplyImageTests.src(await Self.load(model, url)))
         #expect(src.hasPrefix("cmux-agent://pane/__media/"))
         #expect(src.hasSuffix(".mp4"))
-        let copy = try #require(AgentPaneSchemeHandler.mediaFile(for: try #require(URL(string: src))))
+        let media = try #require(URL(string: src))
+        let copy = try #require(AgentPaneSchemeHandler.mediaFile(for: media))
         #expect(try Data(contentsOf: copy) == Self.mp4)
         // The same link plays the same copy: no second fetch, no second gesture.
         #expect(AgentPaneReplyImageTests.src(await Self.load(model, url)) == src)
