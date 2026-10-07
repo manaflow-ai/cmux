@@ -379,3 +379,26 @@ describe("MCP OAuth origin", () => {
     expect(mcpPublicOrigin(junk, {})).toBe("https://cmux.com");
   });
 });
+
+describe("MCP OAuth loopback redirects", () => {
+  test("a loopback redirect may use any port, nothing else may differ", async () => {
+    const { redirectUriMatches } = await import("../services/mcp/oauth");
+    expect(redirectUriMatches("http://127.0.0.1/callback", "http://127.0.0.1:62563/callback")).toBe(true);
+    expect(redirectUriMatches("http://127.0.0.1/callback", "http://127.0.0.1:62563/other")).toBe(false);
+    expect(redirectUriMatches("http://127.0.0.1/callback", "http://localhost:62563/callback")).toBe(false);
+    expect(redirectUriMatches("https://chatgpt.com/cb", "https://chatgpt.com:444/cb")).toBe(false);
+  });
+
+  test("Codex's metadata document authorizes its loopback callback on any port", async () => {
+    const { store } = memoryStore();
+    const { challenge } = pkce();
+    const codexCimd = "https://chatgpt.com/oauth/codex/client.json";
+    const result = await validateAuthorizationRequest(store, authorizeParams(challenge, {
+      client_id: codexCimd,
+      redirect_uri: "http://127.0.0.1:62563/callback",
+    }), ORIGIN, {
+      fetchCimd: async () => ({ client_id: codexCimd, redirect_uris: ["http://127.0.0.1/callback", "http://localhost/callback"] }),
+    });
+    expect(result.ok).toBe(true);
+  });
+});

@@ -207,6 +207,26 @@ export function validRedirectUri(raw: unknown): raw is string {
   return url.protocol === "http:" && isLoopbackHost(url.hostname);
 }
 
+/**
+ * Exact match, except that a loopback redirect may use any port (RFC 8252 §7.3):
+ * native clients such as Codex register `http://127.0.0.1/callback` and listen
+ * on whatever port is free when they sign in.
+ */
+export function redirectUriMatches(registered: string, requested: string): boolean {
+  if (registered === requested) return true;
+  let a: URL;
+  let b: URL;
+  try {
+    a = new URL(registered);
+    b = new URL(requested);
+  } catch {
+    return false;
+  }
+  return a.protocol === "http:" && b.protocol === "http:" &&
+    isLoopbackHost(a.hostname) && a.hostname === b.hostname &&
+    a.pathname === b.pathname && a.search === b.search && !b.hash && !b.username && !b.password;
+}
+
 function cimdHosts(env: Record<string, string | undefined>): readonly string[] {
   const extra = (env.CMUX_MCP_OAUTH_CIMD_HOSTS ?? "").split(",").map((host) => host.trim().toLowerCase()).filter(Boolean);
   return [...DEFAULT_CIMD_HOSTS, ...extra];
@@ -353,7 +373,7 @@ export async function validateAuthorizationRequest(
     return { ok: false, redirectable: false, error: oauthError };
   }
   const redirectUri = params.get("redirect_uri") ?? (client.redirectUris.length === 1 ? client.redirectUris[0] : null);
-  if (!redirectUri || !client.redirectUris.includes(redirectUri)) {
+  if (!redirectUri || !client.redirectUris.some((registered) => redirectUriMatches(registered, redirectUri))) {
     return { ok: false, redirectable: false, error: new McpOauthError("invalid_request", "redirect_uri is not registered for this client.") };
   }
   const state = params.get("state");
