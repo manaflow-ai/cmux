@@ -12,12 +12,14 @@ public enum OnboardingStep: String, CaseIterable, Codable, CodingKeyRepresentabl
     case localNetwork
     case pair
     case sshHost
+    /// Lane C12: create the first Cloud machine (behind a flag).
+    case cloudMachine
     case celebrate
 
     public var phase: OnboardingPhase {
         switch self {
         case .welcome, .approve, .reply, .signIn: .intro
-        case .notifications, .installMac, .localNetwork, .pair, .sshHost, .celebrate: .setup
+        case .notifications, .installMac, .localNetwork, .pair, .sshHost, .cloudMachine, .celebrate: .setup
         }
     }
 

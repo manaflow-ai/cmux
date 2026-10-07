@@ -1,5 +1,6 @@
 import CmuxiOSAuth
 import CmuxiOSBrowser
+import CmuxiOSCloud
 import CmuxiOSComposer
 import CmuxiOSFeatureKit
 import CmuxiOSFeed
@@ -77,6 +78,8 @@ enum ShellComposition {
                 workspaces.open(hostID: hostID, workspaceID: workspaceID)
             },
             isMock: sources.resolved[.composer] != .real)
+        // Lane C12: the Cloud tab over the team's machines.
+        let cloud = CloudFeature(source: sources.cloud, isMock: sources.resolved[.cloud] != .real)
         let floatingCompose = container.flags.isEnabled(.composeTab)
         // Lane C15: universal search over the same seams.
         let search = SearchComposition.makeFeature(
@@ -92,6 +95,7 @@ enum ShellComposition {
                 return screen
             },
             .compose: { composer.makeComposeScreen() },
+            .cloud: { cloud.makeCloudScreen() },
             .feed: {
                 let feed = FeedViewController(source: feedSource, navigator: feedNavigator, isMock: feedIsMock, device: deviceName)
                 let navigation = UINavigationController(rootViewController: feed)

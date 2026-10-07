@@ -6,7 +6,8 @@ import Foundation
 import os
 import Testing
 
-@Suite("WebRTC transport", .serialized)
+extension LiveWebRTCTests {
+@Suite("WebRTC transport")
 struct TransportTests {
     static let reliable = TransportLane(reliability: .reliableOrdered, priority: .render)
     static let bulk = TransportLane(reliability: .reliableOrdered, priority: .bulk)
@@ -177,6 +178,7 @@ struct TransportTests {
         CVPixelBufferCreate(kCFAllocatorDefault, width, height, kCVPixelFormatType_420YpCbCr8BiPlanarFullRange, attributes, &buffer)
         return buffer
     }
+}
 }
 
 /// Drains a transport's events and returns its close reasons.

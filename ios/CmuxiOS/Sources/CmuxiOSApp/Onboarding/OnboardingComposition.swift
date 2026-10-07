@@ -16,7 +16,8 @@ enum OnboardingComposition {
         }
         return OnboardingModel(
             dependencies: dependencies(container: container, store: container.onboardingStore),
-            context: OnboardingContext(isSignedIn: isSignedIn, mode: .firstRun),
+            context: OnboardingContext(isSignedIn: isSignedIn, mode: .firstRun,
+                                       offersCloudMachine: CloudComposition.onboardingHook(container: container) != nil),
             start: start
         )
     }
@@ -49,7 +50,8 @@ enum OnboardingComposition {
                 guard let container else { return UIViewControllerPlaceholder.make() }
                 return SignInScreen.makeEmbedded(coordinator: container.auth.coordinator)
             },
-            offersSampleScan: offersSampleScan
+            offersSampleScan: offersSampleScan,
+            cloud: CloudComposition.onboardingHook(container: container)
         )
     }
 

@@ -57,7 +57,7 @@ public final class WebRTCDatagramListener: Sendable {
         let (events, sink) = AsyncStream.makeStream(of: TransportEvent.self, bufferingPolicy: .unbounded)
         guard let peer = try? WebRTCPeer(
             factory: WebRTCFactory.shared(for: configuration.network, host: true), mode: .datagram, ice: ice,
-            lowWater: configuration.lowWaterBytes, frameSink: sink
+            limits: PeerSendLimits(configuration), frameSink: sink
         ) else {
             await router.unregister(incoming.session)
             return
