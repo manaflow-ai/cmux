@@ -458,6 +458,19 @@ class PathRoutingStructure(unittest.TestCase):
         self.assertIn("group: cmux-next-${{ github.event.pull_request.number || github.run_id }}", text)
         self.assertIn("cancel-in-progress: ${{ github.event_name == 'pull_request' }}", text)
 
+    def test_every_green_feat_push_promotes_without_a_debounce(self):
+        """nightly-next rolls forward to every green head. Promotions are never dropped by a
+        time window; nightly.yml's own concurrency group coalesces them: the running build
+        finishes and only the newest pending one runs next."""
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        run = jobs["request-nightly-next"]["steps"][0]["run"]
+        self.assertIn("-f promote_nightly_next_sha=", run)
+        self.assertNotIn("promote_nightly_next_debounce=true", run)
+        nightly = yaml.safe_load((WORKFLOW.parent / "nightly.yml").read_text(encoding="utf-8"))
+        group = nightly["concurrency"]["group"]
+        self.assertIn("github.ref_name == 'main' && 'nightly-shared' || github.ref_name", group)
+        self.assertIs(nightly["concurrency"]["cancel-in-progress"], False)
+
     def test_batch_dispatch_runs_every_dispatch_gated_job(self):
         # scripts/ci/next_batch.py validates a stack of pull requests by
         # dispatching this workflow on a next-batch/* branch. Every job that

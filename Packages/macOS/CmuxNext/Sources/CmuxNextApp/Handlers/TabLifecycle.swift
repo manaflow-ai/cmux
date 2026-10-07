@@ -11,26 +11,33 @@ import Foundation
 /// (`ActionRegistry.track`) for callers that await the effect.
 enum TabLifecycle {
     static func newTerminal(_ ctx: AppActionContext, _ invocation: ActionInvocation) {
-        guard let pane = ctx.daemonPane(invocation) else { return }
+        guard let focused = ctx.daemonPane(invocation) else { return }
         let cwd = invocation["cwd"]?.stringValue
         // `--keep`: the terminal outlives its tab (a background terminal made on purpose).
         let keep = invocation["keep"]?.boolValue == true ? true : nil
-        let controller = ctx.services.paneController(for: pane)
         let opensWorkspace = NewTerminalWorkspaceSetting.resolves(
             setting: ctx.services.settings?.snapshot.newTerminalOpensWorkspace ?? NewTerminalWorkspaceSetting.fallback,
             toggled: invocation["toggleWorkspace"]?.boolValue == true
         )
-        noteUserChoice(.terminal, ctx, invocation, pane: pane)
+        noteUserChoice(.terminal, ctx, invocation, pane: focused)
         if invocation.origin == .user, opensWorkspace, let windows = ctx.services.windows,
            let windowID = ctx.activeWindow?.state.id {
-            let daemon = ctx.services.daemon(for: pane)
-            let start = cwd ?? controller?.selectedTab?.cwd ?? pane.tabs.first?.cwd
+            let daemon = ctx.services.daemon(for: focused)
+            let start = cwd ?? ctx.services.paneController(for: focused)?.selectedTab?.cwd ?? focused.tabs.first?.cwd
             ctx.registry.track(Task {
                 _ = try? await windows.createWorkspace(WorkspaceSpawn(cwd: start, keep: keep == true), on: daemon, into: windowID)
                 return nil
             })
             return
         }
+        // `layout.newPanePlacement: split`: a new pane like New Pane (Auto Layout) (PanePlacementRouting).
+        let pane: PaneModel
+        switch PanePlacementRouting.route(ctx, invocation, from: focused, tiles: true) {
+        case .tab(let target): pane = target
+        case .split(let target, let direction):
+            return PaneHandlers.split(ctx, PanePlacementRouting.aimed(invocation, at: target, from: ctx.services.paneController(for: focused)), direction: direction)
+        }
+        let controller = ctx.services.paneController(for: pane)
         if let controller { return controller.newTerminalTab(cwd: cwd, keep: keep, fromSelectedTab: true) }
         let handle = pane.handle
         let start = cwd ?? pane.tabs.first?.cwd
@@ -196,10 +203,21 @@ enum TabLifecycle {
             })
             return
         }
-        if let controller = ctx.services.paneController(for: pane) {
+        // `layout.newPanePlacement: split` with `layout.tileBrowsers`: a person's browser opens
+        // as a tab in the pane Auto Layout picks, then moves into its own pane (PanePlacementRouting).
+        // Only a person's browser tiles, so `agentTab` is nil on that path.
+        var opener = pane
+        var then = agentTab
+        if case .split(let target, let direction) = PanePlacementRouting.route(
+            ctx, invocation, from: pane, tiles: PanePlacementRouting.browsersTile(ctx)
+        ) {
+            opener = target
+            then = { @MainActor surface in PanePlacementRouting.moveToSplit(ctx, surface, of: target, direction: direction) }
+        }
+        if let controller = ctx.services.paneController(for: opener) {
             // No URL given: what the selected tab works on (#16620).
-            return url == nil ? controller.newBrowserTabFromSelectedTab(engine: engine, then: agentTab)
-                : controller.newBrowserTab(url: url, engine: engine, then: agentTab)
+            return url == nil ? controller.newBrowserTabFromSelectedTab(engine: engine, then: then)
+                : controller.newBrowserTab(url: url, engine: engine, then: then)
         }
         let browserTabs = ctx.services.cache.browserTabs!
         guard browserTabs.isAvailable() else { return ctx.refuse(RefusalStrings.needsDaemonCapability(DaemonCapabilities.shared.frontendBrowserTabs)) }
