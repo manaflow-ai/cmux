@@ -1,4 +1,5 @@
 import type { PermissionClientState } from "./permissions/protocol";
+import type { AgentQuestion } from "./question/model";
 import type { HandoffClientState } from "./handoff/client";
 import type { Enforcement } from "./handoff/protocol";
 import type { SlashCommand } from "./slashCommands";
@@ -79,6 +80,9 @@ export type AcpmuxPermission = {
   kind?: string;
   pending: boolean;
   options: { id: string; name: string; allow: boolean }[];
+  /// The question this permission asks (AskUserQuestion, Codex user input, an interactive ACP
+  /// ask, the Chief), mapped from the request by question/model.ts; unset for a tool permission.
+  question?: AgentQuestion;
 };
 
 export type AcpmuxSnapshot = {
