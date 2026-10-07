@@ -89,35 +89,42 @@ export function Combobox({
       update(highlighted ?? suggestions[0]);
     }
   };
+  const enabledSuggestions = suggestions.filter((item) => !isItemDisabled?.(item));
+  const disabledSuggestions = suggestions.filter((item) => isItemDisabled?.(item));
+  const renderItemContent = (item: string) => (renderItem ? renderItem(item) : item);
   const list = (
     <Autocomplete.List
       className={cx("ui-combobox-list", listClassName)}
       render={<ul />}
       hidden={suggestions.length === 0}
     >
-      {(item: string) => (
-        <Autocomplete.Item
-          key={item}
-          value={item}
-          disabled={isItemDisabled?.(item)}
-          className={cx("ui-combobox-item", itemClassName)}
-          render={<li />}
-          onClick={() => {
-            if (!isItemDisabled?.(item)) onSubmit(item);
-          }}
-        >
-          {renderItem ? renderItem(item) : item}
-        </Autocomplete.Item>
-      )}
+      <Autocomplete.Collection>
+        {(item: string) => (
+          <Autocomplete.Item
+            key={item}
+            value={item}
+            className={cx("ui-combobox-item", itemClassName)}
+            render={<li />}
+            onClick={() => onSubmit(item)}
+          >
+            {renderItemContent(item)}
+          </Autocomplete.Item>
+        )}
+      </Autocomplete.Collection>
+      {disabledSuggestions.map((item) => (
+        <li key={item} data-disabled className={cx("ui-combobox-item", itemClassName)}>
+          {renderItemContent(item)}
+        </li>
+      ))}
     </Autocomplete.List>
   );
   const root = (
     <Autocomplete.Root
-      items={suggestions as string[]}
+      items={enabledSuggestions as string[]}
       filter={null}
       value={value}
       onValueChange={(next) => update(next)}
-      open={inline || suggestions.length > 0}
+      open={inline || enabledSuggestions.length > 0}
       inline={inline}
       autoHighlight={autoHighlight}
       onItemHighlighted={(item) => setHighlighted(item as string | undefined)}
