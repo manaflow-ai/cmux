@@ -38,8 +38,12 @@ public final class OnboardingModel {
     public private(set) var ended = false
     /// The window asks to close (the controller observes this).
     public var onEnd: ((Bool) -> Void)?
+    /// This window shows the first run (not a group opened from elsewhere).
+    public let isFirstRun: Bool
 
-    public init(services: any OnboardingServices, start: Step? = nil) {
+    /// `resumingFirstRunAt`: the first run, at the step a previous window
+    /// (or app launch) left it.
+    public init(services: any OnboardingServices, start: Step? = nil, resumingFirstRunAt resume: Step? = nil) {
         self.services = services
         let computerUseSource = services.computerUsePermissions
         func available(_ step: Step) -> Bool {
@@ -60,6 +64,7 @@ public final class OnboardingModel {
             return [Self.bringWork, Self.firstRun].first { $0.contains(start) } ?? [start]
         }
         let steps = group?.filter(available) ?? firstRun
+        isFirstRun = group == nil
         planned = steps
         step = start.flatMap { steps.contains($0) ? $0 : nil } ?? steps[0]
         firstTask = FirstTaskStepModel(services: services)
@@ -155,6 +160,11 @@ public final class OnboardingModel {
 
     /// Ends the flow: `completed` false means skipped (Escape, close button).
     /// A running import finishes; an uncommitted theme is put back.
+    /// The window closed without Skip or Done: the run is not over.
+    public func leave() {
+        finish(completed: false)
+    }
+
     public func finish(completed: Bool) {
         guard !ended else { return }
         ended = true

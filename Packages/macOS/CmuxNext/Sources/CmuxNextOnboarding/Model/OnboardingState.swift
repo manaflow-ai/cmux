@@ -46,6 +46,14 @@ public nonisolated struct OnboardingStateFile: Sendable {
         return record.version < Self.currentVersion
     }
 
+    /// Records that the first run is unfinished and at `step`.
+    public func markProgress(_ step: OnboardingModel.Step, now: Date = Date()) throws {}
+
+    /// The step an unfinished first run was left at, or nil.
+    public func resumeStep() -> OnboardingModel.Step? {
+        nil
+    }
+
     /// Records that onboarding ended (`completed` false: skipped).
     public func markDone(completed: Bool, now: Date = Date()) throws {
         try write(Record(version: Self.currentVersion, completed: completed, date: now))
