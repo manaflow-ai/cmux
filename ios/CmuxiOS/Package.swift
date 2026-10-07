@@ -12,6 +12,9 @@ let package = Package(
     ],
     products: [
         .library(name: "CmuxiOSApp", targets: ["CmuxiOSApp"]),
+        // The Live Activity attributes and widget UI, linked by the app and
+        // the AgentActivityWidget extension target.
+        .library(name: "CmuxiOSLiveActivity", targets: ["CmuxiOSLiveActivity"]),
     ],
     dependencies: [
         .package(path: "../../Packages/Shared/CmuxHomeCore"),
@@ -45,6 +48,8 @@ let package = Package(
                 .product(name: "CmuxTerminalRenderCore", package: "CmuxTerminalRenderCore"),
                 "CmuxiOSDesign",
                 "CmuxiOSPush",
+                "CmuxiOSNotifyCore",
+                "CmuxiOSLiveActivity",
                 "CmuxiOSIdentity",
                 "CmuxiOSShell",
                 "CmuxiOSFeatureKit",
@@ -133,9 +138,42 @@ let package = Package(
         .target(
             name: "CmuxiOSPush",
             dependencies: [
+                "CmuxiOSFeatureKit",
+                "CmuxiOSNotifyCore",
+                "CmuxiOSLiveActivity",
                 .product(name: "CmuxFeedPushCore", package: "CmuxFeedPushCore"),
                 .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
             ],
+            resources: [.process("Resources")],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // Lane C7 (plans/cmux-next/ios-next/c7-notify.md): banner actions as
+        // C6 feed intents, the one-shot ops performer and the badge and
+        // stale-banner reconciler. Foundation only, so its tests run on macOS.
+        .target(
+            name: "CmuxiOSNotifyCore",
+            dependencies: [
+                "CmuxiOSFeatureKit",
+                "CmuxiOSFeedCloud",
+                "CmuxiOSFeedModel",
+                .product(name: "CmuxFeedPushCore", package: "CmuxFeedPushCore"),
+            ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .testTarget(
+            name: "CmuxiOSNotifyCoreTests",
+            dependencies: [
+                "CmuxiOSNotifyCore", "CmuxiOSFeatureKit",
+                .product(name: "CmuxFeedPushCore", package: "CmuxFeedPushCore"),
+            ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // Live Activities for running agents: ActivityKit attributes and the
+        // lock screen and Dynamic Island views (no app-only API, so the
+        // widget extension links it too).
+        .target(
+            name: "CmuxiOSLiveActivity",
+            dependencies: [.product(name: "CmuxFeedPushCore", package: "CmuxFeedPushCore")],
             resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
@@ -261,6 +299,7 @@ let package = Package(
             name: "CmuxiOSSettingsCore",
             dependencies: [
                 "CmuxiOSFeatureKit",
+                .product(name: "CmuxFeedPushCore", package: "CmuxFeedPushCore"),
                 .product(name: "CmuxTheme", package: "CmuxTheme"),
                 .product(name: "CmuxTerminalRenderCore", package: "CmuxTerminalRenderCore"),
                 .product(name: "CmuxLink", package: "CmuxLink"),
@@ -271,6 +310,7 @@ let package = Package(
             name: "CmuxiOSSettingsCoreTests",
             dependencies: [
                 "CmuxiOSSettingsCore", "CmuxiOSFeatureKit",
+                .product(name: "CmuxFeedPushCore", package: "CmuxFeedPushCore"),
                 .product(name: "CmuxTheme", package: "CmuxTheme"),
                 .product(name: "CmuxTerminalRenderCore", package: "CmuxTerminalRenderCore"),
                 .product(name: "CmuxLink", package: "CmuxLink"),
@@ -282,6 +322,7 @@ let package = Package(
             name: "CmuxiOSShell",
             dependencies: [
                 "CmuxiOSDesign", "CmuxiOSFeatureKit", "CmuxiOSPlatform", "CmuxiOSSettingsCore",
+                .product(name: "CmuxFeedPushCore", package: "CmuxFeedPushCore"),
                 .product(name: "CmuxLink", package: "CmuxLink"),
                 .product(name: "CmuxTheme", package: "CmuxTheme"),
                 .product(name: "CmuxTerminalRenderCore", package: "CmuxTerminalRenderCore"),

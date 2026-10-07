@@ -8,6 +8,8 @@ import CmuxiOSFeatureKit
 import CmuxiOSFeed
 import CmuxiOSFeedCloud
 import CmuxiOSIdentity
+import CmuxiOSNotifyCore
+import CmuxPhonePush
 import CmuxiOSPlatform
 import CmuxiOSOnboarding
 import CmuxiOSOnboardingCore
@@ -91,6 +93,12 @@ final class AppContainer {
     private var accountChanges: Task<Void, Never>?
     let feedResponder: FeedNotificationResponder
     private let notificationDelegate: NotificationDelegate
+    /// Lane C7: dismiss pushes, the foreground badge and banner sync, and
+    /// Live Activities for running agents (c7-notify.md).
+    let remoteNotifications = RemoteNotificationHandler()
+    let activities: AgentActivityCenter
+    private var foregroundSync: ForegroundNotificationSync?
+    private var signedInAccount: SignedInAccount?
     private(set) var home: HomeStore?
     private var homeAccount: String?
     /// Set while the API Worker refuses this app version (enterprise P17,
@@ -163,7 +171,14 @@ final class AppContainer {
         permissions = SystemPermissionCenter(defaults: .standard, clock: ContinuousClock()) {
             Task { await pushForPermissions.authorizationChanged() }
         }
-        feedResponder = FeedNotificationResponder(ops: ops)
+        feedResponder = FeedNotificationResponder(performer: OpsFeedIntentPerformer(ops: ops, device: UIDevice.current.name))
+        activities = AgentActivityCenter(ops: ops)
+        // C11's preferences reach the push owner and the extension (c7-notify.md section 4).
+        // The keychain store the extension reads (an App Group is absent on release App IDs).
+        let share = NotificationPreferencesShare(
+            read: { Bundle.main.phonePushSharedStateStorage.data(forKey: NotificationPreferencesShare.key) },
+            write: { Bundle.main.phonePushSharedStateStorage.setData($0, forKey: NotificationPreferencesShare.key) })
+        notificationPreferencesSinkFactory = { CloudNotificationPreferencesSink(ops: ops, share: share) }
         notificationDelegate = NotificationDelegate(responder: feedResponder, router: router)
         UNUserNotificationCenter.current().delegate = notificationDelegate
         // A banner answer can arrive before auth restores (background launch):
@@ -193,6 +208,11 @@ final class AppContainer {
             // Replaced by the root controller, which opens the Feed tab.
             Logger(subsystem: "dev.cmux.ios", category: "push").info("open feed item \(item, privacy: .public)")
         }
+        foregroundSync = ForegroundNotificationSync { [weak self] in
+            guard let self, let account = self.signedInAccount else { return nil }
+            return self.featureSources(for: account).feed
+        }
+        activities.resume()
     }
 
     /// C6: the feed seam's real owner is `FeedDO` over `/v1/wire/feed`,
@@ -338,6 +358,7 @@ final class AppContainer {
     /// is false while onboarding will prime the notifications prompt.
     func signedIn(account: SignedInAccount, requestPushPermission: Bool = true) {
         diagnostics.info("auth", "signed in")
+        signedInAccount = account
         startRemoteConfig()
         let coordinator = auth.coordinator
         let identity = self.identity
@@ -352,11 +373,16 @@ final class AppContainer {
                 await identity?.signedOut(of: replaced)
             }
             await push.start(for: account.userID, requestPermission: requestPushPermission)
+            // This install starts on the owner's defaults: send the device's choice.
+            await MainActor.run { self.notificationPreferences.resend() }
         }
+        foregroundSync?.run()
     }
 
     func signedOut() {
         diagnostics.info("auth", "signed out")
+        signedInAccount = nil
+        foregroundSync?.cancel()
         stopRemoteConfig()
         let identity = self.identity
         let push = self.push

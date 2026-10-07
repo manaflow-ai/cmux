@@ -132,6 +132,23 @@
         }
       }
     },
+    "push.action.allowOnce": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow Once"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今回のみ許可"
+          }
+        }
+      }
+    },
     "push.action.allowSession": {
       "extractionState": "manual",
       "localizations": {
@@ -259,6 +276,23 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "本工作階段允許"
+          }
+        }
+      }
+    },
+    "push.action.approvePlan": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Approve"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "承認"
           }
         }
       }
@@ -656,6 +690,23 @@
         }
       }
     },
+    "push.action.markRead": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mark Read"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "既読にする"
+          }
+        }
+      }
+    },
     "push.action.openOnMac": {
       "extractionState": "manual",
       "localizations": {
@@ -918,6 +969,57 @@
         }
       }
     },
+    "push.action.requestChanges": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Request Changes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "変更を依頼"
+          }
+        }
+      }
+    },
+    "push.answeredElsewhere.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Another device answered this first."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別のデバイスが先に回答しました。"
+          }
+        }
+      }
+    },
+    "push.answeredElsewhere.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Answered elsewhere"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別の場所で回答済み"
+          }
+        }
+      }
+    },
     "push.notSent.body": {
       "extractionState": "manual",
       "localizations": {
@@ -1176,6 +1278,23 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "未傳送回答"
+          }
+        }
+      }
+    },
+    "push.reply.changesPlaceholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "What should change?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "変更してほしい点"
           }
         }
       }

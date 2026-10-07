@@ -110,7 +110,7 @@ describe("APNs sender", () => {
     expect(req.headers.get("apns-push-type")).toBe("alert")
     const body = (await req.json()) as any
     expect(body.aps).toMatchObject({ alert: { title: "Run npm run build?", subtitle: "Claude Code · api" }, category: "FEED_APPROVE", "thread-id": "claude-code:s1" })
-    expect(body.cmux).toEqual({ feed_item: "fi_aaaaaaaaaaaaaaaaaaaa", kind: "approve", type: "request" })
+    expect(body.cmux).toEqual({ feed_item: "fi_aaaaaaaaaaaaaaaaaaaa", kind: "approve", type: "request", expires_at: 10_000_000_000_000, notify_kind: "permission" })
     expect(apnsPayload(item({ kind: "mail", type: "notice", title: "Secret subject" })).aps.alert).toEqual({ title: "New mail" })
     expect(new URL(apnsRequest(target(), item(), "jwt", 1).url).host).toBe("api.push.apple.com")
     // Over-long text is cut on code points and the body stays under the APNs limit.
@@ -162,8 +162,14 @@ describe("push targets end to end (workerd)", () => {
     const token = (await call("/v1/auth/token", undefined, { user, install, nonce: ch.json.nonce, signature: b64u(sig) })).json.access_token as string
     const reg = await op(token, "push.target.register", { token: tok("f"), topic: "dev.cmux.ios", environment: "production", device_name: "iPhone" })
     expect(reg.json).toMatchObject({ ok: true, value: { install, token: tok("f") } })
-    const stub = testEnv.USER_DO.get(testEnv.USER_DO.idFromName(user)) as unknown as { pushTargets(u: string): Promise<Array<PushTarget>>; dropPushTarget(u: string, t: string, r: string): Promise<void> }
+    const stub = testEnv.USER_DO.get(testEnv.USER_DO.idFromName(user)) as unknown as { pushTargets(u: string): Promise<Array<PushTarget>>; dropPushTarget(u: string, t: string, r: string): Promise<void>; notifyTargets(u: string): Promise<any> }
     expect((await stub.pushTargets(user)).map((t) => t.token)).toEqual([tok("f")])
+    // C7: the same install's preferences and a Live Activity token reach FeedDO with its target.
+    expect((await op(token, "push.prefs.set", { kinds: ["permission"], sound: false, time_sensitive: true })).json).toMatchObject({ ok: true })
+    expect((await op(token, "notify.activity.register", { activity: "act_e2e", push_token: tok("9"), subject: { host: "h_mac", task: "task_1" }, title: "Fix" })).json).toMatchObject({ ok: true })
+    const targets = await stub.notifyTargets(user)
+    expect(targets.push[0].prefs).toEqual({ kinds: ["permission"], sound: false, time_sensitive: true })
+    expect(targets.activities.map((a: { activity: string; topic: string }) => [a.activity, a.topic])).toEqual([["act_e2e", "dev.cmux.ios"]])
     await stub.dropPushTarget(user, tok("f"), "Unregistered")
     expect(await stub.pushTargets(user)).toEqual([])
   })

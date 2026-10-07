@@ -17,6 +17,12 @@ public enum CmuxiOSApplication {
         Task { await container.push.didRegister(token: deviceToken) }
     }
 
+    /// A background push (`content-available`): the feed owner's dismiss and
+    /// badge (c7-notify.md section 3). Returns whether it carried new data.
+    public static func didReceiveRemoteNotification(_ userInfo: [AnyHashable: Any]) async -> Bool {
+        await container.remoteNotifications.handle(userInfo)
+    }
+
     /// A URL the scene received (scheme or universal link). Returns false
     /// for links this build does not understand.
     @discardableResult

@@ -10,34 +10,11 @@ public protocol InstallTokenProviding: Sendable {
     func invalidate(for user: String?) async
 }
 
-public enum CloudOpsError: Error, Hashable, Sendable {
-    /// No install principal on this device yet.
-    case installTokenUnavailable
-    /// HTTP-level refusal (auth, redirect, server error).
-    case httpStatus(Int)
-    /// The owner refused the op (`ok: false`).
-    case rejected(code: String, retryable: Bool)
-    case transport
-    /// No valid API Worker origin is configured: nothing is sent.
-    case notConfigured
-}
-
 /// No install principal: refuse, so nothing is sent unauthenticated.
 public struct UnavailableInstallToken: InstallTokenProviding {
     public init() {}
     public func installToken(for user: String?) async throws -> String { throw CloudOpsError.installTokenUnavailable }
     public func invalidate(for user: String?) async {}
-}
-
-/// Sends typed ops to the API Worker (`POST /v1/ops`). Redirects are
-/// refused, so the bearer never reaches another origin.
-public protocol CloudOpsSending: Sendable {
-    /// Sends as the install of `user` (nil: the current user).
-    func send(_ op: CloudOp, as user: String?) async throws
-}
-
-extension CloudOpsSending {
-    public func send(_ op: CloudOp) async throws { try await send(op, as: nil) }
 }
 
 public struct CloudOpsClient: CloudOpsSending {
@@ -83,10 +60,4 @@ public struct CloudOpsClient: CloudOpsSending {
             throw CloudOpsError.rejected(code: code, retryable: retryable)
         }
     }
-}
-
-/// Used when no valid API Worker origin is configured (fail closed).
-public struct DisabledCloudOps: CloudOpsSending {
-    public init() {}
-    public func send(_ op: CloudOp, as user: String?) async throws { throw CloudOpsError.notConfigured }
 }

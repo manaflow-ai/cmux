@@ -66,8 +66,9 @@ extension MobileCatalog {
         MobileFamily("notify", .control, owner: "UserDO", messages: [
             MobileMessage("push.target.register", .op, .control, .c2s, owner: "UserDO", existing: true),
             MobileMessage("push.target.remove", .op, .control, .c2s, owner: "UserDO", existing: true),
-            MobileMessage("notify.activity.register", .op, .control, .c2s, owner: "UserDO"),
-            MobileMessage("notify.activity.end", .op, .control, .c2s, owner: "UserDO"),
+            MobileMessage("push.prefs.set", .op, .control, .c2s, owner: "UserDO", existing: true),
+            MobileMessage("notify.activity.register", .op, .control, .c2s, owner: "UserDO", existing: true),
+            MobileMessage("notify.activity.end", .op, .control, .c2s, owner: "UserDO", existing: true),
             MobileMessage("notify.badge.set", .owner, .control, .s2c, owner: "UserDO"),
         ]),
         MobileFamily("task", .control, owner: "mac-task-runner", stream: "task:<host>", messages: [

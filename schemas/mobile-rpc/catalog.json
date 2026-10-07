@@ -114,8 +114,9 @@
       "messages": [
         { "name": "push.target.register", "kind": "op", "plane": "control", "dir": "c2s", "owner": "UserDO", "existing": true },
         { "name": "push.target.remove", "kind": "op", "plane": "control", "dir": "c2s", "owner": "UserDO", "existing": true },
-        { "name": "notify.activity.register", "kind": "op", "plane": "control", "dir": "c2s", "owner": "UserDO" },
-        { "name": "notify.activity.end", "kind": "op", "plane": "control", "dir": "c2s", "owner": "UserDO" },
+        { "name": "push.prefs.set", "kind": "op", "plane": "control", "dir": "c2s", "owner": "UserDO", "existing": true },
+        { "name": "notify.activity.register", "kind": "op", "plane": "control", "dir": "c2s", "owner": "UserDO", "existing": true },
+        { "name": "notify.activity.end", "kind": "op", "plane": "control", "dir": "c2s", "owner": "UserDO", "existing": true },
         { "name": "notify.badge.set", "kind": "owner", "plane": "control", "dir": "s2c", "owner": "UserDO" }
       ]
     },

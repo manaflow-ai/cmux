@@ -1,3 +1,4 @@
+public import CmuxFeedPushCore
 import CmuxiOSFeatureKit
 public import Foundation
 public import Observation
@@ -35,6 +36,12 @@ public final class NotificationPreferencesStore {
         preferences = next
         if let data = try? JSONEncoder().encode(next) { defaults.set(data, forKey: key) }
         send(next)
+    }
+
+    /// Sends the current value again: a new install (after sign-in) starts
+    /// with the owner's defaults until it hears this device's choice.
+    public func resend() {
+        send(preferences)
     }
 
     /// Sends the newest value; an older send's result is ignored.
