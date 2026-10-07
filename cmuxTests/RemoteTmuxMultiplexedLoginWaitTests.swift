@@ -43,11 +43,13 @@ import Testing
 
             let appDelegate = try #require(AppDelegate.shared)
             let controller = appDelegate.remoteTmuxController
+            let windowId = appDelegate.createMainWindow(shouldActivate: false)
+            defer { appDelegate.discardMainWindowWithoutClosedHistory(windowId: windowId) }
             let host = RemoteTmuxHost(destination: "login-wait-\(UUID().uuidString)@example.test")
             defer { _ = controller.stopMultiplexedHost(host: host) }
 
             let outcome = try await controller.attachHostMultiplexed(
-                host: host, windowTarget: .contextualWindow(nil), activate: false)
+                host: host, windowTarget: .explicitWindow(windowId), activate: false)
 
             guard case .authRequired = outcome else {
                 Issue.record("a host that wants a sign-in should hand back the interactive login, got \(outcome)")
@@ -59,8 +61,8 @@ import Testing
         }
     }
 
-    @Test(.timeLimit(.minutes(2)), arguments: [true, false])
-    func callerOwnedLoginResumesOrDetachesWithoutALoginWorkspace(finishLogin: Bool) async throws {
+    @Test(.timeLimit(.minutes(2)), arguments: ["authenticate", "detach", "dismiss"])
+    func callerOwnedLoginResumesOrDetachesWithoutALoginWorkspace(action: String) async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             let root = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
                 .appendingPathComponent("remote-tmux-cli-login-\(UUID().uuidString)", isDirectory: true)
@@ -95,7 +97,10 @@ import Testing
                 if let previousSSH { setenv(sshOverrideKey, previousSSH, 1) } else { unsetenv(sshOverrideKey) }
             }
 
-            let controller = try #require(AppDelegate.shared).remoteTmuxController
+            let appDelegate = try #require(AppDelegate.shared)
+            let controller = appDelegate.remoteTmuxController
+            let windowId = appDelegate.createMainWindow(shouldActivate: false)
+            defer { appDelegate.discardMainWindowWithoutClosedHistory(windowId: windowId) }
             let host = RemoteTmuxHost(destination: "cli-login-\(UUID().uuidString)@example.test")
             let socket = URL(fileURLWithPath: host.controlSocketPath)
             try FileManager.default.createDirectory(at: socket.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -105,7 +110,7 @@ import Testing
                 try? FileManager.default.removeItem(at: socket)
             }
             let outcome = try await controller.attachHostMultiplexed(
-                host: host, windowTarget: .contextualWindow(nil), activate: false)
+                host: host, windowTarget: .explicitWindow(windowId), activate: false)
             guard case .authRequired = outcome else {
                 Issue.record("expected an interactive login, got \(outcome)")
                 return
@@ -114,12 +119,26 @@ import Testing
             #expect(controller.sessionMirrors.values.allSatisfy { $0.host.connectionHash != host.connectionHash })
             try await waitUntil { FileManager.default.fileExists(atPath: checked.path) }
 
-            if finishLogin {
+            if action == "authenticate" {
                 // A CLI login opens the master after the waiter's first negative probe.
                 // The socket creation is the same filesystem edge produced by real ssh.
                 try Data().write(to: authenticated)
                 try Data().write(to: socket)
                 try await waitUntil { FileManager.default.fileExists(atPath: resumed.path) }
+            } else if action == "dismiss" {
+                let connection = try #require(controller.multiplexedViewsByHost[host.connectionHash]?.connection)
+                #expect(connection.awaitingInteractiveAuth)
+                let workspaceId = UUID()
+                guard case .present(let generation) = controller.loginOffers.claim(
+                    host: host.connectionHash, isOpen: { _ in false }) else {
+                    Issue.record("expected a fresh login offer")
+                    return
+                }
+                controller.loginOffers.recordOpened(
+                    host: host.connectionHash, workspace: workspaceId, generation: generation)
+                controller.noteLoginWorkspaceClosed(workspaceId: workspaceId)
+                #expect(!connection.awaitingInteractiveAuth, "dismissing the login must resume the pre-mirror stream")
+                #expect(controller.loginOffers.isDeclined(host: host.connectionHash))
             } else {
                 controller.stopMultiplexedHost(host: host)
             }

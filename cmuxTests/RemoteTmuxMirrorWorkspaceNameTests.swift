@@ -168,4 +168,37 @@ struct RemoteTmuxMirrorWorkspaceNameTests {
         #expect(!beta.hasCustomTitle)
         #expect(controller.pendingMultiplexWorkspaceNamesByHost[host.connectionHash] == nil)
     }
+    @Test func aClosedWorkspaceDoesNotBlockRecreatingItsMultiplexedMirror() throws {
+        let appDelegate = try #require(AppDelegate.shared)
+        let windowId = appDelegate.createMainWindow(shouldActivate: false)
+        defer { appDelegate.discardMainWindowWithoutClosedHistory(windowId: windowId) }
+        let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+        let controller = RemoteTmuxController()
+        let host = RemoteTmuxHost(destination: "stale-mirror-\(UUID().uuidString).test")
+        let shared = RemoteTmuxControlConnection(host: host, sessionName: "cmux-view")
+        let published: [RemoteTmuxLinkedWorkspaceModel.Workspace] = [
+            .init(sessionName: "work", windowIds: ["@1"], sessionId: 1),
+        ]
+        controller.applyMultiplexedWorkspaces(host: host, manager: manager, workspaces: published, shared: shared)
+        defer { controller.stopMultiplexedHost(host: host) }
+        let key = RemoteTmuxController.connectionKey(host: host, sessionName: "work")
+        let stale = try #require(controller.sessionMirrors[key])
+        let oldChannel = try #require(controller.channelsByHostSession[key])
+        if let workspace = stale.mirroredWorkspace {
+            manager.closeWorkspace(workspace, recordHistory: false)
+        }
+        // Model the weak workspace reference after an external close, even if
+        // AppKit temporarily retains the closed workspace during this test.
+        stale.workspace = nil
+        #expect(!controller.hostHasLiveMirror(host))
+
+        controller.applyMultiplexedWorkspaces(host: host, manager: manager, workspaces: published, shared: shared)
+
+        let replacement = try #require(controller.sessionMirrors[key])
+        #expect(replacement !== stale)
+        #expect(replacement.mirroredWorkspaceId != nil)
+        #expect(controller.channelsByHostSession[key] !== oldChannel)
+        #expect(controller.hostHasLiveMirror(host))
+    }
+
 }

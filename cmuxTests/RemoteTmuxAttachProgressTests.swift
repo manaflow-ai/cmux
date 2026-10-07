@@ -72,10 +72,10 @@ import Testing
         sleep 3
         echo 'ssh: connect to host slow-login.test port 22: Connection refused' >&2
         exit 255
-        """, limits: .init(loggingIn: .seconds(300), inTmux: .seconds(1))) { controller, host in
+        """, limits: .init(loggingIn: .seconds(300), inTmux: .seconds(1))) { controller, host, windowId in
             do {
                 let outcome = try await controller.attachHostMultiplexed(
-                    host: host, windowTarget: .contextualWindow(nil), activate: false)
+                    host: host, windowTarget: .explicitWindow(windowId), activate: false)
                 Issue.record("a transport that exits without reaching tmux cannot mirror anything, got \(outcome)")
             } catch let error as RemoteTmuxError {
                 #expect(
@@ -92,10 +92,10 @@ import Testing
         try await withFakeSSH("""
         #!/bin/sh
         exec sleep 600
-        """, limits: .init(loggingIn: .seconds(1), inTmux: .seconds(30))) { controller, host in
+        """, limits: .init(loggingIn: .seconds(1), inTmux: .seconds(30))) { controller, host, windowId in
             do {
                 let outcome = try await controller.attachHostMultiplexed(
-                    host: host, windowTarget: .contextualWindow(nil), activate: false)
+                    host: host, windowTarget: .explicitWindow(windowId), activate: false)
                 Issue.record("a transport that never answers cannot mirror anything, got \(outcome)")
             } catch let error as RemoteTmuxError {
                 #expect(
@@ -111,7 +111,7 @@ import Testing
     private func withFakeSSH(
         _ script: String,
         limits: RemoteTmuxAttachProgress.QuietLimits,
-        _ body: @MainActor (RemoteTmuxController, RemoteTmuxHost) async throws -> Void
+        _ body: @MainActor (RemoteTmuxController, RemoteTmuxHost, UUID) async throws -> Void
     ) async throws {
         // The fake ssh is a process-wide override, so hold the app-context gate for the whole body:
         // another suite that suspends here must not start a connection through it.
@@ -132,13 +132,15 @@ import Testing
 
             let appDelegate = try #require(AppDelegate.shared)
             let controller = appDelegate.remoteTmuxController
+            let windowId = appDelegate.createMainWindow(shouldActivate: false)
+            defer { appDelegate.discardMainWindowWithoutClosedHistory(windowId: windowId) }
             let previousLimits = controller.attachQuietLimits
             controller.attachQuietLimits = limits
             defer { controller.attachQuietLimits = previousLimits }
             let host = RemoteTmuxHost(destination: "attach-progress-\(UUID().uuidString)@example.test")
             defer { _ = controller.stopMultiplexedHost(host: host) }
 
-            try await body(controller, host)
+            try await body(controller, host, windowId)
         }
     }
 }
