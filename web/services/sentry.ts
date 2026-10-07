@@ -25,6 +25,22 @@ export function scrubSentryEvent<T extends Event>(event: T): T {
 }
 
 export function shouldSendCoderouterSentryEvent(event: Event): boolean {
+  if (hasReportedSubsystem(event)) return true;
+  const message =
+    event.message ??
+    event.exception?.values?.map((value) => value.value ?? "").join(" ") ??
+    "";
+  if (message.startsWith("coderouter.")) return true;
+  const url = event.request?.url;
+  if (!url) return false;
+  try {
+    return new URL(url).hostname.toLowerCase() === "coderouter.dev";
+  } catch {
+    return false;
+  }
+}
+
+function hasReportedSubsystem(event: Event): boolean {
   if (event.tags?.subsystem === "coderouter") return true;
   const cmux = event.contexts?.cmux as Record<string, unknown> | undefined;
   if (cmux?.service === "coderouter") return true;
@@ -38,19 +54,7 @@ export function shouldSendCoderouterSentryEvent(event: Event): boolean {
   // Billing failures can leave a paid customer without an entitlement. Until
   // 2026-10-06 this filter dropped every captureBillingError event, so Stripe
   // webhook failures reached only the Slack alert.
-  if (event.tags?.subsystem === "billing") return true;
-  const message =
-    event.message ??
-    event.exception?.values?.map((value) => value.value ?? "").join(" ") ??
-    "";
-  if (message.startsWith("coderouter.")) return true;
-  const url = event.request?.url;
-  if (!url) return false;
-  try {
-    return new URL(url).hostname.toLowerCase() === "coderouter.dev";
-  } catch {
-    return false;
-  }
+  return event.tags?.subsystem === "billing";
 }
 
 function scrubValue(value: unknown): void {
