@@ -15,7 +15,7 @@ import { missingScope, notImplemented, unavailable, vmNotFound } from "../errors
 import { parseVmId, type VmId } from "../lib/ids.ts";
 import { keyHasScope, type KeyHasScope } from "../proofs/key-has-scope.ts";
 import { tenantOwnsVm, type TenantOwnsResource } from "../proofs/tenant-owns-resource.ts";
-import type { UpstreamVm } from "../upstream/client.ts";
+import { UpstreamClient, type UpstreamVm } from "../upstream/client.ts";
 
 const KNOWN_STATES: ReadonlyArray<VmState> = ["starting", "running", "pausing", "paused", "stopped"];
 
@@ -71,8 +71,16 @@ const withOwnedVm = <const S extends Scope, A, E, R>(
 
 export const vmsHandlers = HttpApiBuilder.group(CmuxVmApi, "vms", (handlers) =>
   handlers
-    // Red: not served yet; the cross-tenant test fails until this resolves ownership.
-    .handle("getVm", () => Effect.dieMessage("getVm is not implemented"))
+    .handle("getVm", ({ path }) =>
+      Effect.flatMap(UpstreamClient, (upstream) =>
+        withOwnedVm(path.vmId, "vm:read", (vm, proofs) =>
+          upstream.getVm(vm, proofs).pipe(
+            Effect.map((found) => toVm(vm.value, found)),
+            Effect.mapError((error) => (error.status === 404 ? vmNotFound() : unavailable())),
+          ),
+        ),
+      ),
+    )
     // The rest of the lifecycle is published for client generation and served in S2.
     .handle("createVm", () => requireScope("vm:write").pipe(Effect.zipRight(Effect.fail(notImplemented("createVm")))))
     .handle("listVms", () => requireScope("vm:read").pipe(Effect.zipRight(Effect.fail(notImplemented("listVms")))))
