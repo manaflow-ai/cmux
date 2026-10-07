@@ -142,7 +142,7 @@ enum OnboardingStrings {
 
     /// "Google Chrome · Work" (Safari and one-profile browsers: the browser name).
     static func profileName(_ profile: BrowserSourceProfile) -> String {
-        profile.directoryName.isEmpty || profile.browser.family == .safari || profile.browser.family == .webkit
+        profile.directoryName.isEmpty || profile.browser.family == .safari || profile.browser.family.isPrivateStore
             ? profile.browser.displayName : "\(profile.browser.displayName) · \(profile.displayName)"
     }
 
