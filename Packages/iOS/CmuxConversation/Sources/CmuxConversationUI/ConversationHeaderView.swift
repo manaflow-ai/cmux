@@ -43,7 +43,7 @@ final class ConversationHeaderView: UIView {
         super.init(frame: frame)
         addSubview(backGlass)
         backGlass.contentView.addSubview(backButton)
-        backButton.setImage(UIImage(systemName: "chevron.left", withConfiguration: UIImage.SymbolConfiguration(pointSize: 19, weight: .semibold)), for: .normal)
+        backButton.setImage(UIImage(systemName: "chevron.left", withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .semibold)), for: .normal)
         backButton.tintColor = .label
         backButton.accessibilityLabel = String(localized: "conversation.header.back", defaultValue: "Back", bundle: .module)
         backButton.addAction(UIAction { [weak self] _ in self?.onBack?() }, for: .touchUpInside)
@@ -136,7 +136,7 @@ final class ConversationHeaderView: UIView {
         let pillWidth = max(26, unreadLabel.bounds.width + 14)
         let backWidth: CGFloat = hasUnread ? 44 + pillWidth + 4 : 44
         backGlass.frame = CGRect(x: margin, y: top, width: backWidth, height: 44)
-        backButton.frame = CGRect(x: 0, y: 0, width: 40, height: 44)
+        backButton.frame = CGRect(x: 2, y: 0, width: 40, height: 44)
         unreadPill.frame = CGRect(x: 36, y: 11, width: pillWidth, height: 22)
         unreadPill.layer.cornerRadius = 11
         unreadLabel.frame = unreadPill.bounds
