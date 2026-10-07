@@ -145,7 +145,7 @@ struct BrowserReplRenderHostTests {
         #expect(visibleRenderWindows().isEmpty)
     }
 
-    @Test func shownTabInNonKeyWindowLeavesAMirrorAndReturnsWhenKey() throws {
+    @Test func shownTabInNonKeyWindowLeavesAMirrorAndReturnsWhenKey() async throws {
         // The user works in another app: the page needs a key window for
         // focus and hover, and the pane must not go blank meanwhile.
         let (window, anchor, panel, paneHost) = try makePane(key: false)
@@ -162,6 +162,9 @@ struct BrowserReplRenderHostTests {
 
         window.reportsKey = true
         NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: window)
+        // The key observer crosses into the MainActor explicitly because AppKit
+        // notification callbacks do not carry a Swift executor token.
+        await Task.yield()
         BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
         #expect(panel.webView.cmuxBrowserViewportAttachmentSuperview === paneHost)
         #expect(panel.webView.window === window)
