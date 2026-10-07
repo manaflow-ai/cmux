@@ -74,7 +74,7 @@ function resolveImport(base: string, read: (file: string) => string | undefined)
     ...SOURCE_EXTENSIONS.map((ext) => path.join(base, `index${ext}`)),
   ];
   // A `.js` specifier may name a `.ts` source.
-  if (/\.js$/.test(base)) candidates.push(base.replace(/\.js$/, ".ts"), base.replace(/\.js$/, ".tsx"));
+  if (base.endsWith(".js")) candidates.push(base.replace(/\.js$/, ".ts"), base.replace(/\.js$/, ".tsx"));
   return candidates.find((candidate) => path.extname(candidate) !== "" && read(candidate) !== undefined);
 }
 
