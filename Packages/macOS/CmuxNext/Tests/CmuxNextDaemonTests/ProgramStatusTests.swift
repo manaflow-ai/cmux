@@ -31,7 +31,8 @@ import Testing
         #expect(records[0] == ProgramStatusRecord(id: "", state: .blocked, progress: 100, kind: .permission, app: "terraform",
                                                   title: "Plan", msg: "Apply?", updatedSeq: 17))
         #expect(records[2].kind == nil)
-        #expect(ProgramStatusRecord.strongest(records)?.id == "y")
+        // Two blocked records: the newer report (updated_seq 17) wins.
+        #expect(ProgramStatusRecord.strongest(records)?.id == "")
     }
 
     @Test func theAggregateIsBlockedThenErrorThenWorkingThenDone() {
