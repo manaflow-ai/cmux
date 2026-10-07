@@ -69,16 +69,14 @@ export type HostLists = {
   profile_colors: Array<{ name: string; swatch: string; fill: string }>;
   /**
    * Theme levels of the active window (`room`, `workspace`, `terminal`) and each one's theme: a
-   * level with a theme overrides appearance.theme there (the page shows it inline, P4). `config`
-   * is the Ghostty config's theme value (a name or a light/dark pair) (the preview of an unset appearance.theme).
-   * `app`, when present, is the app theme apart from the terminal theme (null: match the
-   * terminal), set with `cmux.settings.theme.set` at level `app`.
+   * level with a theme overrides appearance.theme there (the page shows it inline, P4).
+   * `config` is the Ghostty config's own theme colors (unnamed), sent while appearance.theme
+   * is unset: the preview of "Use Ghostty Config". The app theme is the key appearance.appTheme.
    */
   theme?: {
     levels: string[];
     current: Record<string, string | null>;
-    config?: string | null;
-    app?: string | null;
+    config?: GhosttyTheme | null;
   };
   terminal?: { ghostty_config: string; shell_integration: string | null };
   /** R92: the Ghostty lines cmux does not apply (the socket's `ghostty.diagnostics` list). */

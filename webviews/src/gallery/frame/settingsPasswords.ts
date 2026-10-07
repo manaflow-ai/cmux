@@ -76,6 +76,12 @@ export async function mountSettingsPage(state: SettingsPageVariant, context: Sta
   const mock = createMockClient(options);
   if (state.allThemes) mock.provider.themeColors = themes;
   mock.provider.host = { ...mock.provider.host, ...structuredClone(state.host ?? {}) };
+  // The stage's own window theme stands in for the user's Ghostty config, as the app sends the
+  // colors in effect while appearance.theme is unset.
+  if (mock.provider.host.theme) {
+    const config = { ...context.theme, name: "" };
+    mock.provider.host = { ...mock.provider.host, theme: { ...mock.provider.host.theme, config } };
+  }
   if (state.accounts) mock.provider.accounts = structuredClone(state.accounts);
   window.addEventListener("pagehide", mock.close, { once: true });
   const client: SettingsClient = {

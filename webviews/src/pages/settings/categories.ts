@@ -66,7 +66,8 @@ const SPECS: CategorySpec[] = [
     id: "theme",
     title: page("settingsPage.category.theme", "Theme"),
     symbol: "paintpalette",
-    // appearance.theme is drawn by the theme studio (search still shows it as a row).
+    // appearance.theme and appearance.appTheme are drawn by the theme studio (search still
+    // shows them as rows).
     groups: [{ group: "settings.group.appTheme" }],
     lead: ["themeStudio"],
   },
@@ -105,8 +106,15 @@ const SPECS: CategorySpec[] = [
     id: "agents",
     title: page("settingsPage.category.agents", "Agents"),
     symbol: "sparkles",
+    groups: [{ group: "settings.group.agentChat", keys: ["app.warnBeforeClosingAgentSession"] }],
+  },
+  {
+    // A core cmux feature: banners, sounds, the attention ring and the feed for agents,
+    // terminal programs and `cmux notify`.
+    id: "notifications",
+    title: sectionTitle("notifications"),
+    symbol: "bell",
     groups: [
-      { group: "settings.group.agentChat", keys: ["app.warnBeforeClosingAgentSession"] },
       { group: "settings.group.banners" },
       { group: "settings.group.dismissal" },
       { group: "settings.group.attention" },
@@ -248,7 +256,7 @@ const LEGACY_SECTIONS: Record<string, string> = {
   browser: "browser",
   home: "privacy",
   keyboard: "keyboard",
-  notifications: "agents",
+  notifications: "notifications",
   accounts: "accounts",
   rooms: "general",
   machines: "accounts",

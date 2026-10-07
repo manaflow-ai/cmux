@@ -41,8 +41,9 @@ for (const [name, state] of Object.entries(settings.variants)) {
       });
       const category = categoryOf(state.section);
       expect(page.container.querySelector("[data-section]")?.getAttribute("data-section")).toBe(category);
-      // The Theme section draws appearance.theme as its picker (unless no names are published).
-      for (const row of categoryRows(category).filter((item) => item.key !== "appearance.theme"))
+      // The Theme section draws appearance.theme and appearance.appTheme as its pickers.
+      const drawnByStudio = new Set(["appearance.theme", "appearance.appTheme"]);
+      for (const row of categoryRows(category).filter((item) => !drawnByStudio.has(item.key)))
         expect(page.container.querySelector(`[data-row-key="${row.key}"]`)).not.toBeNull();
       for (const step of state.steps ?? []) {
         // Flush each gesture's render before waiting for its resulting element.

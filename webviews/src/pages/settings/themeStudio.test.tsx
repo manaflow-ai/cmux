@@ -49,18 +49,21 @@ test("picking a theme writes appearance.theme; Match System Appearance writes a 
   });
 });
 
-test("the app theme matches the terminal theme until the host's app level has one", async () => {
+test("the app theme (appearance.appTheme) matches the terminal theme until it names one", async () => {
   page = await renderPage({ path: "/settings/theme" });
   const app = () => theme(page!).querySelector<HTMLElement>('[data-theme-row="app"]')!;
   expect(app().textContent).toContain("Match Terminal Theme");
-  await run(() => page!.store.setTheme("app", "Gruvbox Dark"));
+  await run(() => page!.store.set("appearance.appTheme", "Gruvbox Dark"));
   expect(app().textContent).toContain("Gruvbox Dark");
+  expect(ops(page.provider, "cmux.settings.set").at(-1)).toEqual({ key: "appearance.appTheme", value: "Gruvbox Dark" });
+  await run(() => page!.store.reset("appearance.appTheme"));
+  expect(app().textContent).toContain("Match Terminal Theme");
 });
 
-test("an unset theme previews the Ghostty config's theme for the system appearance", async () => {
-  // jsdom has no matchMedia: the page reads Light, so the config pair's light side shows.
+test("an unset theme previews the Ghostty config's own colors from the host", async () => {
   page = await renderPage({ path: "/settings/theme" });
-  expect(theme(page).querySelector("[data-theme-preview]")?.getAttribute("data-theme-preview")).toBe(
-    "Apple System Colors Light",
-  );
+  const preview = theme(page).querySelector("[data-theme-preview]")!;
+  expect(preview.getAttribute("data-theme-preview")).toBe("Use Ghostty Config");
+  // The mock's config is Apple System Colors (#1e1e1e); the preview draws its background.
+  expect(preview.querySelector("rect")?.getAttribute("fill")).toBe("#1e1e1e");
 });

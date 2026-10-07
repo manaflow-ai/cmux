@@ -3299,6 +3299,57 @@
     },
     {
       "accepts" : [
+
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "followTerminal",
+      "default_label" : {
+        "key" : "settings.default.followTerminal",
+        "text" : "Match Terminal Theme"
+      },
+      "group" : {
+        "key" : "settings.group.appTheme",
+        "text" : "App Theme"
+      },
+      "help" : {
+        "key" : "settings.appearance.appTheme.help",
+        "text" : "Colors for cmux's own pages. Every bundled theme works here, and each color meets WCAG AA contrast."
+      },
+      "kept_on_reset_all" : true,
+      "key" : "appearance.appTheme",
+      "keywords" : [
+        "app theme",
+        "accent",
+        "chrome",
+        "interface",
+        "colors",
+        "contrast",
+        "wcag"
+      ],
+      "kind" : "theme",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "appTheme"
+      ],
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.appearance.appTheme",
+        "text" : "App Theme"
+      },
+      "validation" : "domain:theme"
+    },
+    {
+      "accepts" : [
         "none",
         "wheat-field-with-cypresses",
         "met-saint-catherine-436908",
@@ -15155,7 +15206,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "bd01e8d3cb9c3056185102d2d635016a02161b9d958c06145709bb792a26d715",
+  "schema_hash" : "b84cd8ef367407121edf954c031c025dd69e38490bc02090a10660ddc3268075",
   "sections" : [
     {
       "id" : "general",

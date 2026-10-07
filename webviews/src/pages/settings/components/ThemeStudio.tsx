@@ -19,6 +19,9 @@ import { ThemePalette, ThemePreview } from "./ThemePreview";
 import { ThemePicker } from "./ThemePicker";
 
 export const THEME_KEY = "appearance.theme";
+/** The app theme apart from the terminal theme; `followTerminal` (its default) matches it. */
+export const APP_THEME_KEY = "appearance.appTheme";
+const FOLLOW_TERMINAL = "followTerminal";
 const DEFAULT_DARK = "Apple System Colors";
 const DEFAULT_LIGHT = "Apple System Colors Light";
 
@@ -49,18 +52,31 @@ export function ThemeStudio() {
   const disabled = !state.connected || !state.readable || managed !== null;
   const names = state.domains.themes;
   const colors = state.themeColors;
-  const host = state.host?.theme;
-  // The Ghostty config's theme: a name or a light/dark pair, resolved for the system appearance.
-  const config = themeFor(parseThemeSpec(host?.config), scheme, scheme === "dark" ? DEFAULT_DARK : DEFAULT_LIGHT);
-  const hasApp = host !== undefined && "app" in host;
-  const appTheme = hasApp ? (host.app ?? null) : null;
+  const fallbackName = scheme === "dark" ? DEFAULT_DARK : DEFAULT_LIGHT;
+  // The Ghostty config's own colors, from the host while appearance.theme is unset.
+  const configLabel = t("settingsWindow.themeUseConfig");
+  const configColors: GhosttyTheme | undefined = state.host?.theme?.config
+    ? { ...state.host.theme.config, name: configLabel }
+    : colors?.get(fallbackName);
+  // appearance.appTheme: followTerminal (the default) or a theme apart from the terminal's.
+  const appRow = rowsByKey.get(APP_THEME_KEY);
+  const appValue = valueOf(state, APP_THEME_KEY);
+  const appSpec = typeof appValue === "string" && appValue !== FOLLOW_TERMINAL ? parseThemeSpec(appValue) : null;
+  const appManaged = managedOf(state, APP_THEME_KEY);
 
-  const terminalName = previewing?.target === "terminal" ? previewing.name : themeFor(spec, scheme, config);
-  const appName = previewing?.target === "app" ? previewing.name : (appTheme ?? terminalName);
-  const lookup = (name: string): GhosttyTheme | undefined =>
-    colors?.get(name) ?? colors?.get(scheme === "dark" ? DEFAULT_DARK : DEFAULT_LIGHT);
-  const terminal = lookup(terminalName);
-  const appSource = lookup(appName) ?? terminal;
+  const lookup = (name: string | null): GhosttyTheme | undefined => (name ? colors?.get(name) : undefined);
+  const terminal =
+    previewing?.target === "terminal"
+      ? lookup(previewing.name)
+      : spec
+        ? (lookup(themeFor(spec, scheme, fallbackName)) ?? configColors)
+        : configColors;
+  const appSource =
+    (previewing?.target === "app"
+      ? lookup(previewing.name)
+      : appSpec
+        ? lookup(themeFor(appSpec, scheme, fallbackName))
+        : undefined) ?? terminal;
   const app = appSource ? deriveAppTheme(appSource) : null;
 
   const write = (next: ThemeSpec | null) => {
@@ -73,7 +89,7 @@ export function ThemeStudio() {
     else store.previewEnd(THEME_KEY);
   };
   const paired = spec?.kind === "pair";
-  const current = (side: "light" | "dark") => (spec ? themeFor(spec, side, config) : null);
+  const current = (side: "light" | "dark") => (spec ? themeFor(spec, side, fallbackName) : null);
   const picker = (id: string, value: string | null, onPick: (name: string | null) => void) => (
     <ThemePicker
       value={value}
@@ -81,16 +97,16 @@ export function ThemeStudio() {
       colors={colors}
       labelId={id}
       disabled={disabled}
-      configLabel={t("settingsWindow.themeUseConfig")}
-      configTheme={config}
+      configLabel={configLabel}
+      configColors={configColors}
       onPick={onPick}
       onPreview={previewTerminal}
     />
   );
   const pickSide = (side: "light" | "dark") => (name: string | null) => {
     const other = side === "light" ? "dark" : "light";
-    const keep = current(other) ?? config;
-    const chosen = name ?? config;
+    const keep = current(other) ?? (other === "light" ? DEFAULT_LIGHT : DEFAULT_DARK);
+    const chosen = name ?? (side === "light" ? DEFAULT_LIGHT : DEFAULT_DARK);
     write({ kind: "pair", light: side === "light" ? chosen : keep, dark: side === "dark" ? chosen : keep });
   };
   const report = app ? contrastReport(app) : [];
@@ -139,7 +155,7 @@ export function ThemeStudio() {
                       disabled={disabled}
                       labelId={ids.match}
                       onToggle={(on) => {
-                        const name = themeFor(spec, scheme, config);
+                        const name = themeFor(spec, scheme, fallbackName);
                         if (on)
                           write({
                             kind: "pair",
@@ -193,7 +209,7 @@ export function ThemeStudio() {
           <ScopeOverrides />
         </div>
       </section>
-      {hasApp && (
+      {appRow && (
         <section className="group" data-theme-app="">
           <h3 className="group-title">{t("settingsPage.theme.app")}</h3>
           <div className="rows">
@@ -203,18 +219,24 @@ export function ThemeStudio() {
                   <div className="row-title" id={ids.app}>
                     {text(row.title)}
                   </div>
-                  <div className="row-help">{t("settingsPage.theme.appHelp")}</div>
+                  <div className="row-help">{text(appRow.help)}</div>
+                  {appManaged && (
+                    <div className="row-managed" data-managed-reason="">
+                      <Icon name="lock" />
+                      {managedText(appManaged)}
+                    </div>
+                  )}
                 </div>
                 <div className="row-control">
                   <ThemePicker
-                    value={appTheme}
+                    value={appSpec ? formatThemeSpec(appSpec) : null}
                     names={names}
                     colors={colors}
                     labelId={ids.app}
-                    disabled={!state.connected}
-                    configLabel={t("settingsPage.theme.matchTerminal")}
-                    configTheme={terminalName}
-                    onPick={(name) => void store.setTheme("app", name)}
+                    disabled={!state.connected || !state.readable || appManaged !== null}
+                    configLabel={text(appRow.default_label) || t("settingsPage.theme.matchTerminal")}
+                    configColors={terminal}
+                    onPick={(name) => void (name ? store.set(APP_THEME_KEY, name) : store.reset(APP_THEME_KEY))}
                     onPreview={(name) => setPreviewing(name ? { name, target: "app" } : null)}
                   />
                 </div>

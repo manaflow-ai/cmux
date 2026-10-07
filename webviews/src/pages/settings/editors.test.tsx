@@ -66,7 +66,7 @@ describe("editors", () => {
       page = await renderPage({ path: `/settings/${category.id}` });
       for (const row of category.groups.flatMap((group) => group.rows)) {
         // The Theme section draws appearance.theme as its theme picker.
-        if (row.key === "appearance.theme") {
+        if (row.key === "appearance.theme" || row.key === "appearance.appTheme") {
           if (!page.container.querySelector("[data-theme-picker]")) failures.push(`${row.key}: no theme picker`);
           continue;
         }

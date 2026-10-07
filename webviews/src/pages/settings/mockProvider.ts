@@ -110,8 +110,7 @@ export class MockSettingsProvider {
       "cmux.settings.theme.set": (params) => {
         const { level, spec } = params as { level: string; spec: string | null };
         const theme = this.host.theme!;
-        if (level === "app") this.setHost({ ...this.host, theme: { ...theme, app: spec } });
-        else this.setHost({ ...this.host, theme: { ...theme, current: { ...theme.current, [level]: spec } } });
+        this.setHost({ ...this.host, theme: { ...theme, current: { ...theme.current, [level]: spec } } });
         return {};
       },
       "cmux.settings.theme.colors": () => ({ themes: this.themeColors }),
@@ -205,8 +204,7 @@ export class MockSettingsProvider {
     theme: {
       levels: ["room", "workspace", "terminal"],
       current: { room: null, workspace: "Dracula", terminal: null },
-      config: "light:Apple System Colors Light,dark:Apple System Colors",
-      app: null,
+      config: { ...mockThemeColors.find((theme) => theme.name === "Apple System Colors")!, name: "" },
     },
     terminal: { ghostty_config: "~/.config/ghostty/config", shell_integration: "zsh" },
     ghostty_diagnostics: [],

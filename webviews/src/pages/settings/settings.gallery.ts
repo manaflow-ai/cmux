@@ -176,25 +176,14 @@ Object.assign(variants, {
       theme: {
         levels: ["room", "workspace", "terminal"],
         current: { room: null, workspace: "Tokyo Night", terminal: "Gruvbox Dark" },
-        config: "light:Apple System Colors Light,dark:Apple System Colors",
-        app: null,
       },
     },
     note: "Scope overrides inline on the setting (P4): no space, workspace or terminal tabs.",
   }),
   "theme-app-separate": variant("theme", {
     allThemes: true,
-    options: { values: { "appearance.theme": "Gruvbox Dark" } },
-    host: {
-      ...host,
-      theme: {
-        levels: ["terminal"],
-        current: { terminal: null },
-        config: "light:Apple System Colors Light,dark:Apple System Colors",
-        app: "Rose Pine",
-      },
-    },
-    note: "An app theme apart from the terminal theme.",
+    options: { values: { "appearance.theme": "Gruvbox Dark", "appearance.appTheme": "Rose Pine" } },
+    note: "An app theme apart from the terminal theme (appearance.appTheme).",
   }),
   "theme-managed": variant("theme", {
     allThemes: true,

@@ -119,6 +119,8 @@ export function validate(row: SchemaRow, value: unknown, domains?: Partial<Domai
         : "expected {start, end} times HH:MM";
     }
     case "theme":
+      // A theme row's default is a keyword (appearance.appTheme: followTerminal), not a theme.
+      if (row.default !== null && value === row.default) return null;
       return themeInDomain(domains?.themes, value) ? null : "unknown theme";
     case "font_family":
       return inDomain(domains?.font_families, value) ? null : "unknown font family";

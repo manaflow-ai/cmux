@@ -21,6 +21,7 @@ test("the categories are the approved ones, in order", () => {
     "appearance",
     "terminal",
     "agents",
+    "notifications",
     "browser",
     "keyboard",
     "privacy",
@@ -33,7 +34,7 @@ test("the categories are the approved ones, in order", () => {
 test("old section routes and focused keys open the category that holds the row", () => {
   for (const section of sections)
     expect(categories.some((category) => category.id === categoryOf(section.id))).toBe(true);
-  expect(parseLocation("/settings/notifications").section).toBe("agents");
+  expect(parseLocation("/settings/notifications").section).toBe("notifications");
   expect(parseLocation("/settings/general?focus=history.terminalCommands").section).toBe("privacy");
   expect(parseLocation("/settings/nope").section).toBe("general");
 });
