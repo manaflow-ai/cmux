@@ -195,6 +195,18 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>When off, Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. Close a pinned tab from its menu.</string>
+			<key>pfm_name</key>
+			<string>tabs.cmdWClosesPinnedTabs</string>
+			<key>pfm_title</key>
+			<string>Cmd-W Closes Pinned Tabs</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<true/>
 			<key>pfm_description</key>
 			<string>Ask before closing a tab or workspace whose terminal is running a program. Idle tabs always close at once.</string>
@@ -1643,6 +1655,30 @@
 			<string>Color</string>
 			<key>pfm_type</key>
 			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Three dots take the tab's icon place while an agent works.</string>
+			<key>pfm_name</key>
+			<string>appearance.statusIndicator.showAgentWorkingOnTabs</string>
+			<key>pfm_title</key>
+			<string>Show Agent Working on Tabs</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>A spinner takes a browser tab's icon place while its page loads.</string>
+			<key>pfm_name</key>
+			<string>appearance.statusIndicator.showPageLoading</string>
+			<key>pfm_title</key>
+			<string>Show Page Loading on Tabs</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>

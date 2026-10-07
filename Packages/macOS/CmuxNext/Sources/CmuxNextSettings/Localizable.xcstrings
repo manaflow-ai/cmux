@@ -67227,6 +67227,372 @@
           }
         }
       }
+    },
+    "settings.tabs.cmdWClosesPinnedTabs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W Closes Pinned Tabs"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W يغلق علامات التبويب المثبتة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W zatvara prikačene kartice"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W lukker fastgjorte faner"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W schließt angeheftete Tabs"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W cierra las pestañas fijadas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W ferme les onglets épinglés"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W chiude le schede fissate"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W でピン留めしたタブを閉じる"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W បិទផ្ទាំងដែលបានខ្ទាស់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W로 고정된 탭 닫기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W lukker festede faner"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W zamyka przypięte karty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W Fecha Abas Fixadas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W закрывает закреплённые вкладки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W ปิดแท็บที่ปักหมุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W Sabitlenmiş Sekmeleri Kapatır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W закриває закріплені вкладки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W đóng các thẻ đã ghim"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W 关闭固定的标签页"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W 關閉固定的分頁"
+          }
+        }
+      }
+    },
+    "settings.tabs.cmdWClosesPinnedTabs.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When off, Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. Close a pinned tab from its menu."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عند الإيقاف، يحدد Cmd-W على علامة تبويب مثبتة علامة التبويب التالية ويحتفظ بالعلامة المثبتة. أغلق علامة التبويب المثبتة من قائمتها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kada je isključeno, Cmd-W na prikačenoj kartici bira sljedeću karticu i zadržava prikačenu. Zatvorite prikačenu karticu iz njenog menija."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når den er slået fra, vælger Cmd-W på en fastgjort fane den næste fane og beholder den fastgjorte fane. Luk en fastgjort fane fra dens menu."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wenn aus, wählt Cmd-W auf einem angehefteten Tab den nächsten Tab und behält den angehefteten Tab. Schließe einen angehefteten Tab über sein Menü."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Si está desactivado, Cmd-W en una pestaña fijada selecciona la siguiente pestaña y conserva la fijada. Cierra una pestaña fijada desde su menú."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Désactivé, Cmd-W sur un onglet épinglé sélectionne l’onglet suivant et garde l’onglet épinglé. Fermez un onglet épinglé depuis son menu."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se disattivato, Cmd-W su una scheda fissata seleziona la scheda successiva e mantiene quella fissata. Chiudi una scheda fissata dal suo menu."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフのとき、ピン留めしたタブで Cmd-W を押すと次のタブを選択し、ピン留めしたタブは残ります。ピン留めしたタブはそのメニューから閉じます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពេលបិទ Cmd-W លើផ្ទាំងដែលបានខ្ទាស់ ជ្រើសផ្ទាំងបន្ទាប់ ហើយរក្សាផ្ទាំងដែលបានខ្ទាស់។ បិទផ្ទាំងដែលបានខ្ទាស់ពីម៉ឺនុយរបស់វា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "끄면 고정된 탭에서 Cmd-W를 누를 때 다음 탭을 선택하고 고정된 탭은 유지합니다. 고정된 탭은 탭 메뉴에서 닫으세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når av, velger Cmd-W på en festet fane neste fane og beholder den festede fanen. Lukk en festet fane fra menyen dens."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gdy wyłączone, Cmd-W na przypiętej karcie wybiera następną kartę i zachowuje przypiętą. Zamknij przypiętą kartę z jej menu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando desativado, Cmd-W em uma aba fixada seleciona a próxima aba e mantém a fixada. Feche uma aba fixada pelo menu dela."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Если выключено, Cmd-W на закреплённой вкладке выбирает следующую вкладку и оставляет закреплённую. Закройте закреплённую вкладку через её меню."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมื่อปิด Cmd-W บนแท็บที่ปักหมุดจะเลือกแท็บถัดไปและเก็บแท็บที่ปักหมุดไว้ ปิดแท็บที่ปักหมุดจากเมนูของแท็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kapalıyken sabitlenmiş bir sekmede Cmd-W sonraki sekmeyi seçer ve sabitlenmiş sekmeyi tutar. Sabitlenmiş bir sekmeyi menüsünden kapatın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Якщо вимкнено, Cmd-W на закріпленій вкладці вибирає наступну вкладку й залишає закріплену. Закрийте закріплену вкладку з її меню."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khi tắt, Cmd-W trên một thẻ đã ghim sẽ chọn thẻ tiếp theo và giữ thẻ đã ghim. Đóng thẻ đã ghim từ menu của nó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭时，在固定的标签页上按 Cmd-W 会选择下一个标签页并保留固定的标签页。请从标签页菜单关闭固定的标签页。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉時，在固定的分頁上按 Cmd-W 會選取下一個分頁並保留固定的分頁。請從分頁選單關閉固定的分頁。"
+          }
+        }
+      }
+    },
+    "settings.statusIndicator.showAgentWorkingOnTabs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Show Agent Working on Tabs" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "タブにエージェントの作業中を表示" } },
+        "ar": { "stringUnit": { "state": "needs_review", "value": "إظهار عمل الوكيل على علامات التبويب" } },
+        "bs": { "stringUnit": { "state": "needs_review", "value": "Prikaži rad agenta na karticama" } },
+        "da": { "stringUnit": { "state": "needs_review", "value": "Vis agentarbejde på faner" } },
+        "de": { "stringUnit": { "state": "needs_review", "value": "Agentenarbeit auf Tabs anzeigen" } },
+        "es": { "stringUnit": { "state": "needs_review", "value": "Mostrar agente trabajando en pestañas" } },
+        "fr": { "stringUnit": { "state": "needs_review", "value": "Afficher l'agent au travail sur les onglets" } },
+        "it": { "stringUnit": { "state": "needs_review", "value": "Mostra agente al lavoro nelle schede" } },
+        "km": { "stringUnit": { "state": "needs_review", "value": "បង្ហាញភ្នាក់ងារកំពុងធ្វើការលើផ្ទាំង" } },
+        "ko": { "stringUnit": { "state": "needs_review", "value": "탭에 에이전트 작업 중 표시" } },
+        "nb": { "stringUnit": { "state": "needs_review", "value": "Vis agentarbeid på faner" } },
+        "pl": { "stringUnit": { "state": "needs_review", "value": "Pokazuj pracę agenta na kartach" } },
+        "pt-BR": { "stringUnit": { "state": "needs_review", "value": "Mostrar agente trabalhando nas abas" } },
+        "ru": { "stringUnit": { "state": "needs_review", "value": "Показывать работу агента на вкладках" } },
+        "th": { "stringUnit": { "state": "needs_review", "value": "แสดงเอเจนต์กำลังทำงานบนแท็บ" } },
+        "tr": { "stringUnit": { "state": "needs_review", "value": "Sekmelerde ajan çalışmasını göster" } },
+        "uk": { "stringUnit": { "state": "needs_review", "value": "Показувати роботу агента на вкладках" } },
+        "vi": { "stringUnit": { "state": "needs_review", "value": "Hiện tác tử đang làm việc trên thẻ" } },
+        "zh-Hans": { "stringUnit": { "state": "needs_review", "value": "在标签页上显示代理工作中" } },
+        "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "在分頁上顯示代理工作中" } }
+      }
+    },
+    "settings.statusIndicator.showAgentWorkingOnTabs.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Three dots take the tab's icon place while an agent works." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エージェントが作業している間、タブのアイコンの位置に3つの点を表示します。" } },
+        "ar": { "stringUnit": { "state": "needs_review", "value": "تظهر ثلاث نقاط مكان أيقونة علامة التبويب أثناء عمل الوكيل." } },
+        "bs": { "stringUnit": { "state": "needs_review", "value": "Tri tačke zauzimaju mjesto ikone kartice dok agent radi." } },
+        "da": { "stringUnit": { "state": "needs_review", "value": "Tre prikker står i fanens ikon, mens en agent arbejder." } },
+        "de": { "stringUnit": { "state": "needs_review", "value": "Drei Punkte ersetzen das Tab-Symbol, solange ein Agent arbeitet." } },
+        "es": { "stringUnit": { "state": "needs_review", "value": "Tres puntos ocupan el lugar del icono de la pestaña mientras un agente trabaja." } },
+        "fr": { "stringUnit": { "state": "needs_review", "value": "Trois points remplacent l'icône de l'onglet pendant qu'un agent travaille." } },
+        "it": { "stringUnit": { "state": "needs_review", "value": "Tre punti prendono il posto dell'icona della scheda mentre un agente lavora." } },
+        "km": { "stringUnit": { "state": "needs_review", "value": "ចំណុចបីជំនួសរូបតំណាងផ្ទាំង ពេលភ្នាក់ងារកំពុងធ្វើការ។" } },
+        "ko": { "stringUnit": { "state": "needs_review", "value": "에이전트가 작업하는 동안 탭 아이콘 자리에 점 세 개가 표시됩니다." } },
+        "nb": { "stringUnit": { "state": "needs_review", "value": "Tre prikker står i fanens ikon mens en agent jobber." } },
+        "pl": { "stringUnit": { "state": "needs_review", "value": "Trzy kropki zastępują ikonę karty, gdy agent pracuje." } },
+        "pt-BR": { "stringUnit": { "state": "needs_review", "value": "Três pontos ocupam o lugar do ícone da aba enquanto um agente trabalha." } },
+        "ru": { "stringUnit": { "state": "needs_review", "value": "Пока агент работает, вместо значка вкладки показываются три точки." } },
+        "th": { "stringUnit": { "state": "needs_review", "value": "จุดสามจุดแสดงแทนไอคอนของแท็บขณะที่เอเจนต์ทำงาน" } },
+        "tr": { "stringUnit": { "state": "needs_review", "value": "Bir ajan çalışırken sekme simgesinin yerinde üç nokta görünür." } },
+        "uk": { "stringUnit": { "state": "needs_review", "value": "Поки агент працює, замість значка вкладки показуються три крапки." } },
+        "vi": { "stringUnit": { "state": "needs_review", "value": "Ba chấm thay chỗ biểu tượng của thẻ khi tác tử đang làm việc." } },
+        "zh-Hans": { "stringUnit": { "state": "needs_review", "value": "代理工作时，标签页图标位置显示三个点。" } },
+        "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "代理工作時，分頁圖示位置顯示三個點。" } }
+      }
+    },
+    "settings.statusIndicator.showPageLoading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Show Page Loading on Tabs" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "タブにページの読み込みを表示" } },
+        "ar": { "stringUnit": { "state": "needs_review", "value": "إظهار تحميل الصفحة على علامات التبويب" } },
+        "bs": { "stringUnit": { "state": "needs_review", "value": "Prikaži učitavanje stranice na karticama" } },
+        "da": { "stringUnit": { "state": "needs_review", "value": "Vis sideindlæsning på faner" } },
+        "de": { "stringUnit": { "state": "needs_review", "value": "Seitenladen auf Tabs anzeigen" } },
+        "es": { "stringUnit": { "state": "needs_review", "value": "Mostrar carga de página en pestañas" } },
+        "fr": { "stringUnit": { "state": "needs_review", "value": "Afficher le chargement de la page sur les onglets" } },
+        "it": { "stringUnit": { "state": "needs_review", "value": "Mostra caricamento pagina nelle schede" } },
+        "km": { "stringUnit": { "state": "needs_review", "value": "បង្ហាញការផ្ទុកទំព័រលើផ្ទាំង" } },
+        "ko": { "stringUnit": { "state": "needs_review", "value": "탭에 페이지 로딩 표시" } },
+        "nb": { "stringUnit": { "state": "needs_review", "value": "Vis sidelasting på faner" } },
+        "pl": { "stringUnit": { "state": "needs_review", "value": "Pokazuj ładowanie strony na kartach" } },
+        "pt-BR": { "stringUnit": { "state": "needs_review", "value": "Mostrar carregamento da página nas abas" } },
+        "ru": { "stringUnit": { "state": "needs_review", "value": "Показывать загрузку страницы на вкладках" } },
+        "th": { "stringUnit": { "state": "needs_review", "value": "แสดงการโหลดหน้าบนแท็บ" } },
+        "tr": { "stringUnit": { "state": "needs_review", "value": "Sekmelerde sayfa yüklenmesini göster" } },
+        "uk": { "stringUnit": { "state": "needs_review", "value": "Показувати завантаження сторінки на вкладках" } },
+        "vi": { "stringUnit": { "state": "needs_review", "value": "Hiện tải trang trên thẻ" } },
+        "zh-Hans": { "stringUnit": { "state": "needs_review", "value": "在标签页上显示页面加载" } },
+        "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "在分頁上顯示頁面載入" } }
+      }
+    },
+    "settings.statusIndicator.showPageLoading.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "A spinner takes a browser tab's icon place while its page loads." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ページの読み込み中、ブラウザタブのアイコンの位置にスピナーを表示します。" } },
+        "ar": { "stringUnit": { "state": "needs_review", "value": "يظهر مؤشر دوار مكان أيقونة علامة تبويب المتصفح أثناء تحميل صفحتها." } },
+        "bs": { "stringUnit": { "state": "needs_review", "value": "Indikator zauzima mjesto ikone kartice preglednika dok se stranica učitava." } },
+        "da": { "stringUnit": { "state": "needs_review", "value": "En spinner står i browserfanens ikon, mens siden indlæses." } },
+        "de": { "stringUnit": { "state": "needs_review", "value": "Ein Ladekreis ersetzt das Symbol eines Browser-Tabs, solange die Seite lädt." } },
+        "es": { "stringUnit": { "state": "needs_review", "value": "Un indicador giratorio ocupa el lugar del icono de la pestaña mientras carga la página." } },
+        "fr": { "stringUnit": { "state": "needs_review", "value": "Un indicateur remplace l'icône de l'onglet pendant le chargement de la page." } },
+        "it": { "stringUnit": { "state": "needs_review", "value": "Un indicatore prende il posto dell'icona della scheda mentre la pagina si carica." } },
+        "km": { "stringUnit": { "state": "needs_review", "value": "សញ្ញាវិលជំនួសរូបតំណាងផ្ទាំងកម្មវិធីរុករក ពេលទំព័រកំពុងផ្ទុក។" } },
+        "ko": { "stringUnit": { "state": "needs_review", "value": "페이지가 로드되는 동안 브라우저 탭 아이콘 자리에 스피너가 표시됩니다." } },
+        "nb": { "stringUnit": { "state": "needs_review", "value": "En spinner står i nettleserfanens ikon mens siden lastes." } },
+        "pl": { "stringUnit": { "state": "needs_review", "value": "Wskaźnik zastępuje ikonę karty przeglądarki podczas ładowania strony." } },
+        "pt-BR": { "stringUnit": { "state": "needs_review", "value": "Um indicador ocupa o lugar do ícone da aba enquanto a página carrega." } },
+        "ru": { "stringUnit": { "state": "needs_review", "value": "Пока страница загружается, вместо значка вкладки браузера показывается индикатор." } },
+        "th": { "stringUnit": { "state": "needs_review", "value": "ตัวหมุนแสดงแทนไอคอนของแท็บเบราว์เซอร์ขณะโหลดหน้า" } },
+        "tr": { "stringUnit": { "state": "needs_review", "value": "Sayfa yüklenirken tarayıcı sekmesinin simgesinin yerinde bir gösterge döner." } },
+        "uk": { "stringUnit": { "state": "needs_review", "value": "Поки сторінка завантажується, замість значка вкладки браузера показується індикатор." } },
+        "vi": { "stringUnit": { "state": "needs_review", "value": "Biểu tượng xoay thay chỗ biểu tượng của thẻ trình duyệt khi trang đang tải." } },
+        "zh-Hans": { "stringUnit": { "state": "needs_review", "value": "页面加载时，浏览器标签页图标位置显示旋转指示器。" } },
+        "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "頁面載入時，瀏覽器分頁圖示位置顯示旋轉指示器。" } }
+      }
     }
   },
   "version": "1.0"

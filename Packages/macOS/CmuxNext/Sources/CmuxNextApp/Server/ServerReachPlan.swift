@@ -37,6 +37,9 @@ nonisolated struct ServerReachPlan: Sendable, Equatable {
     nonisolated struct LinkPeers: Sendable, Equatable {
         var socket: String
         var installs: Set<String>
+        /// The link's pairing file (`cmux link show` `peers_file`), watched
+        /// so a peer change re-resolves routes; nil from an older CLI.
+        var peersFile: String? = nil
     }
 
     static func make(chiefs: [CloudChief], hosts: [PairedServer], local: LocalServer?, link: LinkPeers? = nil) -> ServerReachPlan {
@@ -87,9 +90,23 @@ nonisolated struct ServerReachPlan: Sendable, Equatable {
 
     /// What to add and remove so the shown servers match `desired`; a server
     /// already shown keeps its session (and route) when its host stays.
-    static func diff(shown: [ServerReach], desired: [ServerReach]) -> (add: [ServerReach], remove: [String]) {
-        let shownHosts = Set(shown.map(\.hostID)), desiredHosts = Set(desired.map(\.hostID))
-        return (desired.filter { !shownHosts.contains($0.hostID) }, shown.filter { !desiredHosts.contains($0.hostID) }.map(\.machineID))
+    /// What to add, remove (and forget) and re-route so the shown servers
+    /// match `desired`: a host that stays keeps its session unless its route
+    /// changed (a link peer appeared or left), which replaces the session
+    /// and keeps its registry record.
+    static func diff(shown: [ServerReach], desired: [ServerReach]) -> (add: [ServerReach], remove: [String], reroute: [ServerReach]) {
+        let shownByHost = Dictionary(shown.map { ($0.hostID, $0) }, uniquingKeysWith: { first, _ in first })
+        let desiredHosts = Set(desired.map(\.hostID))
+        let add = desired.filter { shownByHost[$0.hostID] == nil }
+        let reroute = desired.filter { reach in shownByHost[reach.hostID].map { $0.route != reach.route } ?? false }
+        return (add, shown.filter { !desiredHosts.contains($0.hostID) }.map(\.machineID), reroute)
+    }
+
+    /// `cmux link show` JSON: the link's pairing file, when the CLI names it.
+    static func parseLinkPeersFile(_ data: Data) -> String? {
+        let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        guard let file = object?["peers_file"] as? String, file.hasPrefix("/") else { return nil }
+        return file
     }
 
     nonisolated enum ReadError: Error, Equatable {

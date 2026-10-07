@@ -2707,6 +2707,32 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "workspace toggle-top",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "workspaceRow"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "workspace.toggleTop",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.workspace",
+        "order" : 101,
+        "title" : "Workspace",
+        "title_key" : "category.workspace",
+        "title_table" : "Localizable"
+      },
+      "title" : "Add Workspace to Top\/Remove from Top",
+      "title_key" : "action.workspace.toggleTop",
+      "title_table" : "WorkspaceActions"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "workspace move-to-bottom",
       "context_menu" : "offered",
       "context_menus" : [
@@ -8318,7 +8344,7 @@
         "title_key" : "category.tab",
         "title_table" : "Localizable"
       },
-      "title" : "Save Tab Group",
+      "title" : "Pin Group",
       "title_key" : "action.tabGroup.save",
       "title_table" : "ActionCatalog"
     },
@@ -8344,7 +8370,7 @@
         "title_key" : "category.tab",
         "title_table" : "Localizable"
       },
-      "title" : "Unsave Tab Group",
+      "title" : "Unpin Group",
       "title_key" : "action.tabGroup.unsave",
       "title_table" : "ActionCatalog"
     },
@@ -16073,6 +16099,32 @@
       },
       "title" : "Quick Agent Chat…",
       "title_key" : "action.palette.quickAgentChat",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action palette-add-harness",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "palette.addHarness",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "title" : "Add Harness…",
+      "title_key" : "action.palette.addHarness",
       "title_table" : "ActionCatalog"
     },
     {
@@ -31039,7 +31091,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "workspace.moveToSpace",
+              "id" : "workspace.toggleTop",
               "kind" : "action",
               "order" : 6,
               "visible_when" : {
@@ -31052,7 +31104,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "workspace.duplicateToSpace",
+              "id" : "workspace.moveToSpace",
               "kind" : "action",
               "order" : 7,
               "visible_when" : {
@@ -31065,9 +31117,22 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "workspace.mergeInto",
+              "id" : "workspace.duplicateToSpace",
               "kind" : "action",
               "order" : 8,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "workspace.mergeInto",
+              "kind" : "action",
+              "order" : 9,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
