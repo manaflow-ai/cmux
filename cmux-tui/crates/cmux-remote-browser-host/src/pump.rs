@@ -177,9 +177,48 @@ impl<E: FrameEncoder> Pump<E> {
     }
 
     /// Encodes `req` from the held frame, or waits for a captured one.
-    /// Red stub: not implemented yet.
     fn serve(&mut self, req: Option<EncodeRequest>, now_us: u64, out: &mut PumpOut) {
-        let _ = (req, now_us, out, &self.pending, &self.stats.refreshes);
-        let _ = Encoded { access_unit: Vec::new(), idr: false, t_capture_us: 0 };
+        let Some(req) = req else { return };
+        let Some((frame, t_capture_us)) = self.held.as_ref() else {
+            // A recovery request replaces an older pending one: it asks for more.
+            self.pending = Some(match self.pending.take() {
+                Some(old) => EncodeRequest { force_idr: old.force_idr || req.force_idr, ..req },
+                None => req,
+            });
+            if !out.refresh {
+                self.stats.refreshes += 1;
+            }
+            out.refresh = true;
+            return;
+        };
+        let t_capture_us = *t_capture_us;
+        if req.target_kbps > 0 && req.target_kbps != self.encoder.kbps() {
+            self.encoder.set_kbps(req.target_kbps);
+        }
+        let mut access_unit = Vec::new();
+        let pts = i64::try_from(t_capture_us).unwrap_or(i64::MAX);
+        let encoded =
+            match self.encoder.encode(frame, req.damage, req.force_idr, pts, &mut access_unit) {
+                Ok(idr) => {
+                    self.stats.encoded += 1;
+                    self.stats.idr += u64::from(idr);
+                    Some(Encoded { access_unit, idr, t_capture_us })
+                }
+                Err(_) => {
+                    // The gate opens again; the next damage tries anew.
+                    self.stats.encode_errors += 1;
+                    None
+                }
+            };
+        match self.engine.encoded(&req, encoded, now_us) {
+            Ok(engine_out) => {
+                if engine_out.halve_bitrate {
+                    let kbps = self.encoder.kbps() / 2;
+                    self.encoder.set_kbps(kbps.max(1));
+                }
+                out.datagrams.extend(engine_out.datagrams);
+            }
+            Err(_) => self.stats.encode_errors += 1,
+        }
     }
 }

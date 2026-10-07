@@ -112,7 +112,7 @@ impl HostTab {
                 SessionEffect::StartCapture => {
                     self.capture_wanted = true;
                     if let Some(browser) = self.browser {
-                        p.capture(browser, true);
+                        self.capture_on = p.capture(browser, true);
                     }
                 }
                 SessionEffect::StopCapture => {
@@ -120,12 +120,14 @@ impl HostTab {
                     if let Some(browser) = self.browser {
                         p.capture(browser, false);
                     }
+                    self.capture_on = false;
                 }
                 SessionEffect::NotifyState { state } => out.push(Control::State { state }),
                 SessionEffect::StopPage => {
                     if let Some(browser) = self.browser.take() {
                         p.close_tab(browser);
                     }
+                    self.capture_on = false;
                 }
             }
         }
@@ -136,7 +138,7 @@ impl HostTab {
     pub fn tab_created(&mut self, browser: i32, p: &mut dyn Presentation) {
         self.browser = Some(browser);
         if self.capture_wanted {
-            p.capture(browser, true);
+            self.capture_on = p.capture(browser, true);
         }
     }
 
@@ -381,7 +383,11 @@ impl HostTab {
 
     /// Starts the wanted capture that the shim refused before (call it on
     /// the tab's later shim callbacks: title, URL, load).
-    pub fn retry_capture(&mut self, _p: &mut dyn Presentation) {}
+    pub fn retry_capture(&mut self, p: &mut dyn Presentation) {
+        if let (true, false, Some(browser)) = (self.capture_wanted, self.capture_on, self.browser) {
+            self.capture_on = p.capture(browser, true);
+        }
+    }
 
     /// The shim captures this tab now.
     pub fn capturing(&self) -> bool {
