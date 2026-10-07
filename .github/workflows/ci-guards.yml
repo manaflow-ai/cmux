@@ -698,6 +698,10 @@ jobs:
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_tui_publish_dispatch_budget.py
 
+      - name: Validate the app FFI release publish job fails without a release
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: python3 tests/test_app_ffi_release_workflow.py
+
       - name: Validate pull request caches are read-only
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_ci_pull_request_caches_are_read_only.py
