@@ -47,6 +47,9 @@
          location = "group:CmuxIrxTransport">
       </FileRef>
       <FileRef
+         location = "group:CmuxMessagesLab">
+      </FileRef>
+      <FileRef
          location = "group:CMUXMobileCore">
       </FileRef>
       <FileRef
@@ -57,6 +60,9 @@
       </FileRef>
       <FileRef
          location = "group:CmuxTerminalClient">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxTerminalRenderCore">
       </FileRef>
       <FileRef
          location = "group:CmuxTerminalSizing">
