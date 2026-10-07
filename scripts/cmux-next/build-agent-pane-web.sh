@@ -57,7 +57,7 @@ cat "$SRC/acpmux/styles.css" "$SRC/acpmux/conversation/conversation.css" "$SRC/a
 # Same-origin script files only (no inline script, no eval) and inline style. No connection of its own: the
 # host's native transport (AgentPaneTransport) carries acpmux. No remote loads. Frames show only loopback web
 # pages (a turn's preview card; URL+AgentPanePreview.swift keeps the same hosts) and the render frame
-# (a render card; AgentPaneRenderFrame.swift). The page host sends the same
+# (a render card; acpmux/renderFrame.html, which AgentPaneRenderFrame.swift serves). The page host sends the same
 # script-src (PageDescriptor.agent, test/fixtures/agent-page-csp.txt).
 CSP="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src data:; font-src data:; connect-src 'none'; frame-src cmux-agent://render http://localhost:* http://127.0.0.1:* https://localhost:* https://127.0.0.1:*"
 
@@ -77,6 +77,7 @@ cp "$WORK/app.js" "$WORK/pane.js"
 if [ "$MODE" = "--check" ]; then
   if ! cmp -s "$WORK/index.html" "$OUT/index.html" || ! cmp -s "$WORK/pane.js" "$OUT/pane.js" \
     || ! cmp -s "$WORK/highlight-worker.js" "$OUT/highlight-worker.js" \
+    || ! cmp -s "$SRC/acpmux/renderFrame.html" "$OUT/render-frame.html" \
     || ! diff -rq "$WORK/locales" "$OUT/locales" >/dev/null 2>&1; then
     echo "error: $OUT/index.html is stale; run scripts/cmux-next/build-agent-pane-web.sh (after merging feat-cmux-next: scripts/cmux-next/regenerate-web-bundles.sh)" >&2
     exit 1
@@ -89,6 +90,8 @@ mkdir -p "$OUT"
 cp "$WORK/index.html" "$OUT/index.html"
 cp "$WORK/pane.js" "$OUT/pane.js"
 cp "$WORK/highlight-worker.js" "$OUT/highlight-worker.js"
+# The render frame's document (AgentPaneRenderFrame.swift serves it at cmux-agent://render/frame).
+cp "$SRC/acpmux/renderFrame.html" "$OUT/render-frame.html"
 rm -rf "$OUT/locales"
 cp -R "$WORK/locales" "$OUT/locales"
 echo "wrote $OUT/index.html ($(wc -c < "$OUT/index.html" | tr -d ' ') bytes) and pane.js ($(wc -c < "$OUT/pane.js" | tr -d ' ') bytes)"

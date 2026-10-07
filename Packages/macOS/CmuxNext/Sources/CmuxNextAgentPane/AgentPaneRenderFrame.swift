@@ -5,9 +5,8 @@ import Foundation
 /// card frames it sandboxed without same-origin, so the HTML runs with an opaque origin and
 /// cannot reach the pane, its bridge or acpmux.
 ///
-/// The document waits for its parent's `cmux-render` message, writes the HTML into itself
-/// (`document.open` keeps the document, so this policy still applies), puts the pane's theme
-/// first in its head and reports its height back as `cmux-render-size`. The policy allows inline
+/// The document (renderFrame.html) waits for its parent's `cmux-render` message, writes the HTML
+/// into itself and reports its height back as `cmux-render-size`. The policy allows inline
 /// and evaluated script and the script CDNs a mock or chart loads its library from, and no
 /// connection, frame, form or remote image.
 nonisolated enum AgentPaneRenderFrame {
@@ -35,37 +34,12 @@ nonisolated enum AgentPaneRenderFrame {
 
     private static let cdns = "https://cdn.jsdelivr.net https://unpkg.com https://cdnjs.cloudflare.com"
 
-    static let document = Data(#"""
-    <!doctype html>
-    <html><head><meta charset="utf-8"><script>
-    "use strict";
-    (function () {
-      var host = parent;
-      function size() {
-        var body = document.body;
-        var height = Math.max(document.documentElement.scrollHeight, body ? body.scrollHeight : 0);
-        host.postMessage({ type: "cmux-render-size", height: Math.ceil(height) }, "*");
-      }
-      function show(event) {
-        var data = event.data;
-        if (event.source !== host || !data || data.type !== "cmux-render" || typeof data.html !== "string") return;
-        removeEventListener("message", show);
-        document.open();
-        document.write(data.html);
-        document.close();
-        var theme = document.createElement("style");
-        theme.textContent = typeof data.css === "string" ? data.css : "";
-        var head = document.head || document.documentElement;
-        head.insertBefore(theme, head.firstChild);
-        new ResizeObserver(size).observe(document.documentElement);
-        addEventListener("load", size);
-        size();
-      }
-      addEventListener("message", show);
-      host.postMessage({ type: "cmux-render-ready" }, "*");
-    })();
-    </script></head></html>
-    """#.utf8)
+        /// The document (webviews/src/agent-session/acpmux/renderFrame.html, copied beside the pane by
+    /// scripts/cmux-next/build-agent-pane-web.sh). It carries `policy` as a meta tag too, for the
+    /// gallery's host, which serves the same file.
+    static let fileName = "render-frame.html"
+    static let document: Data = Bundle.module.url(forResource: "render-frame", withExtension: "html", subdirectory: "agent-pane")
+        .flatMap { try? Data(contentsOf: $0) } ?? Data()
 
     static func headers(length: Int) -> [String: String] {
         [

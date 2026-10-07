@@ -76,6 +76,9 @@ final class AgentPaneSchemeHandler: NSObject, WKURLSchemeHandler {
         else { return nil }
         let components = url.path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
         guard !components.isEmpty, !components.contains(where: { $0 == ".." || $0 == "." }) else { return nil }
+        // The render frame's document runs an agent's HTML, so it is served only on its own origin
+        // (`AgentPaneRenderFrame`), never on the pane's.
+        guard components.map({ $0.lowercased() }) != [AgentPaneRenderFrame.fileName] else { return nil }
         let base = root.standardizedFileURL.resolvingSymlinksInPath()
         let file = components.reduce(base) { $0.appendingPathComponent($1) }.standardizedFileURL.resolvingSymlinksInPath()
         guard file.path.hasPrefix(base.path + "/") else { return nil }

@@ -1,0 +1,44 @@
+<!doctype html>
+<!-- The render frame (conversation/RenderCard.tsx): the document a render card frames sandboxed,
+     without same-origin. The app serves these bytes at cmux-agent://render/frame with the same
+     policy as a header (AgentPaneRenderFrame.swift); the gallery serves them from its dev host.
+     It waits for its parent's `cmux-render` message, writes the HTML into itself (document.open
+     keeps the document, so the policy still applies), puts the pane's theme first in its head and
+     reports its height back as `cmux-render-size`. -->
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://unpkg.com https://cdnjs.cloudflare.com; style-src 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net https://unpkg.com https://cdnjs.cloudflare.com; font-src data: https://fonts.gstatic.com https://cdn.jsdelivr.net https://unpkg.com https://cdnjs.cloudflare.com; img-src data: blob:; media-src data: blob:; connect-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'"
+    />
+    <script>
+      "use strict";
+      (function () {
+        var host = parent;
+        function size() {
+          var body = document.body;
+          var height = Math.max(document.documentElement.scrollHeight, body ? body.scrollHeight : 0);
+          host.postMessage({ type: "cmux-render-size", height: Math.ceil(height) }, "*");
+        }
+        function show(event) {
+          var data = event.data;
+          if (event.source !== host || !data || data.type !== "cmux-render" || typeof data.html !== "string") return;
+          removeEventListener("message", show);
+          document.open();
+          document.write(data.html);
+          document.close();
+          var theme = document.createElement("style");
+          theme.textContent = typeof data.css === "string" ? data.css : "";
+          var head = document.head || document.documentElement;
+          head.insertBefore(theme, head.firstChild);
+          new ResizeObserver(size).observe(document.documentElement);
+          addEventListener("load", size);
+          size();
+        }
+        addEventListener("message", show);
+        host.postMessage({ type: "cmux-render-ready" }, "*");
+      })();
+    </script>
+  </head>
+</html>
