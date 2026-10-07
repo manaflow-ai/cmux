@@ -21,6 +21,7 @@ enum CmuxMain {
         // First: nothing may read preferences before an app-host test process
         // switches to its own domain.
         TestProcessDefaults.installIfHostingTests()
+        installCrashOnExceptionsPolicy()
         FileDescriptorLimitController().raiseSoftLimitIfNeeded()
         AppHostProcessReceipt.writeIfRequired()
 #if DEBUG
@@ -34,5 +35,10 @@ enum CmuxMain {
         CmuxWorkerEntrypoint(arguments: CommandLine.arguments).runIfRequested()
         SurfaceResumeApprovalStore.preloadSigningSecret()
         cmuxApp.main()
+    }
+
+    /// Installs the AppKit policy that makes exceptions escaping the run loop fatal.
+    static func installCrashOnExceptionsPolicy(defaults: UserDefaults = .standard) {
+        // The implementation is added with the startup repair.
     }
 }
