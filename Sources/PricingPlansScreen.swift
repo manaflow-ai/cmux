@@ -29,6 +29,13 @@ enum ProUpgradePresenter {
     @MainActor
     static func prefetch(source: ProUpgradeSource) {
         guard BrowserAvailabilitySettings.isEnabled() else { return }
+        // Do not prewarm an unauthenticated page while the native session is
+        // still being restored. `present` performs the credential handoff and
+        // will create a request-backed webview once restoration completes.
+        if let coordinator = AppDelegate.shared?.auth?.coordinator,
+           coordinator.isAuthenticated || coordinator.isRestoringSession {
+            return
+        }
         // When an upgrade workspace already exists, present() refocuses it and
         // navigates its existing panel, so a prewarmed webview would go unused.
         if let workspaceId = workspaceReuseState.workspaceId,
@@ -49,6 +56,34 @@ enum ProUpgradePresenter {
             NSWorkspace.shared.open(url)
             return
         }
+        // `authenticatedSessionSnapshot()` waits for launch restoration, so a
+        // click during the short signed-out-looking startup window still gets
+        // the native session instead of opening an anonymous pricing page.
+        Task { @MainActor in
+            await presentAuthenticatedPricing(url: url)
+        }
+    }
+
+    @MainActor
+    private static func presentAuthenticatedPricing(url: URL) async {
+        guard let auth = AppDelegate.shared?.auth else {
+            presentAppPricingWebWithoutSession(url: url)
+            return
+        }
+
+        var outcome = await auth.browserAppSession.request(destinationURL: url)
+        if outcome.shouldRetry {
+            outcome = await auth.browserAppSession.request(destinationURL: url)
+        }
+        if case let .navigation(navigation) = outcome,
+           presentBrowserSplit(navigation: navigation) {
+            return
+        }
+        presentAppPricingWebWithoutSession(url: url)
+    }
+
+    @MainActor
+    private static func presentAppPricingWebWithoutSession(url: URL) {
         if presentDedicatedPricingWorkspace(url: url) {
             return
         }
@@ -128,6 +163,25 @@ enum ProUpgradePresenter {
             return
         }
         NSWorkspace.shared.open(url)
+    }
+
+    @MainActor
+    private static func presentBrowserSplit(navigation: BrowserAppSessionNavigation) -> Bool {
+        guard let workspace = AppDelegate.shared?.tabManager?.selectedWorkspace,
+              let sourcePanelId = workspace.focusedPanelId else {
+            return false
+        }
+        return workspace.newBrowserSplit(
+            from: sourcePanelId,
+            orientation: .horizontal,
+            initialRequest: navigation.request,
+            focus: true,
+            allowsExternalBrowserFallback: false,
+            chromeVisibility: .hidden,
+            transparentBackground: true,
+            initialDividerPosition: 0.58,
+            websiteDataStore: navigation.websiteDataStore
+        ) != nil
     }
 
     @MainActor
