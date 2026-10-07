@@ -330,15 +330,7 @@ fn the_remote_relay_denies_every_agent_session_verb() {
     let outbound = Arc::new(BoundedOutbound::default());
     let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
     let client = mux.control_clients.register(ClientTransport::Remote, writer.clone());
-    for frame in [
-        json!({"id":1,"cmd":"agent-session-attach","surface":surface}),
-        json!({"id":2,"cmd":"agent-session-events","surface":surface}),
-        json!({"id":3,"cmd":"agent-session-prompt","surface":surface,"prompt_id":"p1","text":"hi"}),
-        json!({"id":4,"cmd":"agent-session-cancel","surface":surface}),
-        json!({"id":5,"cmd":"agent-session-permission","surface":surface,
-               "permission_id":"perm_attach","option_id":"allow"}),
-        json!({"id":6,"cmd":"agent-session-detach","surface":surface}),
-    ] {
+    for frame in every_verb(surface) {
         assert!(remote_relay::gate::check_frame(&frame.to_string()).is_err());
         remote_relay::handle_frame(&mux, client, &frame.to_string(), &writer);
         let reply: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
@@ -347,19 +339,46 @@ fn the_remote_relay_denies_every_agent_session_verb() {
     fake.no_connection();
 }
 
+/// One frame of every verb on `surface`.
+fn every_verb(surface: SurfaceId) -> Vec<Value> {
+    vec![
+        json!({"id":1,"cmd":"agent-session-attach","surface":surface}),
+        json!({"id":2,"cmd":"agent-session-events","surface":surface}),
+        json!({"id":3,"cmd":"agent-session-prompt","surface":surface,"prompt_id":"p1","text":"hi"}),
+        json!({"id":4,"cmd":"agent-session-cancel","surface":surface}),
+        json!({"id":5,"cmd":"agent-session-permission","surface":surface,
+               "permission_id":"perm_attach","option_id":"allow"}),
+        json!({"id":6,"cmd":"agent-session-detach","surface":surface}),
+    ]
+}
+
 #[test]
-fn a_websocket_client_is_refused() {
-    let fake = FakeAcpmux::start("ws");
-    let mux = mux_with(&fake, "asa-ws");
+fn every_verb_is_refused_on_every_untrusted_connection() {
+    let fake = FakeAcpmux::start("untrusted");
+    let mux = mux_with(&fake, "asa-untrusted");
     let surface = agent_tab(&mux, Some(SESSION));
     let outbound = Arc::new(BoundedOutbound::default());
     let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
-    let client = mux.control_clients.register(ClientTransport::WebSocket, writer.clone());
-    let frame = json!({"id":1,"cmd":"agent-session-attach","surface":surface}).to_string();
-    let handled = agent_session_attach::try_handle(&mux, client, &frame, &writer);
-    assert_eq!(handled, Some(true));
-    let reply: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
-    assert_code(&reply, "agent_session.not_trusted");
+    let websocket = mux.control_clients.register(ClientTransport::WebSocket, writer.clone());
+    // A Unix connection that carries a paired install's link stamp is remote.
+    mux.record_remote_check("inst_peer").unwrap();
+    let stamped = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let peer = crate::remote_relay_state::LinkPeer {
+        install: "inst_peer".into(),
+        user: "42".into(),
+        team: "team_a".into(),
+    };
+    mux.bind_remote_peer(stamped, &peer).unwrap();
+    let unregistered = 999_999;
+    for client in [websocket, stamped, unregistered] {
+        for frame in every_verb(surface) {
+            let handled =
+                agent_session_attach::try_handle(&mux, client, &frame.to_string(), &writer);
+            assert_eq!(handled, Some(true));
+            let reply: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+            assert_code(&reply, "agent_session.not_trusted");
+        }
+    }
     fake.no_connection();
 }
 
