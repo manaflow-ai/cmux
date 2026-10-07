@@ -16,15 +16,17 @@ const agent = "CMUX_UITEST_STACK_EMAIL=agent@example.com\nCMUX_UITEST_STACK_PASS
 const original = `# Keep both profiles and unrelated configuration.\n${personal}${agent}EXTRA_CONFIG=retained\n`;
 const production = "CMUX_DOGFOOD_STACK_EMAIL=production@example.com\nCMUX_DOGFOOD_STACK_PASSWORD=production-fixture-password\n";
 
-function fixture(t, { dev, prod, responses = [] } = {}) {
+function fixture(t, { dev, prod, legacyProd, responses = [] } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-setup-profiles-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const secrets = path.join(root, ".secrets");
   fs.mkdirSync(secrets, { mode: 0o700 });
   const devFile = path.join(secrets, "cmuxterm-dev.env");
-  const prodFile = path.join(secrets, "cmux-beta-production.env");
+  const prodFile = path.join(secrets, "cmuxterm-prod.env");
+  const legacyProdFile = path.join(secrets, "cmux-beta-production.env");
   if (dev !== undefined) fs.writeFileSync(devFile, dev, { mode: 0o600 });
   if (prod !== undefined) fs.writeFileSync(prodFile, prod, { mode: 0o600 });
+  if (legacyProd !== undefined) fs.writeFileSync(legacyProdFile, legacyProd, { mode: 0o600 });
   const bin = path.join(root, "bin");
   fs.mkdirSync(bin);
   fs.writeFileSync(path.join(root, "responses.json"), JSON.stringify(responses));
@@ -46,7 +48,7 @@ process.stdout.write(JSON.stringify(response.body));
 `, { mode: 0o700 });
   const env = { HOME: root, PATH: `${bin}:/usr/bin:/bin:/usr/sbin:/sbin` };
   return {
-    root, devFile, prodFile,
+    root, devFile, prodFile, legacyProdFile,
     run(input = "", args = []) {
       const result = spawnSync("/bin/bash", [script, ...args], {
         encoding: "utf8", input, env, timeout: 10_000,
@@ -120,7 +122,69 @@ test("production opt-in verifies the production project and keeps its file separ
   assert.ok(f.requests()[0].headers.includes("x-stack-publishable-client-key: pck_kzj80gx4mh2jrzn1cx6y5e8jk0kwa01vkevh2p9zd4twr"));
   assert.equal(f.value(f.prodFile, "CMUX_DOGFOOD_STACK_PASSWORD"), "production-fixture-password");
   assert.equal(fs.statSync(f.prodFile).mode & 0o777, 0o600);
+  assert.equal(fs.existsSync(f.legacyProdFile), false);
   assert.equal(fs.readFileSync(f.devFile, "utf8"), original);
+});
+
+test("setup adopts a complete legacy production file without prompting or changing the original", (t) => {
+  const f = fixture(t, { dev: original, legacyProd: production });
+  successful(f.run());
+  assert.equal(fs.readFileSync(f.prodFile, "utf8"), production);
+  assert.equal(fs.statSync(f.prodFile).mode & 0o777, 0o600);
+  assert.equal(fs.readFileSync(f.legacyProdFile, "utf8"), production);
+  assert.equal(f.requests().length, 0);
+  successful(f.load(["--profile", "personal", "--credentials-file", f.legacyProdFile]));
+});
+
+test("an existing canonical production profile takes precedence over legacy credentials", (t) => {
+  const legacyProd = production.replace("production@example.com", "legacy@example.com");
+  const f = fixture(t, { dev: original, prod: production, legacyProd });
+  successful(f.run());
+  assert.equal(fs.readFileSync(f.prodFile, "utf8"), production);
+  assert.equal(fs.readFileSync(f.legacyProdFile, "utf8"), legacyProd);
+  assert.equal(f.requests().length, 0);
+});
+
+test("legacy adoption never overwrites a partial canonical profile or combines partial pairs", async (t) => {
+  for (const [prod, legacyProd] of [
+    ["CMUX_DOGFOOD_STACK_EMAIL=partial@example.com\n", production],
+    ["CMUX_DOGFOOD_STACK_EMAIL=partial@example.com\n", "CMUX_DOGFOOD_STACK_PASSWORD=legacy-fixture-password\n"],
+    [undefined, "CMUX_DOGFOOD_STACK_EMAIL=partial@example.com\n"],
+  ]) {
+    await t.test(JSON.stringify({ prod, legacyProd }), (t) => {
+      const f = fixture(t, { dev: original, prod, legacyProd });
+      successful(f.run());
+      if (prod === undefined) assert.equal(fs.existsSync(f.prodFile), false);
+      else assert.equal(fs.readFileSync(f.prodFile, "utf8"), prod);
+      assert.equal(fs.readFileSync(f.legacyProdFile, "utf8"), legacyProd);
+      assert.equal(f.requests().length, 0);
+    });
+  }
+});
+
+test("production refresh updates the adopted profile and preserves explicit legacy callers", (t) => {
+  const f = fixture(t, { dev: original, legacyProd: production });
+  successful(f.run("new-production@example.com\nnew-fixture-password\n", ["--refresh-production"]));
+  assert.equal(f.value(f.prodFile, "CMUX_DOGFOOD_STACK_EMAIL"), "new-production@example.com");
+  assert.equal(fs.readFileSync(f.legacyProdFile, "utf8"), production);
+  assert.deepEqual(requestProjects(f), [productionProject]);
+});
+
+test("legacy adoption refuses unsafe permissions and symbolic links", async (t) => {
+  for (const kind of ["permissions", "symlink"]) {
+    await t.test(kind, (t) => {
+      const f = fixture(t, { dev: original, legacyProd: production });
+      if (kind === "permissions") fs.chmodSync(f.legacyProdFile, 0o644);
+      else {
+        fs.renameSync(f.legacyProdFile, `${f.legacyProdFile}.original`);
+        fs.symlinkSync(`${f.legacyProdFile}.original`, f.legacyProdFile);
+      }
+      assert.notEqual(f.run().status, 0);
+      assert.equal(fs.existsSync(f.prodFile), false);
+      assert.equal(fs.readFileSync(f.legacyProdFile, "utf8"), production);
+      assert.equal(f.requests().length, 0);
+    });
+  }
 });
 
 test("production decline, empty input, and EOF leave development setup successful", async (t) => {
