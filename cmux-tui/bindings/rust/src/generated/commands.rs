@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 9496d58d88de892658e496b46730c12074b0354928aae971cf4da945b712e4b5.
+// cmux-tui mux protocol 12, IR a12acc481313eced97f8c489168cac258fd1b9c8b5b4fde33476bcaeaaf0e11b.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -2557,6 +2557,8 @@ pub struct SetColumnDockRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub mode: Optional<String>,
     pub pane: T::Id,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub permanent: Optional<bool>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub role: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]

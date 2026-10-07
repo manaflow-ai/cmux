@@ -78,6 +78,28 @@
   (global-name "com.apple.pasteboard.1")
   (global-name "com.apple.lsd.modifydb"))
 
+;; No keychain: its service would answer for every item of the user (gh,
+;; cloud and browser tokens). acpmux hands Claude Code its own credential
+;; by env instead (hub/remote_sandbox.rs).
+(deny mach-lookup
+  (global-name "com.apple.SecurityServer")
+  (global-name "com.apple.securityd.xpc")
+  (global-name "com.apple.securityd.general")
+  (global-name "com.apple.securityd.ckks")
+  (global-name "com.apple.securityd.sos")
+  (global-name "com.apple.securityd.aps")
+  (global-name "com.apple.securityd.systemkeychain")
+  (global-name "com.apple.security.octagon")
+  (global-name "com.apple.security.escrow-update")
+  (global-name "com.apple.security.kcsharing")
+  (global-name "com.apple.security.KeychainStasher")
+  (global-name "com.apple.security.agent")
+  (global-name "com.apple.security.authhost")
+  (global-name "com.apple.keychainsharingmessagingd")
+  (global-name "com.apple.ctkd.token-client")
+  (global-name "com.apple.ctkd.slot-client")
+  (global-name "com.apple.ctkd.slot-registry"))
+
 ;; Secrets a remote chain never reads.
 (deny file-read*
   (subpath (string-append (param "HOME") "/.ssh"))
@@ -87,7 +109,14 @@
   (subpath (string-append (param "HOME") "/.kube"))
   (subpath (string-append (param "HOME") "/.config/gh"))
   (literal (string-append (param "HOME") "/.netrc"))
+  (literal (string-append (param "HOME") "/.git-credentials"))
+  (literal (string-append (param "HOME") "/.npmrc"))
+  (literal (string-append (param "HOME") "/.codex/auth.json"))
+  (subpath (string-append (param "HOME") "/.config/gcloud"))
+  (subpath (string-append (param "HOME") "/.azure"))
   (literal (string-append (param "HOME") "/.docker/config.json"))
+  (subpath (string-append (param "HOME") "/Library/Keychains"))
+  (subpath "/Library/Keychains")
   (subpath (string-append (param "HOME") "/Library/Cookies"))
   (subpath (string-append (param "HOME") "/Library/Application Support/Google/Chrome"))
   (subpath (string-append (param "HOME") "/Library/Application Support/Firefox"))
