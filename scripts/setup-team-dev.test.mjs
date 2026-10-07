@@ -1,9 +1,11 @@
 // Run with: node --test scripts/setup-team-dev.test.mjs
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { EventEmitter, once } from "node:events";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
@@ -48,7 +50,7 @@ process.stdout.write(JSON.stringify(response.body));
 `, { mode: 0o700 });
   const env = { HOME: root, PATH: `${bin}:/usr/bin:/bin:/usr/sbin:/sbin` };
   return {
-    root, devFile, prodFile, legacyProdFile,
+    root, devFile, prodFile, legacyProdFile, env, bin,
     run(input = "", args = []) {
       const result = spawnSync("/bin/bash", [script, ...args], {
         encoding: "utf8", input, env, timeout: 10_000,
@@ -214,6 +216,101 @@ test("refresh verifies a replacement and preserves the agent profile", (t) => {
   assert.equal(f.value(f.devFile, "CMUX_DOGFOOD_STACK_PASSWORD"), "new-fixture-password");
   assert.equal(f.value(f.devFile, "CMUX_UITEST_STACK_PASSWORD"), "agent-fixture-password");
   assert.match(fs.readFileSync(f.devFile, "utf8"), /EXTRA_CONFIG=retained/);
+});
+
+test("concurrent personal and agent refreshes preserve both successful updates", { timeout: 15_000 }, async (t) => {
+  const f = fixture(t, { dev: original, prod: production });
+  const events = new EventEmitter();
+  const sockets = new Set();
+  const children = [];
+  const server = net.createServer((socket) => {
+    sockets.add(socket);
+    let message = "";
+    socket.on("data", (data) => {
+      message += data;
+      if (message.includes("\n")) events.emit(message.trim(), socket);
+    });
+    socket.on("close", () => sockets.delete(socket));
+  });
+  t.after(() => {
+    for (const child of children) {
+      if (child.exitCode !== null || child.signalCode !== null) continue;
+      try { process.kill(-child.pid, "SIGKILL"); } catch (error) {
+        if (error.code !== "ESRCH") throw error;
+      }
+    }
+    for (const socket of sockets) socket.destroy();
+    server.close();
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+
+  // Pause the first atomic replacement, then let the other process either
+  // reach its own replacement (the bug) or wait for the transaction lock.
+  // Both shell and Python filesystem boundaries use the same event protocol.
+  fs.writeFileSync(path.join(f.bin, "mv"), `#!${process.execPath}\n` + String.raw`
+const net = require("node:net");
+const { spawnSync } = require("node:child_process");
+const socket = net.connect(Number(process.env.FIXTURE_PORT), "127.0.0.1", () => {
+  socket.write(process.env.FIXTURE_ROLE + ":replace\n");
+});
+socket.once("data", () => {
+  process.exit(spawnSync("/bin/mv", process.argv.slice(2)).status ?? 1);
+});
+`, { mode: 0o700 });
+  fs.writeFileSync(path.join(f.bin, "sitecustomize.py"), String.raw`
+import fcntl, os, socket
+def signal(event, wait=False):
+    with socket.create_connection(("127.0.0.1", int(os.environ["FIXTURE_PORT"])), timeout=10) as connection:
+        connection.sendall((os.environ["FIXTURE_ROLE"] + ":" + event + "\n").encode())
+        if wait:
+            connection.recv(1)
+replace, flock = os.replace, fcntl.flock
+def intercepted_replace(*args, **kwargs):
+    signal("replace", wait=True)
+    return replace(*args, **kwargs)
+def intercepted_flock(*args, **kwargs):
+    signal("lock")
+    return flock(*args, **kwargs)
+os.replace, fcntl.flock = intercepted_replace, intercepted_flock
+`);
+  function start(role, flag, email) {
+    const child = spawn("/bin/bash", [script, flag], {
+      detached: true,
+      env: { ...f.env, PYTHONPATH: f.bin, FIXTURE_PORT: String(server.address().port), FIXTURE_ROLE: role },
+    });
+    children.push(child);
+    let output = "";
+    child.stdout.on("data", (data) => { output += data; });
+    child.stderr.on("data", (data) => { output += data; });
+    const done = once(child, "close").then(([status]) => {
+      assert.equal(status, 0, output);
+      assert.doesNotMatch(output, /fixture-password|fixture-token/);
+    });
+    child.stdin.end(`${email}\n${role}-new-fixture-password\n`);
+    return done;
+  }
+  const personalReplace = once(events, "personal:replace");
+  const personalDone = start("personal", "--refresh", "new-person@example.com");
+  const [personalSocket] = await personalReplace;
+  const agentLock = once(events, "agent:lock").then(() => "locked");
+  const agentReplace = once(events, "agent:replace");
+  const agentDone = start("agent", "--refresh-agent", "new-agent@example.com");
+  if (await Promise.race([agentLock, agentReplace.then(() => "replacing")]) === "replacing") {
+    const [agentSocket] = await agentReplace;
+    agentSocket.end("continue");
+    await agentDone;
+    personalSocket.end("continue");
+  } else {
+    personalSocket.end("continue");
+    const [agentSocket] = await agentReplace;
+    agentSocket.end("continue");
+  }
+  await Promise.all([personalDone, agentDone]);
+  assert.equal(f.value(f.devFile, "CMUX_DOGFOOD_STACK_PASSWORD"), "personal-new-fixture-password");
+  assert.equal(f.value(f.devFile, "CMUX_UITEST_STACK_PASSWORD"), "agent-new-fixture-password");
+  assert.match(fs.readFileSync(f.devFile, "utf8"), /EXTRA_CONFIG=retained/);
+  assert.equal(fs.statSync(f.devFile).mode & 0o777, 0o600);
 });
 
 test("agent refresh changes only the development test profile", (t) => {
