@@ -19,7 +19,8 @@ struct MobileHostListenerState: Equatable, Sendable {
     var isSettled: Bool { phase != .starting }
 }
 
-/// One listener owner supplies both settings state and startup readiness.
+/// The Iroh runtime supplies secure pairing readiness; the host service reports
+/// the independent Tailscale compatibility listener alongside it.
 @MainActor
 protocol MobileHostPairingRuntime: AnyObject, Sendable {
     var listenerState: MobileHostListenerState { get }
