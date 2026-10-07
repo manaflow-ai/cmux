@@ -38,7 +38,11 @@ function href({ entry, variant, search }: Address): string {
 }
 
 function go({ entry, variant, search }: Address, replace = false): void {
-  void router.navigate({ to: `/${encodeURIComponent(entry)}/${encodeURIComponent(variant)}`, search, replace } as never);
+  void router.navigate({
+    to: `/${encodeURIComponent(entry)}/${encodeURIComponent(variant)}`,
+    search,
+    replace,
+  } as never);
 }
 
 /** The current address: the route's params and validated search. */
@@ -227,6 +231,7 @@ function Layout() {
                 <input
                   type="radio"
                   name="view"
+                  aria-label={VIEW_LABELS[view]}
                   checked={search.view === view}
                   onChange={() => go({ ...address, search: { ...search, view } })}
                 />

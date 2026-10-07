@@ -2,15 +2,7 @@
 // The transcript's row kinds and states (conversation/*, App.tsx VirtualTranscript), each as the
 // snapshot the pane bridge would deliver. src/gallery/format.ts describes the format.
 import { agentPaneEntry } from "../../../gallery/format";
-import {
-  activity,
-  assistant,
-  chat,
-  summary,
-  thought,
-  tool,
-  user,
-} from "../../../gallery/fixtures/acpmux";
+import { activity, assistant, chat, summary, thought, tool, user } from "../../../gallery/fixtures/acpmux";
 import { workedTurnRows } from "../workedTurn";
 import { minutesAgo } from "../../../gallery/clock";
 
@@ -111,9 +103,13 @@ export default agentPaneEntry({
       snapshot: chat(
         [
           user(prompt, 1),
-          assistant("I'll start with the retry policy type, then wire it into `request`:\n\n```ts\nexport type RetryPolicy = {\n  attempts?: number;", 0.5, {
-            streaming: true,
-          }),
+          assistant(
+            "I'll start with the retry policy type, then wire it into `request`:\n\n```ts\nexport type RetryPolicy = {\n  attempts?: number;",
+            0.5,
+            {
+              streaming: true,
+            },
+          ),
         ],
         { isWorking: true },
       ),
@@ -126,7 +122,9 @@ export default agentPaneEntry({
           activity(
             [
               thought("The helper lives in src/net/client.ts; check how errors are parsed first."),
-              tool("Read client.ts", "read", "completed", { locations: [{ path: "/Users/you/src/atlas-web/src/net/client.ts" }] }),
+              tool("Read client.ts", "read", "completed", {
+                locations: [{ path: "/Users/you/src/atlas-web/src/net/client.ts" }],
+              }),
               tool("Search for parseError", "search", "completed"),
               tool("bun test src/net", "execute", "in_progress", {
                 command: "bun test src/net",
@@ -170,7 +168,8 @@ export default agentPaneEntry({
             tool("bun run lint", "execute", "failed", {
               command: "bun run lint",
               exitCode: 1,
-              output: "src/net/client.ts:14:7  error  'policy' is assigned a value but never used  no-unused-vars\n\n✖ 1 problem (1 error, 0 warnings)",
+              output:
+                "src/net/client.ts:14:7  error  'policy' is assigned a value but never used  no-unused-vars\n\n✖ 1 problem (1 error, 0 warnings)",
               startedAt: minutesAgo(11.9),
               endedAt: minutesAgo(11.8),
             }),
@@ -194,7 +193,10 @@ export default agentPaneEntry({
         user(prompt, 3),
         assistant("Done.", 2.8),
         summary(2.8, { status: "completed" }),
-        user("Now also add a circuit breaker", 0.5, { failed: true, error: "This chat is read only on this connection." }),
+        user("Now also add a circuit breaker", 0.5, {
+          failed: true,
+          error: "This chat is read only on this connection.",
+        }),
       ]),
     },
     "edited-files": {
@@ -269,7 +271,10 @@ export default agentPaneEntry({
           const at = 3000 - index * 120;
           return [
             user(`Question ${index + 1}: how does part ${index + 1} of the retry flow work?`, at),
-            assistant(`Part ${index + 1} waits, then calls the task again. ${"It is covered by a test. ".repeat(1 + (index % 4))}`, at - 1),
+            assistant(
+              `Part ${index + 1} waits, then calls the task again. ${"It is covered by a test. ".repeat(1 + (index % 4))}`,
+              at - 1,
+            ),
             summary(at - 1, { status: "completed" }),
           ];
         }).flat(),

@@ -69,7 +69,8 @@ const CROSSFADE = 0.1;
 export function agentPaneTheme(tokens: ThemeTokens, reducedMotion: boolean): Record<string, unknown> {
   const page = withAlpha(tokens.surfaceBackground, 1);
   const opaquePage = withAlpha(tokens.contentBackground, 1);
-  const motion = Object.fromEntries(Object.entries(MOTION).map(([key, seconds]) => [key, reducedMotion ? Math.min(seconds, CROSSFADE) : seconds]),
+  const motion = Object.fromEntries(
+    Object.entries(MOTION).map(([key, seconds]) => [key, reducedMotion ? Math.min(seconds, CROSSFADE) : seconds]),
   );
   return {
     isDark: tokens.isDark,

@@ -60,8 +60,11 @@ export function mountWindow(options: {
   const geometry = windowGeometry(size, env.layout, env.density, metrics);
   const root = document.documentElement;
   root.dataset.galleryFrame = "window";
-  Object.assign(document.body.style, {
-    margin: "0",
+  document.body.style.margin = "0";
+  // The window is the stage's root element, at its real size.
+  const win = document.getElementById("root")!;
+  Object.assign(win.style, {
+    display: "block",
     position: "relative",
     width: `${size.width}px`,
     height: `${size.height}px`,
@@ -70,7 +73,6 @@ export function mountWindow(options: {
     color: css(tokens.textPrimary),
     font: "13px -apple-system, BlinkMacSystemFont, system-ui, sans-serif",
   });
-  document.getElementById("root")?.remove();
 
   // Sidebar: its tonal step over the window, the traffic lights in the titlebar band, then rows.
   const sidebar = box(geometry.sidebar, { background: css(tokens.sidebarStep) });
@@ -85,7 +87,12 @@ export function mountWindow(options: {
   const rowHeight = metrics.sidebarRowHeightWithSubtitle?.[env.density] ?? 46;
   SAMPLE_WORKSPACES.forEach((workspace, index) => {
     const row = box(
-      { x: 8, y: geometry.titlebarHeight + 8 + index * (rowHeight + 2), width: geometry.sidebar.width - 16, height: rowHeight },
+      {
+        x: 8,
+        y: geometry.titlebarHeight + 8 + index * (rowHeight + 2),
+        width: geometry.sidebar.width - 16,
+        height: rowHeight,
+      },
       {
         borderRadius: "7px",
         padding: "0 10px",
@@ -101,7 +108,7 @@ export function mountWindow(options: {
     );
     sidebar.append(row);
   });
-  document.body.append(sidebar);
+  win.append(sidebar);
 
   for (const pane of geometry.panes) {
     const frame = box(pane.frame, {
@@ -133,7 +140,12 @@ export function mountWindow(options: {
       strip.append(tab);
     });
     frame.append(strip);
-    const content = { x: 0, y: geometry.tabStripHeight, width: pane.content.width - 2, height: pane.content.height - 2 };
+    const content = {
+      x: 0,
+      y: geometry.tabStripHeight,
+      width: pane.content.width - 2,
+      height: pane.content.height - 2,
+    };
     if (pane.hostsEntry) {
       // The entry itself: a component frame at the pane's real size, under the same controls.
       const params = new URLSearchParams(location.search);
@@ -184,6 +196,6 @@ export function mountWindow(options: {
       }
       frame.append(shell);
     }
-    document.body.append(frame);
+    win.append(frame);
   }
 }

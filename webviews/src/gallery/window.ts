@@ -101,6 +101,9 @@ export const entryPane = (geometry: WindowGeometry) =>
   geometry.panes.find((pane) => pane.hostsEntry) ?? geometry.panes[0]!;
 
 /** The scale that fits a `width` x `height` window into `available` px (never above 1). */
-export function fitScale(size: { width: number; height: number }, available: { width: number; height: number }): number {
+export function fitScale(
+  size: { width: number; height: number },
+  available: { width: number; height: number },
+): number {
   return Math.min(1, available.width / size.width, available.height / size.height);
 }

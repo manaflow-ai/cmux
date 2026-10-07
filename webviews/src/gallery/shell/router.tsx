@@ -26,7 +26,8 @@ function parseSearch(text: string): Record<string, unknown> {
 function stringifySearch(search: Record<string, unknown>): string {
   const params = writeEnv(readEnv(new URLSearchParams(search as Record<string, string>)));
   const view = search.view;
-  if (typeof view === "string" && view !== "variant" && (VIEWS as readonly string[]).includes(view)) params.set("view", view);
+  if (typeof view === "string" && view !== "variant" && (VIEWS as readonly string[]).includes(view))
+    params.set("view", view);
   const text = params.toString();
   return text ? `?${text}` : "";
 }
@@ -52,7 +53,10 @@ export function createGalleryRouter(Layout: () => React.ReactNode, history?: Rou
     validateSearch: validateShellSearch,
     beforeLoad: ({ search }) => {
       const entry = entries[0];
-      if (entry) throw redirect({ href: `/${encodeURIComponent(entry.id)}/${encodeURIComponent(firstVariant(entry.id)!)}${stringifySearch(search)}` });
+      if (entry)
+        throw redirect({
+          href: `/${encodeURIComponent(entry.id)}/${encodeURIComponent(firstVariant(entry.id)!)}${stringifySearch(search)}`,
+        });
     },
     component: Outlet,
   });
@@ -62,7 +66,10 @@ export function createGalleryRouter(Layout: () => React.ReactNode, history?: Rou
     validateSearch: validateShellSearch,
     beforeLoad: ({ params, search }) => {
       const variant = firstVariant(params.entry);
-      if (variant) throw redirect({ href: `/${encodeURIComponent(params.entry)}/${encodeURIComponent(variant)}${stringifySearch(search)}` });
+      if (variant)
+        throw redirect({
+          href: `/${encodeURIComponent(params.entry)}/${encodeURIComponent(variant)}${stringifySearch(search)}`,
+        });
     },
     component: Outlet,
   });
