@@ -52,7 +52,6 @@ final class SidebarBridge {
         container.sidebarView.contextMenuProvider = { [weak self] target in self?.contextMenu(for: target) }
         container.sidebarView.resourceSource = services.resources
         container.sidebarView.hoverCards = services.hoverCards
-        services.agentRecents?.startTurnStates(localHost: (try? services.cloud.localDeviceID()).map(AgentSessionRef.host(installID:))) // agent tab indicators
         let recents = services.agentRecents.map { feed in
             AgentRecentsSection(feed: feed) { [weak services] id in
                 guard let services else { return }

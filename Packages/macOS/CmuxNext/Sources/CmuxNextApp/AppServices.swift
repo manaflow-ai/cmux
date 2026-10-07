@@ -163,7 +163,7 @@ final class AppServices {
     /// Agent chat tabs and their shared acpmux host (New Agent Chat).
     private(set) lazy var agentTabs = AgentTabStore.wired(to: self)
     /// The sidebar's Recents (nil without acpmux), watched once for every window.
-    private(set) lazy var agentRecents: AgentRecentsFeed? = QuitAgents.environment(self).map { AgentRecentsFeed(socketPath: $0.socketPath) }
+    private(set) lazy var agentRecents: AgentRecentsFeed? = AgentRecentsFeed.started(for: self)
     /// `agentTabs` once made: a tab close releases its view without starting acpmux.
     var madeAgentTabs: AgentTabStore?
     /// Quick Agent Chat's floating composer (`palette.quickAgentChat`).
