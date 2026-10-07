@@ -428,7 +428,8 @@
   // click and the pointer is on it, runs observe() and checkIntent again,
   // and sends the press bound to that element (the driver's press check):
   // a pinned element that left the document fails target_mismatch, a
-  // change found by the second read-back fails as the first would, and
+  // change found by the second read-back fails as the first would, a tab
+  // that left its site's origin fails target_mismatch (see withTab), and
   // either way nothing is pressed. A commit with { submit } whose act
   // returns without press() fails (commit_unverified).
   //
@@ -448,7 +449,8 @@
   // editors, a site request such as Slack's chat.postMessage or Notion's
   // saveTransactions, a WebMCP tool call) has no control to pin:
   // press.input(fn) reads the account again and runs fn, one batch of
-  // input or one request, only when it is still the drafted one, so
+  // input or one request, only when it is still the drafted one and every
+  // site tab is still on its site's origin, so
   // another session that switches the shared profile's account after the
   // read-back changes nothing (account_mismatch, or account_unverified when
   // it cannot be read). Each batch that changes the site goes through it,
@@ -476,12 +478,14 @@
     };
     await bound._pointer({ timeout: PRESS_TIMEOUT_MS }, `${where} (press)`, ["visible", "enabled", "stable"], async (target) => {
       if (target.frame !== frame || target.handle !== handle) throw changed();
-      await recheck();
+      await recheck(el._page);
       await el._page._clickAt(target, {}, `${where} (press)`);
     });
   }
 
-  function createDrafts(host, writesOf) {
+  // checkTabs(where, page): fails target_mismatch when a site tab (page,
+  // and every tab withTab holds) left its site's origin.
+  function createDrafts(host, writesOf, checkTabs) {
     const drafts = new Map();
     let n = 0;
     const now = () => (host.now ? host.now() : Date.now());
@@ -543,10 +547,15 @@
             const readAccount = options && typeof options.account === "function" ? options.account : null;
             if (!readAccount) throw new SiteError("invalid", `${where}: every write needs the commit's { account } reader, read again right before the click or input (a site tool bug); nothing was sent`);
             const check = async () => checkIntent(where, entry, await observe());
-            const recheck = async () => {
+            const recheck = async (page) => {
+              await checkTabs(where, page);
               await check();
               if (readAccount) checkIntent(where, entry, await readAccount(), ["account"]);
+              await checkTabs(where, page);
             };
+            // A site reader that turns a failed read into "unknown" would
+            // report a tab that left its origin as an unverified field.
+            await checkTabs(where);
             entry.checked = await check();
             let pressed = false;
             const press = async (locator) => {
@@ -582,6 +591,7 @@
                   checkIntent(where, entry, now, INTENT_GROUPS, keys);
                 }
                 checkIntent(where, entry, await readAccount(), ["account"]);
+                await checkTabs(where);
               } catch (e) {
                 if ((inputs || pressed) && e instanceof SiteError) throw new SiteError(e.code, String(e.message).replace("nothing was sent", "earlier input of this write may have reached the site; nothing more was sent"));
                 throw e;
@@ -618,10 +628,53 @@
 
   function createSites(ctx) {
     const { session, host, fs, path } = ctx;
-    const drafts = createDrafts(host, (site) => {
-      const r = registry.find((x) => x.name === site);
-      return r ? r.writes : [];
-    });
+    // Each tab withTab holds, bound to the origin of the URL it opened:
+    // the site whose signed-in session and DOM its tool may use. A redirect
+    // or a later navigation can take the tab to another origin, whose page
+    // would answer the tool's read-backs and relative requests and take its
+    // input and clicks. The read helpers (readBack, waitIn, composerText)
+    // and the commit path (press, press.next, press.input) check the tab
+    // before each evaluation, input and click, and fail target_mismatch.
+    const boundTabs = new Map();
+    const httpOrigin = (url) => {
+      try {
+        const o = new ctx.URL(String(url)).origin;
+        return /^https?:\/\//.test(o) ? o : null;
+      } catch (e) {
+        return null;
+      }
+    };
+    const tabLeft = (where, want, at) => new SiteError("target_mismatch", `${where}: the site's tab left ${want} for ${at} (a redirect or navigation); nothing was sent there`);
+    // fn wrapped to run only in a document whose own location.origin is
+    // __cmux.origin, checked in the script turn that calls it (location is
+    // unforgeable, so page script cannot answer for it); else it returns
+    // { __cmuxWrongOrigin }.
+    const originGuarded = (fn) =>
+      // eslint-disable-next-line no-new-func
+      new Function("__cmux", `if (location.origin !== __cmux.origin) return { __cmuxWrongOrigin: String(location.origin) };\nreturn (${ns.core.functionSource(fn)})(__cmux.arg);`);
+    const wrongOrigin = (r) => (r && typeof r === "object" && typeof r.__cmuxWrongOrigin === "string" && Object.keys(r).length === 1 ? r.__cmuxWrongOrigin : null);
+    const agentCall = (page, fn, arg, what) => page._mainFrame._call("agent", ns.core.functionSource(fn), [arg], undefined, what);
+    // The tab's URL and its main document must both be on its origin.
+    async function checkTab(where, page) {
+      const want = boundTabs.get(page);
+      if (!want) return;
+      const at = httpOrigin(page.url());
+      if (at !== want) throw tabLeft(where, want, at || "another page");
+      const wrong = wrongOrigin(await agentCall(page, originGuarded(() => true), { origin: want }, "the tab's origin"));
+      if (wrong !== null) throw tabLeft(where, want, wrong);
+    }
+    async function checkTabs(where, page) {
+      if (page) await checkTab(where, page);
+      for (const p of [...boundTabs.keys()]) if (p !== page) await checkTab(where, p);
+    }
+    const drafts = createDrafts(
+      host,
+      (site) => {
+        const r = registry.find((x) => x.name === site);
+        return r ? r.writes : [];
+      },
+      checkTabs,
+    );
     let files = 0;
 
     const tool = {
@@ -672,13 +725,17 @@
         return r;
       },
       // Runs fn(page) in a background tab loaded at url, then closes the tab.
-      // The current tab does not change.
+      // The current tab does not change. An http(s) tab is bound to url's
+      // origin while fn runs (boundTabs).
       async withTab(url, fn, options = {}) {
         const page = await session.newPage(undefined, { background: true });
+        const origin = httpOrigin(url);
+        if (origin) boundTabs.set(page, origin);
         try {
           await page.goto(url, { waitUntil: options.waitUntil || "load", timeout: options.timeout || 45000 });
           return await fn(page);
         } finally {
+          boundTabs.delete(page);
           await page.close().catch(() => {});
         }
       },
@@ -698,8 +755,16 @@
       // the agent's world has its own built-ins and the result crosses as
       // that world's JSON. The function sees the document and its cookies
       // (same origin), not the page's script globals.
+      // In a withTab tab, fn runs only in a document on the tab's origin.
       async readBack(page, fn, arg) {
-        return page._mainFrame._call("agent", ns.core.functionSource(fn), [arg], undefined, "the read-back");
+        const want = boundTabs.get(page);
+        if (!want) return agentCall(page, fn, arg, "the read-back");
+        const at = httpOrigin(page.url());
+        if (at !== want) throw tabLeft("sites", want, at || "another page");
+        const r = await agentCall(page, originGuarded(fn), { origin: want, arg }, "the read-back");
+        const wrong = wrongOrigin(r);
+        if (wrong !== null) throw tabLeft("sites", want, wrong);
+        return r;
       },
       // Like inOrigin for several calls on one tab: body(run) where
       // run(fn, arg) evaluates in the page. A redirect can leave the tab on
@@ -728,10 +793,10 @@
               at = new ctx.URL(page.url()).origin;
             } catch (e) {}
             if (at !== want) throw changed(page.url());
-            // eslint-disable-next-line no-new-func
-            const guarded = new Function("__cmux", `if (location.origin !== __cmux.origin) return { __cmuxWrongOrigin: String(location.origin) };\nreturn (${String(fn)})(__cmux.arg);`);
-            const r = options.world === "agent" ? await tool.readBack(page, guarded, { origin: want, arg }) : await page.evaluate(guarded, { origin: want, arg });
-            if (r && typeof r === "object" && typeof r.__cmuxWrongOrigin === "string" && Object.keys(r).length === 1) throw changed(r.__cmuxWrongOrigin);
+            const guarded = originGuarded(fn);
+            const r = options.world === "agent" ? await agentCall(page, guarded, { origin: want, arg }, "the read-back") : await page.evaluate(guarded, { origin: want, arg });
+            const wrong = wrongOrigin(r);
+            if (wrong !== null) throw changed(wrong);
             return r;
           }),
         options);
@@ -740,14 +805,23 @@
       // With { signIn: [patterns], name }, a tab that reaches a sign-in page
       // at any point (sites also redirect from script) fails as not_signed_in.
       // { world: "agent" } evaluates in the agent's world (readBack), as a
-      // commit's observe() must.
+      // commit's observe() must. In a withTab tab, a URL off the tab's
+      // origin fails target_mismatch, and fn runs only in a document on it.
       async waitIn(page, fn, arg, { timeout = 20000, what = "the page", signIn, name = "sites", world = "page" } = {}) {
         const deadline = session.now() + timeout;
+        const want = boundTabs.get(page);
         for (;;) {
           if (signIn) tool.assertSignedIn(name, page, signIn);
+          if (want && httpOrigin(page.url()) !== want) throw tabLeft(name, want, httpOrigin(page.url()) || "another page");
           let v = null;
           try {
-            v = world === "agent" ? await tool.readBack(page, fn, arg) : await page.evaluate(fn, arg);
+            if (!want) v = world === "agent" ? await agentCall(page, fn, arg, "the read-back") : await page.evaluate(fn, arg);
+            else {
+              const guarded = originGuarded(fn);
+              v = world === "agent" ? await agentCall(page, guarded, { origin: want, arg }, "the read-back") : await page.evaluate(guarded, { origin: want, arg });
+              // A document the tab's URL has not caught up with: not ready.
+              if (wrongOrigin(v) !== null) v = null;
+            }
           } catch (e) {
             // A navigation replaced the document; try again on the new one.
             if (!/stale|navigat|context|detached|destroyed/i.test(String(e && e.message))) throw e;
@@ -794,6 +868,7 @@
       // more differs. `exclude`: a selector for the site's own additions
       // that are not the draft (Gmail's signature and quoted text).
       async composerText(locator, { exclude } = {}) {
+        await checkTab("sites", locator._page);
         const text = await locator._read("composerText", exclude || null, {}, "composer text");
         return typeof text === "string" ? normText(text) : undefined;
       },

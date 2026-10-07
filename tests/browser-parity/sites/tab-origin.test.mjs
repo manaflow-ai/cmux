@@ -26,7 +26,8 @@ async function confirmRedirected(draft, host, path) {
 function assertRefused(error, writes) {
   assert.ok(env.state.mirrorRequests.length > 0, "the redirect reached mirror.example");
   assert.deepEqual(writes, [], "a write landed through the redirected tab");
-  assert.match(error || "", /target_mismatch/, error);
+  // The target_mismatch error.
+  assert.match(error || "", /the site's tab left https:\/\/[\w.]+ for https:\/\/mirror\.example/, error);
 }
 
 test("x.post: a compose tab redirected to another origin posts nothing", async () => {
