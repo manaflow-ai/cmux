@@ -30,6 +30,7 @@ public final class ConversationSimBackend: ConversationBackend, @unchecked Senda
         var params: [String: Any] = ["clientMessageId": draft.clientMessageID, "text": draft.text]
         if let replyTo = draft.replyToID { params["replyToId"] = replyTo }
         if !draft.attachmentIDs.isEmpty { params["attachmentIds"] = draft.attachmentIDs }
+        if let poll = draft.poll { params["poll"] = ["question": poll.question, "options": poll.options] }
         let result = try await core.request("send", params: JSONBox(params), timeout: .seconds(15)).value
         return try await core.decodeMessage(JSONBox(result["message"] as? [String: Any] ?? [:]))
     }
@@ -71,6 +72,18 @@ public final class ConversationSimBackend: ConversationBackend, @unchecked Senda
 
     public func close() {
         Task { await core.close() }
+    }
+
+    public func votePoll(messageID: String, optionID: String, selected: Bool) async throws -> ConversationMessage {
+        let params: [String: Any] = ["messageId": messageID, "optionId": optionID, "selected": selected]
+        let result = try await core.request("votePoll", params: JSONBox(params), timeout: .seconds(15)).value
+        return try await core.decodeMessage(JSONBox(result["message"] as? [String: Any] ?? [:]))
+    }
+
+    public func addPollOption(messageID: String, text: String) async throws -> ConversationMessage {
+        let params: [String: Any] = ["messageId": messageID, "text": text]
+        let result = try await core.request("addPollOption", params: JSONBox(params), timeout: .seconds(15)).value
+        return try await core.decodeMessage(JSONBox(result["message"] as? [String: Any] ?? [:]))
     }
 
     // MARK: -
@@ -318,7 +331,23 @@ enum WireDecoding {
             editedAt: date(raw["editedAt"]),
             reactions: reactions,
             attachments: attachments,
-            delivery: delivery
+            delivery: delivery,
+            poll: (raw["poll"] as? [String: Any]).flatMap(poll)
+        )
+    }
+
+    static func poll(_ raw: [String: Any]) -> ConversationPoll? {
+        guard let options = raw["options"] as? [[String: Any]] else { return nil }
+        return ConversationPoll(
+            question: raw["question"] as? String ?? "",
+            options: options.compactMap { option in
+                guard let id = option["id"] as? String else { return nil }
+                return ConversationPollOption(id: id, text: option["text"] as? String ?? "", addedByID: option["addedBy"] as? String)
+            },
+            votes: (raw["votes"] as? [[String: Any]] ?? []).compactMap { vote in
+                guard let participant = vote["participantId"] as? String, let option = vote["optionId"] as? String else { return nil }
+                return ConversationPollVote(participantID: participant, optionID: option, votedAt: date(vote["votedAt"]))
+            }
         )
     }
 

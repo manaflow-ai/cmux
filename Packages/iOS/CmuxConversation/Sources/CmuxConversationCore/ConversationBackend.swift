@@ -42,4 +42,18 @@ public protocol ConversationBackend: AnyObject, Sendable {
     func markRead(upToSeq: Int) async
     func uploadImage(_ data: Data, mimeType: String) async throws -> ConversationAttachment
     func close()
+    /// Adds (`selected`) or takes back my vote for one poll choice.
+    func votePoll(messageID: String, optionID: String, selected: Bool) async throws -> ConversationMessage
+    /// Appends a choice to a poll.
+    func addPollOption(messageID: String, text: String) async throws -> ConversationMessage
+}
+
+public extension ConversationBackend {
+    func votePoll(messageID: String, optionID: String, selected: Bool) async throws -> ConversationMessage {
+        throw ConversationBackendError(code: -1, message: "polls unsupported")
+    }
+
+    func addPollOption(messageID: String, text: String) async throws -> ConversationMessage {
+        throw ConversationBackendError(code: -1, message: "polls unsupported")
+    }
 }
