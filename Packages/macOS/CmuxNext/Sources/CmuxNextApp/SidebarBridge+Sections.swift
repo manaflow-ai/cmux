@@ -114,8 +114,7 @@ extension SidebarBridge {
         return shortcuts
     }
 
-    /// Presentation of every built-in, app and workspace item in `layout`
-    /// (a closed workspace draws dimmed); `registered` says
+    /// Presentation of every built-in, app and workspace item in `layout` (a closed workspace dimmed); `registered` says
     /// whether an action exists. Notifications carries `unread`, and each
     /// built-in carries its action's `shortcut` for its tooltip. The update
     /// notice is the footer's pill, never an item control (SIDEBAR-FOOTER-MINIMAL).

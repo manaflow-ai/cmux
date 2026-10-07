@@ -95,8 +95,7 @@ final class SidebarBridge {
             // And the New Tab pages: one that becomes a chat lists as a chat.
             for await (sections, launching, failed) in Observations({
                 Self.liveSections(machines, registry: registry, window: windowState, hidesHome: Self.hidesHome(layout.document),
-                                  newTabPages: pageTabs.ids,
-                                  top: SidebarTopProjection.make(layout, machines: machines, room: windowState.profileID.rawValue))
+                                  newTabPages: pageTabs.ids, top: .make(layout, machines: machines, room: windowState.profileID.rawValue))
             }) {
                 self?.show(sections, launching: launching, failed: failed)
             }
@@ -162,8 +161,7 @@ final class SidebarBridge {
         let (sections, launching, failed) = Self.liveSections(services.machines, registry: windows.registry, window: state,
                                                               hidesHome: Self.hidesHome(services.sidebarLayout.document),
                                                               newTabPages: services.agentTabs.pageTabs.ids,
-                                                              top: SidebarTopProjection.make(services.sidebarLayout, machines: services.machines,
-                                                                                      room: state.profileID.rawValue))
+                                                              top: .make(services.sidebarLayout, machines: services.machines, room: state.profileID.rawValue))
         show(sections, launching: launching, failed: failed)
     }
 
@@ -230,8 +228,7 @@ final class SidebarBridge {
                          newTabPages: Set<String> = [], top: SidebarTopProjection = .legacy) -> [SidebarRowSection] {
         let visible = WindowProfiles.visible(members, profile: profile, machines: machines)
         let filtered = SidebarMembership.filter(sections(machines, profile: profile, hidesHome: hidesHome, selection: selection,
-                                                         newTabPages: newTabPages),
-                                                members: Set(visible))
+                                                         newTabPages: newTabPages), members: Set(visible))
         return top.apply(to: filtered, machines: machines)
     }
 
