@@ -31,7 +31,7 @@ final class OnboardingService {
     /// runs (`ComputerUseHelperDaemon`), else CMUX_NEXT_CUA_SOCKET or
     /// cmux-cua's default. Tests point it at their own socket.
     var computerUseConfiguration: AgentActivitySocketSource.Configuration {
-        get { computerUseConfigurationOverride ?? services.computerUseHelper.configuration ?? .standard(machineName: "") }
+        get { computerUseConfigurationOverride ?? ComputerUseHelperDaemon.shared.configuration ?? .standard(machineName: "") }
         set { computerUseConfigurationOverride = newValue }
     }
     private var computerUseConfigurationOverride: AgentActivitySocketSource.Configuration?

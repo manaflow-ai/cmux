@@ -60,6 +60,10 @@ final class ComputerUseHelperDaemon {
         case running(pid_t)
     }
 
+    /// The app's helper. One per process: its exports go into this
+    /// process's environment, which every child shares.
+    static let shared = ComputerUseHelperDaemon()
+
     private(set) var state: State = .off
     let socketPath: String
     let stateDirectory: URL
