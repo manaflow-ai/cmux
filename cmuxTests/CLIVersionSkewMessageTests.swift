@@ -11,10 +11,15 @@ struct CLIVersionSkewMessageTests {
     /// A directory bundle without `Localizable` strings: every
     /// `String(localized:defaultValue:bundle:)` lookup returns its default.
     private static let sourceTextBundle: Bundle = {
-        // One fixed, empty directory: nothing accumulates across runs.
+        // One fixed directory, emptied first so nothing left in it (by an
+        // earlier run or anything else) can supply a string table, and
+        // nothing accumulates across runs.
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-skew-source-text", isDirectory: true)
         do {
+            if FileManager.default.fileExists(atPath: directory.path) {
+                try FileManager.default.removeItem(at: directory)
+            }
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         } catch {
             preconditionFailure("Cannot create \(directory.path): \(error)")
