@@ -59,6 +59,10 @@ if [[ "${CMUX_ALLOW_REPLACING_RUNNING_CMUX:-}" == "1" ]]; then
   OPEN_ENV_ARGS=(--env CMUX_ALLOW_REPLACING_RUNNING_CMUX=1)
 fi
 
+# cmux-next's web bundles are build output (cx-vn5); the app's verify phase needs them.
+if [[ -x scripts/cmux-next/build-web-bundles.sh ]]; then
+  scripts/cmux-next/build-web-bundles.sh
+fi
 xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Release -destination 'platform=macOS' build
 APP_PATH="$OWN_APP_PATH"
 if [[ ! -d "${APP_PATH}" ]]; then
