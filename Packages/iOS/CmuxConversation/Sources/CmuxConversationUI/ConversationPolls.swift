@@ -483,6 +483,70 @@ extension ConversationViewController {
     }
 }
 
+#if DEBUG
+extension ConversationViewController {
+    /// Scripted verification of polls through the same paths a person uses:
+    /// `make <q>|<a>|<b>...`, `tap <match> <choice-index>` (hit-tests the
+    /// cell like a finger), `addchoice <match>`, `menu <match>`,
+    /// `details <match>`, `failed <match>`, `compose`, `state <match>`.
+    /// `<match>` is `poll` (newest poll) or text in the question.
+    public func pollLabCommand(_ line: String) -> String {
+        let parts = line.split(separator: " ", maxSplits: 1).map(String.init)
+        guard let verb = parts.first else { return "error empty" }
+        let rest = parts.count > 1 ? parts[1] : ""
+        switch verb {
+        case "make":
+            let fields = rest.split(separator: "|").map(String.init)
+            guard fields.count >= 3 else { return "error usage make q|a|b" }
+            return store.sendPoll(question: fields[0], choices: Array(fields.dropFirst())) == nil ? "error invalid" : "ok"
+        case "compose":
+            presentPollComposer()
+            return "ok"
+        default:
+            break
+        }
+        let bits = rest.split(separator: " ", maxSplits: 1).map(String.init)
+        let match = bits.first ?? "poll"
+        guard let index = rows.indices.reversed().first(where: { index in
+            guard case let .message(model) = rows[index], model.poll != nil else { return false }
+            return match == "poll" || model.message.text.contains(match)
+        }), case let .message(model) = rows[index], let poll = model.message.poll else { return "error no poll" }
+        let indexPath = IndexPath(item: index, section: 0)
+        if verb != "state" {
+            collectionView.scrollToItem(at: indexPath, at: .centeredVertically, animated: false)
+            collectionView.layoutIfNeeded()
+        }
+        let cell = collectionView.cellForItem(at: indexPath) as? MessageCell
+        switch verb {
+        case "tap":
+            guard let cell, bits.count == 2, let choice = Int(bits[1]), choice < cell.pollCard.rows.count else { return "error usage tap <match> <index>" }
+            let row = cell.pollCard.rows[choice]
+            let point = cell.convert(CGPoint(x: row.bounds.midX, y: row.bounds.midY), from: row)
+            return handlePollTap(cell: cell, model: model, local: point) ? "ok" : "error tap missed"
+        case "addchoice":
+            guard let cell, let frame = cell.cellLayout?.poll?.addChoiceFrame else { return "error no add choice" }
+            return handlePollTap(cell: cell, model: model, local: CGPoint(x: frame.midX, y: frame.midY)) ? "ok" : "error tap missed"
+        case "failed":
+            guard let cell, let frame = cell.cellLayout?.poll?.failedFrame else { return "error no failure" }
+            return handlePollTap(cell: cell, model: model, local: CGPoint(x: frame.midX, y: frame.midY)) ? "ok" : "error tap missed"
+        case "menu":
+            guard let cell else { return "error not visible" }
+            presentActions(for: model, cell: cell, mode: .menu)
+            return "ok"
+        case "details":
+            presentPollDetails(messageID: model.message.id)
+            return "ok"
+        case "state":
+            let mine = model.poll
+            let options = poll.options.map { "\($0.text)=\(poll.voteCount(for: $0.id))\(mine?.isMine($0.id) == true ? "*" : "")" }
+            return "poll \(model.message.id) failed=\(mine?.voteFailed == true) " + options.joined(separator: ",")
+        default:
+            return "error unknown verb"
+        }
+    }
+}
+#endif
+
 // MARK: - Composer
 
 /// Question, 2 to 12 choices (add, remove, reorder), Send.
