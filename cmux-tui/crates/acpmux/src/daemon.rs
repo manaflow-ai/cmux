@@ -182,6 +182,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             claude_json: none.join(".claude.json"),
             codex_config: none.join("config.toml"),
             record: none.join("trust.json"),
+            agent_home: None,
         }
     })));
     // Agents outlive this daemon unless the user opts out for this release.
