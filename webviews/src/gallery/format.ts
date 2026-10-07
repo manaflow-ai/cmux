@@ -45,6 +45,10 @@ export type SettingsPageVariant = VariantBase & {
   backdropImages?: Record<string, string>;
   loading?: boolean;
   steps?: PageFixtureStep[];
+  /** The page's overall look (`data-settings-look` on the root); quiet when unset. */
+  look?: "quiet" | "dense";
+  /** Publish every bundled theme and its colors (the app does); default the mock's six. */
+  allThemes?: boolean;
 };
 export type PasswordsPageVariant = VariantBase & {
   data: MockData;

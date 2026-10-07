@@ -107,6 +107,10 @@ struct PageFactory {
         }
         provider.setTheme = { [weak services] level, spec in try services?.settingsWindow.setPageTheme(level: level, spec: spec) }
         provider.acceptsTheme = { [weak services] text in services?.settingsWindow.acceptsTheme(text) ?? false }
+        provider.themeColors = { [weak services] in
+            guard let catalog = services?.themes.catalog else { return [] }
+            return catalog.names.compactMap { catalog.colors[$0] }
+        }
         let registry = services.registry
         provider.sectionActions = { section in
             .array(SettingsSchema.actions(in: section).compactMap { id in
