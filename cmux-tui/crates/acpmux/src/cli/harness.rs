@@ -86,9 +86,11 @@ pub async fn run(cmd: HarnessCmd, json_out: bool) -> Result<()> {
             }
             Ok(())
         }
-        HarnessCmd::Doctor { id, no_prompt, timeout } => {
+        HarnessCmd::Doctor { id, folder, no_prompt, timeout } => {
             let cfg = Config::load()?;
+            let here = std::env::current_dir()?;
             let opts = DoctorOptions {
+                folder: Some(folder.map(|f| here.join(f)).unwrap_or(here)),
                 prompt: !no_prompt,
                 timeout: Duration::from_secs(timeout.max(5)),
                 lookup_env: Box::new(|var| std::env::var(var).ok()),
@@ -354,6 +356,9 @@ args = []                 # for example ["acp"]; "${{model}}" becomes the chosen
 // ---------------------------------------------------------------- doctor
 
 pub struct DoctorOptions {
+    /// Where to look for a folder profile (it and its parents) when the
+    /// catalog has no harness of that id. None: catalog harnesses only.
+    pub folder: Option<PathBuf>,
     /// Send one prompt after the handshake.
     pub prompt: bool,
     /// Time limit for each step that waits on the harness.
