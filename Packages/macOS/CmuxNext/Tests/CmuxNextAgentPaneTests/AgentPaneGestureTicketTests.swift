@@ -135,6 +135,8 @@ import Testing
         #expect(await rig.prompt("p3", ticket: try #require(await rig.ticket(held("p2")))) == .gestureRequired)
         // Nor into a session outside the pane.
         #expect(await rig.prompt("p4", ticket: try #require(await rig.ticket(held("p4"))), session: "s-foreign") == .sessionNotInPane)
+        // The held prompt keeps its gesture longer than a held pick: the user reads the question.
+        #expect(AgentPaneGestureIntent(gestureParams: ["intent": held("p5")])?.lifetime == AgentPaneUserGestures.heldPromptLifetime)
         #expect(rig.server.peers.first?.frames.contains { $0.contains("cmuxGesture") } == false)
     }
 
