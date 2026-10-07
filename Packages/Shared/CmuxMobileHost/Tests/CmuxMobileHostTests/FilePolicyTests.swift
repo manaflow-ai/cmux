@@ -1,3 +1,4 @@
+import CmuxMobileLink
 import CmuxMobileHost
 import Foundation
 import Testing

@@ -1,18 +1,14 @@
-import CmuxMobileFiles
-import CmuxMobileHost
-import CmuxMobileWire
+import CmuxMobileLink
 import CryptoKit
 import Foundation
 
 /// A paired device key in software.
-struct TestSigner: MobileHelloSigner {
+struct TestSigner: MobileDeviceSigner {
     let key: P256.Signing.PrivateKey
     let install: String
+    var keyID: String { "k1" }
 
-    var client: HelloClient { HelloClient(install: install, platform: "ios", appVersion: "1.0") }
-
-    func proof(hostID: String, sessionID: UUID) async throws -> DeviceProof {
-        try DeviceProof(install: install, keyID: "k1", issuedAt: Int64(Date().timeIntervalSince1970 * 1000),
-                        hostID: hostID, sessionID: sessionID) { try key.signature(for: $0).rawRepresentation }
+    func sign(_ message: Data) throws -> Data {
+        try key.signature(for: message).rawRepresentation
     }
 }

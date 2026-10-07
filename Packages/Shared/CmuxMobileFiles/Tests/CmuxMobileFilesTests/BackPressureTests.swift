@@ -1,6 +1,7 @@
 import CmuxLink
 import CmuxMobileFiles
 import CmuxMobileHost
+import CmuxMobileLink
 import CmuxMobileWire
 import Foundation
 import Testing

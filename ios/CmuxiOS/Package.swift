@@ -232,6 +232,7 @@ let package = Package(
             dependencies: [
                 "CmuxiOSFeatureKit",
                 .product(name: "CmuxMobileFiles", package: "CmuxMobileFiles"),
+                .product(name: "CmuxMobileLink", package: "CmuxMobileLink"),
                 .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
             ],
             swiftSettings: [.swiftLanguageMode(.v6)]
@@ -243,6 +244,7 @@ let package = Package(
                 .product(name: "CmuxMobileFiles", package: "CmuxMobileFiles"),
                 .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
                 .product(name: "CmuxMobileHost", package: "CmuxMobileHost"),
+                .product(name: "CmuxMobileLink", package: "CmuxMobileLink"),
                 .product(name: "CmuxLink", package: "CmuxLink"),
                 .product(name: "CmuxLinkTesting", package: "CmuxLink"),
             ],

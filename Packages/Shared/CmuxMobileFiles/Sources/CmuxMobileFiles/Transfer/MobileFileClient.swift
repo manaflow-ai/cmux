@@ -1,5 +1,5 @@
 import CmuxLink
-import CmuxMobileHost
+import CmuxMobileLink
 import CmuxMobileWire
 import Foundation
 
@@ -10,12 +10,13 @@ public struct MobileFileClient: Sendable {
     /// Payload bytes per upload chunk, kept under `hello.ok.max_frame`.
     public static let defaultChunkBytes = 128 * 1024
 
-    public let session: MobileClientSession
+    /// The one phone session with this Mac (shared with terminals and the rest).
+    public let session: MobileLinkClient
     public var chunkBytes: Int
     /// Send budget of a bulk channel (link credit).
     public var budgetBytes: Int
 
-    public init(session: MobileClientSession, chunkBytes: Int = MobileFileClient.defaultChunkBytes,
+    public init(session: MobileLinkClient, chunkBytes: Int = MobileFileClient.defaultChunkBytes,
                 budgetBytes: Int = 4 * 1024 * 1024) {
         self.session = session
         self.chunkBytes = chunkBytes
@@ -32,10 +33,9 @@ public struct MobileFileClient: Sendable {
         let source = try FileReader(url: file)
         let size = source.size
         let params = FilesUploadParams(name: name, size: size, mime: mime, sha256: sha256, dest: dest)
-        let maxFrame = await session.maxFrame
+        let maxFrame = try await mapped { try await session.helloOK().maxFrame }
         let chunk = max(1024, min(chunkBytes, maxFrame - 64))
-        let (channel, opened) = try await session.open(
-            .filesUpload, channelClass: .bulk, params: try Self.object(params), priority: .bulk, budgetBytes: budgetBytes)
+        let (channel, opened) = try await open(.filesUpload, params: try Self.object(params), stream: "files.upload/\(name)")
         let resume = try JSONValue.object(opened.params).decode(as: FilesUploadOpenedParams.self)
         guard resume.offset <= size else {
             await channel.abort()
@@ -132,20 +132,37 @@ public struct MobileFileClient: Sendable {
 
     private func openDownload(_ path: String, offset: UInt64) async throws -> (MobileChannel, FilesDownloadOpenedParams) {
         let params = FilesDownloadParams(path: path, offset: offset > 0 ? offset : nil)
-        let (channel, opened) = try await session.open(.filesDownload, channelClass: .bulk, params: try Self.object(params),
-                                                       priority: .bulk, budgetBytes: budgetBytes)
+        let (channel, opened) = try await open(.filesDownload, params: try Self.object(params), stream: "files.download")
         return (channel, try JSONValue.object(opened.params).decode(as: FilesDownloadOpenedParams.self))
     }
 
     // MARK: Reads
 
     public func list(_ path: String, after: String? = nil, limit: Int? = nil) async throws -> FilesListResult {
-        try await session.read("files.list", params: JSONValue(encoding: FilesListParams(path: path, after: after, limit: limit)))
-            .decode(as: FilesListResult.self)
+        let params = try JSONValue(encoding: FilesListParams(path: path, after: after, limit: limit))
+        return try await mapped { try await session.read("files.list", params: params) }.decode(as: FilesListResult.self)
     }
 
     public func roots() async throws -> [FilesRoot] {
-        try await session.read("files.roots", params: .object([:])).decode(as: FilesRootsResult.self).roots
+        try await mapped { try await session.read("files.roots", params: .object([:])) }.decode(as: FilesRootsResult.self).roots
+    }
+
+    /// A bulk channel on the shared session.
+    private func open(_ kind: ChannelKind, params: [String: JSONValue], stream: String)
+        async throws -> (MobileChannel, ChannelOpenedFrame) {
+        let request = MobileChannelRequest(kind: kind, channelClass: .bulk, window: 4 * 1024 * 1024, params: params,
+                                           stream: stream, priority: .bulk, budgetBytes: budgetBytes)
+        let opened = try await mapped { try await session.open(request) }
+        return (opened.channel, opened.opened)
+    }
+
+    /// Runs `body`, reporting session failures as `MobileClientError`.
+    private func mapped<T: Sendable>(_ body: () async throws -> T) async throws -> T {
+        do {
+            return try await body()
+        } catch {
+            throw MobileClientError.from(error)
+        }
     }
 
     // MARK: Helpers

@@ -2,6 +2,7 @@ import CmuxLink
 import CmuxLinkTesting
 import CmuxMobileFiles
 import CmuxMobileHost
+import CmuxMobileLink
 import CmuxMobileWire
 import CryptoKit
 import Foundation
@@ -23,8 +24,9 @@ final class FilesWorld: Sendable {
     let network: LoopbackNetwork
     let host: MobileHost
     let signer: TestSigner
-    let connects = Counter()
-    private let sessions = SessionBox()
+    /// The phone's one session client for this Mac.
+    let client: MobileLinkClient
+    private let sessions = SessionCounter()
 
     init(conditions: NetworkConditions? = nil, chunkBytes: Int = 32 * 1024,
          uploadHandler: (any MobileChannelHandler)? = nil) async throws {
@@ -50,35 +52,41 @@ final class FilesWorld: Sendable {
                           authorizer: TrustStoreAuthorizer(hostID: Self.hostID, accountUserID: Self.userID, store: store),
                           handlers: handlers, linkConfiguration: Self.fast)
         await host.start()
+        let carrier = network.carrier(kind: .direct, path: .direct)
+        let counter = sessions
+        client = MobileLinkClient(
+            hostID: Self.hostID, signer: signer, client: HelloClient(install: Self.install, platform: "ios", appVersion: "1.0"),
+            makeSession: {
+                counter.increment()
+                return LinkSession(peer: LinkPeer(hostID: Self.hostID),
+                                   selector: PathSelector(carriers: [carrier],
+                                                          policy: PathPolicy(preferenceWindow: .milliseconds(5), upgradeRetry: nil)),
+                                   configuration: Self.fast)
+            })
     }
 
-    /// A fresh link session and started client session (one per call).
-    func connect() async throws -> MobileClientSession {
-        await connects.increment()
-        let link = LinkSession(
-            peer: LinkPeer(hostID: Self.hostID),
-            selector: PathSelector(carriers: [network.carrier(kind: .direct, path: .direct)],
-                                   policy: PathPolicy(preferenceWindow: .milliseconds(5), upgradeRetry: nil)),
-            configuration: Self.fast)
-        await link.connect()
-        let session = MobileClientSession(link: link, hostID: Self.hostID, signer: signer)
-        try await session.start()
-        await sessions.add(link)
-        return session
+    /// Link sessions the client made (one per generation).
+    var connects: Int { sessions.value }
+
+    /// The client, its session started.
+    func connect() async throws -> MobileLinkClient {
+        _ = try await client.helloOK()
+        return client
     }
 
-    /// The connector a `MobileTransferManager` uses: a new session per run.
+    /// The connector a `MobileTransferManager` uses: the same client every run.
     var connector: MobileTransferManager.Connector {
-        { [self] _ in try await self.connect() }
+        { [client] _ in client }
     }
 
-    /// Closes every phone session (the app was killed or the session expired).
+    /// Ends the phone's link session (the app was killed or the session
+    /// expired); the next open starts a new generation.
     func killSessions() async {
-        for link in await sessions.drain() { await link.close() }
+        await client.sessionEnded(client.currentGeneration)
     }
 
     func shutdown() async {
-        await killSessions()
+        await client.close()
         await host.stop()
         try? FileManager.default.removeItem(at: base)
     }
@@ -98,16 +106,9 @@ final class FilesWorld: Sendable {
     }
 }
 
-actor Counter {
-    private(set) var value = 0
-    func increment() { value += 1 }
-}
-
-actor SessionBox {
-    private var links: [LinkSession] = []
-    func add(_ link: LinkSession) { links.append(link) }
-    func drain() -> [LinkSession] {
-        defer { links.removeAll() }
-        return links
-    }
+final class SessionCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+    func increment() { lock.withLock { count += 1 } }
+    var value: Int { lock.withLock { count } }
 }

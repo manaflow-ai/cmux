@@ -4,6 +4,7 @@ import CmuxLink
 import CmuxLinkTesting
 import CmuxMobileFiles
 import CmuxMobileHost
+import CmuxMobileLink
 import CmuxMobileWire
 import CryptoKit
 import Foundation
@@ -58,18 +59,27 @@ final class LoopbackMac: FileHostConnector {
                           acceptor: network.acceptor, daemon: EmptyDaemon(),
                           authorizer: TrustStoreAuthorizer(hostID: Self.hostID, accountUserID: "u1", store: store),
                           handlers: files.registering(), linkConfiguration: config)
+        linkClient = Self.makeClient(network: network, key: key, config: config)
         await host.start()
     }
 
-    func session(for host: HostID) async throws -> MobileClientSession {
-        let link = LinkSession(peer: LinkPeer(hostID: host.rawValue),
-                               selector: PathSelector(carriers: [network.carrier(kind: .direct, path: .direct)],
-                                                      policy: PathPolicy(preferenceWindow: .milliseconds(5), upgradeRetry: nil)),
-                               configuration: config)
-        await link.connect()
-        let session = MobileClientSession(link: link, hostID: host.rawValue, signer: SoftwareSigner(key: key))
-        try await session.start()
-        return session
+    let linkClient: MobileLinkClient
+
+    static func makeClient(network: LoopbackNetwork, key: P256.Signing.PrivateKey, config: LinkConfiguration) -> MobileLinkClient {
+        let carrier = network.carrier(kind: .direct, path: .direct)
+        return MobileLinkClient(
+            hostID: Self.hostID, signer: SoftwareSigner(key: key),
+            client: HelloClient(install: "in_phone", platform: "ios", appVersion: "1.0"),
+            makeSession: {
+                LinkSession(peer: LinkPeer(hostID: LoopbackMac.hostID),
+                            selector: PathSelector(carriers: [carrier],
+                                                   policy: PathPolicy(preferenceWindow: .milliseconds(5), upgradeRetry: nil)),
+                            configuration: config)
+            })
+    }
+
+    func client(for host: HostID) async throws -> MobileLinkClient {
+        linkClient
     }
 
     func stop() async {
@@ -78,13 +88,13 @@ final class LoopbackMac: FileHostConnector {
     }
 }
 
-struct SoftwareSigner: MobileHelloSigner {
+struct SoftwareSigner: MobileDeviceSigner {
     let key: P256.Signing.PrivateKey
-    var client: HelloClient { HelloClient(install: "in_phone", platform: "ios", appVersion: "1.0") }
+    var install: String { "in_phone" }
+    var keyID: String { "k1" }
 
-    func proof(hostID: String, sessionID: UUID) async throws -> DeviceProof {
-        try DeviceProof(install: "in_phone", keyID: "k1", issuedAt: Int64(Date().timeIntervalSince1970 * 1000),
-                        hostID: hostID, sessionID: sessionID) { try key.signature(for: $0).rawRepresentation }
+    func sign(_ message: Data) throws -> Data {
+        try key.signature(for: message).rawRepresentation
     }
 }
 

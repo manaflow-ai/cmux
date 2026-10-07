@@ -1,3 +1,4 @@
+import CmuxMobileLink
 import CmuxMobileWire
 
 /// A refusal or failure from the Mac (`channel.refused`, `channel.closed`
@@ -19,9 +20,21 @@ public struct MobileClientError: Error, Hashable, Sendable {
     /// The session or channel ended without a word from the Mac.
     public static let disconnected = MobileClientError(code: "channel.closed", message: "the connection ended", retryable: true)
 
-    init(refused frame: ChannelRefusedFrame) {
-        self.init(code: frame.code, message: frame.message, retryable: frame.retryable,
-                  reason: frame.details?["reason"]?.stringValue)
+    /// The shared session's failure in the files family's shape.
+    public init(_ error: MobileLinkClientError) {
+        switch error {
+        case .helloRejected(let code, let message): self.init(code: code, message: message)
+        case .refused(let code, let message, let retryable): self.init(code: code, message: message, retryable: retryable)
+        case .linkLost: self = .disconnected
+        case .protocolViolation(let message): self.init(code: "proto.bad_record", message: message)
+        case .closed: self.init(code: "channel.closed", message: "the session was closed")
+        }
+    }
+
+    /// Any error from the session or a channel, mapped.
+    static func from(_ error: any Error) -> any Error {
+        if let link = error as? MobileLinkClientError { return MobileClientError(link) }
+        return error
     }
 
     init(closed frame: ChannelClosedFrame) {

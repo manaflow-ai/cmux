@@ -171,13 +171,16 @@ A later option (not built): hand large uploads to the shipping web upload path t
 
 Packages:
 
+- One phone session per Mac: C1's `MobileLinkClient` (`Packages/Shared/CmuxMobileLink`; hello with
+  the `MobileDeviceSigner` proof, odd channel ids, a new link session per generation). C4 added
+  `helloOK()` and `read(_:params:)` (one shared `rpc` channel per generation, replies by id, an
+  `error` reply throws `.refused`, cancellation settles the read). Terminals and files share it.
 - `Packages/Shared/CmuxMobileFiles` (module `CmuxMobileFiles`, Foundation + CryptoKit, iOS and macOS):
-  `MobileClientSession` (phone half of the A0-on-link binding: `hello` with a `MobileHelloSigner`,
-  odd channel ids, one shared `rpc` channel for reads), `MobileFileClient` (upload, download, list,
-  roots, resume, digest), `TransferJournal` (JSON, file protection complete). C1 and C5 can adopt
-  `MobileClientSession`; it reuses B5's `MobileChannel` and `DeviceProof`.
+  `MobileFileClient` over a `MobileLinkClient` (upload, download, list, roots, resume, digest;
+  `MobileClientError` maps the client's errors), `TransferJournal` (JSON, protection until first
+  unlock), `MobileTransferManager` (its connector returns the host's `MobileLinkClient`).
 - `ios/CmuxiOS` `CmuxiOSFilesCore` (no UIKit): `LinkFileTransfer` (the real `FileTransfer`),
-  `FileHostConnector` (host id -> `MobileClientSession`, filled by the carrier lanes), `TransferListModel`
+  `FileHostConnector` (host id -> the host's `MobileLinkClient`, filled by D1), `TransferListModel`
   (`@MainActor @Observable`), `ImageTranscoder` (HEIC -> JPEG), `StagedFile`, `ShellQuoting`.
 - `ios/CmuxiOS` `CmuxiOSFiles` (UIKit): `FilePickerCoordinator` (PHPicker, camera via
   `UIImagePickerController`, `UIDocumentPickerViewController`), `TransferListViewController`,
@@ -232,5 +235,5 @@ C9 lands its connection owner.
 ## 9. Not in this lane
 
 The carrier that dials a real Mac from the app (B2/B4 + D1 fill `FileHostConnector`), B6's
-Secure-Enclave signer behind `MobileHelloSigner`, the app's `MobileFileRootsProvider` over the
+Secure-Enclave signer behind `MobileDeviceSigner`, the app's `MobileFileRootsProvider` over the
 workspace store (cmux-next app wiring, no local Mac build here), C8's composer UI, C13's viewers.

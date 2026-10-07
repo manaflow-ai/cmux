@@ -11,7 +11,7 @@ public actor LinkFileTransfer: FileTransfer {
 
     public init(connector: any FileHostConnector, journalURL: URL?) {
         manager = MobileTransferManager(
-            connector: { host in try await connector.session(for: HostID(host)) },
+            connector: { host in try await connector.client(for: HostID(host)) },
             journal: TransferJournal(fileURL: journalURL))
     }
 

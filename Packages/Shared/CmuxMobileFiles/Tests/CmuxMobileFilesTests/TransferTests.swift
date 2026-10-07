@@ -2,6 +2,7 @@ import CmuxLink
 import CmuxLinkTesting
 import CmuxMobileFiles
 import CmuxMobileHost
+import CmuxMobileLink
 import CmuxMobileWire
 import Foundation
 import Testing
@@ -49,7 +50,7 @@ struct TransferTests {
             if update.completedBytes > 100_000, await once.fire() { await network.roam(to: .p2p) }
         }
         #expect(updates.last?.status == .finished)
-        #expect(await w.connects.value == 1, "the link resumed; no new session")
+        #expect(w.connects == 1, "the link resumed; no new session")
         let path = try #require(updates.last?.resultPath)
         #expect(try Data(contentsOf: URL(fileURLWithPath: path)) == data)
     }
@@ -76,7 +77,7 @@ struct TransferTests {
         #expect(second.last?.status == .finished)
         #expect(second.last?.resultPath?.hasSuffix("/src/proj/big.bin") == true)
         #expect(try Data(contentsOf: URL(fileURLWithPath: try #require(second.last?.resultPath))) == data)
-        #expect(await w.connects.value == 2)
+        #expect(w.connects == 2, "a new generation on the same client")
     }
 
     @Test func aLostSessionResumesTheDownloadFromThePartFile() async throws {
@@ -147,7 +148,7 @@ struct TransferTests {
             Issue.record("expected digest_mismatch, got \(String(describing: updates.last))")
             return
         }
-        #expect(await w.connects.value == 3, "one restart after the first mismatch")
+        #expect(w.connects == 1)
     }
 
     @Test func pathEscapesAreRefusedByTheMac() async throws {
@@ -191,14 +192,16 @@ struct TransferTests {
         #expect(updates.last?.status == .cancelled)
         #expect((updates.last?.completedBytes ?? .max) < UInt64(data.count))
         // The Mac kept what it received: a new open resumes past zero.
-        let session = try await w.connect()
+        let client = try await w.connect()
         let params = try JSONValue(encoding: FilesUploadParams(name: "long.bin", size: UInt64(data.count), mime: "application/octet-stream",
                                                                sha256: FilesWorld.sha256(data), dest: FilesUploadDestination(kind: .composer)))
         let opened = try await within {
             while true {
                 do {
-                    return try await session.open(.filesUpload, channelClass: .bulk, params: params.objectValue ?? [:], priority: .bulk).1
-                } catch let error as MobileClientError where error.retryable {
+                    return try await client.open(MobileChannelRequest(kind: .filesUpload, channelClass: .bulk, window: 1 << 22,
+                                                                      params: params.objectValue ?? [:], stream: "files.upload",
+                                                                      priority: .bulk)).opened
+                } catch MobileLinkClientError.refused(_, _, true) {
                     try await Task.sleep(for: .milliseconds(5))
                 }
             }

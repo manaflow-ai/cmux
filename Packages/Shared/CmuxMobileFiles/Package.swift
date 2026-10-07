@@ -2,10 +2,10 @@
 import PackageDescription
 
 // The phone half of the cmux.mobile/1 files family
-// (plans/cmux-next/ios-next/c4-files.md): a client session over CmuxLink
-// (hello with the device proof, odd channel ids, reads on one rpc channel),
-// resumable sha256-verified upload and download, and the transfer journal
-// and manager behind the iOS `FileTransfer` seam. Foundation and CryptoKit
+// (plans/cmux-next/ios-next/c4-files.md) over the shared phone session
+// (`MobileLinkClient` in CmuxMobileLink): resumable sha256-verified upload
+// and download, directory reads, and the transfer journal and manager behind
+// the iOS `FileTransfer` seam. Foundation and CryptoKit
 // only, so its tests run on macOS against a real `MobileHost`.
 let package = Package(
     name: "CmuxMobileFiles",
@@ -13,6 +13,7 @@ let package = Package(
     products: [.library(name: "CmuxMobileFiles", targets: ["CmuxMobileFiles"])],
     dependencies: [
         .package(path: "../CmuxLink"),
+        .package(path: "../CmuxMobileLink"),
         .package(path: "../CmuxMobileWire"),
         .package(path: "../CmuxMobileHost"),
     ],
@@ -21,9 +22,8 @@ let package = Package(
             name: "CmuxMobileFiles",
             dependencies: [
                 .product(name: "CmuxLink", package: "CmuxLink"),
+                .product(name: "CmuxMobileLink", package: "CmuxMobileLink"),
                 .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
-                // `MobileChannel` (the A0-on-link binding) and `DeviceProof` are shared with the Mac.
-                .product(name: "CmuxMobileHost", package: "CmuxMobileHost"),
             ]
         ),
         .testTarget(
@@ -32,6 +32,7 @@ let package = Package(
                 "CmuxMobileFiles",
                 .product(name: "CmuxLink", package: "CmuxLink"),
                 .product(name: "CmuxLinkTesting", package: "CmuxLink"),
+                .product(name: "CmuxMobileLink", package: "CmuxMobileLink"),
                 .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
                 .product(name: "CmuxMobileHost", package: "CmuxMobileHost"),
             ]

@@ -1,3 +1,4 @@
+import CmuxMobileLink
 import CmuxMobileWire
 import Foundation
 
@@ -6,8 +7,10 @@ import Foundation
 /// mismatch restarts once from zero; a lost session leaves the transfer
 /// resumable; `pauseAll` (backgrounding) stops every run as `paused`.
 public actor MobileTransferManager {
-    /// Host id -> a started client session (hello done) for that Mac.
-    public typealias Connector = @Sendable (String) async throws -> MobileClientSession
+    /// Host id -> the phone's one `MobileLinkClient` for that Mac (it makes
+    /// a new link session per generation, so a lost session resumes on the
+    /// same client).
+    public typealias Connector = @Sendable (String) async throws -> MobileLinkClient
 
     private let connector: Connector
     private let journal: TransferJournal
