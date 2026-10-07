@@ -197,7 +197,14 @@ the keydown gets no command as well), on the web view itself. In the REPL
 bold, italic and underline run `execCommand` in the main frame through the
 frame gate, which checks the tab again and judges the document the command
 runs in, in the same script turn: a main frame that navigated meanwhile to
-a page the session's authority refuses is not formatted (`blocked`). In a tab a
+a page the session's authority refuses is not formatted (`blocked`). In the
+REPL select all, undo and redo run the same way in the document that holds
+the keyboard focus (found as for the clipboard shortcuts), never as a native
+action that would reach whatever document holds the focus when it arrives:
+a focus in a frame the authority refuses, or a document it refuses by the
+time the command runs, gets no command (`blocked`). Undo and redo take the
+tab's undo stack, so from an allowed focused document they undo the tab's
+last edit. In a tab a
 session created (one with the page clipboard guard), `cmux browser press`
 Meta+C, Meta+X and Meta+V run nothing: that tab's clipboard is its
 session's virtual one, `cmux browser press` carries no session, and as

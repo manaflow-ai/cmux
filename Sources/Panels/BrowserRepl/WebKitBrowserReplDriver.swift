@@ -2724,7 +2724,14 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             guard let shortcut = BrowserReplFrameGate.FormattingShortcut(rawValue: command) else { return }
             try await frameGate.runFormattingShortcut(shortcut, in: webView)
         default:
-            NSApp.sendAction(NSSelectorFromString(command), to: webView, from: nil)
+            // Select All, Undo and Redo: the key's outcome came after an
+            // await too, so the gate checks the tab again, finds the focused
+            // frame, and runs the command there by script, judging that
+            // document in the command's own turn, as for the clipboard
+            // shortcuts. No native action goes to the web view, which would
+            // reach whatever document holds the focus when it arrives.
+            guard let shortcut = BrowserReplFrameGate.EditingShortcut(action: command) else { return }
+            try await frameGate.runEditingShortcut(shortcut, in: webView, frames: { await BrowserReplFrameTree.frames(of: webView) })
         }
     }
 

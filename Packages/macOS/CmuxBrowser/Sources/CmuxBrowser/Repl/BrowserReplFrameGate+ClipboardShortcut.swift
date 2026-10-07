@@ -75,11 +75,12 @@ extension BrowserReplFrameGate {
     }
 
     /// The frame whose document holds the keyboard focus: from the main
-    /// frame, the child whose frame element each document focused.
-    private func focusedFrame(in webView: WKWebView, tree: [BrowserReplFrame]) async throws -> BrowserReplFrame {
+    /// frame, the child whose frame element each document focused. The
+    /// clipboard and editing shortcuts run there.
+    func focusedFrame(in webView: WKWebView, tree: [BrowserReplFrame]) async throws -> BrowserReplFrame {
         let probe = BrowserReplScriptProbe()
         guard var current = tree.first else {
-            throw BrowserReplDriverError(code: "stale", message: "The tab has no frames to run the clipboard shortcut in; try again")
+            throw BrowserReplDriverError(code: "stale", message: "The tab has no frames to run the shortcut in; try again")
         }
         var positions: [String: Int] = [:]
         for _ in 0..<tree.count {
@@ -104,11 +105,11 @@ extension BrowserReplFrameGate {
                 }
             }
             guard let next else {
-                throw BrowserReplDriverError(code: "stale", message: "Could not tell which frame inside \(current.shownURL) holds the focus (a frame in a shadow tree, or the frames changed); the clipboard shortcut did nothing")
+                throw BrowserReplDriverError(code: "stale", message: "Could not tell which frame inside \(current.shownURL) holds the focus (a frame in a shadow tree, or the frames changed); the shortcut did nothing")
             }
             current = next
         }
-        throw BrowserReplDriverError(code: "stale", message: "The frames changed while the clipboard shortcut looked for the focus; try again")
+        throw BrowserReplDriverError(code: "stale", message: "The frames changed while the shortcut looked for the focus; try again")
     }
 
     /// Whether the document's focused element (inside shadow trees too) is a
