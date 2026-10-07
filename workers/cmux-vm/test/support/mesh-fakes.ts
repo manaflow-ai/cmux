@@ -180,7 +180,7 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
   const layer = (fetch: (request: Request) => Promise<Response>) =>
     Layer.mergeAll(
       store.layer,
-      Layer.succeed(UpstreamMesh, makeUpstreamMesh({ baseUrl: UPSTREAM_URL, apiKey: Redacted.make(UPSTREAM_KEY), fetch })),
+      Layer.succeed(UpstreamMesh, makeUpstreamMesh({ baseUrl: UPSTREAM_URL, apiKey: Redacted.make(UPSTREAM_KEY), environment: "local", fetch })),
       meshConfigLayer({
         experiment: options.experiment ?? true,
         tenantIds: options.tenants ?? ["team_alpha", "team_bravo"],
