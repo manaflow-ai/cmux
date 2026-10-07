@@ -131,6 +131,10 @@ class ChecksJobStructure(unittest.TestCase):
         self.assertEqual(pin[0]["run"].strip(), "scripts/cmux-next/check-app-ffi-pin.sh --verify-release")
         script_tests = next(step for step in checks if step.get("id") == "script-tests")
         self.assertIn("bash scripts/cmux-next/tests/check-app-ffi-pin.test.sh", script_tests["run"])
+        # Only there: the macOS swift test job no longer carries a copy.
+        everywhere = [(job, step.get("name")) for job, spec in document["jobs"].items()
+                      for step in spec.get("steps", []) if "check-app-ffi-pin.sh" in str(step.get("run", ""))]
+        self.assertEqual(everywhere, [(JOB, "Check the app FFI pin")])
 
     def test_rust_ratchet_is_its_own_step(self):
         _, checks, _ = self.split()
@@ -390,6 +394,21 @@ class PathRoutingStructure(unittest.TestCase):
         self.assertNotIn("same-tree-cmux-tui", jobs["generated-files"]["needs"])
         swift_runs = " ".join(step.get("run", "") for step in jobs["swift-test"]["steps"])
         self.assertNotIn("check-action-surfaces.sh", swift_runs)
+
+    def test_autofix_token_asks_only_for_what_the_app_grants(self):
+        """The App installation refuses pull-requests: write ("The permissions requested are not
+        granted to this installation", run 37590228478), so the token asks for contents only, which
+        the push needs (an App push starts CI). The comment uses the job's own GITHUB_TOKEN."""
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        autofix = jobs["generated-autofix"]
+        mint = next(step for step in autofix["steps"] if step.get("id") == "app-token")
+        requested = sorted(key for key in mint["with"] if key.startswith("permission-"))
+        self.assertEqual(requested, ["permission-contents"])
+        self.assertEqual(mint["with"]["permission-contents"], "write")
+        self.assertEqual(autofix["permissions"], {"contents": "read", "pull-requests": "write"})
+        commit = autofix["steps"][-1]
+        self.assertEqual(commit["env"]["GH_TOKEN"], "${{ github.token }}")
+        self.assertNotIn('GH_TOKEN="$APP_TOKEN"', commit["run"])
 
     def test_autofix_pushes_only_generated_paths_of_same_repository_prs(self):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]

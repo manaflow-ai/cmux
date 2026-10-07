@@ -115,4 +115,46 @@ set_runs "$failed_run"
 expect "push, published" push ready
 expect "pull request, published" pull_request ready
 
+# A pull request whose merge changes cmux-tui on both sides has a merge tree that nothing publishes:
+# GitHub runs pull_request_target workflows only from the default branch, so cmux-tui artifacts
+# never builds a PR merge commit (#18121, #18130). The PR head's tree, published from a
+# cmux-tui-pin-* push, is tested instead; with no published head tree the probe still fails.
+git_q -C "$TMP/src" checkout -b pr "$base_sha"
+echo head > "$TMP/src/cmux-tui/a"
+git_q -C "$TMP/src" commit -am head
+head_sha=$(git -C "$TMP/src" rev-parse HEAD)
+head_key=$(cd "$TMP/src" && bash scripts/cmux-next/pin-cmux-tui.sh key)
+git_q -C "$TMP/src" checkout main
+echo base > "$TMP/src/cmux-tui/b"
+git_q -C "$TMP/src" add -A
+git_q -C "$TMP/src" commit -m base-tui
+git_q -C "$TMP/src" merge --no-ff -m merge pr
+key=$(cd "$TMP/src" && bash scripts/cmux-next/pin-cmux-tui.sh key)
+[[ "$key" != "$head_key" ]] || { echo "fixture: the merge has the head's tree key" >&2; exit 1; }
+set_runs "$none"
+export CMUX_TUI_TREE_HEAD_SHA="$head_sha"
+expect "pull request, merge tree unpublished, head unpublished" pull_request failed "no cmux-tui artifacts run"
+mkdir -p "$TMP/cdn/cmux-tui/tree/$head_key"
+printf '%064d  cmux-tui-aarch64-apple-darwin\n' 0 > "$TMP/cdn/cmux-tui/tree/$head_key/cmux-tui-aarch64-apple-darwin.sha256"
+merge_key="$key"; key="$head_key"
+expect "pull request, merge tree unpublished, head published" pull_request ready "$merge_key"
+grep -qF "$head_sha" <<<"$reason" || fail "the reason names the PR head: $reason"
+# fetch takes the probe's key only when it is exactly the PR head's own tree key.
+echo binary > "$TMP/cdn/cmux-tui/tree/$head_key/cmux-tui-aarch64-apple-darwin"
+sha256sum "$TMP/cdn/cmux-tui/tree/$head_key/cmux-tui-aarch64-apple-darwin" | awk '{print $1 "  cmux-tui-aarch64-apple-darwin"}' \
+  > "$TMP/cdn/cmux-tui/tree/$head_key/cmux-tui-aarch64-apple-darwin.sha256"
+fetch_with() { # <CMUX_TUI_TREE_KEY> -> out, status
+  status=0
+  out=$(cd "$TMP/src" && env -u CI_JOB_DIR PATH="$TMP/bin:$PATH" GITHUB_ACTIONS=true GITHUB_EVENT_NAME=pull_request \
+    GITHUB_REPOSITORY=o/r GITHUB_API_URL="file://$TMP/api" GH_TOKEN=test-token CMUX_TUI_TREE_KEY="$1" \
+    CMUX_TUI_PIN_BASE=https://cdn.test/cmux-tui CMUX_TUI_TREE_WAIT_SECONDS=1 CMUX_TUI_TREE_POLL_SECONDS=1 \
+    bash scripts/cmux-next/pin-cmux-tui.sh fetch 2>&1) || status=$?
+}
+fetch_with "$head_key"
+grep -qF "using the PR head's tree $head_key" <<<"$out" || fail "fetch did not take the PR head's tree"
+[[ -f "$TMP/src/cmux-tui/target/hosted/tree/$head_key/cmux-tui" ]] || fail "fetch did not place the head tree's binary"
+fetch_with "$newer"
+! grep -qF "using the PR head's tree" <<<"$out" || fail "fetch took a key that is not the PR head's"
+unset CMUX_TUI_TREE_HEAD_SHA
+
 printf 'pin-cmux-tui probe tests: ok\n'

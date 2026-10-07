@@ -32,6 +32,8 @@ extension SettingsSchema {
         // (a separate process is never `user`), for example the sidebar width after a resize.
         .union(LayoutMetricSetting.all.map { $0.configPath.joined(separator: ".") })
         .union(BrowserAppSettingsSchema.descriptors.map(\.id))
+        // The edited-files card (looks only).
+        .union(AgentPaneEditedFilesSettingsSchema.agentSettableKeys)
 
     private static let agentSettableTable: Set<String> = [
         "window.titlebar",
@@ -137,6 +139,7 @@ extension SettingsSchema {
         "notifications.mutedWorkspaces",
         "labs.previewFeatures",
         "updates.notify",
+        "updates.showWhatsNew",
         "announcements.enabled",
     ]
 

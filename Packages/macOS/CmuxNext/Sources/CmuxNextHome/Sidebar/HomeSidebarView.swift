@@ -1,12 +1,12 @@
 public import AppKit
 public import CmuxHomeCore
-import CmuxNextDesign
 import MessagesLabSidebar
 
 /// The Home page's left column: MessagesLab's conversation list
 /// (`CmuxSidebarView`, vendored byte-identical) drawing a `HomeSidebarModel`
-/// on the theme's sidebar color. It owns no data: the page gives it the model
-/// after every change and handles the choices.
+/// with no background of its own: the window's material or background image
+/// shows through, as behind the transcript. It owns no data: the page gives
+/// it the model after every change and handles the choices.
 public final class HomeSidebarView: NSView {
     public var onSelect: (ConversationID) -> Void = { _ in }
     public var onSetPinned: (Bool, ConversationID) -> Void = { _, _ in }
@@ -21,7 +21,6 @@ public final class HomeSidebarView: NSView {
 
     public override init(frame: NSRect) {
         super.init(frame: frame)
-        wantsLayer = true
         list.frame = bounds
         list.autoresizingMask = [.width, .height]
         addSubview(list)
@@ -37,7 +36,6 @@ public final class HomeSidebarView: NSView {
         addSubview(compose)
         list.onSelect = { [weak self] id in if let id { self?.onSelect(ConversationID(id)) } }
         list.onSetPinned = { [weak self] on, id in self?.onSetPinned(on, ConversationID(id)) }
-        paint()
     }
 
     @available(*, unavailable)
@@ -73,14 +71,6 @@ public final class HomeSidebarView: NSView {
         compose.frame = NSRect(x: bounds.width - side - 12, y: bounds.height - 26 - side / 2, width: side, height: side)
     }
 
-    private func paint() {
-        performWithTheme { layer?.backgroundColor = Palette.sidebarBackground.cgColor }
-    }
-
-    public override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        paint()
-    }
 }
 
 /// The compose button: a click starts a new message, a right-click offers

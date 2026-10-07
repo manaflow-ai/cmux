@@ -22,6 +22,8 @@ export default defineConfig({
   ...cmuxCheckConfig({
     fmtIgnorePatterns: [
       "src/diff/generated/**",
+      // A markdown test document: its exact syntax (*** rules, odd spacing) is what it tests.
+      "src/gallery/fixtures/markdown-showcase.md",
       // scripts/pane-protocol-codegen.ts --check owns these bytes.
       "src/protocol/generated/**",
       // Byte-identical copy of the Rust lane's emitted IR.
@@ -154,6 +156,11 @@ export default defineConfig({
         // Grammars are resolved on the main thread and posted to the workers.
         codeSplitting: {
           groups: [
+            {
+              name: "createBaseUIEventDetails",
+              test: (id: string) => id.includes("/@base-ui/react/internals/createBaseUIEventDetails"),
+              priority: 6,
+            },
             // Lazy chunks take only their own module. Rolldown groups capture
             // dependencies by default, which would fold a grammar that another
             // grammar embeds into whichever language chunk claims it first.
