@@ -473,6 +473,65 @@
         }
       }
     },
+    "cli.versionSkew.fix.unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not read the app's version. Compare it in cmux > About cmux with this CLI, then relaunch or update the older one."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Version der App konnte nicht gelesen werden. Vergleiche sie unter cmux > Über cmux mit dieser CLI und starte dann die ältere neu oder aktualisiere sie."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de lire la version de l’app. Compare-la dans cmux > À propos de cmux avec cette CLI, puis relance ou mets à jour la plus ancienne."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo leer la versión de la app. Compárala en cmux > Acerca de cmux con esta CLI y luego reinicia o actualiza la más antigua."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリのバージョンを取得できませんでした。cmux > cmux について でこの CLI と比較し、古い方を再起動または更新してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "앱 버전을 읽을 수 없습니다. cmux > cmux 정보에서 이 CLI와 비교한 다음 오래된 쪽을 다시 실행하거나 업데이트하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法读取 App 的版本。请在 cmux > 关于 cmux 中与此 CLI 比较，然后重新启动或更新较旧的一方。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法讀取 App 的版本。請在 cmux > 關於 cmux 中與此 CLI 比較，然後重新啟動或更新較舊的一方。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّرت قراءة إصدار التطبيق. قارنه في cmux > حول cmux مع واجهة CLI هذه، ثم أعد تشغيل الأقدم أو حدّثه."
+          }
+        }
+      }
+    },
     "cli.versionSkew.app.unknown": {
       "extractionState": "manual",
       "localizations": {

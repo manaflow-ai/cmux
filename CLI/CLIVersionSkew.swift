@@ -125,7 +125,11 @@ enum CLIVersionSkew {
     ) -> [String]? {
         let otherProduct = peer?.app.map { $0 != cliProduct } ?? false
         let order = compare(cliShortVersion, peer?.version)
-        if !otherProduct, order == .orderedSame { return nil }
+        if !otherProduct {
+            // Without its own version this CLI cannot tell a skew from a
+            // same-build error, so the original error stands.
+            if components(cliShortVersion) == nil || order == .orderedSame { return nil }
+        }
 
         let cliLine = cliPath.map { "\(cliVersion) (\($0))" } ?? cliVersion
         var lines = [
@@ -175,12 +179,20 @@ enum CLIVersionSkew {
                 locale: .current,
                 peerCLI ?? "Contents/Resources/bin/cmux"
             )
-        } else {
-            // The app is older, or does not report a version (apps before
-            // 0.65 do not): usually an installed update waiting for a relaunch.
+        } else if order == .orderedDescending || (peer != nil && peer?.version == nil) {
+            // The app is older, or answers identify without a version (apps
+            // that predate the field): usually an installed update waiting
+            // for a relaunch.
             fix = String(
                 localized: "cli.versionSkew.fix.appOlder",
                 defaultValue: "The running app is older than this CLI. Quit and reopen cmux to finish an installed update, or update it with cmux > Check for Updates."
+            )
+        } else {
+            // identify failed or returned a version this CLI cannot parse:
+            // the direction of the skew is unknown, so do not guess it.
+            fix = String(
+                localized: "cli.versionSkew.fix.unknown",
+                defaultValue: "Could not read the app's version. Compare it in cmux > About cmux with this CLI, then relaunch or update the older one."
             )
         }
         lines.append(String(

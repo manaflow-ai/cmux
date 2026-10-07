@@ -8398,9 +8398,10 @@ struct CMUXCLI {
             throw unknownCommandError(command)
         }
         } catch {
-            if !capturesSocketErrorsInsideCommand {
-                captureSocketTransportError(telemetry: cliTelemetry, stage: "socket_command", error: error, client: client)
-            }
+            // Hook commands own their socket errors and run under a short
+            // wall-clock budget, so they skip the extra identify round trip.
+            guard !capturesSocketErrorsInsideCommand else { throw error }
+            captureSocketTransportError(telemetry: cliTelemetry, stage: "socket_command", error: error, client: client)
             throw CLIVersionSkew.diagnose(
                 error,
                 client: client,
