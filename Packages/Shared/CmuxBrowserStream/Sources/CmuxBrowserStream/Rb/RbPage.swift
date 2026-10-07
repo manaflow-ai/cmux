@@ -1,4 +1,4 @@
-public import CmuxMobileWire
+import CmuxMobileWire
 
 /// The page as its owner reports it (`rb.page`).
 public struct RbPage: Hashable, Sendable {

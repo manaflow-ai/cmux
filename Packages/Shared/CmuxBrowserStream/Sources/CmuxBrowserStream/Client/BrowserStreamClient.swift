@@ -36,6 +36,7 @@ public actor BrowserStreamClient {
     private var reassembler = RdReassembler()
     private var arrivals: [RdArrival] = []
     private var recoveryRequested = false
+    private var laneCarriesVideo = false
     private var nextInputSeq: UInt32 = 1
     private var nextRequest: UInt64 = 1
     private var nextScreenSeq: UInt32 = 1
@@ -234,14 +235,20 @@ public actor BrowserStreamClient {
     }
 
     private func handleLane(_ data: Data) async {
+
         guard let record = try? StreamRecord(decoding: data), record.channel == channelID, !record.flags.contains(.json),
               let payload = try? BrowserStreamPayload(record: record.payload) else { return }
+        if !laneCarriesVideo, case .datagram(let header, _) = payload, header.kind == .video {
+            laneCarriesVideo = true
+            eventsContinuation.yield(.datagramLane(active: true))
+        }
         await apply(payload)
     }
 
     private func laneEnded() {
         lane = nil
-        eventsContinuation.yield(.datagramLane(active: false))
+        if laneCarriesVideo { eventsContinuation.yield(.datagramLane(active: false)) }
+        laneCarriesVideo = false
     }
 
     private func apply(_ payload: BrowserStreamPayload) async {
@@ -311,7 +318,8 @@ public actor BrowserStreamClient {
         let feedback = RdFeedback(ackedFrame: reassembler.lastReleased, needRecovery: needRecovery, arrivals: arrivals)
         arrivals.removeAll()
         let payload = BrowserStreamPayload.datagram(RdDatagramHeader(kind: .feedback), feedback.encoded)
-        if lane != nil {
+        // A recovery request must not be lost: it rides the reliable channel.
+        if lane != nil, !needRecovery {
             await sendLane(payload)
         } else {
             try? await send(payload)

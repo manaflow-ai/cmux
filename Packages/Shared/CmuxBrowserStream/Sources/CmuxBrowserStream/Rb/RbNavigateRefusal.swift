@@ -1,5 +1,5 @@
 /// Why the host refused `rb.navigate`.
-public enum RbNavigateRefusal: String, Hashable, Sendable, CaseIterable {
+public enum RbNavigateRefusal: String, Error, Hashable, Sendable, CaseIterable {
     /// Not an http or https URL.
     case scheme
     /// Not a URL, or no host.

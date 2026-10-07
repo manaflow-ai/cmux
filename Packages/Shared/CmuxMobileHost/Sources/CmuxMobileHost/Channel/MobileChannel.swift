@@ -19,10 +19,13 @@ public actor MobileChannel {
     private var ended = false
     private var sending = false
     private var sendWaiters: [CheckedContinuation<Void, Never>] = []
+    private let lanes: AsyncStream<MobileDatagramLane>
+    private let lanesContinuation: AsyncStream<MobileDatagramLane>.Continuation
 
     public init(id: UInt32, link: LinkChannel) {
         self.id = id
         self.link = link
+        (lanes, lanesContinuation) = AsyncStream.makeStream(of: MobileDatagramLane.self)
     }
 
     /// Wraps a channel whose first record names its A0 id (`channel.open`).
@@ -54,6 +57,26 @@ public actor MobileChannel {
         self.id = id
         self.link = link
         receiveSeq = receivedFirst ? 1 : 0
+        (lanes, lanesContinuation) = AsyncStream.makeStream(of: MobileDatagramLane.self)
+    }
+
+    // MARK: Datagram lanes
+
+    /// Datagram lanes the phone paired with this channel
+    /// (`cmux.mobile/datagram/<id>`, c2-browser-stream.md section 2), in
+    /// arrival order; a new lane replaces the previous one. Ends when the
+    /// channel does. One consumer.
+    public func datagramLanes() -> AsyncStream<MobileDatagramLane> {
+        lanes
+    }
+
+    /// Called by the session server when a lane for this channel arrives.
+    func attachDatagramLane(_ link: LinkChannel) async {
+        guard !ended else {
+            await link.close()
+            return
+        }
+        lanesContinuation.yield(MobileDatagramLane(channel: id, link: link))
     }
 
     /// `ChannelEvents` iterators are stateless handles onto the session, so a
@@ -124,11 +147,13 @@ public actor MobileChannel {
     /// Closes the link channel without waiting for delivery (revocation,
     /// teardown of a peer that stopped reading).
     public func abort() async {
+        lanesContinuation.finish()
         await link.close()
     }
 
     /// Delivers what was sent, then closes the link channel.
     public func finish() async {
+        lanesContinuation.finish()
         try? await link.flush()
         await link.close()
     }
@@ -143,9 +168,11 @@ public actor MobileChannel {
         switch await Self.nextEvent(link) {
         case nil:
             ended = true
+            lanesContinuation.finish()
             return .closed(.local)
         case .closed(let reason)?:
             ended = true
+            lanesContinuation.finish()
             return .closed(reason)
         case .gap?:
             return .gap

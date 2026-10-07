@@ -16,6 +16,7 @@ actor MobileSessionServer {
     }
 
     static let noticeGrace: Duration = .milliseconds(500)
+    static let maxPendingLanes = 8
 
     let session: LinkSession
     let gate = MobileSessionGate()
@@ -27,6 +28,8 @@ actor MobileSessionServer {
     private var claimedInstall: String?
     private var usedChannelIDs: Set<UInt32> = [0]
     private var channels: [UInt32: MobileChannel] = [:]
+    /// Datagram lanes that arrived before their channel was registered.
+    private var pendingLanes: [UInt32: LinkChannel] = [:]
     private var tasks: [UUID: Task<Void, Never>] = [:]
     private var revoked = false
 
@@ -89,6 +92,10 @@ actor MobileSessionServer {
     // MARK: Channels
 
     private func serve(_ link: LinkChannel) async {
+        if !link.descriptor.reliability.isReliable {
+            await attachLane(link)
+            return
+        }
         if link.stream == Self.sessionStream, case .none = admission {
             admission = .pending([])
             await serveSessionChannel(link)
@@ -116,8 +123,29 @@ actor MobileSessionServer {
         }
         usedChannelIDs.insert(open.channel)
         channels[open.channel] = channel
+        if let lane = pendingLanes.removeValue(forKey: open.channel) {
+            await channel.attachDatagramLane(lane)
+        }
         await context.serve(channel, open: open, principal: principal, gate: gate)
         channels[open.channel] = nil
+    }
+
+    /// A datagram lane (`cmux.mobile/datagram/<id>`) goes to its channel, or
+    /// waits for it; anything else unreliable is closed. Lanes carry no
+    /// `channel.open` (an unreliable first record could be lost), so they are
+    /// bound by name to a channel the admitted phone opened.
+    private func attachLane(_ link: LinkChannel) async {
+        guard let name = DatagramLaneName(stream: link.stream), name.channel % 2 == 1, !revoked else {
+            await link.close()
+            return
+        }
+        if let channel = channels[name.channel] {
+            await channel.attachDatagramLane(link)
+        } else if usedChannelIDs.contains(name.channel) || pendingLanes.count >= Self.maxPendingLanes {
+            await link.close()
+        } else {
+            await pendingLanes.updateValue(link, forKey: name.channel)?.close()
+        }
     }
 
     private func awaitAdmission() async -> MobileDevicePrincipal? {

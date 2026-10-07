@@ -12,7 +12,7 @@ public enum BrowserStreamEvent: Hashable, Sendable {
     case screenApplied(pixelWidth: UInt32, pixelHeight: UInt32)
     /// The newest input sequence number the Mac applied.
     case inputApplied(UInt32)
-    /// The datagram lane attached or detached.
+    /// Video started arriving on the datagram lane, or the lane closed.
     case datagramLane(active: Bool)
     /// The stream ended; last event.
     case closed(reason: String)
