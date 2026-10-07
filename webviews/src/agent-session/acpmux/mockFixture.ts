@@ -32,6 +32,8 @@ export type MockSession = {
   };
   /// The agent's last reply, for sessions other than the worked one.
   reply?: string;
+  /// Images the last reply shows under its text (the image viewer's mock chat).
+  images?: { alt: string; svg: string }[];
   /// What a session needing input waits on: the tool call its permission card names.
   permission?: { title: string; kind: string };
   /// The call a running session is in the middle of, after its last text.
@@ -349,6 +351,11 @@ export const mockSessions: MockSession[] = [
     host: LOCAL_HOST,
     hostKind: "local",
     reply: "Captured 12 light-theme screens next to their dark versions.",
+    images: [
+      { alt: "Settings, light", svg: screenMock("light", "Settings") },
+      { alt: "Settings, dark", svg: screenMock("dark", "Settings") },
+      { alt: "Billing, light", svg: screenMock("light", "Billing") },
+    ],
   },
   {
     sessionId: "mock-prorate",
@@ -647,6 +654,44 @@ function latencyChart(): string {
   );
 }
 
+/// A session's reply with its images after the text, as data URLs a reply can draw.
+function replyWithImages(session: MockSession): string {
+  const images = (session.images ?? []).map(({ alt, svg }) => `![${alt}](data:image/svg+xml;base64,${btoa(svg)})`);
+  return [session.reply ?? "Done.", ...images].join("\n\n");
+}
+
+/// A small app screen in `theme`: a sidebar, a title and a few settings rows.
+function screenMock(theme: "light" | "dark", title: string): string {
+  const [bg, side, line, text, muted, accent] =
+    theme === "light"
+      ? ["#ffffff", "#f3f3f5", "#e4e4e8", "#1d1d1f", "#86868b", "#0a84ff"]
+      : ["#1c1c1e", "#2c2c2e", "#3a3a3c", "#f5f5f7", "#98989d", "#0a84ff"];
+  const rows = [0, 1, 2, 3]
+    .map(
+      (index) =>
+        `<rect x="196" y="${108 + index * 56}" width="404" height="44" rx="8" fill="${side}"/>` +
+        `<rect x="212" y="${125 + index * 56}" width="${120 + index * 24}" height="10" rx="5" fill="${muted}"/>` +
+        `<rect x="548" y="${120 + index * 56}" width="36" height="20" rx="10" fill="${index % 2 ? line : accent}"/>`,
+    )
+    .join("");
+  const nav = [0, 1, 2, 3, 4]
+    .map(
+      (index) =>
+        `<rect x="20" y="${60 + index * 30}" width="${100 - index * 8}" height="10" rx="5" fill="${index === 1 ? accent : muted}"/>`,
+    )
+    .join("");
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="400" viewBox="0 0 640 400">` +
+    `<rect width="640" height="400" rx="12" fill="${bg}"/>` +
+    `<path d="M12 0h156v400H12a12 12 0 0 1-12-12V12A12 12 0 0 1 12 0z" fill="${side}"/>` +
+    `<circle cx="22" cy="22" r="6" fill="#ff5f57"/><circle cx="42" cy="22" r="6" fill="#febc2e"/><circle cx="62" cy="22" r="6" fill="#28c840"/>` +
+    nav +
+    `<text x="196" y="72" font-family="-apple-system, system-ui, sans-serif" font-size="22" font-weight="600" fill="${text}">${title}</text>` +
+    rows +
+    `</svg>`
+  );
+}
+
 /// A short exchange for every other session, so any row the reader opens has a transcript. A
 /// running session's turn is still open; a session needing input waits on a permission card.
 export function sessionHistory(session: MockSession): SeedStep[] {
@@ -667,7 +712,7 @@ export function sessionHistory(session: MockSession): SeedStep[] {
         rawInput: render,
       },
     });
-  steps.push({ ago: at + 30_000, update: text(session.reply ?? "Done.") });
+  steps.push({ ago: at + 30_000, update: text(replyWithImages(session)) });
   if (session.permission) {
     const toolCallId = `${session.sessionId}-tool`;
     steps.push(

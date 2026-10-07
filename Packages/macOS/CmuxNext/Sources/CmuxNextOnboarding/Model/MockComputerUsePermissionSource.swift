@@ -3,7 +3,7 @@ public import Foundation
 /// Grants set by hand, for the gallery and tests. Records which panes were opened.
 @MainActor
 public final class MockComputerUsePermissionSource: ComputerUsePermissionSource {
-    public let helperAppURL: URL
+    public let helperAppURL: URL?
     public private(set) var opened: [ComputerUsePermissionPane] = []
     public var current: ComputerUsePermissions {
         didSet { continuations.values.forEach { $0.yield(current) } }
@@ -11,7 +11,7 @@ public final class MockComputerUsePermissionSource: ComputerUsePermissionSource 
     private var continuations: [UUID: AsyncStream<ComputerUsePermissions>.Continuation] = [:]
 
     public init(current: ComputerUsePermissions = .none,
-                helperAppURL: URL = URL(fileURLWithPath: "/Applications/cmux.app/Contents/Library/cmux Computer Use.app")) {
+                helperAppURL: URL? = URL(fileURLWithPath: "/Applications/cmux.app/Contents/Library/cmux Computer Use.app")) {
         self.current = current
         self.helperAppURL = helperAppURL
     }

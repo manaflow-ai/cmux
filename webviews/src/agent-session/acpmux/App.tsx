@@ -24,7 +24,7 @@ import {
   type AcpmuxRow,
   type AcpmuxSnapshot,
 } from "./model";
-import { AcpmuxDirectClient, type AcpmuxHostConfig } from "./direct";
+import { AcpmuxDirectClient, type AcpmuxHostConfig, isTrustRefusal } from "./direct";
 import { postNative } from "./native";
 import { errorMessage } from "./transportErrors";
 import { pageHostClient, startHostEvents } from "./pageHost";
@@ -88,6 +88,9 @@ import { nextSearchState, SearchChats, searchAnimates, type SearchState } from "
 import { SHORTCUT_ACTIONS, ShortcutsContext, readShortcuts, type ShortcutLabels } from "./shortcuts";
 import { FALLBACK_LINK_SCHEME, revealTurnWhenShown, setLinkScheme } from "./links";
 import { copyText } from "./conversation/clipboard";
+import { chatImages, type ChatImage } from "./conversation/chatImages";
+import { ImageViewer } from "./conversation/ImageViewer";
+import { ImageViewerContext } from "./conversation/imageViewerContext";
 import { sessionLink } from "./links";
 import { ChatHeaderTools, HEADER_ACTIONS, type ChatMenuItem } from "./header/ChatHeaderTools";
 import { Thinking } from "./conversation/Thinking";
@@ -976,14 +979,18 @@ function AcpmuxPane() {
     !snapshot.handoff?.receipt;
   const handoffLoading = !!snapshot.sessionId && !!snapshot.canHandoff && !snapshot.handoff?.ready;
   const freshChat = !reviewing && !handoffLoading && isNewChat(snapshot, newSession);
-  // A folder the user hasn't decided on is asked about beside the chat's other permission asks,
-  // once its first prompt went; nothing waits on the answer.
+  /// Reads the chat folder's trust again (useFolderTrustAsk.ts), after acpmux refused a prompt for it.
+  const trustRecheck = useRef<(() => void) | undefined>(undefined);
+  // A folder without a trust answer is asked about beside the chat's other permission asks as
+  // soon as the chat's folder is known (a new chat's chosen one before its first prompt). No
+  // prompt goes until the answer is Trust; acpmux refuses one that does (`trust_gate.rs`).
   const trustAsk = useFolderTrustAsk(trustSource, {
     sessionId: snapshot.sessionId,
-    cwd: snapshot.summary?.cwd,
-    started: !freshChat && snapshot.rows.length > 0,
+    cwd: snapshot.summary?.cwd ?? (snapshot.sessionId ? undefined : projectDraft),
+    family: snapshot.summary?.family || snapshot.summary?.harness,
     prompts: snapshot.rows.filter((row) => row.kind === "user").length,
   });
+  trustRecheck.current = trustAsk.recheck;
   const individualPermission =
     snapshot.permission?.pending && !(snapshot.permissionGroups?.supported && snapshot.permission.groupId)
       ? snapshot.permission
@@ -1137,6 +1144,14 @@ function AcpmuxPane() {
   // recorded on its summary, diffed on the session host.
   const turnRowsRef = useRef(snapshot.rows);
   turnRowsRef.current = snapshot.rows;
+  // The image viewer holds the chat's images from when it opened; another chat closes it.
+  const [imageView, setImageView] = useState<{ images: ChatImage[]; index: number } | undefined>();
+  const openImage = useCallback((src: string) => {
+    const images = chatImages(turnRowsRef.current);
+    const index = images.findIndex((image) => image.src === src);
+    setImageView(index < 0 ? { images: [{ src, alt: "" }], index: 0 } : { images, index });
+  }, []);
+  useEffect(() => setImageView(undefined), [snapshot.sessionId]);
   const readTurn = useCallback(
     ({ rowId }: { rowId: string }) => readTurnFromRows(turnRowsRef.current, rowId, checkpointDiff),
     [],
@@ -1607,7 +1622,15 @@ function AcpmuxPane() {
           if (held) return held;
           const sessionId = await client.ensureSession();
           await persistSession(sessionId);
-          const turn = client.send(text, attachments);
+          // acpmux holds the prompt while the folder's trust question is open: it goes back into
+          // the composer, and the question is read again so it shows.
+          const turn = client.send(text, attachments).catch((error: unknown) => {
+            if (isTrustRefusal(error)) {
+              restorePrompt(text, attachments);
+              trustRecheck.current?.();
+            }
+            throw error;
+          });
           // The prompt is written; a Quick Composer hand-off can close this page now.
           promptLanded.current();
           return turn;
@@ -1960,28 +1983,30 @@ function AcpmuxPane() {
     return [...byPath.values()];
   }, [composerSnapshot.sessions, newTab?.cwd, newTab?.projects, directProjects]);
   const transcript = (
-    <ShellActionsContext.Provider value={shellActions}>
-      <TurnActionsContext.Provider value={turnActions}>
-        <TurnCountsContext.Provider value={turnCountsFor}>
-          <VirtualTranscript
-            rows={transcriptRows}
-            canLoadOlder={snapshot.canLoadOlder}
-            expanded={expanded}
-            registry={registry}
-            // The Quick Composer has no room for the changes view; its file rows stay plain.
-            onOpenDiff={quick ? undefined : openDiff}
-            onToggleActivity={(id) =>
-              setExpanded((current) => {
-                const next = new Set(current);
-                if (next.has(id)) next.delete(id);
-                else next.add(id);
-                return next;
-              })
-            }
-          />
-        </TurnCountsContext.Provider>
-      </TurnActionsContext.Provider>
-    </ShellActionsContext.Provider>
+    <ImageViewerContext.Provider value={quick ? undefined : openImage}>
+      <ShellActionsContext.Provider value={shellActions}>
+        <TurnActionsContext.Provider value={turnActions}>
+          <TurnCountsContext.Provider value={turnCountsFor}>
+            <VirtualTranscript
+              rows={transcriptRows}
+              canLoadOlder={snapshot.canLoadOlder}
+              expanded={expanded}
+              registry={registry}
+              // The Quick Composer has no room for the changes view; its file rows stay plain.
+              onOpenDiff={quick ? undefined : openDiff}
+              onToggleActivity={(id) =>
+                setExpanded((current) => {
+                  const next = new Set(current);
+                  if (next.has(id)) next.delete(id);
+                  else next.add(id);
+                  return next;
+                })
+              }
+            />
+          </TurnCountsContext.Provider>
+        </TurnActionsContext.Provider>
+      </ShellActionsContext.Provider>
+    </ImageViewerContext.Provider>
   );
   const asks = (
     <>
@@ -2110,6 +2135,7 @@ function AcpmuxPane() {
         onOpenInWindow={quick ? openInWindow : undefined}
         prompt={prompt}
         handle={composerRef}
+        blocked={trustAsk.blocked}
         accessory={<DictationButton dictation={dictation} />}
       />
     </>
@@ -2281,6 +2307,14 @@ function AcpmuxPane() {
             </>
           )}
         </div>
+        {imageView && (
+          <ImageViewer
+            images={imageView.images}
+            index={imageView.index}
+            onIndex={(index) => setImageView((current) => current && { ...current, index })}
+            onClose={() => setImageView(undefined)}
+          />
+        )}
         {search !== "closed" && (
           <SearchChats
             sessions={snapshot.sessions}

@@ -4,7 +4,7 @@
 // breaks), nested ordered/bullet/task lists, blockquotes, rules, aligned tables, fenced
 // code blocks rendered by @pierre/diffs (see CodeBlock.tsx), and `$…$`, `$$…$$`, `\(…\)`
 // and `\[…\]` math typeset by KaTeX (see Math.tsx).
-import { Fragment, memo, useId, useMemo, useRef, type ReactNode } from "react";
+import { Fragment, memo, useContext, useId, useMemo, useRef, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { safeHref } from "../model";
 import { CodeBlock } from "./CodeBlock";
@@ -14,6 +14,7 @@ import { ArxivMark, Check, FileDoc, GitHubMark, Globe, ImageIcon } from "./icons
 import { MathDisplay, MathInline } from "./Math";
 import { normalizeMath } from "./mathDelimiters";
 import { IncrementalMarkdown, type KeyedBlock } from "./incrementalMarkdown";
+import { ImageViewerContext } from "./imageViewerContext";
 
 export type Align = "left" | "center" | "right" | null;
 
@@ -374,13 +375,23 @@ export function renderInline(source: string, opts: InlineOptions = {}): ReactNod
   return out;
 }
 
-/// `![alt](src)`: a data URL image draws inline; a web image the pane cannot load draws as a link
-/// to it, named by its alt text or file name.
+/// `![alt](src)`: a data URL image draws inline, and a click opens it in the image viewer; a web
+/// image the pane cannot load draws as a link to it, named by its alt text or file name.
 function InlineImage({ source, opts }: { source: string; opts: InlineOptions }) {
+  const t = useT();
+  const openImage = useContext(ImageViewerContext);
   const [, alt = "", src = ""] = source.match(/^!\[([^\]]*)\]\((.+)\)$/) ?? [];
   if (src === OVERSIZED_DATA_URL || (INLINE_IMAGE.test(src) && src.length > MAX_DATA_URL_LENGTH))
     return <OversizedImage alt={alt} opts={opts} />;
-  if (INLINE_IMAGE.test(src)) return <img className="cv-img" src={src} alt={alt} />;
+  if (INLINE_IMAGE.test(src)) {
+    const image = <img className="cv-img" src={src} alt={alt} />;
+    if (!openImage) return image;
+    return (
+      <button type="button" className="cv-img-open" title={alt || t("image.open")} onClick={() => openImage(src)}>
+        {image}
+      </button>
+    );
+  }
   const name = alt || src.split(/[?#]/)[0]!.split("/").filter(Boolean).at(-1) || src;
   const href = safeHref(src);
   if (!href)
