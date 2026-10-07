@@ -23,7 +23,7 @@ libc = "0.2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 x11rb = { version = "0.14", features = ["shm", "damage", "xtest"] }
-cmux-encode = { path = "../cmux-encode", features = ["openh264-runtime"] }
+cmux-encode = { path = "../cmux-encode", features = ["openh264-download"] }
 # The bench decoder only (OpenH264 from source never ships in the host).
 openh264 = { version = "0.9", default-features = false, features = ["source"], optional = true }
 

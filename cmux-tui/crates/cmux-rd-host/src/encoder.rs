@@ -2,10 +2,14 @@
 //! build feature and a flag, not a code fork. Default: x264 ultrafast zerolatency (`x264`
 //! feature, on by default; GPL, so it stays in this binary): it keeps a text scroll at about
 //! 39 fps and 6 Mbit/s where openh264 fell to 28 fps (screen mode) or collapsed (camera
-//! mode). Alternative: OpenH264 from cmux-encode, Cisco's library loaded with
-//! `--openh264-lib PATH` (pinned SHA-256), or compiled from source in bench builds only.
+//! mode). Alternative: OpenH264 from cmux-encode: Cisco's library, downloaded from Cisco
+//! by `cmux-rd openh264-install` (the host enable flow) into the per-user data directory
+//! or given with `--openh264-lib PATH`, loaded after its pinned SHA-256 matches; compiled
+//! from source in bench builds only.
 
 use crate::Res;
+use std::path::{Path, PathBuf};
+
 use cmux_encode::openh264::{load_verified, OpenH264, OpenH264Api, Platform};
 pub use cmux_encode::H264Encoder;
 
@@ -32,18 +36,45 @@ pub struct EncCfg<'a> {
     pub openh264_lib: Option<&'a str>,
 }
 
-/// The OpenH264 entry points: Cisco's library when a path is given, else the
-/// source build (bench builds only; a shipped host never compiles OpenH264).
+/// The copy `cmux-rd openh264-install` put in `dir` (the per-user data
+/// directory), if it is there. [`load_verified`] checks its hash on load.
+fn installed_library(dir: Option<&Path>, platform: Platform) -> Option<PathBuf> {
+    let path = cmux_encode::cisco::library_path(dir?, platform);
+    path.is_file().then_some(path)
+}
+
+/// `cmux-rd openh264-install [--dir PATH]`: the host enable flow's step that
+/// downloads Cisco's library from Cisco (never bundled, never built from
+/// source for the product). Prints the installed path.
+pub fn install_openh264(opts: &crate::args::Opts) -> Res<()> {
+    let platform = Platform::current().ok_or("Cisco publishes no OpenH264 for this platform")?;
+    let dir = match opts.get("dir") {
+        Some(dir) => PathBuf::from(dir),
+        None => cmux_encode::cisco::default_dir().ok_or("no per-user data directory (set HOME)")?,
+    };
+    let path = cmux_encode::cisco::install(&dir, platform)?;
+    println!("{}", path.display());
+    Ok(())
+}
+
+/// The OpenH264 entry points: Cisco's library from `--openh264-lib`, else
+/// the installer's per-user copy, else the source build (bench builds only;
+/// a shipped host never compiles OpenH264). A session never downloads.
 fn openh264_api(lib: Option<&str>) -> Res<OpenH264Api> {
+    let platform = Platform::current().ok_or("Cisco publishes no OpenH264 for this platform");
     if let Some(path) = lib {
-        let platform =
-            Platform::current().ok_or("Cisco publishes no OpenH264 for this platform")?;
-        return Ok(load_verified(path, platform)?);
+        return Ok(load_verified(path, platform?)?);
+    }
+    if let Ok(platform) = platform {
+        let dir = cmux_encode::cisco::default_dir();
+        if let Some(path) = installed_library(dir.as_deref(), platform) {
+            return Ok(load_verified(path, platform)?);
+        }
     }
     #[cfg(feature = "bench")]
     return Ok(OpenH264Api::from_source());
     #[cfg(not(feature = "bench"))]
-    Err("openh264 needs --openh264-lib PATH (Cisco's library, downloaded from Cisco)".into())
+    Err("openh264 is not installed: run `cmux-rd openh264-install` (downloads Cisco's library from Cisco)".into())
 }
 
 pub fn open(cfg: &EncCfg<'_>) -> Res<Box<dyn H264Encoder>> {

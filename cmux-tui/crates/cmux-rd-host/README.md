@@ -29,10 +29,23 @@ VM), never on a Mac: `cargo build --release`.
   Measured on 1080p loopback (Testbox): text scroll 39 fps, G2G p50 9 ms, 6 Mbit/s;
   marker G2G p50 3.5 ms. openh264 in screen mode reached 28 fps / p50 38 ms on text and
   camera mode collapsed (2.3 fps).
-- openh264 (BSD-2-Clause, built from source) stays available with `--codec openh264`
-  (`--content screen|camera`). Patent note: Cisco's royalty-free H.264 license covers only
-  Cisco's prebuilt openh264 binary; neither a from-source openh264 nor x264 carries patent
-  coverage, so shipping H.264 encoding to users still needs a patent decision (D-RD1).
+- openh264 with `--codec openh264` (`--content screen|camera`) uses Cisco's prebuilt
+  binary only. Cisco's royalty-free H.264 patent license covers only a binary that each
+  user downloads from Cisco, so it is never bundled in an app, image or release artifact,
+  and a shipped host never builds it from source (the source build exists only in bench
+  builds and in the test-only cmux-remote-browser-testhost).
+  - Install: `cmux-rd openh264-install [--dir PATH]` is the host enable flow's step. It
+    downloads Cisco's 2.6.0 file for this platform from `http://ciscobinary.openh264.org/`
+    (the URLs in `cmux_encode::openh264::CiscoBinary`), decompresses the bzip2 file, and
+    keeps it only when the library's SHA-256 matches the pinned value (nothing is written
+    otherwise). A session never downloads.
+  - Storage: one file per user, `<data dir>/cmux/openh264/<Cisco file name>`, where the
+    data dir is `$XDG_DATA_HOME` or `~/.local/share` on Linux, `~/Library/Application
+    Support` on macOS and `%LOCALAPPDATA%` on Windows. It is written to a temporary file,
+    flushed and renamed, so a reader never sees a partial file.
+  - Loading: `--openh264-lib PATH`, else the installed copy. `load_verified` hashes the
+    file again and only then loads it with `dlopen`; a file with another hash is refused.
+  - x264 carries no patent coverage; shipping it to users still needs the D-RD1 decision.
 - The encoder sits behind one trait (`encoder::H264Encoder`). Hardware encoders (VA-API,
   NVENC, and VideoToolbox on macOS hosts) are later implementations of the same trait.
 - `--profile high` (default) is for the macOS pane's VideoToolbox decoder; the Linux bench

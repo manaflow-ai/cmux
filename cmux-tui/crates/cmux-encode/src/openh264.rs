@@ -4,7 +4,8 @@
 //!   decoder only, never in a shipped binary (the license gate refuses it in
 //!   app-linked crates);
 //! - `openh264-runtime`: Cisco's prebuilt library, downloaded from Cisco on
-//!   the user's machine at first use (Cisco's patent license covers only that
+//!   the user's machine when the host is enabled (`cmux-rd openh264-install`,
+//!   module `cisco`; Cisco's patent license covers only that
 //!   binary, so it is never bundled in an app or an image) and loaded by
 //!   [`load_verified`] after its SHA-256 matches [`CiscoBinary`] for the
 //!   platform. Mac hosts encode with VideoToolbox instead.
