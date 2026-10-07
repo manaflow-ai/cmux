@@ -253,7 +253,7 @@ extension ContentView {
                     sidebarPeek.setPolicy(policy)
                 }
             }
-            .onChange(of: sidebarState.occupiesLayout) { occupies in
+            .onChange(of: sidebarState.occupiesLayout) { _, occupies in
                 if occupies {
                     // Docking retires any active peek: the card handed
                     // its place to the fixed pane.
@@ -281,7 +281,7 @@ extension ContentView {
                     sidebarPeek.pointerExitedEdge()
                 }
             }
-            .onChange(of: sidebarState.isVisible) { visible in
+            .onChange(of: sidebarState.isVisible) { _, visible in
                 guard !visible else { return }
                 // Hiding retires any peek in flight and opens the hover
                 // suppression window, so the card cannot flash over the
