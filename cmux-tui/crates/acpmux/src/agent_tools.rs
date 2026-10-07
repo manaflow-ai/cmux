@@ -18,6 +18,13 @@
 //!   Known limit: `skills/` is not a cmux-tui tree-key input
 //!   (scripts/cmux-next/cmux-tui-tree-inputs.txt), so a skills-only change
 //!   reaches a published cmux-tui build with the next cmux-tui change.
+//! - Computer use: when the cmux app exported its tag's helper socket
+//!   (`CMUX_NEXT_CUA_SOCKET`, `cua_socket.rs`), `cmux-cua mcp` gets it as
+//!   `--socket` plus the agent token in its env; this daemon starts no
+//!   helper. The tools refuse the user's cmux and other terminals; a profile
+//!   or preset env with `CMUX_CUA_ALLOWED_TARGET_BUNDLE_IDS` (for example
+//!   the session's own tagged `com.cmuxterm.app.debug.<tag>`) unlocks exact
+//!   bundle ids for that session only.
 //! - Binaries are found next to this executable (the app's
 //!   `Contents/Resources/bin`), or in `CMUX_AGENT_TOOLS_BIN_DIR`. A missing
 //!   binary leaves its server out. `cmux mcp serve` refuses unless
@@ -37,6 +44,9 @@ use serde_json::{Map, Value, json};
 pub const BIN_DIR_ENV: &str = "CMUX_AGENT_TOOLS_BIN_DIR";
 /// `0` turns the agent tools off for this daemon.
 pub const SWITCH_ENV: &str = "ACPMUX_AGENT_TOOLS";
+/// A session env key passed to `cmux-cua mcp`: exact bundle ids the
+/// session's computer use may target although the guard refuses them.
+pub const CUA_SCOPE_ENV: &str = "CMUX_CUA_ALLOWED_TARGET_BUNDLE_IDS";
 /// The plugin name Claude Code shows before each skill (`cmux:cmux-browser`).
 pub const PLUGIN_NAME: &str = "cmux";
 
@@ -113,6 +123,8 @@ pub struct Inputs {
     pub cmux_json: Option<String>,
     /// `<ACPMUX_HOME>/agent-tools`.
     pub state_dir: PathBuf,
+    /// The tag's helper socket the cmux app exported, if any.
+    pub cua: Option<crate::cua_socket::Socket>,
 }
 
 impl Inputs {
@@ -130,6 +142,7 @@ impl Inputs {
             bin_dir,
             cmux_json: std::fs::read_to_string(config).ok(),
             state_dir: crate::config::home().join("agent-tools"),
+            cua: crate::cua_socket::from_env(),
         }
     }
 }
@@ -152,7 +165,7 @@ pub fn left_out(remote_origin: bool, env: &BTreeMap<String, String>, args: &[Str
 
 /// `mcpServers` for a session's ACP harness.
 pub fn acp_servers_for(remote_origin: bool, env: &BTreeMap<String, String>) -> Value {
-    if left_out(remote_origin, env, &[]) { json!([]) } else { current().acp_servers() }
+    if left_out(remote_origin, env, &[]) { json!([]) } else { current().scoped(env).acp_servers() }
 }
 
 /// Extra Claude Code flags for a session whose command line is `args`.
@@ -161,7 +174,7 @@ pub fn claude_args_for(
     env: &BTreeMap<String, String>,
     args: &[String],
 ) -> Vec<String> {
-    if left_out(remote_origin, env, args) { Vec::new() } else { current().claude_args() }
+    if left_out(remote_origin, env, args) { Vec::new() } else { current().scoped(env).claude_args() }
 }
 
 pub fn resolve(inputs: &Inputs) -> AgentTools {
@@ -173,10 +186,13 @@ pub fn resolve(inputs: &Inputs) -> AgentTools {
         inputs.bin_dir.as_ref().map(|dir| dir.join(name)).filter(|path| is_executable(path))
     };
     if let Some(cua) = executable("cmux-cua") {
+        let args = vec!["mcp".to_owned()];
+        let socket_env: Vec<(String, String)> = Vec::new();
+        let _ = &inputs.cua; // red: the app's socket is not passed
         servers.push(McpServer {
             name: "cmux-cua".into(),
             command: cua,
-            args: vec!["mcp".into()],
+            args,
             env: [
                 // Always the signed helper over its socket, never in-process
                 // computer use with this agent's TCC identity.
@@ -189,6 +205,7 @@ pub fn resolve(inputs: &Inputs) -> AgentTools {
             ]
             .into_iter()
             .map(|(k, v)| (k.to_owned(), v.to_owned()))
+            .chain(socket_env)
             .collect(),
         });
     }
@@ -213,6 +230,14 @@ pub fn resolve(inputs: &Inputs) -> AgentTools {
 }
 
 impl AgentTools {
+    /// The tools for one session: its env's [`CUA_SCOPE_ENV`] reaches only
+    /// the computer use server. Without one the server gets the key empty,
+    /// so a value inherited from the daemon's env never widens the guard.
+    pub fn scoped(self, session_env: &BTreeMap<String, String>) -> Self {
+        let _ = session_env; // red: no scope
+        self
+    }
+
     /// `mcpServers` for an ACP `session/new`, `session/load` or `session/fork`.
     pub fn acp_servers(&self) -> Value {
         Value::Array(

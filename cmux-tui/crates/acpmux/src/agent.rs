@@ -190,6 +190,8 @@ pub(crate) fn harness_command(
             cmd.env_remove(&k);
         }
     }
+    // Helper tokens reach the cmux-cua MCP server through its own env only.
+    crate::cua_socket::scrub_agent_env(&mut cmd);
     // A nested launch must not be taken for its parent's thread.
     cmd.env_remove("CODEX_THREAD_ID").env_remove("OMPCODE");
     if let Some((id, sname)) = session {
