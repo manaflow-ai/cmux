@@ -67,7 +67,18 @@ extension PinCommands {
     /// (drop-to-pin, P2): each one the section does not hold yet is added
     /// there in order, labeled with its name; one undo step each. A row
     /// with no layout ref is refused.
-    func dropWorkspaces(_ ids: [String], on section: LayoutSectionID, at index: Int, origin: ActionOrigin) throws {} // red
+    func dropWorkspaces(_ ids: [String], on section: LayoutSectionID, at index: Int, origin: ActionOrigin) throws {
+        if let reason = layout.unavailableReason { throw ActionFailure(message: reason) }
+        var at = index
+        for id in ids {
+            guard let ref = refs.ref(forWorkspace: id) else { throw ActionFailure(message: PinStrings.workspaceCannotPin) }
+            guard layout.document.section(section)?.items.contains(where: { $0.ref == ref }) == false else { continue }
+            let item = LayoutItem(id: .mint(), ref: ref, label: context.services.machines.workspace(id: id)?.0.displayName)
+            let title = section == SidebarLayoutDocument.pinnedSectionID ? PinStrings.pinWorkspace : PinStrings.addToTop
+            try sendLayout(.itemAdd(item, section: section, index: at), title: title, origin: origin)
+            at += 1
+        }
+    }
 
     /// The sidebar's drop-to-pin (`SidebarIntent.dropOnLayoutSection`); a refusal is reported.
     func userDrop(_ ids: [String], on section: LayoutSectionID, at index: Int) {

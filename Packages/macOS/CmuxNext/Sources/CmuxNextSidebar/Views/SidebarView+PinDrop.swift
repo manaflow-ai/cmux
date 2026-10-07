@@ -7,7 +7,8 @@ import AppKit
 // the shared drop outline around the place that takes the drop.
 extension SidebarView {
     func installPinDrops() {
-        // red: the band does not take tiles out yet
+        aboveRegion.dropToListProbe = { [weak self] windowPoint in self?.isOverList(windowPoint) ?? false }
+        aboveRegion.onDropToList = { [weak self] id in self?.model.send(.layout(.itemRemove(id))) }
     }
 
     /// The top section under `windowPoint` that would take a workspace row,

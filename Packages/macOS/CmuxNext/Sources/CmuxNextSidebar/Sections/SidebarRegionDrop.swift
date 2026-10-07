@@ -15,7 +15,16 @@ nonisolated struct SidebarRegionDrop: Hashable, Sendable {
     /// The drop under `point` (band coordinates), or nil when the point is
     /// over no items section of `sections` (an app section takes no rows).
     static func target(at point: CGPoint, layout: SidebarRegionLayout, sections: [LayoutSection], gap: CGFloat) -> SidebarRegionDrop? {
-        nil // red: no drop target yet
+        for section in sections where section.content == .items {
+            let rows = layout.rows.filter { Self.section(of: $0) == section.id }
+            guard let first = rows.first else { continue }
+            let frame = rows.dropFirst().reduce(first.frame) { $0.union($1.frame) }.insetBy(dx: 0, dy: -gap / 2)
+            guard point.y >= frame.minY, point.y < frame.maxY else { continue }
+            let next = rows.first { row in Self.item(of: row) != nil && !Self.isPast(point, row) }
+            let index = next.flatMap(Self.item).flatMap { id in section.items.firstIndex { $0.id == id } } ?? section.items.count
+            return SidebarRegionDrop(section: section.id, index: index, frame: frame)
+        }
+        return nil
     }
 
     /// Whether `point` is past `row` in reading order: below a list row's
