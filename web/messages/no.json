@@ -3084,7 +3084,7 @@
       "fixColumn": "Løsning",
       "errNotSeen": "Ingen Cloud-fane eller kommandoen New Cloud Machine",
       "fixNotSeen": "Slå på Settings › Beta Features › Cloud Machines. Hvis Cloud fortsatt ikke vises, sjekk om administratoren har slått av Cloud Machines.",
-      "errUnavailable": "Cloud Machines er midlertidig utilgjengelige",
+      "errUnavailable": "Cloud Machines er deaktivert eller utilgjengelige",
       "fixUnavailable": "Cloud Machines er av fordi den lokale bryteren i Settings er av, eller fordi administratoren har slått av Cloud. Slå på bryteren, eller be administratoren tillate Cloud.",
       "errSignIn": "Tilgang til Cloud-VM-er krever innlogging",
       "fixSignIn": "Kjør cmux auth login og prøv igjen. Hvis økten din ble avvist, kjører du cmux auth logout først.",

@@ -3087,7 +3087,7 @@
       "fixColumn": "Soluzione",
       "errNotSeen": "Nessuna scheda Cloud o comando New Cloud Machine",
       "fixNotSeen": "Attiva Settings › Beta Features › Cloud Machines. Se Cloud continua a non comparire, verifica se l’amministratore ha disattivato Cloud Machines.",
-      "errUnavailable": "Cloud Machines è temporaneamente non disponibile",
+      "errUnavailable": "Cloud Machines è disattivato o non disponibile",
       "fixUnavailable": "Cloud Machines è disattivato perché l’interruttore locale in Settings è disattivato o l’amministratore ha disattivato Cloud. Attiva l’interruttore o chiedi all’amministratore di consentire Cloud.",
       "errSignIn": "L'accesso alle VM Cloud richiede l'accesso all'account",
       "fixSignIn": "Esegui cmux auth login, poi riprova. Se la sessione è stata rifiutata, esegui prima cmux auth logout.",

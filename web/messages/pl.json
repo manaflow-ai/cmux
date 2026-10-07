@@ -3087,7 +3087,7 @@
       "fixColumn": "Rozwiązanie",
       "errNotSeen": "Brak karty Cloud lub polecenia New Cloud Machine",
       "fixNotSeen": "Włącz Settings › Beta Features › Cloud Machines. Jeśli Cloud nadal się nie pojawia, sprawdź, czy administrator wyłączył Cloud Machines.",
-      "errUnavailable": "Cloud Machines są tymczasowo niedostępne",
+      "errUnavailable": "Cloud Machines są wyłączone lub niedostępne",
       "fixUnavailable": "Cloud Machines są wyłączone, ponieważ lokalny przełącznik w Settings jest wyłączony albo administrator wyłączył Cloud. Włącz przełącznik albo poproś administratora o zezwolenie na Cloud.",
       "errSignIn": "Dostęp do maszyn wirtualnych Cloud wymaga zalogowania",
       "fixSignIn": "Uruchom cmux auth login i spróbuj ponownie. Jeśli Twoja sesja została odrzucona, najpierw uruchom cmux auth logout.",

@@ -3087,7 +3087,7 @@
       "fixColumn": "Lösung",
       "errNotSeen": "Kein Cloud-Tab oder Befehl New Cloud Machine",
       "fixNotSeen": "Aktiviere Settings › Beta Features › Cloud Machines. Wird Cloud danach immer noch nicht angezeigt, prüfe, ob dein Administrator Cloud Machines deaktiviert hat.",
-      "errUnavailable": "Cloud Machines sind vorübergehend nicht verfügbar",
+      "errUnavailable": "Cloud Machines sind deaktiviert oder nicht verfügbar",
       "fixUnavailable": "Cloud Machines sind deaktiviert, weil der lokale Schalter in den Settings ausgeschaltet ist oder dein Administrator Cloud deaktiviert hat. Aktiviere den Schalter oder bitte deinen Administrator, Cloud zu erlauben.",
       "errSignIn": "Für den Zugriff auf Cloud-VMs ist eine Anmeldung erforderlich",
       "fixSignIn": "Führe cmux auth login aus und versuche es erneut. Wurde deine Sitzung abgelehnt, führe zuerst cmux auth logout aus.",

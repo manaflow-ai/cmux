@@ -3155,7 +3155,7 @@
       "fixColumn": "Рішення",
       "errNotSeen": "Немає вкладки Cloud або команди New Cloud Machine",
       "fixNotSeen": "Увімкніть Settings › Beta Features › Cloud Machines. Якщо Cloud досі не відображається, перевірте, чи адміністратор не вимкнув Cloud Machines.",
-      "errUnavailable": "Хмарні машини тимчасово недоступні",
+      "errUnavailable": "Хмарні машини вимкнені або недоступні",
       "fixUnavailable": "Cloud Machines вимкнено, бо локальний перемикач у Settings вимкнено або адміністратор вимкнув Cloud. Увімкніть перемикач або попросіть адміністратора дозволити Cloud.",
       "errSignIn": "Для доступу до хмарних VM потрібно увійти в акаунт",
       "fixSignIn": "Виконайте cmux auth login і спробуйте знову. Якщо сеанс було відхилено, спершу виконайте cmux auth logout.",

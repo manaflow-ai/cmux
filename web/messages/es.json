@@ -3086,7 +3086,7 @@
       "fixColumn": "Solución",
       "errNotSeen": "No aparece la pestaña Cloud ni el comando New Cloud Machine",
       "fixNotSeen": "Activa Settings › Beta Features › Cloud Machines. Si Cloud sigue sin aparecer, comprueba si tu administrador ha desactivado Cloud Machines.",
-      "errUnavailable": "Cloud Machines no está disponible temporalmente",
+      "errUnavailable": "Cloud Machines está desactivado o no disponible",
       "fixUnavailable": "Cloud Machines está desactivado porque el interruptor local de Settings está apagado o tu administrador ha desactivado Cloud. Activa el interruptor o pide a tu administrador que permita Cloud.",
       "errSignIn": "El acceso a las VM de Cloud requiere iniciar sesión",
       "fixSignIn": "Ejecuta cmux auth login y vuelve a intentarlo. Si se rechazó tu sesión, ejecuta primero cmux auth logout.",

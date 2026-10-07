@@ -3087,7 +3087,7 @@
       "fixColumn": "Решение",
       "errNotSeen": "Нет вкладки Cloud или команды New Cloud Machine",
       "fixNotSeen": "Включите Settings › Beta Features › Cloud Machines. Если Cloud по-прежнему не отображается, проверьте, не отключил ли администратор Cloud Machines.",
-      "errUnavailable": "Облачные машины временно недоступны",
+      "errUnavailable": "Облачные машины отключены или недоступны",
       "fixUnavailable": "Cloud Machines отключен, потому что локальный переключатель в Settings выключен или администратор отключил Cloud. Включите переключатель или попросите администратора разрешить Cloud.",
       "errSignIn": "Для доступа к облачным VM нужно войти в аккаунт",
       "fixSignIn": "Выполните cmux auth login и повторите попытку. Если сеанс был отклонен, сначала выполните cmux auth logout.",

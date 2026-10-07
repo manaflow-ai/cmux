@@ -3087,7 +3087,7 @@
       "fixColumn": "Rješenje",
       "errNotSeen": "Nema kartice Cloud ni komande New Cloud Machine",
       "fixNotSeen": "Uključite Settings › Beta Features › Cloud Machines. Ako se Cloud i dalje ne prikazuje, provjerite da li je administrator isključio Cloud Machines.",
-      "errUnavailable": "Cloud mašine su privremeno nedostupne",
+      "errUnavailable": "Cloud mašine su onemogućene ili nedostupne",
       "fixUnavailable": "Cloud Machines su isključene jer je lokalni prekidač u Settings isključen ili je administrator isključio Cloud. Uključite prekidač ili zatražite od administratora da dozvoli Cloud.",
       "errSignIn": "Pristup Cloud VM-ovima zahtijeva prijavu",
       "fixSignIn": "Pokrenite cmux auth login, pa pokušajte ponovo. Ako je vaša sesija odbijena, prvo pokrenite cmux auth logout.",

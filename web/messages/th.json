@@ -3092,7 +3092,7 @@
       "fixColumn": "วิธีแก้",
       "errNotSeen": "ไม่มีแท็บ Cloud หรือคำสั่ง New Cloud Machine",
       "fixNotSeen": "เปิด Settings › Beta Features › Cloud Machines หาก Cloud ยังไม่แสดง ให้ตรวจสอบว่าผู้ดูแลระบบปิด Cloud Machines ไว้หรือไม่",
-      "errUnavailable": "Cloud Machines ใช้งานไม่ได้ชั่วคราว",
+      "errUnavailable": "Cloud Machines ถูกปิดใช้งานหรือไม่พร้อมใช้งาน",
       "fixUnavailable": "Cloud Machines ปิดอยู่เนื่องจากสวิตช์ใน Settings ปิดอยู่หรือผู้ดูแลระบบปิด Cloud เปิดสวิตช์หรือขอให้ผู้ดูแลระบบอนุญาต Cloud",
       "errSignIn": "การเข้าถึง Cloud VM ต้องลงชื่อเข้าใช้",
       "fixSignIn": "รัน cmux auth login แล้วลองอีกครั้ง หากเซสชันของคุณถูกปฏิเสธ ให้รัน cmux auth logout ก่อน",

@@ -3085,7 +3085,7 @@
       "fixColumn": "ដំណោះស្រាយ",
       "errNotSeen": "គ្មានផ្ទាំង Cloud ឬពាក្យបញ្ជា New Cloud Machine",
       "fixNotSeen": "បើក Settings › Beta Features › Cloud Machines។ ប្រសិនបើ Cloud នៅតែមិនបង្ហាញ សូមពិនិត្យថាអ្នកគ្រប់គ្រងបានបិទ Cloud Machines ឬអត់។",
-      "errUnavailable": "Cloud Machines មិនអាចប្រើបានជាបណ្ដោះអាសន្ន",
+      "errUnavailable": "Cloud Machines ត្រូវបានបិទ ឬមិនអាចប្រើបាន",
       "fixUnavailable": "Cloud Machines ត្រូវបានបិទ ព្រោះកុងតាក់មូលដ្ឋានក្នុង Settings ត្រូវបានបិទ ឬអ្នកគ្រប់គ្រងបានបិទ Cloud។ បើកកុងតាក់ ឬស្នើអ្នកគ្រប់គ្រងឱ្យអនុញ្ញាត Cloud។",
       "errSignIn": "ការចូលប្រើ Cloud VM តម្រូវឱ្យចូលគណនី",
       "fixSignIn": "ដំណើរការ cmux auth login រួចព្យាយាមម្ដងទៀត។ ប្រសិនបើវគ្គរបស់អ្នកត្រូវបានបដិសេធ សូមដំណើរការ cmux auth logout ជាមុនសិន។",

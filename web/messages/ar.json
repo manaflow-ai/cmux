@@ -3084,7 +3084,7 @@
       "fixColumn": "الحل",
       "errNotSeen": "لا توجد علامة التبويب Cloud أو الأمر New Cloud Machine",
       "fixNotSeen": "فعّل Settings › Beta Features › Cloud Machines. إذا استمر عدم ظهور Cloud، فتحقق مما إذا كان المسؤول قد عطّل Cloud Machines.",
-      "errUnavailable": "أجهزة Cloud غير متاحة مؤقتاً",
+      "errUnavailable": "أجهزة Cloud معطّلة أو غير متاحة",
       "fixUnavailable": "Cloud Machines متوقفة لأن مفتاح Settings المحلي متوقف أو لأن المسؤول عطّل Cloud. فعّل المفتاح أو اطلب من المسؤول السماح بـ Cloud.",
       "errSignIn": "يتطلب الوصول إلى آلات Cloud الافتراضية تسجيل الدخول",
       "fixSignIn": "شغّل cmux auth login، ثم حاول مجدداً. إذا رُفضت جلستك، شغّل cmux auth logout أولاً.",

@@ -3087,7 +3087,7 @@
       "fixColumn": "解决方法",
       "errNotSeen": "没有 Cloud 标签页或 New Cloud Machine 命令",
       "fixNotSeen": "开启 Settings › Beta Features › Cloud Machines。如果 Cloud 仍未显示，请检查管理员是否禁用了 Cloud Machines。",
-      "errUnavailable": "Cloud Machines 暂时不可用",
+      "errUnavailable": "Cloud Machines 已禁用或不可用",
       "fixUnavailable": "Cloud Machines 已关闭，因为 Settings 中的本地开关处于关闭状态，或管理员禁用了 Cloud。请打开开关，或请管理员允许 Cloud。",
       "errSignIn": "访问 Cloud VM 需要登录",
       "fixSignIn": "运行 cmux auth login 后重试。如果会话被拒绝，请先运行 cmux auth logout。",

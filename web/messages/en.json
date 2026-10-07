@@ -4611,7 +4611,7 @@
       "fixColumn": "Fix",
       "errNotSeen": "No Cloud tab or New Cloud Machine command",
       "fixNotSeen": "Turn on Settings › Beta Features › Cloud Machines. If Cloud still does not show, check whether your administrator disabled Cloud Machines.",
-      "errUnavailable": "Cloud Machines are temporarily unavailable",
+      "errUnavailable": "Cloud Machines are disabled or unavailable",
       "fixUnavailable": "Cloud Machines are off because the local Settings toggle is off or your administrator disabled Cloud. Turn on the toggle, or ask your administrator to allow Cloud.",
       "errSignIn": "Cloud VM access requires sign-in",
       "fixSignIn": "Run cmux auth login, then try again. If your session was rejected, run cmux auth logout first.",

@@ -238,16 +238,16 @@ private struct NativeBillingTokens: Sendable {
     let refreshToken: String
 }
 
+private enum NativePricingPlanLoadState: Equatable, Sendable {
+    case idle
+    case loading
+    case loaded(NativePricingSnapshot)
+    case failed(String)
+}
+
 @MainActor
 private final class NativePricingPlanStore: ObservableObject {
-    enum LoadState: Equatable, Sendable {
-        case idle
-        case loading
-        case loaded(NativePricingSnapshot)
-        case failed(String)
-    }
-
-    @Published private(set) var state: LoadState = .idle
+    @Published private(set) var state: NativePricingPlanLoadState = .idle
 
     private var refreshTask: Task<Void, Never>?
     private var activeRequestID: UUID?
@@ -289,12 +289,12 @@ private final class NativePricingPlanStore: ObservableObject {
         presentWelcomeChecklistIfPro(loadedState)
     }
 
-    private static func presentWelcomeChecklistIfPro(_ state: LoadState) {
+    private static func presentWelcomeChecklistIfPro(_ state: NativePricingPlanLoadState) {
         guard case let .loaded(snapshot) = state else { return }
         ProWelcomeChecklistPresenter.presentIfNewlyPro(isPro: snapshot.isPro)
     }
 
-    private static func loadPlanState() async -> LoadState {
+    private static func loadPlanState() async -> NativePricingPlanLoadState {
         let tokens = try? await AppDelegate.shared?.auth?.coordinator.currentTokens()
         let billingTokens = tokens.map {
             NativeBillingTokens(accessToken: $0.accessToken, refreshToken: $0.refreshToken)
@@ -305,7 +305,7 @@ private final class NativePricingPlanStore: ObservableObject {
     /// Performs the billing request and response decoding away from the main actor.
     private nonisolated static func loadPlanStateOffMain(
         billingTokens: NativeBillingTokens?
-    ) async -> LoadState {
+    ) async -> NativePricingPlanLoadState {
         var request = URLRequest(url: AuthEnvironment.apiBaseURL.appendingPathComponent("api/billing/plan"))
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Accept")

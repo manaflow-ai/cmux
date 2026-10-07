@@ -4523,7 +4523,7 @@
       "fixColumn": "対処法",
       "errNotSeen": "クラウドタブや新規クラウドマシンコマンドがない",
       "fixNotSeen": "設定 › ベータ機能 › クラウドマシン をオンにします。それでもCloudが表示されない場合は、管理者がクラウドマシンを無効にしていないか確認してください。",
-      "errUnavailable": "クラウドマシンは一時的に利用できません",
+      "errUnavailable": "Cloud Machines は無効か、利用できません",
       "fixUnavailable": "クラウドマシンは、設定のローカルスイッチがオフになっているか、管理者がCloudを無効にしているためオフです。スイッチをオンにするか、管理者にCloudの許可を依頼してください。",
       "errSignIn": "Cloud VMへのアクセスにはサインインが必要です",
       "fixSignIn": "cmux auth login を実行してから、もう一度試してください。セッションが拒否された場合は、先に cmux auth logout を実行します。",

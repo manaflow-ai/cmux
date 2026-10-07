@@ -3084,7 +3084,7 @@
       "fixColumn": "해결 방법",
       "errNotSeen": "Cloud 탭이나 New Cloud Machine 명령이 없음",
       "fixNotSeen": "Settings › Beta Features › Cloud Machines를 켜세요. 그래도 Cloud가 보이지 않으면 관리자가 Cloud Machines를 비활성화했는지 확인하세요.",
-      "errUnavailable": "Cloud Machines를 일시적으로 사용할 수 없음",
+      "errUnavailable": "Cloud Machines가 비활성화되었거나 사용할 수 없음",
       "fixUnavailable": "Cloud Machines는 Settings의 로컬 토글이 꺼져 있거나 관리자가 Cloud를 비활성화했기 때문에 꺼져 있습니다. 토글을 켜거나 관리자에게 Cloud 허용을 요청하세요.",
       "errSignIn": "Cloud VM에 접근하려면 로그인이 필요함",
       "fixSignIn": "cmux auth login을 실행한 뒤 다시 시도하세요. 세션이 거부되었다면 먼저 cmux auth logout을 실행하세요.",

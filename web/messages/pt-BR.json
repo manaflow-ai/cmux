@@ -3087,7 +3087,7 @@
       "fixColumn": "Solução",
       "errNotSeen": "Não há aba Cloud nem comando New Cloud Machine",
       "fixNotSeen": "Ative Settings › Beta Features › Cloud Machines. Se o Cloud ainda não aparecer, verifique se o administrador desativou o Cloud Machines.",
-      "errUnavailable": "As Cloud Machines estão temporariamente indisponíveis",
+      "errUnavailable": "As Cloud Machines estão desativadas ou indisponíveis",
       "fixUnavailable": "O Cloud Machines está desativado porque a opção local em Settings está desligada ou o administrador desativou o Cloud. Ative a opção ou peça ao administrador para permitir o Cloud.",
       "errSignIn": "O acesso às VMs do Cloud exige login",
       "fixSignIn": "Execute cmux auth login e tente de novo. Se sua sessão foi rejeitada, execute cmux auth logout antes.",

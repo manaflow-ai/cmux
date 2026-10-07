@@ -3085,7 +3085,7 @@
       "fixColumn": "Çözüm",
       "errNotSeen": "Cloud sekmesi veya New Cloud Machine komutu yok",
       "fixNotSeen": "Settings › Beta Features › Cloud Machines’i etkinleştirin. Cloud hâlâ görünmüyorsa yöneticinizin Cloud Machines’i devre dışı bırakıp bırakmadığını kontrol edin.",
-      "errUnavailable": "Cloud Machines geçici olarak kullanılamıyor",
+      "errUnavailable": "Cloud Machines devre dışı veya kullanılamıyor",
       "fixUnavailable": "Cloud Machines, Settings’teki yerel anahtar kapalı olduğu veya yöneticiniz Cloud’u devre dışı bıraktığı için kapalı. Anahtarı açın ya da yöneticinizden Cloud’a izin vermesini isteyin.",
       "errSignIn": "Cloud VM erişimi için oturum açmak gerekir",
       "fixSignIn": "cmux auth login komutunu çalıştırın, ardından yeniden deneyin. Oturumunuz reddedildiyse önce cmux auth logout komutunu çalıştırın.",
