@@ -6,24 +6,28 @@ import CmuxNextDesign
 // 3: one row, avatar leading, dots after it, anchored leading), or in their
 // own row under the titlebar row.
 extension SidebarView {
-    /// The footer band has items, so the dots go in its first row.
-    var dotsShareBandRow: Bool {
-        model.layout.sections.contains { $0.region == .bottom && !$0.items.isEmpty }
-    }
+    /// The pinned footer section shows items, so the dots go in its first
+    /// row. Valid after `updateBands()`.
+    var dotsShareBandRow: Bool { !footerItemRows.isEmpty }
 
-    /// The footer band's first row in this view's coordinates: its frame
-    /// across the row, and where its items end. Nil when the band shows none.
-    var bandFirstRow: (frame: NSRect, itemsMaxX: CGFloat)? {
-        let items = belowRegion.layoutResult.rows.filter {
+    /// The footer section's item rows (tiles and chips), in its region.
+    private var footerItemRows: [SidebarRegionRow] {
+        footerRegion.layoutResult.rows.filter {
             switch $0.kind {
             case .tile, .chip: true
             default: false
             }
         }
+    }
+
+    /// The footer section's first row in this view's coordinates: its frame
+    /// across the row, and where its items end. Nil when it shows none.
+    var bandFirstRow: (frame: NSRect, itemsMaxX: CGFloat)? {
+        let items = footerItemRows
         guard let first = items.min(by: { $0.frame.minY < $1.frame.minY }) else { return nil }
         let line = items.filter { abs($0.frame.minY - first.frame.minY) < 0.5 }
-        let frame = convert(first.frame, from: belowRegion)
-        let maxX = line.map { convert($0.frame, from: belowRegion).maxX }.max() ?? frame.maxX
+        let frame = convert(first.frame, from: footerRegion)
+        let maxX = line.map { convert($0.frame, from: footerRegion).maxX }.max() ?? frame.maxX
         return (frame, maxX)
     }
 
