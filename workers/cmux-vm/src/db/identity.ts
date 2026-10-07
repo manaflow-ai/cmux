@@ -22,12 +22,20 @@ export interface WebhookDeliveryStoreService {
   readonly processed: (messageId: string) => Effect.Effect<boolean, StoreError>;
   /** Records that the message was processed; a second record of the same id is a no-op. */
   readonly record: (delivery: WebhookDelivery) => Effect.Effect<void, StoreError>;
+  /**
+   * Records that the message reached the Worker at `at`, unless an earlier
+   * receipt is recorded, and answers the earliest receipt time (migration
+   * 0008): the event time every retry of the message is judged by.
+   */
+  readonly firstSeen: (messageId: string, at: Date) => Effect.Effect<Date, StoreError>;
 }
 
 export class WebhookDeliveryStore extends Context.Tag("cmux-vm/WebhookDeliveryStore")<WebhookDeliveryStore, WebhookDeliveryStoreService>() {}
 
 const Count = Schema.Union(Schema.Number, Schema.NumberFromString);
 const CountRow = Schema.Struct({ n: Count });
+const SeenRow = Schema.Struct({ first_seen_at: Schema.Union(Schema.DateFromSelf, Schema.Date) });
+
 const countOf = (operation: string) => (rows: ReadonlyArray<unknown>) =>
   Schema.decodeUnknown(Schema.Array(CountRow))(rows).pipe(
     Effect.map((decoded) => decoded[0]?.n ?? 0),
@@ -72,6 +80,16 @@ export const sqlMembershipCacheLayer: Layer.Layer<MembershipCache, never, SqlCli
             [tenantId, userId, at.toISOString()],
           )
           .pipe(Effect.asVoid),
+      revokeUser: (userId, at) =>
+        sql
+          .query(
+            "membership.revokeUser",
+            `UPDATE cmux_vm.stack_memberships
+                SET revoked_at = GREATEST(revoked_at, $2::timestamptz)
+              WHERE user_id = $1`,
+            [userId, at.toISOString()],
+          )
+          .pipe(Effect.asVoid),
     };
     return service;
   }),
@@ -96,6 +114,24 @@ export const sqlWebhookDeliveryStoreLayer: Layer.Layer<WebhookDeliveryStore, nev
             [delivery.messageId, delivery.eventType, delivery.tenantId, delivery.userId, delivery.processedAt.toISOString()],
           )
           .pipe(Effect.asVoid),
+      firstSeen: (messageId, at) =>
+        sql
+          .query(
+            "webhook.firstSeen",
+            `INSERT INTO cmux_vm.stack_webhook_events AS e (message_id, first_seen_at)
+             VALUES ($1, $2::timestamptz)
+             ON CONFLICT (message_id) DO UPDATE SET first_seen_at = LEAST(e.first_seen_at, EXCLUDED.first_seen_at)
+             RETURNING first_seen_at`,
+            [messageId, at.toISOString()],
+          )
+          .pipe(
+            Effect.flatMap((rows) => Schema.decodeUnknown(Schema.Array(SeenRow))(rows)),
+            Effect.mapError((cause) => (cause instanceof StoreError ? cause : new StoreError({ operation: "webhook.firstSeen", cause }))),
+            Effect.flatMap((rows) => {
+              const row = rows[0];
+              return row === undefined ? Effect.fail(new StoreError({ operation: "webhook.firstSeen", cause: "no row" })) : Effect.succeed(row.first_seen_at);
+            }),
+          ),
     };
     return service;
   }),
@@ -104,12 +140,20 @@ export const sqlWebhookDeliveryStoreLayer: Layer.Layer<WebhookDeliveryStore, nev
 /** Processed deliveries in memory (tests, the live proof server). */
 export function makeMemoryWebhookDeliveryStore() {
   const deliveries = new Map<string, WebhookDelivery>();
+  const seen = new Map<string, Date>();
   const service: WebhookDeliveryStoreService = {
+    firstSeen: (messageId, at) =>
+      Effect.sync(() => {
+        const earlier = seen.get(messageId);
+        const first = earlier === undefined || at < earlier ? at : earlier;
+        seen.set(messageId, first);
+        return first;
+      }),
     processed: (messageId) => Effect.sync(() => deliveries.has(messageId)),
     record: (delivery) =>
       Effect.sync(() => {
         if (!deliveries.has(delivery.messageId)) deliveries.set(delivery.messageId, delivery);
       }),
   };
-  return { service, layer: Layer.succeed(WebhookDeliveryStore, service), deliveries };
+  return { service, layer: Layer.succeed(WebhookDeliveryStore, service), deliveries, seen };
 }

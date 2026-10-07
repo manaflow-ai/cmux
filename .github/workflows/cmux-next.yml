@@ -47,6 +47,7 @@ on:
       - plans/cmux-next/**
       - docs/mdm/**
       - webviews/test/fixtures/**
+      - tests/fixtures/cua-helper-signatures/**
       - scripts/ci/cmux_next_route.py
       - scripts/ci/select_package_tests.py
       - scripts/ci/cmux_next_push_attribution.py
@@ -121,6 +122,7 @@ on:
       - plans/cmux-next/**
       - docs/mdm/**
       - webviews/test/fixtures/**
+      - tests/fixtures/cua-helper-signatures/**
       - scripts/ci/cmux_next_route.py
       - scripts/ci/select_package_tests.py
       - scripts/ci/cmux_next_push_attribution.py
@@ -306,9 +308,14 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
-      # actions: read lets the probe read the cmux-tui artifacts runs.
-      actions: read
-      contents: read
+      # actions: read lets the probe read the cmux-tui artifacts runs. A
+      # same-repository pull request whose merge tree is not published also
+      # dispatches one cmux-tui artifacts run (actions: write) on a
+      # cmux-tui-pin-<sha12> ref it creates (contents: write). Fork pull
+      # requests never dispatch (CMUX_TUI_TREE_DISPATCH is empty for them) and
+      # GitHub gives them a read-only token whatever this block says.
+      actions: write
+      contents: write
       pull-requests: read
     outputs:
       native: ${{ steps.route.outputs.native }}
@@ -361,9 +368,11 @@ jobs:
         env:
           # Push and dispatch runs: the pushed commit's artifacts runs publish
           # the tree. A pull request: the base push's runs when its merge keeps
-          # the base tree, else its own pull_request_target runs.
+          # the base tree, else one artifacts run this probe dispatches for the
+          # merge tree (same-repository pull requests only).
           CMUX_TUI_TREE_PUBLISHER_SHA: ${{ github.event_name != 'pull_request' && github.sha || '' }}
-          CMUX_TUI_TREE_PR_NUMBER: ${{ github.event.pull_request.number }}
+          CMUX_TUI_TREE_DISPATCH: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && '1' || '' }}
+          CMUX_TUI_TREE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           GH_TOKEN: ${{ github.token }}
         run: scripts/cmux-next/pin-cmux-tui.sh probe
 
@@ -424,7 +433,8 @@ jobs:
         if: steps.marker-upload.outcome == 'success'
         env:
           CMUX_TUI_TREE_PUBLISHER_SHA: ${{ github.event_name != 'pull_request' && github.sha || '' }}
-          CMUX_TUI_TREE_PR_NUMBER: ${{ github.event.pull_request.number }}
+          CMUX_TUI_TREE_DISPATCH: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && '1' || '' }}
+          CMUX_TUI_TREE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           CMUX_TUI_TREE_RECHECK_SECONDS: "0"
           GH_TOKEN: ${{ github.token }}
         run: scripts/cmux-next/pin-cmux-tui.sh probe
@@ -637,6 +647,7 @@ jobs:
           bash scripts/cmux-next/tests/check-app-ffi-pin.test.sh
           bash scripts/cmux-next/tests/app-ffi-release-paths.test.sh
           bash scripts/cmux-next/tests/daemon-capabilities-fresh.test.sh
+          bash scripts/cmux-next/tests/crash-ratchet-tracked.test.sh
           bash scripts/cmux-next/tests/check-fleet-only.test.sh
           bash scripts/cmux-next/tests/release-compile-derived-data.test.sh
           bash scripts/cmux-next/tests/scheme-compile-derived-data.test.sh
@@ -691,7 +702,29 @@ jobs:
       - name: Tier routing
         id: tier-routing
         continue-on-error: true
-        run: python3 tests/test_cmux_next_route.py
+        run: |
+          python3 tests/test_cmux_next_route.py
+          python3 tests/test_cmux_next_route_replay.py
+
+      # A pull request that changes the router replays the last 30 merged PRs' changed files
+      # through the base router (the merge commit's HEAD^1) and its own: a tier the new router
+      # adds, or drops without naming a fast tier, fails (scripts/ci/cmux_next_route_replay.py).
+      - name: Routing replay (router changes)
+        id: routing-replay
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [[ "$EVENT_NAME" != pull_request ]]; then
+            echo "Pushes run every tier; the replay checks pull request routing only."
+            exit 0
+          fi
+          if git diff --quiet HEAD^1 HEAD -- scripts/ci/cmux_next_route.py scripts/ci/select_package_tests.py; then
+            echo "The router did not change."
+            exit 0
+          fi
+          python3 scripts/ci/cmux_next_route_replay.py --base HEAD^1 --limit 30 | tee -a "$GITHUB_STEP_SUMMARY"
 
       # Package.swift links the app FFI from one pinned release; the pin must
       # match the FFI sources (every crate cmux-app-ffi reaches through Cargo
@@ -732,6 +765,7 @@ jobs:
             ${{ steps.package-conventions.outcome }}|Package conventions lint
             ${{ steps.checks-structure.outcome }}|Checks job structure
             ${{ steps.tier-routing.outcome }}|Tier routing
+            ${{ steps.routing-replay.outcome }}|Routing replay (router changes)
             ${{ steps.app-ffi-pin.outcome }}|Check the app FFI pin
             ${{ steps.daemon-capabilities-fresh.outcome }}|Daemon capabilities export is fresh
         run: |
@@ -1314,6 +1348,9 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
+      # The PR comment. The App mint refused contents plus pull-requests (run 37590228478), so the
+      # App token asks only for contents (its push starts CI) and the comment uses this token.
+      pull-requests: write
     steps:
       - name: Mint the autofix token
         id: app-token
@@ -1322,7 +1359,6 @@ jobs:
           app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
           private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
           permission-contents: write
-          permission-pull-requests: write
 
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -1341,6 +1377,7 @@ jobs:
           BRANCH: ${{ github.event.pull_request.head.ref }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          GH_TOKEN: ${{ github.token }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
@@ -1380,7 +1417,7 @@ jobs:
             echo "The branch moved during the autofix; its own run checks the generated files." | tee -a "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          GH_TOKEN="$APP_TOKEN" gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body "Generated cmux-next files were stale, so CI committed the regenerated files ($(git rev-parse --short HEAD)). Pull before your next push. Run: $RUN_URL"
+          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body "Generated cmux-next files were stale, so CI committed the regenerated files ($(git rev-parse --short HEAD)). Pull before your next push. Run: $RUN_URL"
           echo "Pushed $(git rev-parse HEAD) to $BRANCH." | tee -a "$GITHUB_STEP_SUMMARY"
 
   release-compile:
