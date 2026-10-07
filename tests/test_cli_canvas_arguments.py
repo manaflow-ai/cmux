@@ -114,6 +114,18 @@ class CanvasArgumentTests(unittest.TestCase):
         ):
             self.assert_rejected(args, f"{option} requires a value")
 
+    def test_blank_option_values_are_rejected(self) -> None:
+        # A blank handle would resolve to nothing and fall back to the
+        # selected workspace or focused surface.
+        for args, option in (
+            (["mode", "canvas", "--workspace", ""], "--workspace"),
+            (["info", "--workspace", "  "], "--workspace"),
+            (["reveal", "--surface", ""], "--surface"),
+            (["join", S1, "--target", " "], "--target"),
+            (["new-pane", "--type", ""], "--type"),
+        ):
+            self.assert_rejected(args, f"{option} requires a value")
+
     def test_extra_arguments_are_rejected(self) -> None:
         for args, stray in (
             (["info", "extra"], "extra"),

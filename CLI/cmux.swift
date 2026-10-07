@@ -11392,12 +11392,21 @@ struct CMUXCLI {
         }
         let rest = Array(commandArgs.dropFirst())
         if let rules = canvasArgumentRules(sub: sub, args: rest) {
+            let valueOptions = rules.valueOptions.union(["--workspace"])
             try rejectUnexpectedArguments(
                 rest,
                 commandName: "canvas \(sub)",
-                valueOptions: rules.valueOptions.union(["--workspace"]),
+                valueOptions: valueOptions,
                 maxPositionals: rules.maxPositionals
             )
+            // A blank handle resolves to nothing and would fall back to the
+            // selected workspace or focused surface, so it counts as missing.
+            for option in valueOptions.sorted() {
+                if let value = optionValue(rest, name: option),
+                   value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    throw missingOptionValueError(option, commandName: "canvas \(sub)")
+                }
+            }
         }
         // Split flags ("--name value" or "--name=value") from bare positionals
         // so a flag's value is never mistaken for a positional argument.
