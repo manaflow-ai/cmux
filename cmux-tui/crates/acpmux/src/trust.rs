@@ -155,6 +155,27 @@ pub fn get(paths: &Paths, cwd: &str) -> Result<Value, Failure> {
     }))
 }
 
+/// The folder's level for a session of the agent `family`: acpmux's own
+/// decision first; without one, that agent's own level (Claude Code's or
+/// Codex's), or the stricter of both for any other agent. The pane reads the
+/// same rule from `get` (`decided`, `harnesses`), so its question and the
+/// trust gate (`server/trust_gate.rs`) agree.
+pub fn session_level(paths: &Paths, cwd: &str, family: &str) -> Result<(String, Level), Failure> {
+    let reply = get(paths, cwd)?;
+    let cwd = reply["cwd"].as_str().unwrap_or_default().to_owned();
+    let level_at =
+        |pointer: &str| reply.pointer(pointer).and_then(Value::as_str).and_then(Level::parse);
+    let level = if reply["decided"].as_bool() == Some(true) {
+        level_at("/level")
+    } else {
+        match family {
+            "claude" | "codex" => level_at(&format!("/harnesses/{family}")),
+            _ => level_at("/level"),
+        }
+    };
+    Ok((cwd, level.unwrap_or(Level::Unknown)))
+}
+
 /// `acp.trust.set {cwd, level}`: records the decision; `unknown` forgets it.
 pub fn set(paths: &Paths, cwd: &str, level: &str) -> Result<Value, Failure> {
     let cwd = normalize_cwd(cwd).map_err(Failure::Invalid)?;
