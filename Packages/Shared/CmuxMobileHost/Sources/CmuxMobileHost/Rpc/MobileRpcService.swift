@@ -9,16 +9,22 @@ actor MobileRpcService {
     private let channel: MobileChannel
     private let principal: MobileDevicePrincipal
     private let owner: WorkspaceStreamOwner
+    /// Every stream this channel serves by name (`workspace:`, and `task:` with a runner).
+    private let streams: [String: any MobileStreamOwner]
     private let executor: MobileOpExecutor
     private let readHandlers: [String: any MobileReadHandler]
     private let gate: MobileSessionGate
-    private var forwarder: Task<Void, Never>?
+    private var forwarders: [String: Task<Void, Never>] = [:]
 
     init(channel: MobileChannel, principal: MobileDevicePrincipal, owner: WorkspaceStreamOwner,
-         executor: MobileOpExecutor, readHandlers: [String: any MobileReadHandler], gate: MobileSessionGate) {
+         executor: MobileOpExecutor, readHandlers: [String: any MobileReadHandler], gate: MobileSessionGate,
+         extraStreams: [any MobileStreamOwner] = []) {
         self.channel = channel
         self.principal = principal
         self.owner = owner
+        var streams: [String: any MobileStreamOwner] = [owner.stream: owner]
+        for extra in extraStreams { streams[extra.stream] = extra }
+        self.streams = streams
         self.executor = executor
         self.readHandlers = readHandlers
         self.gate = gate
@@ -40,8 +46,8 @@ actor MobileRpcService {
                 break loop
             }
         }
-        forwarder?.cancel()
-        forwarder = nil
+        for forwarder in forwarders.values { forwarder.cancel() }
+        forwarders.removeAll()
         await channel.finish()
     }
 
@@ -60,14 +66,14 @@ actor MobileRpcService {
         }
         switch frame {
         case .subscribe(let f):
-            guard await checkStream(f.stream) else { return true }
-            await subscribe(afterSeq: f.afterSeq, epoch: value["epoch"]?.stringValue, pending: f.pending ?? [])
+            guard let owner = await checkStream(f.stream) else { return true }
+            await subscribe(owner, afterSeq: f.afterSeq, epoch: value["epoch"]?.stringValue, pending: f.pending ?? [])
         case .unsubscribe(let f):
-            guard await checkStream(f.stream) else { return true }
-            forwarder?.cancel()
-            forwarder = nil
+            guard let owner = await checkStream(f.stream) else { return true }
+            forwarders[owner.stream]?.cancel()
+            forwarders[owner.stream] = nil
         case .snapshotRequest(let f):
-            guard await checkStream(f.stream) else { return true }
+            guard let owner = await checkStream(f.stream) else { return true }
             let decided = await executor.decided(install: principal.install, keys: f.pending ?? [])
             if let snapshot = try? await owner.snapshotFrame(decided: decided) {
                 try? await channel.send(json: owner.stamped(.snapshot(snapshot)))
@@ -90,14 +96,16 @@ actor MobileRpcService {
         return true
     }
 
-    private func checkStream(_ stream: String?) async -> Bool {
-        guard let stream, stream != owner.stream else { return true }
+    /// The owner of `stream` (nil = the primary `workspace:` stream); answers an error for any other.
+    private func checkStream(_ stream: String?) async -> (any MobileStreamOwner)? {
+        guard let stream else { return owner }
+        if let found = streams[stream] { return found }
         await sendError(code: "validation.invalid", message: "unknown stream \(stream)")
-        return false
+        return nil
     }
 
-    private func subscribe(afterSeq: UInt64?, epoch: String?, pending: [String]) async {
-        forwarder?.cancel()
+    private func subscribe(_ owner: any MobileStreamOwner, afterSeq: UInt64?, epoch: String?, pending: [String]) async {
+        forwarders[owner.stream]?.cancel()
         let updates: AsyncStream<WorkspaceStreamUpdate>
         do {
             updates = try await owner.updates(afterSeq: pending.isEmpty ? afterSeq : nil, epoch: epoch)
@@ -107,9 +115,8 @@ actor MobileRpcService {
         }
         let decided = await executor.decided(install: principal.install, keys: pending)
         let channel = channel
-        let owner = owner
         let resume = pending.isEmpty ? afterSeq : nil
-        forwarder = Task {
+        forwarders[owner.stream] = Task {
             var last: UInt64? = resume
             var first = true
             for await update in updates {
@@ -123,7 +130,7 @@ actor MobileRpcService {
                     if let seen = last, event.seq <= seen { continue }
                     if last.map({ event.seq != $0 + 1 }) ?? true {
                         // Behind its buffer (or the opening snapshot was dropped): resync, never a gap.
-                        guard let snapshot = try? await owner.snapshotFrame() else { return }
+                        guard let snapshot = try? await owner.snapshotFrame(decided: []) else { return }
                         last = snapshot.seq
                         guard (try? await channel.send(json: owner.stamped(.snapshot(snapshot)))) != nil else { return }
                         // The snapshot was read after this event committed, so it covers it.

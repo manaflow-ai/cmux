@@ -16,6 +16,10 @@ public actor MobileHost {
     /// The op path, shared with the `HostDO` uplink.
     public nonisolated let executor: MobileOpExecutor
     public nonisolated let authorizer: any MobileDeviceAuthorizer
+    /// The `task:<host>` projection when a task runner is registered (C8).
+    public nonisolated let taskStream: TaskStreamOwner?
+    /// The task family, for the uplink's `read task.list`.
+    nonisolated let tasks: MobileTaskService?
 
     private let linkHost: LinkHost
     private let context: MobileHostContext
@@ -28,18 +32,41 @@ public actor MobileHost {
     public init(configuration: MobileHostConfiguration, acceptor: any LinkAcceptor, daemon: any MobileDaemon,
                 authorizer: any MobileDeviceAuthorizer, handlers: MobileChannelHandlers = MobileChannelHandlers(),
                 linkConfiguration: LinkConfiguration = LinkConfiguration(), clock: LinkClock = .continuous,
-                workspaceStartSeq: UInt64? = nil) {
+                workspaceStartSeq: UInt64? = nil, taskRunner: (any MobileTaskRunner)? = nil,
+                taskAttachments: any MobileTaskAttachmentResolver = UnavailableTaskAttachments(),
+                taskStartSeq: UInt64? = nil) {
+        var configuration = configuration
+        if taskRunner != nil {
+            configuration.caps.append(MobileHostConfiguration.taskStreamCap)
+            if configuration.allowsTaskDispatch { configuration.caps.append(MobileHostConfiguration.taskDispatchCap) }
+        }
         self.configuration = configuration
         self.authorizer = authorizer
         let owner = WorkspaceStreamOwner(hostID: configuration.hostID, daemon: daemon, startSeq: workspaceStartSeq)
         workspaceStream = owner
+        let tasks = taskRunner.map { runner in
+            MobileTaskService(
+                owner: TaskStreamOwner(hostID: configuration.hostID, runner: runner, startSeq: taskStartSeq),
+                runner: runner,
+                policy: MobileTaskPolicy(hostID: configuration.hostID, allowsDispatch: configuration.allowsTaskDispatch),
+                attachments: taskAttachments)
+        }
+        taskStream = tasks?.owner
         let executor = MobileOpExecutor(
             policy: MobileOpPolicy(hostID: configuration.hostID, allowsTerminalSpawn: configuration.allowsTerminalSpawn),
-            owner: owner, daemon: daemon, authorizer: authorizer)
+            owner: owner, daemon: daemon, authorizer: authorizer, tasks: tasks)
         self.executor = executor
+        self.tasks = tasks
         linkHost = LinkHost(acceptor: acceptor, configuration: linkConfiguration, clock: clock)
         context = MobileHostContext(configuration: configuration, authorizer: authorizer, owner: owner,
-                                    executor: executor, daemon: daemon, handlers: handlers, clock: clock)
+                                    executor: executor, daemon: daemon, handlers: handlers, clock: clock, tasks: tasks)
+    }
+
+    /// Every stream this host serves, by name.
+    nonisolated var streams: [String: any MobileStreamOwner] {
+        var all: [String: any MobileStreamOwner] = [workspaceStream.stream: workspaceStream]
+        if let taskStream { all[taskStream.stream] = taskStream }
+        return all
     }
 
     /// Starts accepting sessions. Idempotent; no effect after `stop()`.
@@ -73,6 +100,7 @@ public actor MobileHost {
         revocationTask = nil
         await linkHost.close()
         await workspaceStream.stop()
+        await taskStream?.stop()
         servers.removeAll()
     }
 

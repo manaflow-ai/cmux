@@ -3,6 +3,32 @@
   "$id": "families/task.schema.json",
   "title": "cmux.mobile/1 task family (control; owner the target host's task runner, receipts mirrored by HostDO; stream task:<host>)",
   "$defs": {
+    "AgentModel": {
+      "type": "object", "additionalProperties": false, "required": ["id", "label"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "label": { "type": "string", "maxLength": 128 },
+        "efforts": { "type": "array", "items": { "enum": ["low", "medium", "high", "xhigh", "max"] } },
+        "default_effort": { "enum": ["low", "medium", "high", "xhigh", "max"] }
+      }
+    },
+    "Agent": {
+      "type": "object", "additionalProperties": false, "required": ["id", "name", "models"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "name": { "type": "string", "maxLength": 128 },
+        "models": { "type": "array", "items": { "$ref": "#/$defs/AgentModel" } },
+        "default_model": { "type": "string", "maxLength": 128 },
+        "unavailable": { "type": "string", "maxLength": 200 }
+      }
+    },
+    "TaskStreamState": {
+      "type": "object", "additionalProperties": false, "required": ["agents", "tasks"],
+      "properties": {
+        "agents": { "type": "array", "items": { "$ref": "#/$defs/Agent" } },
+        "tasks": { "type": "array", "maxItems": 50, "items": { "$ref": "#/$defs/Task" } }
+      }
+    },
     "Task": {
       "type": "object", "additionalProperties": false, "required": ["id", "host", "agent", "state", "created_at"],
       "properties": {

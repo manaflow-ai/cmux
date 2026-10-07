@@ -112,7 +112,9 @@ Relay authorization (skills/cmux-socket-policy): the phone is treated like a rel
 - Terminal input is the purpose of a terminal channel: allowed only for an authorized device, only
   to a `term_…` id that resolves in this host's tree when the channel opens, and only as
   `TerminalInput` records (keys, mouse, paste). No channel param carries a command.
-- `task.*` ops and `files.*` are not served until their lanes (C8, C4) add their policy.
+- `task.*` ops are served by C8's `MobileTaskPolicy` when the app registers a `MobileTaskRunner`
+  (c8-composer.md section 3; `task.dispatch` behind `allowsTaskDispatch`, default off). `files.*`
+  are not served until C4 adds its policy.
 
 ## 4. Service map
 
@@ -124,7 +126,7 @@ Relay authorization (skills/cmux-socket-policy): the phone is treated like a rel
 | `rpc` `op workspace.tab.close` | same | `close-surface` / `close-terminal` |
 | `rpc` `op workspace.create`, `workspace.tab.create` | refused (spawn_unverified) | `create-workspace`, `create-terminal` (no argv/cwd/env) |
 | `rpc` `read files.list` | `MobileReadHandler` seam (C4) | none yet |
-| `rpc` `op task.*`, `read task.list` | refused `proto.unsupported` until C8 | task runner |
+| `rpc` `op task.*`, `read task.list`, `subscribe task:<host>` | `MobileTaskService` (C8) via `MobileOpExecutor`; `TaskStreamOwner` | acpmux `_acpmux/harnesses`, `_acpmux/models`, `session/new`, `session/prompt`, `session/cancel`; store `create-workspace` |
 | `terminal` channel | `TerminalChannelBridge` -> `MobileDaemon.attachTerminal` | `attach-surface` snapshot attach (`terminal-snapshot-v1`, `terminal-snapshot-history-v1`), `send`, `resize-attached-view`, `set-client-sizing`, snapshot request |
 | `terminal.input` record | `MobileTerminalAttachment.write` | `send` (attributed to the device) |
 | `terminal.viewport`, `terminal.presence` | `MobileTerminalAttachment.viewport/presence` | `resize-attached-view`, `set-client-sizing` (smallest viewer wins) |
