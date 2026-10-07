@@ -5,6 +5,6 @@ import Testing
 
 @MainActor @Suite struct SidebarChatsViewTests {
     @Test func theSectionIsNamedChats() {
-        #expect(SidebarRecentsView.title == "Chats")
+        #expect(SidebarChatsView.title == "Chats")
     }
 }
