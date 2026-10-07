@@ -51,12 +51,26 @@ const rows: AcpmuxRow[] = [
   },
 ];
 
-async function render(opened: string[], shown: readonly AcpmuxRow[] = rows, changeFiles?: readonly TurnFile[]) {
+async function render(
+  opened: string[],
+  shown: readonly AcpmuxRow[] = rows,
+  changeFiles?: readonly TurnFile[],
+  onOutput?: (path: string) => void,
+) {
   const container = dom.window.document.getElementById("root")!;
   const root = createRoot(container);
   const draw = (next: readonly AcpmuxRow[]) =>
     act(async () =>
-      root.render(createElement(SummaryButton, { rows: next, changeFiles, onOpenOutput: (path) => opened.push(path) })),
+      root.render(
+        createElement(SummaryButton, {
+          rows: next,
+          changeFiles,
+          onOpenOutput: (path) => {
+            opened.push(path);
+            onOutput?.(path);
+          },
+        }),
+      ),
     );
   await draw(shown);
   const button = container.querySelector<HTMLButtonElement>(".acpmux-summary-button")!;
@@ -93,10 +107,14 @@ test("the button opens the summary, focuses its first link, and Escape returns f
 
 test("an output opens the changes view at that file and closes the popover", async () => {
   const opened: string[] = [];
-  const { button, popover, unmount } = await render(opened);
+  const focused: string[] = [];
+  const { button, popover, unmount } = await render(opened, rows, undefined, () => {
+    focused.push(dom.window.document.activeElement?.getAttribute("aria-label") ?? "");
+  });
   await act(async () => button.click());
   await act(async () => popover()!.querySelector<HTMLButtonElement>("button.acpmux-summary-link")!.click());
   expect(opened).toEqual(["/repo/notes.md"]);
+  expect(focused).toEqual(["Chat summary"]);
   expect(popover()).toBeNull();
   await unmount();
 });
