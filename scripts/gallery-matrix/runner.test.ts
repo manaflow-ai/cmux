@@ -56,3 +56,9 @@ test("pausing touches only the ledger's own unsettled ids, each once", async () 
   expect(undeletedLedgerIds(path)).toEqual([]);
   rmSync(dir, { recursive: true, force: true });
 });
+
+test("a hash-route case keeps its route; params go only into a stage's query", async () => {
+  const { stageUrlForTest } = await import("./runner");
+  expect(stageUrlForTest("frame.html", { entry: "a.b", width: 760 })).toBe("/frame.html?entry=a.b&width=760");
+  expect(stageUrlForTest("index.html#/a.b/c?theme=Nord", { width: 1600 })).toBe("/index.html#/a.b/c?theme=Nord");
+});

@@ -507,6 +507,19 @@ let package = Package(
             dependencies: ["CmuxNextRemoteView", "CmuxNextDesign", "CCmuxAppFFI"],
             swiftSettings: uiSwiftSettings
         ),
+        // Remote tab client (remote-tab.md r2): the page of a browser tab
+        // whose runtime is on another machine. Decode and present come from
+        // CmuxNextRemoteView; session state is the Rust client reducer.
+        .target(
+            name: "CmuxNextRemoteBrowser",
+            dependencies: ["CmuxNextRemoteView", "CmuxNextBrowser", "CmuxNextDesign", "CCmuxAppFFI"],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextRemoteBrowserTests",
+            dependencies: ["CmuxNextRemoteBrowser", "CmuxNextRemoteView"],
+            swiftSettings: uiSwiftSettings
+        ),
         // cmux server (plans/cmux-next/server.md sections 6, 9, 13, 14): the
         // menubar panel, pairing, approver sheet and health prototypes over a
         // projection of `server.status`. The App supplies the source.
