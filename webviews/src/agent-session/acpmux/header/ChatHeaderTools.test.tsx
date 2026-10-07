@@ -65,7 +65,13 @@ async function render(props: Partial<Parameters<typeof ChatHeaderTools>[0]>, ran
       icon: "agent.handoff",
       children: [{ key: "codex", label: "Codex", onSelect: () => ran.push("continue:codex") }],
     },
-    { key: "close", label: "Close", icon: "tab.close", disabled: true, onSelect: () => ran.push("close") },
+    {
+      key: "close",
+      label: "Close",
+      icon: "tab.close",
+      disabled: true,
+      onSelect: () => ran.push("close"),
+    },
   ];
   await act(async () =>
     root.render(
@@ -91,11 +97,7 @@ test("every header tool is there from the first frame without a separate Changes
   const buttons = [
     ...container.querySelectorAll<HTMLButtonElement>(".acpmux-header-tools > button, .acpmux-chat-menu > button"),
   ];
-  expect(buttons.map((button) => button.getAttribute("aria-label"))).toEqual([
-    "Terminal",
-    "Browser",
-    "Chat actions",
-  ]);
+  expect(buttons.map((button) => button.getAttribute("aria-label"))).toEqual(["Terminal", "Browser", "Chat actions"]);
   expect(buttons[0]!.title).toBe("Terminal (⌘D)");
   expect(buttons[1]!.title).toBe("Browser (⌥⌘D)");
   await act(async () => buttons[0]!.click());
