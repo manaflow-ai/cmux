@@ -161,6 +161,28 @@ actor TargetLog {
         #expect(await endings.next() == host)
     }
 
+    @Test func cmuxTUIAttachUsesTheCurrentCatalogSocketAndRefusesRemovedSessions() async throws {
+        let catalog = SSHSessionCatalog()
+        let log = TargetLog()
+        let shell = EndableShell()
+        let connector = SSHCatalogAttachConnector(hostID: host, surfaceID: "ssh:cmux-tui:work", catalog: catalog) { _, target in
+            await log.add(target)
+            return RecordingConnector(shell: shell)
+        }
+        let oldPath = "/var/folders/xy/owner/T/cmux-tui-501/work.sock"
+        let newPath = "/tmp/cmux-tui-501/work.sock"
+        let discovery = SSHSessionDiscovery()
+        await catalog.record(discovery.parse("@cmux-tui\t/usr/local/bin/cmux-tui\nC\t\(oldPath)\n"), for: host)
+        await catalog.record(discovery.parse("@cmux-tui\t/usr/local/bin/cmux-tui\nC\t\(newPath)\n"), for: host)
+        let opened = try await connector.openShell(cols: 80, rows: 24)
+        #expect(await log.targets.map(\.attachCommand)
+            == ["exec '/usr/local/bin/cmux-tui' attach --socket '\(newPath)'"])
+        await opened.close()
+        await catalog.record([], for: host)
+        await #expect(throws: SSHSessionFailure.sessionGone) { try await connector.openShell(cols: 80, rows: 24) }
+        #expect(await log.targets.count == 1)
+    }
+
     @Test func directoryListsOnlySSHRecords() {
         let records = [
             HostRecord(id: HostID("mac1"), name: "Mac", kind: .pairedMac, reachability: .unknown),
