@@ -477,8 +477,13 @@ pub fn load_dir(root: &Path) -> (BTreeMap<String, Loaded>, BTreeMap<String, Vec<
     (loaded, failed)
 }
 
-/// Manifests shipped with acpmux, as (folder, harness.json, icon.svg).
-const BUNDLED: &[(&str, &str, &str)] = &[];
+/// Manifests shipped with acpmux, as (folder, harness.json, icon.svg), from
+/// `harnesses/` in this crate. They use the same format users write.
+const BUNDLED: &[(&str, &str, &str)] = &[(
+    "fx",
+    include_str!("../../harnesses/fx/harness.json"),
+    include_str!("../../harnesses/fx/icon.svg"),
+)];
 
 pub fn bundled() -> BTreeMap<String, Loaded> {
     let mut out = BTreeMap::new();
@@ -752,6 +757,19 @@ mod tests {
         );
         let err = check_dir(&dir).unwrap_err();
         assert_eq!(err[0].field, "icon");
+    }
+
+    #[test]
+    fn manifest_bundled_fx_is_valid() {
+        let bundled = bundled();
+        let fx = &bundled["fx"];
+        assert_eq!(fx.origin, Origin::Bundled);
+        assert!(fx.icon_svg.is_some(), "the fx icon passes check_icon");
+        let (profile, _) = fx.profile(&|_| Some("/usr/local/bin/fx".into()));
+        assert_eq!(profile.argv, ["/usr/local/bin/fx", "acp"]);
+        let logins: Vec<_> = fx.manifest.auth.logins.iter().map(|l| l.args.join(" ")).collect();
+        assert_eq!(logins, ["login", "login codex", "login grok", "setup"]);
+        assert_eq!(fx.manifest.capabilities.fast.as_deref(), Some("fast"));
     }
 
     #[test]

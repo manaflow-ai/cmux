@@ -38,6 +38,7 @@ parsing, test compilation, executed tests and runtime evidence.
 | Task | Skill |
 | --- | --- |
 | Inspect or change windows, workspaces, panes and surfaces | [cmux](cmux/SKILL.md) |
+| Add a coding agent (harness) to cmux, or share one with a team | [cmux-harness](cmux-harness/SKILL.md) |
 | Work in the caller's existing workspace without disrupting it | [cmux-workspace](cmux-workspace/SKILL.md) |
 | Browser automation | [cmux-browser](cmux-browser/SKILL.md) |
 | Operate Cloud machines and their persistent workspaces | [cmux-cloud-vm](cmux-cloud-vm/SKILL.md) |

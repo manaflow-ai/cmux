@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "id": "fx",
+  "name": "fx",
+  "description": "Vercel's native coding agent (vercel-labs/fx)",
+  "homepage": "https://fx.sh",
+  "icon": "icon.svg",
+  "run": {
+    "protocol": "acp",
+    "command": "fx",
+    "args": ["acp"],
+    "install": "curl -fsSL https://fx.sh/setup.sh | bash"
+  },
+  "auth": {
+    "logins": [
+      { "id": "gateway", "label": "Vercel AI Gateway", "args": ["login"] },
+      { "id": "chatgpt", "label": "ChatGPT subscription", "args": ["login", "codex"] },
+      { "id": "grok", "label": "Grok subscription", "args": ["login", "grok"] },
+      { "id": "api-key", "label": "AI Gateway API key", "args": ["setup"] }
+    ]
+  },
+  "models": { "source": "acp" },
+  "capabilities": { "fast": "fast", "effort": "effort", "permissions": true, "resume": true }
+}
