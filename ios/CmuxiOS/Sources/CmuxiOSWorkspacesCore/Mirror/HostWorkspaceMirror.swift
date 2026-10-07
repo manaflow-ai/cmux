@@ -99,7 +99,8 @@ public struct HostWorkspaceMirror: Sendable {
             }
         case "workspace.preview.set":
             let params = try event.params.decode(as: TabPreviewParams.self)
-            editTab(params.tab) { _, pane, index in pane.tabs[index].preview = params.preview }
+            // An empty preview clears the line.
+            editTab(params.tab) { _, pane, index in pane.tabs[index].preview = params.preview.isEmpty ? nil : params.preview }
         default:
             // An op of the family this client does not know (a newer Mac):
             // receivers ignore unknown messages and keep the sequence.

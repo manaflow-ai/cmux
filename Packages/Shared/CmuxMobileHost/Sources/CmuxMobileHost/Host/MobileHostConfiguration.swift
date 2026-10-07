@@ -12,7 +12,11 @@ public struct MobileHostConfiguration: Sendable {
     /// Caps this host offers in `hello.ok` (intersected with the client's).
     public var caps: [String]
 
-    public static let defaultCaps = ["device-proof", "read", "resume"]
+    /// `workspace.close`, `workspace.read` and `workspace.preview` tell the
+    /// phone it may offer Close and Mark as Read and that rows carry preview
+    /// lines (c5-workspaces.md section 2); they also go up in `host.caps.set`.
+    public static let defaultCaps = ["device-proof", "read", "resume",
+                                     "workspace.close", "workspace.read", "workspace.preview"]
 
     public init(hostID: String, accountUserID: String, allowsTerminalSpawn: Bool = false, maxFrame: Int = 256 * 1024,
                 caps: [String] = MobileHostConfiguration.defaultCaps) {

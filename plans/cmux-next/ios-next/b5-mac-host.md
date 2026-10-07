@@ -94,7 +94,11 @@ account this Mac is signed into.
 
 Relay authorization (skills/cmux-socket-policy): the phone is treated like a relay client.
 
-- Default deny on ops: `MobileOpPolicy` allowlists `workspace.rename` and `workspace.tab.close`
+- Default deny on ops: `MobileOpPolicy` allowlists `workspace.rename`, `workspace.tab.close`, and
+  (C5) `workspace.close` and `workspace.read` (`MobileDaemonOp.closeWorkspace` / `.markWorkspaceRead`,
+  same id scoping, caps `workspace.close`, `workspace.read`; `workspace.preview` for preview lines,
+  which `WorkspaceStreamOwner` sanitizes with `MobilePreview` and sends at most once per second per
+  tab with one trailing flush on the injected clock)
   (user-owned objects, ids scoped to this host's current tree, unknown or ref-form ids refused with
   `workspace.not_found` / `workspace.tab_not_found`). Every op rejects params outside its schema,
   and command-bearing params (`command`, `initial_command`, `argv`, `env`, `cwd`, `shell`,

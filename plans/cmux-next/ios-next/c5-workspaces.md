@@ -168,7 +168,7 @@ green, TS vitest not run here: no `node_modules`), FeatureKit types, `CmuxiOSWor
 `CmuxiOSWorkspaces` as above, wired into the shell (`ShellContent(screens:)` `.workspaces`;
 `AppContainer.realFactories.workspaces` is `ControlPlaneWorkspaceSource` over the resolved device
 registry with `UnavailableWorkspaceChannelFactory`; DEBUG defaults to the mock, so use
-`CMUX_IOS_SOURCE_WORKSPACES=real` or the DEV switch). 45 Swift Testing tests in
+`CMUX_IOS_SOURCE_WORKSPACES=real` or the DEV switch). 51 Swift Testing tests in
 `CmuxiOSWorkspacesCoreTests` pass with `swift test` on macOS through a scratch package (plus the 13
 FeatureKit tests); `CmuxiOSApp`, `CmuxiOSWorkspacesCoreTests`, `CmuxiOSShellTests` and
 `CmuxiOSFeatureKitTests` compile for `arm64-apple-ios17.0-simulator` with SwiftPM.
@@ -183,3 +183,19 @@ per-frame coalescing under a real event burst, the B1 adapter (written against B
 `ControlPlaneClient` shape), and the Mac side of the new ops (B5 must implement `workspace.close`,
 `workspace.read`, `workspace.preview.set` and advertise the caps). Tagged build not attempted
 (known blocked: no fleet manifest, dev backend VM unreachable).
+
+### Update after merging B1/B5 (2026-10-06)
+
+- `ControlPlaneWorkspaceChannelFactory` replaces `UnavailableWorkspaceChannelFactory` whenever an
+  API origin exists: one `ControlPlaneClient` per paired Mac on `/v1/wire/host/<host>` as this
+  install, subscribing `workspace:<host>` and `host:<host>`. Live = negotiated socket and Mac
+  `online`; caps come from the Mac's `host.caps.set`; sleeping/paused/offline show their reason;
+  undecided ops are resent when the Mac returns; `presence.set {active: true}` while subscribed.
+- `epoch` (B5): optional on `snapshot`, `event`, `subscribe` in A0 (Swift, TS, schemas). The mirror
+  drops its state when an event carries another epoch than its snapshot and takes the next one.
+  Gap: `HostDO` stores snapshot state only, so it drops the epoch on snapshots, and B1's client
+  dedupes by seq before the phone sees the epoch; both need a B1 follow-up.
+- CmuxMobileHost serves `workspace.close`, `workspace.read` (policy-scoped, no command params) and
+  `workspace.preview.set` (sanitized, throttled 1/s per tab with a trailing flush) and advertises the
+  three caps. Viewer gating of previews (send only while `host:` viewers > 0) is not implemented:
+  the uplink does not mirror `host:`.
