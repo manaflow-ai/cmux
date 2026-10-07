@@ -68,10 +68,17 @@ import Testing
             while true {
                 let client = accept(listener, nil, nil)
                 guard client >= 0 else { return }
+                var one: Int32 = 1
+                setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &one, socklen_t(MemoryLayout<Int32>.size))
+                // A connection that sends no request (the client's server-uid
+                // check) gets no reply.
                 var byte: UInt8 = 0
-                while read(client, &byte, 1) == 1, byte != UInt8(ascii: "\n") {}
-                let line = Array((reply + "\n").utf8)
-                _ = line.withUnsafeBytes { write(client, $0.baseAddress, $0.count) }
+                var gotLine = false
+                while read(client, &byte, 1) == 1 { if byte == UInt8(ascii: "\n") { gotLine = true; break } }
+                if gotLine {
+                    let line = Array((reply + "\n").utf8)
+                    _ = line.withUnsafeBytes { write(client, $0.baseAddress, $0.count) }
+                }
                 close(client)
             }
         }

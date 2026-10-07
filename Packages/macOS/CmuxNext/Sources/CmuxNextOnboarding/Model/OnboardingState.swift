@@ -71,8 +71,11 @@ public nonisolated struct OnboardingStateFile: Sendable {
     public static let notNowLaunches = 2
 
     /// The person closed the first run without Skip or Done ("not now").
+    /// A close while a "not now" is already pending (the window came back
+    /// at a launch and was closed again, or the quit closed it) starts no
+    /// new count: each launch that showed it was already counted.
     public func markNotNow(now: Date = Date()) throws {
-        guard var record = read(), record.finished == false else { return }
+        guard var record = read(), record.finished == false, record.active != false else { return }
         record.active = false
         record.launchesLeft = Self.notNowLaunches
         record.date = now

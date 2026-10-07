@@ -1956,6 +1956,11 @@ enum Command {
     CloudInboxUnsubscribe,
     CloudConversationSubscribe(cloud_conversations::TargetParams),
     CloudConversationUnsubscribe(cloud_conversations::TargetParams),
+    /// The leased chief's MuxDO wake queue (`mux:<agent>`, agent from the
+    /// chief token), and the ack of handled wakes.
+    CloudMuxSubscribe(cloud_conversations::NoParams),
+    CloudMuxUnsubscribe(cloud_conversations::NoParams),
+    CloudMuxAck(cloud_conversations::MuxAckParams),
     /// Local conversation attachments (`local-attachments-v1`,
     /// server/conversation_attachments.rs).
     ConversationAttachmentUpload(conversation_attachments::UploadParams),
@@ -10480,7 +10485,7 @@ fn handle_request_with_cancellation(
     if cloud_conversations::is_network(&cmd) {
         return cloud_conversations::start(mux, client, id, cmd, writer);
     }
-    if let Some(target) = cloud_conversations::subscribe_target(&cmd) {
+    if let Some(target) = cloud_conversations::subscribe_target(mux, &cmd) {
         return cloud_conversations::subscribe_then_announce(mux, client, id, cmd, target, writer);
     }
     if matches!(&cmd, Command::ShutdownDaemon { .. } | Command::ReloadConfig)
@@ -14294,6 +14299,9 @@ fn handle_command_with_cancellation(
         }
         Command::CloudConversationOp(params) => cloud_conversations::op(mux, client, params),
         Command::CloudInboxSubscribe => cloud_conversations::subscribe(mux, client, None),
+        Command::CloudMuxSubscribe(_) => cloud_conversations::mux_subscribe(mux, client),
+        Command::CloudMuxUnsubscribe(_) => cloud_conversations::mux_unsubscribe(mux, client),
+        Command::CloudMuxAck(params) => cloud_conversations::mux_ack(mux, client, params),
         Command::CloudInboxUnsubscribe => cloud_conversations::unsubscribe(mux, client, None),
         Command::CloudConversationSubscribe(params) => {
             cloud_conversations::subscribe(mux, client, Some(params))

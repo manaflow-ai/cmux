@@ -237,12 +237,13 @@ pub(crate) fn dispatch(
             patch_result(mux, commit)
         }
         Op::TabUpdate => {
-            require_any(fields, &["zoom", "back", "forward", "owner"])?;
+            require_any(fields, &["zoom", "back", "forward", "owner", "icon"])?;
             let update = TabStateUpdate {
                 zoom: fields.get("zoom").map(Value::as_f64),
                 back: fields.contains_key("back").then(|| strings(fields, "back")),
                 forward: fields.contains_key("forward").then(|| strings(fields, "forward")),
                 owner: string(fields, "owner"),
+                icon: nullable_string(fields, "icon"),
             };
             let commit = mux
                 .state_update_tab(strip_request(&request)?, selectors.clone(), update)

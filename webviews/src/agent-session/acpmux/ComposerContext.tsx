@@ -20,6 +20,8 @@ export const CONTEXT_LABELS = {
   chooseFolder: "composer.chooseFolder",
   chooseFolderMenu: "composer.chooseFolderMenu",
   cloud: "composer.cloud",
+  connectSSH: "composer.connectSSH",
+  connectCloud: "composer.connectCloud",
 } as const;
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
@@ -41,6 +43,7 @@ export function ComposerContext({
   movedTo,
   onMove,
   busy = false,
+  onConnect,
 }: {
   summary?: Summary;
   sessions?: Session[];
@@ -56,6 +59,9 @@ export function ComposerContext({
   onMove?(cwd: string): void;
   /// A turn runs: the folder holds still.
   busy?: boolean;
+  /// A new chat's Computer menu ends with SSH… and cmux Cloud…, which open the host's
+  /// connect flows (Lawrence 2026-10-06: "I cannot click on cmux Cloud SSH").
+  onConnect?(kind: "ssh" | "cloud"): void;
 }) {
   const computers = useMemo(
     () => availableComputers(summary, sessions, peers, localName),
@@ -125,7 +131,15 @@ export function ComposerContext({
           value={currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer)}
           options={computers}
           selected={selectedComputer}
-          disabled={readOnly}
+          disabled={readOnly && (started || !onConnect)}
+          extras={
+            !started && onConnect
+              ? [
+                  { id: "ssh", label: t(CONTEXT_LABELS.connectSSH), onSelect: () => onConnect("ssh") },
+                  { id: "cloud", label: t(CONTEXT_LABELS.connectCloud), onSelect: () => onConnect("cloud") },
+                ]
+              : undefined
+          }
           onPick={(id) => {
             if (!readOnly && id !== selectedComputer) {
               setSelectedComputer(id);
@@ -387,6 +401,7 @@ function LocationPicker({
   disabled,
   icon,
   allowPath = false,
+  extras,
   onPick,
 }: {
   label: string;
@@ -398,6 +413,8 @@ function LocationPicker({
   disabled: boolean;
   icon?: React.ReactNode;
   allowPath?: boolean;
+  /// Rows after the choices that run something instead of picking (the connect flows).
+  extras?: { id: string; label: string; onSelect(): void }[];
   onPick(id: string): void;
 }) {
   const [open, setOpen] = useState(false);
@@ -447,6 +464,19 @@ function LocationPicker({
                 </MenuRadioItem>
               ))}
             </MenuRadioGroup>
+            {extras && extras.length > 0 && <MenuSeparator />}
+            {extras?.map((extra) => (
+              <MenuItem
+                key={extra.id}
+                className="acpmux-menu-item"
+                onSelect={() => {
+                  setOpen(false);
+                  extra.onSelect();
+                }}
+              >
+                {extra.label}
+              </MenuItem>
+            ))}
           </MenuPopup>
         </Menu>
       </span>
