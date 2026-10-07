@@ -27,15 +27,16 @@ impl Brain {
         // One read per conversation, from its lowest woken seq.
         let mut order: Vec<(String, u64)> = Vec::new();
         for wake in wakes {
+            if wake.conversation.is_empty() || wake.seq == 0 {
+                continue;
+            }
+            self.wake_pending(&wake.conversation, wake.seq);
             match order.iter_mut().find(|(c, _)| *c == wake.conversation) {
                 Some(entry) => entry.1 = entry.1.min(wake.seq),
                 None => order.push((wake.conversation, wake.seq)),
             }
         }
         for (conversation, seq) in order {
-            if conversation.is_empty() || seq == 0 {
-                continue;
-            }
             if self.state.conversation.as_deref() == Some(conversation.as_str()) {
                 // The main conversation's own stream reads it: no read here.
                 continue;
@@ -45,6 +46,8 @@ impl Brain {
                 return;
             }
         }
+        self.prune_floors();
+        self.settle_acks();
     }
 
     /// A wake of side conversation `conversation` at `seq`.
@@ -83,6 +86,9 @@ impl Brain {
                 self.state.side.remove(conversation);
                 self.side_handled.remove(conversation);
                 self.save();
+                // Acked so the queue stops delivering it.
+                let top = self.mux_pending.get(conversation).copied().unwrap_or(seq);
+                self.ack(conversation, top);
             }
             Err(OpError::Transport(e)) => {
                 (self.log)(&format!("reading side conversation {conversation}: {e}"));

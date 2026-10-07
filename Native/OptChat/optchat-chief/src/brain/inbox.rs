@@ -49,6 +49,7 @@ impl Brain {
                     self.save();
                 }
                 self.summary = Some(conversation);
+                self.prune_floors();
                 self.post_notices();
                 self.flush_outbox();
                 self.catch_up();
@@ -214,6 +215,7 @@ impl Brain {
             self.state.logged_seq = self.handled;
             self.save();
             self.set_cursor(self.handled);
+            self.settle_acks();
         }
     }
 

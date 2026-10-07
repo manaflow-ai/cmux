@@ -23,6 +23,7 @@ mod approvals;
 mod children;
 pub mod images;
 mod inbox;
+mod mux_ack;
 mod outbox;
 mod recover;
 mod side;
@@ -349,6 +350,9 @@ pub struct Brain {
     /// its saved floor follows once nothing of it is queued (`handled` for
     /// the main conversation).
     side_handled: HashMap<String, u64>,
+    /// Woken conversations not acked yet: the highest woken seq of each
+    /// (`mux_ack.rs`).
+    mux_pending: HashMap<String, u64>,
 }
 
 impl Brain {
@@ -414,6 +418,7 @@ impl Brain {
             describer: None,
             describing: HashSet::new(),
             side_handled: HashMap::new(),
+            mux_pending: HashMap::new(),
         };
         brain.save();
         brain

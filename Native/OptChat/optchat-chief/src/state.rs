@@ -123,11 +123,6 @@ impl SideFloor {
             self.ids.drain(..extra);
         }
     }
-
-    /// Whether a message was handled already.
-    pub fn covers(&self, seq: u64, id: &str) -> bool {
-        seq <= self.seq || self.ids.iter().any(|i| i == id)
-    }
 }
 
 /// One `spawn(tasks)` call (section 9): its subagents report together.
