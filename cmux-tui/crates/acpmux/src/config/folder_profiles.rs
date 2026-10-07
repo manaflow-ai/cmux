@@ -297,13 +297,13 @@ pub fn resolve_for_session(
 /// a plain value such as NODE_OPTIONS can load code. Keychain items and
 /// login variables are named, never read.
 pub fn confirmation_text(fp: &FolderProfile, resolved_program: Option<&Path>) -> String {
-    let mut out = format!("Enable harness {:?} from {}\n", fp.id, fp.path);
-    out.push_str(&format!("  folder:  {} (trust: {})\n", fp.folder, fp.trust));
+    let mut out = format!("Enable harness {:?} from {}\n", fp.id, visible(&fp.path));
+    out.push_str(&format!("  folder:  {} (trust: {})\n", visible(&fp.folder), fp.trust));
     let Some(profile) = &fp.profile else { return out };
     let line: Vec<String> = profile.argv.iter().map(|a| shell_quote(a)).collect();
     out.push_str(&format!("  command: {}\n", line.join(" ")));
     match resolved_program {
-        Some(p) => out.push_str(&format!("  program: {}\n", p.display())),
+        Some(p) => out.push_str(&format!("  program: {}\n", visible(&p.to_string_lossy()))),
         None => out.push_str("  program: not found on PATH now\n"),
     }
     if let Some(p) = resolved_program
@@ -329,7 +329,7 @@ pub fn confirmation_text(fp: &FolderProfile, resolved_program: Option<&Path>) ->
     }
     out.push_str(&format!(
         "It runs with your rights in chats whose folder is inside {}.\nAny change to the file asks again.\n",
-        fp.folder
+        visible(&fp.folder)
     ));
     out
 }
@@ -348,7 +348,37 @@ fn env_source(value: &str) -> String {
 fn shell_quote(text: &str) -> String {
     let plain = !text.is_empty()
         && text.chars().all(|c| c.is_ascii_alphanumeric() || "-_./:=@%+,${}".contains(c));
-    if plain { text.to_owned() } else { format!("'{}'", text.replace('\'', "'\\''")) }
+    if plain { text.to_owned() } else { format!("'{}'", visible(&text.replace('\'', "'\\''"))) }
+}
+
+/// `text` with every control character written out (`\n`, `\r`, `\t`,
+/// `\xNN`, `\u{NNNN}`), so a file cannot move the cursor or hide text in the
+/// confirmation.
+fn visible(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        match c {
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if c.is_control() && (c as u32) < 0x100 => {
+                out.push_str(&format!("\\x{:02x}", c as u32));
+            }
+            c if c.is_control() || is_bidi_control(c) => {
+                out.push_str(&format!("\\u{{{:04x}}}", c as u32));
+            }
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+/// Unicode marks that reorder how the text around them is shown.
+fn is_bidi_control(c: char) -> bool {
+    matches!(
+        c,
+        '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}'
+    )
 }
 
 // ------------------------------------------------------------- internals
