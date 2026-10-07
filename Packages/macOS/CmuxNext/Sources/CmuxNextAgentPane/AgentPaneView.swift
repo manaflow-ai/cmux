@@ -276,12 +276,6 @@ public final class AgentPaneView: NSView {
         dictation.toggle(from: event)
     }
 
-    /// Opens the page's "Search chats" palette (Cmd-K, `agentPane.searchChats`);
-    /// a second call closes it.
-    public func showSearchChats() {
-        deliver([.command("searchChats")], scripts: ["window.cmuxAcpmuxBridge?.command?.(\"searchChats\");"])
-    }
-
     /// Opens the frontend's Continue in… chooser. The chooser owns target
     /// selection and preparation; native actions do not create a second
     /// handoff pipeline.
