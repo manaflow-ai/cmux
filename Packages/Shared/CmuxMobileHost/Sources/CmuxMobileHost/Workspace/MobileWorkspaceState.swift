@@ -5,10 +5,19 @@ import CmuxMobileWire
 public struct MobileWorkspaceState: Hashable, Sendable, Codable {
     public var host: String
     public var workspaces: [MobileWorkspace]
+    /// The host's sidebar groups in order, including empty ones (E3); nil
+    /// when the store has none to report.
+    public var groups: [MobileWorkspaceGroup]?
 
-    public init(host: String, workspaces: [MobileWorkspace]) {
+    public init(host: String, workspaces: [MobileWorkspace], groups: [MobileWorkspaceGroup]? = nil) {
         self.host = host
         self.workspaces = workspaces
+        self.groups = groups
+    }
+
+    /// Group `id` as the tree knows it: a listed group or one a workspace is filed in.
+    public func group(_ id: String) -> MobileWorkspaceGroup? {
+        groups?.first { $0.id == id } ?? workspaces.lazy.compactMap(\.group).first { $0.id == id }
     }
 
     public func workspace(_ id: String) -> MobileWorkspace? {

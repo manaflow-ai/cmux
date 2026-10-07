@@ -5,6 +5,7 @@ import CmuxMobileWire
 ///
 /// - workspace added, or its metadata or pane/tab shape changed: `workspace.upsert` (whole record);
 /// - workspace gone: `workspace.remove`;
+/// - the ordered groups changed: `workspace.groups.set` (E3);
 /// - a tab's title, kind, terminal or url changed in place: `workspace.tab.upsert`;
 /// - only a tab's status or unread changed: `workspace.status.set`;
 /// - only a tab's preview changed: `workspace.preview.set` (empty string clears it).
@@ -23,8 +24,7 @@ public struct WorkspaceDiff: Sendable {
                 changes.append(Self.upsert(workspace))
                 continue
             }
-            if before.shape != workspace.shape || before.name != workspace.name || before.color != workspace.color
-                || before.pinned != workspace.pinned || before.order != workspace.order {
+            if before.shape != workspace.shape || before.metadata != workspace.metadata {
                 changes.append(Self.upsert(workspace))
                 continue
             }
@@ -53,6 +53,11 @@ public struct WorkspaceDiff: Sendable {
                     }
                 }
             }
+        }
+        if (old.groups ?? []) != (new.groups ?? []) {
+            changes.append(WorkspaceChange(op: "workspace.groups.set", params: .object([
+                "groups": (try? JSONValue(encoding: new.groups ?? [])) ?? .array([]),
+            ])))
         }
         self.changes = changes
     }

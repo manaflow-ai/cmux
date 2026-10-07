@@ -20,8 +20,11 @@ public struct MobileHostConfiguration: Sendable {
     /// `workspace.close`, `workspace.read` and `workspace.preview` tell the
     /// phone it may offer Close and Mark as Read and that rows carry preview
     /// lines (c5-workspaces.md section 2); they also go up in `host.caps.set`.
+    /// `workspace.move`, `workspace.group.rename` and `workspace.customize`
+    /// offer drag reorder, group rename and the customize sheet (E3).
     public static let defaultCaps = ["device-proof", "read", "resume",
-                                     "workspace.close", "workspace.read", "workspace.preview"]
+                                     "workspace.close", "workspace.read", "workspace.preview",
+                                     "workspace.move", "workspace.group.rename", "workspace.customize"]
 
     /// `task.stream`: this Mac serves `task:<host>` (agents and tasks).
     /// `task.dispatch`: it also starts tasks. `MobileHost` adds them when a

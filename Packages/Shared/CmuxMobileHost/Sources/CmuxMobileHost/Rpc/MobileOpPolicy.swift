@@ -23,6 +23,9 @@ public struct MobileOpPolicy: Sendable {
         "workspace.tab.close": ["tab"],
         "workspace.close": ["workspace"],
         "workspace.read": ["workspace"],
+        "workspace.move": ["workspace", "group", "index"],
+        "workspace.group.rename": ["group", "name"],
+        "workspace.customize": ["workspace", "color", "icon"],
         "workspace.create": ["host", "name"],
         "workspace.tab.create": ["workspace", "pane", "kind"],
     ]
@@ -78,6 +81,39 @@ public struct MobileOpPolicy: Sendable {
             }
             guard state.workspace(workspace) != nil else { return .failure(Self.notFound("workspace.not_found", workspace)) }
             return .success(op == "workspace.close" ? .closeWorkspace(workspace: workspace) : .markWorkspaceRead(workspace: workspace))
+        case "workspace.move":
+            guard let workspace = object["workspace"]?.stringValue, Self.matches(workspace, prefix: "ws_"),
+                  let rawIndex = Self.integer(object["index"]), (0...100_000).contains(rawIndex) else {
+                return .failure(Self.invalid("workspace.move needs a ws_ id and an index from 0"))
+            }
+            let placement: MobileGroupPlacement
+            switch object["group"] {
+            case nil: placement = .keep
+            case .null?: placement = .ungrouped
+            case .string(let id)?:
+                guard Self.isGroupID(id) else { return .failure(Self.invalid("group must be a group id")) }
+                guard state.group(id) != nil else { return .failure(Self.notFound("workspace.group_not_found", id)) }
+                placement = .group(id)
+            default: return .failure(Self.invalid("group must be a group id or null"))
+            }
+            guard state.workspace(workspace) != nil else { return .failure(Self.notFound("workspace.not_found", workspace)) }
+            return .success(.moveWorkspace(workspace: workspace, group: placement, index: rawIndex))
+        case "workspace.group.rename":
+            guard let group = object["group"]?.stringValue, Self.isGroupID(group), let name = Self.name(object["name"]) else {
+                return .failure(Self.invalid("workspace.group.rename needs a group id and a name of 1 to 200 characters"))
+            }
+            guard state.group(group) != nil else { return .failure(Self.notFound("workspace.group_not_found", group)) }
+            return .success(.renameGroup(group: group, name: name))
+        case "workspace.customize":
+            guard let workspace = object["workspace"]?.stringValue, Self.matches(workspace, prefix: "ws_") else {
+                return .failure(Self.invalid("workspace.customize needs a ws_ id"))
+            }
+            guard let color = Self.field(object["color"], valid: Self.isColor),
+                  let icon = Self.field(object["icon"], valid: Self.isIcon) else {
+                return .failure(Self.invalid("color must be #RRGGBB or a palette token and icon an SF Symbol name, or null"))
+            }
+            guard state.workspace(workspace) != nil else { return .failure(Self.notFound("workspace.not_found", workspace)) }
+            return .success(.customizeWorkspace(workspace: workspace, color: color, icon: icon))
         case "workspace.create":
             if let host = object["host"], host.stringValue != hostID {
                 return .failure(Self.invalid("params.host names another host"))
@@ -119,6 +155,53 @@ public struct MobileOpPolicy: Sendable {
         guard let raw = value?.stringValue else { return nil }
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         return (1...200).contains(trimmed.count) ? trimmed : nil
+    }
+
+    /// A group id as the store mints them (`grp_…`, personal ids): 1-64 of `[A-Za-z0-9_.:-]`.
+    static func isGroupID(_ id: String) -> Bool {
+        (1...64).contains(id.utf8.count) && id.utf8.allSatisfy { Self.isASCIIAlnum($0) || "_.:-".utf8.contains($0) }
+    }
+
+    /// `#RRGGBB` or a palette token `[a-z][a-z0-9-]{0,31}`.
+    static func isColor(_ value: String) -> Bool {
+        let bytes = Array(value.utf8)
+        if bytes.first == UInt8(ascii: "#") {
+            return bytes.count == 7 && bytes.dropFirst().allSatisfy { byte in
+                let lower = byte | 0x20
+                return (0x30...0x39).contains(byte) || (0x61...0x66).contains(lower)
+            }
+        }
+        guard let first = bytes.first, (0x61...0x7A).contains(first), bytes.count <= 32 else { return false }
+        return bytes.allSatisfy { (0x61...0x7A).contains($0) || (0x30...0x39).contains($0) || $0 == UInt8(ascii: "-") }
+    }
+
+    /// An SF Symbol name: 1-128 of lowercase letters, digits and dots.
+    static func isIcon(_ value: String) -> Bool {
+        (1...128).contains(value.utf8.count)
+            && value.utf8.allSatisfy { (0x61...0x7A).contains($0) || (0x30...0x39).contains($0) || $0 == UInt8(ascii: ".") }
+    }
+
+    private static func isASCIIAlnum(_ byte: UInt8) -> Bool {
+        (0x30...0x39).contains(byte) || (0x41...0x5A).contains(byte) || (0x61...0x7A).contains(byte)
+    }
+
+    /// A JSON integer (also an integral double, as some encoders send).
+    static func integer(_ value: JSONValue?) -> Int? {
+        switch value {
+        case .int(let number)?: return Int(exactly: number)
+        case .double(let number)? where number.rounded() == number: return Int(exactly: number)
+        default: return nil
+        }
+    }
+
+    /// An optional nullable string field; nil when the value is invalid.
+    static func field(_ value: JSONValue?, valid: (String) -> Bool) -> MobileFieldChange? {
+        switch value {
+        case nil: return .unchanged
+        case .null?: return .clear
+        case .string(let text)? where valid(text): return .set(text)
+        default: return nil
+        }
     }
 
     static func forbidden(_ message: String) -> MobileOpRejection {

@@ -76,6 +76,47 @@ actor FakeDaemon: MobileDaemon {
             for p in state.workspaces[w].panes.indices {
                 for t in state.workspaces[w].panes[p].tabs.indices { state.workspaces[w].panes[p].tabs[t].unread = 0 }
             }
+        case .moveWorkspace(let id, let placement, let index):
+            guard let moving = state.workspaces.first(where: { $0.id == id }) else {
+                throw MobileDaemonError(code: "workspace.not_found", message: id)
+            }
+            var ordered = state.workspaces.sorted { $0.order < $1.order }.filter { $0.id != id }
+            var moved = moving
+            switch placement {
+            case .keep: break
+            case .ungrouped: moved.group = nil
+            case .group(let group): moved.group = state.group(group)
+            }
+            let members = ordered.enumerated().filter { $0.element.group?.id == moved.group?.id }.map(\.offset)
+            let position: Int
+            if members.isEmpty {
+                position = min(state.workspaces.sorted { $0.order < $1.order }.firstIndex { $0.id == id } ?? ordered.count, ordered.count)
+            } else if index < members.count {
+                position = members[index]
+            } else {
+                position = members[members.count - 1] + 1
+            }
+            ordered.insert(moved, at: position)
+            for i in ordered.indices { ordered[i].order = i }
+            state.workspaces = ordered
+        case .renameGroup(let group, let name):
+            guard state.group(group) != nil else { throw MobileDaemonError(code: "workspace.group_not_found", message: group) }
+            for w in state.workspaces.indices where state.workspaces[w].group?.id == group { state.workspaces[w].group?.name = name }
+            if let g = state.groups?.firstIndex(where: { $0.id == group }) { state.groups?[g].name = name }
+        case .customizeWorkspace(let id, let color, let icon):
+            guard let w = state.workspaces.firstIndex(where: { $0.id == id }) else {
+                throw MobileDaemonError(code: "workspace.not_found", message: id)
+            }
+            switch color {
+            case .unchanged: break
+            case .clear: state.workspaces[w].color = nil
+            case .set(let value): state.workspaces[w].color = value
+            }
+            switch icon {
+            case .unchanged: break
+            case .clear: state.workspaces[w].icon = nil
+            case .set(let value): state.workspaces[w].icon = value
+            }
         case .createWorkspace, .createTab:
             break
         }
