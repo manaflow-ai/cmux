@@ -8,7 +8,9 @@
 //! the host's signal guard). A loss with no recorded signal was caused by
 //! something the host could not observe: `SIGKILL`, a crash, or memory
 //! pressure. The file is local diagnostics only; nothing reads it back. It
-//! is rotated once at [`MAX_LOG_BYTES`] (one previous file is kept).
+//! is rotated once at [`MAX_LOG_BYTES`] (one previous file is kept). A dead
+//! host replaced on its still-running shell (PTY custody) is logged as an
+//! `"event":"host_replaced"` line instead; it is not a loss.
 
 use std::fs::{self, OpenOptions};
 use std::io::Write;
@@ -48,6 +50,15 @@ fn read_signals(record_path: &Path, incarnation: Option<&str>) -> Vec<serde_json
     signals
 }
 
+/// Why a host ended, from the signals it recorded.
+fn end_cause(signals: &[serde_json::Value]) -> &'static str {
+    if signals.iter().any(|line| line.get("signal").is_some()) {
+        "host ended after recorded signals (the host survives these; a later uncatchable end followed)"
+    } else {
+        "no catchable signal recorded: SIGKILL, a crash, or memory pressure"
+    }
+}
+
 /// The loss line for a host-lost terminal; `None` for any other end.
 pub(crate) fn loss_line(
     record_path: &Path,
@@ -60,11 +71,7 @@ pub(crate) fn loss_line(
         return None;
     }
     let signals = read_signals(record_path, incarnation);
-    let cause = if signals.iter().any(|line| line.get("signal").is_some()) {
-        "host ended after recorded signals (the host survives these; a later uncatchable end followed)"
-    } else {
-        "no catchable signal recorded: SIGKILL, a crash, or memory pressure"
-    };
+    let cause = end_cause(&signals);
     Some(serde_json::json!({
         "at_ms": at_ms,
         "terminal_id": terminal_id,
@@ -91,6 +98,41 @@ pub(crate) fn record_host_loss(
         return;
     };
     eprintln!("cmux-tui: terminal {terminal_id} lost its host: {line}");
+    if let Some(log) =
+        record_path.parent().and_then(Path::parent).map(|dir| dir.join(LOSS_LOG_FILE))
+    {
+        append_rotating(&log, &line);
+    }
+    remove_signals(record_path);
+}
+
+/// Append the replacement of a dead host by a new host on the same running
+/// shell (cx-6so.49 L1.2) and remove the dead host's breadcrumbs. A
+/// replacement is not a loss: the terminal keeps its incarnation and shell.
+pub(crate) fn record_host_replaced(
+    record_path: &Path,
+    terminal_id: &str,
+    incarnation: &str,
+    old_host_pid: u32,
+    new_host_pid: u32,
+) {
+    let at_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis())
+        .unwrap_or_default();
+    let signals = read_signals(record_path, Some(incarnation));
+    let cause = end_cause(&signals);
+    let line = serde_json::json!({
+        "at_ms": at_ms,
+        "event": "host_replaced",
+        "terminal_id": terminal_id,
+        "incarnation": incarnation,
+        "old_host_pid": old_host_pid,
+        "new_host_pid": new_host_pid,
+        "cause": cause,
+        "signals": signals,
+    });
+    eprintln!("cmux-tui: terminal {terminal_id} got a replacement host: {line}");
     if let Some(log) =
         record_path.parent().and_then(Path::parent).map(|dir| dir.join(LOSS_LOG_FILE))
     {
@@ -153,6 +195,25 @@ mod tests {
         assert_eq!(line["end"]["reason"], "died_without_exit_status");
         assert_eq!(line["signals"].as_array().unwrap().len(), 1, "{line}");
         assert_eq!(line["signals"][0]["sender_pid"], 42);
+        assert!(!signals_path(&record).exists());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_host_replacement_is_logged_as_its_own_event_and_removes_breadcrumbs() {
+        let root = temp_root("replaced");
+        let record = root.join("terminal-hosts-x").join("abc.json");
+        fs::write(signals_path(&record), "").unwrap();
+        record_host_replaced(&record, "abc", "i1", 10, 20);
+        let text = fs::read_to_string(root.join(LOSS_LOG_FILE)).unwrap();
+        let line: serde_json::Value = serde_json::from_str(text.trim()).unwrap();
+        assert_eq!(line["event"], "host_replaced");
+        assert_eq!(
+            (line["old_host_pid"].as_u64(), line["new_host_pid"].as_u64()),
+            (Some(10), Some(20))
+        );
+        assert!(line.get("end").is_none(), "a replacement is not an end: {line}");
+        assert!(line["cause"].as_str().unwrap().contains("SIGKILL"), "{line}");
         assert!(!signals_path(&record).exists());
         let _ = fs::remove_dir_all(root);
     }

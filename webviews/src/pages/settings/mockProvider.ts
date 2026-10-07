@@ -366,7 +366,9 @@ export class MockSettingsProvider {
     const managed = this.managed.get(key);
     return {
       key,
-      ...(key === "agents.chats.roots" ? { folders: this.chatFolders, user_roots: this.values.get(key) as string[] | undefined } : {}),
+      ...(key === "agents.chats.roots"
+        ? { folders: this.chatFolders, user_roots: this.values.get(key) as string[] | undefined }
+        : {}),
       value: managed ? managed.value : this.values.has(key) ? this.values.get(key) : row.default,
       default: row.default,
       customized: this.values.has(key),

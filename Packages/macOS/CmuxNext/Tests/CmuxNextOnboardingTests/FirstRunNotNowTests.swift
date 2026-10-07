@@ -72,8 +72,11 @@ import Testing
     /// Showing a step is not the person moving to it.
     @Test func onlyMovingToAStepCountsAsInteraction() {
         let services = MockOnboardingServices()
+        services.canImportClassicSessions = true
         let model = OnboardingModel(services: services)
-        model.next()
+        #expect(model.steps.first == .classicSessions && model.steps.contains(.importData))
+        model.go(to: .importData)
+        #expect(services.reached == [.classicSessions, .importData])
         #expect(services.reachedInteracted == [false, true])
     }
 }
