@@ -89,16 +89,19 @@ export async function PATCH(request: Request): Promise<Response> {
   ) return jsonResponse({ error: "forbidden" }, 403);
   try {
     return await withSubrouterAuthorizationDeadline(async (signal) => {
-      const user = await verifySubrouterRequest(request, signal, {
-        allowCookie: true,
-        listAllTeams: true,
-      });
-      if (!user) return unauthorized();
-
       const payload = await request.json().catch(() => null) as { teamId?: unknown } | null;
       const teamId = typeof payload?.teamId === "string"
         ? payload.teamId.trim()
         : "";
+      const user = await verifySubrouterRequest(request, signal, {
+        allowCookie: true,
+        // Selection only needs to authorize the requested team. Listing the
+        // caller's complete membership adds a paginated Stack round trip
+        // to every switch, which is especially visible on the first request.
+        requestedTeamId: teamId,
+      });
+      if (!user) return unauthorized();
+
       if (!teamId || (!user.teamIds.includes(teamId) && teamId !== user.id)) {
         return jsonResponse({ error: "team_not_found" }, 403);
       }
