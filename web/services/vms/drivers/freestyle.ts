@@ -140,8 +140,9 @@ export type { FreestylePreconnectOptions } from "./freestyleWarmup";
 // workflows.ts), also after the response and never awaited by attach.
 //
 // The coderouter model plane is edge-injected: the create carries an inline
-// `tls` rule for the coderouter host whose transform overwrites `x-cmux-authorization` to every request the
-// guest makes there. The platform steers the host to its edge (/etc/hosts) and
+// `tls` rule for the coderouter host whose transform overwrites the signed
+// `x-cmux-authorization` plus compatibility bearer/VM headers on every request
+// the guest makes there. The platform steers the host to its edge (/etc/hosts) and
 // installs its CA at boot; rules added after boot never reach a running
 // guest, so the rule must be inline. The baked env file holds only base
 // URLs and placeholder keys: no token is ever written into the guest, and

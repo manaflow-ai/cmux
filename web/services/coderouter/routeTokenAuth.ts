@@ -136,7 +136,11 @@ async function authenticateUnobserved(
   const signedHeader = request.headers.has(VM_AUTHORIZATION_HEADER);
   const token = routeTokenFromRequest(request);
   if (!token) return { ok: false, reason: signedHeader ? "invalid_route_token" : "missing_route_token" };
-  const claims = signedHeader ? await verifyVmAuthorization(token) : null;
+  // A provider edge may preserve the standard bearer/route headers while
+  // dropping the custom signed header. Verify the same JWT before falling
+  // back to the legacy VM-id binding so those requests retain the signed
+  // identity contract.
+  const claims = !token.startsWith("crt_") ? await verifyVmAuthorization(token) : null;
   if (signedHeader && !claims) return { ok: false, reason: "invalid_route_token" };
   // The signature verified; attribute a crash in the ownership lookup below
   // to this machine and team instead of to nobody.

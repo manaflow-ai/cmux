@@ -31,6 +31,17 @@ describe("signed VM authorization", () => {
     if (result.ok) expect(result.identity.vmId).toBe("vm-1");
   });
 
+  test("accepts the same signed token through the edge compatibility bearer header", async () => {
+    const token = await vmToken();
+    const req = new Request("https://coderouter.test/v1/models", {
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+    });
+    const result = await authenticateRequestRouteToken(req, async t => t === token ? identity : null);
+    expect(result).toMatchObject({ ok: true, identity: { vmId: "vm-1", token } });
+  });
+
   test("malformed/unsigned headers fail closed without fallback or database access", async () => {
     for (const header of ["", "Basic abc", "Bearer", "Bearer crt_unsigned", "Bearer a.b.", "Bearer a.b.c, a.b.c", "a.b.c", `Bearer ${"x".repeat(4097)}`]) {
       const req = request("unused");
