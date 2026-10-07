@@ -6,10 +6,24 @@ public struct ImportEnvironment: Sendable {
     public var homeDirectory: URL
     /// Finds an app by bundle id; nil when it is not installed.
     public var locateApp: @Sendable (String) -> URL?
+    /// Finds an app by name ("Fellou" for Fellou.app), for registry rows
+    /// whose bundle id is not verified; nil when it is not installed.
+    public var locateAppNamed: @Sendable (String) -> URL?
 
-    public init(homeDirectory: URL, locateApp: @escaping @Sendable (String) -> URL?) {
+    public init(homeDirectory: URL, locateApp: @escaping @Sendable (String) -> URL?,
+                locateAppNamed: @escaping @Sendable (String) -> URL? = { _ in nil }) {
         self.homeDirectory = homeDirectory
         self.locateApp = locateApp
+        self.locateAppNamed = locateAppNamed
+    }
+
+    /// `/Applications/<name>.app` or `~/Applications/<name>.app`.
+    public static func applicationNamed(_ name: String) -> URL? {
+        guard !name.isEmpty, !name.contains("/") else { return nil }
+        let folders = [URL(fileURLWithPath: "/Applications", isDirectory: true),
+                       FileManager.default.homeDirectoryForCurrentUser.appending(path: "Applications", directoryHint: .isDirectory)]
+        return folders.map { $0.appending(path: "\(name).app", directoryHint: .isDirectory) }
+            .first { FileManager.default.fileExists(atPath: $0.path) }
     }
 
     /// Environment variable that points import at a fixture home (test
@@ -38,11 +52,21 @@ public struct ImportEnvironment: Sendable {
         if allowsFixtures, let fixture = environment[fixtureHomeKey], !fixture.isEmpty {
             return ImportEnvironment(homeDirectory: URL(fileURLWithPath: fixture, isDirectory: true), locateApp: { _ in nil })
         }
-        return ImportEnvironment(homeDirectory: FileManager.default.homeDirectoryForCurrentUser, locateApp: locateApp)
+        return ImportEnvironment(homeDirectory: FileManager.default.homeDirectoryForCurrentUser, locateApp: locateApp,
+                                 locateAppNamed: applicationNamed)
     }
 
+    /// The browser's data folder in this home: the first registry folder
+    /// that exists, else the first one.
     public func dataDirectory(_ browser: ImportBrowser) -> URL {
-        homeDirectory.appending(path: browser.dataDirectory, directoryHint: .isDirectory)
+        let candidates = browser.dataDirectories.map { homeDirectory.appending(path: $0, directoryHint: .isDirectory) }
+        return candidates.first { FileManager.default.fileExists(atPath: $0.path) }
+            ?? homeDirectory.appending(path: browser.dataDirectory, directoryHint: .isDirectory)
+    }
+
+    /// A home-relative registry path (Arc's sidebar, Safari's cookies) in this home.
+    public func file(_ relative: String) -> URL {
+        homeDirectory.appending(path: relative)
     }
 }
 
