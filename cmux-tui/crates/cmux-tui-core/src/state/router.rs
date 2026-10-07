@@ -611,7 +611,7 @@ fn personal_change(
             index: index(fields, "index"),
         },
         Op::WorkspaceGroupUpdate => {
-            require_any(fields, &["name", "color", "collapsed", "room", "top_index"])?;
+            require_any(fields, &["name", "color", "collapsed", "room", "top_index", "icon"])?;
             PersonalChange::GroupUpdate {
                 group: group(),
                 name: string(fields, "name"),
@@ -621,6 +621,7 @@ fn personal_change(
                 top_index: fields
                     .get("top_index")
                     .map(|value| value.as_u64().and_then(|index| usize::try_from(index).ok())),
+                icon: nullable_string(fields, "icon"),
             }
         }
         Op::WorkspaceGroupDelete => PersonalChange::GroupDelete { group: group() },

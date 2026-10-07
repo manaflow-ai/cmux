@@ -37,6 +37,10 @@ pub struct WorkspaceGroupSnapshot {
     /// loose workspace. Older daemons omit it.
     #[serde(default)]
     pub top_index: Option<u32>,
+    /// The group's icon (`workspace-group-icon-v1`): one emoji or an SF
+    /// Symbol name; `None` is no icon. Older daemons omit it.
+    #[serde(default)]
+    pub icon: Option<String>,
 }
 
 /// A session-qualified workspace in the personal order.
@@ -117,6 +121,9 @@ pub struct WorkspaceGroupUpdateOptions {
     /// personal workspace at index `i`; `Clear` puts it after every loose
     /// workspace.
     pub top_index: Update<u32>,
+    /// The group's icon (`workspace-group-icon-v1`): one emoji or an SF
+    /// Symbol name; `Clear` removes it.
+    pub icon: Update<String>,
 }
 
 /// Fields of `workspace.place`. `group: Update::Clear` ungroups the
@@ -204,15 +211,16 @@ impl Session {
         options: WorkspaceGroupUpdateOptions,
         mutation: MutationOptions,
     ) -> Result<MutationResult<WorkspaceGroupSnapshot>> {
-        let WorkspaceGroupUpdateOptions { name, color, collapsed, room, top_index } = options;
+        let WorkspaceGroupUpdateOptions { name, color, collapsed, room, top_index, icon } = options;
         if name.is_none()
             && matches!(color, Update::Unchanged)
             && collapsed.is_none()
             && room.is_none()
             && matches!(top_index, Update::Unchanged)
+            && matches!(icon, Update::Unchanged)
         {
             return Err(Error::InvalidArgument(
-                "workspace group update must change name, color, collapsed, room, or top_index"
+                "workspace group update must change name, color, collapsed, room, top_index, or icon"
                     .to_string(),
             ));
         }
@@ -233,6 +241,11 @@ impl Session {
             Update::Unchanged => params,
             Update::Clear => params.value("top_index", Value::Null),
             Update::Set(index) => params.u32("top_index", index),
+        };
+        let params = match icon {
+            Update::Unchanged => params,
+            Update::Clear => params.value("icon", Value::Null),
+            Update::Set(icon) => params.string("icon", icon),
         };
         mutation_snapshot(
             self.client.mutate(ops::WORKSPACE_GROUP_UPDATE, params, mutation)?,

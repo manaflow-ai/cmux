@@ -449,7 +449,17 @@ fn workspace_groups_create_update_move_delete_send_the_catalog_fields() {
         );
         let mut placed = group_snapshot("Deep work", Value::Null, true, 0);
         placed["top_index"] = json!(3);
-        mutation_ok(stream, &slot, placed);
+        mutation_ok(stream, &slot, placed.clone());
+
+        let icon = request(reader, "workspace_group.update");
+        assert_eq!(
+            icon["params"],
+            json!({"machine": "current", "session": SESSION, "workspace_group": GROUP,
+                   "icon": "🚀"})
+        );
+        let mut iconed = placed;
+        iconed["icon"] = json!("🚀");
+        mutation_ok(stream, &icon, iconed);
 
         let moved = request(reader, "workspace_group.move");
         assert_eq!(
@@ -495,6 +505,7 @@ fn workspace_groups_create_update_move_delete_send_the_catalog_fields() {
         collapsed: Some(true),
         room: None,
         top_index: Update::Unchanged,
+        icon: Update::Unchanged,
     };
     let updated = session.update_workspace_group(GROUP, update).unwrap().value;
     assert_eq!((updated.name.as_str(), updated.collapsed), ("Deep work", true));
@@ -504,6 +515,12 @@ fn workspace_groups_create_update_move_delete_send_the_catalog_fields() {
         ..WorkspaceGroupUpdateOptions::default()
     };
     assert_eq!(session.update_workspace_group(GROUP, slot).unwrap().value.top_index, Some(3));
+    let iconed = WorkspaceGroupUpdateOptions {
+        icon: Update::Set("🚀".into()),
+        ..WorkspaceGroupUpdateOptions::default()
+    };
+    let iconed = session.update_workspace_group(GROUP, iconed).unwrap().value;
+    assert_eq!((iconed.icon.as_deref(), iconed.top_index), (Some("🚀"), Some(3)));
     assert_eq!(session.move_workspace_group(GROUP, 2).unwrap().value.index, 1);
     let deleted = session.delete_workspace_group(GROUP).unwrap().value;
     assert_eq!(deleted.ungrouped.len(), 2);

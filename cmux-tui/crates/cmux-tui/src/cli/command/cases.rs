@@ -816,6 +816,8 @@ fn state_resource_cases<'a>(
                 "--collapse",
                 "--top-index",
                 "2",
+                "--icon",
+                "folder.fill",
             ],
             "workspace_group.update",
         ),

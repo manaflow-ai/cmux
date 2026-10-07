@@ -382,6 +382,7 @@ pub(super) fn parse_workspace_group(
                 "update" => {
                     insert_optional_string(&mut params.fields, flags, "name", "name");
                     nullable(&mut params, flags, "color", "color")?;
+                    nullable(&mut params, flags, "icon", "icon")?;
                     params.room(flags, "room", "room")?;
                     group_collapse(flags, &mut params.fields)?;
                     top_index(&mut params, flags)?;

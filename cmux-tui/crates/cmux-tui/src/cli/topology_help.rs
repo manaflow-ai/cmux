@@ -28,7 +28,7 @@ USAGE
   cmux workspace group list [--room <room>]
   cmux workspace group create --name <value> [--color <value>] [--room <room>] [--index <n>] [--collapse]
   cmux workspace group <group> update [--name <value>] [--color <value>|--clear-color]
-    [--room <room>] [--collapse|--expand] [--top-index <n>|--clear-top-index]
+    [--icon <emoji or SF Symbol name>|--clear-icon] [--room <room>] [--collapse|--expand] [--top-index <n>|--clear-top-index]
   cmux workspace group <group> delete
   cmux workspace group <group> move --index <n>
   cmux workspace group <group> add --workspace <selector> [--index <n>]
@@ -46,7 +46,8 @@ is not the sidebar order. list --order personal gives the sidebar order: loose
 workspaces, and each group's workspaces where the group shows. The app's
 snapshot.get windows[].workspaces lists the order each window shows. --top-index
 puts a group right before the workspace at that placement index;
---clear-top-index puts it after every loose workspace.
+--clear-top-index puts it after every loose workspace. --icon sets a group's
+icon (one emoji or an SF Symbol name); --clear-icon removes it.
 
 SELECTORS
   <selector> is an id (ws_…, pane_…, tab_…, term_…), current, or an exact

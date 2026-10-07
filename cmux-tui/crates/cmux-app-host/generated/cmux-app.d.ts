@@ -333,7 +333,7 @@ declare namespace Cmux {
   type WindowRecordDeleteResult = { id: string; revision: string }
   type WindowRecordSnapshot = { id: string; install_id: string; window_id: string; owner: string; revision: string; record: Cmux.JsonValue; updated_at_ms: string }
   type WorkspaceGroupDeleteResult = { id: Cmux.StateId; ungrouped: Array<Cmux.WorkspaceRef> }
-  type WorkspaceGroupSnapshot = { id: Cmux.StateId; room_id: Cmux.StateId; name: string; color: string | null; collapsed: boolean; index: number; top_index?: number | null }
+  type WorkspaceGroupSnapshot = { id: Cmux.StateId; room_id: Cmux.StateId; name: string; color: string | null; collapsed: boolean; index: number; top_index?: number | null; icon?: string | null }
   type WorkspaceLogLevel = "info" | "progress" | "success" | "warning" | "error"
   type WorkspaceLogLine = { sequence: string; level: Cmux.WorkspaceLogLevel; source: string | null; text: string; at_ms: string }
   type WorkspacePlacementSnapshot = { workspace: Cmux.WorkspaceRef; index: number; group_id: Cmux.StateId | null; room_id: Cmux.StateId | null }
@@ -1419,7 +1419,7 @@ interface CmuxGlobal {
     /** `workspace_group.move` (mutation, scope `workspace_group:write`) */
     move: CmuxOp<{ machine?: string; session?: string; workspace_group: Cmux.StateId; index: number; expected_revision?: string }, Cmux.MutationResult<Cmux.WorkspaceGroupSnapshot>>
     /** `workspace_group.update` (mutation, scope `workspace_group:write`) */
-    update: CmuxOp<{ machine?: string; session?: string; workspace_group: Cmux.StateId; name?: string; color?: string | null; collapsed?: boolean; room?: Cmux.StateId; top_index?: number | null; expected_revision?: string }, Cmux.MutationResult<Cmux.WorkspaceGroupSnapshot>>
+    update: CmuxOp<{ machine?: string; session?: string; workspace_group: Cmux.StateId; name?: string; color?: string | null; collapsed?: boolean; room?: Cmux.StateId; top_index?: number | null; icon?: string | null; expected_revision?: string }, Cmux.MutationResult<Cmux.WorkspaceGroupSnapshot>>
   }
   workspace_log: {
     /** `workspace_log.append` (mutation, scope `workspace_log:write`) */

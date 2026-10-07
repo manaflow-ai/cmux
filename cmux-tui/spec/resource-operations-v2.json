@@ -5708,6 +5708,17 @@
             }
           },
           "description": "personal-mixed-order-v1: the index of the personal workspace the group shows right before, or null for after every loose workspace. Absent from daemons without the capability."
+        },
+        "icon": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "workspace-group-icon-v1: the group's icon, an SF Symbol name or one emoji (the shared icon string), or null for none. Absent from daemons without the capability."
         }
       },
       "extra": false
@@ -20048,6 +20059,17 @@
             },
             "description": "personal-mixed-order-v1: the group's place among the loose workspaces, as the index (workspace.placement.list index) of the personal workspace it shows right before; the count or more puts it after every workspace. null puts it after every loose workspace (the order before mixed order). A group shows before a loose workspace at the same place."
           },
+          "icon": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            },
+            "description": "workspace-group-icon-v1: the group's icon, an SF Symbol name or one emoji (the shared icon string); null clears it. Shown as the group's icon on every client."
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -20059,7 +20081,7 @@
         },
         "extra": false,
         "constraints": [
-          "At least one of name, color, collapsed, room, or top_index is present.",
+          "At least one of name, color, collapsed, room, top_index, or icon is present.",
           "A top_index at or before the home workspace's index is refused with home.pinned_first."
         ]
       },
