@@ -14,7 +14,8 @@ final class TabCell {
     let accessibility = TabAccessibilityElement()
 
     private(set) var item: TabItem
-    var isSelected = false { didSet { if oldValue != isSelected { stateChanged() } } }
+    /// Instant (L4): the content switches in one frame, so the highlight does too.
+    var isSelected = false { didSet { if oldValue != isSelected { stateChanged(animated: false) } } }
     var isHovered = false { didSet { if oldValue != isHovered { stateChanged() } } }
     var isCloseHovered = false { didSet { if oldValue != isCloseHovered { updateColors(animated: true) } } }
     var isClosePressed = false { didSet { if oldValue != isClosePressed { updateColors(animated: false) } } }
@@ -163,12 +164,12 @@ final class TabCell {
         item.title.isEmpty ? Strings.untitled : item.title
     }
 
-    private func stateChanged() {
-        updateColors(animated: true)
+    private func stateChanged(animated: Bool = true) {
+        updateColors(animated: animated)
         updateAccessibility()
         // Hover shows or hides the x: its fade and the title's fade under
         // it animate (Motion `hover`); nothing moves.
-        animatesCloseChange = true
+        animatesCloseChange = animated
         layoutLayers()
         animatesCloseChange = false
         updateMarquee()

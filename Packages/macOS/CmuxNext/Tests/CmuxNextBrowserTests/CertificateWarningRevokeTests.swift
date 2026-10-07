@@ -195,7 +195,7 @@ struct CertificateWarningRevokeTests {
     /// host; a real Chromium tab can always turn warnings on.
     @Test func theEnginesSayWhetherWarningsCanBeTurnedOn() {
         let engine = WebKitEngine()
-        let tab = engine.makeWebKitTab(BrowserTabConfiguration(profile: .default))
+        let tab = engine.makeWebKitTab(profile: .default)
         tab.apply(.urlChanged(page))
         #expect(!tab.canTurnOnCertificateWarnings, "no Proceed for this host")
         engine.allowCertificateException(host: host, profile: .default)

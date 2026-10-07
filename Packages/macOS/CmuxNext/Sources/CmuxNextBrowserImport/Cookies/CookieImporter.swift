@@ -55,7 +55,7 @@ public struct CookieImporter: Sendable {
             case .missing: return CookieReadResult(cookies: [])
             case .readable: return try SafariBinaryCookies().parse(Data(contentsOf: file), now: now)
             }
-        case .webkit:
+        case .webkit, .other:
             throw CookieImportError.malformed(browser.displayName)
         }
     }

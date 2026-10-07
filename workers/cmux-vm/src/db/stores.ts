@@ -36,8 +36,10 @@ export interface ListPageOptions {
 /** One audit row: never command text, file contents or secrets. */
 export interface AuditEntry {
   readonly tenantId: TenantId;
-  /** `user:<id>` or `key:<id>`. */
+  /** `user:<id>`, `key:<id>`, `device:<id>` (a device-signed request) or `system:<name>`. */
   readonly actor: string;
+  /** For a device or system actor: the principal it acted for or on (`user:<id>` or `key:<id>`); null otherwise. */
+  readonly ownerActor: string | null;
   readonly action: string;
   readonly cmuxId: string | null;
   /** "ok" or the public error tag the caller received. */
@@ -217,15 +219,22 @@ export const sqlStoresLayer: Layer.Layer<OwnershipStore | ApiKeyStore | AuditSto
     };
 
     const audit: AuditStoreService = {
+      // Rows without an owner keep the pre-0007 statement, so they are written before 0007 is applied.
       append: (entry) =>
-        sql
-          .query(
-            "audit.append",
-            `INSERT INTO cmux_vm.audit_log (tenant_id, actor, action, cmux_id, outcome, created_at)
-             VALUES ($1, $2, $3, $4, $5, $6::timestamptz)`,
-            [entry.tenantId, entry.actor, entry.action, entry.cmuxId, entry.outcome, entry.at.toISOString()],
-          )
-          .pipe(Effect.asVoid),
+        (entry.ownerActor === null
+          ? sql.query(
+              "audit.append",
+              `INSERT INTO cmux_vm.audit_log (tenant_id, actor, action, cmux_id, outcome, created_at)
+               VALUES ($1, $2, $3, $4, $5, $6::timestamptz)`,
+              [entry.tenantId, entry.actor, entry.action, entry.cmuxId, entry.outcome, entry.at.toISOString()],
+            )
+          : sql.query(
+              "audit.appendOwned",
+              `INSERT INTO cmux_vm.audit_log (tenant_id, actor, owner_actor, action, cmux_id, outcome, created_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7::timestamptz)`,
+              [entry.tenantId, entry.actor, entry.ownerActor, entry.action, entry.cmuxId, entry.outcome, entry.at.toISOString()],
+            )
+        ).pipe(Effect.asVoid),
     };
 
     const KEY_COLUMNS = `id, tenant_id,

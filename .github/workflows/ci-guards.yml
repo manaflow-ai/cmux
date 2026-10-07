@@ -698,6 +698,10 @@ jobs:
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_tui_publish_dispatch_budget.py
 
+      - name: Validate the app FFI release publish job fails without a release
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: python3 tests/test_app_ffi_release_workflow.py
+
       - name: Validate pull request caches are read-only
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_ci_pull_request_caches_are_read_only.py
@@ -1064,6 +1068,14 @@ jobs:
       - name: Validate fork runner routing
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_ci_fork_runner_routing.py
+
+      - name: Validate the macOS cross-compile shadow jobs stay compare-only
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: python3 tests/test_ci_macos_cross_shadow_jobs.py
+
+      - name: Validate the cmux-tui tree publishes the Linux daemon
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: python3 tests/test_ci_cmux_tui_tree_targets.py
 
       - name: Validate runner capability resolution
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}

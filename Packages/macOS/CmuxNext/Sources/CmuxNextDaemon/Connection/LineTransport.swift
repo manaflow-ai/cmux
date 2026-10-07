@@ -79,8 +79,26 @@ final class LineTransport: Sendable {
     private let writer: SocketWriter
     let path: String
 
-    init(path: String, preamble: String? = nil) throws(DaemonError) {
+    /// The bridge child of this connection (``DaemonBridge``), killed and
+    /// reaped when the connection closes.
+    private let child: BridgeChild?
+
+    init(path: String, bridge: DaemonBridge? = nil) throws(DaemonError) {
         self.path = path
+        let fd: Int32
+        if let bridge {
+            let opened = try bridge.open()
+            fd = opened.fd
+            child = opened.child
+        } else {
+            fd = try Self.connect(path)
+            child = nil
+        }
+        socket = Mutex(Socket(fd: fd))
+        writer = SocketWriter(fd: fd, label: "com.cmuxterm.next.daemon.write")
+    }
+
+    private static func connect(_ path: String) throws(DaemonError) -> Int32 {
         let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { throw .connectFailed(path: path, errno: errno) }
         // Close-on-exec: a program the app execs must not inherit a daemon connection, whose
@@ -111,17 +129,11 @@ final class LineTransport: Sendable {
             Darwin.close(fd)
             throw .connectFailed(path: path, errno: code)
         }
-        if let preamble {
-            do {
-                try LinePreamble(fd: fd).exchange(preamble)
-            } catch {
-                Darwin.close(fd)
-                throw error
-            }
-        }
-        socket = Mutex(Socket(fd: fd))
-        writer = SocketWriter(fd: fd, label: "com.cmuxterm.next.daemon.write")
+        return fd
     }
+
+    /// The bridge child's pid (tests).
+    var bridgePIDForTesting: pid_t? { child?.pid }
 
     /// The socket descriptor (tests: close-on-exec).
     var descriptorForTesting: Int32 { socket.withLock { $0.fd } }
@@ -242,6 +254,7 @@ final class LineTransport: Sendable {
         socket.withLock { socket in
             if socket.fd >= 0 { Darwin.shutdown(socket.fd, SHUT_RDWR) }
         }
+        child?.terminate()
     }
 
     // MARK: - Private

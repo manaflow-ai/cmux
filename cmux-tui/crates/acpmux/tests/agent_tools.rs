@@ -125,7 +125,15 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
     let id = local.new_session("fakeclaude").await;
     let argv: Vec<String> = serde_json::from_str(&local.ask(&id, "hi").await).unwrap();
     let at = argv.iter().position(|a| a == "--mcp-config").expect("--mcp-config");
-    let config: Value = serde_json::from_str(&argv[at + 1]).unwrap();
+    // The config is a 0600 file, so the socket token stays out of argv.
+    let config_path = PathBuf::from(&argv[at + 1]);
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(&config_path).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600, "{}", config_path.display());
+    }
+    let config: Value =
+        serde_json::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
     assert_eq!(config["mcpServers"]["cmux-cua"]["command"], json!(cua), "{config}");
     assert_eq!(config["mcpServers"]["cmux"]["command"], json!(cmux), "{config}");
     assert!(!argv.iter().any(|a| a == "--strict-mcp-config"), "the user's servers stay: {argv:?}");

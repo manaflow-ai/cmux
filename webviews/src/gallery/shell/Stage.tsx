@@ -140,7 +140,9 @@ export function Stage({
     return () => removeEventListener("message", receive);
   }, []);
   const note = entry.variants[state]?.note;
-  const windowed = env.frame === "window" && entry.host !== "native";
+  // Component entries have their own natural bounds. Keep the window frame for page entries,
+  // but never make a component preview inherit the 16:9 window's scale.
+  const windowed = env.frame === "window" && entry.host !== "native" && entry.host !== "component";
   let frame: { width: number; height: number };
   let scale = 1;
   if (windowed) {
@@ -154,6 +156,7 @@ export function Stage({
       width: widthPx(env.width, entry.widths ?? (entry.host === "native" ? NATIVE_WIDTHS : WIDTHS)),
       height: env.height || stageHeight(entry, state),
     };
+    scale = env.zoom === "fit" ? fitScale(frame, available) : env.zoom;
   }
   return (
     <figure className="gallery-stage">

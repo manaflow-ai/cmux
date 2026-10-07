@@ -171,6 +171,9 @@ export function daemonUnit(extraEnv: Readonly<Record<string, string>> = {}): str
     "Type=simple",
     "User=root",
     "Environment=CMUX_TUI_REMOTE_WS_BIND=[::]:1337",
+    // Each terminal host gets its own transient scope (cmux-tui host_scope.rs),
+    // so a stop or restart of this unit keeps every terminal for re-adoption.
+    "Environment=CMUX_TUI_HOST_SCOPES=systemd",
     `Environment=PATH=${STORE_PATH}`,
     ...daemonEnvLines(extraEnv),
     "ExecStart=/usr/local/bin/cmux-devbox-boot",
