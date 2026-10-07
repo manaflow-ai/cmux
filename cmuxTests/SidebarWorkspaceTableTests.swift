@@ -46,6 +46,56 @@ struct SidebarWorkspaceTableTests {
     }
 
 #if DEBUG
+    @Test(arguments: [0, 1, 3])
+    @MainActor
+    func groupDragPreservesHeaderGrabOffset(memberCount: Int) async throws {
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 600),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = container
+        defer { controller.dismantleContainerView(container) }
+        let groupId = UUID()
+        let header = makeRowConfiguration(groupId: groupId, isGroupHeader: true, fixedHeight: 28)
+        let members = (0..<memberCount).map { index in
+            makeRowConfiguration(groupId: groupId, fixedHeight: CGFloat(40 + index * 15))
+        }
+        let rows = [makeRowConfiguration(fixedHeight: 80), header]
+            + members + [makeRowConfiguration(fixedHeight: 160)]
+        controller.apply(
+            rows: rows,
+            actions: makeTableActions(),
+            workspaceIds: rows.map(\.workspaceId),
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+        container.layoutSubtreeIfNeeded()
+        let table = container.tableView
+        table.layoutSubtreeIfNeeded()
+        let sourceViews = try (1..<(2 + memberCount)).map { row in
+            try #require(table.rowView(atRow: row, makeIfNecessary: true))
+        }
+        // Grab near the top of the header, far from an expanded block's
+        // center. Pickup must not jump; each member must follow the header
+        // by exactly the pointer's movement in both directions.
+        let grab = NSPoint(x: 50, y: table.rect(ofRow: 1).minY + 5)
+        for delta: CGFloat in [0, 24, -18, 0] {
+            controller.updateReorderLift(
+                windowPoint: table.convert(NSPoint(x: grab.x, y: grab.y + delta), to: nil),
+                workspaceId: header.workspaceId
+            )
+            for rowView in sourceViews {
+                let layer = try #require(rowView.layer)
+                #expect(abs(layer.transform.m42 - delta) < 0.5)
+            }
+        }
+    }
+
     @Test
     @MainActor
     func provisionalWorkspaceWriterKeepsSourceAttachedUntilNativeSessionDecision() async throws {
@@ -1751,6 +1801,8 @@ struct SidebarWorkspaceTableTests {
     @MainActor
     private func makeRowConfiguration(
         workspaceId: UUID = UUID(),
+        groupId: UUID? = nil,
+        isGroupHeader: Bool = false,
         contentToken: Int = 0,
         fontMagnificationPercent: Int = 100,
         colorScheme: ColorScheme = .light,
@@ -1769,10 +1821,10 @@ struct SidebarWorkspaceTableTests {
         )
 #endif
         return SidebarWorkspaceTableRowConfiguration(
-            id: .workspace(workspaceId),
+            id: isGroupHeader ? .group(groupId ?? workspaceId) : .workspace(workspaceId),
             workspaceId: workspaceId,
-            groupId: nil,
-            isGroupHeader: false,
+            groupId: groupId,
+            isGroupHeader: isGroupHeader,
             isPinned: false,
             environment: environment,
             equivalenceValue: TestRowContent(token: contentToken, fixedHeight: fixedHeight)

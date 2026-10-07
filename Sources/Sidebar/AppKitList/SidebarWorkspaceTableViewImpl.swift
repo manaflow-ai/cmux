@@ -12,6 +12,21 @@ final class SidebarWorkspaceTableViewImpl: NSTableView {
     private var pointerTrackingArea: NSTrackingArea?
     private(set) var lastPointerWindowLocation: NSPoint?
 
+    /// Rows a reorder drag is carrying. They must stay loaded even when
+    /// autoscroll moves their real frames out of view: the lift draws them
+    /// by transform, so an unloaded row would vanish from under the pointer
+    /// and leave only its gap behind.
+    var reorderPinnedRowsRect: NSRect? {
+        didSet {
+            guard oldValue != reorderPinnedRowsRect else { return }
+            prepareContent(in: visibleRect)
+        }
+    }
+
+    override func prepareContent(in rect: NSRect) {
+        super.prepareContent(in: reorderPinnedRowsRect.map { rect.union($0) } ?? rect)
+    }
+
     /// Pointer location for hover recomputes that no event drove (content
     /// applies, menu close, viewport changes). Tracking events stop while a
     /// context menu or drag session runs, so the cached point can be where

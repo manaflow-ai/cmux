@@ -209,6 +209,28 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         return false
     }
 
+    /// The row's fill (selection/hover) as a standalone copy in `view`'s
+    /// coordinates, for the reorder lift, which moves it apart from the
+    /// content. Nil when the row has no visible fill.
+    func makeLiftFillLayer(in view: NSView) -> CALayer? {
+        guard let source = backgroundView.layer, !backgroundView.isHidden,
+              (source.backgroundColor?.alpha ?? 0) > 0 || source.borderWidth > 0 else { return nil }
+        let fill = CALayer()
+        let frame = backgroundView.convert(backgroundView.bounds, to: view)
+        fill.frame = CGRect(x: frame.minX, y: 0, width: frame.width, height: view.bounds.height)
+        fill.backgroundColor = source.backgroundColor
+        fill.cornerRadius = source.cornerRadius
+        fill.cornerCurve = source.cornerCurve
+        fill.borderWidth = source.borderWidth
+        fill.borderColor = source.borderColor
+        return fill
+    }
+
+    /// Hides the fill so the lift can snapshot the content alone.
+    func setLiftFillHidden(_ hidden: Bool) {
+        backgroundView.isHidden = hidden
+    }
+
     private func applyBackgroundStyle(_ style: SidebarWorkspaceRowBackgroundStyle) {
         backgroundView.layer?.backgroundColor = (style.color ?? .clear)
             .withAlphaComponent((style.color == nil ? 0 : style.opacity) * ((style.color?.alphaComponent) ?? 1)).cgColor
