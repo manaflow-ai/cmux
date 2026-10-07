@@ -66,6 +66,25 @@ fn open_command(args: &[String], exe: &str) -> Result<Vec<String>, String> {
         .collect())
 }
 
+/// The acpmux unix socket the session daemon attaches agent tabs through
+/// (`agent-session-attach-v1`): the one `cmux acp` in this daemon's terminals
+/// reaches. `ACPMUX_SOCKET`, else the home `cmux acp` uses (`ACPMUX_HOME`,
+/// else the tag's own home, else `~/.acpmux`). Read once at daemon start.
+#[cfg(unix)]
+pub(crate) fn daemon_socket_path() -> Option<PathBuf> {
+    let home = std::env::var("HOME").ok().map(PathBuf::from)?;
+    let identity = crate::app_identity::AppIdentity::detect(
+        |name| std::env::var(name).ok(),
+        std::env::current_exe().ok().as_deref(),
+    );
+    let tag = acpmux_tag(std::env::var("CMUX_TAG").ok(), identity);
+    if let Some(tagged) = tagged_home(tag.as_deref(), &home) {
+        // Below `ACPMUX_HOME`, as for `cmux acp` (config::home precedence).
+        acpmux::config::set_home_override(tagged);
+    }
+    Some(acpmux::config::socket_path())
+}
+
 /// The binary started as `acpmux`. Its daemon is started from
 /// `current_exe`, which resolves an `acpmux` symlink to this binary under
 /// its own name, so that start needs the `acp` prefix (`<cmux> acp daemon
