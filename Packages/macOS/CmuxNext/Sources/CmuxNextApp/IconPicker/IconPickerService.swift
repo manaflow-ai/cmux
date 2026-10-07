@@ -4,10 +4,11 @@ import CmuxNextPages
 import CmuxNextSidebar
 
 /// Shows the one icon picker (R94) in a floating panel beside its anchor and
-/// reports the outcome. The page loads in a new page view per open for now;
-/// the shared prewarmed page host (plans/cmux-next/icons.md, step c) replaces
-/// that cold load. One picker at a time: a new open cancels the previous one.
-/// ``debugState`` is what `debug.popups` lists, so preflights prove it opened.
+/// reports the outcome. One warm picker (S3 d): the first open (or ``prewarm()``)
+/// loads the page into a hidden panel; every later open reuses that panel, page
+/// and provider (a session swap, no cold load), and a close only hides the panel.
+/// One picker at a time: a new open cancels the previous one. ``open`` is what
+/// `debug.popups` lists, so preflights prove it opened.
 @MainActor
 final class IconPickerService {
     static let size = NSSize(width: 420, height: 460)
@@ -31,6 +32,13 @@ final class IconPickerService {
         let parent: NSWindow?
     }
 
+    /// The warm picker: the panel with its loaded page and the page's one provider.
+    private struct Warm {
+        let panel: IconPickerPanel
+        let page: PageWebView
+        let provider: IconPickerProvider
+    }
+
     private weak var services: AppServices?
     private lazy var prefs = IconPickerPrefsStore(services: services)
     private let symbols = IconPickerSymbols()
@@ -38,6 +46,7 @@ final class IconPickerService {
     private var catalog: IconPickerSymbolCatalog?
     private lazy var maxEmojiVersion = IconPickerSymbols.maxEmojiVersion()
     private(set) var open: OpenPicker?
+    private var warm: Warm?
 
     init(services: AppServices) {
         self.services = services
@@ -47,43 +56,68 @@ final class IconPickerService {
     /// `completion` runs once with the outcome (a cancel when the panel closes without a pick).
     func pick(current: String?, target: String, at anchor: Anchor, completion: @escaping (IconPickerResult) -> Void) {
         guard let catalog else {
-            // First open: the symbol catalog loads off the main actor (a few plist reads), then the picker shows.
-            // task-owner: one load per first open; it ends with the read, and the service outlives it weakly
-            Task { [weak self] in
-                let loaded = await IconPickerSymbolCatalog.load()
-                guard let self else { return }
-                self.catalog = loaded
-                self.pick(current: current, target: target, at: anchor, completion: completion)
-            }
+            loadCatalog { [weak self] in self?.pick(current: current, target: target, at: anchor, completion: completion) }
             return
         }
         open?.provider.finish(.cancel)
         prefs.load()
-        var session = IconPickerSession(id: UUID().uuidString, current: current, catalog: catalog, maxEmojiVersion: maxEmojiVersion)
-        let dark = anchor.view.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-        session.symbolStyle = IconPickerSymbols.style(dark: dark)
-        let provider = IconPickerProvider(session: session, prefs: prefs) { [weak self] result in
-            self?.close()
-            completion(result)
-        }
-        let routes = [PageRoute(prefix: "cmux.iconPicker.", provider: provider)]
-        guard let page = PageWebView(descriptor: .iconPicker, routes: routes, dynamicResources: symbols) else {
+        guard let warm = warm ?? makeWarm(catalog: catalog) else {
             completion(.cancel)
             return
         }
-        symbols.appearanceView = page
+        var session = IconPickerSession(id: UUID().uuidString, current: current)
+        let dark = anchor.view.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        session.symbolStyle = IconPickerSymbols.style(dark: dark)
+        warm.provider.begin(session) { [weak self] result in
+            self?.close()
+            completion(result)
+        }
         let parent = anchor.view.window
         let screenAnchor = parent.map { $0.convertToScreen(anchor.view.convert(anchor.rect, to: nil)) } ?? anchor.rect
-        let panel = IconPickerPanel(content: page, size: Self.size)
+        let panel = warm.panel
         panel.setFrame(IconPickerPanel.frame(size: Self.size, anchor: screenAnchor, visible: parent?.screen?.visibleFrame), display: false)
-        panel.onDismiss = { [weak provider] in provider?.finish(.cancel) }
-        open = OpenPicker(panel: panel, provider: provider, page: page, target: target, anchor: screenAnchor, parent: parent)
+        panel.onDismiss = { [weak provider = warm.provider] in provider?.finish(.cancel) }
+        open = OpenPicker(panel: panel, provider: warm.provider, page: warm.page, target: target, anchor: screenAnchor, parent: parent)
         // Shown over its window (a child moves with it); never on screen for a window that is not
         // (tests, windows not ordered in).
         guard let parent, parent.isVisible else { return }
         parent.addChildWindow(panel, ordered: .above)
         panel.makeKeyAndOrderFront(nil)
-        page.focusPage()
+        warm.page.focusPage()
+    }
+
+    /// Loads the picker page into its hidden panel now, so the first open is warm too.
+    func prewarm() {
+        guard warm == nil else { return }
+        guard let catalog else {
+            loadCatalog { [weak self] in self?.prewarm() }
+            return
+        }
+        _ = makeWarm(catalog: catalog)
+    }
+
+    /// Whether the page is loaded and kept for the next open (``prewarm()`` or an earlier open).
+    var isWarm: Bool { warm != nil }
+
+    /// Loads the symbol catalog off the main actor (a few plist reads), then runs `then`.
+    private func loadCatalog(then: @escaping () -> Void) {
+        // task-owner: one load per first open or prewarm; it ends with the read, and the service outlives it weakly
+        Task { [weak self] in
+            let loaded = await IconPickerSymbolCatalog.load()
+            guard let self else { return }
+            if self.catalog == nil { self.catalog = loaded }
+            then()
+        }
+    }
+
+    private func makeWarm(catalog: IconPickerSymbolCatalog) -> Warm? {
+        let provider = IconPickerProvider(prefs: prefs, catalog: catalog, maxEmojiVersion: maxEmojiVersion)
+        let routes = [PageRoute(prefix: "cmux.iconPicker.", provider: provider)]
+        guard let page = PageWebView(descriptor: .iconPicker, routes: routes, dynamicResources: symbols) else { return nil }
+        symbols.appearanceView = page
+        let made = Warm(panel: IconPickerPanel(content: page, size: Self.size), page: page, provider: provider)
+        warm = made
+        return made
     }
 
     /// An anchor at workspace `id`'s sidebar row in the window that lists it, else the middle of
@@ -110,12 +144,12 @@ final class IconPickerService {
         return Anchor(view: content, rect: NSRect(x: bounds.midX - 1, y: bounds.maxY - 80, width: 2, height: 2))
     }
 
+    /// Hides the panel; the page stays loaded for the next open.
     private func close() {
         guard let open else { return }
         self.open = nil
         open.panel.onDismiss = nil
         open.parent?.removeChildWindow(open.panel)
         open.panel.orderOut(nil)
-        open.page.close()
     }
 }
