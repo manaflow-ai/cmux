@@ -42,7 +42,8 @@ actor BrowserChannelSession {
         resize()
         let opened = BrowserChannelOpened(datagramChannel: channel.id, encoder: .h264, width: UInt32(size.pixelWidth),
                                           height: UInt32(size.pixelHeight), pageWidth: geometry.cssWidth,
-                                          pageHeight: geometry.cssHeight, caps: Self.caps)
+                                          pageHeight: geometry.cssHeight,
+                                          caps: policy.allowsNavigation ? Self.caps : ["clipboard"])
         let ok = ChannelOpenedFrame(channel: channel.id, window: 1 << 20, params: opened.params, resumed: false)
         guard (try? await channel.send(frame: .channelOpened(ok))) != nil else {
             await attachment.detach()
