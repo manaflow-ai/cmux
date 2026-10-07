@@ -85,6 +85,13 @@ import Testing
         return try #require(root["context_menus"] as? [String: Any])
     }
 
+    /// F3 (2fa9520ccdf) gave menu rows a menu-only `label` ("Change Space
+    /// Icon…" for Set Space Icon…) and exports it with the row, so the rules a
+    /// client renders by must say the label replaces the action's title.
+    @Test func theRulesSayARowsLabelReplacesItsTitle() {
+        #expect(ContextMenuCatalog.exportRenderRules.contains { $0.contains("label") && $0.contains("instead of") })
+    }
+
     @Test(arguments: [false, true])
     func exportRendersExactlyTheLiveMenus(everyContextName: Bool) throws {
         let registry = ActionRegistry.standard()
