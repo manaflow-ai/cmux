@@ -55,7 +55,7 @@ public final class AgentPaneSeedSource {
 
     /// The seed, read once. The draft and prompt are handed out only once,
     /// so a page that reloads before the first prompt does not get them twice.
-    func take() async -> AgentPaneSeed? {
+    public func take() async -> AgentPaneSeed? {
         if let read {
             self.read = nil
             value = await agentPaneFirst(within: limit, read)

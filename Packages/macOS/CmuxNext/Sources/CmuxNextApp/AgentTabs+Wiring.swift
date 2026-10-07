@@ -12,13 +12,21 @@ extension AgentTabStore {
     }
 
     /// The same, for a workspace this app just created (not mirrored yet),
-    /// starting in `cwd`.
-    func openFirstPage(workspace: WorkspaceHandle, cwd: String?, on daemon: DaemonService) async throws -> SurfaceID? {
+    /// starting in `cwd`. With `chat`, a chat seeded with it instead of the
+    /// page (a person's New Agent Chat).
+    func openFirstPage(workspace: WorkspaceHandle, cwd: String?, on daemon: DaemonService,
+                       chat: AgentPaneSeed? = nil) async throws -> SurfaceID? {
         guard let connection = daemon.connection, let localHost, canHost(on: daemon) else { throw DaemonError.notConnected }
         let record = AgentSessionRef(host: localHost, hostName: localHostName)
         let request = NewConversationTabRequest(agentSession: record, workspace: workspace, origin: Self.createOrigin, mutationID: UUID().uuidString)
         let response = try await connection.request(request)
         let key = response.tabResourceID?.rawValue ?? "surface:\(response.surface.rawValue)"
+        if var chat {
+            chat.cwd = chat.cwd ?? cwd
+            seeds[key] = AgentPaneSeedSource(chat)
+            track(key, in: daemon.store)
+            return response.surface
+        }
         seeds[key] = AgentPaneSeedSource(AgentPaneSeed(cwd: cwd))
         newTabPages[key] = firstPageNewTab?(cwd)
         // The tree can list the tab before this reply, and a pane showing it
