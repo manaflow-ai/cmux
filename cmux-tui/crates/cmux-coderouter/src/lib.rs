@@ -25,6 +25,15 @@ pub const BODY_LIMIT: usize = 64 * 1024 * 1024;
 const HEADER_LIMIT: usize = 64 * 1024;
 type HmacSha256 = Hmac<Sha256>;
 
+/// Router policy switches shared by current and future account routing phases.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RouterConfig {
+    /// Permit pooling more than one consumer Claude or ChatGPT OAuth login.
+    /// This remains disabled until the legal review is complete.
+    #[serde(default, rename = "allowOAuthPooling")]
+    pub allow_oauth_pooling: bool,
+}
+
 /// A secret that is erased on drop and never appears in diagnostics.
 pub struct Secret<T: Zeroize>(T);
 impl<T: Zeroize> Secret<T> {
