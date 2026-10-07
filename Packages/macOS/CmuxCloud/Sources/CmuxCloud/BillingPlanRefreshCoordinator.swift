@@ -24,7 +24,9 @@ public struct BillingPlanRefreshCoordinator: Sendable {
     public private(set) var state = BillingPlanState.unknown
 
     private var scope: BillingPlanRefreshScope?
-    private var requestID: UUID?
+    private var nextGeneration: UInt64 = 0
+    private var pendingRequestGenerations: [UUID: UInt64] = [:]
+    private var latestAppliedGeneration: UInt64 = 0
 
     /// Creates an empty coordinator.
     public init() {}
@@ -34,12 +36,13 @@ public struct BillingPlanRefreshCoordinator: Sendable {
         if self.scope != scope {
             self.scope = scope
             state = .unknown
+            nextGeneration = 0
+            pendingRequestGenerations.removeAll()
+            latestAppliedGeneration = 0
         }
         let requestID = UUID()
-        self.requestID = requestID
-        if state.accountID != scope.accountID || state.teamID != scope.teamID {
-            state = .unknown
-        }
+        nextGeneration &+= 1
+        pendingRequestGenerations[requestID] = nextGeneration
         return requestID
     }
 
@@ -52,9 +55,19 @@ public struct BillingPlanRefreshCoordinator: Sendable {
         }
     }
 
-    /// Returns whether a response still belongs to the current request.
+    /// Returns whether a response still belongs to the current scope.
+    ///
+    /// Multiple windows may refresh the same scope concurrently. Each request
+    /// remains valid until it reports, while the generation guard below makes
+    /// the newest successful answer win over an older one.
     public func isCurrent(_ requestID: UUID, scope: BillingPlanRefreshScope) -> Bool {
-        self.requestID == requestID && self.scope == scope
+        self.scope == scope && pendingRequestGenerations[requestID] != nil
+    }
+
+    /// Discards a request that was cancelled before it produced a response.
+    public mutating func discard(_ requestID: UUID, scope: BillingPlanRefreshScope) {
+        guard self.scope == scope else { return }
+        pendingRequestGenerations.removeValue(forKey: requestID)
     }
 
     /// Stores a successful response for the request's scope.
@@ -64,7 +77,9 @@ public struct BillingPlanRefreshCoordinator: Sendable {
         isPro: Bool,
         canManageBilling: Bool
     ) {
-        guard isCurrent(requestID, scope: scope) else { return }
+        guard let generation = consumeGeneration(requestID, scope: scope),
+              generation >= latestAppliedGeneration else { return }
+        latestAppliedGeneration = generation
         state = state.applyingSuccess(
             for: scope.accountID,
             teamID: scope.teamID,
@@ -78,7 +93,8 @@ public struct BillingPlanRefreshCoordinator: Sendable {
         _ requestID: UUID,
         scope: BillingPlanRefreshScope
     ) {
-        guard isCurrent(requestID, scope: scope) else { return }
+        guard let generation = consumeGeneration(requestID, scope: scope),
+              generation >= latestAppliedGeneration else { return }
         state = state.applyingFailure(for: scope.accountID, teamID: scope.teamID)
     }
 
@@ -88,14 +104,26 @@ public struct BillingPlanRefreshCoordinator: Sendable {
         _ requestID: UUID,
         scope: BillingPlanRefreshScope
     ) {
-        guard isCurrent(requestID, scope: scope) else { return }
+        guard let generation = consumeGeneration(requestID, scope: scope),
+              generation >= latestAppliedGeneration else { return }
+        latestAppliedGeneration = generation
         state = .unknown
     }
 
     /// Drops all scope and request state, such as on sign-out.
     public mutating func reset() {
-        requestID = nil
         scope = nil
+        nextGeneration = 0
+        pendingRequestGenerations.removeAll()
+        latestAppliedGeneration = 0
         state = .unknown
+    }
+
+    private mutating func consumeGeneration(
+        _ requestID: UUID,
+        scope: BillingPlanRefreshScope
+    ) -> UInt64? {
+        guard self.scope == scope else { return nil }
+        return pendingRequestGenerations.removeValue(forKey: requestID)
     }
 }

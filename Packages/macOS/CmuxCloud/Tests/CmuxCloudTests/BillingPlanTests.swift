@@ -53,6 +53,20 @@ struct BillingPlanTests {
         #expect(coordinator.state.isPro == false)
     }
 
+    @Test("overlapping same-scope refresh keeps an earlier success after a later failure")
+    func overlappingRefreshKeepsEarlierSuccess() {
+        var coordinator = BillingPlanRefreshCoordinator()
+        let scope = BillingPlanRefreshScope(accountID: "account-a", teamID: "team-a")
+        let firstRequest = coordinator.begin(scope: scope)
+        let secondRequest = coordinator.begin(scope: scope)
+
+        coordinator.applyTransientFailure(secondRequest, scope: scope)
+        coordinator.applySuccess(firstRequest, scope: scope, isPro: true, canManageBilling: true)
+
+        #expect(coordinator.state.isPro)
+        #expect(coordinator.state.accountID == "account-a")
+    }
+
     @Test("refresh coordinator invalidates a changed scope")
     func refreshCoordinatorInvalidatesChangedScope() {
         var coordinator = BillingPlanRefreshCoordinator()

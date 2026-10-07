@@ -283,7 +283,11 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
             }
         } catch {
             invalidateBillingPlanIfScopeChanged()
-            guard !Task.isCancelled, billingPlanRefresh.isCurrent(requestID, scope: scope) else { return false }
+            guard !Task.isCancelled else {
+                billingPlanRefresh.discard(requestID, scope: scope)
+                return false
+            }
+            guard billingPlanRefresh.isCurrent(requestID, scope: scope) else { return false }
             billingPlanRefresh.applyTransientFailure(requestID, scope: scope)
             return false
         }
@@ -301,7 +305,11 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
                 )
             }
             invalidateBillingPlanIfScopeChanged()
-            guard !Task.isCancelled, billingPlanRefresh.isCurrent(requestID, scope: scope) else { return false }
+            guard !Task.isCancelled else {
+                billingPlanRefresh.discard(requestID, scope: scope)
+                return false
+            }
+            guard billingPlanRefresh.isCurrent(requestID, scope: scope) else { return false }
             billingPlanRefresh.applySuccess(
                 requestID,
                 scope: scope,
@@ -311,9 +319,16 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
             return true
         } catch {
             // A cancelled request (the panel went away) says nothing about the plan.
-            if error is CancellationError || (error as? URLError)?.code == .cancelled { return false }
+            if error is CancellationError || (error as? URLError)?.code == .cancelled {
+                billingPlanRefresh.discard(requestID, scope: scope)
+                return false
+            }
             invalidateBillingPlanIfScopeChanged()
-            guard !Task.isCancelled, billingPlanRefresh.isCurrent(requestID, scope: scope) else { return false }
+            guard !Task.isCancelled else {
+                billingPlanRefresh.discard(requestID, scope: scope)
+                return false
+            }
+            guard billingPlanRefresh.isCurrent(requestID, scope: scope) else { return false }
             if error is BillingPlanClientError {
                 // An explicit unauthenticated response invalidates the old
                 // entitlement. Unlike a transient transport failure, it must
