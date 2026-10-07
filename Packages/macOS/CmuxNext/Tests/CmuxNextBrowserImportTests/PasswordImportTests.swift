@@ -194,7 +194,7 @@ import Testing
     /// One synthetic profile per Chromium browser in the catalog, each sealed
     /// with a key only that browser's "<Name> Safe Storage" item opens.
     @Test func everyChromiumBrowserImportsWithItsOwnSafeStorageKey() async throws {
-        for browser in ImportBrowser.allCases where browser.family == .chromium && !browser.refusesSessionData {
+        for browser in ImportBrowser.allCases where browser.family == .chromium && !browser.refusesSessionData && browser != .yandex {
             let home = try FixtureHome()
             let profile = home.directory(browser).appending(path: "Default", directoryHint: .isDirectory)
             try FixtureHome.sqlite(profile.appending(path: "Login Data"), [
@@ -211,6 +211,42 @@ import Testing
                 try await PasswordImporter(keys: FixtureKeys(service: "Other Safe Storage", password: storagePassword),
                                            destination: RecordingPasswordStore()).run(source, intoProfile: "p")
             }
+        }
+    }
+
+    /// Helium names its Keychain item "Helium Storage Key", not "Helium Safe Storage"
+    /// (string in the shipped binary); the wrong name only reports "key not found".
+    @Test func heliumOpensWithItsStorageKey() async throws {
+        let home = try FixtureHome()
+        let profile = home.directory(.helium).appending(path: "Default", directoryHint: .isDirectory)
+        try FixtureHome.sqlite(profile.appending(path: "Login Data"), [
+            Self.schema, row("https://site.example/", "user", try sealed("\(Self.marker)-helium")),
+        ])
+        let source = BrowserSourceProfile(browser: .helium, directoryName: "Default", displayName: "Default", path: profile,
+                                          availability: [.passwords: .available])
+        let store = RecordingPasswordStore(reply: PasswordStoreReply(added: 1))
+        let report = try await PasswordImporter(keys: FixtureKeys(service: "Helium Storage Key", password: storagePassword), destination: store)
+            .run(source, intoProfile: "p")
+        #expect(report.imported == 1)
+    }
+
+    /// Yandex seals saved passwords with its own scheme, not the Safe Storage key:
+    /// the detector shows passwords as unsupported and the importer refuses them,
+    /// so nothing undecryptable is counted as a failure. Cookies are not affected.
+    @Test func yandexPasswordsAreUnsupported() async throws {
+        let home = try FixtureHome()
+        let root = try home.chromium(.yandex, profiles: [("Default", "Personal")])
+        try FixtureHome.sqlite(root.appending(path: "Default/Login Data"), [
+            Self.schema, row("https://site.example/", "user", try sealed("\(Self.marker)-yandex")),
+        ])
+        try FixtureHome.sqlite(root.appending(path: "Default/Network/Cookies"), ["CREATE TABLE cookies(x)"])
+        let source = try #require(BrowserSourceDetector(environment: home.environment).detect(.yandex))
+        let profile = try #require(source.profiles.first)
+        #expect(profile.availability(of: .passwords) == .unsupported(.exportFromSource))
+        #expect(profile.availability(of: .cookies) == .available)
+        let keys = FixtureKeys(service: "Yandex Safe Storage", password: storagePassword)
+        await #expect(throws: PasswordImporter.Failure.unsupportedBrowser) {
+            try await PasswordImporter(keys: keys, destination: RecordingPasswordStore()).run(profile, intoProfile: "p")
         }
     }
 
