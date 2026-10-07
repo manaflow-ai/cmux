@@ -116,3 +116,21 @@ Renderer integration stays in `CmuxiOSTerminalTests` (fleet or CI only).
 Local echo prediction and latency telemetry (C1), terminal list and attach
 UI (D1), SSH transport (C9), search UI, Kitty image replay wiring (the
 pipeline passes READY only, as ios-rewrite.md 10.6 says).
+
+## 4. Status (2026-10-06)
+
+Done: render core package with 39 Swift Testing tests (`swift test` in
+`Packages/Shared/CmuxTerminalRenderCore`, green); renderer session, gestures,
+theme, font sizing, link routing, benchmark screen; `CmuxiOSApp`,
+`CmuxiOSTerminal` and `CmuxiOSTerminalTests` compile for the iOS simulator
+with SwiftPM. New renderer integration tests (DA1 answered by a `.local`
+surface and dropped by a `.host` mirror, raw bytes through a `.local`
+session, adapter mapping) wait for a fleet or CI run.
+
+Unverified on a device or simulator: gesture feel, 120 Hz during scroll,
+link tap, edit menu, benchmark numbers. Blocked: the tagged build `nxa2`
+(this host has no `~/.config/macfleet/hosts.json`, so `reload-cloud-ios.sh`
+finds no slot; `cmux-ci build ios` needs a pushed ref and GitHub auth here is
+broken). To build once pushed: `ios/scripts/reload-cloud.sh --tag nxa2`, then
+`CMUX_IOS_HOME_PREVIEW=1 CMUX_IOS_TERMINAL_BENCH=htop` on the simulator for
+the benchmark screenshot (`terminal-bench.json` lands in the app caches).
