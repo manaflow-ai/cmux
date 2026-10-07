@@ -117,6 +117,19 @@ pub(crate) fn place_host(pid: u32) {
 mod tests {
     use super::*;
 
+    /// The move is complete only when the host's own cgroup names its scope:
+    /// the host forks the shell right after Launch, and a shell forked
+    /// before the move stays in the daemon unit (cx-6so.49 Cloud proof:
+    /// a `systemctl restart` then killed it after the 90 s stop timeout).
+    #[test]
+    fn a_host_counts_as_placed_only_when_its_cgroup_names_its_scope() {
+        let placed = "0::/cmuxhosts.slice/cmux-terminal-host-4242.scope\n";
+        assert!(cgroup_names_scope(placed, 4242));
+        assert!(!cgroup_names_scope(placed, 424));
+        assert!(!cgroup_names_scope("0::/system.slice/cmux-tui-daemon.service\n", 4242));
+        assert_eq!(HOST_SLICE, "cmuxhosts.slice", "a dash in a slice name nests slices");
+    }
+
     #[test]
     fn scope_request_names_the_host_pid_and_the_host_slice() {
         let args = busctl_args(4242);
@@ -128,7 +141,7 @@ mod tests {
             "{joined}"
         );
         assert!(joined.contains("PIDs au 1 4242"), "{joined}");
-        assert!(joined.contains("Slice s cmux-terminal-hosts.slice"), "{joined}");
+        assert!(joined.contains(&format!("Slice s {HOST_SLICE}")), "{joined}");
         assert!(joined.ends_with("CollectMode s inactive-or-failed 0"), "{joined}");
     }
 
