@@ -2,6 +2,12 @@ import Darwin
 import Foundation
 import Testing
 
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
 private final class CLIVaultForkSelectorBundleToken {}
 
 @Suite(.serialized)
@@ -212,5 +218,30 @@ struct CLIVaultForkSelectorTests {
             throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
         }
         return fd
+    }
+}
+
+@Suite
+struct VaultForkSelectorSocketTests {
+    @Test func socketRejectsCheckpointAndTurnTogether() async {
+        let result = await TerminalController.shared.v2VaultFork(params: [
+            "agent": "claude", "session": "session-1", "checkpoint": "cp-1", "turn": 2,
+        ])
+        guard case .err(let code, _, _) = result else {
+            Issue.record("Expected invalid_params, got \(result)")
+            return
+        }
+        #expect(code == "invalid_params")
+    }
+
+    @Test func socketRejectsBlankCheckpointWithTurn() async {
+        let result = await TerminalController.shared.v2VaultFork(params: [
+            "agent": "claude", "session": "session-1", "checkpoint": "  ", "turn": 2,
+        ])
+        guard case .err(let code, _, _) = result else {
+            Issue.record("Expected invalid_params, got \(result)")
+            return
+        }
+        #expect(code == "invalid_params")
     }
 }

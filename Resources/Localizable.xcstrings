@@ -15828,6 +15828,72 @@
             "state": "translated",
             "value": "vault fork에는 --checkpoint <id> 또는 --turn <n> 중 하나만 지정할 수 있습니다"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vault fork prihvata --checkpoint <id> ili --turn <n>, ne oboje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vault fork accepterer --checkpoint <id> eller --turn <n>, ikke begge"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vault fork accetta --checkpoint <id> oppure --turn <n>, non entrambi"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vault fork ទទួលយក --checkpoint <id> ឬ --turn <n> មិនមែនទាំងពីរទេ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vault fork godtar --checkpoint <id> eller --turn <n>, ikke begge"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vault fork przyjmuje --checkpoint <id> albo --turn <n>, nie oba naraz"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vault fork aceita --checkpoint <id> ou --turn <n>, não ambos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vault fork принимает --checkpoint <id> или --turn <n>, но не оба сразу"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vault fork รับ --checkpoint <id> หรือ --turn <n> อย่างใดอย่างหนึ่ง ไม่ใช่ทั้งสองอย่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vault fork, --checkpoint <id> veya --turn <n> kabul eder, ikisini birden değil"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vault fork приймає --checkpoint <id> або --turn <n>, але не обидва"
+          }
         }
       }
     },
@@ -23368,6 +23434,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "checkpoint 또는 turn 중 하나만 전달하세요."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proslijedite checkpoint ili turn, ne oboje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angiv checkpoint eller turn, ikke begge."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passa checkpoint oppure turn, non entrambi."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សូមបញ្ជូន checkpoint ឬ turn មិនមែនទាំងពីរទេ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oppgi checkpoint eller turn, ikke begge."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przekaż checkpoint albo turn, nie oba naraz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passe checkpoint ou turn, não ambos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Передайте checkpoint или turn, но не оба сразу."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ส่ง checkpoint หรือ turn อย่างใดอย่างหนึ่ง ไม่ใช่ทั้งสองอย่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "checkpoint veya turn gönderin, ikisini birden değil."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Передайте checkpoint або turn, але не обидва."
           }
         }
       }

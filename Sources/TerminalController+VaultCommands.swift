@@ -160,7 +160,9 @@ extension TerminalController {
     // MARK: vault.fork
 
     nonisolated func v2VaultFork(params: [String: Any]) async -> V2CallResult {
-        if Self.trimmedParam(params["checkpoint"]) != nil, params["turn"] != nil {
+        // Selector presence is decided by the keys, before either value is
+        // trimmed or parsed, so a blank checkpoint cannot fall through to turn.
+        if params["checkpoint"] != nil, params["turn"] != nil {
             return .err(
                 code: "invalid_params",
                 message: String(localized: "socket.vault.conflictingForkSelectors",
