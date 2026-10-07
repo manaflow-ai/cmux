@@ -201,6 +201,16 @@ final class RemoteTmuxController {
         }?.host
     }
 
+    /// The control streams own whether authentication is pending. A login workspace is
+    /// optional: the CLI can authenticate a shared stream before any mirror exists.
+    func hasPendingAuthentication(host: RemoteTmuxHost) -> Bool {
+        let key = host.connectionHash
+        if multiplexedViewsByHost[key]?.connection?.awaitingInteractiveAuth == true { return true }
+        return connectionsByHostSession.values.contains {
+            $0.host.connectionHash == key && $0.awaitingInteractiveAuth
+        }
+    }
+
     @discardableResult
     private func removeCachedConnection(forKey key: String) -> RemoteTmuxControlConnection? {
         guard let connection = connectionsByHostSession.removeValue(forKey: key) else { return nil }

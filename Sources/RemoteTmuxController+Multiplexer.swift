@@ -610,6 +610,7 @@ extension RemoteTmuxController {
         multiplexIntentsByHost[host.connectionHash] = nil
         viewEpochSessionIdByHost[host.connectionHash] = nil
         pendingMultiplexWorkspaceNamesByHost[host.connectionHash] = nil
+        releaseLoginOfferIfHostHasNoMirrors(host: host)
         if !multiplexerHostStillInUse(host) {
             transportRegistry.remove(connectionHash: host.connectionHash)
             closeSharedSSHMasterIfAny(host: host)

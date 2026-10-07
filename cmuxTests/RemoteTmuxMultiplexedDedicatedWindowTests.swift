@@ -13,7 +13,7 @@ import Testing
 /// before it opened any connection: nothing on that path created the window, so the request had
 /// no destination and was reported as "app not ready".
 @MainActor
-@Suite(.serialized) struct RemoteTmuxMultiplexedDedicatedWindowTests {
+@Suite(.serialized, .exclusiveAppContext) struct RemoteTmuxMultiplexedDedicatedWindowTests {
     private let sshOverrideKey = "CMUX_REMOTE_TMUX_SSH_FOR_TESTING"
 
     @Test(.timeLimit(.minutes(2)))

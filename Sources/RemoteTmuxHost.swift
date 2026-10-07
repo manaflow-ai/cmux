@@ -72,7 +72,7 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
     let transportBroker: RemoteTmuxTransportBroker?
 
     /// Optional transport-owned helper path. This is unset by default so the
-    /// remote transport can use its own environment-based discovery. It is an
+    /// remote transport can use its own environment-based discovery. It is a
     /// launch setting; changing it on a live endpoint requires detaching first.
     let transportHelperPath: String?
 

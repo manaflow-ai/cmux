@@ -325,7 +325,7 @@ final class RemoteTmuxControlConnection {
     /// and a consumer was told. No retry is scheduled while this is true: the mirror is
     /// deliberately parked (frozen, not ended) until ``resumeAfterInteractiveAuth()``
     /// or ``stop()``.
-    private var awaitingInteractiveAuth = false
+    private(set) var awaitingInteractiveAuth = false
     /// stderr text captured for the in-flight spawn, inspected when a reconnect
     /// attempt's process exits to tell "session genuinely gone" from "host still
     /// unreachable". Reset at the start of each spawn.

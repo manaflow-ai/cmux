@@ -551,8 +551,8 @@ extension RemoteTmuxController {
     /// which path ran is not something the offer should have to know.
     func releaseLoginOfferIfHostHasNoMirrors(host: RemoteTmuxHost) {
         let key = host.connectionHash
-        guard loginOffers.hasOffer(host: key) else { return }
-        guard !sessionMirrors.values.contains(where: { $0.host.connectionHash == key }) else { return }
+        guard multiplexedViewsByHost[key] == nil,
+              !sessionMirrors.values.contains(where: { $0.host.connectionHash == key }) else { return }
         // Release before closing, for the same reason as `noteMirrorConnected`: the close path
         // re-enters `noteLoginWorkspaceClosed`, and an offer still present sends it down the
         // decline path for a workspace cmux is retiring itself.
@@ -567,11 +567,12 @@ extension RemoteTmuxController {
 
     /// Stops a host's login waiter.
     ///
-    /// Held so it can be stopped: the waiter probes the shared master on a timer, and one that
-    /// outlives its offer would keep probing with nothing able to stop it.
+    /// Teardown cancels the filesystem wait even when the CLI owns the login and no
+    /// in-app workspace exists to produce a dismissal event.
     func cancelAuthWait(host key: String) {
         authWaitTasks[key]?.cancel()
         authWaitTasks[key] = nil
+        authWaitIds[key] = nil
         hostsWaitingForAuth.remove(key)
     }
 
@@ -698,6 +699,7 @@ extension RemoteTmuxController {
             // reports unrelated churn too (other hosts' masters live in the same directory).
             let watcher = FileWatcher(path: host.controlSocketPath)
             defer { Task { await watcher.stop() } }
+            guard !Task.isCancelled, self?.hasPendingAuthentication(host: host) == true else { return }
             // The edge has to actually exist. `FileWatcher` returns nil from a failed
             // `open(O_EVTONLY)` and carries on, so under permission loss or fd exhaustion (EMFILE)
             // the stream exists with no source behind it and can never yield — the login would
@@ -717,24 +719,22 @@ extension RemoteTmuxController {
             // happened is never delivered. Checking once up front is what stops an event-driven
             // wait from hanging on a condition that was true before anyone was listening.
             if await transport.isMasterLive() {
+                guard !Task.isCancelled, self?.authWaitIds[key] == waiterId else { return }
                 self?.resumeReconnectAfterAuthentication(host: host)
                 return
             }
             for await _ in watcher.events {
                 guard let self else { return }
                 if Task.isCancelled { return }
-                // Another path already gave up on this host, or replaced this offer with a
-                // newer one that its own waiter owns.
-                guard let offer = loginOffers.openedWorkspace(host: key) else { return }
-                guard sessionMirrors.values.contains(where: { $0.host.connectionHash == key })
-                else {
-                    // The mirror this login existed for is gone; leaving the pane behind
-                    // would strand a tab nothing can ever close.
-                    closeLoginWorkspace(offer.workspace)
-                    loginOffers.abandon(host: key, generation: offer.generation)
+                // Authentication belongs to the parked streams. A CLI-owned login has
+                // no offer or mirror yet, but must consume the same master-socket edge.
+                guard authWaitIds[key] == waiterId else { return }
+                guard hasPendingAuthentication(host: host) else {
+                    releaseLoginOfferIfHostHasNoMirrors(host: host)
                     return
                 }
                 if await transport.isMasterLive() {
+                    guard !Task.isCancelled, authWaitIds[key] == waiterId else { return }
                     self.resumeReconnectAfterAuthentication(host: host)
                     return
                 }
