@@ -58,6 +58,7 @@ import { PermissionCard } from "./PermissionCard";
 import { agentName } from "./agents";
 import { type Translate, useT } from "./i18n";
 import { useFolderTrustAsk } from "./useFolderTrustAsk";
+import { heldPrompts } from "./heldPrompt";
 import { FILE_SEARCH_LIMIT, type FileSearchSource } from "./fileSearchModel";
 import { DiffPanel } from "./DiffPanel";
 import { SummaryButton } from "./summary/SummaryButton";
@@ -1437,6 +1438,10 @@ function AcpmuxPane() {
     const startedSessions = new Set<string>();
     /// Prompts a failed or cancelled switch held go back into the composer with their
     /// attachments, before what was typed since; while no composer is mounted they wait for one.
+    /// The gesture of a send acpmux held for the folder trust answer (heldPrompt.ts).
+    const heldPrompt = heldPrompts((intent) =>
+      postNative<{ ticket?: string }>("transport.gesture", { intent }).then((reply) => reply?.ticket),
+    );
     const restorePrompt = (text: string, attachments: ComposerAttachment[]) => {
       if (composerHandle.current) composerHandle.current.restore(text, attachments);
       else heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
@@ -1580,6 +1585,9 @@ function AcpmuxPane() {
           // the prompt the composer kept. `inComposer`: the composer still holds the prompt (or got it back); else it goes back.
           const refused = (error: unknown, inComposer: boolean): never => {
             if (isTrustRefusal(error)) {
+              // The send's own gesture is kept for this prompt now, before the Trust click, whose
+              // gesture goes to the trust answer (heldPrompt.ts).
+              void heldPrompt.hold();
               if (!inComposer) restorePrompt(text, attachments);
               trustRefused.current?.(error, () => composerHandle.current?.send());
             }
@@ -1594,10 +1602,12 @@ function AcpmuxPane() {
               refused(error, (error as { handedBack?: unknown }).handedBack === true),
             );
           }
+          // A prompt acpmux held goes with the gesture its first send kept.
+          const kept = heldPrompt.take();
           const sessionId = await client.ensureSession().catch((error: unknown) => refused(error, Boolean(accepted)));
           await persistSession(sessionId);
           const turn = client
-            .send(text, attachments, undefined, accepted)
+            .send(text, attachments, kept?.promptId, accepted, kept?.ticket)
             .catch((error: unknown) => refused(error, Boolean(accepted)));
           // The prompt is written; a Quick Composer hand-off can close this page now.
           promptLanded.current();
@@ -2053,10 +2063,19 @@ function AcpmuxPane() {
             if (projectDraft && !snapshot.sessionId) await callNative("chat.new", { cwd: projectDraft });
             return callNative("chat.send", { text, attachments, accepted: () => accept(true) });
           };
+          // The composer that holds the prompt: a refusal that comes once it is gone (the pane
+          // swaps it when the chat's session starts) puts the prompt in the one shown now.
+          const holder = composerHandle.current;
           const turn = send();
           turn.then(() => promptLanded.current(), cancelOpenInWindow);
           // Taken, or refused before acpmux took it (the turn's later failure is the transcript's).
-          return Promise.race([taken, turn.then(() => true as const)]);
+          const held = Promise.race([taken, turn.then(() => true as const)]);
+          held.catch(() => {
+            if (composerHandle.current === holder) return;
+            if (composerHandle.current) composerHandle.current.restore(text, attachments);
+            else heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
+          });
+          return held;
         }}
         onStop={() => void callNative("chat.cancel")}
         onProject={chooseProject}
