@@ -163,7 +163,7 @@ struct CoderouterCLIAccountReaderTests {
     func drainsLargeOutputWithoutDeadlock() async throws {
         let result = try await CoderouterCLIAccountReader.runProcess(
             executable: "/bin/sh",
-            arguments: ["-c", "dd if=/dev/zero bs=1024 count=256 2>/dev/null; dd if=/dev/zero bs=1024 count=256 1>&2"],
+            arguments: ["-c", "dd if=/dev/zero bs=1024 count=256 2>/dev/null; dd if=/dev/zero bs=1024 count=256 1>&2 2>/dev/null"],
             environment: ["PATH": "/usr/bin:/bin"]
         )
 
