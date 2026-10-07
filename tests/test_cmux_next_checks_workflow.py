@@ -451,9 +451,16 @@ class PathRoutingStructure(unittest.TestCase):
     def test_current_feat_push_still_requests_nightly_next(self):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
         nightly = jobs["request-nightly-next"]
+        # Main's promote-nightly-next refuses a head whose push run has no successful
+        # "cmux-next Release compile (Xcode 26)" job. Requested after the Linux checks alone, it
+        # ran about 10 minutes before that job finished and refused every head from 00:12Z to
+        # 15:00Z on 2026-10-07 (run 37638104609). The request waits for that job and nothing
+        # else, so an unrelated red never holds the promotion.
         self.assertEqual(nightly["needs"], "release-compile")
+        self.assertEqual(jobs["release-compile"]["name"], "cmux-next Release compile (Xcode 26)")
         self.assertIn("github.ref == 'refs/heads/feat-cmux-next'", nightly["if"])
         self.assertIn("needs.release-compile.result == 'success'", nightly["if"])
+        self.assertNotIn("needs.checks", nightly["if"])
         text = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("group: cmux-next-${{ github.event.pull_request.number || github.run_id }}", text)
         self.assertIn("cancel-in-progress: ${{ github.event_name == 'pull_request' }}", text)

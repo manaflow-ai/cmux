@@ -11,23 +11,22 @@ import Testing
         CmuxConfigSnapshot.parse(try JSONC.parse(text), validDensities: [], validMetrics: [])
     }
 
-    /// The footer's avatar and gear are always drawn by default (Leo 2026-10-06:
-    /// the hover-only footer read as missing buttons); hiding the bottom band
-    /// until hover is the opt-in `"bottom"` choice.
-    @Test func minimalModeIsOffByDefaultAndTakesItsChoices() throws {
-        #expect(try parse("{}").sidebarSections.minimalMode == .off)
+    /// R100 (Lawrence 2026-10-04): "dont show settings/account unless user
+    /// hover on sidebar": the default hides the bottom band until hover.
+    @Test func minimalModeHidesTheBottomBandByDefaultAndTakesItsChoices() throws {
+        #expect(try parse("{}").sidebarSections.minimalMode == .bottom)
         for mode in SidebarMinimalMode.allCases {
             let snapshot = try parse(#"{"sidebar": {"minimalMode": "\#(mode.rawValue)"}}"#)
             #expect(snapshot.sidebarSections.minimalMode == mode && snapshot.diagnostics.isEmpty, "\(mode)")
         }
         let bad = try parse(#"{"sidebar": {"minimalMode": "sideways"}}"#)
-        #expect(bad.sidebarSections.minimalMode == .off)
+        #expect(bad.sidebarSections.minimalMode == .bottom)
         #expect(bad.diagnostics.map(\.path) == ["sidebar.minimalMode"])
     }
 
     @Test func theSchemaListsItAndAgentsMaySetIt() {
         let descriptor = SettingsSchema.descriptor(for: ["sidebar", "minimalMode"])
-        #expect(descriptor?.defaultValue == .string("off"))
+        #expect(descriptor?.defaultValue == .string("bottom"))
         #expect(SettingsSchema.agentSettableKeys.contains("sidebar.minimalMode"))
         #expect(SidebarMinimalMode.bottom.hidesBottom && !SidebarMinimalMode.bottom.hidesTop)
         #expect(SidebarMinimalMode.both.hidesBottom && SidebarMinimalMode.both.hidesTop)

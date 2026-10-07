@@ -32,11 +32,30 @@ nonisolated struct ServerReachPlan: Sendable, Equatable {
         var brainSocket: String
     }
 
-    /// This Mac's running `cmux link`: its socket and the installs it has
-    /// paired peers for (`cmux link show`, `cmux link peer list`).
+    /// This Mac's `cmux link` (`cmux link show`, `cmux link peer list`):
+    /// its socket while it runs and the installs it has paired peers for.
     nonisolated struct LinkPeers: Sendable, Equatable {
-        var socket: String
+        /// The live link's socket; nil while the link is not running.
+        var socket: String?
         var installs: Set<String>
+        /// The link's pairing file (`cmux link show` `peers_file`), watched
+        /// so a peer change re-resolves routes; nil from an older CLI.
+        var peersFile: String? = nil
+        /// This Mac's own install id (`cmux link show` `install`). On a
+        /// server it is the server's install, the one `brain_place` names.
+        var install: String? = nil
+
+        /// The link's registration (`link.json` in the parent of the link
+        /// state directory): written when the link starts, removed when it
+        /// stops, so watching it notices a link that starts after a read.
+        var registrationFile: String? {
+            guard let peersFile else { return nil }
+            let stateDir = URL(fileURLWithPath: peersFile).deletingLastPathComponent()
+            return stateDir.deletingLastPathComponent().appendingPathComponent("link.json").path
+        }
+
+        /// The files whose change re-reads the link.
+        var watchedFiles: [String] { [peersFile, registrationFile].compactMap { $0 } }
     }
 
     static func make(chiefs: [CloudChief], hosts: [PairedServer], local: LocalServer?, link: LinkPeers? = nil) -> ServerReachPlan {
@@ -61,14 +80,33 @@ nonisolated struct ServerReachPlan: Sendable, Equatable {
     /// when this Mac's link has the server's install as a paired peer; else
     /// SSH to the server's host name (dev-only).
     static func route(for host: PairedServer, install: String? = nil, local: LocalServer?, link: LinkPeers? = nil) -> ServerReach.Route? {
-        if let local, let theirs = ServerReach.dnsLabel(host.name),
-           local.hostNames.contains(where: { ServerReach.dnsLabel($0) == theirs }) {
+        if let local, isThisMac(host, install: install, local: local, link: link) {
             return .unix(local.brainSocket)
         }
-        if let link, let install, link.installs.contains(install) {
-            return .overlay(linkSocket: link.socket)
+        if let link, let socket = link.socket, let install, link.installs.contains(install) {
+            return .overlay(linkSocket: socket)
         }
         return ServerReach.brainRoute(serverName: host.name)
+    }
+
+    /// Whether the placed server is this Mac: by install id when this Mac's
+    /// link names one (a server paired under another name still matches,
+    /// and another Mac with the same name never does); by host name only
+    /// when this Mac has no link install (bead cx-ill).
+    static func isThisMac(_ host: PairedServer, install: String?, local: LocalServer, link: LinkPeers?) -> Bool {
+        if let mine = link?.install { return mine == install }
+        guard let theirs = ServerReach.dnsLabel(host.name) else { return false }
+        return local.hostNames.contains(where: { ServerReach.dnsLabel($0) == theirs })
+    }
+
+    /// `cmux link show` and `cmux link peer list` JSON: the link, running or
+    /// not (a stopped link still names its pairing file and install), or nil
+    /// when `show` is not an object.
+    static func linkPeers(show: Data, peers: Data?) -> LinkPeers? {
+        guard let object = (try? JSONSerialization.jsonObject(with: show)) as? [String: Any] else { return nil }
+        let install = (object["install"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        return LinkPeers(socket: parseLinkShow(show), installs: peers.map(parsePeerList) ?? [],
+                         peersFile: parseLinkPeersFile(show), install: install)
     }
 
     /// `cmux link show` JSON: the live link's socket, or nil when it is not running.
@@ -87,9 +125,23 @@ nonisolated struct ServerReachPlan: Sendable, Equatable {
 
     /// What to add and remove so the shown servers match `desired`; a server
     /// already shown keeps its session (and route) when its host stays.
-    static func diff(shown: [ServerReach], desired: [ServerReach]) -> (add: [ServerReach], remove: [String]) {
-        let shownHosts = Set(shown.map(\.hostID)), desiredHosts = Set(desired.map(\.hostID))
-        return (desired.filter { !shownHosts.contains($0.hostID) }, shown.filter { !desiredHosts.contains($0.hostID) }.map(\.machineID))
+    /// What to add, remove (and forget) and re-route so the shown servers
+    /// match `desired`: a host that stays keeps its session unless its route
+    /// changed (a link peer appeared or left), which replaces the session
+    /// and keeps its registry record.
+    static func diff(shown: [ServerReach], desired: [ServerReach]) -> (add: [ServerReach], remove: [String], reroute: [ServerReach]) {
+        let shownByHost = Dictionary(shown.map { ($0.hostID, $0) }, uniquingKeysWith: { first, _ in first })
+        let desiredHosts = Set(desired.map(\.hostID))
+        let add = desired.filter { shownByHost[$0.hostID] == nil }
+        let reroute = desired.filter { reach in shownByHost[reach.hostID].map { $0.route != reach.route } ?? false }
+        return (add, shown.filter { !desiredHosts.contains($0.hostID) }.map(\.machineID), reroute)
+    }
+
+    /// `cmux link show` JSON: the link's pairing file, when the CLI names it.
+    static func parseLinkPeersFile(_ data: Data) -> String? {
+        let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        guard let file = object?["peers_file"] as? String, file.hasPrefix("/") else { return nil }
+        return file
     }
 
     nonisolated enum ReadError: Error, Equatable {

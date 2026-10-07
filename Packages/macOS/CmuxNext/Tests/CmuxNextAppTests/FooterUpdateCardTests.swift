@@ -133,9 +133,12 @@ import CmuxNextSettings
         #expect(center.records.isEmpty)
     }
 
-    /// The gear's tooltip names Settings and its shortcut.
-    @Test func theGearTooltipNamesSettingsAndItsShortcut() {
-        let infos = SidebarItemPresentation.infos(for: .defaults, registered: { _ in true },
+    /// A Settings item's tooltip names Settings and its shortcut (the gear
+    /// left the default footer with amendment 2; a user can add it back).
+    @Test func theGearTooltipNamesSettingsAndItsShortcut() throws {
+        let withGear = try SidebarLayoutReducer.reduce(.defaults, .itemAdd(LayoutItem(id: LayoutItemID("itm_settings"), ref: .builtIn(.settings), showsLabel: false),
+                                                                          section: SidebarLayoutDocument.bottomSectionID, index: 1)).get()
+        let infos = SidebarBridge.itemInfo(for: withGear, registered: { _ in true },
                                            shortcut: { $0 == "openSettings" ? "⌘," : nil })
         let settings = infos[LayoutItemID("itm_settings")]
         #expect(settings?.shortcut == "⌘,")

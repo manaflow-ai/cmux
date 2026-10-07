@@ -186,6 +186,71 @@ struct BrowserOpenerOrderTests {
         h.teardown()
     }
 
+    /// nxdog65: page P has Cmd-click children right of it; the user selects
+    /// U, a tab with no opener either, then P again, then Cmd-clicks a link
+    /// in P. Chrome puts the new tab right of P: a user switch between two
+    /// tabs that have no opener is not a switch between siblings, so it
+    /// forgets every relation (TabStripModel::SetSelection). cmux treated
+    /// "no opener" = "no opener" as siblings, kept P's children and put the
+    /// tab after them, at the end of the strip. A plain link goes right of
+    /// P in both cases.
+    @Test func aLinkAfterSwitchingAwayAndBackGoesRightOfItsOpener() async throws {
+        let h = try await DefaultChromiumTests().harness(cef: nil, extraTabs: [
+            DefaultChromiumTests.frontendTab(surface: 32, engine: "webkit"),
+            DefaultChromiumTests.frontendTab(surface: 31, engine: "webkit"),
+        ])
+        let daemon = Daemon()
+        daemon.order = [4, 32, 31]
+        let store = h.services.daemon.store
+        store.apply(snapshot: try daemon.tree())
+        h.browserTabs.create = { _, _, _, _, _, after in
+            daemon.afters.append(after)
+            daemon.next += 1
+            let slot = after.flatMap { daemon.order.firstIndex(of: $0.rawValue) }.map { $0 + 1 } ?? daemon.order.count
+            daemon.order.insert(daemon.next, at: slot)
+            store.apply(snapshot: try daemon.tree())
+            return SurfaceID(rawValue: daemon.next)
+        }
+        func tab(_ surface: UInt64) throws -> TabModel {
+            try #require(store.workspaces.first?.screens.first?.panes.first?.tabs.first { $0.surface == SurfaceID(rawValue: surface) })
+        }
+        func select(_ surface: UInt64) async throws {
+            let id = StripTabID(try tab(surface).id)
+            await BrowserTabTests.settle { h.pane.stripModel.orderedTabs.contains { $0.id == id } }
+            h.pane.select(id, source: .mouse)
+            await BrowserTabTests.settle { h.pane.stripModel.selectedID == id }
+        }
+        let requests = h.services.cache.pageRequests
+        var opened = 0
+        func open(_ path: String, _ disposition: BrowserNewTabDisposition) async throws {
+            let page = try #require(h.services.cache.browser(for: try tab(31))).tab
+            opened += 1
+            requests.browserTab(page, didRequest: .openURL(URL(string: "https://a.test/\(path)")!, disposition))
+            await BrowserTabTests.settle { daemon.afters.count == opened }
+        }
+
+        // P = 31 with two Cmd-click children; U = 32, no opener either.
+        try await select(31)
+        try await open("1", .backgroundTab)
+        try await open("2", .backgroundTab)
+        #expect(daemon.order == [4, 32, 31, 21, 22])
+
+        // P -> U -> P, then a Cmd-click in P: right of P, not after its old children.
+        try await select(32)
+        try await select(31)
+        try await open("3", .backgroundTab)
+        #expect(daemon.afters.last == SurfaceID(rawValue: 31))
+        #expect(daemon.order == [4, 32, 31, 23, 21, 22], "a Cmd-click after the switch goes right of P, not to the end")
+
+        // P -> U -> P, then a plain link in P: right of P too.
+        try await select(32)
+        try await select(31)
+        try await open("4", .foregroundTab)
+        #expect(daemon.afters.last == SurfaceID(rawValue: 31))
+        #expect(daemon.order == [4, 32, 31, 24, 23, 21, 22], "a plain link goes right of P")
+        h.teardown()
+    }
+
     /// The slot rule alone: the opener's child furthest right of the opener;
     /// children the pane no longer shows, or shows left of the opener, do not count.
     @Test func slotIsTheRightmostShownChild() async throws {

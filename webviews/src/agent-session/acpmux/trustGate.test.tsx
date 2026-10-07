@@ -240,10 +240,13 @@ function RefusedPane({
   replies,
   sent,
   refusal,
+  accepts,
 }: {
   replies: Map<string, Record<string, unknown>>;
   sent: string[];
   refusal: { reason: string; cwd: string };
+  /// Each send the host takes waits here until the test accepts it.
+  accepts?: (() => void)[];
 }) {
   const composer = React.useRef<import("./Composer").ComposerHandle | null>(null);
   const source = React.useMemo(
@@ -277,7 +280,8 @@ function RefusedPane({
       onSend: (text: string) => {
         sent.push(text);
         const level = replies.get(refusal.cwd)?.level;
-        if (level === "trusted") return Promise.resolve();
+        if (level === "trusted")
+          return accepts ? new Promise<void>((resolve) => accepts.push(() => resolve())) : Promise.resolve();
         const error = Object.assign(new Error(refusal.reason), refusal);
         trust.refused(error, () => composer.current?.send());
         return Promise.reject(error);
@@ -325,4 +329,29 @@ test("Don't trust after a refused first send keeps the prompt with the reason", 
   expect(sent).toEqual(["keep me"]);
   expect(field().value).toBe("keep me");
   expect(note()).toBe("You chose Don't trust, so the agent runs no prompts in this folder. Press Undo to change it.");
+});
+
+test("send, trust.pending, Trust: the prompt is delivered exactly once, cleared only after accept", async () => {
+  const sent: string[] = [];
+  const accepts: (() => void)[] = [];
+  const replies = new Map<string, Record<string, unknown>>();
+  const refusal = { reason: "trust.pending", cwd: "/agent-home/w3" };
+  await act(async () => root.render(createElement(RefusedPane, { replies, sent, refusal, accepts })));
+  await settled();
+  await act(async () => typeInto(field(), "once only"));
+  await enter();
+  await settled();
+  await press("Trust");
+  await settled();
+  // Sent again once after Trust; the host has not taken it yet, so the composer keeps it.
+  expect(sent).toEqual(["once only", "once only"]);
+  expect(accepts).toHaveLength(1);
+  expect(field().value).toBe("once only");
+  // Enter while the host decides sends no copy.
+  await enter();
+  expect(sent).toEqual(["once only", "once only"]);
+  await act(async () => accepts[0]!());
+  await settled();
+  expect(field().value).toBe("");
+  expect(sent).toEqual(["once only", "once only"]);
 });

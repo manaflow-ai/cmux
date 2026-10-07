@@ -65,6 +65,7 @@ mod short_id;
 mod sidebar_resource;
 pub mod sizing_policy;
 mod state;
+pub mod store_schemas;
 mod stream_interrupt;
 mod surface;
 #[cfg(unix)]
@@ -101,7 +102,7 @@ pub use layout::{
     layout_screen_with_viewport, split_for_pane_edge, split_sides, zellij_default_pane_layout,
 };
 pub use model::{
-    ColumnDock, DockEdge, DockMode, Node, Pane, Screen, State, ViewportColumn, Workspace,
+    ColumnDock, DockEdge, DockMode, DockRole, Node, Pane, Screen, State, ViewportColumn, Workspace,
 };
 pub(crate) use mux::BatchCloseTarget;
 pub use mux::{

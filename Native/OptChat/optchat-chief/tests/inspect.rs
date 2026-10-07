@@ -302,10 +302,22 @@ fn the_server_refuses_non_loopback_missing_tokens_and_writes() {
         .unwrap()
         .to_owned();
     assert!(spent.headers.contains("HttpOnly") && spent.headers.contains("SameSite=Strict"));
+    // The browser loads the ticket URL again when the tab moves into its
+    // column: within 10 s that reload gets the same session, not a new one.
+    let again = get(addr, "GET", &format!("/?ticket={ticket}"), &host, "");
+    assert_eq!(again.status, 303);
+    assert!(again.headers.contains(&cookie), "the same session");
+    // A ticket nobody minted buys nothing.
     assert_eq!(
-        get(addr, "GET", &format!("/?ticket={ticket}"), &host, "").status,
-        401,
-        "a ticket works once"
+        get(
+            addr,
+            "GET",
+            &format!("/?ticket={}", "0".repeat(64)),
+            &host,
+            ""
+        )
+        .status,
+        401
     );
     let page = get(addr, "GET", "/", &host, &format!("Cookie: {cookie}\r\n"));
     assert_eq!(page.status, 200);
@@ -361,4 +373,22 @@ fn the_api_never_writes_the_memory() {
     assert!(before.0 == after.0, "the database file is unchanged");
     assert_eq!(before.1, after.1, "the WAL did not grow");
     assert_eq!(before.2, after.2);
+}
+
+/// After its reload window a spent ticket buys nothing.
+#[test]
+fn a_spent_ticket_expires() {
+    let h = harness(true, 10);
+    let token = http::new_secret().unwrap();
+    let running =
+        http::start(inspector(&h), "127.0.0.1:0".parse().unwrap(), token.clone()).unwrap();
+    let addr = running.addr;
+    let host = format!("127.0.0.1:{}", addr.port());
+    let bearer = format!("Authorization: Bearer {token}\r\n");
+    let ticket: Value =
+        serde_json::from_str(&get(addr, "GET", "/api/ticket", &host, &bearer).body).unwrap();
+    let url = format!("/?ticket={}", ticket["ticket"].as_str().unwrap());
+    assert_eq!(get(addr, "GET", &url, &host, "").status, 303);
+    std::thread::sleep(std::time::Duration::from_secs(11));
+    assert_eq!(get(addr, "GET", &url, &host, "").status, 401);
 }

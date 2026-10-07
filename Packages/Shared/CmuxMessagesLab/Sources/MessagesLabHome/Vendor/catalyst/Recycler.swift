@@ -136,6 +136,26 @@ final class RowRecycler: UIScrollView, TranscriptList {
         prefetcher.update(self)
     }
 
+    /// Cells made ahead of need: hidden in the view tree, so their creation and first commit are
+    /// not in the frame that needs them (the first fold of a long message: one viewport of rows
+    /// above slides in, and new cells were made in that frame). At most `batch` per call.
+    /// Returns true while more are needed.
+    @discardableResult
+    func reserve(_ total: Int, batch: Int = 12) -> Bool {
+        let need = total - (visible.count + pool.count)
+        guard need > 0 else { return false }
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        for _ in 0..<min(need, batch) {
+            let c = RowCell(frame: .zero)
+            poolSize += 1
+            addSubview(c)
+            c.isHidden = true
+            pool.insert(c, at: 0)
+        }
+        CATransaction.commit()
+        return need > batch
+    }
+
     private func take() -> RowCell {
         let c: RowCell
         if let p = pool.popLast() {

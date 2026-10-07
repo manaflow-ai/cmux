@@ -2217,6 +2217,137 @@
           }
         }
       }
+    },
+    "rooms.refusal.spaceNotShown" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "the space is not shown in the active window; switch to it first"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "المساحة غير معروضة في النافذة النشطة؛ انتقل إليها أولاً"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "prostor nije prikazan u aktivnom prozoru; prvo se prebacite na njega"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "området vises ikke i det aktive vindue; skift til det først"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "der Space wird im aktiven Fenster nicht angezeigt; wechsle zuerst zu ihm"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "el espacio no se muestra en la ventana activa; cambia a él primero"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "l’espace n’est pas affiché dans la fenêtre active ; passez d’abord à cet espace"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "lo spazio non è mostrato nella finestra attiva; passa prima a esso"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このスペースはアクティブなウインドウに表示されていません。先にスペースを切り替えてください"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "លំហនេះមិនបង្ហាញក្នុងបង្អួចសកម្មទេ សូមប្តូរទៅវាជាមុនសិន"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "활성 창에 이 스페이스가 표시되지 않습니다. 먼저 해당 스페이스로 전환하세요"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "området vises ikke i det aktive vinduet; bytt til det først"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "obszar nie jest wyświetlany w aktywnym oknie; najpierw przełącz się na niego"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "o espaço não está sendo mostrado na janela ativa; mude para ele primeiro"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "область не показана в активном окне; сначала переключитесь на неё"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "พื้นที่นี้ไม่ได้แสดงในหน้าต่างที่ใช้งานอยู่ ให้สลับไปที่พื้นที่นั้นก่อน"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "alan etkin pencerede gösterilmiyor; önce ona geçin"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "простір не показано в активному вікні; спершу перейдіть до нього"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "không gian này không hiển thị trong cửa sổ đang hoạt động; hãy chuyển sang nó trước"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "活动窗口未显示该空间，请先切换到该空间"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "使用中的視窗未顯示該空間，請先切換到該空間"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

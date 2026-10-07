@@ -10,6 +10,7 @@
 #![allow(clippy::too_many_arguments, clippy::type_complexity, clippy::result_large_err)]
 
 pub mod adopt;
+pub mod adopt_live;
 pub mod agent;
 #[cfg(test)]
 mod agent_exit_tests;
@@ -17,6 +18,7 @@ pub mod agent_host;
 #[cfg(test)]
 mod agent_replay_tests;
 pub mod agent_tools;
+pub mod catalog;
 pub mod chats;
 pub mod claude_stdio;
 pub mod cli;
@@ -32,6 +34,9 @@ pub mod login_env;
 pub mod native;
 pub mod peer;
 pub mod protected_folders;
+pub mod question_answer;
+#[cfg(test)]
+mod question_answer_tests;
 pub mod rpc;
 pub mod schema;
 pub mod server;
