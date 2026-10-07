@@ -1,4 +1,3 @@
-import Foundation
 internal import Darwin
 
 private let userClipboardWriteDispatchKey: pthread_key_t = {
@@ -12,11 +11,20 @@ extension GhosttySurfaceCallbackContext {
     public func withUserInitiatedClipboardWriteIntent<Result>(
         _ body: () throws -> Result
     ) rethrows -> Result {
-        try body()
+        let previousMarker = pthread_getspecific(userClipboardWriteDispatchKey)
+        let marker = Unmanaged.passUnretained(self).toOpaque()
+        precondition(pthread_setspecific(userClipboardWriteDispatchKey, marker) == 0)
+        defer {
+            precondition(
+                pthread_setspecific(userClipboardWriteDispatchKey, previousMarker) == 0
+            )
+        }
+        return try body()
     }
 
     /// Whether the current call stack is inside a user-approved copy dispatch.
     public var hasUserInitiatedClipboardWriteIntent: Bool {
-        pthread_getspecific(userClipboardWriteDispatchKey) != nil
+        pthread_getspecific(userClipboardWriteDispatchKey)
+            == Unmanaged.passUnretained(self).toOpaque()
     }
 }
