@@ -381,6 +381,7 @@ jobs:
 
   smoke:
     name: smoke published launcher (${{ matrix.os }})
+    if: github.repository_owner == 'manaflow-ai'
     needs:
       - version
       - publish
@@ -388,9 +389,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          - os: blacksmith-4vcpu-ubuntu-2404
             package: cmux-relay-linux-x64
-          - os: macos-14
+          - os: blacksmith-6vcpu-macos-15
             package: cmux-relay-darwin-arm64
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15

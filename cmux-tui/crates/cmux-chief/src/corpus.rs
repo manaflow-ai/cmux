@@ -30,6 +30,52 @@ pub struct Corpus {
     pub cases: Vec<Case>,
     #[serde(default)]
     pub memory: Vec<MemoryCase>,
+    /// Approval policy and harness routing (`policy.rs`, TypeScript
+    /// `policy.ts`): the same decision in every brain.
+    #[serde(default)]
+    pub policy: Vec<PolicyCase>,
+}
+
+/// One policy decision: `fn` with `args`, and its expected `result`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PolicyCase {
+    pub name: String,
+    /// `remote_auto_approve`, `turn_policy`, `spawn_floor` or `harness_admit`.
+    #[serde(rename = "fn")]
+    pub function: String,
+    pub args: Value,
+    pub result: Value,
+}
+
+/// The result of one policy function, as the corpus records it.
+pub fn policy_result(function: &str, args: &Value) -> Result<Value, String> {
+    use crate::policy::{harness, remote_auto_approve, spawn_floor, turn_policy};
+    let flag = |key: &str| args.get(key).and_then(Value::as_bool).ok_or(format!("missing {key}"));
+    Ok(match function {
+        "remote_auto_approve" => {
+            json!(remote_auto_approve(args.get("settings").unwrap_or(&Value::Null)))
+        }
+        "turn_policy" => json!(turn_policy(
+            flag("remote")?,
+            flag("auto_approve")?,
+            args.get("configured").and_then(Value::as_str).ok_or("missing configured")?
+        )),
+        "spawn_floor" => json!(spawn_floor(
+            flag("auto_approve")?,
+            flag("turn_ask")?,
+            flag("ask_child_live")?,
+            flag("ask_subagent_live")?
+        )),
+        "harness_admit" => {
+            let requested =
+                args.get("requested").and_then(Value::as_str).ok_or("missing requested")?;
+            match harness::admit(args.get("answer").unwrap_or(&Value::Null), requested) {
+                Ok(admitted) => json!({ "admitted": admitted }),
+                Err(refused) => json!({ "refused": refused }),
+            }
+        }
+        other => return Err(format!("unknown policy function {other}")),
+    })
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -168,6 +214,13 @@ pub fn run(corpus: &Corpus) -> Vec<String> {
     }
     failures.extend(corpus.cases.iter().filter_map(|case| run_case(case).err()));
     failures.extend(corpus.memory.iter().filter_map(|case| run_memory_case(case).err()));
+    for case in &corpus.policy {
+        match policy_result(&case.function, &case.args) {
+            Ok(got) if got == case.result => {}
+            Ok(got) => failures.push(format!("{}: want {} got {got}", case.name, case.result)),
+            Err(e) => failures.push(format!("{}: {e}", case.name)),
+        }
+    }
     failures
 }
 

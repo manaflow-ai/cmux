@@ -11,8 +11,8 @@ use std::collections::{BTreeMap, VecDeque};
 use cmux_rd_core::clock::ClockEstimator;
 use cmux_rd_core::reassembly::CompleteFrame;
 use cmux_rd_proto::{
-    ClockEstimate, ClockPong, DatagramHeader, DatagramKind, STREAM_CONTROL, STREAM_DATAGRAM,
-    StreamDeframer, encode_stream_frame,
+    ClockEstimate, ClockPong, DatagramHeader, DatagramKind, STREAM_BULK, STREAM_CONTROL,
+    STREAM_DATAGRAM, StreamDeframer, encode_stream_frame,
 };
 
 use crate::receiver::{
@@ -283,7 +283,7 @@ impl Session {
     }
 
     fn queue_message(&mut self, kind: u8, bytes: Vec<u8>) -> Result<(), SessionError> {
-        debug_assert!(matches!(kind, STREAM_CONTROL | STREAM_DATAGRAM));
+        debug_assert!(matches!(kind, STREAM_CONTROL | STREAM_DATAGRAM | STREAM_BULK));
         let cost = bytes.len() + MESSAGE_OVERHEAD;
         if self.message_bytes + cost > MAX_MESSAGE_BYTES {
             return Err(self.fail());

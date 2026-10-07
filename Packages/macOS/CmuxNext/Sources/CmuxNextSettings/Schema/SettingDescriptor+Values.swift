@@ -59,6 +59,9 @@ extension SettingDescriptor {
         case .stringList:
             guard case .array(let items) = value else { return false }
             return items.allSatisfy { $0.stringValue.map { !$0.isEmpty } ?? false }
+        case .orderedChoices(let choices):
+            guard case .array(let items) = value else { return false }
+            return items.allSatisfy { item in item.stringValue.map { text in choices.contains { $0.value == text } } ?? false }
         }
     }
 

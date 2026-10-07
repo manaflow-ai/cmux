@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'dc997c9439a1b81719ac07e6902388c798c5fc766e3159e8c9f5e1e10d23cb33'
+IR_SHA256 = '29cb05da77a56ab27882c8d07285d9492d7550961cd8e5199744c70be3c730ef'
 
 
 @dataclass(frozen=True)
@@ -1714,6 +1714,7 @@ COMMANDS = {
         None,
         {
             'activate': CommandFieldMetadata(None, None),
+            'after': CommandFieldMetadata(None, None),
             'cols': CommandFieldMetadata(None, None),
             'engine': CommandFieldMetadata(None, None),
             'favicon_url': CommandFieldMetadata(None, None),

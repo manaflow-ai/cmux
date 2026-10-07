@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR dc997c9439a1b81719ac07e6902388c798c5fc766e3159e8c9f5e1e10d23cb33. */
+/* cmux-tui mux protocol 12, IR 29cb05da77a56ab27882c8d07285d9492d7550961cd8e5199744c70be3c730ef. */
 
 
 import type * as T from "./types.js";
@@ -1280,6 +1280,7 @@ export type NewConversationTabResult = {
 export interface NewFrontendBrowserTabRequest extends CmuxRequestBase {
   cmd: "new-frontend-browser-tab";
   "activate"?: boolean;
+  "after"?: (T.Id) | null;
   "cols"?: (number) | null;
   "engine": string;
   "favicon_url"?: (string) | null;

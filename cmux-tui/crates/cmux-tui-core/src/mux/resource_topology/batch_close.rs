@@ -41,6 +41,16 @@ pub(crate) struct BatchCloseRequest<'a> {
     pub authorize_workspace: bool,
     /// Record the close in the closed history (false: a session-end close).
     pub record_closed: bool,
+    /// The close is part of a space delete: its change and closed group.
+    pub room: Option<RoomClose<'a>>,
+}
+
+/// The space delete a batch close is part of (SPACE-DELETE-CLOSES-ITS-
+/// WORKSPACES): `before_patch` deletes the space and announces the closed
+/// group in the close's transaction; `result` is the request's result.
+pub(crate) struct RoomClose<'a> {
+    pub before_patch: &'a dyn Fn(&rusqlite::Transaction<'_>) -> anyhow::Result<()>,
+    pub result: Value,
 }
 
 /// Why a client closes tabs (`close-reason-v1`, SDK type `CloseReason`).
@@ -208,6 +218,9 @@ impl Mux {
                 "terminal_incarnation": terminal.terminal_incarnation,
             })).collect::<Vec<_>>(),
         });
+        if let Some(room) = request.room.as_ref() {
+            result = room.result.clone();
+        }
         // A cascaded close (an emptied workspace) keeps the request's result shape.
         if let Some(close) = plan.workspace_close.as_ref()
             && matches!(request.target, BatchCloseTarget::Workspace(_))
@@ -232,6 +245,7 @@ impl Mux {
             plan.workspace_close.as_ref(),
             tab_groups.as_ref(),
             request.record_closed,
+            request.room.as_ref().map(|room| room.before_patch),
         )?;
         if committed.resource.replayed {
             state.resource_revision = state.resource_revision.max(committed.resource.revision);
@@ -433,6 +447,34 @@ impl Mux {
             expected_workspace_revision: None,
             authorize_workspace: false,
             record_closed: reason.is_none(),
+            room: None,
+        })
+    }
+
+    /// The batch close of a space delete (SPACE-DELETE-CLOSES-ITS-
+    /// WORKSPACES): these tabs, ending their terminals, recorded as one
+    /// closed group; `before_patch` deletes the space in the same
+    /// transaction and `result` is the request's result.
+    pub(crate) fn close_tabs_for_room_delete(
+        &self,
+        surfaces: Vec<SurfaceId>,
+        operation: &str,
+        fingerprint: &Value,
+        mutation: &WorkspaceMutation,
+        before_patch: &dyn Fn(&rusqlite::Transaction<'_>) -> anyhow::Result<()>,
+        result: Value,
+    ) -> anyhow::Result<BatchCloseOutcome> {
+        self.commit_batch_close(BatchCloseRequest {
+            target: BatchCloseTarget::Tabs(surfaces),
+            end_terminals: true,
+            operation,
+            fingerprint,
+            mutation,
+            expected_generation: None,
+            expected_workspace_revision: None,
+            authorize_workspace: true,
+            record_closed: true,
+            room: Some(RoomClose { before_patch, result }),
         })
     }
 
@@ -466,6 +508,7 @@ impl Mux {
             expected_workspace_revision: None,
             authorize_workspace: false,
             record_closed: true,
+            room: None,
         })
     }
 
@@ -520,6 +563,7 @@ impl Mux {
             expected_workspace_revision: expected_revision,
             authorize_workspace: true,
             record_closed: true,
+            room: None,
         })?;
         let revision = match outcome.workspace_revision {
             Some(revision) => revision,

@@ -248,7 +248,21 @@ declare namespace Cmux {
   type SidebarAttachPatch = { kind: "patch"; sidebar_view_id: string /* sidebar_view_… */; render: Cmux.RenderPatch }
   type SidebarAttachScroll = { kind: "scroll"; sidebar_view_id: string /* sidebar_view_… */; scroll: Cmux.RenderScroll }
   type SidebarAttachSnapshot = { kind: "snapshot"; sidebar_view: Cmux.SidebarViewSnapshot; render: Cmux.RenderSnapshot }
+  type SidebarItemRef = { kind: string; value: string }
+  type SidebarLayoutOp = unknown
+  type SidebarLayoutOpItemAdd = { kind: "item.add"; item: Cmux.JsonValue; section: string; index: number }
+  type SidebarLayoutOpItemMove = { kind: "item.move"; id: string; section: string; index: number }
+  type SidebarLayoutOpItemRemove = { kind: "item.remove"; id: string }
+  type SidebarLayoutOpItemRemoveRef = { kind: "item.remove_ref"; ref: Cmux.SidebarItemRef }
+  type SidebarLayoutOpItemUpdate = { kind: "item.update"; id: string; shows_label: boolean }
+  type SidebarLayoutOpReset = { kind: "layout.reset" }
+  type SidebarLayoutOpSectionAdd = { kind: "section.add"; section: Cmux.JsonValue; index: number }
+  type SidebarLayoutOpSectionMove = { kind: "section.move"; id: string; region: "top" | "middle" | "bottom"; index: number }
+  type SidebarLayoutOpSectionRemove = { kind: "section.remove"; id: string }
+  type SidebarLayoutOpSectionUpdate = { kind: "section.update"; id: string; patch: Cmux.SidebarSectionPatch }
+  type SidebarLayoutSnapshot = { revision: string; sections: Array<Cmux.JsonValue> }
   type SidebarPluginSnapshot = { id: string /* sidebar_plugin_… */; name: string; source: string; revision?: string; active: boolean; enabled: boolean; extra?: Record<string, Cmux.JsonValue> }
+  type SidebarSectionPatch = { title?: string | null; look?: string; room?: string | null; max_rows?: number | null; shows_title?: boolean; layout?: string; align?: string; gap?: number | null; columns?: number | null }
   type SidebarViewSnapshot = { id: string /* sidebar_view_… */; session_id: string /* session_… */; cols: number; rows: number; running: boolean; extra?: Record<string, Cmux.JsonValue> }
   type Size = { cols: number; rows: number }
   type SnapshotId = string
@@ -1128,6 +1142,12 @@ interface CmuxGlobal {
         set: CmuxOp<{ machine?: string; session?: string; title: string; expected_revision?: string }, Cmux.MutationResult<Cmux.EmptyResult>>
       }
     }
+  }
+  sidebar_layout: {
+    /** `sidebar_layout.get` (read, scope `sidebar_layout:read`) */
+    get: CmuxOp<{ machine?: string; session?: string }, Cmux.SidebarLayoutSnapshot>
+    /** `sidebar_layout.update` (mutation, scope `sidebar_layout:write`) */
+    update: CmuxOp<{ machine?: string; session?: string; op: Cmux.SidebarLayoutOp }, Cmux.MutationResult<Cmux.SidebarLayoutSnapshot>>
   }
   sidebar_view: {
     /** `sidebar_view.ensure` (mutation, scope `sidebar_view:write`) */

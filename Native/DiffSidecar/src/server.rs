@@ -144,8 +144,8 @@ const MAX_GENERATED_ATTRIBUTE_PATHS: usize = 8192;
 /// Upper bound on one untracked file's added-file patch. A larger file is left
 /// out of the unstaged session patch instead of consuming the whole budget.
 const MAX_UNTRACKED_FILE_PATCH_BYTES: u64 = 8 * 1024 * 1024;
-const ORPHAN_SESSION_TEMP_MIN_AGE: Duration = Duration::from_secs(2 * 60);
-const ORPHAN_SESSION_FINAL_MIN_AGE: Duration = Duration::from_secs(24 * 60 * 60);
+const ORPHAN_SESSION_TEMP_MIN_AGE: Duration = Duration::from_mins(2);
+const ORPHAN_SESSION_FINAL_MIN_AGE: Duration = Duration::from_hours(24);
 const MAX_ORPHAN_SCAN_ENTRIES: usize = 4096;
 const MAX_ORPHAN_REMOVALS: usize = 64;
 const MAX_TEMP_INDEX_ENTRIES: usize = 4096;
@@ -940,10 +940,10 @@ async fn git_generated_paths(source: &DiffSource, repo: &Path) -> Vec<String> {
     let Ok(mut paths) = git_changed_paths(source, repo).await else {
         return Vec::new();
     };
-    if matches!(source, DiffSource::Unstaged { .. }) {
-        if let Ok(untracked) = git_untracked_paths(repo).await {
-            paths.extend(untracked);
-        }
+    if matches!(source, DiffSource::Unstaged { .. })
+        && let Ok(untracked) = git_untracked_paths(repo).await
+    {
+        paths.extend(untracked);
     }
     if paths.is_empty() || paths.len() > MAX_GENERATED_ATTRIBUTE_PATHS {
         return Vec::new();
@@ -982,10 +982,8 @@ async fn git_generated_paths(source: &DiffSource, repo: &Path) -> Vec<String> {
     // `-z` output is `path NUL attribute NUL value NUL` triplets.
     let fields: Vec<&[u8]> = output.stdout.split(|byte| *byte == 0).collect();
     let mut generated = Vec::new();
-    for triplet in fields.chunks_exact(3) {
-        let path = String::from_utf8_lossy(triplet[0]).into_owned();
-        let attribute = triplet[1];
-        let value = triplet[2];
+    for &[path, attribute, value] in fields.as_chunks::<3>().0 {
+        let path = String::from_utf8_lossy(path).into_owned();
         let marks_generated = match attribute {
             b"linguist-generated" => value == b"set" || value == b"true",
             b"diff" => value == b"unset",

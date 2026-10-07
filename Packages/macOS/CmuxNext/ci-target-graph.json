@@ -538,6 +538,7 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextFeed",
       "targets": [
         "CmuxNextDesign",
+        "CmuxNextIcons",
         "CmuxNextWakeups"
       ],
       "packages": []
@@ -546,7 +547,8 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextFeedTests",
       "targets": [
-        "CmuxNextFeed"
+        "CmuxNextFeed",
+        "CmuxNextIcons"
       ],
       "packages": [],
       "reads": []
@@ -738,6 +740,27 @@
         "CmuxNextCloud"
       ],
       "packages": []
+    },
+    "CmuxNextRemoteBrowser": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextRemoteBrowser",
+      "targets": [
+        "CCmuxAppFFI",
+        "CmuxNextBrowser",
+        "CmuxNextDesign",
+        "CmuxNextRemoteView"
+      ],
+      "packages": []
+    },
+    "CmuxNextRemoteBrowserTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextRemoteBrowserTests",
+      "targets": [
+        "CmuxNextRemoteBrowser",
+        "CmuxNextRemoteView"
+      ],
+      "packages": [],
+      "reads": []
     },
     "CmuxNextRemoteLocalhost": {
       "kind": "regular",

@@ -34,6 +34,11 @@ enum WorkspaceMetadataHandlers {
                 context.services.activeDaemon.send("set-workspace-metadata") { _ = try await $0.setWorkspaceMetadata(key, pinned: pinned) }
             }
         })
+        // The workspace menu reads Pin Workspace or Unpin Workspace for the right-clicked row.
+        ActionTargetTitles.set("palette.toggleWorkspacePin", in: registry) { invocation in
+            guard let workspace = try? context.workspace(invocation).model else { return nil }
+            return workspace.pinned ? PinStrings.unpinWorkspace : PinStrings.pinWorkspace
+        }
         registry.bind("palette.resetWorkspaceColor", requires: DaemonCapabilities.shared.workspaceMetadata, daemon: context.services.activeDaemon, run: { invocation in try setColor(nil, invocation, context) })
         for id: ActionID in ["palette.markWorkspaceRead", "clearWorkspaceNotifications"] {
             registry.bind(id, requires: DaemonCapabilities.shared.notificationAck, daemon: context.services.activeDaemon, run: { invocation in

@@ -52,6 +52,9 @@ nonisolated enum SettingsSchemaSamples {
         case .stringList:
             return ([.array([]), .array([.string("ws-1"), .string("2B7F0C3A-workspace")])],
                     [.string("ws-1"), .array([.number(1)]), .array([.string("")]), .object([:])])
+        case .orderedChoices(let choices):
+            return ([.array([]), .array(choices.reversed().map { .string($0.value) })],
+                    [.string(choices.first?.value ?? "a"), .array([.string("__not_a_choice__")]), .array([.number(1)])])
         }
     }
 
