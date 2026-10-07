@@ -28,6 +28,7 @@ extension SettingsSchema {
         .union(WorkspaceRowSetting.keys)
         // The diff page's display keys (looks only, diff-host S4).
         .union(DiffViewerSettingsSchema.keys)
+        .union(PanePlacementSettingsSchema.agentSettableKeys) // where new panes open (layout choices, like layout.dockColumnMode)
         // Sizes and cmux-browser's own keys: cmux-browser writes them from its UI as `script`
         // (a separate process is never `user`), for example the sidebar width after a resize.
         .union(LayoutMetricSetting.all.map { $0.configPath.joined(separator: ".") })
@@ -48,6 +49,7 @@ extension SettingsSchema {
         "sidebar.spacesPosition",
         "tabs.newTabKind",
         "newTerminal.opensWorkspace",
+        "tabs.cmdWClosesPinnedTabs",
         "palette.scopes.tabs.prefix",
         "palette.scopes.workspaces.prefix",
         "palette.scopes.commands.prefix",
@@ -101,6 +103,8 @@ extension SettingsSchema {
         "appearance.statusIndicator.thickness",
         "appearance.statusIndicator.color",
         "appearance.statusIndicator.honorStatusStyle",
+        "appearance.statusIndicator.showAgentWorkingOnTabs",
+        "appearance.statusIndicator.showPageLoading",
         "status.inferCommandBusy",
         "status.inferCommandBusyAfter",
         "terminal.fontFamily",
@@ -108,7 +112,7 @@ extension SettingsSchema {
         "sidebar.sectionLook",
         "sidebar.topBandMaxShare",
         "sidebar.bottomBandMaxShare",
-        "sidebar.pinnedBandsScroll", "sidebar.showWorkspaceTabs",
+        "sidebar.pinnedBandsScroll", "sidebar.showWorkspaceTabs", "sidebar.showChats",
         "browser.defaultEngine",
         "browser.newTabPage",
         "browser.showBookmarksBar",
@@ -148,6 +152,9 @@ extension SettingsSchema {
         .merging(refusedTable) { first, _ in first }
 
     private static let refusedTable: [String: AgentRefusal] = [
+        "agents.chats.roots": .privacy,
+        "agents.chats.discovery": .privacy,
+        "agents.chats.enabled": .privacy,
         "picker.pinned": .userOnly,
         "history.terminalCommands": .privacy,
         "feed.mirrorNotifications.agents": .privacy,

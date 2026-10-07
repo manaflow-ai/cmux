@@ -18,6 +18,7 @@ import { acpmuxPerf } from "./perf";
 import { translate } from "./i18n";
 import { errorMessage } from "./transportErrors";
 import { isWarmableCwd } from "./warmFolders";
+import { SubagentFold } from "./subagents/subagentFold";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
@@ -447,6 +448,8 @@ export class AcpmuxDirectClient {
   private messageRows = new Map<string, string[]>();
   /// The activity row each tool call lives in, so a late update lands where the call began.
   private toolRows = new Map<string, string>();
+  /// Subagents and their records, which draw as group rows (subagents/subagentFold.ts).
+  private subagents = new SubagentFold();
   private readonly listener: Listener;
   private host: AcpmuxHostConfig;
   private peers: string[] = [];
@@ -630,6 +633,7 @@ export class AcpmuxDirectClient {
     this.supersededMessageIds.clear();
     this.messageRows.clear();
     this.toolRows.clear();
+    this.subagents = new SubagentFold();
     this.pendingPermission = undefined;
     this.groupedPermissions.clear();
     this.commands = [];
@@ -1036,6 +1040,7 @@ export class AcpmuxDirectClient {
     this.supersededMessageIds.clear();
     this.messageRows.clear();
     this.toolRows.clear();
+    this.subagents = new SubagentFold();
     this.pendingPermission = undefined;
     const events = [...this.events].sort((a, b) => a.seq - b.seq);
     for (const event of events) {
@@ -1117,6 +1122,7 @@ export class AcpmuxDirectClient {
           this.optimisticPromptTexts.delete(fallbackPromptId);
           this.promptAccepts.get(fallbackPromptId)?.();
         }
+        this.subagents.closeBatch();
         this.endAssistantSegment();
         this.streamingActivity = undefined;
         this.rows.set(`user-${event.seq}`, {
@@ -1171,6 +1177,17 @@ export class AcpmuxDirectClient {
       return;
     }
     if (!update) return;
+    if (this.subagents.reduce(event, update)) {
+      for (const row of this.subagents.takeRows()) {
+        // A new group ends the text and tool calls before it, like a tool call does.
+        if (!this.rows.has(row.id)) {
+          this.endAssistantSegment();
+          this.streamingActivity = undefined;
+        }
+        this.rows.set(row.id, row);
+      }
+      return;
+    }
     const commands = commandsFromUpdate(update);
     if (commands) {
       this.commands = commands;
@@ -1180,6 +1197,8 @@ export class AcpmuxDirectClient {
     const text = textFromContent(update.content);
     if (event.kind === "agent_message_chunk" && text) {
       acpmuxPerf.markAgent("firstToken");
+      // Subagents spawned after the session's own text form a new group.
+      this.subagents.closeBatch();
       const messageId = typeof update.messageId === "string" ? update.messageId : undefined;
       if (messageId && this.supersededMessageIds.has(messageId)) return;
       const sameMessage = Boolean(
@@ -1373,11 +1392,14 @@ export class AcpmuxDirectClient {
   /// `accepted` runs once acpmux took the prompt (its echo or its reply); a refusal comes before
   /// that, and then a caller that passed `accepted` still holds the prompt (the composer keeps
   /// it), so the prompt leaves no bubble and the refusal names its reason in the transcript.
+  /// `ticket`: the gesture a send kept for this prompt while acpmux held it for the folder trust
+  /// answer (heldPrompt.ts); it rides as `_meta.cmuxGesture`, and the host strips it.
   async send(
     input: string,
     attachments: ComposerAttachment[] = [],
     promptId: string = crypto.randomUUID(),
     accepted?: () => void,
+    ticket?: string,
   ): Promise<string | undefined> {
     const record = this.handoff.state.record;
     if (
@@ -1414,7 +1436,7 @@ export class AcpmuxDirectClient {
       await this.request("session/prompt", {
         sessionId,
         prompt: promptBlocks(input, attachments),
-        _meta: { acpmux: { promptId } },
+        _meta: { acpmux: { promptId }, ...(ticket ? { cmuxGesture: ticket } : {}) },
       });
       accept();
     } catch (error) {
@@ -1690,14 +1712,35 @@ export class AcpmuxDirectClient {
         ...gestureMeta(ticket),
       });
   }
-  /** The harness and model catalog. Server state the pane caches with TanStack Query (catalog.ts), so connect does not wait on it. */
-  async harnesses(): Promise<AcpmuxSnapshot["catalog"]> {
+  /** The harness and model catalog. Server state the pane caches with TanStack Query (catalog.ts), so connect does not wait on it.
+   *  With `cwd` (the chat's folder) it also holds that folder's harness profiles (`folder` entries,
+   *  docs/add-your-harness.md). A refused `cwd` (an older acpmux, a folder outside the roots)
+   *  falls back to the list without it, so the catalog never empties over a folder. */
+  async harnesses(cwd?: string): Promise<AcpmuxSnapshot["catalog"]> {
     // The harness list carries no models; acpmux serves the probed ones apart (modelCatalog.ts).
     const [names, probed] = await Promise.all([
-      this.request("_acpmux/harnesses", {}),
+      cwd
+        ? this.request("_acpmux/harnesses", { cwd }).catch(() => this.request("_acpmux/harnesses", {}))
+        : this.request("_acpmux/harnesses", {}),
       this.request("_acpmux/models", {}).catch(() => undefined),
     ]);
-    return mergeModelCatalog(names, probed);
+    const catalog = mergeModelCatalog(names, probed);
+    const profiles = normalizeFolderProfiles(names);
+    if (profiles.length === 0) return catalog;
+    // A probed folder profile keeps its models; it is listed once, as the folder's.
+    const ids = new Set(profiles.map((profile) => profile.id));
+    const models = new Map(catalog.map((entry) => [entry.id, entry.models]));
+    return [
+      ...catalog.filter((entry) => !ids.has(entry.id)),
+      ...profiles.map((profile) => ({ ...profile, models: models.get(profile.id) ?? profile.models })),
+    ];
+  }
+  /// Enables a folder profile (`_acpmux/harness_enable {folder, id}`). Call it straight from the
+  /// click or key handler, with no await before it: the host takes the gesture, shows its own
+  /// confirmation and adds the file's hash itself (the pane never sends one). A Cancel there
+  /// rejects with code `transport.harness_not_confirmed`.
+  harnessEnable(folder: string, id: string): Promise<unknown> {
+    return this.request("_acpmux/harness_enable", { folder, id });
   }
   /// Pages older transcript events in without reattaching, so the live summary,
   /// queue and permission stay as they are. A page that lands after the
@@ -1756,6 +1799,56 @@ export function isTrustRefusal(error: unknown): boolean {
 export function harnessRefusal(entry: { unavailable?: unknown; probeError?: unknown } | undefined): string | undefined {
   for (const reason of [entry?.unavailable, entry?.probeError]) if (typeof reason === "string" && reason) return reason;
   return undefined;
+}
+
+const FOLDER_STATES = ["enabled", "needs-enable", "needs-trust", "error"] as const;
+
+/// The folder profiles of a `_acpmux/harnesses {cwd}` reply (`folderProfiles`) as catalog entries.
+/// An entry without an id, a folder or a known state is dropped.
+export function normalizeFolderProfiles(value: any): AcpmuxSnapshot["catalog"] {
+  const profiles: any[] = Array.isArray(value?.folderProfiles) ? value.folderProfiles : [];
+  return profiles.flatMap((profile) => {
+    const id = typeof profile?.id === "string" ? profile.id : "";
+    const folder = typeof profile?.folder === "string" ? profile.folder : "";
+    const state = FOLDER_STATES.find((candidate) => candidate === profile?.state);
+    if (!id || !folder || !state) return [];
+    const first = Array.isArray(profile.diagnostics) ? profile.diagnostics[0] : undefined;
+    const diagnostic =
+      typeof first === "string" ? first : typeof first?.message === "string" ? first.message : undefined;
+    return [
+      {
+        id,
+        name: typeof profile.displayName === "string" && profile.displayName ? profile.displayName : id,
+        models: Array.isArray(profile.models) ? profile.models.map((model: unknown) => catalogModel(model)) : [],
+        ...(typeof profile.family === "string" && profile.family ? { family: profile.family } : {}),
+        ...(typeof profile.icon === "string" && profile.icon ? { icon: profile.icon } : {}),
+        folder: {
+          folder,
+          ...(typeof profile.path === "string" ? { path: profile.path } : {}),
+          state,
+          ...(diagnostic ? { diagnostic } : {}),
+        },
+      },
+    ];
+  });
+}
+
+/// A `session/new` acpmux refused because the chat's folder profile is not enabled yet
+/// (`harness.needs_enable`) or its folder has no Trust answer (`harness.needs_trust`).
+export type HarnessBlock = { reason: "needs-enable" | "needs-trust"; harness: string; folder: string };
+
+export function harnessBlock(error: unknown): HarnessBlock | undefined {
+  const data = (error as { data?: unknown } | null)?.data as
+    | { reason?: unknown; harness?: unknown; folder?: unknown }
+    | undefined;
+  const reason =
+    data?.reason === "harness.needs_enable"
+      ? "needs-enable"
+      : data?.reason === "harness.needs_trust"
+        ? "needs-trust"
+        : undefined;
+  if (!reason || typeof data?.harness !== "string" || typeof data.folder !== "string") return undefined;
+  return { reason, harness: data.harness, folder: data.folder };
 }
 
 /// One `_acpmux/models` entry: id and name, plus the metadata a declared profile model carries.

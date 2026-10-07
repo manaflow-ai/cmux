@@ -21,6 +21,8 @@ mod hosted_callbacks;
 use hosted_callbacks::hosted_terminal_callbacks;
 #[cfg(unix)]
 mod prelaunch;
+#[cfg(unix)]
+mod rehost;
 use directory::PublishedDirectory;
 
 use std::borrow::Cow;
@@ -2708,6 +2710,7 @@ impl Surface {
                 let mut connected_at: Option<Instant> = None;
                 'connection: loop {
                     let pty = surface.as_pty().expect("host reader owns a PTY surface");
+                    rehost::request_custody(&surface);
                     let mut stager = HostedFrameStager::new_for_version(
                         sequence_boundary,
                         protocol_version,
@@ -3157,47 +3160,23 @@ impl Surface {
                             }
                         };
                         let Some((record, record_path)) = discovery else { return };
-                        match crate::terminal_host_runtime::terminal_host_record_liveness(
+                        let replaced = match crate::terminal_host_runtime::terminal_host_record_liveness(
                             &record_path,
                             &record,
                         ) {
                             Ok(crate::terminal_host_runtime::TerminalHostLiveness::Dead) => {
-                                // A durable sidecar is the host's record of the
-                                // child's end; without one the host died with an
-                                // unknown outcome (invariant 3: its tabs stay).
-                                let exit = crate::terminal_host_runtime::terminal_host_exit_record(
-                                    &record_path,
-                                )
-                                .ok()
-                                .flatten()
-                                .filter(|(_, exit)| {
-                                    exit.terminal_id == identity.terminal_id
-                                        && exit.incarnation == identity.incarnation
-                                })
-                                .map(|(_, exit)| TerminalEnd::ProcessEnded(exit.exit))
-                                .unwrap_or_else(|| {
-                                    TerminalEnd::host_lost(
-                                        "terminal host ended without a durable exit sidecar",
-                                    )
-                                });
-                                *pty.exit.lock().unwrap() = Some(exit);
-                                mark_hosted_runtime_exited(pty, &identity);
-                                pty.host_connection_state.store(
-                                    TerminalHostConnectionState::Exited as u8,
-                                    Ordering::Release,
-                                );
-                                pty.stream_progress.notify();
-                                if let Some(mux) = mux.upgrade() {
-                                    mux.surface_exited(surface.id);
+                                match rehost::after_host_death(&surface, &mux, &identity, &record, &record_path, scrollback) {
+                                    rehost::DeadHost::Replaced(attachment) => Some(*attachment),
+                                    rehost::DeadHost::Retry if retry.wait_or_fail(pty) => continue,
+                                    rehost::DeadHost::Retry | rehost::DeadHost::Stop => return,
                                 }
-                                return;
                             }
                             Ok(crate::terminal_host_runtime::TerminalHostLiveness::Live)
                             | Ok(
                                 crate::terminal_host_runtime::TerminalHostLiveness::Indeterminate,
                             )
-                            | Err(_) => {}
-                        }
+                            | Err(_) => None,
+                        };
 
                         let Some(reconnect_mux) = mux.upgrade() else { return };
                         let Ok(kitty_limits) =
@@ -3205,11 +3184,11 @@ impl Surface {
                         else {
                             return;
                         };
-                        let replacement = match crate::terminal_host_runtime::adopt_terminal_host_with_kitty_limits(
+                        let replacement = match replaced.map_or_else(|| crate::terminal_host_runtime::adopt_terminal_host_with_kitty_limits(
                             record,
                             record_path,
                             kitty_limits,
-                        ) {
+                        ), Ok) {
                             Ok(replacement) if replacement.identity() == identity => replacement,
                             Ok(_) | Err(_) => {
                                 if !retry.wait_or_fail(pty) {

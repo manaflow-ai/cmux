@@ -4,6 +4,7 @@ import Foundation
 public struct MoveTabToSplitRequest: DaemonRequest {
     public typealias Response = TabMoveResult
     public static let command = "move-tab-to-split"
+    public static let requiredCapability: String? = DaemonCapabilities.shared.tabDrag
     public var surface: SurfaceID
     public var pane: PaneID
     public var edge: PaneEdge
@@ -29,6 +30,7 @@ public enum ColumnDropTarget: Sendable, Hashable {
 public struct MoveTabToColumnRequest: DaemonRequest {
     public typealias Response = TabMoveResult
     public static let command = "move-tab-to-column"
+    public static let requiredCapability: String? = DaemonCapabilities.shared.tabDrag
     public var surface: SurfaceID
     public var target: ColumnDropTarget
     /// Insert after this column; nil = after the last one.
@@ -49,7 +51,7 @@ public struct MoveTabToColumnRequest: DaemonRequest {
     }
 
     enum CodingKeys: String, CodingKey { case surface, pane, screen, afterColumn, width, dock, transaction }
-    enum PinKeys: String, CodingKey { case edge, mode }
+    enum PinKeys: String, CodingKey { case edge, mode, role }
     public func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(surface, forKey: .surface)
@@ -63,6 +65,7 @@ public struct MoveTabToColumnRequest: DaemonRequest {
             var pin = c.nestedContainer(keyedBy: PinKeys.self, forKey: .dock)
             try pin.encode(dock.edge.rawValue, forKey: .edge)
             try pin.encode(dock.mode.rawValue, forKey: .mode)
+            try pin.encodeIfPresent(dock.role?.rawValue, forKey: .role)
         }
         try c.encodeIfPresent(transaction, forKey: .transaction)
     }

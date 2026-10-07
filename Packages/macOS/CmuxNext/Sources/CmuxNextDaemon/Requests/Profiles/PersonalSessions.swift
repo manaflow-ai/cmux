@@ -8,6 +8,7 @@ public struct PutSessionRequest: DaemonRequest {
         public var created: Bool
     }
     public static let command = "put-session"
+    public static let requiredCapability: String? = DaemonCapabilities.shared.profiles
     public var sessionID: String
     public var machineName: String?
     public var sessionName: String?
@@ -52,6 +53,7 @@ public struct ImportSessionOrganizationRequest: DaemonRequest {
         public var imported: Bool
     }
     public static let command = "import-session-organization"
+    public static let requiredCapability: String? = DaemonCapabilities.shared.profiles
     public var sessionID: String
     public var groups: [Group]
     public var workspaces: [Workspace]
@@ -70,6 +72,7 @@ public struct ForgetSessionRequest: DaemonRequest {
         public var changed: Bool
     }
     public static let command = "forget-session"
+    public static let requiredCapability: String? = DaemonCapabilities.shared.profiles
     public var sessionID: String
     public var force: Bool
     public init(sessionID: String, force: Bool) {

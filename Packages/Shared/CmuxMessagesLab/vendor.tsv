@@ -1,4 +1,4 @@
-# MessagesLab commit d5d6a18 (appkit-native variant). upstream path<TAB>vendored path (relative to this package). Patches/<vendored file name>.patch holds each blocker edit. A third column pins that file to its own commit (partial roll-ins).
+# MessagesLab commit 9ae05d5 (appkit-native variant). upstream path<TAB>vendored path (relative to this package). Patches/<vendored file name>.patch holds each blocker edit. A third column pins that file to its own commit (partial roll-ins).
 catalyst/Sources/Model.swift	Sources/MessagesLabHome/Vendor/catalyst/Model.swift
 catalyst/Sources/Engine.swift	Sources/MessagesLabHome/Vendor/catalyst/Engine.swift
 catalyst/Sources/Layout.swift	Sources/MessagesLabHome/Vendor/catalyst/Layout.swift
@@ -40,10 +40,11 @@ appkit-native/Sources/HeaderBar.swift	Sources/MessagesLabHome/Vendor/appkit-nati
 appkit-native/Sources/TranscriptAccess.swift	Sources/MessagesLabHome/Vendor/appkit-native/TranscriptAccess.swift	bd65bbf
 appkit-native/Sources/SwipeReply.swift	Sources/MessagesLabHome/Vendor/appkit-native/SwipeReply.swift	0c8147b
 appkit-native/Sources/FlightRecorder.swift	Sources/MessagesLabHome/Vendor/appkit-native/FlightRecorder.swift
-catalyst/Sources/ConversationList.swift	Sources/MessagesLabSidebar/Vendor/catalyst/ConversationList.swift	6affc8f
-appkit-native/Sources/SidebarModel.swift	Sources/MessagesLabSidebar/Vendor/appkit-native/SidebarModel.swift	6affc8f
-appkit-native/Sources/SidebarDrawing.swift	Sources/MessagesLabSidebar/Vendor/appkit-native/SidebarDrawing.swift	6affc8f
-appkit-native/Sources/SidebarView.swift	Sources/MessagesLabSidebar/Vendor/appkit-native/SidebarView.swift	6affc8f
+catalyst/Sources/ConversationList.swift	Sources/MessagesLabSidebar/Vendor/catalyst/ConversationList.swift
+appkit-native/Sources/SidebarModel.swift	Sources/MessagesLabSidebar/Vendor/appkit-native/SidebarModel.swift
+appkit-native/Sources/SidebarDrawing.swift	Sources/MessagesLabSidebar/Vendor/appkit-native/SidebarDrawing.swift
+appkit-native/Sources/SidebarView.swift	Sources/MessagesLabSidebar/Vendor/appkit-native/SidebarView.swift
 catalyst/springs.json	Sources/MessagesLabHome/Resources/springs.json
 catalyst/Resources/Localizable.xcstrings	Sources/MessagesLabHome/Resources/Localizable.xcstrings
 appkit-native/Resources/AppKitNative.xcstrings	Sources/MessagesLabHome/Resources/AppKitNative.xcstrings
+appkit-native/Resources/SidebarLocalizable.xcstrings	Sources/MessagesLabSidebar/Resources/SidebarLocalizable.xcstrings
