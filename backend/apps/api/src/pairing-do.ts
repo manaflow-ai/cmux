@@ -1,6 +1,8 @@
 import { DurableObject } from "cloudflare:workers"
 import type { Env } from "./env.ts"
 import { PAIRING_TTL_MS } from "./domains/pairing.ts"
+import type { TrustPeerDevice } from "./domains/user-trust.ts"
+import { claimOffer, completeOffer, createOffer, declineOffer, ensureOfferTable, type ClaimOutcome, type OfferHost } from "./pairing-offer.ts"
 
 export interface PairingRecord {
   readonly code: string
@@ -54,6 +56,29 @@ export class PairingDO extends DurableObject<Env> {
       `CREATE TABLE IF NOT EXISTS pairing (id INTEGER PRIMARY KEY CHECK (id = 1), code TEXT NOT NULL, public_jwk TEXT NOT NULL, thumbprint TEXT NOT NULL,
         wg_public_key TEXT NOT NULL, info TEXT NOT NULL, country TEXT, collect_hash TEXT NOT NULL, expires_at INTEGER NOT NULL, result TEXT, approver TEXT)`
     )
+    ensureOfferTable(ctx.storage.sql)
+  }
+
+  // Device pairing offers (b6-pairing.md 4.2; pairing-offer.ts). Called only by UserDO over DO RPC, on objects named `offer:<offer id>`.
+  async offerCreate(host: OfferHost, now: number): Promise<{ ok: true; expires_at: number } | { ok: false }> {
+    const r = createOffer(this.ctx.storage.sql, host, now)
+    if (r.ok) await this.ctx.storage.setAlarm(r.expires_at)
+    return r
+  }
+
+  async offerClaim(claim: { host: string; host_key: string; claimant: TrustPeerDevice }, now: number): Promise<ClaimOutcome> {
+    const r = claimOffer(this.ctx.storage.sql, claim, now)
+    // A cross-account claim extends the offer to the acceptance window.
+    if (r.ok && !r.same_account) await this.ctx.storage.setAlarm(r.offer.expires_at)
+    return r
+  }
+
+  async offerComplete(owner: string, install: string, now: number): Promise<ClaimOutcome> {
+    return completeOffer(this.ctx.storage.sql, owner, install, now)
+  }
+
+  async offerDecline(owner: string, now: number): Promise<boolean> {
+    return declineOffer(this.ctx.storage.sql, owner, now)
   }
 
   private row(now: number): Row | undefined {
@@ -174,5 +199,6 @@ export class PairingDO extends DurableObject<Env> {
   override async alarm(): Promise<void> {
     for (const ws of this.ctx.getWebSockets()) ws.close(4408, "expired")
     this.ctx.storage.sql.exec(`DELETE FROM pairing`)
+    this.ctx.storage.sql.exec(`DELETE FROM offer`)
   }
 }
