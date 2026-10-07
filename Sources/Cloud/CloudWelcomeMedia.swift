@@ -2,6 +2,7 @@ import AppKit
 import AVFoundation
 import CmuxFoundation
 import ImageIO
+import Observation
 import SwiftUI
 
 /// One feature in the welcome's media slider: a short looping clip, a title
@@ -88,15 +89,12 @@ struct CloudWelcomeMediaCarousel: View {
     private static let dotSize: CGFloat = 6
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var index = 0
     @State private var duration: Double = fallbackDuration
-    /// When the current slide started, shifted forward by any time spent paused.
-    @State private var startedAt = Date()
-    /// Seconds into the slide when the pointer paused it; nil while playing.
-    @State private var pausedElapsed: Double?
     @State private var isHoveringMedia = false
     @State private var hoveredRow: String?
-    @StateObject private var playback = Playback()
+    @State private var playback = Playback()
+
+    private var index: Int { playback.index }
 
     var body: some View {
         Group {
@@ -112,9 +110,9 @@ struct CloudWelcomeMediaCarousel: View {
                 stacked
             }
         }
-        .onReceive(playback.$finishedCount.dropFirst()) { _ in clipFinished() }
+        .task { await observePlayback() }
         .task(id: currentSlide.id) { await loadDuration() }
-        .task(id: AdvanceKey(slide: currentSlide.id, isPaused: pausedElapsed != nil, duration: duration)) {
+        .task(id: AdvanceKey(slide: currentSlide.id, isPaused: playback.isPaused, duration: duration)) {
             await advanceWhenDone()
         }
     }
@@ -228,7 +226,7 @@ struct CloudWelcomeMediaCarousel: View {
         .clipShape(shape)
         .contentShape(shape)
         .onTapGesture {
-            if autoplays { setPaused(pausedElapsed == nil) }
+            if autoplays { setPaused(!playback.isPaused) }
         }
         .onHover { hovering in
             withAnimation(.easeOut(duration: 0.15)) { isHoveringMedia = hovering }
@@ -242,14 +240,14 @@ struct CloudWelcomeMediaCarousel: View {
     @ViewBuilder
     private var mediaControls: some View {
         if autoplays {
-            if isHoveringMedia || pausedElapsed != nil {
+            if isHoveringMedia || playback.isPaused {
                 controlButton(
-                    symbol: pausedElapsed == nil ? "pause.fill" : "play.fill",
-                    label: pausedElapsed == nil
-                        ? String(localized: "cloud.welcome.slider.pause", defaultValue: "Pause")
-                        : String(localized: "cloud.welcome.slider.play", defaultValue: "Play")
+                    symbol: playback.isPaused ? "play.fill" : "pause.fill",
+                    label: playback.isPaused
+                        ? String(localized: "cloud.welcome.slider.play", defaultValue: "Play")
+                        : String(localized: "cloud.welcome.slider.pause", defaultValue: "Pause")
                 ) {
-                    setPaused(pausedElapsed == nil)
+                    setPaused(!playback.isPaused)
                 }
                 .padding(10)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
@@ -348,7 +346,7 @@ struct CloudWelcomeMediaCarousel: View {
             .frame(width: isCurrent ? Self.pillWidth : Self.dotSize, height: Self.dotSize)
             .overlay(alignment: .leading) {
                 if isCurrent {
-                    TimelineView(.animation(paused: pausedElapsed != nil || reduceMotion || !autoplays)) { context in
+                    TimelineView(.animation(paused: playback.isPaused || reduceMotion || !autoplays)) { context in
                         RailFill(fraction: progress(at: context.date), vertical: false, minimumLength: Self.dotSize)
                     }
                     .transition(.opacity)
@@ -387,7 +385,7 @@ struct CloudWelcomeMediaCarousel: View {
             Capsule(style: .continuous)
                 .fill(Color.primary.opacity(0.16))
                 .overlay {
-                    TimelineView(.animation(paused: pausedElapsed != nil)) { context in
+                    TimelineView(.animation(paused: playback.isPaused)) { context in
                         RailFill(fraction: progress(at: context.date), vertical: true)
                     }
                 }
@@ -403,7 +401,7 @@ struct CloudWelcomeMediaCarousel: View {
     private func progress(at date: Date) -> Double {
         if reduceMotion || !autoplays { return 1 }
         if let fraction = playback.fraction { return fraction }
-        return min(elapsed(at: date) / max(duration, 0.1), 1)
+        return min(playback.elapsed(at: date) / max(duration, 0.1), 1)
     }
 
     // MARK: Caption
@@ -431,50 +429,44 @@ struct CloudWelcomeMediaCarousel: View {
         let duration: Double
     }
 
-    private func elapsed(at date: Date) -> Double {
-        pausedElapsed ?? date.timeIntervalSince(startedAt)
-    }
-
     private func setPaused(_ paused: Bool) {
         playback.setPaused(paused)
-        let now = Date()
-        if paused {
-            pausedElapsed = elapsed(at: now)
-        } else if let held = pausedElapsed {
-            startedAt = now.addingTimeInterval(-held)
-            pausedElapsed = nil
-        }
     }
 
     private func show(_ newIndex: Int) {
         guard newIndex != index else { return }
         playback.detach()
-        withAnimation(reduceMotion ? .easeInOut(duration: 0.2) : .spring(response: 0.5, dampingFraction: 0.88)) {
-            index = newIndex
-        }
         // Picking a slide plays it, even if the last one was paused.
-        startedAt = Date()
-        pausedElapsed = nil
-        playback.setPaused(false)
+        withAnimation(reduceMotion ? .easeInOut(duration: 0.2) : .spring(response: 0.5, dampingFraction: 0.88)) {
+            playback.startNewSlide(at: newIndex)
+        }
     }
 
     /// A movie's first play ended (the looper wrapped around): next slide.
     private func clipFinished() {
-        guard autoplays, !reduceMotion, pausedElapsed == nil, slides.count > 1 else { return }
+        guard autoplays, !reduceMotion, !playback.isPaused, slides.count > 1 else { return }
         show((index + 1) % slides.count)
     }
 
     /// A slide without a movie (GIF, placeholder) waits out its duration, then
     /// moves on. Pausing, a new slide or a newly loaded duration cancels this.
     private func advanceWhenDone() async {
-        guard autoplays, !reduceMotion, pausedElapsed == nil, slides.count > 1, !Self.isMovie(mediaURL(currentSlide)) else { return }
-        let remaining = duration - elapsed(at: Date())
+        guard autoplays, !reduceMotion, !playback.isPaused, slides.count > 1, !Self.isMovie(mediaURL(currentSlide)) else { return }
+        let remaining = duration - playback.elapsed(at: Date())
         if remaining > 0 {
-            do { try await Task.sleep(for: .seconds(remaining)) } catch { return }
+            do { try await ContinuousClock().sleep(for: .seconds(remaining)) } catch { return }
         }
         // A pause or a new slide can land just as the wait ends.
-        guard !Task.isCancelled, pausedElapsed == nil else { return }
+        guard !Task.isCancelled, !playback.isPaused else { return }
         show((index + 1) % slides.count)
+    }
+
+    /// Consumes movie loop events for as long as this carousel is on screen.
+    private func observePlayback() async {
+        for await _ in playback.loopCompletions {
+            guard !Task.isCancelled else { return }
+            clipFinished()
+        }
     }
 
     /// The slide stays up for one play of its clip.
@@ -482,7 +474,7 @@ struct CloudWelcomeMediaCarousel: View {
         duration = Self.fallbackDuration
         guard let url = mediaURL(currentSlide) else { return }
         if url.pathExtension.lowercased() == "gif" {
-            duration = Self.gifDuration(url) ?? Self.fallbackDuration
+            duration = await Self.gifDuration(url) ?? Self.fallbackDuration
         } else if let seconds = try? await AVURLAsset(url: url).load(.duration).seconds, seconds.isFinite, seconds > 0.5 {
             duration = seconds
         }
@@ -493,7 +485,10 @@ struct CloudWelcomeMediaCarousel: View {
         return url.pathExtension.lowercased() != "gif"
     }
 
-    private static func gifDuration(_ url: URL) -> Double? {
+    #if compiler(>=6.2)
+    @concurrent
+    #endif
+    nonisolated private static func gifDuration(_ url: URL) async -> Double? {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
         var total: Double = 0
         for frame in 0..<CGImageSourceGetCount(source) {
@@ -610,14 +605,15 @@ struct CloudWelcomeMediaCarousel: View {
                 // slide change never flashes an empty frame.
                 playerLayer.opacity = 0
                 layer = playerLayer
-                readyObservation = playerLayer.observe(\.isReadyForDisplay, options: [.initial, .new]) { layer, _ in
-                    guard layer.isReadyForDisplay else { return }
-                    DispatchQueue.main.async {
+                readyObservation = playerLayer.observe(\.isReadyForDisplay, options: [.initial, .new]) { observedLayer, _ in
+                    guard observedLayer.isReadyForDisplay else { return }
+                    Task { @MainActor [weak observedLayer] in
+                        guard let observedLayer else { return }
                         let fade = CABasicAnimation(keyPath: "opacity")
                         fade.fromValue = 0
                         fade.duration = 0.15
-                        layer.opacity = 1
-                        layer.add(fade, forKey: "fadeIn")
+                        observedLayer.opacity = 1
+                        observedLayer.add(fade, forKey: "fadeIn")
                     }
                 }
                 player.isMuted = true
@@ -629,10 +625,10 @@ struct CloudWelcomeMediaCarousel: View {
                 self.looper = looper
                 loopObservation = looper.observe(\.loopCount, options: [.new]) { [weak playback, weak player] looper, _ in
                     guard looper.loopCount > 0 else { return }
-                    DispatchQueue.main.async {
+                    Task { @MainActor [weak playback, weak player] in
                         // Only the current slide's movie moves the slider on.
-                        guard let playback, let player, playback.isCurrent(player) else { return }
-                        playback.finishedCount += 1
+                        guard let playback, let player else { return }
+                        playback.didFinish(player)
                     }
                 }
                 playback.attach(player)
@@ -675,11 +671,25 @@ extension CloudWelcomeMediaCarousel {
 extension CloudWelcomeMediaCarousel {
     /// The playing movie, shared between the player view (which owns it) and
     /// the pager (which reads its playhead and hears when it ends).
-    final class Playback: ObservableObject {
-        /// Bumped each time the current movie finishes a play.
-        @Published var finishedCount = 0
+    @MainActor
+    @Observable
+    final class Playback {
+        /// The event stream emitted by the current movie when it completes a loop.
+        @ObservationIgnored private(set) var loopCompletions: AsyncStream<Void>
+        @ObservationIgnored private let loopContinuation: AsyncStream<Void>.Continuation
         private weak var player: AVPlayer?
-        private var isPaused = false
+        private(set) var index = 0
+        private(set) var isPaused = false
+        private var pausedElapsed: Double?
+        private var startedAt = Date()
+
+        init() {
+            (loopCompletions, loopContinuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        }
+
+        deinit {
+            loopContinuation.finish()
+        }
 
         func attach(_ player: AVPlayer) {
             self.player = player
@@ -687,17 +697,47 @@ extension CloudWelcomeMediaCarousel {
         }
 
         /// A new slide is showing; the outgoing movie no longer drives the pager.
-        func detach() {
+        func detach(_ candidate: AVPlayer? = nil) {
+            guard candidate == nil || player === candidate else { return }
             player = nil
         }
 
-        func isCurrent(_ candidate: AVPlayer) -> Bool {
-            player === candidate
+        func didFinish(_ candidate: AVPlayer) {
+            guard player === candidate else { return }
+            loopContinuation.yield()
         }
 
         func setPaused(_ paused: Bool) {
-            isPaused = paused
-            if paused { player?.pause() } else { player?.play() }
+            guard paused != isPaused else { return }
+            let now = Date()
+            if paused {
+                pausedElapsed = elapsed(at: now)
+                isPaused = true
+                player?.pause()
+            } else {
+                if let held = pausedElapsed {
+                    startedAt = now.addingTimeInterval(-held)
+                }
+                pausedElapsed = nil
+                isPaused = false
+                player?.play()
+            }
+        }
+
+        /// Starts the new slide's playhead and clears any pause carried by the old slide.
+        func startNewSlide(at newIndex: Int? = nil) {
+            if let newIndex {
+                index = newIndex
+            }
+            startedAt = Date()
+            pausedElapsed = nil
+            isPaused = false
+            player?.play()
+        }
+
+        /// Returns elapsed playhead time, including a held value while paused.
+        func elapsed(at date: Date) -> Double {
+            pausedElapsed ?? date.timeIntervalSince(startedAt)
         }
 
         /// How far through its current play the movie is, or nil without one.

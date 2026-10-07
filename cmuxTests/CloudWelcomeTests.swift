@@ -40,4 +40,10 @@ struct CloudWelcomeTests {
         #expect(CloudWelcomeNextStep.resolve(isAuthenticated: true, isPlanKnown: true, isPro: false) == .upgrade)
         #expect(CloudWelcomeNextStep.resolve(isAuthenticated: true, isPlanKnown: true, isPro: true) == .enable)
     }
+
+    @Test("feature clips keep their stable product order")
+    func featureClipIDsAreStable() {
+        #expect(CloudWelcomeSlide.all.map(\.id) == ["spin-up", "keeps-running", "any-mac", "share-port", "team"])
+        #expect(Set(CloudWelcomeSlide.all.map(\.id)).count == CloudWelcomeSlide.all.count)
+    }
 }
