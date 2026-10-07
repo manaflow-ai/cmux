@@ -3,9 +3,9 @@ public import Observation
 
 /// Chats: the user's Claude Code and Codex chats, newest first, to pick up
 /// in cmux. Each checked chat reopens as an agent tab in its project's
-/// workspace, resumed rather than copied. None start checked: resuming one
-/// starts its agent, which is the user's call. A keyboard cursor moves over
-/// the rows; Space toggles the row under it.
+/// workspace, resumed rather than copied. Only the chats classic cmux had
+/// open start checked: resuming one starts its agent, which is the user's
+/// call. A keyboard cursor moves over the rows; Space toggles the row under it.
 @MainActor
 @Observable
 public final class ChatsStepModel {
@@ -34,8 +34,11 @@ public final class ChatsStepModel {
         isScanning = true
         task = Task { [weak self, services] in
             let found = await services.scanAgentChats()
+            let open = await services.scanClassicOpenChats()
             guard let self, !Task.isCancelled else { return }
-            chats = Array(found.prefix(Self.listed))
+            // Classic's open chats stay listed past the newest rows.
+            chats = Array(found.prefix(Self.listed)) + found.dropFirst(Self.listed).filter { open.contains($0.id) }
+            selected = open.intersection(chats.map(\.id))
             isScanning = false
             scanned = true
         }
