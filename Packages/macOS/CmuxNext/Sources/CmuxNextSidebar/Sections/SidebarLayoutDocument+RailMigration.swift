@@ -118,28 +118,26 @@ extension SidebarLayoutDocument {
     public nonisolated static let tilesArrangement = SectionArrangement(layout: .tiles, columns: 4)
 
     /// Every migration in order (sections, then app refs, then Recents, then
-    /// retired items, then New chat and Search Chats), as
+    /// retired items), as
     /// one op list that applies to this layout. No migration turns a
     /// plain-row top section into tiles; the tiles default was never stored
     /// (the store did not serve `sidebar-layout-v1` yet), so none moves back either.
     public nonisolated var layoutMigrationOps: [SidebarLayoutOp] { layoutMigrationOps(offeringRecents: true) }
 
-    /// `layoutMigrationOps`, without Recents or the chat items once this Mac
-    /// offered them (a layout without them then is one the user removed them from).
-    public nonisolated func layoutMigrationOps(offeringRecents: Bool, offeringChatItems: Bool = true) -> [SidebarLayoutOp] {
-        var ops = sectionsMigrationOps
-        ops += sectionsMigration.appRefMigrationOps
-        if offeringRecents { ops += applying(ops).recentsMigrationOps }
-        ops += applying(ops).retiredItemOps
-        if offeringChatItems { ops += applying(ops).chatItemsMigrationOps }
-        return ops
+    /// `layoutMigrationOps`, without Recents once this Mac offered it (a
+    /// layout without Recents then is one the user removed it from).
+    public nonisolated func layoutMigrationOps(offeringRecents: Bool) -> [SidebarLayoutOp] {
+        let sections = sectionsMigrationOps
+        let appRefs = sectionsMigration.appRefMigrationOps
+        let earlier = offeringRecents ? sections + appRefs + applying(sections + appRefs).recentsMigrationOps : sections + appRefs
+        return earlier + applying(earlier).retiredItemOps
     }
 
     /// This layout with `layoutMigrationOps` applied.
     public nonisolated var layoutMigration: SidebarLayoutDocument { applying(layoutMigrationOps) }
 
     /// This layout with `ops` applied by the reducer; the layout itself when one is refused.
-    public nonisolated func applying(_ ops: [SidebarLayoutOp]) -> SidebarLayoutDocument {
+    nonisolated func applying(_ ops: [SidebarLayoutOp]) -> SidebarLayoutDocument {
         var result = self
         for op in ops {
             guard case .success(let next) = SidebarLayoutReducer.reduce(result, op) else { return self }

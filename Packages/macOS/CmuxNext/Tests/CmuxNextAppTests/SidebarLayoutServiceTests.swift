@@ -57,7 +57,7 @@ import Testing
 
     @Test func anIntentShowsAtOnceAndLeavesOnItsReply() async throws {
         let owner = FakeOwner()
-        let service = SidebarLayoutService(remote: owner, prototypeEnabled: { false }, offered: Self.freshDefaults())
+        let service = SidebarLayoutService(remote: owner, prototypeEnabled: { false }, recentsOffered: Self.freshDefaults())
         try service.send(.itemRemove(LayoutItemID("itm_home")))
         #expect(service.document.firstItem(with: .app("cmux/home")) == nil)
         #expect(service.pending.count == 1)
@@ -71,7 +71,7 @@ import Testing
     @Test func aRejectAnimatesBackAndIsReported() async throws {
         let owner = FakeOwner()
         var refusals: [String] = []
-        let service = SidebarLayoutService(remote: owner, onRefused: { refusals.append($0) }, prototypeEnabled: { false }, offered: Self.freshDefaults())
+        let service = SidebarLayoutService(remote: owner, onRefused: { refusals.append($0) }, prototypeEnabled: { false }, recentsOffered: Self.freshDefaults())
         try service.send(.itemRemove(LayoutItemID("itm_settings")))
         #expect(service.document.item(LayoutItemID("itm_settings")) == nil)
         await settled { owner.isWaiting }
@@ -83,14 +83,14 @@ import Testing
 
     @Test func aLocalRejectIsRefusedWithoutSending() {
         let owner = FakeOwner()
-        let service = SidebarLayoutService(remote: owner, prototypeEnabled: { false }, offered: Self.freshDefaults())
+        let service = SidebarLayoutService(remote: owner, prototypeEnabled: { false }, recentsOffered: Self.freshDefaults())
         #expect(throws: (any Error).self) { try service.send(.sectionRemove(SidebarLayoutDocument.workspacesSectionID)) }
         #expect(owner.calls.isEmpty && service.pending.isEmpty)
     }
 
     @Test func aDisconnectKeepsTheIntentAndResendsItWithTheSameKey() async throws {
         let owner = FakeOwner()
-        let service = SidebarLayoutService(remote: owner, prototypeEnabled: { false }, offered: Self.freshDefaults())
+        let service = SidebarLayoutService(remote: owner, prototypeEnabled: { false }, recentsOffered: Self.freshDefaults())
         service.start()
         try service.send(.itemRemove(LayoutItemID("itm_home")))
         await settled { owner.isWaiting }
@@ -110,7 +110,7 @@ import Testing
 
     @Test func theMirrorNeverMovesBackAndFollowsPersonalChanges() async throws {
         let owner = FakeOwner()
-        let service = SidebarLayoutService(remote: owner, prototypeEnabled: { false }, offered: Self.freshDefaults())
+        let service = SidebarLayoutService(remote: owner, prototypeEnabled: { false }, recentsOffered: Self.freshDefaults())
         service.start()
         owner.stored = try SidebarLayoutReducer.reduce(.defaults, .itemRemove(LayoutItemID("itm_home"))).get()
         owner.changeToken += 1
@@ -127,7 +127,7 @@ import Testing
     @Test func aStoredRailLayoutMigratesBackThroughTheOwner() async throws {
         let owner = FakeOwner()
         owner.stored = SidebarLayoutDocument(revision: 3, sections: SidebarLayoutDocument.railDefaults.sections)
-        let service = SidebarLayoutService(remote: owner, prototypeEnabled: { false }, offered: Self.freshDefaults())
+        let service = SidebarLayoutService(remote: owner, prototypeEnabled: { false }, recentsOffered: Self.freshDefaults())
         service.start()
         let expected = owner.stored.layoutMigrationOps
         #expect(!expected.isEmpty)
@@ -147,7 +147,7 @@ import Testing
     @Test func aCustomizedStoredLayoutIsNotMigrated() async throws {
         let owner = FakeOwner()
         owner.stored = try SidebarLayoutReducer.reduce(SidebarLayoutDocument.railDefaults, .itemRemove(LayoutItemID("itm_home"))).get()
-        let service = SidebarLayoutService(remote: owner, prototypeEnabled: { false }, offered: Self.freshDefaults())
+        let service = SidebarLayoutService(remote: owner, prototypeEnabled: { false }, recentsOffered: Self.freshDefaults())
         service.start()
         await settled { service.mirror.revision == 1 }
         await settled { false }
@@ -162,34 +162,15 @@ import Testing
         let defaults = Self.freshDefaults()
         let owner = FakeOwner()
         owner.stored.sections.removeAll { $0.id == SidebarLayoutDocument.recentsSectionID }
-        let first = SidebarLayoutService(remote: owner, prototypeEnabled: { false }, offered: defaults)
+        let first = SidebarLayoutService(remote: owner, prototypeEnabled: { false }, recentsOffered: defaults)
         first.start()
         await settled { owner.calls.count == 1 }
         #expect(owner.calls.map(\.op) == [.sectionAdd(SidebarLayoutDocument.recentsSection, index: 1)])
-        let next = SidebarLayoutService(remote: owner, prototypeEnabled: { false }, offered: defaults)
+        let next = SidebarLayoutService(remote: owner, prototypeEnabled: { false }, recentsOffered: defaults)
         next.start()
         await settled { next.mirror.sections == owner.stored.sections }
         await settled { false }
         #expect(owner.calls.count == 1)
-    }
-
-    @Test func chatItemsAreOfferedOncePerMac() async throws {
-        let defaults = Self.freshDefaults()
-        let owner = FakeOwner()
-        let ids = SidebarLayoutDocument.chatItems.map(\.id)
-        owner.stored.sections[0].items.removeAll { ids.contains($0.id) }
-        let first = SidebarLayoutService(remote: owner, prototypeEnabled: { false }, offered: defaults)
-        first.start()
-        await settled { owner.calls.count == 2 }
-        #expect(owner.calls.map(\.op) == SidebarLayoutDocument.chatItems.enumerated().map {
-            .itemAdd($0.element, section: SidebarLayoutDocument.topSectionID, index: $0.offset)
-        })
-        // A layout still without them on the next launch is one the user removed them from.
-        let next = SidebarLayoutService(remote: owner, prototypeEnabled: { false }, offered: defaults)
-        next.start()
-        await settled { next.mirror.sections == owner.stored.sections }
-        await settled { false }
-        #expect(owner.calls.count == 2)
     }
 
     @Test func snapshotsDecodeTheDecimalRevision() throws {

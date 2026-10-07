@@ -83,7 +83,7 @@ import Testing
         let migrated = stored.layoutMigration
         let refs = migrated.sections.flatMap(\.items).map(\.ref)
         #expect(!refs.contains(retired[0]) && !refs.contains(retired[1]))
-        #expect(migrated.sections[0].items.map(\.id) == SidebarLayoutDocument.chatItems.map(\.id) + [LayoutItemID("itm_home"), LayoutItemID("itm_app_store")])
+        #expect(migrated.sections[0].items.map(\.id) == [LayoutItemID("itm_home"), LayoutItemID("itm_app_store")])
         #expect(migrated.sections[0].arrangement == SidebarLayoutDocument.tilesArrangement, "the user's arrangement stays")
         #expect(migrated.layoutMigrationOps.isEmpty, "the migration runs once")
     }
