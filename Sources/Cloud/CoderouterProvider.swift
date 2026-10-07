@@ -43,9 +43,12 @@ struct CoderouterProvider: Hashable {
         }
     }
 
+    /// The shell command a New Account row runs for one team. `scope` is the
+    /// mechanism the last account read proved the CLI supports: `--team`, or
+    /// (older CLIs) an `org switch` inside a private copy of the config.
     func addCommand(
         for organizationID: String?,
-        supportsTeamOption: Bool = false,
+        scope: CoderouterTeamScope = .isolatedConfiguration,
         cmuxExecutable: String = "cmux"
     ) -> String {
         let cli = cmuxExecutable == "cmux" ? "cmux" : Self.shellQuote(cmuxExecutable)
@@ -56,8 +59,11 @@ struct CoderouterProvider: Hashable {
             return addCommand
         }
         let quotedOrganization = Self.shellQuote(organizationID)
-        if supportsTeamOption {
+        switch scope {
+        case .teamOption:
             return "\(addCommand) --team \(quotedOrganization)"
+        case .isolatedConfiguration:
+            break
         }
         // cmux bundles a pinned CodeRouter binary, while a user's PATH may
         // resolve a different version. Run the legacy org-switch + add flow in

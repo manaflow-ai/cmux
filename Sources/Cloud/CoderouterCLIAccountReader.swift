@@ -2,6 +2,16 @@ import Darwin
 import Foundation
 import OSLog
 
+/// How a CodeRouter command is pinned to the selected team without relying on
+/// the CLI's shared, persisted active organization.
+enum CoderouterTeamScope: Equatable, Sendable {
+    /// The CLI accepts `--team <id>` on `accounts`, `remove`, and `add`.
+    case teamOption
+    /// Older CLIs: `org switch` plus the command, inside a private copy of the
+    /// config so the user's terminals never see the switch.
+    case isolatedConfiguration
+}
+
 /// Reads the same CodeRouter Cloud account view shown by `cmux cr accounts`.
 /// CodeRouter's organization catalog is keyed by the Stack team UUID. Newer
 /// CLI versions accept that ID on the account read, so a sidebar refresh does
@@ -12,7 +22,7 @@ enum CoderouterCLIAccountReader {
     struct Snapshot {
         let organizationID: String
         let accounts: [CloudTreeNode.CoderouterAccount]
-        let supportsTeamOption: Bool
+        let scope: CoderouterTeamScope
     }
 
     private static let logger = Logger(subsystem: "com.cmuxterm.app", category: "coderouter-accounts")
@@ -36,16 +46,18 @@ enum CoderouterCLIAccountReader {
         run: Run? = nil
     ) async throws -> Snapshot {
         try Task.checkCancellation()
+        guard let teamID = normalizedID(cmuxTeamID) else {
+            throw accountError("The selected cmux team is not mapped to a coderouter organization.")
+        }
+
         let invoke = run ?? runCLI
-        guard let teamID = cmuxTeamID?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !teamID.isEmpty,
-              let organizationID = try await resolvedOrganizationID(
-                  for: teamID,
-                  name: cmuxTeamName,
-                  knownOrganizationID: knownOrganizationID,
-                  run: invoke
-              ) else {
-            logger.error("No CodeRouter organization matched cmux team ID \(cmuxTeamID ?? "<nil>", privacy: .public), name \(String(describing: cmuxTeamName), privacy: .public)")
+        guard let organizationID = try await resolvedOrganizationID(
+            for: teamID,
+            name: cmuxTeamName,
+            knownOrganizationID: knownOrganizationID,
+            run: invoke
+        ) else {
+            logger.error("No CodeRouter organization matched cmux team ID \(teamID, privacy: .public), name \(String(describing: cmuxTeamName), privacy: .public)")
             throw accountError("The selected cmux team is not mapped to a coderouter organization.")
         }
 
@@ -53,10 +65,10 @@ enum CoderouterCLIAccountReader {
         // request and leaves the terminal's shared active organization untouched.
         try Task.checkCancellation()
         let payload: (organizationID: String?, accounts: [CloudTreeNode.CoderouterAccount])
-        let supportsTeamOption: Bool
+        let scope: CoderouterTeamScope
         do {
-            payload = try await readAccounts(for: organizationID, run: invoke)
-            supportsTeamOption = true
+            payload = try await readAccounts(arguments: ["accounts", "--json", "--team", organizationID], run: invoke)
+            scope = .teamOption
         } catch {
             // CodeRouter 0.3.15 and earlier predate `accounts --team`. The app
             // bundles 0.3.16, but `resolvedExecutable` can still pick an older
@@ -67,36 +79,39 @@ enum CoderouterCLIAccountReader {
                 try Task.checkCancellation()
                 _ = try await legacyRun(["org", "switch", organizationID])
                 try Task.checkCancellation()
-                return try await readAccounts(run: legacyRun)
+                return try await readAccounts(arguments: ["accounts", "--json"], run: legacyRun)
             }
-            supportsTeamOption = false
+            scope = .isolatedConfiguration
         }
+        return try verifiedSnapshot(payload, organizationID: organizationID, scope: scope)
+    }
+
+    private static func verifiedSnapshot(
+        _ payload: (organizationID: String?, accounts: [CloudTreeNode.CoderouterAccount]),
+        organizationID: String,
+        scope: CoderouterTeamScope
+    ) throws -> Snapshot {
         guard payload.organizationID == organizationID else {
             logger.error("CodeRouter accounts were for org ID \(payload.organizationID ?? "<nil>", privacy: .public), expected \(organizationID, privacy: .public)")
             throw accountError("coderouter returned accounts for a different team.")
         }
         logger.info("Loaded \(payload.accounts.count, privacy: .public) CodeRouter accounts for org ID \(organizationID, privacy: .public)")
-        return Snapshot(organizationID: organizationID, accounts: payload.accounts, supportsTeamOption: supportsTeamOption)
+        return Snapshot(organizationID: organizationID, accounts: payload.accounts, scope: scope)
     }
 
     private static func resolvedOrganizationID(
-        for cmuxTeamID: String?,
+        for cmuxTeamID: String,
         name cmuxTeamName: String?,
         knownOrganizationID: String?,
         run: Run
     ) async throws -> String? {
-        if let cmuxTeamID = cmuxTeamID?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !cmuxTeamID.isEmpty,
-           UUID(uuidString: cmuxTeamID) != nil {
+        if UUID(uuidString: cmuxTeamID) != nil {
             return cmuxTeamID
         }
-        if let knownOrganizationID = knownOrganizationID?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !knownOrganizationID.isEmpty,
+        if let knownOrganizationID = normalizedID(knownOrganizationID),
            UUID(uuidString: knownOrganizationID) != nil {
             return knownOrganizationID
         }
-        guard let cmuxTeamName = cmuxTeamName?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !cmuxTeamName.isEmpty else { return nil }
         return try await matchingOrganizationID(for: cmuxTeamID, name: cmuxTeamName, run: run)
     }
 
@@ -113,12 +128,12 @@ enum CoderouterCLIAccountReader {
         guard UUID(uuidString: accountID) != nil else {
             throw accountError("That coderouter account ID is not valid.")
         }
-        guard let cmuxTeamID = cmuxTeamID?.trimmingCharacters(in: .whitespacesAndNewlines), !cmuxTeamID.isEmpty else {
+        guard let teamID = normalizedID(cmuxTeamID) else {
             throw accountError("The selected cmux team is not mapped to a coderouter organization.")
         }
         let invoke = run ?? runCLI
         guard let organizationID = try await resolvedOrganizationID(
-            for: cmuxTeamID,
+            for: teamID,
             name: cmuxTeamName,
             knownOrganizationID: knownOrganizationID,
             run: invoke
@@ -139,20 +154,6 @@ enum CoderouterCLIAccountReader {
             }
         }
         logger.info("Removed CodeRouter account \(accountID, privacy: .public)")
-    }
-
-    private static func readAccounts(
-        for organizationID: String,
-        run: Run
-    ) async throws -> (organizationID: String?, accounts: [CloudTreeNode.CoderouterAccount]) {
-        try await readAccounts(
-            arguments: ["accounts", "--json", "--team", organizationID],
-            run: run
-        )
-    }
-
-    private static func readAccounts(run: Run) async throws -> (organizationID: String?, accounts: [CloudTreeNode.CoderouterAccount]) {
-        try await readAccounts(arguments: ["accounts", "--json"], run: run)
     }
 
     private static func readAccounts(
@@ -235,22 +236,42 @@ enum CoderouterCLIAccountReader {
         return min(100, max(0, Int((100 - used).rounded())))
     }
 
-    private static func matchingOrganizationID(for cmuxTeamID: String?, name cmuxTeamName: String, run: Run) async throws -> String? {
+    /// Legacy mapping for a team ID that is not a Stack UUID. An exact ID on
+    /// any catalog line wins, wherever it appears; only then is the team name
+    /// compared, and a name shared by more than one organization is an error
+    /// rather than an arbitrary pick. A missing name never blocks an ID match.
+    private static func matchingOrganizationID(for cmuxTeamID: String, name cmuxTeamName: String?, run: Run) async throws -> String? {
         let output = try await run(["org", "list"])
-        let wanted = normalized(cmuxTeamName)
-        let organizations = String(decoding: output, as: UTF8.self).split(whereSeparator: \.isNewline).compactMap { rawLine -> (id: String, name: String)? in
+        return try organizationID(
+            matching: cmuxTeamID,
+            name: cmuxTeamName,
+            inCatalog: String(decoding: output, as: UTF8.self)
+        )
+    }
+
+    /// The pure part of ``matchingOrganizationID(for:name:run:)``: `org list`
+    /// prints one organization per line, its ID in the last column.
+    static func organizationID(matching cmuxTeamID: String, name cmuxTeamName: String?, inCatalog catalog: String) throws -> String? {
+        let organizations = catalog.split(whereSeparator: \.isNewline).compactMap { rawLine -> (id: String, name: String)? in
             let tokens = rawLine.split(whereSeparator: { $0 == " " || $0 == "\t" })
             guard let candidateID = tokens.last,
-                  UUID(uuidString: String(candidateID)) != nil else { return nil }
+                  UUID(uuidString: String(candidateID)) != nil || String(candidateID) == cmuxTeamID else { return nil }
             let candidateName = tokens.dropLast().joined(separator: " ").trimmingCharacters(in: CharacterSet(charactersIn: "*"))
             return (String(candidateID), normalized(candidateName))
         }
         if let exact = organizations.first(where: { $0.id == cmuxTeamID }) { return exact.id }
+        guard let cmuxTeamName = normalizedID(cmuxTeamName) else { return nil }
+        let wanted = normalized(cmuxTeamName)
         let matches = organizations.filter { $0.name == wanted }
         guard matches.count <= 1 else {
             throw accountError("More than one CodeRouter organization matches the selected team.")
         }
         return matches.first?.id
+    }
+
+    private static func normalizedID(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else { return nil }
+        return trimmed
     }
 
     private static func normalized(_ value: String) -> String {
