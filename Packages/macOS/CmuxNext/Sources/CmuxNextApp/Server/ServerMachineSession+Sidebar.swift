@@ -32,3 +32,14 @@ extension ServerMachineSession {
         return SidebarMachine(id: MachineID(session.machineID), name: session.name, kind: .server, status: status, detail: detail)
     }
 }
+
+extension ServerMachineSession {
+    /// Why the server's daemon is not connected: the link dial's refusal
+    /// (owner session refused, unknown peer) or the connection's end.
+    var notConnectedReason: String? {
+        switch daemon.store.connectionState {
+        case .failed(let message), .disconnected(let message): message
+        case .connecting, .connected: nil
+        }
+    }
+}

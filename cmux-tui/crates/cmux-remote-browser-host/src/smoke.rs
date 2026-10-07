@@ -353,6 +353,8 @@ pub fn run(argv: &mut [*mut c_char], out: PathBuf) -> i32 {
         on_context_menu: None,
         on_popup_menu: None,
         on_needs_begin_frames: None,
+        on_dialog: None,
+        on_dialog_reset: None,
     };
     // SAFETY: argv, the strings and the callbacks outlive the call.
     unsafe {

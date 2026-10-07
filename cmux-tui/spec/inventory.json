@@ -1654,6 +1654,8 @@
         "InputAck": 23,
         "ClipboardReadRequest": 24,
         "ClipboardReadCancel": 25,
+        "PtyCustody": 26,
+        "LaunchAdopt": 27,
         "Input": 100,
         "Paste": 101,
         "ViewerSize": 102,
