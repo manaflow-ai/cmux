@@ -40,6 +40,7 @@ pub use spawn::expand_env_value;
 mod peers;
 mod permission_groups;
 mod permissions;
+mod questions;
 mod remote_floor;
 mod remote_sandbox;
 pub use permission_groups::PERMISSION_GROUP_OPERATIONS;
