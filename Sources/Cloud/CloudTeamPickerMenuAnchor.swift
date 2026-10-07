@@ -8,9 +8,11 @@ import SwiftUI
 /// `Menu` cannot do, and a pull-down should track from mouse-down. The overlay
 /// takes the pointer; keyboard and VoiceOver presses still reach the trigger
 /// button beneath it, which requests the menu through `isPresented` like the
-/// palette does.
+/// palette does. Because it takes the pointer, the button's own `onHover`
+/// never fires, so the overlay reports hover through `isHovered`.
 struct CloudTeamPickerMenuAnchor: NSViewRepresentable {
     @Binding var isPresented: Bool
+    @Binding var isHovered: Bool
     let helpText: String
     /// Receives the anchor, so an item can place follow-up UI on the trigger's
     /// window once the menu closes.
@@ -31,6 +33,7 @@ struct CloudTeamPickerMenuAnchor: NSViewRepresentable {
         view.onWillPresent = onWillPresent
         view.onOpen = { isPresented = true }
         view.onDismiss = { isPresented = false }
+        view.onHoverChange = { isHovered = $0 }
         view.syncPresentation(isPresented)
     }
 
@@ -49,6 +52,9 @@ final class CloudTeamPickerMenuAnchorView: NSView {
     var onWillPresent: (@MainActor () -> Void)?
     var onOpen: (@MainActor () -> Void)?
     var onDismiss: (@MainActor () -> Void)?
+    /// Called when the pointer enters or leaves the trigger. Reported whether
+    /// or not the trigger is enabled; the trigger decides how to draw it.
+    var onHoverChange: (@MainActor (Bool) -> Void)?
     var isRightToLeft = false
     var isEnabled = true
 
@@ -64,6 +70,8 @@ final class CloudTeamPickerMenuAnchorView: NSView {
     private var afterDismissActions: [@MainActor () -> Void] = []
     private var isPresentationRequested = false
     private var isPresentationScheduled = false
+    private var hoverTracking: NSTrackingArea?
+    private var isPointerInside = false
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -78,6 +86,45 @@ final class CloudTeamPickerMenuAnchorView: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         isEnabled ? super.hitTest(point) : nil
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverTracking { removeTrackingArea(hoverTracking) }
+        let area = NSTrackingArea(
+            rect: .zero,
+            options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
+            owner: self
+        )
+        addTrackingArea(area)
+        hoverTracking = area
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        setPointerInside(true)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        setPointerInside(false)
+    }
+
+    private func setPointerInside(_ inside: Bool) {
+        guard isPointerInside != inside else { return }
+        isPointerInside = inside
+        onHoverChange?(inside)
+    }
+
+    /// The menu's tracking loop swallows enter and exit events, so hover is
+    /// read from the pointer's position once the menu closes.
+    private func syncPointerInside() {
+        guard let window else {
+            setPointerInside(false)
+            return
+        }
+        let point = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+        setPointerInside(bounds.contains(point))
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -160,6 +207,7 @@ final class CloudTeamPickerMenuAnchorView: NSView {
         _ = menu.popUp(positioning: nil, at: origin, in: self)
         trackingMenu = nil
         isPresentationRequested = false
+        syncPointerInside()
         onDismiss?()
         let actions = afterDismissActions
         afterDismissActions.removeAll()

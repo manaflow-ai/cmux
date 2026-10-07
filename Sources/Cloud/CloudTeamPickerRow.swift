@@ -33,7 +33,15 @@ struct CloudTeamPickerRow: View {
         String(localized: "settings.account.activeTeam", defaultValue: "Active Team")
     }
 
+    /// Reported by the menu anchor, which sits over the button and takes the
+    /// pointer (a SwiftUI `onHover` here never fires).
     @State private var isHovered = false
+    @Environment(\.isEnabled) private var isEnabled
+
+    /// Hovered, or its menu is open, like a native pull-down.
+    private var isHighlighted: Bool {
+        isEnabled && (isHovered || presentation.isPresented)
+    }
 
     var body: some View {
         Button {
@@ -50,18 +58,26 @@ struct CloudTeamPickerRow: View {
                     .font(.system(size: 9, weight: .semibold))
             }
             // Same grey and hover rule as the tab bar's mode labels above.
-            .foregroundColor(RightSidebarChromeControlStyle.pillForegroundColor(isSelected: false, isHovered: isHovered))
+            .foregroundColor(RightSidebarChromeControlStyle.pillForegroundColor(isSelected: false, isHovered: isHighlighted))
             // Flush with the tree's section chevrons below.
             .padding(.leading, 1)
             .padding(.trailing, 7)
             .frame(height: 22)
+            // The Invite button's fill, starting where the tree's row
+            // highlights start so the chip keeps its alignment with the tree.
+            .background(
+                RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.buttonCornerRadius, style: .continuous)
+                    .fill(Color.primary.opacity(isHighlighted ? 0.08 : 0))
+                    .frame(height: 20)
+                    .padding(.leading, -CloudTreeHoverStyle.leadingOutset)
+            )
             .contentShape(RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.buttonCornerRadius, style: .continuous))
         }
         .buttonStyle(.plain)
-        .onHover { isHovered = $0 }
         .overlay {
             CloudTeamPickerMenuAnchor(
                 isPresented: $presentation.isPresented,
+                isHovered: $isHovered,
                 helpText: helpText,
                 makeMenu: makeMenu,
                 onWillPresent: {
