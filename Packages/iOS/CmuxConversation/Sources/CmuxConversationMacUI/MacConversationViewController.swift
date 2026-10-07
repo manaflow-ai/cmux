@@ -771,6 +771,8 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             let layout = layoutCache.layout(model, width: transcriptWidth)
             return layout.height + topSpacing(at: row, model)
         case .timestamp, .notice: return MacTimestampRowView.height
+        case let .systemEvent(_, text): return MacSystemEventRowView.height(text, width: transcriptWidth)
+        case let .unavailability(_, messageID): return MacUnavailabilityRowView.height(showsNotifyAnyway: messageID != nil)
         case .loadingOlder: return MacSpinnerRowView.height
         case .conversationStart: return MacConversationStartRowView.height
         case .typing: return max(0.01, MacTypingRowView.height * typingProgress)
@@ -782,6 +784,8 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         switch rows[row] {
         case .message: identifier = "m"
         case .timestamp, .notice: identifier = "t"
+        case .systemEvent: identifier = "e"
+        case .unavailability: identifier = "u"
         case .loadingOlder: identifier = "l"
         case .conversationStart: identifier = "s"
         case .typing: identifier = "y"
@@ -790,6 +794,8 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             switch rows[row] {
             case .message: return MacMessageContainerView()
             case .timestamp, .notice: return MacTimestampRowView()
+            case .systemEvent: return MacSystemEventRowView()
+            case .unavailability: return MacUnavailabilityRowView()
             case .loadingOlder: return MacSpinnerRowView()
             case .conversationStart: return MacConversationStartRowView()
             case .typing: return MacTypingRowView()
@@ -825,6 +831,15 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             (view as? MacTimestampRowView)?.configure(date: date)
         case let .notice(_, text):
             (view as? MacTimestampRowView)?.configure(notice: text)
+        case let .systemEvent(_, text):
+            (view as? MacSystemEventRowView)?.configure(text)
+        case let .unavailability(name, messageID):
+            guard let view = view as? MacUnavailabilityRowView else { return }
+            view.configure(name: name, showsNotifyAnyway: messageID != nil)
+            view.onNotifyAnyway = { [weak self] in
+                guard let messageID else { return }
+                self?.store.notifyAnyway(messageID: messageID)
+            }
         case .loadingOlder:
             (view as? MacSpinnerRowView)?.spinner.startAnimation(nil)
         case .conversationStart:
@@ -1403,6 +1418,20 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             let shift = min(max(0, (Double(argument) ?? 0) - 14) * 0.4, timestampRevealDistance)
             setTimestampReveal(shift / timestampRevealDistance)
             return "shift \(shift) of \(timestampRevealDistance)"
+        case "statusrows":
+            // Status rows and the unavailability notice, newest last.
+            return rows.compactMap { row -> String? in
+                switch row {
+                case let .systemEvent(_, text): return "{\(text.text)}"
+                case let .unavailability(name, messageID): return "(silenced \(name)\(messageID == nil ? "" : " notify"))"
+                case let .message(model): return model.footer == .none ? nil : "footer \(model.footer)"
+                default: return nil
+                }
+            }.suffix(Int(argument) ?? 8).joined(separator: " | ")
+        case "notifyanyway":
+            guard let message = store.notifyAnywayMessage else { return "error nothing to notify" }
+            store.notifyAnyway(messageID: message.id)
+            return "ok"
         case "rows":
             let visible = tableView.rows(in: scrollView.contentView.bounds)
             let ids = (visible.location..<min(rows.count, visible.location + visible.length)).compactMap { messageModel(at: $0)?.message.id }

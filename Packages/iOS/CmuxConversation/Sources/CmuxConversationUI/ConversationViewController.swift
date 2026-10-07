@@ -137,6 +137,8 @@ public final class ConversationViewController: UIViewController {
         collectionView.register(LoadingCell.self, forCellWithReuseIdentifier: LoadingCell.reuseID)
         collectionView.register(ConversationStartCell.self, forCellWithReuseIdentifier: ConversationStartCell.reuseID)
         collectionView.register(TypingCell.self, forCellWithReuseIdentifier: TypingCell.reuseID)
+        collectionView.register(SystemEventCell.self, forCellWithReuseIdentifier: SystemEventCell.reuseID)
+        collectionView.register(UnavailabilityCell.self, forCellWithReuseIdentifier: UnavailabilityCell.reuseID)
         collectionView.accessibilityIdentifier = "conversation.transcript"
         collectionView.accessibilityLabel = ConversationAccessibilityText.transcript
         collectionView.translatesAutoresizingMaskIntoConstraints = false
@@ -239,6 +241,7 @@ public final class ConversationViewController: UIViewController {
         super.viewDidAppear(animated)
         isOnScreen = true
         updateViewing()
+        focusComposerIfEmpty()
     }
 
     public override func viewWillDisappear(_ animated: Bool) {
@@ -402,9 +405,20 @@ public final class ConversationViewController: UIViewController {
             header.configure(info: info, meID: store.meID, unreadCount: headerUnreadCount)
         }
         maybeLoadOlder()
+        focusComposerIfEmpty()
     }
 
     private var hasConfiguredHeader = false
+    private var didFocusEmptyConversation = false
+
+    /// A conversation with no messages yet opens with the keyboard up, as a
+    /// new message does in Messages.
+    func focusComposerIfEmpty() {
+        guard !didFocusEmptyConversation, store.hasLoadedNewest, store.older == .exhausted,
+              store.messages.isEmpty, view.window != nil else { return }
+        didFocusEmptyConversation = true
+        composer.textView.becomeFirstResponder()
+    }
 
     private struct Anchor {
         var rowID: String
@@ -512,7 +526,7 @@ public final class ConversationViewController: UIViewController {
                 if !queueArrivalEffect(model) { arrivingRowIDs.append(model.rowID) }
             case let .message(model) where !model.isOutgoing && animateLive: arrivingRowIDs.append(model.rowID)
             case .typing: arrivingRowIDs.append(id)
-            case .loadingOlder, .notice: appearances[id] = .fade
+            case .loadingOlder, .notice, .systemEvent, .unavailability: appearances[id] = .fade
             default: break
             }
         }
@@ -820,6 +834,18 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
             let cell = collectionView.dequeueReusableCell(withReuseIdentifier: TimestampCell.reuseID, for: indexPath) as! TimestampCell
             cell.configure(notice: text)
             return cell
+        case let .systemEvent(_, text):
+            let cell = collectionView.dequeueReusableCell(withReuseIdentifier: SystemEventCell.reuseID, for: indexPath) as! SystemEventCell
+            cell.configure(text)
+            return cell
+        case let .unavailability(name, messageID):
+            let cell = collectionView.dequeueReusableCell(withReuseIdentifier: UnavailabilityCell.reuseID, for: indexPath) as! UnavailabilityCell
+            cell.configure(name: name, showsNotifyAnyway: messageID != nil)
+            cell.onNotifyAnyway = { [weak self] in
+                guard let messageID else { return }
+                self?.store.notifyAnyway(messageID: messageID)
+            }
+            return cell
         case .loadingOlder:
             let cell = collectionView.dequeueReusableCell(withReuseIdentifier: LoadingCell.reuseID, for: indexPath) as! LoadingCell
             cell.configure(active: true)
@@ -904,6 +930,8 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
         case let .message(model):
             return layoutCache.layout(for: model, width: width, margin: layoutMargin).height
         case .timestamp, .notice: return TimestampCell.height
+        case let .systemEvent(_, text): return SystemEventCell.height(text, width: width)
+        case let .unavailability(_, messageID): return UnavailabilityCell.height(showsNotifyAnyway: messageID != nil)
         case .loadingOlder: return LoadingCell.height
         case .conversationStart: return ConversationStartCell.height
         case .typing: return TypingCell.height(isGroup: store.info?.kind == .group)

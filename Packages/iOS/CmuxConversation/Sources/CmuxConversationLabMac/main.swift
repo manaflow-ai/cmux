@@ -73,6 +73,8 @@ if arguments.count > 3 {
                             reply = "window \(NSApp.windows.first(where: { $0.identifier?.rawValue == "cmux.conversationLab" })?.windowNumber ?? 0)"
                         } else if line.hasPrefix("search") {
                             reply = "visible " + MacConversationLab.search(String(line.dropFirst(6)).trimmingCharacters(in: .whitespaces)).joined(separator: ",")
+                        } else if line.hasPrefix("filter ") {
+                            reply = MacConversationLab.setFilter(String(line.dropFirst(7))) ? "ok" : "error usage filter all|unread"
                         } else if line == "list" {
                             let snapshot = MacConversationLab.listSnapshot()
                             let data = (try? JSONSerialization.data(withJSONObject: snapshot, options: [.sortedKeys])) ?? Data()

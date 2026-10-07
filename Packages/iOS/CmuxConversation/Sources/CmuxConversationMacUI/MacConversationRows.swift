@@ -12,6 +12,12 @@ enum MacConversationRow: Hashable {
     case typing(participantIDs: [String])
     /// A centered system line in a message's place ("You unsent a message").
     case notice(id: String, text: String)
+    /// A group change ("Lawrence Chen named the conversation …"): centered,
+    /// the actor's name emphasized, wrapping when long.
+    case systemEvent(id: String, text: ConversationSystemText)
+    /// "<Name> has notifications silenced" under the newest message, with
+    /// Notify Anyway while my newest message was delivered quietly.
+    case unavailability(name: String, notifyAnywayMessageID: String?)
 
     var id: String {
         switch self {
@@ -21,6 +27,8 @@ enum MacConversationRow: Hashable {
         case let .message(model): return model.rowID
         case .typing: return "typing"
         case let .notice(id, _): return id
+        case let .systemEvent(id, _): return id
+        case .unavailability: return "unavailability"
         }
     }
 
@@ -90,6 +98,11 @@ enum MacConversationRowBuilder {
             store.messages, info: info, meID: store.meID, typingParticipantIDs: store.typingParticipantIDs,
             quote: { store.message(id: $0) }
         )
+        // Above the typing bubble, which always stays the last row.
+        if let silenced = info.silencedRecipient {
+            let name = silenced.name.split(separator: " ").first.map(String.init) ?? silenced.name
+            rows.append(.unavailability(name: name, notifyAnywayMessageID: store.notifyAnywayMessage?.id))
+        }
         if !store.typingParticipantIDs.isEmpty {
             rows.append(.typing(participantIDs: store.typingParticipantIDs))
         }
@@ -130,6 +143,10 @@ enum MacConversationRowBuilder {
             if message.isUnsent {
                 // Its own id, so the bubble row leaves and the notice arrives.
                 rows.append(.notice(id: "unsent:\(message.rowID)", text: unsentNotice(message, meID: meID, info: info)))
+                continue
+            }
+            if let status = ConversationStatusStrings.text(for: message, meID: meID, info: info) {
+                rows.append(.systemEvent(id: "system:\(message.rowID)", text: status))
                 continue
             }
             let isOutgoing = message.senderID == meID
@@ -182,6 +199,7 @@ enum MacConversationRowBuilder {
         switch status {
         case .none: return .none
         case .notDelivered: return .notDelivered
+        case .deliveredQuietly: return .status(ConversationStatusStrings.deliveredQuietly)
         case .delivered:
             return .status(String(localized: "conversation.status.delivered", defaultValue: "Delivered", bundle: .module))
         case let .read(date):
