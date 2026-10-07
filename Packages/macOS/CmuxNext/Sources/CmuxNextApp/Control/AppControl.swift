@@ -232,6 +232,10 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugOmnibar.mouse(call.params, services: services))
             },
+            .mainActor("debug.omnibar_type") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugOmnibar.type(call.params, services: services))
+            },
             .async("debug.window.ax_set_frame") { [weak services] call in
                 guard let services = await MainActor.run(body: { services }) else { return .null }
                 return await DebugAXFrame.run(call.params, services: services)
