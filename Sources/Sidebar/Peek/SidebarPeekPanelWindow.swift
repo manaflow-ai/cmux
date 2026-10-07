@@ -15,6 +15,17 @@ final class SidebarPeekPanelWindow: NSPanel {
     /// so the owner can hold the peek open while the user types.
     var onKeyboardFocusChange: ((Bool) -> Void)?
 
+    /// Whether an editor may take the keyboard at all: only while the card
+    /// is showing. The hidden card's list stays live and can arm a field on
+    /// its own (a checklist add request), which must not pull typing into
+    /// an invisible window.
+    var allowsKeyboardEditors = false {
+        didSet {
+            guard !allowsKeyboardEditors, hostsKeyboardEditor else { return }
+            endKeyboardEditing()
+        }
+    }
+
     /// True while an editor inside the card owns the first responder.
     private(set) var hostsKeyboardEditor = false {
         didSet {
@@ -48,7 +59,7 @@ final class SidebarPeekPanelWindow: NSPanel {
 
     override func makeFirstResponder(_ responder: NSResponder?) -> Bool {
         let wantsKeyboard = Self.takesKeyboardInput(responder)
-        if wantsKeyboard, !hostsKeyboardEditor {
+        if wantsKeyboard, !hostsKeyboardEditor, allowsKeyboardEditors {
             // Key first, then the responder: the field editor attaches to a
             // key window, and the selection it makes on attach is what the
             // user's first keystroke replaces.
@@ -82,6 +93,13 @@ final class SidebarPeekPanelWindow: NSPanel {
         // the way a docked row does when focus leaves it: the editor's end
         // editing commits, and the rename field tears itself down.
         hostsKeyboardEditor = false
+        _ = super.makeFirstResponder(nil)
+    }
+
+    /// Ends the edit (the editor's end editing commits, like clicking away)
+    /// and returns key to the parent window.
+    func endKeyboardEditing() {
+        relinquishKeyboardFocus()
         _ = super.makeFirstResponder(nil)
     }
 

@@ -148,6 +148,7 @@ final class SidebarPeekPanelWindowController {
         // pointer, or it would swallow the very edge hovers that arm the
         // reveal in the parent window below it.
         panel.ignoresMouseEvents = !acceptsMouse
+        panel.allowsKeyboardEditors = acceptsMouse
         panel.appearance = parent.appearance
         // Terminal cursor rects yield to the card while it can be pointed
         // at, and come back the moment it cannot.

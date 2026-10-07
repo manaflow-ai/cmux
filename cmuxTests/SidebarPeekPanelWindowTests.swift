@@ -24,6 +24,8 @@ struct SidebarPeekPanelWindowTests {
             defer: false
         )
         panel.isReleasedWhenClosed = false
+        // The card is showing; see `hiddenCardNeverTakesTheKeyboard`.
+        panel.allowsKeyboardEditors = true
         panel.contentView = NSView(frame: NSRect(x: 0, y: 0, width: 260, height: 400))
         parent.addChildWindow(panel, ordered: .above)
         return (parent, panel)
@@ -84,6 +86,38 @@ struct SidebarPeekPanelWindowTests {
         panel.update()
         #expect(!panel.hostsKeyboardEditor)
         #expect(!panel.canBecomeKey)
+    }
+
+    @Test
+    @MainActor
+    func hiddenCardNeverTakesTheKeyboard() {
+        let (parent, panel) = makePanel()
+        defer { parent.removeChildWindow(panel) }
+        // A hidden card's live list can arm a field by itself (a checklist
+        // add request); typing must stay with the terminal.
+        panel.allowsKeyboardEditors = false
+        let field = SidebarInlineRenameTextField(string: "workspace")
+        field.frame = NSRect(x: 0, y: 0, width: 200, height: 22)
+        panel.contentView?.addSubview(field)
+        #expect(!panel.hostsKeyboardEditor)
+        #expect(!panel.canBecomeKey)
+    }
+
+    @Test
+    @MainActor
+    func hidingTheCardEndsTheEdit() {
+        let (parent, panel) = makePanel()
+        defer { parent.removeChildWindow(panel) }
+        var focusChanges: [Bool] = []
+        panel.onKeyboardFocusChange = { focusChanges.append($0) }
+        let field = SidebarInlineRenameTextField(string: "workspace")
+        field.frame = NSRect(x: 0, y: 0, width: 200, height: 22)
+        panel.contentView?.addSubview(field)
+        #expect(panel.hostsKeyboardEditor)
+        panel.allowsKeyboardEditors = false
+        #expect(!panel.hostsKeyboardEditor)
+        #expect(!SidebarPeekPanelWindow.takesKeyboardInput(panel.firstResponder))
+        #expect(focusChanges == [true, false])
     }
 
     @Test
