@@ -73,7 +73,10 @@ mod tests {
             json!([{"name": "cmux-render", "command": cmux, "args": ["mcp", "serve", "--render-only"], "env": []}])
         );
         let config: Value = serde_json::from_str(&claude_config_for(Some(&cmux)).unwrap()).unwrap();
-        assert_eq!(config["mcpServers"]["cmux-render"]["args"], json!(["mcp", "serve", "--render-only"]));
+        assert_eq!(
+            config["mcpServers"]["cmux-render"]["args"],
+            json!(["mcp", "serve", "--render-only"])
+        );
         assert_eq!(acp_servers_for(None), json!([]));
         assert_eq!(claude_config_for(None), None);
         std::fs::remove_dir_all(&dir).unwrap();

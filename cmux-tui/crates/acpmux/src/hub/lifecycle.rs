@@ -581,7 +581,10 @@ impl Hub {
         if !loaded {
             let had_history = session.meta().agent_session_id.is_some();
             let res = child
-                .request(method::SESSION_NEW, json!({"cwd": meta.cwd, "mcpServers": crate::render_mcp::acp_servers()}))
+                .request(
+                    method::SESSION_NEW,
+                    json!({"cwd": meta.cwd, "mcpServers": crate::render_mcp::acp_servers()}),
+                )
                 .await?;
             let sid = res
                 .get("sessionId")
