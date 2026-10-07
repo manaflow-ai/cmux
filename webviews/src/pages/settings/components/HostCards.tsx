@@ -83,7 +83,9 @@ export function Backdrops() {
   const enabled = rows.get("appearance.experimentalControls")?.value === true;
   const backdrops = host?.backdrops ?? [];
   if (!enabled || backdrops.length === 0) return null;
-  const current = (rows.get("appearance.background")?.value as string | undefined) ?? "none";
+  // Unset is the schema default (a figure drawing), not "none".
+  const background = rows.get("appearance.background");
+  const current = ((background?.value ?? background?.default) as string | undefined) ?? "none";
   const tile = (id: string, title: string, attribution: string) => (
     <button
       type="button"
