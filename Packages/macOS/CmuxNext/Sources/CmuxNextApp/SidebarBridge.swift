@@ -52,6 +52,7 @@ final class SidebarBridge {
         container.sidebarView.contextMenuProvider = { [weak self] target in self?.contextMenu(for: target) }
         container.sidebarView.resourceSource = services.resources
         container.sidebarView.hoverCards = services.hoverCards
+        services.startAgentTurnStates()
         let recents = services.agentRecents.map { feed in
             AgentRecentsSection(feed: feed) { [weak services] id in
                 guard let services else { return }

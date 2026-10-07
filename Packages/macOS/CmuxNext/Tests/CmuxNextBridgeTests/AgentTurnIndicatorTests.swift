@@ -1,0 +1,118 @@
+import CmuxNextDesign
+import CmuxNextSidebar
+import CmuxNextTabs
+import Foundation
+import Testing
+@testable import CmuxNextBridge
+@testable import CmuxNextDaemon
+
+/// acpmux turn state (`_acpmux/watch` + `session_changed`) reduced per session.
+struct AgentTurnStatesTests {
+    static func summary(_ id: String, status: String, pending: Int = 0) -> [String: Any] {
+        ["sessionId": id, "status": status, "pendingPermissions": pending]
+    }
+
+    @Test func summariesMapToTurnStates() {
+        #expect(AgentTurnState.of(summary: Self.summary("s", status: "running")) == .working)
+        #expect(AgentTurnState.of(summary: Self.summary("s", status: "waiting")) == .needsInput)
+        #expect(AgentTurnState.of(summary: Self.summary("s", status: "running", pending: 1)) == .needsInput)
+        #expect(AgentTurnState.of(summary: Self.summary("s", status: "disconnected")) == .failed)
+        for status in ["idle", "ready", "closed"] {
+            #expect(AgentTurnState.of(summary: Self.summary("s", status: status)) == nil)
+        }
+    }
+
+    @Test func watchResultThenPushesKeepTheStatesCurrent() {
+        var states = AgentTurnStates()
+        states.reset(["sessions": [Self.summary("a", status: "running"), Self.summary("b", status: "ready")]])
+        #expect(states["a"] == .working)
+        #expect(states["b"] == nil)
+        states.apply(changed: ["sessionId": "b", "kind": "status", "session": Self.summary("b", status: "waiting")])
+        #expect(states["b"] == .needsInput)
+        states.apply(changed: ["sessionId": "a", "kind": "status", "session": Self.summary("a", status: "ready")])
+        #expect(states["a"] == nil)
+        states.apply(changed: ["sessionId": "b", "kind": "purged"])
+        #expect(states["b"] == nil)
+        states.apply(changed: ["sessionId": "c", "kind": "status", "session": Self.summary("c", status: "running")])
+        states.clear()
+        #expect(states["c"] == nil)
+    }
+}
+
+/// An agent chat tab and its workspace row show the acpmux turn: working
+/// dots while a turn runs, a still attention dot while it needs input.
+@MainActor
+struct AgentTurnIndicatorTests {
+    static func chat(host: String = "install:mac-1", session: String = "s-1") throws -> TabModel {
+        let line = """
+        {"surface":8,"kind":"conversation","browser_renderer":"frontend","title":"about:blank",
+         "conversation":{"agent_session":{"host":"\(host)","session":"\(session)","harness":"claude"}}}
+        """
+        return TabModel(try JSONDecoder().decode(TabSnapshot.self, from: Data(line.utf8)))
+    }
+
+    static func store(_ status: String, pending: Int = 0) -> AgentTurnStateStore {
+        let store = AgentTurnStateStore()
+        store.localHost = "install:mac-1"
+        store.states.reset(["sessions": [AgentTurnStatesTests.summary("s-1", status: status, pending: pending)]])
+        return store
+    }
+
+    @Test func aRunningTurnShowsWorkingOnTheTab() throws {
+        let mapping = StatusMapping(turns: Self.store("running"))
+        let tab = try Self.chat()
+        let summary = mapping.loading(tab)
+        #expect(summary.state == .working)
+        #expect(summary.primary?.source == .agent)
+        #expect(summary.primary?.label == "claude")
+    }
+
+    @Test func aTurnThatNeedsInputIsWaitingNotWorking() throws {
+        let tab = try Self.chat()
+        let mapping = StatusMapping(turns: Self.store("running", pending: 1))
+        #expect(mapping.summary(tab).state == .waiting)
+        // The icon slot shows loading and work only; the badge marks waiting.
+        #expect(mapping.loading(tab) == .idle)
+        #expect(mapping.turn(tab) == .needsInput)
+    }
+
+    @Test func anotherMachinesChatHasNoLocalState() throws {
+        let mapping = StatusMapping(turns: Self.store("running"))
+        #expect(mapping.summary(try Self.chat(host: "install:other")) == .idle)
+        #expect(mapping.summary(try Self.chat(session: "s-2")) == .idle)
+    }
+
+    @Test func aWorkingTerminalAgentIsWorkingNotLoading() throws {
+        let store = try BridgeFixture.store()
+        let tab = try #require(store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first)
+        tab.setAgent(AgentStatus(surface: 1, state: .working, agent: "claude"))
+        #expect(StatusMapping.shared.summary(tab).state == .working)
+        let item = TabItemMapping.shared.item(tab, fallbackTitle: "Terminal")
+        #expect(item.indicator == .working)
+        #expect(item.isBusy)
+    }
+
+    /// `appearance.statusIndicator.showAgentWorkingOnTabs` off: the tab keeps
+    /// its icon; the row is the row-content setting's business.
+    @Test func turningTabWorkingOffKeepsTheIcon() throws {
+        let store = try BridgeFixture.store()
+        let tab = try #require(store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first)
+        tab.setAgent(AgentStatus(surface: 1, state: .working, agent: "claude"))
+        let saved = DesignSettings.shared.statusIndicator
+        defer { DesignSettings.shared.statusIndicator = saved }
+        DesignSettings.shared.statusIndicator.showsAgentWorkingOnTabs = false
+        let item = TabItemMapping.shared.item(tab, fallbackTitle: "Terminal")
+        #expect(item.indicator == .idle)
+        #expect(!item.isBusy)
+        #expect(StatusMapping.shared.summary(tab).state == .working)
+    }
+
+    @Test func theRowShowsWorkingWhenAnyTabWorks() throws {
+        let store = try BridgeFixture.store()
+        let workspace = try #require(store.sidebarSections.flatMap(\.workspaces).first { $0.displayName == "beta" })
+        let tab = try #require(workspace.screens.flatMap(\.panes).flatMap(\.tabs).first)
+        tab.setAgent(AgentStatus(surface: 1, state: .working))
+        let row = SidebarMapping.shared.row(workspace, machine: .local)
+        #expect(row.activity == .working)
+    }
+}

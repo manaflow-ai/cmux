@@ -19,12 +19,15 @@ public final class StatusIndicatorLayer {
         public var attention: CGColor
         public var danger: CGColor
         public var success: CGColor
+        /// Agent work (`Tint.accent`); the loading color when nil.
+        public var accent: CGColor?
 
-        public init(loading: CGColor, attention: CGColor, danger: CGColor, success: CGColor) {
+        public init(loading: CGColor, attention: CGColor, danger: CGColor, success: CGColor, accent: CGColor? = nil) {
             self.loading = loading
             self.attention = attention
             self.danger = danger
             self.success = success
+            self.accent = accent
         }
 
         /// The theme's colors (call inside `performWithTheme` / a theme
@@ -34,7 +37,8 @@ public final class StatusIndicatorLayer {
             Colors(loading: color?.nsColor.cgColor ?? Palette.textSecondary.cgColor,
                    attention: Palette.attention.cgColor,
                    danger: Palette.danger.cgColor,
-                   success: Palette.success.cgColor)
+                   success: Palette.success.cgColor,
+                   accent: Palette.textPrimary.cgColor)
         }
     }
 
@@ -52,6 +56,8 @@ public final class StatusIndicatorLayer {
     /// Braille spinner frames (masks) for the current size and font.
     private var brailleLayer: CALayer?
     private var brailleFrames: [CGImage] = []
+    /// The working dots: a replicator of one dot (`StatusIndicatorLayer+Dots`).
+    var dotsLayer: CAReplicatorLayer?
 
     public init() {
         layer.actions = Self.noActions
@@ -92,7 +98,7 @@ public final class StatusIndicatorLayer {
 
     /// The animation running now (tests, diagnostics).
     public var runningAnimation: StatusIndicatorPlan.Animation? {
-        for (sublayer, key) in [(glyphLayer as CALayer?, "spin"), (nativeLayer, "step"), (glyphLayer, "pulse"), (brailleLayer?.mask, "frames")] {
+        for (sublayer, key) in [(glyphLayer as CALayer?, "spin"), (nativeLayer, "step"), (glyphLayer, "pulse"), (brailleLayer?.mask, "frames"), (dotsLayer?.sublayers?.first, "wave")] {
             if let sublayer, sublayer.animation(forKey: key) != nil {
                 return StatusIndicatorPlan.Animation(key: key)
             }
@@ -143,9 +149,9 @@ public final class StatusIndicatorLayer {
         let thickness = config.settings.thickness
         switch plan.glyph {
         case .none:
-            removeGlyph(); removeTrack(); removeNative(); removeBraille()
+            removeGlyph(); removeTrack(); removeNative(); removeBraille(); removeDots()
         case .arc:
-            removeTrack(); removeNative(); removeBraille()
+            removeTrack(); removeNative(); removeBraille(); removeDots()
             let shape = makeGlyph(frame: rect)
             shape.path = CGPath(ellipseIn: shape.bounds.insetBy(dx: thickness / 2, dy: thickness / 2), transform: nil)
             shape.fillColor = nil
@@ -153,7 +159,7 @@ public final class StatusIndicatorLayer {
             shape.strokeStart = 0
             shape.strokeEnd = config.arcLength
         case .ring(let progress):
-            removeNative(); removeBraille()
+            removeNative(); removeBraille(); removeDots()
             let track = makeTrack(frame: rect)
             track.path = ringPath(in: track.bounds, thickness: thickness)
             track.lineWidth = thickness
@@ -165,7 +171,7 @@ public final class StatusIndicatorLayer {
             shape.strokeStart = 0
             shape.strokeEnd = progress
         case .native:
-            removeGlyph(); removeTrack(); removeBraille()
+            removeGlyph(); removeTrack(); removeBraille(); removeDots()
             let native = makeNative(frame: rect)
             let scale = contentsScale
             if nativeSide != rect.width * scale {
@@ -173,14 +179,14 @@ public final class StatusIndicatorLayer {
                 native.mask?.contents = NativeSpinnerImage.image(side: rect.width, scale: scale)
             }
         case .dot:
-            removeTrack(); removeNative(); removeBraille()
+            removeTrack(); removeNative(); removeBraille(); removeDots()
             let shape = makeGlyph(frame: rect)
             let side = rect.width * config.dotScale
             shape.path = CGPath(ellipseIn: CGRect(x: (rect.width - side) / 2, y: (rect.height - side) / 2, width: side, height: side), transform: nil)
             shape.lineWidth = 0
             shape.strokeEnd = 1
         case .check:
-            removeTrack(); removeNative(); removeBraille()
+            removeTrack(); removeNative(); removeBraille(); removeDots()
             let shape = makeGlyph(frame: rect)
             shape.path = checkPath(in: shape.bounds.insetBy(dx: rect.width * 0.16, dy: rect.height * 0.2))
             shape.fillColor = nil
@@ -189,7 +195,7 @@ public final class StatusIndicatorLayer {
             shape.strokeStart = 0
             shape.strokeEnd = 1
         case .braille:
-            removeGlyph(); removeTrack(); removeNative()
+            removeGlyph(); removeTrack(); removeNative(); removeDots()
             let braille = makeBraille(frame: rect)
             let frames = BrailleSpinnerImage.images(side: rect.width, scale: contentsScale, family: config.terminalFontFamily)
             if frames != brailleFrames {
@@ -197,6 +203,9 @@ public final class StatusIndicatorLayer {
                 braille.mask?.removeAllAnimations()
                 braille.mask?.contents = frames.first
             }
+        case .dots:
+            removeGlyph(); removeTrack(); removeNative(); removeBraille()
+            buildDots(in: rect)
         }
     }
 
@@ -314,6 +323,7 @@ public final class StatusIndicatorLayer {
         glyphLayer?.removeAllAnimations()
         nativeLayer?.removeAllAnimations()
         brailleLayer?.mask?.removeAllAnimations()
+        dotsLayer?.sublayers?.first?.removeAllAnimations()
     }
 
     // MARK: Color and motion
@@ -325,6 +335,7 @@ public final class StatusIndicatorLayer {
         case .attention: colors.attention
         case .danger: colors.danger
         case .success: colors.success
+        case .accent: colors.accent ?? colors.loading
         }
         switch plan.glyph {
         case .dot:
@@ -337,6 +348,7 @@ public final class StatusIndicatorLayer {
         trackLayer?.strokeColor = color
         nativeLayer?.backgroundColor = color
         brailleLayer?.backgroundColor = color
+        (dotsLayer?.sublayers?.first as? CAShapeLayer)?.fillColor = color
     }
 
     private func updateAnimation() {
@@ -349,6 +361,7 @@ public final class StatusIndicatorLayer {
         case .step: Motion.stepAnimation(steps: config.nativeSteps)
         case .pulse: Motion.pulseAnimation(low: Float(config.pulseLow))
         case .frames: Motion.framesAnimation(brailleFrames)
+        case .wave: waveAnimation()
         }
         if let animation { target.add(animation, forKey: wanted.key) }
     }
@@ -358,28 +371,8 @@ public final class StatusIndicatorLayer {
         case .step?: nativeLayer
         case .frames?: brailleLayer?.mask
         case .spin?, .pulse?: glyphLayer
+        case .wave?: dotsLayer?.sublayers?.first
         case nil: nil
-        }
-    }
-}
-
-extension StatusIndicatorPlan.Animation {
-    var key: String {
-        switch self {
-        case .spin: "spin"
-        case .step: "step"
-        case .pulse: "pulse"
-        case .frames: "frames"
-        }
-    }
-
-    init?(key: String) {
-        switch key {
-        case "spin": self = .spin
-        case "step": self = .step
-        case "pulse": self = .pulse
-        case "frames": self = .frames
-        default: return nil
         }
     }
 }

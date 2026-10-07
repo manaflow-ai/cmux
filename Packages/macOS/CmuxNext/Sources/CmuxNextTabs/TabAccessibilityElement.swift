@@ -45,7 +45,7 @@ extension TabCell {
     func updateAccessibility() {
         var parts = [displayTitle]
         if item.isPinned { parts.append(Strings.axPinned) }
-        if item.isBusy { parts.append(Strings.axBusy) }
+        if item.indicator.isWorking { parts.append(Strings.axWorking) } else if item.isBusy { parts.append(Strings.axBusy) }
         if item.isDormant { parts.append(Strings.axHibernated) }
         if let machine = item.machineBadge { parts.append(Strings.axOnMachine(machine)) }
         if let profile = item.profileBadge { parts.append(Strings.browserProfile(profile.name)) }

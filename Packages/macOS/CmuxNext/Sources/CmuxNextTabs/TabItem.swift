@@ -10,14 +10,14 @@ public struct TabItem: Identifiable, Hashable, Sendable {
     public var isPinned: Bool
     /// Neutral notification dot (new output, unread notification).
     public var isUnread: Bool
-    /// The loading state the icon slot shows (`StatusIndicatorLayer`):
-    /// busy or paused, with progress when known. Waiting, error and done
-    /// stay on the `status` badge.
+    /// The state the icon slot shows (`StatusIndicatorLayer`): busy or
+    /// paused (page or command loading), or working (an agent), with
+    /// progress when known. Waiting, error and done stay on the `status` badge.
     public var indicator: StatusIndicatorState = .idle
     /// Replaces the icon with the status indicator (process running, page
     /// loading, agent working).
     public var isBusy: Bool {
-        get { indicator.isLoading }
+        get { indicator.replacesTabIcon }
         set { if newValue != isBusy { indicator = newValue ? .busy : .idle } }
     }
     /// The reporter's indicator style hint; nil uses

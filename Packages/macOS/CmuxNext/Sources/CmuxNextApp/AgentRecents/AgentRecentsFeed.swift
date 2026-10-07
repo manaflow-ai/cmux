@@ -1,13 +1,15 @@
 import CmuxNextAgentActivity
 import CmuxNextAgentPane
+import CmuxNextBridge
 import CmuxNextWakeups
 import Foundation
 import os
 
-/// The local acpmux daemon's chats for the sidebar's Recents: one long-lived
-/// `_acpmux/watch` connection whose `_acpmux/session_changed` pushes keep the
-/// list current, so nothing polls. It connects when the first window shows
-/// Recents. When the socket is absent it waits for a directory change on the
+/// The local acpmux daemon's chats for the sidebar's Recents, and every
+/// session's turn state for the working and needs-input indicators
+/// (`AgentTurnStateStore`): one long-lived `_acpmux/watch` connection whose
+/// `_acpmux/session_changed` pushes keep both current, so nothing polls. It
+/// connects when the first window opens (`startTurnStates`) or shows Recents. When the socket is absent it waits for a directory change on the
 /// socket's path; a lost connection reconnects with `Backoff`.
 @MainActor
 final class AgentRecentsFeed {
@@ -16,6 +18,7 @@ final class AgentRecentsFeed {
 
     private(set) var chats: [AcpmuxRecentChat] = []
     private let socket: String
+    private let turns: AgentTurnStateStore
     private var recents = AcpmuxRecentChats()
     private var observers: [(owner: () -> AnyObject?, changed: @MainActor () -> Void)] = []
     private var subscription: AgentActivityLineConnection?
@@ -25,8 +28,14 @@ final class AgentRecentsFeed {
     private var backoff = Backoff(initial: .milliseconds(250), maximum: .seconds(30))
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-recents")
 
-    init(socketPath: String) {
+    init(socketPath: String, turns: AgentTurnStateStore = .shared) {
         socket = socketPath
+        self.turns = turns
+    }
+
+    /// Starts the watch for the turn states (idempotent).
+    func startTurnStates() {
+        if subscription == nil, directoryWatch == nil, reconnect == nil { connect() }
     }
 
     isolated deinit {
@@ -78,9 +87,11 @@ final class AgentRecentsFeed {
         if (message["id"] as? NSNumber)?.intValue == 2, let result = message["result"] as? [String: Any] {
             backoff.reset()
             recents.reset(result)
+            turns.states.reset(result)
             logger.info("agent recents: \((result["sessions"] as? [Any])?.count ?? 0, privacy: .public) sessions")
         } else if message["method"] as? String == "_acpmux/session_changed", let params = message["params"] as? [String: Any] {
             recents.apply(changed: params)
+            turns.states.apply(changed: params)
         } else {
             return
         }
@@ -94,6 +105,8 @@ final class AgentRecentsFeed {
     private func lost(_ connection: AgentActivityLineConnection) {
         guard subscription === connection else { return }
         subscription = nil
+        // A closed watch knows nothing: no stale working dots until it reconnects.
+        turns.states.clear()
         logger.info("agent recents: watch closed")
         reconnect?.cancel()
         reconnect = Task { [weak self] in

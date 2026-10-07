@@ -10,6 +10,13 @@ public import CmuxNextDesign
 public struct StatusMapping {
     public static let shared = Self()
 
+    /// The local acpmux turn states (agent chat tabs).
+    let turns: AgentTurnStateStore
+
+    public init(turns: AgentTurnStateStore = .shared) {
+        self.turns = turns
+    }
+
     /// The reports one tab contributes.
     public func reports(_ tab: TabModel) -> [StatusReport] {
         var reports: [StatusReport] = []
@@ -20,14 +27,20 @@ public struct StatusMapping {
         return reports
     }
 
+    /// The acpmux turn state of an agent chat tab, nil for every other tab.
+    public func turn(_ tab: TabModel) -> AgentTurnState? {
+        tab.agentSession.flatMap(turns.state(for:))
+    }
+
     /// One tab's merged status.
     public func summary(_ tab: TabModel) -> StatusSummary {
         StatusStack.resolve(reports(tab), honoring: honored)
     }
 
-    /// The strongest loading report of one tab, for the tab's icon slot:
-    /// a waiting or failed source does not hide another source's spinner
-    /// there, because the tab's badge already marks those states.
+    /// The strongest loading or working report of one tab, for the tab's
+    /// icon slot: a waiting or failed source does not hide another source's
+    /// mark there, because the tab's badge already marks those states.
+    /// Agent work leaves the slot when `showAgentWorkingOnTabs` is off.
     public func loading(_ tab: TabModel) -> StatusSummary {
         StatusStack.resolve(reports(tab).filter { $0.state.isLoading }, honoring: honored)
     }
@@ -47,6 +60,15 @@ public struct StatusMapping {
         case .working: .busy
         case .blocked: .waiting
         case .idle, .done, .unknown: nil
+        }
+    }
+
+    /// An acpmux turn state as an indicator state.
+    func state(_ turn: AgentTurnState) -> StatusIndicatorState {
+        switch turn {
+        case .working: .working
+        case .needsInput: .waiting
+        case .failed: .error
         }
     }
 }

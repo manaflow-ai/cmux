@@ -20,7 +20,10 @@ enum BrowserTabIconState: Equatable {
     /// `isLoading` is the live page's load state; a hibernated tab has no
     /// live page, so it shows its favicon and never the throbber. `url` is
     /// the tab's address: a cmux page's address wears that page's icon.
-    static func resolve(isLoading: Bool, isDormant: Bool, favicon: TabImage?, url: URL? = nil) -> BrowserTabIconState {
+    /// `showsLoading` off (`appearance.statusIndicator.showPageLoading`)
+    /// keeps the favicon while the page loads.
+    static func resolve(isLoading: Bool, isDormant: Bool, favicon: TabImage?, url: URL? = nil,
+                        showsLoading: Bool = true) -> BrowserTabIconState {
         if let page = pageIcon(url) { return .page(page) }
         if isLoading, !isDormant { return .throbber }
         return favicon.map(BrowserTabIconState.favicon) ?? .globe

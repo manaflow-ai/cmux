@@ -72,7 +72,9 @@ public struct TabItemMapping {
     }
 
     func status(_ tab: TabModel) -> TabStatus {
-        switch tab.agent?.state {
+        // An agent chat's acpmux turn waits for a permission or a question.
+        if StatusMapping.shared.turn(tab) == .needsInput { return .needsInput }
+        return switch tab.agent?.state {
         case .blocked: .needsInput
         case .done: .success
         default: tab.dead || tab.progress?.state == .error ? .failure : .none

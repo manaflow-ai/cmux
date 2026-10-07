@@ -81,7 +81,7 @@ public nonisolated enum StatusStack {
         switch state {
         case .error: 6
         case .waiting: 5
-        case .busy: 4
+        case .busy, .working: 4
         case .paused: 3
         case .success: 2
         case .idle: 0

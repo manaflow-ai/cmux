@@ -16,6 +16,10 @@ public nonisolated struct StatusIndicatorPlan: Hashable, Sendable {
         /// One braille spinner frame (`BrailleSpinnerImage.frames`); `frames`
         /// steps through the rest. Still, it is the first frame.
         case braille
+        /// Three small dots side by side: an agent working
+        /// (WORKING-AND-LOADING-INDICATORS). No loading style draws it, so
+        /// agent work never looks like a page or a command loading.
+        case dots
     }
 
     public enum Animation: Hashable, Sendable {
@@ -28,6 +32,9 @@ public nonisolated struct StatusIndicatorPlan: Hashable, Sendable {
         case pulse
         /// The braille frames in turn, one cycle per Motion `spinner` period.
         case frames
+        /// The dots dim and brighten one after another (one Motion `pulse`
+        /// period per cycle).
+        case wave
     }
 
     public enum Tint: Hashable, Sendable {
@@ -36,6 +43,9 @@ public nonisolated struct StatusIndicatorPlan: Hashable, Sendable {
         case attention
         case danger
         case success
+        /// The app's neutral accent at full strength (the theme
+        /// foreground; no hue, the no-blue rule): agent work.
+        case accent
     }
 
     public var glyph: Glyph
@@ -65,7 +75,11 @@ public nonisolated struct StatusIndicatorPlan: Hashable, Sendable {
         case .idle:
             return .hidden
         case .waiting:
+            // A still dot (WORKING-AND-LOADING-INDICATORS): needs input reads
+            // apart from the moving working mark.
             return StatusIndicatorPlan(glyph: .dot, animation: .pulse, tint: .attention)
+        case .working:
+            return staticPlan(.busy(progress: state.progress), style: style)
         case .error:
             return StatusIndicatorPlan(glyph: .dot, animation: nil, tint: .danger)
         case .success:

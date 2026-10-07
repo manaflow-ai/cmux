@@ -150,6 +150,20 @@ import Testing
         #expect(!snapshot.statusBehavior.runNotifyWhenVisible)
     }
 
+    /// WORKING-AND-LOADING-INDICATORS: each tab indicator has its own switch, on by default.
+    @Test func tabIndicatorSwitchesDefaultOnAndParse() throws {
+        let defaults = try parse("{}").statusIndicator
+        #expect(defaults.showsAgentWorkingOnTabs)
+        #expect(defaults.showsPageLoading)
+        let off = try parse(#"{"appearance": {"statusIndicator": {"showAgentWorkingOnTabs": false, "showPageLoading": false}}}"#)
+        #expect(!off.statusIndicator.showsAgentWorkingOnTabs)
+        #expect(!off.statusIndicator.showsPageLoading)
+        #expect(off.diagnostics.isEmpty)
+        for key in ["showAgentWorkingOnTabs", "showPageLoading"] {
+            #expect(SettingsSchema.descriptor(for: ["appearance", "statusIndicator", key])?.defaultValue == .bool(true))
+        }
+    }
+
     @Test func honorStatusStyleTakesABoolOrAListOfSources() throws {
         #expect(try parse(#"{"appearance": {"statusIndicator": {"honorStatusStyle": false}}}"#).statusIndicator.honoredStyleSources.isEmpty)
         let some = try parse(#"{"appearance": {"statusIndicator": {"honorStatusStyle": ["explicit", "run"]}}}"#)

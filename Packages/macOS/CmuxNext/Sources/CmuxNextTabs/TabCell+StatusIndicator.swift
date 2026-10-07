@@ -8,7 +8,7 @@ extension TabCell: StatusIndicatorConfigClient {
     /// The plan the tab's indicator draws now (hidden when not busy or the
     /// style is `none`).
     var spinnerPlan: StatusIndicatorPlan {
-        guard item.indicator.isLoading else { return .hidden }
+        guard item.indicator.replacesTabIcon else { return .hidden }
         let config = StatusIndicatorAppearance.shared.config
         return StatusIndicatorPlan.make(item.indicator, style: config.style(hint: item.busyStyle), animates: config.animatesLoops)
     }
