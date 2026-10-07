@@ -11,9 +11,12 @@ import type { AcpmuxSnapshot } from "./model";
 import { EffortPicker } from "./EffortPicker";
 import { type StringKey, useT } from "./i18n";
 import { ModelPicker } from "./ModelPicker";
+import type { CatalogRefreshState } from "./modelPickerLayout";
+import type { PickerCatalog } from "./modelCatalogData";
 import { Popover } from "../../ui/Popover";
 import { registerPicker } from "./pickerOpeners";
 import { useUiAnchor } from "../../ui/anchor";
+import { usePopoverTrigger } from "./popoverTrigger";
 
 /// Picker copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 export const PICKER_LABELS = {
@@ -98,6 +101,10 @@ type Props = {
   /// Runs the agent's compact command from the context popover; offered only when set and the
   /// agent lists a `compact` command.
   onCompact?(): void;
+  /** Host-backed catalog refresh; transport stays outside the picker UI. */
+  catalogRefresh?: CatalogRefreshState;
+  /** Joined host catalog supplied by the app root; direct tests keep using the daemon catalog. */
+  pickerCatalog?: PickerCatalog;
 };
 
 /// The composer bar's controls: the
@@ -117,9 +124,20 @@ export function ComposerPickers({
   measurePickerRoom,
   showPlan = true,
   onCompact,
+  catalogRefresh,
+  pickerCatalog,
 }: Props) {
   const t = useT();
   const summary = snapshot.summary;
+  const pickerEntries = pickerCatalog
+    ? pickerCatalog.harnesses.map((entry) => ({
+        id: entry.acpmuxHarness ?? entry.id,
+        name: entry.name,
+        models: entry.models,
+        ...(entry.unavailable ? { unavailable: entry.unavailable } : {}),
+        pickable: entry.pickable && entry.acpmuxHarness !== null,
+      }))
+    : snapshot.catalog;
   // An agent's own default reads "Default", never its "(Claude Code's choice)" phrasing.
   const models: Choice[] = sessionModels(snapshot.catalog, summary).map((choice) =>
     isDefaultChoice(choice) ? { ...choice, name: t("picker.default") } : choice,
@@ -145,6 +163,25 @@ export function ComposerPickers({
     const choice = { id: option.value, name: option.name || option.value };
     return isDefaultChoice(choice) ? { ...choice, name: t("picker.default") } : choice;
   });
+  const fastOption = snapshot.summary?.configOptions?.find(
+    (option) => option.id === "fast-mode" || /fast[ _-]?mode/i.test(option.name ?? ""),
+  );
+  const fastOn =
+    fastOption?.options.find((option) => /^(on|true|enabled)$/i.test(option.value)) ?? fastOption?.options[1];
+  const fastOff =
+    fastOption?.options.find((option) => /^(off|false|disabled)$/i.test(option.value)) ?? fastOption?.options[0];
+  const fastMode =
+    fastOption?.name && fastOn && fastOff && fastOn.value !== fastOff.value
+      ? {
+          name: fastOption.name,
+          currentValue: fastOption.currentValue,
+          onValue: fastOn.value,
+          offValue: fastOff.value,
+          onLabel: fastOn.name ?? fastOn.value,
+          offLabel: fastOff.name ?? fastOff.value,
+          onPick: (value: string) => onEffort(fastOption.id, value),
+        }
+      : undefined;
   const model = models.find((choice) => choice.id === summary?.model);
   const effortName = efforts.find((choice) => choice.id === effort?.currentValue)?.name;
   // Recents follow what the session actually runs, whichever control changed it,
@@ -222,14 +259,55 @@ export function ComposerPickers({
     (models.find((choice) => choice.id === resolvedId && !isDefaultChoice(choice))?.name ?? modelIdName(resolvedId));
   const modelName = defaulted ? (resolvedName ?? t("picker.default")) : (model?.name ?? summary?.model);
   const usage = summary?.usage;
-  // The chip names a chosen effort in secondary text; the agent's default level adds nothing.
-  const currentEffortChoice = efforts.find((choice) => choice.id === currentEffort);
-  const effortDetail =
-    currentEffortChoice && !isDefaultChoice(currentEffortChoice) ? currentEffortChoice.name : undefined;
   const compact = onCompact && snapshot.commands?.some((command) => command.name === "compact") ? onCompact : undefined;
 
   return (
     <div className="acpmux-chips">
+      {(models.length > 0 || snapshot.catalog.length > 0 || harness) && (
+        <ModelPicker
+          catalog={pickerEntries}
+          harness={harness}
+          model={shown}
+          label={modelName ?? t(PICKER_LABELS.model)}
+          efforts={efforts}
+          effort={currentEffort}
+          recents={recents}
+          onLand={(pickedModel) => land(pickedModel)}
+          onEffort={(value) => {
+            pending.current = undefined;
+            if (effort) onEffort(effort.id, value);
+          }}
+          onHarness={onHarness}
+          onHarnessHint={onHarnessHint}
+          fastMode={fastMode}
+          catalogRefresh={catalogRefresh}
+          harnessNotes={
+            snapshot.switching?.phase === "failed"
+              ? { [snapshot.switching.harness]: t("switch.failedShort") }
+              : undefined
+          }
+          measureRoom={measurePickerRoom}
+        />
+      )}
+      {/* The context ring stays immediately to the right of the model control. */}
+      {(usage || summary?.sessionId) && (
+        <ContextRing used={usage?.used} size={usage?.size} onCompact={compact} working={snapshot.isWorking} />
+      )}
+      {/* Reasoning is its own stable control, separate from the model and harness picker. */}
+      {effort && efforts.length > 0 && (
+        <EffortPicker
+          label={t(PICKER_LABELS.effort)}
+          efforts={efforts}
+          current={effort.currentValue}
+          model={modelName}
+          chevron={<ChevronIcon />}
+          onPick={(value) => {
+            pending.current = undefined;
+            onEffort(effort.id, value);
+          }}
+        />
+      )}
+      <span className="acpmux-chips-spacer" />
       {modes.length > 0 && (
         <Picker
           label={t(PICKER_LABELS.mode)}
@@ -238,7 +316,7 @@ export function ComposerPickers({
           button={
             <>
               <ShieldIcon />
-              <span>{mode?.name ?? t(PICKER_LABELS.mode)}</span>
+              <span className="acpmux-mode-text">{mode?.name ?? t(PICKER_LABELS.mode)}</span>
               <ChevronIcon />
             </>
           }
@@ -258,52 +336,6 @@ export function ComposerPickers({
           {planning ? <PlanIcon /> : <BuildIcon />}
           <span>{planning ? t(PICKER_LABELS.plan) : t(PICKER_LABELS.build)}</span>
         </button>
-      )}
-      <span className="acpmux-chips-spacer" />
-      {models.length > 0 && (
-        <ModelPicker
-          catalog={snapshot.catalog}
-          harness={harness}
-          model={shown}
-          label={modelName ?? t(PICKER_LABELS.model)}
-          detail={effortDetail}
-          resolvedDefault={resolvedName}
-          efforts={efforts}
-          effort={currentEffort}
-          recents={recents}
-          onLand={land}
-          onEffort={(value) => {
-            pending.current = undefined;
-            if (effort) onEffort(effort.id, value);
-          }}
-          onHarness={onHarness}
-          onHarnessHint={onHarnessHint}
-          harnessNotes={
-            snapshot.switching?.phase === "failed"
-              ? { [snapshot.switching.harness]: t("switch.failedShort") }
-              : undefined
-          }
-          measureRoom={measurePickerRoom}
-        />
-      )}
-      {/* A live chat keeps its ring from the first frame; usage fills it in place. */}
-      {(usage || summary?.sessionId) && (
-        <ContextRing used={usage?.used} size={usage?.size} onCompact={compact} working={snapshot.isWorking} />
-      )}
-      {/* Without a model list the effort keeps a chip of its own. */}
-      {models.length === 0 && effort && efforts.length > 0 && (
-        <EffortPicker
-          label={t(PICKER_LABELS.effort)}
-          efforts={efforts}
-          current={effort.currentValue}
-          model={modelName}
-          chevron={<ChevronIcon />}
-          onPick={(value) => {
-            // An effort picked by hand wins over one a combo is still waiting to send.
-            pending.current = undefined;
-            onEffort(effort.id, value);
-          }}
-        />
       )}
     </div>
   );
@@ -492,6 +524,7 @@ export function Picker({
     setOpen(false);
     trigger.current?.focus();
   };
+  const press = usePopoverTrigger(open, setOpen, show);
   const pick = (index: number) => {
     const row = rows[index];
     if (!row) return;
@@ -554,7 +587,7 @@ export function Picker({
         aria-activedescendant={open && rows.length > 0 ? `${menuId}-${selected}` : undefined}
         onKeyDown={keyDown}
         onKeyUp={keyUp}
-        onClick={() => (open ? setOpen(false) : show())}
+        {...press}
       >
         {button}
       </button>

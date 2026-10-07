@@ -16,6 +16,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Result, anyhow, bail};
 use zeroize::Zeroizing;
 
+use crate::config::folder_profiles;
 use crate::config::profiles;
 use crate::config::{Config, ProfileSource};
 
@@ -142,12 +143,27 @@ pub enum FileChange {
 }
 
 /// Store the secret and point the profile at it. `store` runs a
-/// [`StoreCommand`] (tests pass a fake).
+/// [`StoreCommand`] (tests pass a fake). Only a catalog harness.
 pub fn secret_set(
     id: &str,
     key: &str,
     value: &str,
     cfg: &Config,
+    store: &dyn Fn(&StoreCommand) -> Result<()>,
+) -> Result<FileChange> {
+    secret_set_in(id, key, value, cfg, None, store)
+}
+
+/// [`secret_set`] for a command run in `cwd`: a folder profile of `cwd` or a
+/// folder above it (`<folder>/.cmux/harnesses/<id>.toml`) is a known id too.
+/// Its file is never edited here (it belongs to the repository); the
+/// reference line is printed for the user to add.
+pub fn secret_set_in(
+    id: &str,
+    key: &str,
+    value: &str,
+    cfg: &Config,
+    cwd: Option<&Path>,
     store: &dyn Fn(&StoreCommand) -> Result<()>,
 ) -> Result<FileChange> {
     if !profiles::valid_id(id) {
@@ -156,6 +172,8 @@ pub fn secret_set(
     if !profiles::valid_env_key(key) {
         bail!("{key:?} is not a valid env variable name");
     }
+    // Before the store: a typo must not leave a secret store item behind.
+    let folder_file = known_harness(cfg, id, cwd)?;
     store(&store_command(std::env::consts::OS, id, key, value)?)?;
     Ok(match cfg.profile_meta.get(id) {
         Some(meta) if meta.source == ProfileSource::UserFile => {
@@ -170,8 +188,29 @@ pub fn secret_set(
             path: Some(meta.source_path.clone()),
             reason: "this profile is not a file in your harness folder".into(),
         },
-        None => FileChange::Manual { path: None, reason: format!("no profile file for {id}") },
+        None => FileChange::Manual {
+            path: folder_file.map(|p| p.display().to_string()),
+            reason: "this is a folder profile; cmux does not edit repository files".into(),
+        },
     })
+}
+
+/// Ok when `id` names a harness of `cfg` (any source: None) or a folder
+/// profile file of `cwd` or a folder above it (Some(its path)); else the
+/// "unknown harness" error.
+pub fn known_harness(cfg: &Config, id: &str, cwd: Option<&Path>) -> Result<Option<PathBuf>> {
+    if cfg.profile(id).is_some() {
+        return Ok(None);
+    }
+    let file = cwd.and_then(|cwd| {
+        cwd.ancestors()
+            .map(|folder| folder_profiles::profile_dir(folder).join(format!("{id}.toml")))
+            .find(|file| file.is_file())
+    });
+    match file {
+        Some(file) => Ok(Some(file)),
+        None => bail!("unknown harness {id:?}; `cmux harness list` shows the harness ids"),
+    }
 }
 
 /// Put `KEY = { keychain = "cmux-harness/<id>/<KEY>" }` under `[env]` of the
@@ -305,8 +344,12 @@ fn read_hidden_line() -> Result<Zeroizing<String>> {
 /// `cmux harness secret set ID KEY`.
 pub async fn set_cmd(id: &str, key: &str) -> Result<()> {
     let cfg = Config::load()?;
+    let cwd = std::env::current_dir().ok();
+    // Before the prompt: nobody types a secret for a harness that does not exist.
+    known_harness(&cfg, id, cwd.as_deref())?;
     let value = read_value(key)?;
-    let change = secret_set(id, key, value.as_str(), &cfg, &|cmd| run_store(cmd))?;
+    let change =
+        secret_set_in(id, key, value.as_str(), &cfg, cwd.as_deref(), &|cmd| run_store(cmd))?;
     drop(value);
     println!("stored {key} for {id} in the secret store ({})", reference(id, key));
     match change {
