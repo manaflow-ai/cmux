@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 @testable import CmuxNextRemoteBrowser

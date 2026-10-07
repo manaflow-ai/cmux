@@ -7,6 +7,9 @@ import CmuxNextDaemon
 import CmuxNextHistory
 import CmuxNextRemoteView
 import Foundation
+#if DEBUG
+import CmuxNextRemoteBrowser
+#endif
 
 /// Opens `cmux://history` and serves its data (plans/cmux-next/history.md
 /// 5.1). The page is a browser tab whose record URL is `cmux://history`, so
@@ -109,7 +112,16 @@ extension TabContentCache {
 
     static func isAppPage(_ url: URL?) -> Bool {
         HistoryPageAddress.matches(url) || BookmarkPageAddress.matches(url) || AgentActivityPageAddress.matches(url)
-            || RemoteViewTabRecord.matches(url)
+            || RemoteViewTabRecord.matches(url) || isRemoteBrowserPage(url)
+    }
+
+    /// A development remote tab record (`cmux://remote-browser`).
+    static func isRemoteBrowserPage(_ url: URL?) -> Bool {
+        #if DEBUG
+        RemoteBrowserTabRecord.matches(url)
+        #else
+        false
+        #endif
     }
 
     private func makeAppPage(_ url: URL?, for tab: TabModel) -> (any BrowserTab)? {
@@ -117,6 +129,11 @@ extension TabContentCache {
         let key = tab.id
         let engine: BrowserEngineKind = tab.browserEngine == BrowserEngineTag.cef.rawValue ? .cef : .webkit
         let profile = browserProfile?(key) ?? .default
+        #if DEBUG
+        if let url, RemoteBrowserTabRecord.matches(url) {
+            return RemoteBrowserPages.makePage(url: url, key: key, profile: profile, services: services)
+        }
+        #endif
         if AgentActivityPageAddress.matches(url) {
             let page = services.agentActivityPage.makePage(key: key, engine: engine, profile: profile)
             page.onNavigate = { [weak self] target in self?.leaveAppPage(key, to: target) }

@@ -175,6 +175,7 @@ let package = Package(
                 "CmuxNextHistory",
                 "CmuxNextPages",
                 "CmuxNextRemoteView",
+                "CmuxNextRemoteBrowser",
                 "CmuxNextCodeRouter",
                 "CmuxNextAccounts",
                 "CmuxNextBookmarks",
@@ -515,6 +516,9 @@ let package = Package(
         .target(
             name: "CmuxNextRemoteBrowser",
             dependencies: ["CmuxNextRemoteView", "CmuxNextBrowser", "CmuxNextDesign", "CCmuxAppFFI"],
+            resources: [
+                .process("Resources"),
+            ],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(

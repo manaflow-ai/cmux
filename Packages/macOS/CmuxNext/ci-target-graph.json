@@ -190,6 +190,7 @@
         "CmuxNextPages",
         "CmuxNextPalette",
         "CmuxNextRemote",
+        "CmuxNextRemoteBrowser",
         "CmuxNextRemoteLocalhost",
         "CmuxNextRemoteView",
         "CmuxNextResources",

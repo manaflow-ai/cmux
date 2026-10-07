@@ -21,6 +21,37 @@ public final class RemoteBrowserContentView: NSView {
     public override var isFlipped: Bool { true }
     public override var acceptsFirstResponder: Bool { true }
 
+    /// The page's cursor (`rb.cursor`), shown over the whole page area.
+    public var pageCursor: NSCursor = .arrow {
+        didSet {
+            guard pageCursor !== oldValue else { return }
+            window?.invalidateCursorRects(for: self)
+            if let window, bounds.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil)) { pageCursor.set() }
+        }
+    }
+
+    /// The page size in CSS pixels at the window's scale (`rb.screen`).
+    public var viewport: RemoteBrowserViewport {
+        RemoteBrowserViewport(bounds: bounds.size, backingScale: window?.backingScaleFactor ?? 2)
+    }
+
+    /// Called when the viewport may have changed (size or screen scale).
+    public var onViewport: ((RemoteBrowserViewport) -> Void)?
+
+    public override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        onViewport?(viewport)
+    }
+
+    public override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        onViewport?(viewport)
+    }
+
+    public override func resetCursorRects() {
+        addCursorRect(bounds, cursor: pageCursor)
+    }
+
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true

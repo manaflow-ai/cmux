@@ -1,0 +1,138 @@
+import AppKit
+import CmuxNextActions
+import CmuxNextBrowser
+import CmuxNextControl
+import CmuxNextSettings
+import Foundation
+#if DEBUG
+import CmuxNextRemoteBrowser
+#endif
+
+/// Development remote tabs (remote-tab.md r2): `remote.openBrowserTab`
+/// (palette, and scripts through `action.run`) and the `debug.remote_browser`
+/// socket verb share `open(address:url:in:)`, which opens a browser record
+/// `cmux://remote-browser?address=…`; `TabContentCache` turns that record
+/// into a `RemoteBrowserTab` streamed from the loopback rb/1 host.
+enum RemoteBrowserPages {
+    static func bind(into registry: ActionRegistry, context: AppActionContext) {
+        registry.bind("remote.openBrowserTab", run: { invocation in
+            #if DEBUG
+            let address = invocation["address"]?.stringValue ?? ""
+            guard let pane = context.paneController(invocation) else { return }
+            try open(address: address, url: invocation["url"]?.stringValue, in: pane)
+            #endif
+        })
+    }
+
+    #if DEBUG
+    /// Live sessions by tab key, for the debug socket (weak: tabs own them).
+    @MainActor private static var sessions: [String: WeakSession] = [:]
+
+    private struct WeakSession {
+        weak var value: RemoteBrowserSession?
+    }
+
+    /// The one open path: refuses anything but a loopback host port.
+    @MainActor
+    static func open(address: String, url: String?, in pane: PaneController) throws {
+        let first = url.flatMap(URL.init(string:))
+        guard let record = RemoteBrowserTabRecord(address: address, initialURL: first) else {
+            throw ActionFailure(message: RemoteBrowserStrings.addressNotRecognized(address))
+        }
+        pane.newBrowserTab(url: record.url)
+    }
+
+    /// The native page of a `cmux://remote-browser` record (nil for a bad
+    /// address: the history fallback is not used for these records).
+    @MainActor
+    static func makePage(url: URL, key: String, profile: BrowserProfileID, services: AppServices) -> (any BrowserTab)? {
+        guard let record = RemoteBrowserTabRecord(url: url),
+              let tab = RemoteBrowserSession.makeTab(record: record, id: BrowserTabID(rawValue: key), profile: profile,
+                                                     viewer: "cmux-next"),
+              let session = RemoteBrowserSession.session(of: tab) else { return nil }
+        session.openTab = { [weak services] target, disposition, answer in
+            // A page's new tab is a remote tab on the same host (RT1).
+            guard let services, let holder = pane(holding: key, services: services) else { return answer(nil) }
+            let child = RemoteBrowserTabRecord(endpoint: record.endpoint, initialURL: target)
+            holder.newBrowserTab(url: child.url, background: disposition == .backgroundTab) { surface in
+                answer(String(describing: surface))
+            }
+        }
+        sessions = sessions.filter { $0.value.value != nil }
+        sessions[key] = WeakSession(value: session)
+        session.start()
+        return tab
+    }
+
+    @MainActor
+    private static func pane(holding key: String, services: AppServices) -> PaneController? {
+        for window in services.windows.controllers {
+            for pane in window.content?.panes.values.map({ $0 }) ?? [] where pane.pane.tabs.contains(where: { $0.id == key }) {
+                return pane
+            }
+        }
+        return nil
+    }
+
+    /// `debug.remote_browser`. Actions: `open` (`address`, `url`?) runs the
+    /// shared open path in the focused pane; `state` (default) lists live
+    /// sessions; `navigate` (`url`, `tab`?) loads a page the way the omnibar
+    /// does (`BrowserTab.load`); `menu_choose` (`id` or `index`, `tab`?)
+    /// answers the open native menu; `menu_cancel` dismisses it.
+    @MainActor
+    static func debug(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
+        let live = sessions.compactMapValues(\.value)
+        let target = params["tab"]?.stringValue.flatMap { live[$0] } ?? live.values.first
+        switch params["action"]?.stringValue ?? "state" {
+        case "open":
+            guard let pane = services.windows.active?.focusedPane else { return ["error": "no focused pane"] }
+            do {
+                try open(address: params["address"]?.stringValue ?? "", url: params["url"]?.stringValue, in: pane)
+                return ["opened": true]
+            } catch {
+                return ["error": .string(String(describing: error))]
+            }
+        case "state":
+            let rows: [JSONValue] = live.sorted { $0.key < $1.key }.map { key, session in
+                .object([
+                    "tab": .string(key),
+                    "url": session.tab?.state.url.map { .string($0.absoluteString) } ?? .null,
+                    "title": session.tab?.state.title.map(JSONValue.string) ?? .null,
+                    "menu": session.nativeUI.openMenuTitles.map { .array($0.map(JSONValue.string)) } ?? .null,
+                    "dialog": session.nativeUI.openDialogToken.map { .number(Double($0)) } ?? .null,
+                    "note": session.lastNote.map(JSONValue.string) ?? .null,
+                    "frame": .string("\(Int(session.pane.view.frame.width))x\(Int(session.pane.view.frame.height))"),
+                ])
+            }
+            return ["sessions": .array(rows)]
+        case "navigate":
+            guard let target, let url = params["url"]?.stringValue.flatMap(URL.init(string:)) else { return ["error": "tab and url are required"] }
+            target.tab?.load(url)
+            return ["navigated": true]
+        case "menu_choose":
+            guard let target else { return ["error": "no session"] }
+            if let id = params["id"]?.intValue { return ["chosen": .bool(target.nativeUI.choose(.command(Int64(id))))] }
+            if let index = params["index"]?.intValue { return ["chosen": .bool(target.nativeUI.choose(.indices([UInt32(clamping: index)])))] }
+            return ["error": "id or index is required"]
+        case "menu_cancel":
+            guard let target else { return ["error": "no session"] }
+            return ["chosen": .bool(target.nativeUI.choose(.cancel))]
+        default:
+            return ["error": "unknown action"]
+        }
+    }
+    #endif
+}
+
+extension AppControl {
+    func registerRemoteBrowserDebugMethods(_ services: AppServices) {
+        #if DEBUG
+        service?.router.register([
+            .mainActor("debug.remote_browser") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(RemoteBrowserPages.debug(call.params, services: services))
+            },
+        ])
+        #endif
+    }
+}
