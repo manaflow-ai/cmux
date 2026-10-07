@@ -62,8 +62,9 @@ struct BackdropArtTests {
         try Data([0x01]).write(to: directory.appendingPathComponent("z-wallpaper.jpg"))
         try Data([0x01]).write(to: directory.appendingPathComponent("a-wallpaper.png"))
         let catalog = BackdropCatalog(systemDirectory: directory, fileManager: .default, systemLimit: 1)
-        #expect(catalog.choices.count == BackdropArt.allCases.count + 1)
-        let firstSystem = try #require(catalog.choices.dropFirst(BackdropArt.allCases.count).first)
+        // The bundled art, the desktop picture, then the system files.
+        #expect(catalog.choices.count == BackdropArt.allCases.count + 2)
+        let firstSystem = try #require(catalog.choices.dropFirst(BackdropArt.allCases.count + 1).first)
         guard case .system(let actualPath) = firstSystem else {
             Issue.record("The first system wallpaper choice was not a system path")
             return
