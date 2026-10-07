@@ -111,7 +111,9 @@ public struct SettingsSchemaExport {
         // Kinds whose valid values only the app knows (theme names, installed
         // fonts, system sounds): another validator checks them against the
         // value domain the app publishes, not a fixed rule.
-        if descriptor.path == BackdropSelectionSetting().configPath {
+        if descriptor.path == ChatSettings.rootsPath {
+            row["validation"] = "domain:chat_roots"
+        } else if descriptor.path == BackdropSelectionSetting().configPath {
             row["validation"] = "domain:backdrop_selection"
         } else if BrowserOmnibarSetting.templatePaths.contains(descriptor.path) {
             // Portable: a web address that contains %s or {searchTerms}, or empty.

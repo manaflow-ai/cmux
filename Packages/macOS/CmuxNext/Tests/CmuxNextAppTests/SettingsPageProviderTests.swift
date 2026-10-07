@@ -239,3 +239,94 @@ import Testing
         #expect(SettingsSchema.actions(in: .keyboard).contains("keybindings.open"), "Keyboard opens the Keyboard Shortcuts page")
     }
 }
+
+extension SettingsPageProviderTests {
+    @Test func chatRootRowsRetainRefusalsAndManagedProvenance() async throws {
+        let (provider, settings, directory) = try await make(managed: .init(forced: [
+            "agents.chats.roots": ["/opt/company"],
+        ]))
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try await settings.file.set(["/opt/mine", "relative"], at: ChatSettings.rootsPath)
+        await settings.reload()
+        let response = try await provider.call("cmux.settings.list", params: [:], context: context)
+        let row = try #require(response.arrayValue?.first { $0["key"] == "agents.chats.roots" })
+        #expect(row["managed"] == .null, "an additive managed root must not lock the user's list")
+        #expect(row["user_roots"] == ["/opt/mine", "relative"])
+        let folders = try #require(row["folders"]?.arrayValue)
+        #expect(folders.first { $0["path"] == "/opt/company" }?["managed"] == true)
+        #expect(folders.first { $0["path"] == "/opt/mine" }?["managed"] == false)
+        #expect(folders.first { $0["path"] == "relative" }?["reason"]?.stringValue == ChatRootValidator().refusal("relative"))
+    }
+
+    @Test func chatFolderPickerRefusesCallsWithoutASettingsGesture() async throws {
+        let (provider, settings, directory) = try await make()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var opened = 0
+        provider.pickFolders = { opened += 1; return ["/opt/chat-data"] }
+        provider.pickChatFolders = { opened += 1; return ["/opt/chat-data"] }
+        for caller in [context, PageCallContext(page: "cmux.cloud", userGesture: true)] {
+            do {
+                _ = try await provider.call("cmux.settings.folders.add", params: ["key": "agents.chats.roots"], context: caller)
+                Issue.record("a caller without a Settings gesture opened the chat folder picker")
+            } catch let error as PageError {
+                #expect(error.code == "cmux.settings.user_only")
+            }
+        }
+        #expect(opened == 0)
+        #expect(try await settings.file.value(at: ChatSettings.rootsPath) == nil)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func chatRootProvenanceChangesPublishWithoutChangingTheUnion() async throws {
+        let (provider, settings, directory) = try await make()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try await settings.setSetting(at: ChatSettings.rootsPath, to: ["/opt/shared"], by: .user)
+        let before = settings.snapshot.root
+        let (events, signal) = AsyncStream<JSONValue>.makeStream()
+        let subscription = try await provider.subscribe("cmux.settings.changed", filter: [:], context: context) { signal.yield($0) }
+        defer { subscription.cancel(); signal.finish() }
+        settings.setTeamPolicy(.init(teamName: "Team", enforced: ["agents.chats.roots": ["/opt/shared"]]))
+        await settings.reload()
+        #expect(settings.snapshot.root == before)
+        var iterator = events.makeAsyncIterator()
+        let event = try #require(await iterator.next())
+        #expect(event["keys"] == ["agents.chats.roots"])
+        let response = try await provider.call("cmux.settings.list", params: [:], context: context)
+        let row = try #require(response.arrayValue?.first { $0["key"] == "agents.chats.roots" })
+        #expect(row["folders"]?.arrayValue?.first?["managed"] == true)
+    }
+}
+
+extension SettingsPageProviderTests {
+    @Test func chatFolderPickerWritesAbsoluteUserRootsAndRefusesProtectedChoices() async throws {
+        let (provider, settings, directory) = try await make(managed: .init(forced: [
+            "agents.chats.roots": ["/opt/company"],
+        ]))
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let gesture = PageCallContext(page: "cmux.settings", userGesture: true)
+        provider.pickFolders = { Issue.record("chat roots must use the absolute-path picker"); return nil }
+        var chosen: [String]? = ["/opt/chat-data"]
+        provider.pickChatFolders = { chosen }
+        let first = try await provider.call("cmux.settings.folders.add", params: ["key": "agents.chats.roots"], context: gesture)
+        #expect(first["added"] == ["/opt/chat-data"])
+        #expect(try await settings.file.value(at: ChatSettings.rootsPath) == ["/opt/chat-data"])
+        #expect(settings.chatSettings.managedRoots == ["/opt/company"])
+        let protected = NSHomeDirectory() + "/Documents/chat-data"
+        for refused in [protected, "~/chat-data", "relative"] {
+            chosen = [refused]
+            do {
+                _ = try await provider.call("cmux.settings.folders.add", params: ["key": "agents.chats.roots"], context: gesture)
+                Issue.record("a refused root was saved")
+            } catch let error as PageError {
+                #expect(error.code == "cmux.settings.invalid")
+                #expect(error.message == ChatRootValidator().refusal(refused))
+            }
+            #expect(try await settings.file.value(at: ChatSettings.rootsPath) == ["/opt/chat-data"])
+        }
+        chosen = nil
+        let cancelled = try await provider.call("cmux.settings.folders.add", params: ["key": "agents.chats.roots"], context: gesture)
+        #expect(cancelled["added"] == [])
+        chosen = ["/opt/chat-data"]
+        let duplicate = try await provider.call("cmux.settings.folders.add", params: ["key": "agents.chats.roots"], context: gesture)
+        #expect(duplicate["added"] == [])
+    }
+}
