@@ -179,6 +179,67 @@ struct BrowserReplKeyResendTests {
         #expect(webView.commands == ["selectAll:"], "cmux browser press ran a clipboard command in a session's tab: \(webView.commands)")
     }
 
+    /// A web view in a window, the first responder there, with the page's
+    /// field focused: as in the app, WebKit gives a key in editable content
+    /// to the window's input method first, and only then queues it for the
+    /// page. A web view outside a window has no input context and queues
+    /// the key at once, so tests without a window never see that stage.
+    private func loadInWindow(_ html: String) async throws -> (NSWindow, EditCountingWebView) {
+        let webView = try await load(html)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        window.contentView = webView
+        #expect(window.makeFirstResponder(webView))
+        _ = try await webView.evaluateJavaScript("document.getElementById('i').focus(); true")
+        // WebKit reports the editable focus to the UI process asynchronously.
+        let deadline = ContinuousClock.now.advanced(by: .seconds(30))
+        while ContinuousClock.now < deadline, webView.inputContext == nil {
+            _ = try await webView.evaluateJavaScript("0")
+        }
+        try #require(webView.inputContext != nil, "the focused field never gave the web view an input context")
+        return (window, webView)
+    }
+
+    /// Meta+A, Meta+C and Meta+X that no page handled, typed by a REPL
+    /// session into a focused field of a web view in a window, as in the
+    /// app: WebKit sends each back to the app, which drops the resend, so
+    /// the key's outcome must say no page handled it. Seen live (final gate,
+    /// cmux-lawrence-2): the outcome said "handled" before WebKit had even
+    /// queued the key, so Select All, Copy and Cut never ran.
+    @Test(arguments: ["a", "c", "x"])
+    func aReplShortcutNoPageHandledIsUnhandledInAWindowsEditableField(_ letter: String) async throws {
+        let (window, webView) = try await loadInWindow("<input id=i value=abc><script>\(Self.countKeys)</script>")
+        defer { window.close() }
+        let stroke = try #require(try BrowserReplKeyStroke.resolve(key: letter, code: "Key\(letter.uppercased())", text: nil, modifiers: ["Meta"]))
+        var unhandled = false
+        try await Self.withAppDroppingResends {
+            #expect(webView.replayBrowserReplKeyStroke(stroke, keyDown: true, heldBy: "session") == .delivered)
+            let down = try #require(webView.browserNativeInputDeliveryOwner.lastDeliveredKeyDown)
+            let outcome = webView.observeAutomationKeyDownOutcome(down)
+            unhandled = await outcome.wasUnhandled()
+            _ = webView.replayBrowserReplKeyStroke(stroke, keyDown: false, heldBy: "session")
+        }
+        #expect(unhandled, "Meta+\(letter) no page handled was reported as handled")
+    }
+
+    /// A page that cancels the key handled it, in a window too.
+    @Test func aReplShortcutThePageCancelledIsHandledInAWindowsEditableField() async throws {
+        let (window, webView) = try await loadInWindow(
+            "<input id=i value=abc><script>\(Self.countKeys) addEventListener('keydown', e => { if (e.metaKey) e.preventDefault(); });</script>"
+        )
+        defer { window.close() }
+        let stroke = try #require(try BrowserReplKeyStroke.resolve(key: "a", code: "KeyA", text: nil, modifiers: ["Meta"]))
+        var unhandled = true
+        try await Self.withAppDroppingResends {
+            #expect(webView.replayBrowserReplKeyStroke(stroke, keyDown: true, heldBy: "session") == .delivered)
+            let down = try #require(webView.browserNativeInputDeliveryOwner.lastDeliveredKeyDown)
+            unhandled = await webView.observeAutomationKeyDownOutcome(down).wasUnhandled()
+            _ = webView.replayBrowserReplKeyStroke(stroke, keyDown: false, heldBy: "session")
+        }
+        #expect(!unhandled, "a key the page cancelled was reported as unhandled")
+        #expect(try await webView.evaluateJavaScript("window.keys") as? Int == 1)
+    }
+
     // The mobile browser stream replays a person's keys from their phone
     // through the specification entry point; WebKit's resend of a key no page
     // handled keeps reaching the Mac's menus there, as before.
