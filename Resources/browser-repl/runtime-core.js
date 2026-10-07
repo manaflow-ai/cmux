@@ -3031,14 +3031,14 @@
     // The tab's cookie calls name it: its cookies live in its own data store
     // (a private tab's, or the session's proxy store, is not the user's
     // profile), and a clear covers its site. A lazy page has no tab yet:
-    // its reads and writes use the session's default store, and a clear
-    // opens its tab first, so the driver takes the site from that tab. A
-    // closed page has no store or site any more, so its cookie calls fail
-    // with `closed`: a call without its tab would reach the current tab's
-    // store and site instead.
-    _cookieScope(method, { open = false } = {}) {
+    // its cookie calls name its lazy id, which opens its tab first
+    // (Session.call), so the driver uses that tab's store and site; if the
+    // tab cannot open, the call fails with that error. A closed page has
+    // no store or site any more, so its cookie calls fail with `closed`.
+    // A call without its tab would reach the active tab's store and site.
+    _cookieScope(method) {
       if (this._closed) throw Object.assign(new Error(`${method}: Target page, context or browser has been closed`), { code: "closed" });
-      return !open && String(this._targetId).startsWith("lazy:") ? {} : { targetId: this._targetId };
+      return { targetId: this._targetId };
     }
     context() {
       const session = this._session;
@@ -3066,7 +3066,7 @@
         if (typeof v !== "string" && !isRegExp(v)) throw new Error(`${title}: ${key}: expected a string or a RegExp, got ${JSON.stringify(v)}`);
         filters[key] = v;
       }
-      const scope = this._cookieScope(title, { open: true });
+      const scope = this._cookieScope(title);
       // A lazy page's tab opens now, so every call below names that tab.
       if (scope.targetId.startsWith("lazy:")) scope.targetId = await this._session._materialize(this);
       if (options.all) scope.all = true;

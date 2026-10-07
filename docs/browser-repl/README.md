@@ -83,7 +83,11 @@ cleared whole. The domain policy covers cookies too: `cookies()` leaves out
 the cookies of blocked sites, and reading, setting or clearing cookies of a
 blocked URL, site or tab throws. Cookie calls through a closed page
 (`cookies`, `addCookies`, `clearCookies`, `storageState`, `setStorageState`)
-throw `closed`; they never use the current tab instead.
+throw `closed`; they never use the current tab instead. This differs from
+Playwright on purpose, where a closed page's context still reads and adds
+cookies. A page with no tab yet (the session's first `page` before any
+call) opens its tab for its first cookie call, so the call uses that tab's
+store, never the active tab's.
 
 ## Snapshot
 
