@@ -11,6 +11,10 @@ WORKFLOW=.github/workflows/cmux-tui-testbox-warmup.yml
 JOB=cmux-tui-rust
 IDLE_TIMEOUT=15
 STAGES=0
+# The wrapper warms the box (the old direct warmup had 300 s) and then polls
+# for its run (up to 300 s), so its bound covers both.
+WARMUP_TIMEOUT="${CMUX_TESTBOX_DEMO_WARMUP_TIMEOUT:-900}"
+TITLE_PREFIX="cmux-tui Rust Testbox setup"
 
 usage() {
   cat <<'USAGE'
@@ -45,22 +49,40 @@ for tool in blacksmith gh git; do
 done
 test -x "$BOUNDED" || { echo "missing $BOUNDED; run from a cmux worktree" >&2; exit 65; }
 test -f "$WORKFLOW" || { echo "missing $WORKFLOW; rebase onto a main that has the lane" >&2; exit 65; }
+[[ "$WARMUP_TIMEOUT" =~ ^[0-9]+$ ]] || { echo "CMUX_TESTBOX_DEMO_WARMUP_TIMEOUT must be seconds" >&2; exit 64; }
+
+# Every Testbox starts through the cmuxterm-hq wrapper: it warms the box,
+# registers it with the fleet controller (the cmux-ci-testbox-approver App
+# passes the run of a registered box only) and waits for that run. Human
+# approval of Testbox runs was removed on purpose on 2026-10-05, so a missing
+# reviewer is expected. HQ_TOOLS is an hq checkout on main; the script pulls it.
+no_hq() {
+  cat >&2 <<MSG
+$*
+This demo starts the box through the cmuxterm-hq wrapper
+(scripts/testbox-warmup.sh), which registers the box so its warmup run is
+approved. cmuxterm-hq is private to the Manaflow team.
+  Team members: set HQ_TOOLS to an hq checkout on main, for example
+    HQ_TOOLS=~/cmuxterm-hq ./scripts/blacksmith-testbox-demo.sh
+  Everyone else: run focused cargo test inside cmux-tui/ locally (see
+    cmux-tui/README.md) and say so in the PR; a maintainer runs the hosted
+    verification.
+Nothing was started.
+MSG
+  exit 65
+}
+[[ -n "${HQ_TOOLS:-}" ]] || no_hq "HQ_TOOLS is not set."
+[[ -d "$HQ_TOOLS" ]] || no_hq "HQ_TOOLS=$HQ_TOOLS does not exist."
+hq_branch="$(git -C "$HQ_TOOLS" symbolic-ref --short HEAD 2>/dev/null || true)"
+[[ "$hq_branch" == main ]] || no_hq "HQ_TOOLS=$HQ_TOOLS is on '${hq_branch:-a detached HEAD}', not main."
+git -C "$HQ_TOOLS" pull --ff-only >/dev/null || no_hq "cannot update $HQ_TOOLS (git pull --ff-only)."
+WARMUP="$HQ_TOOLS/scripts/testbox-warmup.sh"
+test -x "$WARMUP" || no_hq "missing $WARMUP."
 
 if [[ ! -f ghostty/build.zig.zon ]]; then
   say "Initializing the Ghostty submodule (one time, takes a moment)"
   run_local git submodule update --init ghostty
 fi
-
-# Every Testbox starts through the cmuxterm-hq wrapper: it warms the box,
-# registers it with the fleet controller (the Testbox Approver App approves
-# only a registered box) and passes the gate. Human approval of Testbox runs
-# was removed on purpose on 2026-10-05; the cmux-ci App approves registered
-# boxes. A missing reviewer is expected, not a security problem. HQ_TOOLS is an
-# hq checkout that stays on main; the script pulls it first.
-HQ_TOOLS="${HQ_TOOLS:-/Users/lawrence/fun/cmuxterm-hq-worktrees/hq-tools-5c}"
-git -C "$HQ_TOOLS" pull --ff-only >/dev/null || { echo "cannot update $HQ_TOOLS (git pull --ff-only)" >&2; exit 65; }
-WARMUP="$HQ_TOOLS/scripts/testbox-warmup.sh"
-test -x "$WARMUP" || { echo "missing $WARMUP; set HQ_TOOLS to an hq checkout on main" >&2; exit 65; }
 
 BRANCH="$(git symbolic-ref --short HEAD 2>/dev/null || true)"
 [[ -n "$BRANCH" ]] || { echo "HEAD is detached; check out a branch first" >&2; exit 65; }
@@ -98,8 +120,24 @@ echo "of building, then it stops itself. Ctrl-C also stops it."
 # ------------------------------------------------------------------- warmup --
 TBX=""
 RUN_ID=""
+# The wrapper's stdout lands here as it is printed, so the box id is on disk
+# before anything after TBX= can fail, hang or be interrupted.
+warmup_out="$(mktemp)"
 cleanup() {
   local status=$?
+  trap - EXIT INT TERM
+  if [[ -z "$TBX" && -s "$warmup_out" ]]; then
+    TBX="$(sed -n 's/^TBX=//p' "$warmup_out" | head -1)"
+    RUN_ID="$(sed -n 's/^RUN=//p' "$warmup_out" | head -1)"
+  fi
+  rm -f "$warmup_out"
+  # A box named without RUN=: find its warmup run by the title the workflow
+  # gives it, so the keepalive runner is released too.
+  if [[ -n "$TBX" && -z "$RUN_ID" ]]; then
+    RUN_ID="$(gh api "repos/manaflow-ai/cmux/actions/workflows/cmux-tui-testbox-warmup.yml/runs?event=workflow_dispatch&branch=main&per_page=50" \
+      --jq ".workflow_runs[] | select(.display_title == \"$TITLE_PREFIX $TBX\") | .id" 2>/dev/null | head -1 || true)"
+    [[ -n "$RUN_ID" ]] || echo "no warmup run names $TBX yet; check: gh run list --repo manaflow-ai/cmux --workflow cmux-tui-testbox-warmup.yml" >&2
+  fi
   if [[ -n "$TBX" ]]; then
     say "Stopping the box this script created ($TBX)"
     blacksmith testbox stop --id "$TBX" || echo "stop failed; stop it by hand: blacksmith testbox stop --id $TBX" >&2
@@ -123,12 +161,15 @@ echo "The workflow refuses any ref but main: it is the trust boundary, because"
 echo "the CLI resolves the workflow definition from the same ref it hydrates."
 printf '\033[2m$ %s --lane %s -- %s --ref main --job %s --idle-timeout %s\033[0m\n' \
   "$WARMUP" "${CMUX_TESTBOX_LANE:-testbox-demo}" "$WORKFLOW" "$JOB" "$IDLE_TIMEOUT"
-warmup_out="$(mktemp)"
-"$WARMUP" --lane "${CMUX_TESTBOX_LANE:-testbox-demo}" -- "$WORKFLOW" \
-  --ref main --job "$JOB" --idle-timeout "$IDLE_TIMEOUT" | tee "$warmup_out"
-TBX="$(sed -n 's/^TBX=//p' "$warmup_out")"
-RUN_ID="$(sed -n 's/^RUN=//p' "$warmup_out")"
-rm -f "$warmup_out"
+warmup_rc=0
+"$BOUNDED" "$WARMUP_TIMEOUT" "$WARMUP" --lane "${CMUX_TESTBOX_LANE:-testbox-demo}" -- "$WORKFLOW" \
+  --ref main --job "$JOB" --idle-timeout "$IDLE_TIMEOUT" | tee "$warmup_out" || warmup_rc=$?
+TBX="$(sed -n 's/^TBX=//p' "$warmup_out" | head -1)"
+RUN_ID="$(sed -n 's/^RUN=//p' "$warmup_out" | head -1)"
+if (( warmup_rc != 0 )); then
+  echo "the warmup wrapper failed (exit $warmup_rc)${TBX:+; stopping $TBX}" >&2
+  exit "$warmup_rc"
+fi
 [[ -n "$TBX" ]] || { echo "warmup returned no Testbox ID" >&2; exit 66; }
 
 

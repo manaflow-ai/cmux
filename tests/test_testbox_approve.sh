@@ -21,7 +21,7 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 for args in "tbx_01abc $(date +%s) comment" "tbx_01abc $(date +%s)" ""; do
   set +e
   # shellcheck disable=SC2086
-  out="$(PATH="$bin:$PATH" timeout 20 "$helper" $args 2>&1)"
+  out="$(PATH="$bin:$PATH" "$root/scripts/blacksmith-bounded-command.sh" 20 "$helper" $args 2>&1)"
   rc=$?
   set -e
   [[ $rc -ne 0 ]] || fail "the retired helper exited 0 for args '$args'"
