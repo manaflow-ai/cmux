@@ -51,11 +51,12 @@
         "UPSTREAM_API_URL": "https://api.freestyle.sh"
       }
     },
-    // vm-staging.cmux.com is attached when DNS is set up (cx-b4h.5); until
-    // then staging answers on cmux-vm-staging.<account>.workers.dev.
+    // Workers custom domain in the cmux.dev zone (CMUX-VM-API amendment 2).
+    // Nothing of cmux VM is published under cmux.com or cmux.sh.
     "staging": {
       "name": "cmux-vm-staging",
-      "workers_dev": true,
+      "workers_dev": false,
+      "routes": [{ "pattern": "vm-staging.cmux.dev", "custom_domain": true }],
       "durable_objects": { "bindings": [{ "name": "TENANT_LIMITS", "class_name": "TenantLimitsObject" }] },
       "migrations": [{ "tag": "v1-tenant-limits", "new_sqlite_classes": ["TenantLimitsObject"] }],
       "vars": {
@@ -64,10 +65,12 @@
         "UPSTREAM_API_URL": "https://api.freestyle.sh"
       }
     },
-    // vm.cmux.com is attached when DNS is set up; no route here yet.
+    // Workers custom domain in the cmux.dev zone; attached by the first
+    // production deploy (cx-b4h.5), not before.
     "production": {
       "name": "cmux-vm-production",
       "workers_dev": false,
+      "routes": [{ "pattern": "vm.cmux.dev", "custom_domain": true }],
       "durable_objects": { "bindings": [{ "name": "TENANT_LIMITS", "class_name": "TenantLimitsObject" }] },
       "migrations": [{ "tag": "v1-tenant-limits", "new_sqlite_classes": ["TenantLimitsObject"] }],
       "vars": {

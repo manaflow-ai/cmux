@@ -3,7 +3,7 @@
  * exact id, on the dedicated test tenant whose API key is in the environment.
  * CI runs it after each staging deploy (.github/workflows/cmux-vm.yml).
  *
- *   CMUX_VM_SMOKE_URL=https://vm-staging.cmux.com \
+ *   CMUX_VM_SMOKE_URL=https://vm-staging.cmux.dev \
  *   CMUX_VM_SMOKE_API_KEY=cmuxvm_sk_... bun scripts/smoke.ts
  *
  * The VM it creates is always deleted by its exact id, also when a step fails,
