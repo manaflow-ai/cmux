@@ -55,7 +55,7 @@ extension NewTabSubmit {
             pane.newTerminalTab(cwd: cwd, typing: command.isEmpty ? nil : command)
         case .browser(let url):
             services.newTabKinds.record(.browser(engine: nil), folder: cwd)
-            pane.newBrowserTab(url: url)
+            pane.newBrowserTab(url: url, engine: BrowserEngineTag.engine(for: url))
         case .chat(let prompt, let harness):
             services.newTabKinds.record(.agent, folder: cwd)
             let seed = AgentPaneSeedSource(AgentPaneSeed(cwd: cwd, prompt: prompt, harness: harness))
