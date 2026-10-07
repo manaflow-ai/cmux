@@ -95,8 +95,16 @@ fn harness_tab(words: &[String]) -> i32 {
 /// The `pane current run -- <exe> harness run …` arguments, with `--cwd`
 /// added when the caller gave none.
 fn harness_tab_command(words: &[String], exe: &str, cwd: &Path) -> Vec<String> {
-    let _ = (words, exe, cwd);
-    Vec::new()
+    let mut out: Vec<String> = ["pane", "current", "run", "--", exe, "harness", "run"]
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+    out.extend(words.iter().cloned());
+    if !words.iter().any(|w| w == "--cwd" || w.starts_with("--cwd=")) {
+        out.push("--cwd".into());
+        out.push(cwd.to_string_lossy().into_owned());
+    }
+    out
 }
 
 /// The binary started as `acpmux`. Its daemon is started from

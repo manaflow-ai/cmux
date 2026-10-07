@@ -40,8 +40,36 @@ pub fn run_plan(
     model: Option<&str>,
     lookups: &Lookups<'_>,
 ) -> Result<RunPlan> {
-    let _ = (cfg, id, cwd, model, lookups);
-    bail!("harness run is not implemented")
+    let profile: HarnessProfile = match cfg.profile(id) {
+        Some(p) => p.clone(),
+        None => match folder_profiles::resolve_for_session(cfg, id, cwd, false) {
+            Some(found) => found.map_err(|e| anyhow!(e))?.0,
+            None => bail!("unknown harness {id:?}; see `cmux harness list`"),
+        },
+    };
+    if profile.kind != HarnessKind::Terminal {
+        bail!(
+            "harness {id} speaks {}, so it runs in an agent chat (`cmux acp new -m {id}`); `harness run` is for protocol = \"terminal\" harnesses",
+            if profile.kind == HarnessKind::Acp { "ACP" } else { "the Claude Code protocol" }
+        );
+    }
+    let model = model.map(str::to_owned).or_else(|| cfg.defaults_for(id).model).or(profile.model);
+    let takes_model =
+        profile.argv.iter().chain(profile.env.values()).any(|v| v.contains("${model}"));
+    if takes_model && model.is_none() {
+        bail!("harness {id} takes ${{model}}; pass --model");
+    }
+    let model = model.unwrap_or_default();
+    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"));
+    let mut env = profile.env.clone();
+    profiles_resolve(&mut env, lookups)?;
+    let env = env
+        .into_iter()
+        .map(|(k, v)| (k, crate::hub::expand_env_value(&v, cwd, &home, &model)))
+        .collect();
+    let argv =
+        profile.argv.iter().map(|a| crate::hub::expand_env_value(a, cwd, &home, &model)).collect();
+    Ok(RunPlan { argv, env, cwd: cwd.to_owned() })
 }
 
 fn profiles_resolve(env: &mut BTreeMap<String, String>, lookups: &Lookups<'_>) -> Result<()> {
