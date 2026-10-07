@@ -1,0 +1,307 @@
+import Foundation
+
+/// Dialing, the hello/welcome handshake, reconnect with backoff, path
+/// upgrade (make-before-break) and transport events.
+extension LinkSession {
+    // MARK: - Dialer attempts
+
+    func startAttempt() {
+        guard case let .dialer(peer, selector) = role, !machine.state.isClosed, connectTask == nil else { return }
+        connectTask = Task { [weak self] in
+            do {
+                let transport = try await selector.race(to: peer)
+                await self?.raceSucceeded(transport)
+            } catch {
+                await self?.attemptFailed("\(error)")
+            }
+        }
+    }
+
+    func startUpgrade() {
+        guard case let .dialer(peer, selector) = role, let current, connectTask == nil, pendingDial == nil else {
+            return
+        }
+        let threshold = selector.policy.rank(of: current.path.kind)
+        guard selector.bestReachableRank < threshold else { return }
+        connectTask = Task { [weak self] in
+            do {
+                let transport = try await selector.race(to: peer, betterThan: threshold)
+                await self?.raceSucceeded(transport)
+            } catch {
+                await self?.attemptFailed("upgrade: \(error)")
+            }
+        }
+    }
+
+    func scheduleUpgradeIfNeeded() {
+        guard case let .dialer(_, selector) = role, let current, retryTask == nil,
+              let delay = selector.policy.upgradeRetry,
+              selector.bestReachableRank < selector.policy.rank(of: current.path.kind) else { return }
+        let clock = clock
+        retryTask = Task { [weak self] in
+            do { try await clock.sleep(for: delay) } catch { return }
+            await self?.upgradeTimerFired()
+        }
+    }
+
+    func upgradeTimerFired() {
+        retryTask = nil
+        startUpgrade()
+    }
+
+    func raceSucceeded(_ transport: any LinkTransport) async {
+        connectTask = nil
+        guard !machine.state.isClosed, pendingDial == nil else {
+            closeTransportLater(transport)
+            return
+        }
+        let attached = Attached(
+            generation: nextGeneration,
+            transport: transport,
+            path: await transport.path,
+            capabilities: transport.capabilities
+        )
+        nextGeneration += 1
+        guard !machine.state.isClosed, pendingDial == nil else {
+            closeTransportLater(transport)
+            return
+        }
+        pendingDial = attached
+        startReader(attached)
+        let hello = LinkFrame.hello(sessionID: sessionID, epoch: epoch)
+        let generation = attached.generation
+        let clock = clock
+        let timeout = configuration.handshakeTimeout
+        handshakeTask = Task { [weak self] in
+            do { try await clock.sleep(for: timeout) } catch { return }
+            await self?.handshakeTimedOut(generation)
+        }
+        do {
+            try await transport.send(TransportFrame(lane: .control, bytes: hello.encoded()))
+        } catch {
+            dialFailed(generation, "hello: \(error)")
+        }
+    }
+
+    nonisolated func startReader(_ attached: Attached) {
+        let generation = attached.generation
+        let events = attached.transport.events
+        Task { [weak self] in
+            for await event in events {
+                guard let self else { return }
+                await self.handle(event, generation: generation)
+            }
+        }
+    }
+
+    func handshakeTimedOut(_ generation: UInt64) {
+        dialFailed(generation, "handshake timeout")
+    }
+
+    /// A pending dial ended before `welcome`.
+    func dialFailed(_ generation: UInt64, _ message: String) {
+        guard let pending = pendingDial, pending.generation == generation else { return }
+        pendingDial = nil
+        handshakeTask?.cancel()
+        handshakeTask = nil
+        closeTransportLater(pending.transport)
+        attemptFailed(message)
+    }
+
+    func attemptFailed(_ message: String) {
+        connectTask = nil
+        guard !machine.state.isClosed else { return }
+        if current != nil {
+            // A failed upgrade keeps the live path.
+            scheduleUpgradeIfNeeded()
+            return
+        }
+        attempt += 1
+        guard attempt <= configuration.maxConnectAttempts else {
+            finish(.unreachable(attempts: attempt - 1), notifyPeer: false)
+            return
+        }
+        apply(.attemptStarted(attempt))
+        let delay = configuration.backoff.delay(after: attempt - 1)
+        let clock = clock
+        retryTask = Task { [weak self] in
+            do { try await clock.sleep(for: delay) } catch { return }
+            await self?.retryFired()
+        }
+    }
+
+    func retryFired() {
+        retryTask = nil
+        startAttempt()
+    }
+
+    // MARK: - Handshake completion
+
+    /// Dialer: `welcome` arrived on the pending transport.
+    func completeDial(epoch newEpoch: UInt64, resumed: Bool) {
+        guard let attached = pendingDial else { return }
+        pendingDial = nil
+        handshakeTask?.cancel()
+        handshakeTask = nil
+        if !resumed, epoch != 0 { resetForNewEpoch() }
+        epoch = newEpoch
+        retryTask?.cancel()
+        retryTask = nil
+        switchTransport(to: attached)
+        redeclareChannels()
+        attempt = 0
+        apply(.connected(attached.path))
+        publishBadge()
+        scheduleUpgradeIfNeeded()
+    }
+
+    /// Accepted side: `LinkHost` routed a dialer's `hello` here. Returns the
+    /// generation the host tags this transport's events with.
+    func attachAccepted(_ transport: any LinkTransport, resumed: Bool) async -> UInt64 {
+        let path = await transport.path
+        let attached = Attached(
+            generation: nextGeneration, transport: transport, path: path, capabilities: transport.capabilities
+        )
+        nextGeneration += 1
+        guard !machine.state.isClosed else {
+            closeTransportLater(transport)
+            return attached.generation
+        }
+        ensurePump()
+        resumeWindowTask?.cancel()
+        resumeWindowTask = nil
+        switchTransport(to: attached)
+        outbound.enqueueControl(OutboundItem(
+            frame: .welcome(epoch: epoch, resumed: resumed), lane: .control, bytes: 11, enqueuedAt: clock.now
+        ))
+        redeclareChannels()
+        apply(.connected(path))
+        publishBadge()
+        wakePump()
+        return attached.generation
+    }
+
+    /// Makes `attached` the transport the pump sends on. Frames queued for
+    /// the old transport are dropped; retention covers reliable ones.
+    func switchTransport(to attached: Attached) {
+        if let old = current, old.generation != attached.generation {
+            closeTransportLater(old.transport)
+        }
+        current = attached
+        rtt = nil
+        outbound.removeAll()
+        for id in channels.keys { channels[id]?.queuedBytes = 0 }
+        wakePump()
+    }
+
+    // MARK: - Transport events
+
+    func handle(_ event: TransportEvent, generation: UInt64) {
+        switch event {
+        case let .frame(frame):
+            guard current?.generation == generation || pendingDial?.generation == generation else { return }
+            let decoded: LinkFrame
+            do {
+                decoded = try LinkFrame(decoding: frame.bytes)
+            } catch {
+                finish(.protocolViolation("\(error)"), notifyPeer: true)
+                return
+            }
+            handleFrame(decoded, generation: generation)
+        case let .pathChanged(path):
+            guard current?.generation == generation else { return }
+            current?.path = path
+            apply(.pathChanged(path))
+            publishBadge()
+            if retryTask == nil { scheduleUpgradeIfNeeded() }
+        case let .rtt(sample):
+            guard current?.generation == generation else { return }
+            rtt = sample
+            publishBadge()
+            if let threshold = configuration.degradedRTT {
+                if sample > threshold {
+                    apply(.health(.degraded(.highLatency)))
+                } else if case .degraded(_, .highLatency) = machine.state {
+                    apply(.health(.good))
+                }
+            }
+        case let .health(health):
+            guard current?.generation == generation else { return }
+            apply(.health(health))
+        case let .mediaTrack(track):
+            guard current?.generation == generation else { return }
+            deliverIncoming(track)
+        case .closed:
+            transportClosed(generation)
+        }
+    }
+
+    func handleFrame(_ frame: LinkFrame, generation: UInt64) {
+        switch frame {
+        case let .welcome(newEpoch, resumed):
+            guard isDialer, pendingDial?.generation == generation else { return }
+            completeDial(epoch: newEpoch, resumed: resumed)
+        case .hello:
+            return
+        case let .open(channel, descriptor, cursorEpoch, cursorRevision):
+            peerOpened(channel, descriptor: descriptor, cursorEpoch: cursorEpoch, cursorRevision: cursorRevision)
+        case let .openAck(channel, _, revision):
+            peerAcknowledgedOpen(channel, revision: revision)
+        case let .data(channel, revision, payload):
+            receiveData(channel, revision: revision, payload: payload)
+        case let .ack(channel, revision):
+            receiveAck(channel, revision: revision)
+        case let .close(channel):
+            receiveClose(channel)
+        case let .gap(channel, resumeAfter, reason):
+            receiveGap(channel, resumeAfter: resumeAfter, reason: reason)
+        case let .sessionClose(code):
+            let reason: LinkCloseReason = switch code {
+            case .normal: .remote
+            case .unauthorized: .unauthorized
+            case .protocolViolation: .protocolViolation("peer reported a protocol violation")
+            }
+            finish(reason, notifyPeer: false)
+        }
+    }
+
+    func transportClosed(_ generation: UInt64) {
+        if pendingDial?.generation == generation {
+            dialFailed(generation, "transport closed during handshake")
+            return
+        }
+        guard let lost = current, lost.generation == generation else { return }
+        current = nil
+        rtt = nil
+        outbound.removeAll()
+        for id in channels.keys {
+            channels[id]?.queuedBytes = 0
+            if channels[id]?.phase == .open { channels[id]?.phase = .awaiting }
+        }
+        guard !machine.state.isClosed else { return }
+        switch role {
+        case .dialer:
+            connectTask?.cancel()
+            connectTask = nil
+            retryTask?.cancel()
+            retryTask = nil
+            attempt = 1
+            apply(.transportLost(attempt: 1))
+            startAttempt()
+        case .accepted:
+            apply(.transportLost(attempt: 0))
+            let clock = clock
+            let window = configuration.resumeWindow
+            resumeWindowTask = Task { [weak self] in
+                do { try await clock.sleep(for: window) } catch { return }
+                await self?.resumeWindowExpired()
+            }
+        }
+    }
+
+    func resumeWindowExpired() {
+        resumeWindowTask = nil
+        guard current == nil else { return }
+        finish(.unreachable(attempts: 0), notifyPeer: false)
+    }
+}
