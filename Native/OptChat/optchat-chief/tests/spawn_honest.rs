@@ -231,7 +231,12 @@ fn each_subagent_session_carries_the_id_of_its_own_workspace() {
     let specs = s.h.agents.inner.lock().unwrap().specs.clone();
     let ids: Vec<String> = specs
         .iter()
-        .map(|spec| spec.env.get("CMUX_WORKSPACE_ID").cloned().expect("a workspace id"))
+        .map(|spec| {
+            spec.env
+                .get("CMUX_WORKSPACE_ID")
+                .cloned()
+                .expect("a workspace id")
+        })
         .collect();
     assert_eq!(ids.len(), 2);
     assert_ne!(ids[0], ids[1], "each its own workspace");
@@ -242,7 +247,8 @@ fn each_subagent_session_carries_the_id_of_its_own_workspace() {
     // The workspace opened is the one the session names.
     let answer_keys: Vec<String> = ids.iter().map(|i| i.to_lowercase()).collect();
     let spawned = spawn(&mut s, &["three"], None);
-    let last = s.h.agents.inner.lock().unwrap().specs.last().unwrap().env["CMUX_WORKSPACE_ID"].to_lowercase();
+    let last = s.h.agents.inner.lock().unwrap().specs.last().unwrap().env["CMUX_WORKSPACE_ID"]
+        .to_lowercase();
     assert!(!answer_keys.contains(&last));
     assert!(spawned.contains("a3: workspace"), "{spawned}");
 }
@@ -252,5 +258,5 @@ fn without_workspaces_a_subagent_session_names_no_workspace() {
     let mut s = setup(None);
     spawn(&mut s, &["one"], None);
     let specs = s.h.agents.inner.lock().unwrap().specs.clone();
-    assert!(specs[0].env.get("CMUX_WORKSPACE_ID").is_none());
+    assert!(!specs[0].env.contains_key("CMUX_WORKSPACE_ID"));
 }
