@@ -644,9 +644,11 @@ impl App {
 }
 
 #[cfg(test)]
+mod answering_tests;
+#[cfg(test)]
 mod interaction_tests {
     use super::*;
-    async fn app() -> (App, mpsc::UnboundedReceiver<Value>) {
+    pub(super) async fn app() -> (App, mpsc::UnboundedReceiver<Value>) {
         use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
         let socket = std::env::temp_dir().join(format!("acpmux-ui-{}.sock", uuid::Uuid::now_v7()));
         let _ = std::fs::remove_file(&socket);

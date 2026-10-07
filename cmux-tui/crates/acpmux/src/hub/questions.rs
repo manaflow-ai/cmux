@@ -240,7 +240,10 @@ mod tests {
         normalize(&mut request);
         let answers = json!({"Which auth?": "OAuth"});
         assert!(check_reply(&request, Some("allow_once"), Some(&answers)).is_ok());
-        assert!(check_reply(&request, Some("allow_once"), None).is_err());
+        let refused = check_reply(&request, Some("allow_once"), None).unwrap_err();
+        assert_eq!(refused.code, -32602);
+        assert!(refused.message.contains("acpmux answer"), "{}", refused.message);
+        assert!(refused.message.contains("acpmux deny"), "{}", refused.message);
         assert!(check_reply(&request, Some("reject_once"), None).is_ok());
         assert!(check_reply(&request, Some("reject_once"), Some(&answers)).is_err());
         assert!(check_reply(&request, None, None).is_ok());

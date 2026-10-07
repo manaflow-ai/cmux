@@ -302,6 +302,17 @@ mod tests {
     }
 
     #[test]
+    fn an_agent_never_answers_a_question() {
+        let child = session("helper", Some("optchat-chief:aa"));
+        let question = json!({"permissionId": "p1", "request": {"toolCall": {"_meta": {"acpmux": {"question": {
+            "harness": "claude", "items": [{"id": "q0", "prompt": "Which?", "options": []}]}}}}}});
+        let err = cli_may_answer(&child, &question).unwrap_err();
+        assert!(err.contains("question") && err.contains("person"), "{err}");
+        let plain = json!({"permissionId": "p2", "request": {"toolCall": {"title": "ls"}}});
+        assert_eq!(cli_may_answer(&child, &plain), Ok(()));
+    }
+
+    #[test]
     fn spawn_reuses_only_its_own_children() {
         let list = vec![
             session("mine", Some("optchat-chief:aa")),
