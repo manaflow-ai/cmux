@@ -31,10 +31,12 @@ use cmux_rd_proto::{
 use cmux_remote_browser::proto::{Control, ScreenInfo, ViewerCaps};
 
 use crate::ffi::{
-    RbCallbacks, RbFrame, ShimPresentation, rb_shim_capture_refresh, rb_shim_frame_release,
-    rb_shim_post, rb_shim_post_delayed, rb_shim_quit, rb_shim_run,
+    RbCallbacks, RbFrame, ShimPresentation, rb_shim_capture_refresh, rb_shim_context_menu_result,
+    rb_shim_dialog_result, rb_shim_frame_release, rb_shim_popup_menu_result, rb_shim_post,
+    rb_shim_post_delayed, rb_shim_quit, rb_shim_run,
 };
 use crate::pump::{FrameEncoder, Pump, PumpOut};
+use crate::shim_ui;
 use crate::tab::{DEFAULT_SCREEN, HostTab};
 
 const FPS: u32 = 60;
@@ -359,6 +361,110 @@ unsafe extern "C" fn on_page_text(_: *mut c_void, _browser: c_int, text: *const 
     });
 }
 
+/// A C string of a shim callback (valid for the call), or `None` for NULL.
+fn text(p: *const c_char) -> Option<String> {
+    // SAFETY: the shim passes NUL-terminated strings valid for the call.
+    (!p.is_null()).then(|| unsafe { CStr::from_ptr(p) }.to_string_lossy().into_owned())
+}
+
+/// A page context menu: shown on the viewer with an rb token (or cancelled
+/// in Chromium when the menu is refused).
+unsafe extern "C" fn on_context_menu(
+    _: *mut c_void,
+    _browser: c_int,
+    token: i64,
+    x: c_int,
+    y: c_int,
+    items: *const c_char,
+) {
+    let menu = shim_ui::context_menu(x, y, &text(items).unwrap_or_default());
+    dispatch(move |h| match menu {
+        Ok(menu) => {
+            let out = h.tab.menu_opened(token, menu, &mut ShimPresentation);
+            h.send_rb(out);
+        }
+        Err(e) => {
+            eprintln!("serve: context menu JSON: {e}");
+            // SAFETY: plain values; UI thread. Cancels so Chromium does not wait.
+            unsafe { rb_shim_context_menu_result(token, -1) };
+        }
+    });
+}
+
+/// A `<select>` popup, or (NULL items) the page closed the popup itself.
+#[allow(clippy::too_many_arguments)]
+unsafe extern "C" fn on_popup_menu(
+    _: *mut c_void,
+    _browser: c_int,
+    token: i64,
+    x: c_int,
+    y: c_int,
+    width: c_int,
+    height: c_int,
+    items: *const c_char,
+    selected: c_int,
+    multiple: c_int,
+) {
+    let Some(items) = text(items) else {
+        dispatch(move |h| {
+            let out = h.tab.menu_closed_by_page(token);
+            h.send_rb(out);
+        });
+        return;
+    };
+    let menu = shim_ui::select_menu(x, y, width, height, &items, selected, multiple != 0);
+    dispatch(move |h| match menu {
+        Ok(menu) => {
+            let out = h.tab.menu_opened(token, menu, &mut ShimPresentation);
+            h.send_rb(out);
+        }
+        Err(e) => {
+            eprintln!("serve: popup menu JSON: {e}");
+            // SAFETY: a null array with a negative count cancels; UI thread.
+            unsafe { rb_shim_popup_menu_result(token, std::ptr::null(), -1) };
+        }
+    });
+}
+
+/// A JS dialog: shown on the viewer with an rb token (an unknown kind is
+/// dismissed in Chromium).
+#[allow(clippy::too_many_arguments)]
+unsafe extern "C" fn on_dialog(
+    _: *mut c_void,
+    _browser: c_int,
+    token: i64,
+    kind: *const c_char,
+    origin: *const c_char,
+    message: *const c_char,
+    default_text: *const c_char,
+    is_reload: c_int,
+) {
+    let dialog = shim_ui::dialog(
+        &text(kind).unwrap_or_default(),
+        &text(origin).unwrap_or_default(),
+        &text(message).unwrap_or_default(),
+        text(default_text).as_deref(),
+        is_reload != 0,
+    );
+    dispatch(move |h| match dialog {
+        Some(dialog) => {
+            let out = h.tab.dialog_opened(token, dialog, &mut ShimPresentation);
+            h.send_rb(out);
+        }
+        None => {
+            // SAFETY: plain values; UI thread.
+            unsafe { rb_shim_dialog_result(token, 0, std::ptr::null()) };
+        }
+    });
+}
+
+unsafe extern "C" fn on_dialog_reset(_: *mut c_void, _browser: c_int) {
+    dispatch(|h| {
+        let out = h.tab.dialog_reset();
+        h.send_rb(out);
+    });
+}
+
 unsafe extern "C" fn on_frame(_: *mut c_void, _browser: c_int, f: *const RbFrame) {
     // SAFETY: valid for the call.
     let f = unsafe { &*f };
@@ -516,11 +622,11 @@ pub fn run(argv: &mut [*mut c_char], opts: Options) -> i32 {
         on_url: Some(on_page_text),
         on_frame: Some(on_frame),
         on_key_unhandled: None,
-        on_context_menu: None,
-        on_popup_menu: None,
+        on_context_menu: Some(on_context_menu),
+        on_popup_menu: Some(on_popup_menu),
         on_needs_begin_frames: None,
-        on_dialog: None,
-        on_dialog_reset: None,
+        on_dialog: Some(on_dialog),
+        on_dialog_reset: Some(on_dialog_reset),
     };
     // SAFETY: argv, the strings and the callbacks outlive the call.
     unsafe {
