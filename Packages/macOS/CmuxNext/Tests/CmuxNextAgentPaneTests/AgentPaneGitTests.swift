@@ -21,6 +21,7 @@ private struct GitReadFailed: Error {}
             #expect(Self.request("git.diff", ["cwd": "/repo", "scope": scope]) != .invalidGit("git.diff"))
         }
         #expect(Self.request("git.status", ["cwd": "/repo"]) == .git(.status(cwd: "/repo")))
+        #expect(Self.request("git.githubRepository", ["cwd": "/repo"]) == .githubRepository(cwd: "/repo"))
     }
 
     /// The folder must be absolute: the session host resolves a relative or
@@ -36,6 +37,8 @@ private struct GitReadFailed: Error {}
         #expect(Self.request("git.diff", ["cwd": 7, "scope": "staged"]) == .invalidGit("git.diff"))
         #expect(Self.request("git.status", [:]) == .invalidGit("git.status"))
         #expect(Self.request("git.status", ["cwd": "relative"]) == .invalidGit("git.status"))
+        #expect(Self.request("git.githubRepository", [:]) == .invalidGit("git.githubRepository"))
+        #expect(Self.request("git.githubRepository", ["cwd": "relative"]) == .invalidGit("git.githubRepository"))
     }
 
     /// `file.search` from @ mentions and the files palette: the folder as
