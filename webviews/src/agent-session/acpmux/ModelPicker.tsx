@@ -12,7 +12,7 @@ import { AgentMark } from "../shared/AgentMark";
 import { agentName } from "./agents";
 import { isDefaultChoice } from "./defaultChoice";
 import { CheckIcon, ChevronIcon, PICKER_LABELS, SearchIcon } from "./ComposerPickers";
-import { Icon } from "../icons/Icon";
+import { Icon } from "./icons/Icon";
 import { currentLanguage, useT } from "./i18n";
 import type { ModelPickerProps } from "./modelPickerLayout";
 import { registerPicker } from "./pickerOpeners";
