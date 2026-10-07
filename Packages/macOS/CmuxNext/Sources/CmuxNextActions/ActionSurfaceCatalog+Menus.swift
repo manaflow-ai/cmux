@@ -34,6 +34,7 @@ nonisolated extension ActionSurfaceCatalog {
         "palette.closeWorkspacesBelow": [p(.workspaceRow, .close, 502, folder: .close)],
         "palette.closeWorkspacesAbove": [p(.workspaceRow, .close, 503, folder: .close)],
         "palette.toggleWorkspacePin": [p(.workspaceRow, .identity, 110)],
+        "workspace.toggleTop": [p(.workspaceRow, .move, 206, folder: .move)],
         "palette.markWorkspaceRead": [p(.workspaceRow, .identity, 111, folder: .options)],
         "palette.markWorkspaceUnread": [p(.workspaceRow, .identity, 112, folder: .options)],
         "palette.workspaceColor": [p(.workspaceRow, .identity, 104, folder: .appearance)],

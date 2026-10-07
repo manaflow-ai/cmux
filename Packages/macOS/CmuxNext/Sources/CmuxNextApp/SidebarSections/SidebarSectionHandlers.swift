@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextDaemon
 import CmuxNextSidebar
 
 /// Sidebar section actions (plans/cmux-next/sidebar-sections.md 6): each
@@ -9,27 +10,44 @@ import CmuxNextSidebar
 enum SidebarSectionHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let layout = context.services.sidebarLayout
-        func bind(_ id: ActionID, unavailable: @escaping @MainActor () -> String? = { nil },
+        // Item adds and removes are undo steps (P4) through the one pin path,
+        // named as the menu showed them.
+        func bind(_ id: ActionID, undoable: Bool = false, unavailable: @escaping @MainActor () -> String? = { nil },
                   _ run: @escaping @MainActor (ActionInvocation, SidebarLayoutDocument) throws -> SidebarLayoutOp?) {
             registry.bind(id, unavailable: { layout.unavailableReason ?? unavailable() }, invoke: { [weak registry] invocation in
                 do {
-                    if let op = try run(invocation, layout.document) { try layout.send(op) }
+                    guard let op = try run(invocation, layout.document) else { return }
+                    guard undoable, let registry else { return try layout.send(op) }
+                    let title = registry.action(for: id)?.targetTitle?(invocation) ?? registry.descriptor(for: id)?.title ?? ""
+                    try PinCommands(context: context).sendLayout(op, title: title, origin: invocation.origin)
                 } catch {
                     registry?.refuse(String(describing: error))
                 }
             })
         }
         let home = SidebarLayoutDocument.homeRef
-        bind("sidebar.home.add", unavailable: { layout.document.firstItem(with: home) == nil ? nil : SidebarSectionStrings.homeAlreadyShown }) { _, doc in
+        bind("sidebar.home.add", undoable: true, unavailable: { layout.document.firstItem(with: home) == nil ? nil : SidebarSectionStrings.homeAlreadyShown }) { _, doc in
             SidebarLayoutPlanner.add(home, in: doc)
         }
-        bind("sidebar.home.remove", unavailable: { layout.document.firstItem(with: home) != nil ? nil : SidebarSectionStrings.homeNotShown }) { _, doc in
+        bind("sidebar.home.remove", undoable: true, unavailable: { layout.document.firstItem(with: home) != nil ? nil : SidebarSectionStrings.homeNotShown }) { _, doc in
             SidebarLayoutPlanner.remove(home, in: doc)
         }
-        bind("sidebar.item.add") { invocation, doc in
-            guard let name = invocation["item"]?.stringValue, let builtIn = SidebarBuiltIn(rawValue: name) else {
+        bind("sidebar.item.add", undoable: true) { invocation, doc in
+            guard let name = invocation["item"]?.stringValue?.trimmingCharacters(in: .whitespaces) else {
                 throw ActionFailure(message: SidebarSectionStrings.noSuchItem)
             }
+            // Any workspace or app goes in the top rows ("Add to Top", P1), or the named section.
+            if let ref = try SidebarSectionResolve.workspaceOrApp(name, machines: context.services.machines) {
+                // A workspace's name is stored with its item, for when it is closed.
+                let label = WorkspaceLayoutRefs(machines: context.services.machines).workspace(for: ref)?.0.displayName
+                if let sectionName = invocation["section"]?.stringValue, !sectionName.isEmpty {
+                    let section = try SidebarSectionResolve.section(sectionName, in: doc)
+                    return .itemAdd(LayoutItem(id: .mint(), ref: ref, label: label), section: section.id, index: Int.max)
+                }
+                guard let op = doc.addToTopOp(ref, label: label) else { throw ActionFailure(message: SidebarSectionStrings.alreadyOnTop) }
+                return op
+            }
+            guard let builtIn = SidebarBuiltIn(rawValue: name) else { throw ActionFailure(message: SidebarSectionStrings.noSuchItem) }
             // Home and the App Store are apps now (R63/R64).
             let ref = SidebarLayoutDocument.firstPartyApps[builtIn].map(LayoutItemRef.app) ?? LayoutItemRef.builtIn(builtIn)
             if let sectionName = invocation["section"]?.stringValue, !sectionName.isEmpty {
@@ -40,11 +58,20 @@ enum SidebarSectionHandlers {
             return SidebarLayoutPlanner.add(ref, to: builtIn == .settings || builtIn == .account ? .bottom : .top, in: doc,
                                             showsLabel: builtIn != .account)
         }
-        bind("sidebar.item.remove") { invocation, doc in
+        bind("sidebar.item.remove", undoable: true) { invocation, doc in
             .itemRemove(try SidebarSectionResolve.item(invocation.target, in: doc).id)
         }
-        bind("sidebar.item.removeEverywhere") { invocation, doc in
+        bind("sidebar.item.removeEverywhere", undoable: true) { invocation, doc in
             .itemRemoveRef(try SidebarSectionResolve.item(invocation.target, in: doc).ref)
+        }
+        // On a tile the menu reads Unpin Workspace; on a top row, Remove from Top.
+        ActionTargetTitles.set("sidebar.item.remove", in: registry) { invocation in
+            let doc = layout.document
+            guard let item = try? SidebarSectionResolve.item(invocation.target, in: doc), let (s, _) = doc.locate(item.id) else { return nil }
+            if doc.sections[s].id == SidebarLayoutDocument.pinnedSectionID, item.ref.kind == LayoutItemRef.workspaceKind {
+                return PinStrings.unpinWorkspace
+            }
+            return doc.sections[s].region == .top ? PinStrings.removeFromTop : nil
         }
         // Hide is app-level state owned by the app platform (D55): the
         // sidebar forwards to its `app.hide` action and changes no layout.
@@ -156,6 +183,27 @@ enum SidebarSectionResolve {
         switch target?.kind {
         case .sidebarSection?: try section(target, in: doc).owningAppID
         default: try item(target, in: doc).owningAppID
+        }
+    }
+
+    /// The ref `workspace:<id>` or `app:<publisher>/<name>` names, nil for
+    /// another text. A workspace is named by its qualified `<session>:ws_…`
+    /// id, its `ws_…` id or its sidebar id, and must be open.
+    @MainActor static func workspaceOrApp(_ text: String, machines: MachineRegistry) throws -> LayoutItemRef? {
+        guard let colon = text.firstIndex(of: ":") else { return nil }
+        let kind = text[..<colon], value = String(text[text.index(after: colon)...])
+        switch kind {
+        case "app":
+            guard value.contains("/"), !value.hasPrefix("/"), !value.hasSuffix("/") else { throw ActionFailure(message: SidebarSectionStrings.noSuchItem) }
+            return .app(value)
+        case "workspace":
+            let refs = WorkspaceLayoutRefs(machines: machines)
+            if refs.workspace(for: .workspace(value)) != nil { return .workspace(value) }
+            let found = machines.allWorkspaces.first { $0.0.id == value || $0.0.resourceID?.rawValue == value }
+            guard let found, let ref = refs.ref(for: found.0, on: found.1) else { throw ActionFailure(message: SidebarSectionStrings.noSuchItem) }
+            return ref
+        default:
+            return nil
         }
     }
 

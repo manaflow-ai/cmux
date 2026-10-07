@@ -49,6 +49,7 @@ extension SettingsSchema {
         "sidebar.spacesPosition",
         "tabs.newTabKind",
         "newTerminal.opensWorkspace",
+        "tabs.cmdWClosesPinnedTabs",
         "palette.scopes.tabs.prefix",
         "palette.scopes.workspaces.prefix",
         "palette.scopes.commands.prefix",

@@ -8,15 +8,20 @@ import CmuxNextSidebar
 @MainActor
 enum SidebarNavigation {
     /// The selection the window state means: the top item of the shown page
-    /// (the first item whose route it is), else the shown workspace.
-    static func selectedItem(page: TopPageRoute?, workspace: String?, layout: SidebarLayoutDocument) -> SidebarItem? {
+    /// (the first item whose route it is), else the shown workspace: its
+    /// tile or top row when the top region shows it in `room` (the list then
+    /// leaves its row out), else its row.
+    static func selectedItem(page: TopPageRoute?, workspace: String?, layout: SidebarLayoutDocument,
+                             room: String? = nil, refs: WorkspaceLayoutRefs? = nil) -> SidebarItem? {
         if let page {
             // The client-only What's New item stands for its page while it shows.
             if page == WhatsNewPage.route { return .topItem(WhatsNewPage.sidebarItemID) }
             let item = layout.sections.filter { $0.region == .top }.flatMap(\.items).first { TopPageRoute.route(for: $0.ref) == page }
             return item.map { .topItem($0.id) }
         }
-        return workspace.map { .workspace(WorkspaceID($0)) }
+        guard let workspace else { return nil }
+        if let ref = refs?.ref(forWorkspace: workspace), let item = layout.topItem(for: ref, room: room) { return .topItem(item.id) }
+        return .workspace(WorkspaceID(workspace))
     }
 
     /// Cmd-`number` in the active window.
@@ -32,7 +37,8 @@ enum SidebarNavigation {
         guard let window = services.windows.active else { return }
         let model = window.sidebar.model
         // From the window state (the truth), not the sidebar's mirror of it, which may lag a turn.
-        let current = selectedItem(page: window.state.page, workspace: window.state.workspaceID, layout: model.layout)
+        let current = selectedItem(page: window.state.page, workspace: window.state.workspaceID, layout: model.layout,
+                                   room: window.state.profileID.rawValue, refs: WorkspaceLayoutRefs(machines: services.machines))
         guard let item = model.itemOrder.step(from: current, by: offset, settings(services)) else { return }
         activate(item, in: window, services)
     }

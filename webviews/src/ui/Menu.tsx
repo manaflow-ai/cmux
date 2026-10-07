@@ -139,8 +139,9 @@ export function MenuButton({
       disabled={disabled}
       onKeyUp={(event) => {
         if (event.key !== " ") return;
-        const active = event.currentTarget.ownerDocument.querySelector<HTMLElement>('[role^="menuitem"][data-highlighted]')
-          ?? event.currentTarget.ownerDocument.activeElement?.closest<HTMLElement>('[role^="menuitem"]');
+        const active =
+          event.currentTarget.ownerDocument.querySelector<HTMLElement>('[role^="menuitem"][data-highlighted]') ??
+          event.currentTarget.ownerDocument.activeElement?.closest<HTMLElement>('[role^="menuitem"]');
         if (!active) return;
         event.preventDefault();
         event.stopPropagation();
