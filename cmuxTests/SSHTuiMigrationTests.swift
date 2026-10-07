@@ -311,7 +311,6 @@ struct SSHTuiMigrationTests {
             destination: "alice@example.invalid",
             agentSocketPath: stale,
             agentSocketPathOverrideIsSet: true,
-            preserveAfterTerminalExit: true
         )
 
         let restored = try #require(snapshot.workspaceConfiguration(
@@ -329,8 +328,10 @@ struct SSHTuiMigrationTests {
         #expect(resumed.agentSocketPath == current)
         #expect(resumed.agentSocketPathOverrideIsSet)
 
-        snapshot.sshSessionOwner = "cmux-tui"
-        let restoredCarrier = try #require(snapshot.workspaceConfiguration(
+        var carrierSnapshot = snapshot
+        carrierSnapshot.sshSessionOwner = "cmux-tui"
+        carrierSnapshot.preserveAfterTerminalExit = true
+        let restoredCarrier = try #require(carrierSnapshot.workspaceConfiguration(
             environment: [:],
             isLiveAgent: { _ in false }
         ))
