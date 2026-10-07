@@ -26,6 +26,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=CMUX_GHOSTTY_SRC");
     println!("cargo:rerun-if-env-changed=ZIG");
     println!("cargo:rerun-if-env-changed=CMUX_GHOSTTY_VT_ZIG_CPU");
+    println!("cargo:rerun-if-env-changed=MACOSX_DEPLOYMENT_TARGET");
     emit_cargo_path_directive("rerun-if-changed", &ghostty_dir.join("include"));
     // Keep the generated binding fingerprint tied to the public terminal API.
     // Hosted build caches can otherwise restore bindings from an older
@@ -67,16 +68,23 @@ fn main() {
     // host (no Visual Studio, e.g. a rustup gnu toolchain with MSYS2) would
     // otherwise get `-target native-native-msvc` and fail the zig build with
     // "failed to find libc installation: WindowsSdkNotFound".
-    if let Some(target_arg) = build_support::zig_target_arg(&target, &host) {
+    let deployment_target =
+        env::var("MACOSX_DEPLOYMENT_TARGET").ok().filter(|value| !value.is_empty());
+    if let Some(target_arg) =
+        build_support::zig_target_arg(&target, &host, deployment_target.as_deref())
+    {
         command.arg(target_arg);
     }
-    // Valgrind's instruction emulation doesn't cover every CPU-native SIMD
-    // extension zig's default target detection can select (e.g. some AVX-512
-    // variants), which SIGILLs under valgrind. CI's valgrind job sets this to
-    // "baseline" to match the same workaround ghostty's own build.zig uses
-    // for its valgrind step (see `Config.baselineTarget()`).
-    if let Ok(cpu) = env::var("CMUX_GHOSTTY_VT_ZIG_CPU") {
-        command.arg(format!("-Dcpu={cpu}"));
+    // macOS builds use a baseline CPU, not the build Mac's. Valgrind's
+    // instruction emulation doesn't cover every CPU-native SIMD extension
+    // zig's default target detection can select (e.g. some AVX-512 variants),
+    // which SIGILLs under valgrind. CI's valgrind job sets
+    // CMUX_GHOSTTY_VT_ZIG_CPU to "baseline" to match the same workaround
+    // ghostty's own build.zig uses for its valgrind step (see
+    // `Config.baselineTarget()`).
+    let cpu = env::var("CMUX_GHOSTTY_VT_ZIG_CPU").ok();
+    if let Some(cpu_arg) = build_support::zig_cpu_arg(&target, cpu.as_deref()) {
+        command.arg(cpu_arg);
     }
     let status = command.arg("--prefix").arg(&prefix).status().unwrap_or_else(|e| {
         panic!("failed to run `{zig} build` in {}: {e}", ghostty_dir.display())

@@ -547,7 +547,7 @@ async fn bad_base_url_and_empty_team_are_usage_errors() {
         &["get", VM_ID],
         &[
             ("CMUX_VM_API_KEY", KEY),
-            ("CMUX_VM_BASE_URL", "vm.cmux.com"),
+            ("CMUX_VM_BASE_URL", "vm.cmux.dev"),
         ],
     )
     .await;
@@ -1046,4 +1046,17 @@ async fn a_quota_error_names_its_budget() {
         "stderr: {}",
         human.stderr
     );
+}
+
+#[tokio::test]
+async fn help_names_the_cmux_dev_default_base_url() {
+    let out = cli_with_env(&["--help"], &[]).await;
+
+    assert_eq!(out.code, exit::OK, "stderr: {}", out.stderr);
+    assert!(
+        out.stdout.contains("default https://vm.cmux.dev"),
+        "stdout: {}",
+        out.stdout
+    );
+    assert_eq!(cmux_vm_client::DEFAULT_BASE_URL, "https://vm.cmux.dev");
 }

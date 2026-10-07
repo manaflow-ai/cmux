@@ -10,13 +10,15 @@ import { safeHref } from "../model";
 import { CodeBlock } from "./CodeBlock";
 import { CodeHandoff, PlainCode } from "./StreamingCode";
 import type { Reveal } from "./RevealedMarkdown";
-import { ArxivMark, Check, FileDoc, GitHubMark, Globe, ImageIcon } from "./icons";
+import { ArxivMark, FileDoc, GitHubMark, Globe, ImageIcon } from "./icons";
 import { MathDisplay, MathInline } from "./Math";
 import { normalizeMath } from "./mathDelimiters";
 import { IncrementalMarkdown, type KeyedBlock } from "./incrementalMarkdown";
 import { linkedText, PathChip, UrlChip } from "../chips/LinkChips";
 import { codePath, linkPath } from "../chips/paths";
 import { ReplyImage } from "../chips/ReplyImage";
+import "../../../markdown-task-checkbox.css";
+import { TaskCheckbox } from "../../../ui/TaskCheckbox";
 
 export type Align = "left" | "center" | "right" | null;
 
@@ -514,11 +516,7 @@ function Block({
             <li key={i} className={it.task ? "cv-task" : undefined}>
               {block.ordered && <span className="cv-li__num">{block.start + i}.</span>}
               {!block.ordered && !it.task && <span className={`cv-li__bullet cv-li__bullet--${depth % 3}`} />}
-              {it.task && (
-                <span className={`cv-checkbox${it.checked ? " is-checked" : ""}`}>
-                  {it.checked && <Check size={12} strokeWidth={1.4} />}
-                </span>
-              )}
+              {it.task && <TaskCheckbox checked={Boolean(it.checked)} className="cv-checkbox" />}
               <span className="cv-li__text">
                 {i === block.items.length - 1 && !it.children.length ? inline(it.text) : renderInline(it.text, opts)}
               </span>

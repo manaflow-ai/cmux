@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import CmuxHomeCoreTestSupport
 @testable import CmuxHomeCore
 
 /// Persistence like iMessage (plans/cmux-next/home-state-ownership.md
@@ -11,21 +12,6 @@ import Testing
 /// never committed was lost.
 @MainActor
 @Suite struct HomeCacheTests {
-    /// Waits for `condition` itself, never for a number of scheduler turns:
-    /// 400 `Task.yield()`s returned before MockHomeSource answered on a
-    /// loaded parallel run (5 base failures at :72 and :103, 2026-10-06).
-    /// A wait that runs out records where it waited.
-    func waitUntil(sourceLocation: SourceLocation = #_sourceLocation,
-                   _ condition: @escaping @MainActor () -> Bool) async {
-        let deadline = ContinuousClock.now + .seconds(20)
-        while !condition() {
-            guard ContinuousClock.now < deadline else {
-                Issue.record("the condition never held", sourceLocation: sourceLocation)
-                return
-            }
-            try? await Task.sleep(for: .milliseconds(2))
-        }
-    }
 
     static func cache() -> HomeCache {
         HomeCache(url: FileManager.default.temporaryDirectory

@@ -11,6 +11,8 @@ enum SidebarNavigation {
     /// (the first item whose route it is), else the shown workspace.
     static func selectedItem(page: TopPageRoute?, workspace: String?, layout: SidebarLayoutDocument) -> SidebarItem? {
         if let page {
+            // The client-only What's New item stands for its page while it shows.
+            if page == WhatsNewPage.route { return .topItem(WhatsNewPage.sidebarItemID) }
             let item = layout.sections.filter { $0.region == .top }.flatMap(\.items).first { TopPageRoute.route(for: $0.ref) == page }
             return item.map { .topItem($0.id) }
         }
