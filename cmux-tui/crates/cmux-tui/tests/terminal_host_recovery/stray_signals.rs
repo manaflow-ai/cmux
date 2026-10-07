@@ -60,8 +60,11 @@ fn stray_signals_to_a_terminal_host_are_recorded_and_survived() {
     let (terminal_id, incarnation, surface) = run_cat(&harness.socket, 1, "stray");
     let (record_path, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
 
-    for signal in STRAY_SIGNALS {
+    // One signal at a time: Darwin does not keep the sender of a signal
+    // that is already pending, so a burst could record sender_pid 0.
+    for (index, signal) in STRAY_SIGNALS.into_iter().enumerate() {
         signal_pid(record.host_pid, signal);
+        wait_for_signal_lines(&record_path, index + 1);
     }
     let lines = wait_for_signal_lines(&record_path, STRAY_SIGNALS.len());
     // The kernel delivers pending signals in its own order.
