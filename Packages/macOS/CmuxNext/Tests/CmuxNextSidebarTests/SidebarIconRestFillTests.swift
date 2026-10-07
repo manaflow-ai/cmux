@@ -79,7 +79,9 @@ import Testing
                                                 metrics: metrics, drawsLines: true), width: 240)
         let account = try #require(region.itemView(Self.account))
         #expect(account.style == .icon)
-        #expect(account.frame.minX == metrics.inset, "leading: \(account.frame)")
+        // Leading, its glyph on the rows' glyph column (F1).
+        let column = SidebarStyle.horizontalInset * 2 + SidebarStyle.iconBox / 2
+        #expect(abs(account.frame.midX - column) <= 0.5, "leading: \(account.frame)")
         #expect(account.fill == nil, "no background at rest")
         account.updateLayer()
         #expect(account.glyphTint == account.performWithTheme { Palette.textSecondary })
