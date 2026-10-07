@@ -44,6 +44,20 @@ struct CoderouterCLIAccountReaderTests {
         #expect(snapshot.accounts.map(\.label) == ["austin+10@manaflow.com", "austin+3@manaflow.com"])
     }
 
+    @Test("A successful team mapping is reused without another organization catalog read")
+    func knownOrganizationSkipsList() async throws {
+        let cli = FakeCoderouterCLI(activeOrganizationID: Self.austinOrganizationID)
+
+        _ = try await CoderouterCLIAccountReader.snapshot(
+            for: Self.cmuxTeamID,
+            name: "Austin Wang's Team",
+            knownOrganizationID: Self.austinOrganizationID,
+            run: { try await cli.run($0) }
+        )
+
+        #expect(await cli.commands == [["accounts", "--json"]])
+    }
+
     @Test("An exact team ID wins over an earlier team with the same name")
     func exactIDWinsOverName() async throws {
         let organizationID = Self.austinOrganizationID

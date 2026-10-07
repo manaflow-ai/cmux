@@ -30,12 +30,18 @@ enum CoderouterCLIAccountReader {
     static func snapshot(
         for cmuxTeamID: String?,
         name cmuxTeamName: String?,
+        knownOrganizationID: String? = nil,
         run: Run = runCLI
     ) async throws -> Snapshot {
         try Task.checkCancellation()
         guard let cmuxTeamName = cmuxTeamName?.trimmingCharacters(in: .whitespacesAndNewlines),
               !cmuxTeamName.isEmpty,
-              let organizationID = try await matchingOrganizationID(for: cmuxTeamID, name: cmuxTeamName, run: run) else {
+              let organizationID = try await resolvedOrganizationID(
+                  for: cmuxTeamID,
+                  name: cmuxTeamName,
+                  knownOrganizationID: knownOrganizationID,
+                  run: run
+              ) else {
             logger.error("No CodeRouter organization matched cmux team ID \(cmuxTeamID ?? "<nil>", privacy: .public), name \(String(describing: cmuxTeamName), privacy: .public)")
             throw accountError("The selected cmux team is not mapped to a coderouter organization.")
         }
@@ -59,18 +65,38 @@ enum CoderouterCLIAccountReader {
         return Snapshot(organizationID: organizationID, accounts: payload.accounts)
     }
 
+    private static func resolvedOrganizationID(
+        for cmuxTeamID: String?,
+        name cmuxTeamName: String,
+        knownOrganizationID: String?,
+        run: Run
+    ) async throws -> String? {
+        if let knownOrganizationID = knownOrganizationID?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !knownOrganizationID.isEmpty,
+           UUID(uuidString: knownOrganizationID) != nil {
+            return knownOrganizationID
+        }
+        return try await matchingOrganizationID(for: cmuxTeamID, name: cmuxTeamName, run: run)
+    }
+
     /// Removes one account from the CodeRouter organization of the selected cmux
     /// team, selecting that organization first exactly as `accounts` reads it.
     static func remove(
         accountID: String,
         for cmuxTeamID: String?,
         name cmuxTeamName: String?,
+        knownOrganizationID: String? = nil,
         run: Run = runCLI
     ) async throws {
         guard UUID(uuidString: accountID) != nil else {
             throw accountError("That coderouter account ID is not valid.")
         }
-        _ = try await accounts(for: cmuxTeamID, name: cmuxTeamName, run: run)
+        _ = try await snapshot(
+            for: cmuxTeamID,
+            name: cmuxTeamName,
+            knownOrganizationID: knownOrganizationID,
+            run: run
+        )
         _ = try await run(["remove", accountID, "--yes"])
         logger.info("Removed CodeRouter account \(accountID, privacy: .public)")
     }

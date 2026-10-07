@@ -517,6 +517,14 @@ struct MachinesPanelView: View {
             coderouterDestination = nil
             return
         }
+        let previousDestination = coderouterDestination
+        let knownOrganizationID: String?
+        if previousDestination?.teamID == teamID,
+           previousDestination?.identityID == accountFlow?.currentIdentity?.id {
+            knownOrganizationID = previousDestination?.organizationID
+        } else {
+            knownOrganizationID = nil
+        }
         // A refresh is the freshness boundary for the team-to-organization
         // mapping. Do not let a slow or failed read authorize a new account
         // against the previous snapshot.
@@ -525,7 +533,11 @@ struct MachinesPanelView: View {
         do {
             let teamName = accountFlow?.availableTeams.first(where: { $0.id == teamID })?.displayName
             Self.coderouterLogger.info("Refreshing CodeRouter accounts for cmux team ID \(teamID, privacy: .public), name \(teamName ?? "<nil>", privacy: .public)")
-            let snapshot = try await CoderouterCLIAccountReader.snapshot(for: teamID, name: teamName)
+            let snapshot = try await CoderouterCLIAccountReader.snapshot(
+                for: teamID,
+                name: teamName,
+                knownOrganizationID: knownOrganizationID
+            )
             // A team switch or manual refresh cancelled this read; its result is stale.
             guard !Task.isCancelled,
                   accountFlow?.confirmedTeamID == teamID,
@@ -544,6 +556,10 @@ struct MachinesPanelView: View {
     private func removeCoderouterAccount(_ account: CloudTreeNode.CoderouterAccount) {
         guard let teamID = accountFlow?.confirmedTeamID else { return }
         let teamName = accountFlow?.availableTeams.first(where: { $0.id == teamID })?.displayName
+        let knownOrganizationID = coderouterDestination?.teamID == teamID
+            && coderouterDestination?.identityID == accountFlow?.currentIdentity?.id
+            ? coderouterDestination?.organizationID
+            : nil
         guard CloudTreeNodeActions.confirmDestructive(
             title: String(format: String(localized: "coderouter.removeAccount.title", defaultValue: "Remove “%@” from coderouter?"), account.title),
             message: String(localized: "coderouter.removeAccount.message", defaultValue: "The team stops routing agents through this account. You can add it again later."),
@@ -556,7 +572,12 @@ struct MachinesPanelView: View {
         coderouter.accounts.removeAll { $0.id == account.id }
         Task { @MainActor in
             do {
-                try await CoderouterCLIAccountReader.remove(accountID: account.id, for: teamID, name: teamName)
+                try await CoderouterCLIAccountReader.remove(
+                    accountID: account.id,
+                    for: teamID,
+                    name: teamName,
+                    knownOrganizationID: knownOrganizationID
+                )
             } catch {
                 Self.coderouterLogger.error("CodeRouter account removal failed: \(error.localizedDescription, privacy: .public)")
                 // Do not restore an old team's account after a team switch.
