@@ -2,6 +2,8 @@ import CmuxHomeCore
 import CmuxHomeUI
 import CmuxiOSAuth
 import CmuxiOSDesign
+import CmuxiOSPlatform
+import CmuxiOSPlatformUI
 import CmuxiOSOnboarding
 import CmuxiOSOnboardingCore
 import CmuxiOSShell
@@ -13,12 +15,14 @@ import UIKit
 /// controller lives across signed-out and signed-in until it finishes.
 @MainActor
 final class RootViewController: UIViewController {
-    private let container: AppContainer
+    let container: AppContainer
     private var current: UIViewController?
     private weak var home: HomeViewController?
-    private weak var shell: ShellRootController?
+    private(set) weak var shell: ShellRootController?
     private var shellAccount: SignedInAccount?
     private var shownState: AuthState?
+    private var toastWindow: ToastWindow?
+    private var whatsNewChecked = false
     private var onboarding: OnboardingViewController?
     private var onboardingDecided = false
 
@@ -38,10 +42,17 @@ final class RootViewController: UIViewController {
         container.onUpdateRequiredChange = { [weak self] requirement in self?.home?.updateRequired = requirement }
         container.flags.onChange = { [weak self] in self?.applyFlags() }
         container.sourceModes.onChange = { [weak self] in self?.rebuildShell() }
-        container.feedResponder.openItem = { [weak self] _ in
-            // The Feed tab owns item navigation once lane C6 lands; for now
-            // a feed push opens the tab.
-            self?.shell?.select(.feed)
+        container.onDemoChange = { [weak self] in self?.rebuildShell() }
+        container.feedResponder.openItem = { [weak container] item in
+            // The Feed tab owns item navigation once lane C6 lands; the
+            // router opens the tab (deferred until signed in).
+            container?.router.open(.feed(item: item))
+        }
+        container.router.install { [weak self] route in self?.handle(route) }
+        container.router.onUnrecognized = { [weak container] _ in
+            container?.toasts.show(Toast(.warning, String(
+                localized: "platform.link.unrecognized",
+                defaultValue: "This link needs a newer version of cmux.", bundle: .module)))
         }
         #if DEBUG
         if let minimum = ProcessInfo.processInfo.environment["CMUX_IOS_PREVIEW_UPDATE_REQUIRED"] {
@@ -64,10 +75,14 @@ final class RootViewController: UIViewController {
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        if toastWindow == nil, let scene = view.window?.windowScene {
+            toastWindow = ToastWindow(scene: scene, center: container.toasts)
+        }
         // The shake gesture (DEV menu) reaches this controller from any first
         // responder below it; take first responder only while no Home screen
         // does, so Home's key commands (Cmd-F, Cmd-N, Esc) stay in the chain.
         if home == nil { becomeFirstResponder() }
+        presentWhatsNewIfNeeded()
     }
 
     private func show(_ state: AuthState) {
@@ -76,8 +91,10 @@ final class RootViewController: UIViewController {
         shownState = state
         switch state {
         case .restoring:
+            container.router.setAccountReady(false)
             install(LaunchPlaceholderViewController())
         case .signedOut:
+            container.router.setAccountReady(false)
             shellAccount = nil
             container.signedOut()
             if presentsOnboarding(signedIn: false) {
@@ -168,6 +185,9 @@ final class RootViewController: UIViewController {
         install(shell)
         ShellComposition.selectLaunchTab(in: shell)
         DebugLaunchTasks.homeShown(store: store, window: view.window)
+        // The shell is on screen: deferred links deliver, What's New may show.
+        container.router.setAccountReady(true)
+        presentWhatsNewIfNeeded()
         #if DEBUG
         if let kind = ProcessInfo.processInfo.environment["CMUX_IOS_OPEN_CONVERSATION"] {
             home.debugOpenFirstConversation(kind: kind, tapback: ProcessInfo.processInfo.environment["CMUX_IOS_OPEN_TAPBACK"])
@@ -191,6 +211,16 @@ final class RootViewController: UIViewController {
             navigation.pushViewController(DevTerminal.makeBench(workload), animated: false)
         }
         #endif
+    }
+
+    /// The post-update What's New sheet, once per process after sign-in.
+    private func presentWhatsNewIfNeeded() {
+        guard !whatsNewChecked, shell != nil, view.window != nil, presentedViewController == nil else { return }
+        let environment = ProcessInfo.processInfo.environment
+        guard !environment.keys.contains(where: { $0.hasPrefix("CMUX_UITEST_") }),
+              environment["CMUX_IOS_HOME_PREVIEW"] == nil else { return }
+        whatsNewChecked = true
+        if let sheet = PlatformComposition.launchWhatsNew() { present(sheet, animated: true) }
     }
 
     private func applyFlags() {

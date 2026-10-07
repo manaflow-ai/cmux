@@ -30,6 +30,9 @@ let package = Package(
         .package(path: "../../Packages/iOS/CmuxMobileSSH"),
         .package(path: "../../Packages/macOS/CmuxPhonePush"),
         .package(path: "../../vendor/stack-auth-swift-sdk-prerelease"),
+        .package(path: "../../Packages/Shared/CmuxSentryTelemetry"),
+        // Same range as CmuxSentryTelemetry; ios/cmux.xcworkspace pins the version.
+        .package(url: "https://github.com/getsentry/sentry-cocoa.git", "9.3.0"..<"9.29.0"),
     ],
     targets: [
         .target(
@@ -44,6 +47,10 @@ let package = Package(
                 "CmuxiOSIdentity",
                 "CmuxiOSShell",
                 "CmuxiOSFeatureKit",
+                "CmuxiOSPlatform",
+                "CmuxiOSPlatformUI",
+                "CmuxiOSCrashReporting",
+                .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
                 "CmuxiOSOnboarding",
                 "CmuxiOSOnboardingCore",
                 "CmuxiOSSSH",
@@ -213,13 +220,48 @@ let package = Package(
         // Root navigation, placeholder screens, feature flags, DEV sources.
         .target(
             name: "CmuxiOSShell",
-            dependencies: ["CmuxiOSDesign", "CmuxiOSFeatureKit"],
+            dependencies: ["CmuxiOSDesign", "CmuxiOSFeatureKit", "CmuxiOSPlatform"],
             resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .testTarget(
             name: "CmuxiOSShellTests",
             dependencies: ["CmuxiOSShell", "CmuxiOSFeatureKit"],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // App-wide services: router, toasts, remote flags, diagnostics,
+        // What's New, Mac gate, demo mode, keep-awake and billing seams
+        // (plans/cmux-next/ios-next/c16-platform.md). No UIKit, so its tests
+        // also run on macOS.
+        .target(
+            name: "CmuxiOSPlatform",
+            dependencies: [
+                "CmuxiOSFeatureKit",
+                .product(name: "CmuxSentryScrubbing", package: "CmuxSentryTelemetry"),
+            ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .testTarget(
+            name: "CmuxiOSPlatformTests",
+            dependencies: ["CmuxiOSPlatform", "CmuxiOSFeatureKit"],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // The platform services' screens: toast overlay, diagnostics, What's
+        // New, Mac update gate, keep-awake row, plans stub.
+        .target(
+            name: "CmuxiOSPlatformUI",
+            dependencies: ["CmuxiOSPlatform", "CmuxiOSDesign", "CmuxiOSFeatureKit"],
+            resources: [.process("Resources")],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // Sentry under the shared telemetry consent, scrubbed last-mile.
+        .target(
+            name: "CmuxiOSCrashReporting",
+            dependencies: [
+                .product(name: "CmuxSentryReporting", package: "CmuxSentryTelemetry"),
+                .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
+                .product(name: "Sentry", package: "sentry-cocoa"),
+            ],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
     ]

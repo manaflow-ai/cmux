@@ -18,6 +18,7 @@ enum ShellComposition {
             about: ShellAbout.current(),
             registry: sources.devices,
             developer: developerScreen(container: container),
+            links: PlatformComposition.settingsLinks(container: container),
             replayTour: replayTour,
             signOut: { [weak container] in await container?.auth.signOut() }
         )
