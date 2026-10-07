@@ -147,8 +147,12 @@ cmux-next's owned label. A
 stuck run that finished some other way (a newer push cancelled it) is not
 re-run. Its watch lasts SIDE_WATCH_LIMIT_SECONDS. A side-lane run that is not
 a pull request has no head to move, like a dispatch. cmux-next.yml exists only
-on the feat-cmux-next branch; its side-lane run uploads the owned-pool-watch
-marker itself, so the sweeper adopts it like a picker's run.
+on the feat-cmux-next branch; its pull request and dispatch runs upload the
+owned-pool-watch marker themselves, so the sweeper adopts them like a picker's
+run. Its push runs upload none (they queue each Mac job in a group per branch),
+and a cmux-next push run this rescue watches anyway (a dispatch with its run
+id) is never cancelled because a newer push run exists; a refused job's failed
+jobs are still re-run when no newer push run covers the branch.
 
 Nightly builds (NIGHTLY_WORKFLOW_PATH) are watched like a side lane: there is
 no picker, and attempt 1 of a push or schedule run on main puts
@@ -1126,6 +1130,14 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
     # A stuck later attempt re-runs its failed jobs too, but is no refusal.
     keep_main = target.main and refusal
     moved = "" if keep_main else pull_moved(api, target, sleep, log)
+    if moved and target.push_branch and target.path == CMUX_NEXT_WORKFLOW_PATH:
+        # cmux-next.yml queues each push Mac job in a group per branch (one
+        # runs, one waits, a newer push replaces only the waiting one), so a
+        # newer push never makes this run cancel. Cancelling here killed every
+        # tip run's running jobs at one push a minute (2026-10-07: no tip swift
+        # test completed from 00:20Z to 01:05Z). Not re-run either: a re-run
+        # would join the branch group and replace the newer run's waiting job.
+        return f"not rescued: {moved}; a cmux-next push run is never cancelled for a newer push"
     if moved and (target.main or target.nightly or target.push_branch):
         # Main's stuck run holds its concurrency group, so nothing newer can
         # start until it finishes: cancel it, and its completion dispatches
