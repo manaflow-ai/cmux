@@ -280,6 +280,9 @@ pub struct Hub {
     /// Harnesses whose last model probe failed, with the reason; reported in
     /// `_acpmux/models` and `_acpmux/harnesses` (`probeError`).
     pub probe_errors: StdMutex<HashMap<String, String>>,
+    /// Bumped by every catalog reload; `_acpmux/harnesses` reports it so a
+    /// client can tell its list is stale (a harness manifest changed).
+    pub catalog_version: std::sync::atomic::AtomicU64,
     /// Lifecycle timers (the idle harness exit) run on this clock.
     pub(super) clock: StdMutex<Arc<dyn crate::clock::Clock>>,
     /// A session harness unused for this long exits (`idle.rs`); None: never.
@@ -356,6 +359,7 @@ impl Hub {
             settled_by_shutdown: StdMutex::new(Default::default()),
             launchers: StdMutex::new(HashMap::new()),
             probe_errors: StdMutex::new(HashMap::new()),
+            catalog_version: std::sync::atomic::AtomicU64::new(0),
             clock: StdMutex::new(crate::clock::TokioClock::new()),
             idle_child: StdMutex::new(Some(IDLE_CHILD)),
             idle_wake: Arc::new(Notify::new()),

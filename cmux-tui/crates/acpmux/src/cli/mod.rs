@@ -8,6 +8,7 @@ pub mod command;
 pub mod entry;
 pub mod errors;
 pub mod handoff;
+pub mod harness;
 pub mod hosts;
 pub mod orchestrate;
 pub mod output;

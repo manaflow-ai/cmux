@@ -494,11 +494,15 @@ async fn dispatch_request(
                     if !d.is_empty() {
                         o.insert("defaults".into(), json!(d));
                     }
+                    if let Some(m) = cfg.manifests.get(name) {
+                        o.insert("manifest".into(), m.summary());
+                    }
                 }
                 agents.insert(name.clone(), v);
             }
             Ok(
-                json!({"harnesses": agents, "defaultHarness": cfg.default_harness, "families": cfg.families(), "defaults": cfg.defaults, "presets": cfg.presets}),
+                json!({"harnesses": agents, "defaultHarness": cfg.default_harness, "families": cfg.families(), "defaults": cfg.defaults, "presets": cfg.presets, "manifestProblems": cfg.manifest_problems,
+                    "catalogVersion": hub.catalog_version.load(std::sync::atomic::Ordering::SeqCst)}),
             )
         }
         method::MUX_RELOAD_CONFIG => hub.reload_catalog().await,

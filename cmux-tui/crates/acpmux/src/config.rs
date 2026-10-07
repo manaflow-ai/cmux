@@ -448,6 +448,14 @@ pub struct Config {
     /// family preference or fallback routes new work to them.
     #[serde(skip)]
     pub unavailable: BTreeMap<String, String>,
+    /// Harness manifests (`config/manifest.rs`) by id: bundled ones and the
+    /// user's `~/.config/cmux/harnesses/`. Pickers read their name, icon and
+    /// sign-ins; a config.json entry with the same id still decides how it runs.
+    #[serde(skip)]
+    pub manifests: BTreeMap<String, manifest::Loaded>,
+    /// User manifest folders that failed their check, with the problems.
+    #[serde(skip)]
+    pub manifest_problems: BTreeMap<String, Vec<manifest::Problem>>,
 }
 
 impl Config {
@@ -557,13 +565,43 @@ impl Config {
         } else {
             Config::default()
         };
-        cfg.join_discovered(discover_harnesses());
+        let (manifests, problems) = manifest::all();
+        cfg.join_manifests(manifests, problems, discover_harnesses(), &which);
         if cfg.default_harness.is_none() {
             cfg.auto_default = true;
             cfg.default_harness = cfg.harnesses.keys().next().cloned();
         }
         cfg.path = Some(path);
         Ok(cfg)
+    }
+
+    /// Joins manifest harnesses and PATH discovery to the configured ones:
+    /// config.json wins, then manifests (user over bundled), then PATH. A
+    /// manifest whose command is missing stays listed as unavailable, with
+    /// its install hint, so pickers can say how to get it.
+    pub fn join_manifests(
+        &mut self,
+        manifests: BTreeMap<String, manifest::Loaded>,
+        problems: BTreeMap<String, Vec<manifest::Problem>>,
+        mut discovered: BTreeMap<String, HarnessProfile>,
+        which: &dyn Fn(&str) -> Option<String>,
+    ) {
+        let mut missing = BTreeMap::new();
+        for (id, loaded) in &manifests {
+            let (profile, reason) = loaded.profile(which);
+            if let Some(reason) = reason {
+                missing.insert(id.clone(), reason);
+            }
+            discovered.insert(id.clone(), profile);
+        }
+        self.join_discovered(discovered);
+        for (id, reason) in missing {
+            if self.discovered.contains(&id) {
+                self.unavailable.insert(id, reason);
+            }
+        }
+        self.manifests = manifests;
+        self.manifest_problems = problems;
     }
 
     /// Joins discovered harnesses to the configured ones (configured entries
@@ -805,6 +843,11 @@ fn launcher_ok(argv: &[String]) -> std::result::Result<(), String> {
     Ok(())
 }
 
+/// A program on the login PATH, as acpmux would start it.
+pub fn which_on_path(bin: &str) -> Option<String> {
+    which(bin)
+}
+
 fn which(bin: &str) -> Option<String> {
     let path = crate::login_env::path()?;
     for dir in std::env::split_paths(&path) {
@@ -882,6 +925,7 @@ pub fn scrub_nested_claude_env_tokio(cmd: &mut tokio::process::Command) {
 
 mod codex_adapter;
 mod discover;
+pub mod manifest;
 pub use codex_adapter::{
     CODEX_ACP_PACKAGE, adapter_package_launch, codex_through_adapter_package,
     resolve_adapter_package_bin,
@@ -899,3 +943,20 @@ pub use preset_args::{
 
 #[cfg(test)]
 mod tests;
+
+/// A plain ACP profile for tests to fill in.
+#[cfg(test)]
+pub(crate) fn tests_profile() -> HarnessProfile {
+    HarnessProfile {
+        kind: HarnessKind::Acp,
+        argv: vec![],
+        env: BTreeMap::new(),
+        description: None,
+        fallback: None,
+        family: None,
+        models: vec![],
+        model: None,
+        effort: None,
+        policy: None,
+    }
+}

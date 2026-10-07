@@ -285,6 +285,10 @@ pub enum Command {
     Config,
     #[command(subcommand, hide = true)]
     Peer(PeerCmd),
+    /// Harness manifests: add your own agent with a folder in
+    /// ~/.config/cmux/harnesses/ (`harness add`), then `harness check` it.
+    #[command(subcommand)]
+    Harness(HarnessCmd),
     #[command(hide = true)]
     DaemonRun {
         /// Also serve WebSocket clients, e.g. 127.0.0.1:47811
@@ -443,6 +447,14 @@ pub enum DaemonCmd {
         #[arg(long)]
         refresh: bool,
     },
+}
+
+#[derive(Subcommand)]
+pub enum HarnessCmd {
+    /// Validate manifests: all of yours, one id, or a folder. Exits 1 on a problem.
+    Check { target: Option<String> },
+    /// Create ~/.config/cmux/harnesses/ID/ with a harness.json and icon to fill in.
+    Add { id: String },
 }
 
 #[derive(Subcommand)]

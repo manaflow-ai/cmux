@@ -10,6 +10,15 @@ impl Hub {
 
     /// Refresh the configured catalog while keeping all session processes alive.
     pub async fn reload_catalog(self: &Arc<Self>) -> Result<Value, RpcError> {
+        self.reload_catalog_with(true).await
+    }
+
+    /// `reload_catalog`. `require_file` false lets a harness manifest change
+    /// reload a daemon that has no config.json yet (it runs on defaults).
+    pub async fn reload_catalog_with(
+        self: &Arc<Self>,
+        require_file: bool,
+    ) -> Result<Value, RpcError> {
         let path =
             self.config.read().await.path.clone().ok_or_else(|| {
                 RpcError::invalid_params("this daemon has no config file to reload")
@@ -17,7 +26,9 @@ impl Hub {
         // Disk reads and PATH discovery run outside the async executor. An
         // invalid/missing file never replaces the last accepted configuration.
         let mut next = tokio::task::spawn_blocking(move || {
-            std::fs::metadata(&path)?;
+            if require_file {
+                std::fs::metadata(&path)?;
+            }
             crate::config::Config::load_from(&path)
         })
         .await
@@ -38,13 +49,17 @@ impl Hub {
                     retained.push(name);
                 }
             }
-            // Only unchanged launchers inherit a startup validation failure.
-            next.unavailable = current
+            // Only unchanged launchers inherit a startup validation failure;
+            // the load's own findings (a manifest command not installed) stay.
+            let inherited: Vec<(String, String)> = current
                 .unavailable
                 .iter()
                 .filter(|(n, _)| current.harnesses.get(*n) == next.harnesses.get(*n))
                 .map(|(n, reason)| (n.clone(), reason.clone()))
                 .collect();
+            for (name, reason) in inherited {
+                next.unavailable.entry(name).or_insert(reason);
+            }
             // Keep cached models until fresh probes finish, invalidating only
             // changed/removed profiles. Listeners, peers, store and policy stay put.
             self.known_models
@@ -60,6 +75,8 @@ impl Hub {
             current.auto_default = next.auto_default;
             current.auto_prefer = next.auto_prefer;
             current.unavailable = next.unavailable;
+            current.manifests = next.manifests;
+            current.manifest_problems = next.manifest_problems;
             current.pool = next.pool;
             current.web_roots = next.web_roots;
             current.web_asking_modes = next.web_asking_modes;
@@ -70,6 +87,7 @@ impl Hub {
                 retained,
             )
         };
+        self.catalog_version.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         // Pooled sessions started under the old catalog are never served.
         self.drain_pool();
         self.probe_models_with(true, false).await;

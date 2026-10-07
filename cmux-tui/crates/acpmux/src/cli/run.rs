@@ -896,6 +896,10 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
             }
             Ok(())
         }
+        Command::Harness(HarnessCmd::Check { target }) => {
+            crate::cli::harness::check(target, json_out)
+        }
+        Command::Harness(HarnessCmd::Add { id }) => crate::cli::harness::add(id, json_out),
         Command::Peer(cmd) => {
             let client = connect(true).await?;
             let v = match cmd {

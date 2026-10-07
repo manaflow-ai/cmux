@@ -20,6 +20,19 @@ pub(super) fn redact_for_remote(method: &str, reply: &mut Value) {
         _ if method == "_acpmux/presets" => hide_preset_contents(reply),
         _ => {}
     }
+    // Where a user keeps harness manifests is local state.
+    if method == "_acpmux/harnesses"
+        && let Some(obj) = reply.as_object_mut()
+    {
+        obj.remove("manifestProblems");
+        if let Some(harnesses) = obj.get_mut("harnesses").and_then(Value::as_object_mut) {
+            for h in harnesses.values_mut() {
+                if let Some(m) = h.get_mut("manifest").and_then(Value::as_object_mut) {
+                    m.remove("dir");
+                }
+            }
+        }
+    }
     if let Some(peers) = reply.get_mut("peers").and_then(Value::as_array_mut) {
         for peer in peers {
             if let Some(url) = peer.get("url").and_then(Value::as_str) {

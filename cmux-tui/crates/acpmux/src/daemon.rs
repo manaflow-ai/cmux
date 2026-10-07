@@ -244,6 +244,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         });
     }
     tokio::spawn(notify_loop(hub.clone()));
+    tokio::spawn(watch_harness_manifests(hub.clone()));
 
     let shutdown = async {
         let ctrl_c = tokio::signal::ctrl_c();
@@ -553,6 +554,46 @@ fn spawn_detached() -> Result<std::fs::File> {
     // Close this process's copy so end of file means the daemon closed it.
     drop(writer);
     Ok(reader)
+}
+
+/// How often the user's harness manifest folder is checked for changes.
+const MANIFEST_POLL: Duration = Duration::from_secs(2);
+
+/// Reload the catalog when a file under `~/.config/cmux/harnesses/` changes,
+/// so a new or edited manifest shows up without restarting the daemon. A
+/// stat of a few small folders every two seconds; sessions keep running.
+async fn watch_harness_manifests(hub: Arc<Hub>) {
+    let Some(root) = crate::config::manifest::user_dir() else {
+        return;
+    };
+    let stamp = {
+        let root = root.clone();
+        move || {
+            let root = root.clone();
+            tokio::task::spawn_blocking(move || crate::config::manifest::fingerprint(&root))
+        }
+    };
+    let Ok(mut last) = stamp().await else {
+        return;
+    };
+    loop {
+        tokio::time::sleep(MANIFEST_POLL).await;
+        let Ok(now) = stamp().await else {
+            continue;
+        };
+        if now == last {
+            continue;
+        }
+        last = now;
+        match hub.reload_catalog_with(false).await {
+            Ok(_) => {
+                tracing::info!(dir = %root.display(), "harness manifests changed; catalog reloaded")
+            }
+            Err(e) => {
+                tracing::warn!(dir = %root.display(), "harness manifests changed; reload failed: {}", e.message)
+            }
+        }
+    }
 }
 
 /// Run `notify_command` from the config on two transitions only: a
