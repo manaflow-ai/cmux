@@ -33,6 +33,15 @@ import Testing
         #expect(snapshot.diagnostics.isEmpty)
     }
 
+    /// WHATS-NEW-AFTER-UPDATE W1: the What's New item is on by default and
+    /// can be turned off (managed config can force it off the same way).
+    @Test func showWhatsNewDefaultsOnAndTurnsOff() throws {
+        #expect(try parse("{}").updates.showWhatsNew)
+        let off = try parse(#"{"updates": {"showWhatsNew": false}}"#)
+        #expect(!off.updates.showWhatsNew)
+        #expect(off.diagnostics.isEmpty)
+    }
+
     @Test func badValuesKeepTheDefaultWithADiagnostic() throws {
         let snapshot = try parse(#"{"updates": {"notify": "loud", "checkIntervalSeconds": 5}}"#)
         #expect(snapshot.updates.notify == .badge)
@@ -51,6 +60,7 @@ import Testing
             "updates.downloadAutomatically": .bool(defaults.downloadAutomatically),
             "updates.installOnQuit": .bool(defaults.installOnQuit),
             "updates.notify": .string(defaults.notify.rawValue),
+            "updates.showWhatsNew": .bool(defaults.showWhatsNew),
         ]
         for (key, value) in expected {
             let descriptor = SettingsSchema.descriptor(for: key.split(separator: ".").map(String.init))
