@@ -5,13 +5,25 @@ import Testing
 @Suite struct MockSeamTests {
     @Test func feedReplyResolvesOnceThenRefuses() async throws {
         let feed = MockFeedSource()
-        let first = try await feed.reply(.allow, to: "feed1", key: IntentKey())
+        let allow = FeedReply.permission(allow: true, scope: .session)
+        let first = try await feed.perform(.answer(itemID: "feed1", reply: allow), key: IntentKey())
         guard case .committed = first else { Issue.record("expected commit, got \(first)"); return }
-        let second = try await feed.reply(.deny, to: "feed1", key: IntentKey())
+        let second = try await feed.perform(.answer(itemID: "feed1", reply: .permission(allow: false, scope: nil)), key: IntentKey())
         guard case .refused = second else { Issue.record("expected refusal, got \(second)"); return }
         let item = await feed.hub.current.value.first { $0.id == "feed1" }
-        #expect(item?.resolution == .allow)
+        #expect(item?.state == .answered)
+        #expect(item?.answer?.reply == allow)
         #expect(item?.isRead == true)
+    }
+
+    @Test func feedRefusesArchivingAnOpenRequestAndMismatchedReplies() async throws {
+        let feed = MockFeedSource()
+        let archive = try await feed.perform(.archive(itemIDs: ["feed1"]), key: IntentKey())
+        guard case .refused = archive else { Issue.record("expected refusal, got \(archive)"); return }
+        let wrongShape = try await feed.perform(.answer(itemID: "feed1", reply: .text("yes")), key: IntentKey())
+        guard case .refused = wrongShape else { Issue.record("expected refusal, got \(wrongShape)"); return }
+        let revision = await feed.hub.current.revision
+        #expect(revision == 1)
     }
 
     @Test func workspaceIntentsOnUnreachableHostAreRefused() async throws {

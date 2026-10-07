@@ -26,18 +26,33 @@ public enum MockFixtures {
 
     public static func feedItems(now: Date = Date()) -> [FeedItem] {
         [
-            FeedItem(id: "feed1", kind: .permission, hostID: studio, workspaceID: "ws_studio1",
-                     source: "Claude Code · cmux", title: "Run tests?",
-                     body: "swift test --filter CmuxiOSFeatureKitTests", createdAt: now.addingTimeInterval(-60)),
-            FeedItem(id: "feed2", kind: .question(options: ["Keep", "Replace"]), hostID: studio,
-                     workspaceID: "ws_studio2", source: "Codex · backend", title: "Existing migration found",
-                     body: "Keep the current migration or replace it?", createdAt: now.addingTimeInterval(-320)),
-            FeedItem(id: "feed3", kind: .planApproval, hostID: studio, workspaceID: "ws_studio2",
-                     source: "Codex · backend", title: "Plan ready", body: "3 steps: schema, handler, tests.",
+            FeedItem(id: "feed1", kind: .permission(FeedPermission(
+                        actionType: .command, summary: "Run the FeatureKit tests",
+                        command: "swift test --filter CmuxiOSFeatureKitTests", cwd: "~/cmux/ios/CmuxiOS",
+                        scopes: [.once, .session, .always])),
+                     priority: .high, hostID: studio, workspaceID: "ws_studio1", source: "Claude Code · cmux",
+                     agent: "claude", title: "Run tests?", createdAt: now.addingTimeInterval(-60)),
+            FeedItem(id: "feed2", kind: .choice(FeedChoice(questions: [
+                        FeedChoiceQuestion(id: "q1", question: "Keep the current migration or replace it?",
+                                           header: "Migration", options: [
+                                               FeedChoiceOption(id: "keep", label: "Keep", detail: "Add a follow-up migration"),
+                                               FeedChoiceOption(id: "replace", label: "Replace", detail: "Rewrite 0042"),
+                                           ], allowOther: true),
+                     ])),
+                     priority: .high, hostID: studio, workspaceID: "ws_studio2", source: "Codex · backend",
+                     agent: "codex", title: "Existing migration found", createdAt: now.addingTimeInterval(-320)),
+            FeedItem(id: "feed3", kind: .planApproval(FeedPlan(ref: "plan.md", checklist: ["Schema", "Handler", "Tests"])),
+                     hostID: studio, workspaceID: "ws_studio2", source: "Codex · backend", agent: "codex",
+                     title: "Plan ready", body: "1. Add the `team_invites` table.\n2. Add the invite handler.\n3. Cover both with tests.",
                      createdAt: now.addingTimeInterval(-900)),
+            FeedItem(id: "feed5", kind: .question(FeedQuestion(question: "Which branch should I base the fix on?",
+                                                               suggestions: ["main", "release"])),
+                     priority: .high, hostID: studio, workspaceID: "ws_studio1", source: "Claude Code · cmux",
+                     agent: "claude", title: "Base branch?", createdAt: now.addingTimeInterval(-1_200)),
             FeedItem(id: "feed4", kind: .done, hostID: mini, workspaceID: "ws_mini1",
-                     source: "Claude Code · release", title: "Build failed",
-                     body: "Archive step exited with 65.", createdAt: now.addingTimeInterval(-86_000), isRead: true),
+                     source: "Claude Code · release", agent: "claude", title: "Build failed",
+                     body: "Archive step exited with 65.", createdAt: now.addingTimeInterval(-86_000),
+                     readAt: now.addingTimeInterval(-80_000)),
         ]
     }
 
