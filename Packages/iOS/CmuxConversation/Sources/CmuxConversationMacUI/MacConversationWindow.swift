@@ -227,6 +227,7 @@ final class MacConversationSplitController: NSSplitViewController, NSToolbarDele
             guard let self, let entry else { return }
             self.sidebar.perform(.toggleAlerts, on: entry)
         }
+        details.onEditBackground = { [weak controller] anchor in controller?.presentBackgroundPicker(from: anchor) }
         inspector.show(details)
         content.show(controller)
         composerHost.subviews.forEach { $0.removeFromSuperview() }

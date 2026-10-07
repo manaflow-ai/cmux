@@ -62,6 +62,8 @@ final class MacConversationDetailsViewController: NSViewController {
     let store: ConversationStore
     /// Hide Alerts goes through the sidebar's list action path.
     var onToggleAlerts: (() -> Void)?
+    /// Backgrounds…: the conversation's background picker, anchored here.
+    var onEditBackground: ((NSView) -> Void)? { didSet { view.needsLayout = true } }
     let media: ConversationSharedMediaModel
 
     private let scrollView = NSScrollView()
@@ -74,6 +76,7 @@ final class MacConversationDetailsViewController: NSViewController {
     private let receiptsLabel = makeMacLabel()
     private let receiptsSwitch = NSSwitch()
     private let toggleSeparator = NSBox()
+    private let backgroundsButton = NSButton()
     private let membersHeader = makeMacLabel()
     private let membersCard = MacFlippedView()
     private var memberRows: [(avatar: MacAvatarView, name: NSTextField)] = []
@@ -163,7 +166,14 @@ final class MacConversationDetailsViewController: NSViewController {
             button.action = button === photosMore ? #selector(showMorePhotos) : #selector(showMoreLinks)
             button.setAccessibilityIdentifier("conversation.details.\(id).more")
         }
-        for view in [avatar, nameLabel, toggleCard, membersHeader, membersCard, photosHeader, photosMore, linksHeader, linksMore, linksCard] as [NSView] {
+        backgroundsButton.title = ConversationBackgroundStrings.backgrounds
+        backgroundsButton.image = NSImage(systemSymbolName: "photo.on.rectangle.angled", accessibilityDescription: nil)
+        backgroundsButton.imagePosition = .imageLeading
+        backgroundsButton.bezelStyle = .push
+        backgroundsButton.target = self
+        backgroundsButton.action = #selector(editBackground)
+        backgroundsButton.setAccessibilityIdentifier("conversation.details.backgrounds")
+        for view in [avatar, nameLabel, toggleCard, backgroundsButton, membersHeader, membersCard, photosHeader, photosMore, linksHeader, linksMore, linksCard] as [NSView] {
             content.addSubview(view)
         }
         view = root
@@ -326,6 +336,13 @@ final class MacConversationDetailsViewController: NSViewController {
         placeToggle(receiptsLabel, receiptsSwitch, row: 1)
         toggleSeparator.frame = CGRect(x: 12, y: Self.rowHeight - 0.5, width: inner - 12, height: 1)
         y = toggleCard.frame.maxY + 20
+        // Backgrounds, when the service supports them (the picker's entry,
+        // like the iOS details row).
+        backgroundsButton.isHidden = onEditBackground == nil || !store.supportsBackgrounds
+        if !backgroundsButton.isHidden {
+            backgroundsButton.frame = CGRect(x: inset, y: y, width: inner, height: 28)
+            y = backgroundsButton.frame.maxY + 20
+        }
 
         if isGroup {
             membersHeader.frame = CGRect(x: inset + 12, y: y, width: inner - 12, height: 14)
@@ -391,9 +408,16 @@ final class MacConversationDetailsViewController: NSViewController {
         ]
     }
 
+    @objc private func editBackground() {
+        onEditBackground?(backgroundsButton)
+    }
+
     func labPress(_ control: String) -> Bool {
         rebuildIfNeeded()
         switch control {
+        case "backgrounds":
+            guard !backgroundsButton.isHidden else { return false }
+            backgroundsButton.performClick(nil)
         case "hideAlerts":
             alertsSwitch.performClick(nil)
         case "readReceipts":
