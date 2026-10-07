@@ -68,6 +68,27 @@ struct BrowserReplKeyStrokeTests {
         #expect(BrowserReplKeyStroke.resolve(key: "é", code: "", text: "é", modifiers: []) == nil)
     }
 
+    /// r26 native#5: a printable key's `text` became the native event's
+    /// characters whatever its length, so one low-level `input.key` call
+    /// could build a key event of tens of MiB on the main actor. A key, a
+    /// code or a text longer than one key's (64 UTF-8 bytes) is refused
+    /// with `invalid` before any stroke exists, also on the text-insert
+    /// fallback for a key with no virtual key.
+    @Test("input.key refuses a key, code or text longer than one key's before a stroke is built")
+    func oversizedKeyIsRefused() throws {
+        let long = String(repeating: "a", count: 1 << 20)
+        for (key, code, text) in [("a", "KeyA", long), (long, "", "a"), ("a", long, "a"), ("é", "", long), ("a", "KeyA", String(repeating: "a", count: 65))] {
+            let error = #expect(throws: BrowserReplDriverError.self, "key \(key.count), code \(code.count), text \(text.count) chars") {
+                _ = try BrowserReplKeyStroke.resolve(key: key, code: code, text: text, modifiers: [])
+            }
+            #expect(error?.code == "invalid")
+        }
+        // Text up to the bound still resolves, and a multi-scalar
+        // character still falls back to text insertion.
+        #expect(try BrowserReplKeyStroke.resolve(key: "a", code: "KeyA", text: String(repeating: "a", count: 64), modifiers: [])?.keyCode == 0)
+        #expect(try BrowserReplKeyStroke.resolve(key: "👨‍👩‍👧‍👦", code: "", text: "👨‍👩‍👧‍👦", modifiers: []) == nil)
+    }
+
     @Test("Unknown modifier names are ignored")
     func unknownModifier() {
         #expect(BrowserReplKeyStroke.modifierFlags(named: ["Hyper", "Meta"]) == .command)
