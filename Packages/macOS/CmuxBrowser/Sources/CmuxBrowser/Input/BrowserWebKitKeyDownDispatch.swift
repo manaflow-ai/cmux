@@ -549,11 +549,12 @@ public final class BrowserAutomationKeyDownOutcome {
                     ranAtOnce = true
                     return
                 }
-                let resent = BrowserAutomationKeyResends.shared.finish(event)
-                // WebKit makes the key the app's current event before it
-                // sends it back; the app's drop (`resent`) names it exactly.
+                BrowserAutomationKeyResends.shared.finish(event)
+                // The app's drop of WebKit's resend resolved the outcome
+                // already (`noteResent`). WebKit also makes the key the
+                // app's current event before it sends it back.
                 let current = (NSApp as NSApplication?)?.currentEvent === event
-                self?.resolve(unhandled: resent || current)
+                self?.resolve(unhandled: current)
             }
         }
         _ = webView.perform(selector, with: block)
@@ -610,16 +611,26 @@ public final class BrowserAutomationKeyDownOutcome {
     }
 }
 
-/// Automated key-downs whose outcome is being watched, and whether the app
-/// dropped WebKit's resend of each.
+/// Automated key-downs whose outcome is being watched. An entry holds its
+/// outcome weakly: whoever awaits the outcome keeps it, and one nobody
+/// keeps any longer goes away with its run-loop watch
+/// (``BrowserAutomationKeyDownOutcome/armWhenTheRunLoopWaits(on:selector:)``
+/// stops itself once its outcome is gone), never held here until WebKit
+/// reports. Such an entry is dropped the next time a key is watched.
 @MainActor
 final class BrowserAutomationKeyResends {
     static let shared = BrowserAutomationKeyResends()
 
-    private var watched: [ObjectIdentifier: (event: NSEvent, outcome: BrowserAutomationKeyDownOutcome?, resent: Bool)] = [:]
+    private struct Watched {
+        let event: NSEvent
+        weak var outcome: BrowserAutomationKeyDownOutcome?
+    }
 
-    func watch(_ event: NSEvent, outcome: BrowserAutomationKeyDownOutcome? = nil) {
-        watched[ObjectIdentifier(event)] = (event, outcome, false)
+    private var watched: [ObjectIdentifier: Watched] = [:]
+
+    func watch(_ event: NSEvent, outcome: BrowserAutomationKeyDownOutcome) {
+        watched = watched.filter { $0.value.outcome != nil }
+        watched[ObjectIdentifier(event)] = Watched(event: event, outcome: outcome)
     }
 
     /// WebKit sent `event` back to the app: no page handled it. Its outcome
@@ -627,18 +638,12 @@ final class BrowserAutomationKeyResends {
     func noteResent(_ event: NSEvent) {
         let id = ObjectIdentifier(event)
         guard let entry = watched[id], entry.event === event else { return }
-        if let outcome = entry.outcome {
-            watched.removeValue(forKey: id)
-            outcome.resolve(unhandled: true)
-        } else {
-            watched[id] = (event, nil, true)
-        }
+        watched.removeValue(forKey: id)
+        entry.outcome?.resolve(unhandled: true)
     }
 
-    /// Stops watching `event`; returns whether its resend was dropped.
-    @discardableResult
-    func finish(_ event: NSEvent) -> Bool {
-        guard let entry = watched.removeValue(forKey: ObjectIdentifier(event)) else { return false }
-        return entry.resent
+    /// Stops watching `event`.
+    func finish(_ event: NSEvent) {
+        watched.removeValue(forKey: ObjectIdentifier(event))
     }
 }
