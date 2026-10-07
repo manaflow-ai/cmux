@@ -37,7 +37,7 @@ impl Hub {
         turn_id: &str,
     ) -> Arc<Notify> {
         let withdraw = Arc::new(Notify::new());
-        session.queue.lock().unwrap().push(QueuedPrompt {
+        session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(QueuedPrompt {
             prompt_id: prompt_id.to_owned(),
             turn_id: turn_id.to_owned(),
             client: client.to_owned(),
@@ -64,7 +64,7 @@ impl Hub {
         turn_id: &str,
     ) -> Option<Value> {
         {
-            let mut queue = session.queue.lock().unwrap();
+            let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let Some(i) = queue.iter().position(|q| q.turn_id == turn_id) else {
                 return Some(withdrawn_reply(prompt_id, turn_id));
             };
@@ -85,7 +85,7 @@ impl Hub {
     /// (it started, ended or was already removed).
     pub fn remove_queued(&self, session: &Arc<Session>, prompt_id: &str) -> bool {
         let removed = {
-            let mut queue = session.queue.lock().unwrap();
+            let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let Some(i) = queue.iter().position(|q| q.prompt_id == prompt_id) else {
                 return false;
             };
