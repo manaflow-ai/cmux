@@ -9,18 +9,37 @@ import { makeWebHandler } from "../../src/app.ts";
 import { generateApiKey, hashApiKey, makeStackSessionVerifier, SessionVerifier, TeamMembership } from "../../src/auth/credentials.ts";
 import { ApiKeyStore, OwnershipStore, type ApiKeyRecord, type OwnedResource } from "../../src/db/stores.ts";
 import type { Scope } from "../../src/domain/scopes.ts";
-import { newApiKeyId, newVmId, TenantId, UpstreamId, UserId, type VmId } from "../../src/lib/ids.ts";
+import { newApiKeyId, newSnapshotId, newVmId, TenantId, UpstreamId, UserId, type SnapshotId, type VmId } from "../../src/lib/ids.ts";
 import { UpstreamClient } from "../../src/upstream/client.ts";
 import { makeUpstreamClient } from "../../src/upstream/live.ts";
+import { makeFakeUpstream } from "./fake-upstream.ts";
 import { makeS3aFakes } from "./s3a-fakes.ts";
 
 export const STACK_API_URL = "https://stack.test";
 export const STACK_PROJECT_ID = "project-test";
 const UPSTREAM_URL = "https://upstream.test";
+const UPSTREAM_KEY = "upstream-test-key";
 
-export interface FakeUpstreamVm {
-  readonly id: string;
-  readonly state: string;
+export interface HarnessOptions {
+  /** The deployment environment; every tenant is dev/test outside production. */
+  readonly environment?: "local" | "staging" | "production";
+  /** Tenants treated as dev/test in production. */
+  readonly devTestTenants?: ReadonlyArray<string>;
+  /** Live VMs per tenant. */
+  readonly maxVms?: number;
+  /** Requests per minute per tenant for each limit class. */
+  readonly ratePerMinute?: Partial<Record<"read" | "write" | "exec" | "files", number>>;
+  /** Largest file upload accepted, in bytes. */
+  readonly maxUploadBytes?: number;
+}
+
+/** One audit row as a test sees it. */
+export interface AuditRow {
+  readonly tenantId: string;
+  readonly actor: string;
+  readonly action: string;
+  readonly cmuxId: string | null;
+  readonly outcome: string;
 }
 
 type SigningKey = Awaited<ReturnType<typeof generateKeyPair>>["privateKey"];
@@ -31,12 +50,16 @@ interface StoredKey extends ApiKeyRecord {
   readonly expiresAt: Date | null;
 }
 
-export async function makeHarness() {
+export async function makeHarness(options: HarnessOptions = {}) {
   const resources: OwnedResource[] = [];
   const keys: StoredKey[] = [];
   const members = new Map<string, Set<string>>();
-  const upstreamVms = new Map<string, FakeUpstreamVm>();
-  const upstreamRequests: Request[] = [];
+  const upstream = makeFakeUpstream(UPSTREAM_KEY);
+  const upstreamRequests = upstream.calls;
+  const audit: AuditRow[] = [];
+  /** Tenants whose plan allows creating VMs. */
+  const billed = new Set<string>(["team_alpha", "team_bravo"]);
+  void options;
 
   const { publicKey, privateKey } = await generateKeyPair("ES256");
   const jwk = { ...(await exportJWK(publicKey)), kid: "test-key", alg: "ES256" };
@@ -59,38 +82,16 @@ export async function makeHarness() {
       ),
   });
 
-  const s3a = makeS3aFakes(resources);
-
-  const upstreamFetch = async (request: Request): Promise<Response> => {
-    upstreamRequests.push(request);
-    const handled = await s3a.upstream(request);
-    if (handled !== null) return handled;
-    const url = new URL(request.url);
-    const match = /^\/v5\/vms\/([^/]+)$/.exec(url.pathname);
-    if (request.headers.get("authorization") !== "Bearer upstream-test-key") {
-      return Response.json({ code: "UNAUTHORIZED", message: "bad key" }, { status: 401 });
-    }
-    const vm = match?.[1] === undefined ? undefined : upstreamVms.get(decodeURIComponent(match[1]));
-    if (vm === undefined) return Response.json({ code: "NOT_FOUND", message: "no such VM" }, { status: 404 });
-    return Response.json({
-      id: vm.id,
-      slug: `tenant-slug-${vm.id}`,
-      snapshotId: `sc-${vm.id}`,
-      state: vm.state,
-      resources: { cpu: 4, memory: 8192, storage: 16384 },
-      idleTimeoutSeconds: 300,
-      metadata: { cmuxTenant: "leak-check" },
-      createdAt: "2026-10-01T00:00:00Z",
-      updatedAt: "2026-10-02T00:00:00Z",
-    });
-  };
+  /** Snapshot reads and terminals (slice S3a) are served by s3a-fakes.ts; everything else by fake-upstream.ts. */
+  const s3a = makeS3aFakes(resources, upstream);
+  const upstreamFetch = async (request: Request): Promise<Response> => (await s3a.upstream(request)) ?? upstream.fetch(request);
 
   const services = Layer.mergeAll(
     ownership,
     apiKeys,
     Layer.succeed(
       UpstreamClient,
-      makeUpstreamClient({ baseUrl: UPSTREAM_URL, apiKey: Redacted.make("upstream-test-key"), fetch: upstreamFetch }),
+      makeUpstreamClient({ baseUrl: UPSTREAM_URL, apiKey: Redacted.make(UPSTREAM_KEY), fetch: upstream.fetch }),
     ),
     Layer.succeed(SessionVerifier, makeStackSessionVerifier({ apiUrl: STACK_API_URL, projectId: STACK_PROJECT_ID, getKey })),
     Layer.succeed(TeamMembership, {
@@ -103,14 +104,22 @@ export async function makeHarness() {
 
   return {
     dispose,
+    upstream,
+    /** Every upstream call, in order. */
     upstreamRequests,
-    /** Snapshots and terminals (slice S3a): fake stores, audit log, entitlements and upstream state. */
+    resources,
+    audit,
+    /** Whether `tenant`'s plan allows creating VMs (team_alpha and team_bravo do by default). */
+    setBilling(tenant: string, allowed: boolean) {
+      if (allowed) billed.add(tenant);
+      else billed.delete(tenant);
+    },
+    /** Snapshots and terminals (slice S3a): fake stores, audit log, entitlements and terminal sockets. */
     s3a,
     /** Records a VM owned by `tenant` and backed by a fake upstream VM. Returns its public id. */
     addVm(tenant: string, state = "running"): { readonly vmId: VmId; readonly upstreamId: string } {
       const vmId = newVmId();
-      const upstreamId = `vm-${crypto.randomUUID()}`;
-      upstreamVms.set(upstreamId, { id: upstreamId, state });
+      const upstreamId = upstream.addVm(state).id;
       resources.push({
         tenantId: TenantId.make(tenant),
         kind: "vm",
@@ -121,9 +130,23 @@ export async function makeHarness() {
       });
       return { vmId, upstreamId };
     },
+    /** Records a snapshot owned by `tenant`, taken from a fake upstream VM. Returns its public id. */
+    addSnapshot(tenant: string): { readonly snapshotId: SnapshotId; readonly upstreamId: string } {
+      const snapshotId = newSnapshotId();
+      const upstreamId = upstream.addSnapshot(upstream.addVm("running").id).id;
+      resources.push({
+        tenantId: TenantId.make(tenant),
+        kind: "snapshot",
+        cmuxId: snapshotId,
+        upstreamId: UpstreamId.make(upstreamId),
+        createdBy: "user:test",
+        createdAt: new Date(),
+      });
+      return { snapshotId, upstreamId };
+    },
     /** Removes the upstream VM while keeping its ownership row. */
     dropUpstreamVm(upstreamId: string) {
-      upstreamVms.delete(upstreamId);
+      upstream.vms.delete(upstreamId);
     },
     /** Issues an API key for `tenant` with `scopes`. Returns the secret, as a client would hold it. */
     async addKey(
@@ -165,6 +188,16 @@ export async function makeHarness() {
           method: init.method ?? "GET",
           headers: body === null ? headers : { ...headers, "content-type": "application/json" },
           body,
+        }),
+      );
+    },
+    /** Sends raw bytes, as a file upload does. */
+    send(path: string, headers: Record<string, string>, method: string, bytes: Uint8Array): Promise<Response> {
+      return handler(
+        new Request(`https://vm.test${path}`, {
+          method,
+          headers: { ...headers, "content-type": "application/octet-stream", "content-length": String(bytes.length) },
+          body: bytes,
         }),
       );
     },

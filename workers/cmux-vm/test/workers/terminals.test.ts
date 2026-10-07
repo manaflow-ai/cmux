@@ -139,7 +139,7 @@ describe("terminal proxy", () => {
       { text: JSON.stringify({ type: "resize", cols: 100, rows: 30 }) },
     ]);
 
-    const [upstreamRequest] = h.upstreamRequests;
+    const [upstreamRequest] = h.s3a.requests;
     const url = new URL(String(upstreamRequest?.url));
     expect(url.pathname).toBe(`/v5/vms/${upstreamId}/pty`);
     expect(Object.fromEntries(url.searchParams)).toEqual({ cols: "120", rows: "40", slug: "main" });
@@ -174,7 +174,7 @@ describe("terminal proxy", () => {
     expect(response.status).toBe(101);
     const { frames } = await collectUntilClose(clientSocket(response));
     expect(frames).toEqual([{ bytes: [42] }]);
-    const url = new URL(String(h.upstreamRequests.at(0)?.url));
+    const url = new URL(String(h.s3a.requests.at(0)?.url));
     expect(url.pathname).toBe(`/v5/vms/${upstreamId}/pty/sessions/main`);
     expect(url.searchParams.get("linuxUser")).toBe("dev");
   });

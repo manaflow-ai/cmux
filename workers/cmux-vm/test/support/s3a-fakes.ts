@@ -1,7 +1,9 @@
 /**
  * Fakes for the snapshot and terminal slice (S3a): in-memory snapshot store,
- * audit log, idempotency store and entitlements, plus fake provider routes for
- * snapshots and terminals behind the real upstream clients. The terminal
+ * audit log, idempotency store and entitlements, plus the fake provider routes
+ * fake-upstream.ts (S2) does not serve: reading a snapshot and terminals.
+ * Creating and deleting snapshots go to fake-upstream.ts, which owns the
+ * provider's snapshot map. The terminal
  * routes answer a WebSocket upgrade with one end of a Workers WebSocketPair
  * and hand the other end to a test-supplied script.
  */
@@ -17,17 +19,10 @@ import { makeUpstreamSnapshots } from "../../src/upstream/live-snapshots.ts";
 import { makeUpstreamTerminals } from "../../src/upstream/live-terminals.ts";
 import { UpstreamSnapshots } from "../../src/upstream/snapshots.ts";
 import { UpstreamTerminals } from "../../src/upstream/terminals.ts";
+import type { FakeUpstream } from "./fake-upstream.ts";
 
 const UPSTREAM_URL = "https://upstream.test";
 const UPSTREAM_KEY = "upstream-test-key";
-
-interface FakeUpstreamSnapshot {
-  readonly id: string;
-  readonly sourceVmId: string;
-  readonly displayName: string | null;
-  readonly ttlSeconds: number | null;
-  readonly autoDeleteSeconds: number | null;
-}
 
 interface SnapshotMeta {
   readonly sourceVmId: VmId | null;
@@ -45,13 +40,13 @@ export interface FakePtySession {
   readonly linuxUser: string | null;
 }
 
-export function makeS3aFakes(resources: OwnedResource[]) {
+export function makeS3aFakes(resources: OwnedResource[], provider: FakeUpstream) {
   const meta = new Map<string, SnapshotMeta>();
   const auditLog: AuditEntry[] = [];
   const idempotency = new Map<string, { fingerprint: string; body: string | null }>();
   const deniedTenants = new Set<string>();
-  const upstreamSnapshots = new Map<string, FakeUpstreamSnapshot>();
-  const unsnapshottableVms = new Set<string>();
+  /** Raw requests this fake served (terminal and snapshot reads), for header checks. */
+  const requests: Request[] = [];
   const ptySessions = new Map<string, FakePtySession[]>();
   const state: { terminalScript: TerminalScript | null; failSnapshotRecord: boolean } = { terminalScript: null, failSnapshotRecord: false };
 
@@ -149,14 +144,14 @@ export function makeS3aFakes(resources: OwnedResource[]) {
     mayCreate: (tenantId) => Effect.sync(() => !deniedTenants.has(tenantId)),
   });
 
-  const snapshotJson = (snapshot: FakeUpstreamSnapshot) => ({
+  const snapshotJson = (snapshot: { readonly id: string; readonly sourceVmId: string; readonly autoDeleteSeconds: number | null }) => ({
     id: snapshot.id,
     sourceVmId: snapshot.sourceVmId,
     slug: `slug-${snapshot.id}`,
-    displayName: snapshot.displayName,
+    displayName: `cmux internal ${snapshot.id}`,
     accountId: "acct-leak-check",
     public: false,
-    ttlSeconds: snapshot.ttlSeconds,
+    ttlSeconds: null,
     autoDeleteSeconds: snapshot.autoDeleteSeconds,
     lastUsedAt: null,
     createdAt: "2026-10-03T00:00:00Z",
@@ -171,43 +166,24 @@ export function makeS3aFakes(resources: OwnedResource[]) {
     return new Response(null, { status: 101, webSocket: pair[0] });
   };
 
-  /** Fake provider routes for snapshots and terminals; null for any other route. */
+  /** Fake provider routes for reading a snapshot and for terminals; null for any other route. */
   const upstream = async (request: Request): Promise<Response | null> => {
     const url = new URL(request.url);
     const path = url.pathname;
-    const routes: ReadonlyArray<RegExp> = [/^\/v5\/vms\/[^/]+\/(snapshot|pty)(\/.*)?$/, /^\/v5\/snapshots(\/.*)?$/];
-    if (!routes.some((route) => route.test(path))) return null;
+    const oneSnapshot = /^\/v5\/snapshots\/([^/]+)$/.exec(path);
+    const isSnapshotRead = oneSnapshot !== null && request.method === "GET";
+    const isPty = /^\/v5\/vms\/[^/]+\/pty(\/.*)?$/.test(path);
+    if (!isSnapshotRead && !isPty) return null;
+    requests.push(request);
+    provider.calls.push({ method: request.method, path, search: url.searchParams, json: null, bytes: null });
     if (request.headers.get("authorization") !== `Bearer ${UPSTREAM_KEY}`) {
       return Response.json({ code: "UNAUTHORIZED", message: "bad key" }, { status: 401 });
     }
-    const snapshotOfVm = /^\/v5\/vms\/([^/]+)\/snapshot$/.exec(path);
-    if (snapshotOfVm?.[1] !== undefined && request.method === "POST") {
-      const vmId = decodeURIComponent(snapshotOfVm[1]);
-      if (unsnapshottableVms.has(vmId)) return Response.json({ code: "CONFLICT", message: `vm ${vmId} is stopped` }, { status: 409 });
-      const body: unknown = await request.clone().json();
-      const fields = typeof body === "object" && body !== null ? new Map(Object.entries(body)) : new Map<string, unknown>();
-      const numberOrNull = (value: unknown) => (typeof value === "number" ? value : null);
-      const displayName = fields.get("displayName");
-      const snapshot: FakeUpstreamSnapshot = {
-        id: `sc-${crypto.randomUUID()}`,
-        sourceVmId: vmId,
-        displayName: typeof displayName === "string" ? displayName : null,
-        ttlSeconds: numberOrNull(fields.get("ttlSeconds")),
-        autoDeleteSeconds: numberOrNull(fields.get("autoDeleteSeconds")),
-      };
-      upstreamSnapshots.set(snapshot.id, snapshot);
-      return Response.json({ snapshotId: snapshot.id, sourceVmId: vmId, snapshot: snapshotJson(snapshot) });
-    }
-    const oneSnapshot = /^\/v5\/snapshots\/([^/]+)$/.exec(path);
     if (oneSnapshot?.[1] !== undefined) {
       const id = decodeURIComponent(oneSnapshot[1]);
-      const snapshot = upstreamSnapshots.get(id);
+      const snapshot = provider.snapshots.get(id);
       if (snapshot === undefined) return Response.json({ code: "NOT_FOUND", message: `snapshot ${id} not found` }, { status: 404 });
-      if (request.method === "DELETE") {
-        upstreamSnapshots.delete(id);
-        return new Response(null, { status: 204 });
-      }
-      if (request.method === "GET") return Response.json(snapshotJson(snapshot));
+      return Response.json(snapshotJson(snapshot));
     }
     const pty = /^\/v5\/vms\/([^/]+)\/pty(?:\/sessions(?:\/([^/]+))?)?$/.exec(path);
     if (pty?.[1] !== undefined) {
@@ -266,7 +242,7 @@ export function makeS3aFakes(resources: OwnedResource[]) {
     upstream,
     layer,
     auditLog,
-    upstreamSnapshots,
+    requests,
     /** Records a snapshot owned by `tenant` and backed by a fake upstream snapshot. */
     addSnapshot(
       tenant: string,
@@ -278,14 +254,9 @@ export function makeS3aFakes(resources: OwnedResource[]) {
       } = {},
     ): { readonly snapshotId: SnapshotId; readonly upstreamId: string } {
       const snapshotId = newSnapshotId();
-      const upstreamId = `sc-${crypto.randomUUID()}`;
-      upstreamSnapshots.set(upstreamId, {
-        id: upstreamId,
-        sourceVmId: "vm-upstream-source",
-        displayName: null,
-        ttlSeconds: null,
-        autoDeleteSeconds: 3600,
-      });
+      const created = provider.addSnapshot(provider.addVm("running").id);
+      const upstreamId = created.id;
+      provider.snapshots.set(upstreamId, { ...created, autoDeleteSeconds: 3600 });
       resources.push({
         tenantId: TenantId.make(tenant),
         kind: "snapshot",
@@ -306,9 +277,6 @@ export function makeS3aFakes(resources: OwnedResource[]) {
     },
     denySnapshots(tenant: string) {
       deniedTenants.add(tenant);
-    },
-    blockSnapshotsOf(upstreamVmId: string) {
-      unsnapshottableVms.add(upstreamVmId);
     },
     failNextSnapshotRecord() {
       state.failSnapshotRecord = true;

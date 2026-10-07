@@ -23,7 +23,7 @@ afterEach(async () => {
 const create = (vmId: string, headers: Record<string, string>, body: unknown = {}) =>
   h.request(`/v1/vms/${vmId}/snapshots`, headers, { method: "POST", body });
 
-const upstreamPaths = () => h.upstreamRequests.map((request) => `${request.method} ${new URL(request.url).pathname}`);
+const upstreamPaths = () => h.upstreamRequests.map((call) => `${call.method} ${call.path}`);
 
 describe("cross-tenant isolation", () => {
   it("returns 404 when tenant B snapshots tenant A's VM, and nothing reaches upstream", async () => {
@@ -58,7 +58,7 @@ describe("cross-tenant isolation", () => {
 
     expect(response.status).toBe(404);
     expect(h.upstreamRequests).toHaveLength(0);
-    expect(h.s3a.upstreamSnapshots.has(upstreamId)).toBe(true);
+    expect(h.upstream.snapshots.has(upstreamId)).toBe(true);
     expect(h.s3a.snapshotRows(TENANT_A)).toHaveLength(1);
   });
 
@@ -127,22 +127,21 @@ describe("create", () => {
       sourceVmId: vmId,
       displayName: "ci base",
       labels: { pool: "linux-x64", "runner.cmux.dev/warm": "1" },
-      ttlSeconds: 86_400,
-      autoDeleteSeconds: 3_600,
       lastUsedAt: null,
     });
     expect(String(body["id"])).toMatch(SNAPSHOT_ID);
-    for (const leak of [upstreamVmId, "sc-", "slug-", "acct-leak-check", "freestyle", "Freestyle"]) expect(text).not.toContain(leak);
+    for (const leak of [upstreamVmId, "sh-", "slug-", "leak-check", "freestyle", "Freestyle"]) expect(text).not.toContain(leak);
 
     expect(upstreamPaths()).toEqual([`POST /v5/vms/${upstreamVmId}/snapshot`]);
-    const sent = await h.upstreamRequests.at(0)?.json<{ displayName: string; ttlSeconds: number }>();
-    expect(sent?.displayName).toContain(TENANT_A);
-    expect(sent?.displayName).toContain(String(body["id"]));
-    expect(sent?.ttlSeconds).toBe(86_400);
+    expect(h.upstream.callsTo("POST", /\/snapshot$/).at(0)?.json).toEqual({
+      displayName: `cmux ${TENANT_A} ${String(body["id"])}`,
+      ttlSeconds: 86_400,
+      autoDeleteSeconds: 3_600,
+    });
 
     const rows = h.s3a.snapshotRows(TENANT_A);
     expect(rows.map((row) => row.cmuxId)).toEqual([body["id"]]);
-    expect(h.s3a.upstreamSnapshots.has(String(rows.at(0)?.upstreamId))).toBe(true);
+    expect(h.upstream.snapshots.has(String(rows.at(0)?.upstreamId))).toBe(true);
     expect(h.s3a.auditLog).toMatchObject([
       { tenantId: TENANT_A, action: "snapshot.create", resourceId: body["id"], outcome: "succeeded" },
     ]);
@@ -202,8 +201,7 @@ describe("create", () => {
   });
 
   it("maps a VM that cannot be snapshotted to 409 and audits the failure", async () => {
-    const { vmId, upstreamId } = h.addVm(TENANT_A);
-    h.s3a.blockSnapshotsOf(upstreamId);
+    const { vmId, upstreamId } = h.addVm(TENANT_A, "stopped");
     const key = await h.addKey(TENANT_A, ["snapshot:write"]);
 
     const response = await create(vmId, bearer(key));
@@ -221,7 +219,7 @@ describe("create", () => {
     const response = await create(vmId, bearer(key));
 
     expect(response.status).toBe(503);
-    expect(h.s3a.upstreamSnapshots.size).toBe(0);
+    expect(h.upstream.snapshots.size).toBe(0);
     expect(upstreamPaths().map((path) => path.split(" ")[0])).toEqual(["POST", "DELETE"]);
   });
 
@@ -266,7 +264,7 @@ describe("read, list and delete", () => {
       ttlSeconds: null,
     });
     expect(text).not.toContain(upstreamId);
-    expect(text).not.toContain("vm-upstream-source");
+    expect(text).not.toContain("cmux internal");
     expect(upstreamPaths()).toEqual([`GET /v5/snapshots/${upstreamId}`]);
   });
 
@@ -317,7 +315,7 @@ describe("read, list and delete", () => {
     const response = await h.request(`/v1/snapshots/${snapshotId}`, bearer(key), { method: "DELETE" });
 
     expect(response.status).toBe(204);
-    expect(h.s3a.upstreamSnapshots.has(upstreamId)).toBe(false);
+    expect(h.upstream.snapshots.has(upstreamId)).toBe(false);
     expect(h.s3a.snapshotRows(TENANT_A)).toHaveLength(0);
     expect(h.s3a.auditLog).toMatchObject([{ action: "snapshot.delete", resourceId: snapshotId, outcome: "succeeded" }]);
     expect((await h.request(`/v1/snapshots/${snapshotId}`, bearer(key))).status).toBe(404);
@@ -325,7 +323,7 @@ describe("read, list and delete", () => {
 
   it("finishes a delete whose upstream snapshot is already gone", async () => {
     const { snapshotId, upstreamId } = h.s3a.addSnapshot(TENANT_A);
-    h.s3a.upstreamSnapshots.delete(upstreamId);
+    h.upstream.snapshots.delete(upstreamId);
     const key = await h.addKey(TENANT_A, ["snapshot:write"]);
 
     expect((await h.request(`/v1/snapshots/${snapshotId}`, bearer(key), { method: "DELETE" })).status).toBe(204);
