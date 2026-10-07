@@ -2438,6 +2438,7 @@ enum CmuxEmbeddedConfigSchema {
               "newCloudMachine",
               "saveLayoutTemplate",
               "openFolder",
+              "openFolderInVSCodeInline",
               "reopenPreviousSession",
               "goToWorkspace",
               "commandPalette",

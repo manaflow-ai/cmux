@@ -255,7 +255,7 @@ enum KeyboardShortcutSettings {
             case .newCloudMachine: return String(localized: "shortcut.newCloudMachine.label", defaultValue: "New Cloud Machine")
             case .saveLayoutTemplate: return String(localized: "shortcut.saveLayoutTemplate.label", defaultValue: "Save Layout as Template…")
             case .openFolder: return String(localized: "shortcut.openFolder.label", defaultValue: "Open Folder")
-            case .openFolderInVSCodeInline: return String(localized: "menu.file.openFolderInVSCodeInline", defaultValue: "Open Folder in VS Code (Inline)…")
+            case .openFolderInVSCodeInline: return String(localized: "shortcut.openFolderInVSCodeInline.label", defaultValue: "Open Folder in VS Code (Inline)")
             case .reopenPreviousSession: return String(localized: "shortcut.reopenPreviousSession.label", defaultValue: "Restore Previous App Launch")
             case .goToWorkspace: return String(localized: "menu.file.goToWorkspace", defaultValue: "Go to Workspace…")
             case .commandPalette: return String(localized: "menu.file.commandPalette", defaultValue: "Command Palette…")

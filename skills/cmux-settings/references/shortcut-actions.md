@@ -16,6 +16,7 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.globalSearch`
 - `shortcuts.bindings.newWindow`
 - `shortcuts.bindings.openFolder`
+- `shortcuts.bindings.openFolderInVSCodeInline`
 - `shortcuts.bindings.openSettings`
 - `shortcuts.bindings.openTeamPicker`
 - `shortcuts.bindings.quit`
