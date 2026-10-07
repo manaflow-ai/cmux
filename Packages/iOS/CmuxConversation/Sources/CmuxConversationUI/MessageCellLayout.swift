@@ -227,10 +227,10 @@ extension MessageCellLayout {
         var editedFrame: CGRect?
         var repliesFrame: CGRect?
         var footerFrame: CGRect?
-        func footerRect(_ y: CGFloat) -> CGRect {
+        func footerRect(_ y: CGFloat, inset: CGFloat = 9) -> CGRect {
             model.isOutgoing
-                ? CGRect(x: margin, y: y, width: bodyTrailing - 9 - margin, height: footerHeight)
-                : CGRect(x: bodyLeading + 9, y: y, width: width - bodyLeading - 9 - margin, height: footerHeight)
+                ? CGRect(x: margin, y: y, width: bodyTrailing - inset - margin, height: footerHeight)
+                : CGRect(x: bodyLeading + inset, y: y, width: width - bodyLeading - inset - margin, height: footerHeight)
         }
         if message.editedAt != nil {
             editedFrame = footerRect(y + 4)
@@ -241,7 +241,9 @@ extension MessageCellLayout {
             y += 4 + footerHeight
         }
         if model.footer != .none {
-            footerFrame = footerRect(y + 5)
+            // Messages ends "Delivered"/"Read" 20 pt inside the bubble edge,
+            // its cap top 1.7 pt below the tail.
+            footerFrame = model.footer == .notDelivered ? footerRect(y + 5) : footerRect(y + 5 + 2 / 3, inset: 20)
             y += 5 + footerHeight
         }
 

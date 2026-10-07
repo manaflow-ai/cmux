@@ -32,10 +32,15 @@ enum ConversationTheme {
     static let maxImageHeight: CGFloat = 340
 
     static let senderNameFont = UIFont.systemFont(ofSize: 12.5, weight: .regular)
-    static let footerFont = UIFont.systemFont(ofSize: 12, weight: .semibold)
+    /// Status, separators and swipe times are 11 pt in Messages (iOS 26).
+    static let footerFont = UIFont.systemFont(ofSize: 11, weight: .semibold)
+    static let footerDetailFont = UIFont.systemFont(ofSize: 11, weight: .regular)
     static let editedFont = UIFont.systemFont(ofSize: 12, weight: .regular)
-    static let timestampFont = UIFont.systemFont(ofSize: 12, weight: .regular)
-    static let timestampBoldFont = UIFont.systemFont(ofSize: 12, weight: .semibold)
+    static let timestampFont = UIFont.systemFont(ofSize: 11, weight: .regular)
+    static let timestampBoldFont = UIFont.systemFont(ofSize: 11, weight: .semibold)
+    /// Separator, swipe-time and status gray: Messages draws these in the
+    /// system secondary label color (138,138,142 on white).
+    static let timestampText = UIColor.secondaryLabel
 
     /// Composer metrics.
     static let composerSideInset: CGFloat = 27

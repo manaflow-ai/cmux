@@ -35,6 +35,8 @@ final class MessageCell: UICollectionViewCell {
 
     /// Swipe-left timestamp reveal, 0...1 of the reveal distance (applied by the controller).
     var timestampReveal: CGFloat = 0 { didSet { applyShifts() } }
+    /// Points outgoing content travels at a full reveal (set per swipe).
+    var timestampRevealDistance: CGFloat = 58 { didSet { applyShifts() } }
     /// Swipe-right reply drag offset in points.
     var replyDrag: CGFloat = 0 { didSet { applyShifts() } }
     /// Select mode leading shift for incoming rows.
@@ -56,7 +58,7 @@ final class MessageCell: UICollectionViewCell {
         emojiLabel.font = .systemFont(ofSize: ConversationTheme.emojiOnlyFontSize)
         emojiLabel.numberOfLines = 0
         footerLabel.font = ConversationTheme.footerFont
-        footerLabel.textColor = ConversationTheme.secondaryText
+        footerLabel.textColor = ConversationTheme.timestampText
         footerLabel.textAlignment = .right
         editedLabel.font = ConversationTheme.editedFont
         editedLabel.textColor = .systemBlue
@@ -65,7 +67,7 @@ final class MessageCell: UICollectionViewCell {
         failedBadge.tintColor = ConversationTheme.notDelivered
         failedBadge.contentMode = .scaleAspectFit
         timeLabel.font = ConversationTheme.timestampFont
-        timeLabel.textColor = ConversationTheme.secondaryText
+        timeLabel.textColor = ConversationTheme.timestampText
         timeLabel.alpha = 0
         replyArrow.tintColor = ConversationTheme.secondaryText
         replyArrow.contentMode = .center
@@ -194,7 +196,7 @@ final class MessageCell: UICollectionViewCell {
         // "Delivered" fades in over ~0.4 s when it first lands on this row.
         let sameRow = previousRowID == model.rowID
         let footerWasHidden = footerLabel.isHidden
-        let previousFooterText = footerLabel.text
+        let previousFooterText = footerLabel.attributedText
         defer {
             // Explicit layer animations: these run the same inside a batch
             // update, a spring, or performWithoutAnimation.
@@ -211,7 +213,7 @@ final class MessageCell: UICollectionViewCell {
             } else if sameRow, !footerWasHidden, footerLabel.isHidden {
                 // A status leaving this row fades out over ~0.3 s instead of vanishing.
                 footerLabel.isHidden = false
-                footerLabel.text = previousFooterText
+                footerLabel.attributedText = previousFooterText
                 footerLabel.alpha = 0
                 CATransaction.begin()
                 CATransaction.setCompletionBlock { [weak self] in
@@ -232,12 +234,12 @@ final class MessageCell: UICollectionViewCell {
         switch model.footer {
         case .none:
             footerLabel.isHidden = true
-        case let .status(text):
+        case let .status(title, detail):
             footerLabel.isHidden = false
-            footerLabel.text = text
-            footerLabel.textColor = ConversationTheme.secondaryText
+            footerLabel.attributedText = Self.statusText(title: title, detail: detail)
         case .notDelivered:
             footerLabel.isHidden = false
+            footerLabel.font = ConversationTheme.footerFont
             footerLabel.text = String(localized: "conversation.status.notDelivered", defaultValue: "Not Delivered", bundle: .module)
             footerLabel.textColor = ConversationTheme.notDelivered
         }
@@ -370,23 +372,44 @@ final class MessageCell: UICollectionViewCell {
 
     private func applyShifts() {
         guard let model else { return }
-        let revealDistance: CGFloat = 64
-        let reveal = timestampReveal * revealDistance
+        let reveal = timestampReveal * timestampRevealDistance
         var x: CGFloat = 0
         if model.isOutgoing { x -= reveal }
         x += replyDrag + selectionShift
         shiftable.transform = CGAffineTransform(translationX: x, y: 0)
         footerLabel.transform = CGAffineTransform(translationX: model.isOutgoing ? -reveal : 0, y: 0)
         failedBadge.transform = shiftable.transform
-        timeLabel.alpha = timestampReveal
-        // Right-aligned at the layout margin once fully revealed.
-        timeLabel.transform = CGAffineTransform(translationX: -(timeLabel.bounds.width + 8 + 16) * min(1, timestampReveal) - max(0, timestampReveal - 1) * revealDistance, y: 0)
+        // The time slides in from just past the edge (no fade), a little
+        // faster than the bubbles, and ends at the 16 pt margin.
+        timeLabel.alpha = timestampReveal > 0 ? 1 : 0
+        timeLabel.transform = CGAffineTransform(translationX: -Self.timeTravel(forTimeWidth: timeLabel.bounds.width) * timestampReveal, y: 0)
         let replyProgress = min(1, replyDrag / 60)
         replyArrow.alpha = replyProgress
         let arrowX = model.isOutgoing ? max(0, layoutOrigin(model) - 34) : max(4, replyDrag - 34)
         replyArrow.frame.origin.x = arrowX
         replyArrow.transform = CGAffineTransform(scaleX: 0.5 + 0.5 * replyProgress, y: 0.5 + 0.5 * replyProgress)
     }
+
+    /// Messages sets "Read" semibold and its time regular, both in the status gray.
+    static func statusText(title: String, detail: String?) -> NSAttributedString {
+        let text = NSMutableAttributedString(string: title, attributes: [
+            .font: ConversationTheme.footerFont,
+            .foregroundColor: ConversationTheme.timestampText,
+        ])
+        if let detail {
+            text.append(NSAttributedString(string: " " + detail, attributes: [
+                .font: ConversationTheme.footerDetailFont,
+                .foregroundColor: ConversationTheme.timestampText,
+            ]))
+        }
+        return text
+    }
+
+    /// The time waits 8 pt past the trailing edge and travels to the 16 pt margin.
+    static func timeTravel(forTimeWidth width: CGFloat) -> CGFloat { width + 24 }
+    /// Bubble travel that clears the widest time by 17 pt (58 pt for "3:16 AM").
+    static func timestampRevealDistance(forTimeWidth width: CGFloat) -> CGFloat { (width + 16).rounded() }
+    var timeLabelWidth: CGFloat { timeLabel.bounds.width }
 
     private func layoutOrigin(_ model: MessageRowModel) -> CGFloat {
         (cellLayout?.contentFrame.minX ?? 0) + replyDrag
@@ -419,10 +442,11 @@ final class TimestampCell: UICollectionViewCell {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        label.frame = contentView.bounds.inset(by: UIEdgeInsets(top: 10, left: 16, bottom: 4, right: 16))
+        label.frame = CGRect(x: 16, y: 10, width: contentView.bounds.width - 32, height: 18)
     }
 
-    static let height: CGFloat = 32
+    /// Messages sets the next bubble 10.6 pt below the separator's baseline.
+    static let height: CGFloat = 28.6
 
     static func text(for date: Date, now: Date = Date()) -> NSAttributedString {
         let calendar = Calendar.current
@@ -439,11 +463,11 @@ final class TimestampCell: UICollectionViewCell {
         }
         let result = NSMutableAttributedString(string: day, attributes: [
             .font: ConversationTheme.timestampBoldFont,
-            .foregroundColor: ConversationTheme.secondaryText,
+            .foregroundColor: ConversationTheme.timestampText,
         ])
         result.append(NSAttributedString(string: " " + time, attributes: [
             .font: ConversationTheme.timestampFont,
-            .foregroundColor: ConversationTheme.secondaryText,
+            .foregroundColor: ConversationTheme.timestampText,
         ]))
         return result
     }

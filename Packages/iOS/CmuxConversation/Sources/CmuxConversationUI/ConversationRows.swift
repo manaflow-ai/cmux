@@ -29,7 +29,8 @@ struct ReplyQuote: Hashable {
 
 enum MessageFooter: Hashable {
     case none
-    case status(String)
+    /// "Delivered", or "Read" with its time drawn in the regular weight.
+    case status(String, detail: String? = nil)
     case notDelivered
 }
 
@@ -133,14 +134,8 @@ enum ConversationRowBuilder {
             guard !isGroup else {
                 return .status(String(localized: "conversation.status.delivered", defaultValue: "Delivered", bundle: .module))
             }
-            if let date {
-                let time = date.formatted(date: .omitted, time: .shortened)
-                return .status(String(
-                    format: String(localized: "conversation.status.readAt", defaultValue: "Read %@", bundle: .module),
-                    time
-                ))
-            }
-            return .status(String(localized: "conversation.status.read", defaultValue: "Read", bundle: .module))
+            let read = String(localized: "conversation.status.read", defaultValue: "Read", bundle: .module)
+            return .status(read, detail: date?.formatted(date: .omitted, time: .shortened))
         }
     }
 
