@@ -40,7 +40,8 @@ const proUser = {
   clientReadOnlyMetadata: { cmuxPlan: "pro" },
   update: mock(async () => undefined),
 };
-const getUser = mock(async () => proUser);
+let currentUser: typeof proUser | null = proUser;
+const getUser = mock(async () => currentUser);
 const redirect = mock((href: unknown) => {
   throw Object.assign(new Error("redirect"), { href });
 });
@@ -256,6 +257,7 @@ describe("localized pricing page", () => {
   beforeEach(() => {
     process.env.CMUX_VAULT_ENABLED = "0";
     stackConfigured = false;
+    currentUser = proUser;
     stripeSubscriptionRows = [];
     getUser.mockClear();
     proUser.update.mockClear();
@@ -371,10 +373,29 @@ describe("localized pricing page", () => {
     const card = Array.from(html.matchAll(/aria-labelledby="individual-pricing-category"[\s\S]*?<\/section>/g), (match) => match[0]).find((section) => section.includes("Manage billing")) ?? "";
     expect(card.match(/Current plan/g)).toHaveLength(1);
     expect(card.includes("Manage billing")).toBe(true);
-    // A Pro subscriber can still upgrade: the Max card keeps its checkout
-    // link (the server routes an active Pro subscription to the portal).
-    expect(html).toContain("/api/billing/portal?flow=switch_plan&amp;plan=max");
+    // The checkout endpoint routes an active Pro subscription to the portal
+    // upgrade flow while also handling granted Pro users without a customer.
+    expect(card).toContain("/api/billing/checkout?plan=max");
     expect(html).toMatch(/plan=max[^"]*"[^>]*><span>Get Max/);
+  });
+
+  test("routes a granted Pro user's Max CTA through checkout", async () => {
+    stackConfigured = true;
+    currentUser = {
+      ...proUser,
+      clientReadOnlyMetadata: { cmuxVmPlan: "pro" },
+    };
+
+    const html = await renderSettled(
+      await PricingPage({ params: Promise.resolve({ locale: "en" }) }),
+    );
+    const card = Array.from(
+      html.matchAll(/aria-labelledby="individual-pricing-category"[\s\S]*?<\/section>/g),
+      (match) => match[0],
+    ).find((section) => section.includes("Current plan")) ?? "";
+    expect(card).toContain("Current plan");
+    expect(card).toMatch(/href="[^"]*\/api\/billing\/checkout\?plan=max[^"]*"[^>]*><span>Get Max/);
+    expect(card).not.toContain("/api/billing/portal?flow=switch_plan");
   });
 
   test("an App Store subscriber who also pays Stripe keeps Stripe's Manage billing", async () => {
