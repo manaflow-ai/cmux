@@ -929,6 +929,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                         table.beginUpdates()
                         switch pureEdit {
                         case .remove(let indexes):
+                            if animates { retireRowsSlidingOut(indexes, in: table) }
                             table.removeRows(at: indexes, withAnimation: animates ? [.slideLeft, .effectFade] : [])
                         case .insert(let indexes):
                             table.insertRows(at: indexes, withAnimation: animates ? [.slideDown, .effectFade] : [])
@@ -1239,6 +1240,17 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         createdCellViews.add(cell)
         configure(cell: cell, at: row)
         return cell
+    }
+
+    /// An animated removal keeps the row views on screen until the slide
+    /// ends, and `didRemove` only fires then. The workspace is already gone,
+    /// so its row stops being interactive now: edits commit, popovers close,
+    /// actions and link proxies are released. `didRemove` repeats it, a no-op.
+    private func retireRowsSlidingOut(_ indexes: IndexSet, in table: NSTableView) {
+        for row in indexes {
+            guard let cell = table.view(atColumn: 0, row: row, makeIfNecessary: false) else { continue }
+            mutationScheduler.stagePostUpdateActions(retirePresentation(from: cell, commitEdits: true))
+        }
     }
 
     func tableView(_ tableView: NSTableView, didRemove rowView: NSTableRowView, forRow row: Int) {
@@ -1884,6 +1896,11 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     /// drift after the last drag update, or an autoscroll tick landing
     /// before the coalesced repaint).
     var lastAcceptedReorderDropPlan: SidebarWorkspaceReorderDropPlan?
+
+    /// An accepted drop update is live. The lift draws the preview, so no
+    /// painter is set; this is what tells retirement to clear the drag
+    /// model's indicator and stop its autoscroll.
+    var hasLiveReorderDropUpdate = false
 
     /// One-shot: the next apply comes from this window's own drop, so the
     /// selected-workspace scroll policy must not yank the viewport away from

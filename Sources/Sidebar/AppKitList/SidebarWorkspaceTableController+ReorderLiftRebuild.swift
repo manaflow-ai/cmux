@@ -39,7 +39,11 @@ extension SidebarWorkspaceTableController {
         table.enumerateAvailableRowViews { rowView, row in
             guard previousRows.indices.contains(row) else { return }
             let layer = rowView.layer
-            let shift = (layer?.presentation() ?? layer)?
+            // Mid-glide the presentation is what is on screen; at rest the
+            // model is, and a presentation copy can lag it until the next
+            // commit (a just-removed glide still reads mid-flight).
+            let isGliding = !(layer?.animationKeys() ?? []).isEmpty
+            let shift = ((isGliding ? layer?.presentation() : nil) ?? layer)?
                 .value(forKeyPath: "transform.translation.y") as? CGFloat ?? 0
             visualTops[previousRows[row].id] = rowView.frame.minY + shift
         }

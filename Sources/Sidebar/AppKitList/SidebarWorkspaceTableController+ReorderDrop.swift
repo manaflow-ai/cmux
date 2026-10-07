@@ -156,6 +156,7 @@ extension SidebarWorkspaceTableController {
         // it), but it is drawn as displacement, not indicator lines: the
         // rows shifting around the lifted row are the drop preview.
         lastAcceptedReorderDropPlan = update.plan
+        hasLiveReorderDropUpdate = true
         if case .reorder(_, _, let explicitGroupId)? = update.plan?.action {
             updateReorderLiftIndent(isGrouped: explicitGroupId != nil)
         }
@@ -168,7 +169,9 @@ extension SidebarWorkspaceTableController {
 
     func retireReorderIndicator() {
         lastAcceptedReorderDropPlan = nil
-        guard reorderIndicatorPainter != nil else { return }
+        let hadLiveUpdate = hasLiveReorderDropUpdate
+        hasLiveReorderDropUpdate = false
+        guard reorderIndicatorPainter != nil || hadLiveUpdate else { return }
         reorderIndicatorPainter = nil
         clearReorderIndicatorPaintOnVisibleCells()
         actions?.clearWorkspaceDropIndicator()
