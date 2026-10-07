@@ -265,7 +265,13 @@ fn a_remote_message_cannot_turn_on_remote_auto_approve() {
     // asks (an approved shell command reaches the host the same way).
     assert!(h.brain.set_setting("remote.autoApprove", "true").is_err());
     assert!(!h.brain.remote_auto_approve());
-    assert!(!h.dir.path().join("settings.json").exists());
+    let kept: Value =
+        serde_json::from_str(&std::fs::read_to_string(h.dir.path().join("settings.json")).unwrap())
+            .unwrap();
+    assert_eq!(
+        kept["remote"]["autoApprove"], false,
+        "the file is unchanged"
+    );
     h.agents.hold(false);
     h.agents.release();
     h.settle();
@@ -491,7 +497,10 @@ fn by_default_a_remote_turn_needs_no_approval_and_spawns_without_a_floor() {
     h.step();
     h.agents.wait_prompts(1);
     wait_session(&mut h);
-    assert_eq!(h.agents.inner.lock().unwrap().specs[0].policy, "approve-all");
+    assert_eq!(
+        h.agents.inner.lock().unwrap().specs[0].policy,
+        "approve-all"
+    );
     assert_eq!(h.brain.spawn_policy(), None, "no ask floor by default");
     h.agents.hold(false);
     h.agents.release();
