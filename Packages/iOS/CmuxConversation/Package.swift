@@ -40,6 +40,11 @@ let package = Package(
             swiftSettings: swiftSettings
         ),
         .testTarget(
+            name: "CmuxConversationGeometryTests",
+            dependencies: ["CmuxConversationGeometry"],
+            swiftSettings: swiftSettings
+        ),
+        .testTarget(
             name: "CmuxConversationCoreTests",
             dependencies: ["CmuxConversationCore"],
             swiftSettings: swiftSettings
