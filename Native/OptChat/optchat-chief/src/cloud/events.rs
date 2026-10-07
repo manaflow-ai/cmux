@@ -23,6 +23,9 @@ pub enum CloudSignal {
     },
     /// `cloud-session-needed`: mint and lease a new chief token now.
     SessionNeeded(String),
+    /// `cloud-mux-wake` (new wakes) or `cloud-mux-resynced` (the pending
+    /// ones after a (re)subscribe): the chief's wake queue, ids only.
+    MuxWakes(Vec<crate::daemon::MuxWake>),
 }
 
 /// Maps one event line; None for events of other conversations or kinds.

@@ -69,6 +69,13 @@ pub trait ConversationPort: Send {
         let _ = (conversation, hash, variant, bytes);
         Err(OpError::Rejected("attachments_unsupported".into()))
     }
+    /// `cloud-mux-ack`: the chief handled the wakes of `conversation` up to
+    /// `seq` (the lease's chief; the request names no chief). Only the
+    /// cloud port has a wake queue.
+    fn mux_ack(&mut self, conversation: &str, seq: u64) -> Result<(), OpError> {
+        let _ = (conversation, seq);
+        Err(OpError::Rejected("mux_unsupported".into()))
+    }
 }
 
 /// What the brain hears from the daemon.

@@ -18,7 +18,7 @@ use optchat_chief::cloud::idmap::{to_brain, to_cloud};
 use optchat_chief::cloud::link::{CloudLinkConfig, spawn_cloud_link};
 use optchat_chief::cloud::port::{CloudPort, HISTORY_LIMIT, SNAPSHOT_TAIL};
 use optchat_chief::cloud::wire::Rpc;
-use optchat_chief::daemon::{ConversationPort, DaemonEvent, OpError};
+use optchat_chief::daemon::{ConversationPort, DaemonEvent, MuxWake, OpError};
 use serde_json::{Value, json};
 
 const CHIEF: &str = "agent_01CHIEF";
@@ -344,6 +344,7 @@ fn serve_cloud(
                         "cloud-conversation-subscribe" => {
                             json!({"conversation": req["conversation"], "state": "connecting"})
                         }
+                        "cloud-mux-subscribe" => json!({"state": "connecting"}),
                         "cloud-conversation-snapshot" => {
                             json!({"conversation": cloud_summary(1), "messages": [cloud_message(1, OWNER, "hi")], "rev": 4, "seq": 9})
                         }
@@ -568,4 +569,120 @@ fn the_cloud_source_needs_a_registered_install_with_a_chief() {
         .map(|s| s.to_string())
         .collect();
     assert!(conversation_source(&Flags::parse(&bad)).is_err());
+}
+
+// ---------------------------------------------------------------- wake queue (G9)
+
+fn wake(conversation: &str, seq: u64) -> MuxWake {
+    MuxWake {
+        conversation: conversation.into(),
+        seq,
+        reason: "mention".into(),
+    }
+}
+
+#[test]
+fn the_wake_queue_events_become_brain_wakes() {
+    let woke = json!({"event": "cloud-mux-wake", "seq": 8, "account": OWNER,
+        "wakes": [{"conversation": "conv_side", "seq": 4, "reason": "mention"}]});
+    match map_event(&woke, CONV, CHIEF) {
+        Some(CloudSignal::MuxWakes(wakes)) => assert_eq!(wakes, vec![wake("conv_side", 4)]),
+        _ => panic!("expected the wakes"),
+    }
+    let resynced = json!({"event": "cloud-mux-resynced", "seq": 7,
+        "pending": [{"conversation": "conv_side", "seq": 3, "reason": "mention"},
+                    {"conversation": CONV, "seq": 2, "reason": "mention"}]});
+    match map_event(&resynced, CONV, CHIEF) {
+        Some(CloudSignal::MuxWakes(wakes)) => {
+            assert_eq!(wakes, vec![wake("conv_side", 3), wake(CONV, 2)])
+        }
+        _ => panic!("expected the pending wakes"),
+    }
+}
+
+#[test]
+fn the_port_acks_wakes_for_the_leased_chief_by_ids_only() {
+    let rpc = FakeRpc::default();
+    rpc.replies.lock().unwrap().push(Ok(
+        json!({"value": {"cursor": 4, "cleared": 1}, "rev": 2, "replayed": false}),
+    ));
+    let mut port = CloudPort::new(rpc.clone(), CHIEF.into());
+    port.mux_ack("conv_side", 4).unwrap();
+    let calls = rpc.calls.lock().unwrap();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].0, "cloud-mux-ack");
+    // No `agent`: the daemon acks for the lease's own chief.
+    assert_eq!(calls[0].1, json!({"conversation": "conv_side", "seq": 4}));
+}
+
+/// The link subscribes to the chief's wake queue after the lease is set and
+/// the main conversation is subscribed (a person's lease cannot: the daemon
+/// answers `mux_needs_chief`), and relays wakes and resyncs to the brain.
+#[test]
+fn the_cloud_link_subscribes_the_wake_queue_with_the_chief_lease() {
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("daemon.sock");
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let subscribers = Arc::new(Mutex::new(Vec::new()));
+    serve_cloud(
+        UnixListener::bind(&socket).unwrap(),
+        requests.clone(),
+        subscribers.clone(),
+    );
+    let (tx, rx) = channel();
+    let tx = Mutex::new(tx);
+    spawn_cloud_link(
+        CloudLinkConfig {
+            socket,
+            chief: CHIEF.into(),
+            conversation: CONV.into(),
+        },
+        Arc::new(CountingTokens(Mutex::new(0))),
+        Arc::new(move |e| tx.lock().unwrap().send(e).unwrap()),
+        Arc::new(|_: &str| {}),
+    );
+    let wait = Duration::from_secs(30);
+    assert!(matches!(rx.recv_timeout(wait), Ok(DaemonEvent::Up { .. })));
+    {
+        let requests = requests.lock().unwrap();
+        let at = |cmd: &str| requests.iter().position(|r| r["cmd"] == cmd);
+        let (lease, main, queue) = (
+            at("cloud-session-set").expect("the lease"),
+            at("cloud-conversation-subscribe").expect("the main subscribe"),
+            at("cloud-mux-subscribe").expect("the wake queue subscribe"),
+        );
+        assert!(lease < main && main < queue, "{requests:?}");
+        let fields: Vec<&String> = requests[queue].as_object().unwrap().keys().collect();
+        assert_eq!(fields, vec!["cmd", "id"], "the request never names a chief");
+    }
+    let mut sub = subscribers.lock().unwrap()[0].try_clone().unwrap();
+    writeln!(
+        sub,
+        "{}",
+        json!({"event": "cloud-mux-resynced", "seq": 7,
+        "pending": [{"conversation": "conv_side", "seq": 3, "reason": "dm"}]})
+    )
+    .unwrap();
+    match rx.recv_timeout(wait).unwrap() {
+        DaemonEvent::MuxWake(wakes) => assert_eq!(
+            wakes,
+            vec![MuxWake {
+                conversation: "conv_side".into(),
+                seq: 3,
+                reason: "dm".into()
+            }]
+        ),
+        _ => panic!("expected the pending wakes"),
+    }
+    writeln!(
+        sub,
+        "{}",
+        json!({"event": "cloud-mux-wake", "seq": 8,
+        "wakes": [{"conversation": "conv_other", "seq": 1, "reason": "mention"}]})
+    )
+    .unwrap();
+    match rx.recv_timeout(wait).unwrap() {
+        DaemonEvent::MuxWake(wakes) => assert_eq!(wakes, vec![wake("conv_other", 1)]),
+        _ => panic!("expected the new wake"),
+    }
 }

@@ -228,7 +228,7 @@ fn session(
                     Err(e) => break format!("minting a chief token: {e}"),
                 }
             }
-            None => {}
+            Some(CloudSignal::MuxWakes(_)) | None => {}
         }
     };
     log(&format!("cloud link down: {ended}"));
