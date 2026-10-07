@@ -15,7 +15,7 @@ public struct PasswordImportReport: Sendable, Equatable, Codable {
     /// Sign-ins cmux already has for that site and username with another
     /// password: the saved one was kept. Summaries show this count on its own
     /// so a differing password is never dropped silently.
-    public var conflicts: Int { 0 }
+    public var conflicts: Int { store.conflict }
     /// What did not become a new saved password, other than `conflicts`.
     public var notImportedOtherThanConflicts: Int { notImported - conflicts }
 }
@@ -56,6 +56,10 @@ public struct PasswordImporter: Sendable {
     }
 
     public func run(_ profile: BrowserSourceProfile, intoProfile profileID: String) async throws -> PasswordImportReport {
+        if profile.browser.family == .firefox, !profile.browser.refusesSessionData {
+            guard destination.isAvailable else { throw Failure.storeUnavailable }
+            return try await store(try await readFirefox(profile), intoProfile: profileID)
+        }
         guard profile.browser.family == .chromium, !profile.browser.refusesSessionData,
               let service = profile.browser.safeStorageService else { throw Failure.unsupportedBrowser }
         guard destination.isAvailable else { throw Failure.storeUnavailable }

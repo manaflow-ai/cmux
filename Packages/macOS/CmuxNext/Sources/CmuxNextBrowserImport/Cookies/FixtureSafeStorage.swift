@@ -46,7 +46,7 @@ public struct SafeStorageKeys {
     }
 
     public func live() -> any SafeStorageKeyProviding {
-        if environment[ImportEnvironment.fixtureHomeKey].map({ !$0.isEmpty }) == true {
+        if allowsFixtures, environment[ImportEnvironment.fixtureHomeKey].map({ !$0.isEmpty }) == true {
             // A fixture home never falls back to the real Keychain.
             return FixtureSafeStorage(environment: environment, fileManager: fileManager) ?? FixtureSafeStorage(passwords: [:])
         }
