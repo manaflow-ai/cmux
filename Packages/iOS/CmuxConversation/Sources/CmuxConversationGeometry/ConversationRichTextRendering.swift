@@ -129,7 +129,6 @@ public final class ConversationTextEffectLayer: CALayer {
 
     public override init() {
         super.init()
-        isGeometryFlipped = Self.needsFlip
     }
 
     public override init(layer: Any) { super.init(layer: layer) }
@@ -137,13 +136,22 @@ public final class ConversationTextEffectLayer: CALayer {
     @available(*, unavailable)
     public required init?(coder: NSCoder) { fatalError() }
 
-    #if canImport(UIKit)
-    private static let needsFlip = false
-    #else
-    // AppKit layer trees are bottom-left; the effect math is top-left.
-    private static let needsFlip = true
-    #endif
     private static let flipSign: CGFloat = 1
+
+    /// The effect math is top-left-origin. UIKit trees already are; in AppKit
+    /// the tree is bottom-left unless a flipped view's layer flipped it, so
+    /// flip this layer exactly when its ancestors leave it bottom-left.
+    private func orientTopLeft() {
+        #if !canImport(UIKit)
+        var flippedAncestors = false
+        var ancestor = superlayer
+        while let layer = ancestor {
+            if layer.isGeometryFlipped { flippedAncestors.toggle() }
+            ancestor = layer.superlayer
+        }
+        if isGeometryFlipped == flippedAncestors { isGeometryFlipped = !flippedAncestors }
+        #endif
+    }
 
     public override func action(forKey event: String) -> (any CAAction)? { NSNull() }
 
@@ -157,6 +165,7 @@ public final class ConversationTextEffectLayer: CALayer {
             return
         }
         signature = (NSAttributedString(attributedString: text), textSize, textOrigin, scale, animated)
+        orientTopLeft()
         sublayers?.forEach { $0.removeFromSuperlayer() }
         guard ConversationRichTextStyler.hasEffects(text), textSize.width > 0 else { return }
         let units = Self.units(in: text, size: textSize, maximumGlyphUnits: maximumGlyphUnits)

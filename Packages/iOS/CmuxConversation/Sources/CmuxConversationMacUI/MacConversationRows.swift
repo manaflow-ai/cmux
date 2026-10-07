@@ -1,5 +1,6 @@
 #if os(macOS)
 import AppKit
+import CmuxConversationGeometry
 import CmuxConversationCore
 
 /// One visual row of the macOS transcript.
@@ -205,7 +206,7 @@ struct MacMessageLayout {
 @MainActor
 final class MacMessageLayoutCache {
     private var layouts: [String: (MacMessageRowModel, CGFloat, MacMessageLayout)] = [:]
-    private var texts: [String: (String, Bool, NSAttributedString)] = [:]
+    private var texts: [String: (String, [ConversationTextRun], Bool, NSAttributedString)] = [:]
 
     func layout(_ model: MacMessageRowModel, width: CGFloat) -> MacMessageLayout {
         if let (cachedModel, cachedWidth, layout) = layouts[model.rowID], cachedModel == model, cachedWidth == width {
@@ -217,11 +218,12 @@ final class MacMessageLayoutCache {
     }
 
     func text(_ model: MacMessageRowModel) -> NSAttributedString {
-        if let (text, outgoing, value) = texts[model.rowID], text == model.message.text, outgoing == model.isOutgoing {
+        if let (text, runs, outgoing, value) = texts[model.rowID], text == model.message.text, runs == model.message.textRuns,
+           outgoing == model.isOutgoing {
             return value
         }
-        let value = MacMessageLayout.attributedBody(model.message.text, outgoing: model.isOutgoing)
-        texts[model.rowID] = (model.message.text, model.isOutgoing, value)
+        let value = MacMessageLayout.attributedBody(model.message.text, outgoing: model.isOutgoing, runs: model.message.textRuns)
+        texts[model.rowID] = (model.message.text, model.message.textRuns, model.isOutgoing, value)
         return value
     }
 
@@ -238,13 +240,17 @@ extension NSAttributedString.Key {
 extension MacMessageLayout {
     nonisolated(unsafe) static let linkDetector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
 
-    static func attributedBody(_ text: String, outgoing: Bool) -> NSAttributedString {
+    static func attributedBody(_ text: String, outgoing: Bool, runs: [ConversationTextRun] = []) -> NSAttributedString {
         let t = MacConversationTheme.self
         let result = NSMutableAttributedString(string: text, attributes: [
             .font: t.bodyFont,
             .foregroundColor: outgoing ? t.outgoingText : t.incomingText,
             .paragraphStyle: t.bodyParagraph,
         ])
+        if !runs.isEmpty {
+            ConversationRichText.apply(runs, to: result)
+            ConversationRichTextStyler.applyDisplayAttributes(to: result, baseFont: t.bodyFont, lineHeight: t.lineHeight)
+        }
         linkDetector?.enumerateMatches(in: text, range: NSRange(text.startIndex..., in: text)) { match, _, _ in
             guard let match else { return }
             result.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: match.range)

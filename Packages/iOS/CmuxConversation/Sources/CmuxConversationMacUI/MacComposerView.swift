@@ -1,5 +1,7 @@
 #if os(macOS)
 import AppKit
+import CmuxConversationCore
+import CmuxConversationGeometry
 import UniformTypeIdentifiers
 
 struct MacComposerAttachment {
@@ -41,6 +43,40 @@ final class MacComposerTextView: NSTextView {
 
     var onSubmit: (() -> Void)?
     var onPasteImages: (([NSImage]) -> Bool)?
+    /// Plain body attributes; formatting is layered on through the semantic keys.
+    var baseTypingAttributes: [NSAttributedString.Key: Any] = [:]
+    var onFormattingChanged: (() -> Void)?
+    /// Draws and loops text-effect glyphs over the text, which draws them clear.
+    let effectLayer = ConversationTextEffectLayer()
+
+    /// Cmd-B/I/U format the draft. The window offers key equivalents to the
+    /// focused view before the main menu, so these win only while composing.
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if window?.firstResponder === self, flags == .command, let key = event.charactersIgnoringModifiers?.lowercased() {
+            switch key {
+            case "b": toggle(.bold); return true
+            case "i": toggle(.italic); return true
+            case "u": toggle(.underline); return true
+            default: break
+            }
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
+    /// Format > Font > Underline (NSText action).
+    override func underline(_ sender: Any?) { toggle(.underline) }
+
+    /// Font panel and Format > Font changes would bypass the run model.
+    override func changeFont(_ sender: Any?) {}
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let menu = super.menu(for: event) ?? NSMenu()
+        menu.insertItem(textEffectsMenuItem(), at: 0)
+        menu.insertItem(formatMenuItem(), at: 0)
+        menu.insertItem(.separator(), at: 2)
+        return menu
+    }
 
     override func doCommand(by selector: Selector) {
         if selector == #selector(insertNewline(_:)) {
@@ -60,7 +96,13 @@ final class MacComposerTextView: NSTextView {
            NSPasteboard.general.string(forType: .string) == nil, onPasteImages?(images) == true {
             return
         }
-        super.paste(sender)
+        // Rich text from elsewhere would bring foreign fonts and colors.
+        pasteAsPlainText(sender)
+    }
+
+    override func layout() {
+        super.layout()
+        refreshEffects()
     }
 }
 
@@ -146,15 +188,22 @@ final class MacComposerView: MacFlippedView, NSTextViewDelegate {
         }
         fieldContent.addSubview(attachmentStrip)
 
-        textView.isRichText = false
+        // Rich so the storage keeps per-run fonts; paste stays plain.
+        textView.isRichText = true
+        textView.importsGraphics = false
+        textView.usesFontPanel = false
         textView.allowsUndo = true
         textView.drawsBackground = false
         textView.font = MacConversationTheme.bodyFont
-        textView.typingAttributes = [
+        textView.baseTypingAttributes = [
             .font: MacConversationTheme.bodyFont,
             .foregroundColor: NSColor.labelColor,
             .paragraphStyle: MacConversationTheme.bodyParagraph,
         ]
+        textView.typingAttributes = textView.baseTypingAttributes
+        textView.wantsLayer = true
+        textView.layer?.addSublayer(textView.effectLayer)
+        textView.onFormattingChanged = { [weak self] in self?.textDidChange() }
         textView.textContainerInset = .zero
         textView.textContainer?.lineFragmentPadding = 0
         textView.isAutomaticQuoteSubstitutionEnabled = true
@@ -334,6 +383,16 @@ final class MacComposerView: MacFlippedView, NSTextViewDelegate {
     }
 
     func textDidChange(_ notification: Notification) {
+        textView.restyle()
+        textDidChange()
+    }
+
+    /// Formatting of the draft (UTF-16 offsets into `text`).
+    var textRuns: [ConversationTextRun] { textView.textRuns }
+
+    /// Loads a draft with formatting (editing a sent message).
+    func setText(_ text: String, runs: [ConversationTextRun]) {
+        textView.setText(text, runs: runs)
         textDidChange()
     }
 
@@ -372,6 +431,7 @@ final class MacComposerView: MacFlippedView, NSTextViewDelegate {
 
     func clearAfterSend() {
         textView.string = ""
+        textView.resetFormatting()
         attachments = []
         attachmentStrip.subviews.forEach { $0.removeFromSuperview() }
         updatePlaceholder()

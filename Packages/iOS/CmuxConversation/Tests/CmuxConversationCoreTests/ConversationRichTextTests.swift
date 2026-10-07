@@ -136,3 +136,32 @@ import Testing
         #expect(store.message(id: "m7")?.editedAt != nil)
     }
 }
+
+@Suite struct ConversationTextEffectMotionTests {
+    @Test func everyEffectSettlesAtRestWellBeforeTheNextCycle() {
+        for effect in ConversationTextEffect.allCases {
+            for count in [1, 5, 40, 200] {
+                let last = ConversationTextEffectMotion.delay(effect, index: count - 1, count: count)
+                let end = last + ConversationTextEffectMotion.duration(effect)
+                #expect(end < ConversationTextEffectMotion.cycle - 0.5, "\(effect) x\(count) ends at \(end)")
+                #expect(ConversationTextEffectMotion.pose(effect, index: count - 1, count: count, time: end + 0.01) == .rest)
+            }
+        }
+    }
+
+    @Test func motionStaysWithinAGlyphOrSoAndIsDeterministic() {
+        for effect in ConversationTextEffect.allCases {
+            for step in 0..<180 {
+                let t = Double(step) / 60
+                let a = ConversationTextEffectMotion.pose(effect, index: 2, count: 6, time: t, seed: 42)
+                #expect(abs(a.dx) <= 2 && abs(a.dy) <= 2 && a.scale > 0 && a.scale <= 1.7 && (0...1).contains(a.opacity))
+                #expect(a == ConversationTextEffectMotion.pose(effect, index: 2, count: 6, time: t, seed: 42))
+            }
+        }
+    }
+
+    @Test func rippleTravelsAcrossTheRunWhileShakeMovesTogether() {
+        #expect(ConversationTextEffectMotion.delay(.ripple, index: 3, count: 6) > ConversationTextEffectMotion.delay(.ripple, index: 1, count: 6))
+        #expect(ConversationTextEffectMotion.delay(.shake, index: 5, count: 6) == 0)
+    }
+}
