@@ -43,6 +43,7 @@ notify.workspace = true
 base64 = "0.22"
 unicode-width = "0.2"
 wait-timeout.workspace = true
+zeroize.workspace = true
 regex = "1"
 pulldown-cmark = { version = "0.13", default-features = false }
 syntect = { version = "5.3", default-features = false, features = ["default-fancy"] }
