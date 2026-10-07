@@ -22,6 +22,7 @@ os.environ["GH_MERGE_GREEN_WINDOW_FILE"] = _NO_FREEZE.name
 # No helper run reaches the real repository: merged-head checks use a fixture clone.
 os.environ["GH_MERGE_GREEN_REPO_DIR"] = os.path.join(tempfile.gettempdir(), "gh-merge-green-no-repo")
 HEAD = "a" * 40
+MERGED_SHA = "d" * 40
 BASE = "b" * 40
 ANCESTOR = "c" * 40
 NAMES = ("cmux-next Release compile (Xcode 26)", "cmux app scheme compile (Debug)", "cmux-next swift test")
@@ -326,6 +327,8 @@ class InstalledHelperRegression(unittest.TestCase):
         )
         gh.write_text(
             "#!/bin/sh\n"
+            "if [ \"$1 $2\" = 'pr view' ] && [ -e \"$MERGE_MARKER\" ]; then "
+            "printf '%s\\n' '{\"headRefOid\":\"" + HEAD + "\",\"baseRefName\":\"feat-cmux-next\",\"state\":\"MERGED\",\"mergeCommit\":{\"oid\":\"" + MERGED_SHA + "\"},\"labels\":[]}'; exit 0; fi\n"
             "if [ \"$1 $2\" = 'pr view' ]; then "
             "printf '%s\\n' '{\"headRefOid\":\"" + HEAD + "\",\"baseRefName\":\"feat-cmux-next\",\"state\":\"OPEN\",\"labels\":" + json.dumps([{"name": label} for label in labels]) + "}'; exit 0; fi\n"
             "if [ \"$1 $2\" = 'pr comment' ]; then printf '%s\\n' comment >> \"$EVENT_LOG\"; exit 0; fi\n"
@@ -1114,6 +1117,72 @@ class MergedHeadChecksRegression(unittest.TestCase):
             self.assertTrue(marker.exists())
             self.assertIn("bun x vp check", log)
             self.assertNotIn("--only swift", log)
+
+
+class ReleaseMailRegression(unittest.TestCase):
+    """A merge under a WINDOW token mails RELEASE <AREA> with the landed SHA to
+    inbox/lawrence-coordinator right after the merge."""
+
+    WINDOW = (
+        "[CORE] cmux-tui-core, spec/\nowner: op-ci-tiers #42\ntoken: c0dec0de1234\n\n"
+        "[LINK] cmux-link\nowner: none\ntoken: none\n\n"
+        "FREEZE: Packages/macOS/CmuxNext/Package.swift token=69600a4e4c73\n"
+        "PKG (CmuxNext Package.swift writer): op-ci-tiers hold token=69600a4e4c73\n"
+    )
+
+    def run_with(self, directory, extra_args, changed_files=("docs/README.md",)):
+        directory = Path(directory)
+        window = directory / "WINDOW"
+        window.write_text(self.WINDOW)
+        mailbox = directory / "mailbox"
+        (mailbox / "inbox/lawrence-coordinator").mkdir(parents=True)
+        saved = {name: os.environ.get(name) for name in ("GH_MERGE_GREEN_WINDOW_FILE", "GH_MERGE_GREEN_MAILBOX_DIR")}
+        os.environ.update(GH_MERGE_GREEN_WINDOW_FILE=str(window), GH_MERGE_GREEN_MAILBOX_DIR=str(mailbox))
+        try:
+            marker = directory / "merged"
+            result = InstalledHelperRegression.run_helper(
+                self, str(directory), marker, changed_files=changed_files, extra_args=extra_args)
+        finally:
+            for name, value in saved.items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
+        mails = sorted((mailbox / "inbox/lawrence-coordinator").glob("*.md"))
+        return result, marker, [m.read_text() for m in mails], [m.name for m in mails]
+
+    def test_a_window_token_merge_mails_release_with_the_landed_sha(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker, mails, names = self.run_with(directory, ("--window-token", "c0dec0de1234"))
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
+            self.assertEqual(len(mails), 1, names)
+            self.assertIn("subject: RELEASE CORE: #42 landed " + MERGED_SHA, mails[0])
+            self.assertIn("to: lawrence-coordinator", mails[0])
+            self.assertIn("c0dec0de1234", mails[0])
+            self.assertFalse(any(name.endswith(".tmp") for name in names))
+
+    def test_a_freeze_token_merge_mails_release_for_its_hold(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker, mails, names = self.run_with(
+                directory, ("--freeze-token", "69600a4e4c73"))
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(len(mails), 1, names)
+            self.assertIn("subject: RELEASE PKG: #42 landed " + MERGED_SHA, mails[0])
+
+    def test_a_token_that_is_not_current_refuses_before_merging(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker, mails, names = self.run_with(directory, ("--window-token", "5ta1e5ta1e00"))
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertEqual(mails, [])
+            self.assertIn("not a current WINDOW token", result.stderr)
+
+    def test_a_merge_without_a_token_sends_no_mail(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker, mails, names = self.run_with(directory, ())
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(mails, [])
 
 
 if __name__ == "__main__":
