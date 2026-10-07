@@ -73,16 +73,26 @@ export const SAMPLE_THEMES = [
   "Rose Pine Dawn",
 ];
 
-/** The width of an element, followed as it resizes (a callback ref, no effect). */
-export function useWidth(): [(node: HTMLElement | null) => void, number] {
-  const [width, setWidth] = useState(0);
+/** The room a window has to fit in: the element's width, and the viewport height below its top
+ * edge. Followed as the element or the window resizes (a callback ref, no effect). */
+export function useRoom(): [(node: HTMLElement | null) => void, { width: number; height: number }] {
+  const [room, setRoom] = useState({ width: 0, height: 0 });
   const ref = useCallback((node: HTMLElement | null) => {
     if (!node) return;
-    const observer = new ResizeObserver(([item]) => setWidth(Math.floor(item?.contentRect.width ?? 0)));
+    const measure = () => {
+      const rect = node.getBoundingClientRect();
+      // The caption line above each window takes about 28 px.
+      setRoom({ width: Math.floor(rect.width), height: Math.floor(innerHeight - Math.max(0, rect.top) - 44) });
+    };
+    const observer = new ResizeObserver(measure);
     observer.observe(node);
-    return () => observer.disconnect();
+    addEventListener("resize", measure);
+    return () => {
+      observer.disconnect();
+      removeEventListener("resize", measure);
+    };
   }, []);
-  return [ref, width];
+  return [ref, room];
 }
 
 /** Grid views show windows as thumbnails this wide. */
@@ -306,7 +316,8 @@ export function Controls({ env, onChange }: { env: GalleryEnv; onChange: (env: G
           </label>
         </>
       )}
-      <label hidden={env.frame === "window"}>
+      {env.frame === "component" && (
+      <label>
         Width
         <select
           value={typeof env.width === "number" ? "custom" : env.width}
@@ -335,6 +346,7 @@ export function Controls({ env, onChange }: { env: GalleryEnv; onChange: (env: G
           />
         )}
       </label>
+      )}
       <label title="Native only: web pages have no text size input">
         Dynamic size
         <select value={env.dynamicSize} onChange={(event) => set("dynamicSize", event.target.value as GalleryEnv["dynamicSize"])}>

@@ -13,7 +13,7 @@ import { css } from "../theme/tokens";
 import { themeTokens } from "../theme/web";
 import themes from "virtual:cmux-gallery/themes";
 import { createGalleryRouter, validateShellSearch, VIEWS, type ShellSearch, type View } from "./router";
-import { Controls, SAMPLE_THEMES, Stage, useWidth } from "./Stage";
+import { Controls, SAMPLE_THEMES, Stage, useRoom } from "./Stage";
 
 const VIEW_LABELS: Record<View, string> = {
   variant: "Variant",
@@ -184,7 +184,7 @@ function shellColors(search: ShellSearch): Record<string, string> {
 
 function Layout() {
   const address = useAddress();
-  const [stagesRef, stagesWidth] = useWidth();
+  const [stagesRef, room] = useRoom();
   const { entryValue: entry, variant, search } = address;
   if (!entry || !variant) return <p className="gallery-empty">No gallery entries. Add a *.gallery.ts file.</p>;
   const env: GalleryEnv = search;
@@ -235,9 +235,12 @@ function Layout() {
             ))}
           </fieldset>
           <Controls env={env} onChange={(next) => go({ ...address, search: { ...next, view: search.view } }, true)} />
-          <p className="gallery-covers">
-            {entry.host} · covers {entry.covers.join(", ")}
-          </p>
+          <details className="gallery-covers">
+            <summary>
+              {entry.host} · covers {entry.covers.length}
+            </summary>
+            {entry.covers.join(", ")}
+          </details>
         </header>
         <div ref={stagesRef} className={`gallery-stages gallery-stages--${search.view}`}>
           {stages.map((stage) => (
@@ -247,7 +250,7 @@ function Layout() {
               state={stage.variant}
               env={stage.env}
               label={stage.label}
-              available={{ width: Math.max(320, stagesWidth - 4), height: Math.max(320, innerHeight - 280) }}
+              available={{ width: Math.max(320, room.width - 4), height: Math.max(240, room.height) }}
               thumbnail={search.view !== "variant"}
             />
           ))}

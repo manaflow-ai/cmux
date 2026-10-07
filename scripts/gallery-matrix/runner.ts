@@ -200,7 +200,13 @@ async function runLocal(args: { manifest: string; galleryDir: string; outputDir:
   const server = selected.some((item) => !/^https?:\/\//.test(item.path_or_url)) ? await serveDirectory(resolve(args.galleryDir)) : null;
   try {
     const results: Record<string, unknown>[] = [];
-    for (const item of selected) for (const engine of args.engines) results.push(await renderCase(server?.baseUrl ?? "", item, engine, args.outputDir, args.baselineDir, args.threshold));
+    for (const item of selected)
+      for (const engine of args.engines) {
+        const started = Date.now();
+        const result = await renderCase(server?.baseUrl ?? "", item, engine, args.outputDir, args.baselineDir, args.threshold);
+        console.log(`rendered ${item.id} ${engine} ready=${String(result.ready)} ${Date.now() - started}ms`);
+        results.push(result);
+      }
     await writeFile(join(args.outputDir, "results.json"), `${JSON.stringify(results, null, 2)}\n`);
     await writeFile(join(args.outputDir, "index.html"), renderIndex(results));
     if (results.some((r) => (r.diff as DiffResult | undefined)?.passed === false)) process.exitCode = 1;
@@ -266,7 +272,8 @@ async function runFreestyle(args: { manifest: string; galleryDir: string; output
       // Each step's output is kept beside the run (shard-<n>.log) for a failed shard.
       const steps = [
         `set -eu; cd ${shellQuote(remoteRoot)}; bun install --no-save; bunx playwright install --with-deps ${args.engines.join(" ")}`,
-        `set -eu; cd ${shellQuote(remoteRoot)}; CMUX_GALLERY_IN_VM=1 bun runner.ts --manifest shard.json --gallery-dir gallery --output-dir output --engines ${args.engines.join(",")} --threshold ${args.threshold}`,
+        // `timeout` ends the step inside the exec cap, so a slow shard still reports its log.
+        `set -eu; cd ${shellQuote(remoteRoot)}; CMUX_GALLERY_IN_VM=1 timeout 280 bun runner.ts --manifest shard.json --gallery-dir gallery --output-dir output --engines ${args.engines.join(",")} --threshold ${args.threshold}`,
       ];
       const logPath = join(args.outputDir, `shard-${shard}.log`);
       await mkdir(args.outputDir, { recursive: true });

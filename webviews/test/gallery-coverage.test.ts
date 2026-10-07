@@ -59,7 +59,8 @@ function pages(): string[] {
   return [...ids].sort();
 }
 
-type Allowlist = { comment?: string; components: string[]; pages: string[] };
+/** `owners`: a path prefix of allowlisted names, and the lane that owns their entries. */
+type Allowlist = { comment?: string; owners?: Record<string, string>; components: string[]; pages: string[] };
 
 describe("gallery coverage", async () => {
   const entries = await loadEntries();
@@ -78,13 +79,15 @@ describe("gallery coverage", async () => {
     pages: allPages.filter((id) => !coveredPages.has(id)),
   };
 
+  const previous = fs.existsSync(ALLOWLIST) ? (JSON.parse(fs.readFileSync(ALLOWLIST, "utf8")) as Allowlist) : undefined;
   if (process.env.CMUX_GALLERY_UPDATE_ALLOWLIST === "1")
     fs.writeFileSync(
       ALLOWLIST,
       `${JSON.stringify(
         {
           comment:
-            "Components and pages with no gallery entry yet (test/gallery-coverage.test.ts). Shrink it: add an entry, then rerun with CMUX_GALLERY_UPDATE_ALLOWLIST=1.",
+            "Components and pages with no gallery entry yet (test/gallery-coverage.test.ts). Shrink it: add an entry, then rerun with CMUX_GALLERY_UPDATE_ALLOWLIST=1. `owners` names the lane that writes the entries under a path prefix; do not write those yourself.",
+          owners: previous?.owners ?? {},
           ...missing,
         },
         null,
@@ -119,6 +122,12 @@ describe("gallery coverage", async () => {
       ...allowlist.pages.filter((id) => !missing.pages.includes(id)),
     ];
     expect(stale).toEqual([]);
+  });
+
+  test("each owner prefix still names allowlisted work", () => {
+    const names = [...allowlist.components, ...allowlist.pages];
+    const idle = Object.keys(allowlist.owners ?? {}).filter((prefix) => !names.some((name) => name.startsWith(prefix)));
+    expect(idle).toEqual([]);
   });
 
   test("coverage counts", () => {
