@@ -208,7 +208,14 @@ final class WebBrowserViewController: UIViewController, WKNavigationDelegate, UI
 
     // MARK: Navigation
 
-    func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction) async -> WKNavigationActionPolicy {
+    // Completion-handler form: Xcode 26.6's compiler crashes emitting the ObjC
+    // thunk for async delegate methods.
+    func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
+                 decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void) {
+        decisionHandler(policy(for: navigationAction))
+    }
+
+    private func policy(for navigationAction: WKNavigationAction) -> WKNavigationActionPolicy {
         guard let url = navigationAction.request.url, let scheme = url.scheme?.lowercased() else { return .cancel }
         if ["about", "blob", "data"].contains(scheme) { return .allow }
         if let local = url.port.flatMap({ UInt16(exactly: $0) }), localPorts[local] != nil,
@@ -222,7 +229,7 @@ final class WebBrowserViewController: UIViewController, WKNavigationDelegate, UI
             return .cancel
         }
         if mainFrame, scheme == "http" || scheme == "https", navigationAction.navigationType == .linkActivated {
-            await UIApplication.shared.open(url)
+            UIApplication.shared.open(url)
         }
         return .cancel
     }

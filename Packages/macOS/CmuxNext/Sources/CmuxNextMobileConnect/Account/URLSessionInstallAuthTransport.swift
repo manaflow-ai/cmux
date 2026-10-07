@@ -31,6 +31,11 @@ public final class URLSessionInstallAuthTransport: InstallAuthTransport {
 
     private final class RefuseRedirects: NSObject, URLSessionTaskDelegate {
         func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
-                        newRequest request: URLRequest) async -> URLRequest? { nil }
+                        newRequest request: URLRequest,
+                        completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
+            // The completion-handler form, not the async one: Xcode 26.6's
+            // compiler crashes emitting the ObjC thunk for the async variant.
+            completionHandler(nil)
+        }
     }
 }

@@ -42,14 +42,22 @@ private final class WebKitPageHostReceiver: NSObject, WKScriptMessageHandlerWith
         self.handler = handler
     }
 
-    func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) async -> (Any?, String?) {
+    // Completion-handler form: Xcode 26.6's compiler crashes emitting the ObjC
+    // thunk for async delegate methods.
+    @MainActor
+    func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage,
+                               replyHandler: @escaping @MainActor @Sendable (Any?, String?) -> Void) {
         // A web view that shares this configuration is another page.
         guard let webView, message.webView === webView else {
             logger.error("page host message from another web view refused")
-            return (nil, "untrusted frame")
+            replyHandler(nil, "untrusted frame")
+            return
         }
         let request = PageHostMessage(
             frameURL: message.frameInfo.request.url, isMainFrame: message.frameInfo.isMainFrame, body: message.body)
-        return (await handler(request), nil)
+        let handler = handler
+        Task { @MainActor in
+            replyHandler(await handler(request), nil)
+        }
     }
 }

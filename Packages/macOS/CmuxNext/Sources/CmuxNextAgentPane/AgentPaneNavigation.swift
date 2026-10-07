@@ -8,7 +8,14 @@ import WebKit
 final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
     weak var view: AgentPaneView?
 
-    func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction) async -> WKNavigationActionPolicy {
+    // Completion-handler form: Xcode 26.6's compiler crashes emitting the ObjC
+    // thunk for async delegate methods.
+    func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
+                 decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void) {
+        decisionHandler(policy(for: action))
+    }
+
+    private func policy(for action: WKNavigationAction) -> WKNavigationActionPolicy {
         guard let view else { return .cancel }
         switch Self.decision(
             for: action.request.url,

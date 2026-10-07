@@ -36,14 +36,18 @@ nonisolated final class CertificateProbeDelegate: NSObject, URLSessionTaskDelega
         self.report = report
     }
 
-    func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge) async
-        -> (URLSession.AuthChallengeDisposition, URLCredential?) {
-        answer(challenge)
+    // Completion-handler form: Xcode 26.6's compiler crashes emitting the ObjC
+    // thunk for async delegate methods.
+    func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge,
+                    completionHandler: @escaping @Sendable (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        let (disposition, credential) = answer(challenge)
+        completionHandler(disposition, credential)
     }
 
-    func urlSession(_ session: URLSession, task: URLSessionTask, didReceive challenge: URLAuthenticationChallenge) async
-        -> (URLSession.AuthChallengeDisposition, URLCredential?) {
-        answer(challenge)
+    func urlSession(_ session: URLSession, task: URLSessionTask, didReceive challenge: URLAuthenticationChallenge,
+                    completionHandler: @escaping @Sendable (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        let (disposition, credential) = answer(challenge)
+        completionHandler(disposition, credential)
     }
 
     private func answer(_ challenge: URLAuthenticationChallenge) -> (URLSession.AuthChallengeDisposition, URLCredential?) {

@@ -342,7 +342,14 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     // MARK: WKNavigationDelegate
 
-    public func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction) async -> WKNavigationActionPolicy {
+    // Completion-handler form: Xcode 26.6's compiler crashes emitting the ObjC
+    // thunk for async delegate methods.
+    public func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
+                        decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void) {
+        decisionHandler(policy(for: action))
+    }
+
+    private func policy(for action: WKNavigationAction) -> WKNavigationActionPolicy {
         let url = action.request.url
         switch PageNavigation.policy(for: url, page: descriptor, userClicked: action.navigationType == .linkActivated,
                                      mainFrame: action.targetFrame?.isMainFrame ?? true, hook: onNavigate) {
