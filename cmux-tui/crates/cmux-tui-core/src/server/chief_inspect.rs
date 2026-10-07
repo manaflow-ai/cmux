@@ -82,8 +82,7 @@ fn require_owner(mux: &Mux, client: u64) -> anyhow::Result<()> {
     let unix = matches!(mux.control_clients.transport_of(client), Some(ClientTransport::Unix));
     let owner =
         unix && !mux.is_remote_client(client) && mux.conversation_principal(client) == LOCAL_USER;
-    let _ = owner;
-    Ok(()) // RED: no owner check yet
+    if owner { Ok(()) } else { Err(NotOwner.into()) }
 }
 
 /// The socket, checked: a Unix socket (not a symlink) owned by this
@@ -108,7 +107,11 @@ pub(super) fn inspect_with(
     socket: Option<&Path>,
 ) -> anyhow::Result<Value> {
     require_owner(mux, client)?;
-    let _ = PATHS; // RED: no path allowlist yet
+    anyhow::ensure!(
+        PATHS.contains(&params.path.as_str()),
+        "not an inspector path: {}",
+        params.path
+    );
     let path = match socket {
         Some(path) => path.to_owned(),
         None => {
@@ -123,7 +126,8 @@ pub(super) fn inspect_with(
     (&stream).write_all(format!("{request}\n").as_bytes())?;
     let mut line = String::new();
     BufReader::new((&stream).take(MAX_REPLY_BYTES as u64 + 1)).read_line(&mut line)?;
-    // RED: no size cap yet
+    anyhow::ensure!(line.len() <= MAX_REPLY_BYTES, "the Chief's answer is too large");
+    anyhow::ensure!(line.ends_with('\n'), "the Chief closed the tools socket mid-answer");
     let answer: Value = serde_json::from_str(&line)?;
     anyhow::ensure!(answer.get("status").is_some_and(Value::is_u64), "not an inspector answer");
     Ok(answer)
