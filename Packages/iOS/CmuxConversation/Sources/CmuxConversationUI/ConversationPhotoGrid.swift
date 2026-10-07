@@ -127,6 +127,8 @@ final class ConversationPhotoGridView: UIView, UICollectionViewDataSource, UICol
         onToggle?(asset, selected)
     }
 
+    func isSelected(assetID: String) -> Bool { selection.contains(assetID) }
+
     /// Drops one photo from the selection (its card preview was removed),
     /// renumbering the remaining badges as Messages does.
     func deselect(assetID: String) {
@@ -137,9 +139,11 @@ final class ConversationPhotoGridView: UIView, UICollectionViewDataSource, UICol
         }
     }
 
+    /// After a send: badges drop in place. Reloading the grid blanked every
+    /// thumbnail for a frame while images re-requested.
     func clearSelection() {
         selection = []
-        grid.reloadData()
+        for case let cell as Cell in grid.visibleCells { cell.setBadge(nil, animated: true) }
     }
 
     private final class Cell: UICollectionViewCell {

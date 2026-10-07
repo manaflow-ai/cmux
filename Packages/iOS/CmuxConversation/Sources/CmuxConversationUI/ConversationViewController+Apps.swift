@@ -177,7 +177,10 @@ extension ConversationViewController {
         options.deliveryMode = .highQualityFormat
         PHImageManager.default().requestImageDataAndOrientation(for: asset, options: options) { [weak self] data, uti, _, _ in
             Task { @MainActor in
-                guard let self, let data, let image = UIImage(data: data) else { return }
+                // The photo loads asynchronously; drop it if it was deselected
+                // or already cleared by a send while it loaded.
+                guard let self, let data, let image = UIImage(data: data),
+                      self.photoDrawer?.isSelected(assetID: id) == true, self.pickedAssets[id] == nil else { return }
                 let isPNG = uti == UTType.png.identifier
                 let attachment = ComposerAttachment(image: image, data: data, mimeType: isPNG ? "image/png" : "image/jpeg")
                 self.pickedAssets[id] = attachment.id
