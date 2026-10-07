@@ -35,6 +35,8 @@ describe("the endpoint table", () => {
     );
     const covered = [
       "GET /healthz",
+      // No credential (the one-time code is one); test/workers/mesh-m2.test.ts covers it.
+      "POST /v1/meshes/{meshId}/device-enrollments",
       ...VM_ENDPOINTS.map((endpoint) => `${endpoint.method} ${endpoint.template}`),
       ...TENANT_ENDPOINTS.map((endpoint) => `${endpoint.method} ${endpoint.template}`),
       ...SNAPSHOT_ENDPOINTS.map((endpoint) => `${endpoint.method} ${endpoint.template}`),
