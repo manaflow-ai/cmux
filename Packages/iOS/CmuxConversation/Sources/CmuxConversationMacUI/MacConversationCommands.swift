@@ -120,6 +120,14 @@ final class MacConversationWindow: NSWindow {
 }
 
 extension MacConversationLab {
+    /// Whether `event` is a Messages shortcut for a conversation window,
+    /// which the window performs itself; a host app's shortcut monitor
+    /// should let it through untouched.
+    public static func handlesShortcut(_ event: NSEvent, in window: NSWindow? = nil) -> Bool {
+        guard (window ?? event.window ?? NSApp.keyWindow) is MacConversationWindow else { return false }
+        return MacConversationCommands.command(matching: event) != nil
+    }
+
     /// A Messages-shaped menu bar for the standalone lab runner (the cmux
     /// host keeps its own menus; the window still answers the shortcuts).
     public static func makeMainMenu(appName: String = ProcessInfo.processInfo.processName) -> NSMenu {

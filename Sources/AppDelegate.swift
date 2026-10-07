@@ -14816,6 +14816,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             clearConfiguredShortcutChordState()
             return false
         }
+#if DEBUG
+        // The DEBUG conversation lab window answers Messages' shortcuts
+        // (⌘R, ⌘T, ⌘E, ⌃⇥…) itself; they must not reach a terminal window.
+        if MacConversationLab.handlesShortcut(event) {
+            clearConfiguredShortcutChordState()
+            return false
+        }
+#endif
 
         if shortcutRoutingShouldBypassForPrintableOptionText(event: event) {
             let shortcutWindow = resolvedShortcutEventWindow(event) ?? shortcutRoutingActiveWindow

@@ -29,6 +29,20 @@ import Testing
         #expect(action("cmd+option+r") == nil)
     }
 
+    @Test func hostShortcutMonitorsLeaveMessagesShortcutsToTheConversationWindow() async throws {
+        let lab = try await Lab()
+        let other = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 100, height: 100), styleMask: [.titled], backing: .buffered, defer: true)
+        func event(_ spec: String, in window: NSWindow) -> NSEvent {
+            let (code, characters, flags) = Self.key(spec)
+            return NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: window.windowNumber, context: nil,
+                                    characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code)!
+        }
+        #expect(MacConversationLab.handlesShortcut(event("cmd+t", in: lab.window), in: lab.window))
+        #expect(MacConversationLab.handlesShortcut(event("ctrl+tab", in: lab.window), in: lab.window))
+        #expect(!MacConversationLab.handlesShortcut(event("cmd+c", in: lab.window), in: lab.window))
+        #expect(!MacConversationLab.handlesShortcut(event("cmd+t", in: other), in: other))
+    }
+
     @Test func replyTargetsLatestIncomingThenTheSelectedMessage() async throws {
         let lab = try await Lab()
         lab.focusComposer()
