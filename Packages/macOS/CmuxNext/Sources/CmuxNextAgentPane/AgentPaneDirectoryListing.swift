@@ -14,6 +14,25 @@ nonisolated struct AgentPaneDirectoryListing: Equatable, Sendable {
         case notDirectory
     }
 
+    /// Credential stores are never exposed by the read-only picker. Dot folders are filtered
+    /// below as a general UI rule, while this list also blocks direct requests for known stores.
+    private static let credentialFolders = [
+        ".ssh", ".gnupg", ".aws", ".azure", ".docker", ".config/gh", ".config/gcloud",
+        "Library/Keychains", "Library/Application Support/Keychains",
+    ]
+
+    private static func isCredentialPath(_ path: String) -> Bool {
+        let components = path.split(separator: "/").map { $0.lowercased() }
+        for folder in credentialFolders {
+            let denied = folder.lowercased().split(separator: "/")
+            guard denied.count <= components.count else { continue }
+            for start in 0...(components.count - denied.count) {
+                if Array(components[start..<(start + denied.count)]) == denied { return true }
+            }
+        }
+        return false
+    }
+
     /// Lists only readable child directories under one of the read-only browser roots.
     /// Symlinks are resolved before both the root check and the child result, so a link cannot
     /// escape the pane's scope. Dot-prefixed children stay hidden unless a user types their path.
@@ -30,6 +49,7 @@ nonisolated struct AgentPaneDirectoryListing: Equatable, Sendable {
 
         guard let canonical = AcpmuxPathPolicy.canonical(expanded) else { return .failure(.unreadable) }
         guard AcpmuxPathPolicy.isDirectory(canonical) else { return .failure(.notDirectory) }
+        guard !isCredentialPath(canonical) else { return .failure(.unreadable) }
         let canonicalRoots = roots.compactMap(AcpmuxPathPolicy.canonical).filter { $0 != "/" }
         guard canonicalRoots.contains(where: { AcpmuxPathPolicy.contains(root: $0, path: canonical) }) else {
             return .failure(.outsideRoots)
@@ -49,6 +69,7 @@ nonisolated struct AgentPaneDirectoryListing: Equatable, Sendable {
             let child = (canonical as NSString).appendingPathComponent(name)
             guard let resolved = AcpmuxPathPolicy.canonical(child),
                   canonicalRoots.contains(where: { AcpmuxPathPolicy.contains(root: $0, path: resolved) }),
+                  !isCredentialPath(resolved),
                   AcpmuxPathPolicy.isDirectory(resolved),
                   FileManager.default.isReadableFile(atPath: resolved) else { return nil }
             return resolved

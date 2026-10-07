@@ -57,6 +57,27 @@ struct AgentPaneDirectoryListingTests {
         }
     }
 
+    @Test func hidesCredentialDirectoriesAndRejectsDirectCredentialBrowsing() throws {
+        try withTree { root in
+            let visible = root.appendingPathComponent("visible")
+            let ssh = root.appendingPathComponent(".ssh")
+            let gnupg = root.appendingPathComponent(".gnupg")
+            let keychains = root.appendingPathComponent("Library/Keychains")
+            let github = root.appendingPathComponent(".config/gh")
+            for directory in [visible, ssh, gnupg, keychains, github] {
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            }
+
+            let result: AgentPaneDirectoryListing
+            switch AgentPaneDirectoryListing.list(path: root.path, roots: [root.path], home: root.path) {
+            case .success(let value): result = value
+            case .failure(let failure): Issue.record("unexpected listing failure: \(failure)"); return
+            }
+            #expect(result.directories == [visible.path])
+            #expect(AgentPaneDirectoryListing.list(path: keychains.path, roots: [root.path], home: root.path) == .failure(.unreadable))
+        }
+    }
+
     @Test func rejectsOutsideAndNonDirectoryPaths() throws {
         try withTree { root in
             let outside = root.deletingLastPathComponent().appendingPathComponent("outside-\(UUID().uuidString)")
