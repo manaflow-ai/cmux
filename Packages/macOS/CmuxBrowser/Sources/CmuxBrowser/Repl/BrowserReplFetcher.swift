@@ -292,6 +292,7 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
             return (.failure(error), 0)
         } catch {
             if lock.withLock({ isInvalidated }) { return (.failure(Self.closedError), 0) }
+            if Task.isCancelled, (error as? URLError)?.code == .cancelled { return (.failure(Self.cancelledError), 0) }
             if (error as? URLError)?.code == .timedOut {
                 return (.failure(BrowserReplDriverError(
                     code: "timeout",
@@ -363,25 +364,44 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
         lock.withLock { collectors[task.taskIdentifier] = collector }
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
-                if let reason = blockReason() {
-                    lock.withLock {
-                        collectors[task.taskIdentifier] = nil
-                        tasks[task.taskIdentifier] = nil
-                    }
-                    task.cancel()
-                    let url = task.originalRequest?.url?.absoluteString ?? "the URL"
-                    continuation.resume(throwing: BrowserReplDriverError(code: "blocked", message: "fetch: \(url) is blocked: \(reason)"))
-                    return
-                }
                 #if DEBUG
                 beforeWaiting?(task)
                 #endif
-                collector.continuation = continuation
-                task.resume()
+                if let reason = blockReason() {
+                    forget(task)
+                    let url = task.originalRequest?.url?.absoluteString ?? "the URL"
+                    collector.fail(BrowserReplDriverError(code: "blocked", message: "fetch: \(url) is blocked: \(reason)"))
+                } else if Task.isCancelled {
+                    // The cancellation handler already cancelled the URL
+                    // session task; it is never sent.
+                    forget(task)
+                    collector.fail(Self.cancelledError)
+                } else {
+                    task.resume()
+                }
+                // The task's completion may already have been delivered (a
+                // cancellation of the Swift task cancels it): the collector
+                // then holds its result and resumes the fetch at once.
+                collector.install(continuation)
             }
         } onCancel: {
             task.cancel()
         }
+    }
+
+    private static let cancelledError = BrowserReplDriverError(
+        code: "cancelled",
+        message: "fetch: cancelled because the cell that started it timed out or its session ended"
+    )
+
+    /// Drops `task`'s state and cancels it before it was resumed; its
+    /// completion then finds no collector.
+    private func forget(_ task: URLSessionDataTask) {
+        lock.withLock {
+            collectors[task.taskIdentifier] = nil
+            tasks[task.taskIdentifier] = nil
+        }
+        task.cancel()
     }
 
     private var collectors: [Int: FetchCollector] = [:]
@@ -652,7 +672,12 @@ private final class FetchCollector: @unchecked Sendable {
     private let budget: BrowserReplFetchBudget
     private var overflow: Overflow?
     private var onResponse: (@Sendable () -> Void)?
-    var continuation: CheckedContinuation<(Data, URLResponse), any Error>?
+    /// The fetch waiting for the result, once it waits.
+    private var continuation: CheckedContinuation<(Data, URLResponse), any Error>?
+    /// The result when it came before the fetch waited for it.
+    private var outcome: Result<(Data, URLResponse), any Error>?
+    /// Set once a result was given; later ones are dropped.
+    private var isComplete = false
 
     init(limit: Int, budget: BrowserReplFetchBudget, onResponse: (@Sendable () -> Void)?) {
         self.limit = limit
@@ -673,7 +698,7 @@ private final class FetchCollector: @unchecked Sendable {
     func append(_ chunk: Data) -> Bool {
         lock.lock()
         defer { lock.unlock() }
-        guard overflow == nil else { return false }
+        guard overflow == nil, !isComplete else { return false }
         if data.count + chunk.count > limit {
             overflow = .body
         } else if let refusal = budget.reserve(chunk.count) {
@@ -687,46 +712,71 @@ private final class FetchCollector: @unchecked Sendable {
         return false
     }
 
-    /// Ends the fetch without a body; the bytes it held go back.
-    private func takeForFailure() -> CheckedContinuation<(Data, URLResponse), any Error>? {
+    /// The fetch waits on `continuation`: resumed at once when the result
+    /// already came, else by the result when it comes. Under one lock with
+    /// ``complete(_:)``, so the continuation is resumed exactly once
+    /// whichever comes first.
+    func install(_ continuation: CheckedContinuation<(Data, URLResponse), any Error>) {
+        let ready: Result<(Data, URLResponse), any Error>? = lock.withLock {
+            guard let outcome else {
+                self.continuation = continuation
+                return nil
+            }
+            self.outcome = nil
+            return outcome
+        }
+        if let ready { continuation.resume(with: ready) }
+    }
+
+    /// Gives the fetch its result, the first one only: resumes the waiting
+    /// fetch, or keeps the result for ``install(_:)``. A success returns
+    /// the body, whose bytes stay held for the caller; a failure gives
+    /// them back.
+    private func complete(_ result: Result<URLResponse, any Error>) {
         lock.lock()
-        let continuation = self.continuation
-        self.continuation = nil
-        budget.release(data.count)
+        guard !isComplete else {
+            lock.unlock()
+            return
+        }
+        isComplete = true
+        let final: Result<(Data, URLResponse), any Error>
+        switch result {
+        case .success(let response):
+            final = .success((data, response))
+        case .failure(let error):
+            budget.release(data.count)
+            final = .failure(error)
+        }
         data = Data()
+        let waiting = continuation
+        continuation = nil
+        if waiting == nil { outcome = final }
         lock.unlock()
-        return continuation
+        waiting?.resume(with: final)
     }
 
     func fail(_ error: any Error) {
-        takeForFailure()?.resume(throwing: error)
+        complete(.failure(error))
     }
 
     func finish(response: URLResponse?, error: (any Error)?) {
-        lock.lock()
-        let overflow = self.overflow
-        lock.unlock()
+        let overflow = lock.withLock { self.overflow }
         switch overflow {
         case .body?:
-            takeForFailure()?.resume(throwing: BrowserReplDriverError(
+            fail(BrowserReplDriverError(
                 code: "invalid",
                 message: "fetch: the response body is larger than \(BrowserReplFetchBudget.describe(limit)); download it in a tab (page.waitForEvent(\"download\")) instead"
             ))
         case .budget(let refusal)?:
-            takeForFailure()?.resume(throwing: refusal.driverError("fetch"))
+            fail(refusal.driverError("fetch"))
         case nil:
             if let error {
-                takeForFailure()?.resume(throwing: error)
+                fail(error)
             } else if let response {
                 // The body's bytes stay reserved; the fetcher's caller releases them.
-                lock.lock()
-                let continuation = self.continuation
-                self.continuation = nil
-                let body = data
-                lock.unlock()
-                continuation?.resume(returning: (body, response))
+                complete(.success(response))
             } else {
-                takeForFailure()?.resume(throwing: URLError(.badServerResponse))
+                fail(URLError(.badServerResponse))
             }
         }
     }
