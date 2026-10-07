@@ -234,10 +234,14 @@ def metadata_fallback(repo: str, base: str | None, head: str) -> tuple[str, str]
 
 
 def update_appcasts(directory: Path, build: str, summary: str) -> None:
-    expected = {"appcast-arm64.xml", "appcast-x86_64.xml", "appcast-universal.xml", "appcast.xml"}
+    # NIGHTLY and RC publish four feeds; nightly-next is arm64 only (its appcast.xml is the arm64 feed).
+    expected = (
+        {"appcast-arm64.xml", "appcast-x86_64.xml", "appcast-universal.xml", "appcast.xml"},
+        {"appcast-arm64.xml", "appcast.xml"},
+    )
     feeds = sorted(directory.glob("appcast*.xml"))
-    if {feed.name for feed in feeds} != expected:
-        raise RuntimeError("Expected all four nightly appcasts before generating notes; download the complete signed variant artifacts")
+    if {feed.name for feed in feeds} not in expected:
+        raise RuntimeError("Expected every nightly appcast of the track before generating notes; download the complete signed variant artifacts")
     # Build all replacements before writing, so a missing current item fails cleanly.
     replacements = []
     for feed in feeds:

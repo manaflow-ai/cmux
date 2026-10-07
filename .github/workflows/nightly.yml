@@ -213,9 +213,6 @@ jobs:
             // A manually dispatched fast build is a branch-dogfood artifact only.
             // It deliberately produces one Apple silicon DMG and never publishes
             // to the shared NIGHTLY release or feed.
-            const variants = fastBuild ? ['arm64'] : ['arm64', 'x86_64', 'universal'];
-            core.setOutput('variants', JSON.stringify(variants));
-            core.setOutput('legacy_variant', 'universal');
             core.setOutput('fast_build', fastBuild ? 'true' : 'false');
             core.setOutput('build_only', buildOnly ? 'true' : 'false');
             core.setOutput('cold_cache', coldCache ? 'true' : 'false');
@@ -232,6 +229,12 @@ jobs:
             const isTrackRef = isMainRef || isNextRef;
             const channel = isRcRef ? 'rc' : 'nightly';
             const track = isRcRef ? 'rc' : isNextRef ? 'nightly-next' : 'nightly';
+            // nightly-next is arm64 only (Leo, 10-07): its legacy download and appcast.xml carry the
+            // arm64 build, and every item requires arm64 hardware, so Intel Macs keep their last build.
+            const arm64Only = fastBuild || track === 'nightly-next';
+            const variants = arm64Only ? ['arm64'] : ['arm64', 'x86_64', 'universal'];
+            core.setOutput('variants', JSON.stringify(variants));
+            core.setOutput('legacy_variant', arm64Only ? 'arm64' : 'universal');
             const channelIdentity = {
               nightly: {
                 bundleId: 'com.cmuxterm.app.nightly',
@@ -2384,6 +2387,8 @@ jobs:
           # cmux-next items carry sparkle:channel cmux-next, which only the
           # cmux-next build allows; every other build ignores them.
           SPARKLE_CHANNEL: ${{ needs.decide.outputs.track == 'nightly-next' && 'cmux-next' || '' }}
+          # nightly-next is arm64 only: Intel Macs keep their last build.
+          SPARKLE_HARDWARE_REQUIREMENTS: ${{ needs.decide.outputs.track == 'nightly-next' && 'arm64' || '' }}
         run: |
           set -euo pipefail
           SPARKLE_PRIVATE_KEY="$(./scripts/ci/nightly-sparkle-key.sh)"
@@ -2486,24 +2491,34 @@ jobs:
             --assets-dir nightly-out
 
       - name: Assemble legacy nightly names
+        env:
+          VARIANTS: ${{ needs.decide.outputs.variants }}
         run: |
           set -euo pipefail
           cd nightly-out
           ls -l
-          for variant in arm64 x86_64; do
+          for variant in $(jq -r '.[] | select(. != "universal")' <<<"$VARIANTS"); do
             [ -f "${CHANNEL_DMG_PREFIX}-${variant}.dmg" ] || { echo "missing ${CHANNEL_DMG_PREFIX}-${variant}.dmg" >&2; exit 1; }
             [ -f "appcast-${variant}.xml" ] || { echo "missing appcast-${variant}.xml" >&2; exit 1; }
           done
-          # `cmux-nightly-macos.dmg` and `appcast.xml` are the download and feed
-          # every pre-existing link and install uses. They stay universal: the
-          # universal variant generates appcast.xml itself, and installs move to
-          # their architecture's feed on the next update check.
-          [ "$NIGHTLY_LEGACY_VARIANT" = "universal" ] || { echo "unexpected legacy variant: $NIGHTLY_LEGACY_VARIANT" >&2; exit 1; }
-          [ -f "${CHANNEL_DMG_PREFIX}-universal.dmg" ] || { echo "universal variant DMG missing" >&2; exit 1; }
-          [ -f appcast.xml ] || { echo "universal variant appcast.xml missing" >&2; exit 1; }
-          cp "${CHANNEL_DMG_PREFIX}-universal.dmg" "${CHANNEL_DMG_PREFIX}.dmg"
-          # Compatibility feed for nightlies older than the unified appcast.
-          cp appcast.xml appcast-universal.xml
+          # `<prefix>.dmg` and `appcast.xml` are the download and feed every
+          # pre-existing link and install uses. On NIGHTLY and RC they stay
+          # universal: the universal variant generates appcast.xml itself, and
+          # installs move to their architecture's feed on the next update check.
+          # nightly-next is arm64 only, so its legacy names carry the arm64 build.
+          case "$NIGHTLY_LEGACY_VARIANT" in
+            universal)
+              [ -f "${CHANNEL_DMG_PREFIX}-universal.dmg" ] || { echo "universal variant DMG missing" >&2; exit 1; }
+              [ -f appcast.xml ] || { echo "universal variant appcast.xml missing" >&2; exit 1; }
+              # Compatibility feed for nightlies older than the unified appcast.
+              cp appcast.xml appcast-universal.xml
+              ;;
+            arm64)
+              cp "appcast-arm64.xml" appcast.xml
+              ;;
+            *) echo "unexpected legacy variant: $NIGHTLY_LEGACY_VARIANT" >&2; exit 1 ;;
+          esac
+          cp "${CHANNEL_DMG_PREFIX}-${NIGHTLY_LEGACY_VARIANT}.dmg" "${CHANNEL_DMG_PREFIX}.dmg"
           ls -l
 
       - name: Prepare nightly release notes and appcast summaries
@@ -2516,7 +2531,15 @@ jobs:
           NOTES_BUNDLE_ID: ${{ needs.decide.outputs.bundle_id }}
         run: |
           set -euo pipefail
-          cat > nightly-downloads.md <<EOF
+          if [ "$NIGHTLY_LEGACY_VARIANT" = arm64 ]; then
+            cat > nightly-downloads.md <<EOF
+          Automated ${CHANNEL} build for \`${NOTES_HEAD:0:7}\` from \`${NOTES_BRANCH}\`.
+          Published commit: \`${NOTES_HEAD}\`.
+          **${NOTES_APP_NAME}** ships for Apple silicon only (bundle ID \`${NOTES_BUNDLE_ID}\`):
+          - [Apple silicon: ${CHANNEL_DMG_PREFIX}.dmg](https://github.com/${GITHUB_REPOSITORY}/releases/download/${CHANNEL_RELEASE_TAG}/${CHANNEL_DMG_PREFIX}.dmg), feeds \`appcast.xml\` and \`appcast-arm64.xml\`
+          EOF
+          else
+            cat > nightly-downloads.md <<EOF
           Automated ${CHANNEL} build for \`${NOTES_HEAD:0:7}\` from \`${NOTES_BRANCH}\`.
           Published commit: \`${NOTES_HEAD}\`.
           **${NOTES_APP_NAME}** ships one app per architecture (bundle ID \`${NOTES_BUNDLE_ID}\`):
@@ -2524,6 +2547,7 @@ jobs:
           - [Intel: ${CHANNEL_DMG_PREFIX}-x86_64.dmg](https://github.com/${GITHUB_REPOSITORY}/releases/download/${CHANNEL_RELEASE_TAG}/${CHANNEL_DMG_PREFIX}-x86_64.dmg), feed \`appcast-x86_64.xml\`
           - [Universal (any Mac): ${CHANNEL_DMG_PREFIX}.dmg](https://github.com/${GITHUB_REPOSITORY}/releases/download/${CHANNEL_RELEASE_TAG}/${CHANNEL_DMG_PREFIX}.dmg), feed \`appcast.xml\`; the app switches to its architecture's feed on the first update check
           EOF
+          fi
           # Older builds on this rolling release bundle GNU libintl in the ghostty
           # CLI helper; keep the LGPL source notice while the source is attached.
           if gh release view "$CHANNEL_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets \
@@ -2561,8 +2585,8 @@ jobs:
         if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next'
         run: |
           set -euo pipefail
-          for appcast in appcast-arm64.xml appcast-x86_64.xml appcast-universal.xml appcast.xml; do
-            python3 scripts/ci/nightly-next-guard.py appcast "nightly-out/$appcast"
+          for appcast in nightly-out/appcast*.xml; do
+            python3 scripts/ci/nightly-next-guard.py appcast "$appcast"
           done
 
       - name: Prune old nightly release assets
@@ -2584,12 +2608,21 @@ jobs:
         if: needs.decide.outputs.should_publish == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          VARIANTS: ${{ needs.decide.outputs.variants }}
         run: |
+          set -euo pipefail
+          # Only the variants this track built: nightly-next is arm64 only.
+          variant_args=()
+          for variant in $(jq -r '.[]' <<<"$VARIANTS"); do
+            variant_args+=(
+              --immutable "nightly-out/${CHANNEL_DMG_PREFIX}-${variant}-${NIGHTLY_BUILD}.dmg"
+              --alias "nightly-out/${CHANNEL_DMG_PREFIX}-${variant}.dmg"
+              --feed "nightly-out/appcast-${variant}.xml"
+            )
+          done
           python3 scripts/ci/publish-release-assets.py \
             --repo "$GITHUB_REPOSITORY" --tag "$CHANNEL_RELEASE_TAG" \
-            --immutable "nightly-out/${CHANNEL_DMG_PREFIX}-arm64-${NIGHTLY_BUILD}.dmg" \
-            --immutable "nightly-out/${CHANNEL_DMG_PREFIX}-x86_64-${NIGHTLY_BUILD}.dmg" \
-            --immutable "nightly-out/${CHANNEL_DMG_PREFIX}-universal-${NIGHTLY_BUILD}.dmg" \
+            "${variant_args[@]}" \
             --immutable "nightly-out/cmuxd-remote-linux-arm64-${NIGHTLY_BUILD}" \
             --immutable "nightly-out/cmuxd-remote-linux-amd64-${NIGHTLY_BUILD}" \
             --immutable "nightly-out/cmuxd-remote-darwin-arm64-${NIGHTLY_BUILD}" \
@@ -2597,14 +2630,8 @@ jobs:
             --immutable "nightly-out/cmuxd-remote-checksums-${NIGHTLY_BUILD}.txt" \
             --immutable "nightly-out/cmuxd-remote-manifest-${NIGHTLY_BUILD}.json" \
             --immutable "nightly-out/cmuxd-remote-THIRD_PARTY_LICENSES-${NIGHTLY_BUILD}.txt" \
-            --alias "nightly-out/${CHANNEL_DMG_PREFIX}-arm64.dmg" \
-            --alias "nightly-out/${CHANNEL_DMG_PREFIX}-x86_64.dmg" \
-            --alias "nightly-out/${CHANNEL_DMG_PREFIX}-universal.dmg" \
             --alias "nightly-out/${CHANNEL_DMG_PREFIX}.dmg" \
             --replace-feeds \
-            --feed nightly-out/appcast-arm64.xml \
-            --feed nightly-out/appcast-x86_64.xml \
-            --feed nightly-out/appcast-universal.xml \
             --feed nightly-out/appcast.xml
 
       - name: Download the cmux-next source archive
@@ -2726,7 +2753,10 @@ jobs:
           R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
         run: |
           set -euo pipefail
-          for appcast in appcast-arm64.xml appcast-x86_64.xml appcast-universal.xml appcast.xml; do
+          # nightly-next is arm64 only: its thin feed first, then appcast.xml (the same arm64 feed).
+          # appcast-x86_64.xml and appcast-universal.xml stay at their last build, so Intel installs
+          # keep it.
+          for appcast in appcast-arm64.xml appcast.xml; do
             key="${NIGHTLY_NEXT_R2_PREFIX}${appcast}"
             python3 scripts/ci/nightly-next-guard.py appcast "nightly-out/$appcast"
             python3 scripts/ci/nightly-next-guard.py r2-key "$NIGHTLY_NEXT_R2_BUCKET" "$key"
@@ -2848,6 +2878,8 @@ jobs:
       NIGHTLY_SPARKLE_PRIVATE_KEY: ${{ needs.decide.outputs.track != 'nightly-next' && secrets.NIGHTLY_SPARKLE_PRIVATE_KEY || '' }}
       NEXT_SPARKLE_PRIVATE_KEY: ${{ needs.decide.outputs.track == 'nightly-next' && secrets.SPARKLE_NEXT_PRIVATE_KEY || '' }}
       SPARKLE_CHANNEL: ${{ needs.decide.outputs.track == 'nightly-next' && 'cmux-next' || '' }}
+      SPARKLE_HARDWARE_REQUIREMENTS: ${{ needs.decide.outputs.track == 'nightly-next' && 'arm64' || '' }}
+      NIGHTLY_LEGACY_VARIANT: ${{ needs.decide.outputs.legacy_variant }}
     steps:
       - name: Checkout build ref
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -2893,6 +2925,9 @@ jobs:
           if ! compgen -G 'nightly-delta/previous/*.dmg' >/dev/null; then
             echo "No previous $NIGHTLY_VARIANT archive; retaining the full-only appcast"
             cp "nightly-delta/input/$feed" "nightly-delta/output/$feed"
+            if [ "$NIGHTLY_LEGACY_VARIANT" = "$NIGHTLY_VARIANT" ] && [ "$feed" != appcast.xml ]; then
+              cp "nightly-delta/input/$feed" nightly-delta/output/appcast.xml
+            fi
             exit 0
           fi
           SPARKLE_PRIVATE_KEY="$(./scripts/ci/nightly-sparkle-key.sh)"
@@ -2921,6 +2956,10 @@ jobs:
           SPARKLE_DELTA_NAME_PREFIX="${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}-" \
             ./scripts/sparkle_generate_appcast.sh \
               "$dmg" "$CHANNEL_RELEASE_TAG" "nightly-delta/output/$feed"
+          # An arm64-only track (nightly-next) serves the same arm64 feed as its legacy appcast.xml.
+          if [ "$NIGHTLY_LEGACY_VARIANT" = "$NIGHTLY_VARIANT" ] && [ "$feed" != appcast.xml ]; then
+            cp "nightly-delta/output/$feed" nightly-delta/output/appcast.xml
+          fi
           ls -l nightly-delta/output
 
       - name: Upload delta result

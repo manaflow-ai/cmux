@@ -230,6 +230,12 @@ print(f"Tagged {count} appcast item(s) with sparkle:channel {channel}")
 EOF
 fi
 
+# Optional: every item requires one architecture (nightly-next is arm64 only), so a Mac of
+# another architecture keeps its last build instead of being offered this one.
+if [[ -n "${SPARKLE_HARDWARE_REQUIREMENTS:-}" ]]; then
+  python3 "$(dirname "$0")/ci/appcast_hardware_requirements.py" "$generated_appcast_path" "$SPARKLE_HARDWARE_REQUIREMENTS"
+fi
+
 cp "$generated_appcast_path" "$OUT_PATH"
 echo "Generated appcast at $OUT_PATH"
 
