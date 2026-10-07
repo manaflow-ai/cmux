@@ -570,7 +570,7 @@ def setup_budget(job: Mapping[str, Any], now: dt.datetime, budget_seconds: int,
 
 def assess(jobs: Sequence[Mapping[str, Any]], *, now: dt.datetime, budget_seconds: int,
            first_seen: Mapping[Any, dt.datetime] | None = None, deadline: dt.datetime | None = None,
-           floor_seconds: int | None = None) -> Look:
+           floor_seconds: int | None = None, allow_running_rescue: bool = False) -> Look:
     """One look at the jobs of a run on a persistent pool (each job's budget: job_budget())."""
     seen = first_seen or {}
     waiting = [job for job in jobs if job_pool(job) and waiting_for_runner(job)]
@@ -578,15 +578,18 @@ def assess(jobs: Sequence[Mapping[str, Any]], *, now: dt.datetime, budget_second
                                    first_seen=seen.get(job.get("id"))) for job in waiting}
     stuck = [job for job in waiting if queued_seconds(job, now, seen.get(job.get("id"))) >= budgets[id(job)]]
     names = ", ".join(sorted(str(job.get("name") or job.get("id")) for job in stuck))
-    # Rescuing cancels the whole run, so a job already running on a persistent
-    # runner would die with the stuck one and move to Blacksmith too (#16463:
-    # a cmux-next swift test three minutes into its mini). The stuck job waits
-    # until the runner's job ends, even past the watch's end, when a mini that
-    # frees up takes it. A held or refused job is still judged below.
+    # Rescuing normally cancels the whole run, so a job already running on a
+    # persistent runner would die with the stuck one and move to Blacksmith
+    # too (#16463). cmux-next's explicit rescue window is the overflow
+    # boundary: move the run as the bot once a side job waits past budget even
+    # when another side job is still running. Manual reruns stay minis-first
+    # through attempt 2; the bot's next rerun is the overflow.
     on_mini = [job for job in jobs if job_pool(job) and job.get("status") == "in_progress" and not in_setup(job)]
-    if stuck and not on_mini:
+    if stuck and (allow_running_rescue or not on_mini):
+        suffix = (" while another owned job is running; overflowing the queued side jobs"
+                  if on_mini else " with no runner")
         return Look("rescue", f"{names} queued on {job_pool(stuck[0])} for at least "
-                              f"{min(budgets[id(job)] for job in stuck)}s with no runner")
+                              f"{min(budgets[id(job)] for job in stuck)}s{suffix}")
     settling = [job for job in jobs if job_pool(job) and in_setup(job)]
     held = [job for job in settling if setup_seconds(job, now) >= setup_budget(job, now, budget_seconds, deadline)]
     # Cancelling the run would kill siblings still running (run 36198335113 lost five
@@ -1002,7 +1005,8 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
                 if job_pool(job) and waiting_for_runner(job):
                     first_seen.setdefault(job.get("id"), seen_at)
             look = assess(jobs, now=seen_at, budget_seconds=budget_seconds, first_seen=first_seen,
-                          deadline=deadline, floor_seconds=floor_seconds)
+                          deadline=deadline, floor_seconds=floor_seconds,
+                          allow_running_rescue=target.path == CMUX_NEXT_WORKFLOW_PATH)
             if look.action == "refused" and not finished and seen_at < deadline and not target.main:
                 # GitHub re-runs no job of a run still in progress (403 "already
                 # running", for one job or the failed ones), and cancelling

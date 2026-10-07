@@ -663,6 +663,7 @@ class QueueBudget(unittest.TestCase):
         doc = yaml.safe_load((ROOT / ".github/workflows/ci-owned-pool-rescue.yml").read_text())
         step = doc["jobs"]["rescue"]["steps"][-1]
         self.assertEqual(step["env"]["QUEUE_ROUNDS"], "${{ vars.CI_PR_POOL_QUEUE_ROUNDS }}")
+        self.assertEqual(step["env"]["SIDE_RESCUE_SECONDS"], "${{ vars.CI_OWNED_POOL_RESCUE_SECONDS }}")
         self.assertNotIn("macos-pool-queued", (ROOT / ".github/workflows/ci.yml").read_text())
 
 
@@ -1239,9 +1240,10 @@ class SideLanes(unittest.TestCase):
         self.assertEqual(seen, [("GET", "/actions/workflows/cmux-next.yml/runs"
                                         "?branch=feat-cmux-next&event=push&per_page=20")])
 
-    def test_a_stuck_side_job_never_cancels_a_sibling_running_on_a_mini(self):
-        # #16463: cmux-next's swift test ran on a mini while release-compile waited
-        # for one; the rescue cancelled both and moved them to Blacksmith.
+    def test_cmux_next_overflows_a_queued_side_job_with_a_running_sibling(self):
+        # cmux-next's explicit rescue window is the overflow boundary. A queued
+        # side job moves with the bot rerun even when another side job is still
+        # running; attempt 2 remains minis-first and attempt 3 is Blacksmith.
         def cmux_next(done_at):
             def jobs(seconds):
                 test = job("cmux-next swift test", labels=[SIDE], status="in_progress", runner="mini-5-glaeda-3")
@@ -1254,20 +1256,21 @@ class SideLanes(unittest.TestCase):
         payload = side_event(path=".github/workflows/cmux-next.yml")
         clock = Clock()
         api = FakeAPI(clock, cmux_next(done_at=None))
-        code, summary = run_main(api, clock, payload=payload)
-        self.assertEqual(code, 0)
-        self.assertNotIn("cancel", api.calls)
-        self.assertNotIn("rerun-failed", api.calls)
-        self.assertIn("watch limit reached", summary)
-
-        # Once the mini's job ends, cancelling the run touches only the stuck job.
-        clock = Clock()
-        api = FakeAPI(clock, cmux_next(done_at=600))
-        code, summary = run_main(api, clock, payload=payload)
+        code, summary = run_main(api, clock, payload=payload,
+                                 env_extra={"SIDE_RESCUE_SECONDS": "30"})
         self.assertEqual(code, 0)
         self.assertIn("cancel", api.calls)
         self.assertIn("rerun-failed", api.calls)
-        self.assertGreaterEqual(clock.seconds, 600)
+        self.assertIn("overflowing the queued side jobs", summary)
+        self.assertIn("attempt 2 stays on the side lane's owned label", summary)
+
+        # A non-cmux-next side lane keeps the historical sibling protection.
+        clock = Clock()
+        api = FakeAPI(clock, cmux_next(done_at=None))
+        code, summary = run_main(api, clock, payload=side_event())
+        self.assertEqual(code, 0)
+        self.assertNotIn("cancel", api.calls)
+        self.assertIn("watch limit reached", summary)
 
     def test_a_sibling_on_a_mini_does_not_hide_a_refusal_or_a_held_job(self):
         running = job("macos / shard 1", status="in_progress", labels=[MINI], runner="mini-2")
