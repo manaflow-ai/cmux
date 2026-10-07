@@ -454,7 +454,11 @@ public final class ConversationStore {
               let clientID = message.clientMessageID,
               let index = indexByID[message.id] else { return }
         messages[index].delivery = .sending
+        // Try Again is a send made now: the row leaves its failed place for
+        // the bottom, with the other sends in flight.
+        messages[index].sentAt = Date()
         failedAnchorSeq[message.id] = nil
+        sortAndReindex()
         notify(.live(insertedRowIDs: [], sentByMe: true))
         let images = message.attachments.compactMap { attachment -> (data: Data, width: Int, height: Int, mimeType: String)? in
             guard let data = attachment.localData else { return nil }

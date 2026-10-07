@@ -342,14 +342,17 @@ public final class ConversationViewController: UIViewController {
         // Changed rows are refreshed after the structural batch applies, with
         // post-update paths: inside a batch, reconfigure would dequeue against
         // the new data at a pre-update path and hit a different row kind.
+        // One row changing place (Try Again sends a failed message again, so
+        // it moves to the bottom) moves in the batch instead of reloading all.
+        let moved = Self.singleMove(from: commonOld, to: commonNew)
+        let structural = commonOld == commonNew || moved != nil
         var updated: [IndexPath] = []
-        if commonOld == commonNew {
+        if structural {
             for id in commonNew {
                 guard let o = oldIndex[id], let n = newIndex[id], rows[o] != newRows[n] else { continue }
                 updated.append(IndexPath(item: n, section: 0))
             }
         }
-        let structural = commonOld == commonNew
 
         // A failed send reshapes its row; never leave its flight hanging.
         for indexPath in updated {
@@ -424,6 +427,9 @@ public final class ConversationViewController: UIViewController {
             if structural {
                 self.collectionView.deleteItems(at: deleted)
                 self.collectionView.insertItems(at: inserted)
+                if let moved, let from = oldIndex[moved], let to = newIndex[moved] {
+                    self.collectionView.moveItem(at: IndexPath(item: from, section: 0), to: IndexPath(item: to, section: 0))
+                }
             } else {
                 self.collectionView.reloadSections(IndexSet(integer: 0))
             }
@@ -594,6 +600,16 @@ public final class ConversationViewController: UIViewController {
         } completion: { _ in
             snapshot.removeFromSuperview()
         }
+    }
+
+    /// The id whose removal makes both orders equal, when exactly one row moved.
+    static func singleMove(from old: [String], to new: [String]) -> String? {
+        guard old.count == new.count, old != new else { return nil }
+        guard let first = old.indices.first(where: { old[$0] != new[$0] }) else { return nil }
+        for candidate in [old[first], new[first]] {
+            if old.filter({ $0 != candidate }) == new.filter({ $0 != candidate }) { return candidate }
+        }
+        return nil
     }
 
     private func sentByMeChange(_ change: ConversationStoreChange) -> Bool {

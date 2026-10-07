@@ -195,6 +195,7 @@ final class MessageCell: UICollectionViewCell {
         let sameRow = previousRowID == model.rowID
         let footerWasHidden = footerLabel.isHidden
         let previousFooterText = footerLabel.text
+        let wasNotDelivered = !footerWasHidden && footerLabel.textColor == ConversationTheme.notDelivered
         defer {
             // Explicit layer animations: these run the same inside a batch
             // update, a spring, or performWithoutAnimation.
@@ -208,7 +209,8 @@ final class MessageCell: UICollectionViewCell {
                 fade.duration = 0.45
                 fade.timingFunction = CAMediaTimingFunction(name: .linear)
                 footerLabel.layer.add(fade, forKey: "statusFade")
-            } else if sameRow, !footerWasHidden, footerLabel.isHidden {
+            } else if sameRow, !footerWasHidden, footerLabel.isHidden, !wasNotDelivered {
+                // (Not Delivered leaves at once on Try Again; the row is moving.)
                 // A status leaving this row fades out over ~0.3 s instead of vanishing.
                 footerLabel.isHidden = false
                 footerLabel.text = previousFooterText
