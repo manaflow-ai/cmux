@@ -41,6 +41,8 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onSetDefaultKind: ((String) -> Void)?
     /// Runs an app action requested by an empty-state or new-tab control.
     @ObservationIgnored public var onRunAction: ((String) -> Void)?
+    /// The app actions any agent tab may run: the location row's SSH… and cmux Cloud….
+    static let connectActions: Set<String> = ["remote.connect", "newCloudMachine"]
     /// Resolves the explicit Browse… fallback in the project picker.
     @ObservationIgnored public var onBrowseProject: (() async -> String?)?
     /// Returns bounded project paths for the picker, optionally filtered by query.
@@ -262,8 +264,9 @@ public final class AgentPaneModel {
             onRememberNewTab(agent)
             return AgentPaneReply.success()
         case .runAction(let id):
-            // The page runs Import and Sync; any agent tab may open the New Tab page (a blank chat's New).
-            guard id == "newTab.page" || (id == "palette.welcomeChecklist" && newTab != nil), let onRunAction else {
+            // The page runs Import and Sync; any agent tab's location row opens the SSH and
+            // cmux Cloud connect flows (Lawrence 2026-10-06: "I cannot click on cmux Cloud SSH").
+            guard Self.connectActions.contains(id) || (id == "palette.welcomeChecklist" && newTab != nil), let onRunAction else {
                 return Self.unsupported("action.run")
             }
             onRunAction(id)
