@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useStableCallback } from "@pierre/diffs/react";
 import { FileTree, useFileTree } from "@pierre/trees/react";
 import type { FileTreeRowDecorationRenderer } from "@pierre/trees";
+import { createTextMeasure, diffStatSpriteSheet, fileTreeStatsDecoration } from "../../../file-tree-stats";
 import type { TurnFile } from "../diff";
 import { treeUnsafeCSS } from "../diffTheme";
 import { Search } from "../changeIcons";
@@ -41,14 +42,25 @@ export function ChangedFilesTree({
   // The tree keeps the renderer it was built with; it reads the current files through a ref.
   const filesRef = useRef(byDisplay);
   filesRef.current = byDisplay;
+  const [measureStats] = useState(() =>
+    createTextMeasure('system-ui, -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif'),
+  );
+  const statsSpriteSheet = useMemo(
+    () =>
+      diffStatSpriteSheet(
+        files.map((file) => ({ added: file.additions, deleted: file.deletions })),
+        measureStats,
+      ),
+    [files, measureStats],
+  );
   const renderRowDecoration: FileTreeRowDecorationRenderer = ({ item }) => {
     const file = filesRef.current.get(item.path);
     if (!file || item.kind !== "file") return null;
-    // This Pierre draws a decoration's text only, so the counts take the tree's muted color.
-    const text = [file.additions > 0 && `+${file.additions}`, file.deletions > 0 && `-${file.deletions}`]
-      .filter(Boolean)
-      .join(" ");
-    return text ? { text } : null;
+    return fileTreeStatsDecoration(
+      { added: file.additions, deleted: file.deletions },
+      { additions: "+", deletions: "-" },
+      measureStats,
+    );
   };
   // Pierre reports selection from clicks and keys; only file rows map to a diff.
   const onSelectionChange = useStableCallback((paths: readonly string[]) => {
@@ -80,11 +92,18 @@ export function ChangedFilesTree({
     initialExpansion: "open",
     initialSelectedPaths: selectedDisplay ? [selectedDisplay] : [],
     onSelectionChange,
-    icons: { set: "complete", colored: true },
+    icons: {
+      set: "complete",
+      colored: true,
+      spriteSheet: statsSpriteSheet,
+    },
     itemHeight: 28,
     renderRowDecoration,
     unsafeCSS: treeUnsafeCSS,
   });
+  useEffect(() => {
+    model.setIcons({ set: "complete", colored: true, spriteSheet: statsSpriteSheet });
+  }, [model, statsSpriteSheet]);
   // A transcript update rebuilds the files; the tree resets only when the paths differ.
   const shown = useRef(displayPaths);
   useEffect(() => {

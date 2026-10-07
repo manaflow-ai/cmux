@@ -20,6 +20,7 @@ import "./markdownField.css";
 import "./modelPicker.css";
 import "./keys.css";
 import "./newtab/screen.css";
+import "./threadMinimap/threadMinimap.css";
 import { devHostParams, installDevHost } from "../../dev-host/host";
 import { seedDevRecents } from "./devRecents";
 
