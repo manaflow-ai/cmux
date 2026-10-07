@@ -25,8 +25,19 @@ export interface GridMetrics {
   readonly header: number;
 }
 
+/** A titled section's header: where a category jump scrolls to. */
+export interface GridSectionAnchor {
+  readonly id: string;
+  readonly title: string;
+  readonly top: number;
+  /** Index in `GridLayout.items` of its first cell. */
+  readonly first: number;
+}
+
 export interface GridLayout<T> {
   readonly columns: number;
+  /** Titled sections with items, in order. */
+  readonly sections: readonly GridSectionAnchor[];
   readonly rows: readonly GridRow<T>[];
   /** Every item in display order (recents, then sections). */
   readonly items: readonly T[];
@@ -60,7 +71,12 @@ export function layoutGrid<T>(
       top += metrics.cell;
     }
   }
-  return { columns: cols, rows, items, rowOfItem, height: top, metrics };
+  return { columns: cols, sections: [], rows, items, rowOfItem, height: top, metrics };
+}
+
+/** The id of the section at scroll offset `top`, or null when there is none. */
+export function sectionAt<T>(_layout: GridLayout<T>, _top: number): string | null {
+  return null;
 }
 
 function rowHeight<T>(layout: GridLayout<T>, row: GridRow<T>): number {

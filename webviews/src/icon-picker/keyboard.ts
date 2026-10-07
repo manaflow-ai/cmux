@@ -8,7 +8,8 @@ export type PickerKeyAction =
   | { readonly kind: "move"; readonly move: GridMove }
   | { readonly kind: "pick" }
   | { readonly kind: "cancel" }
-  | { readonly kind: "tab"; readonly step: 1 | -1 };
+  | { readonly kind: "tab"; readonly step: 1 | -1 }
+  | { readonly kind: "section"; readonly step: 1 | -1 };
 
 export interface KeyLike {
   readonly key: string;
