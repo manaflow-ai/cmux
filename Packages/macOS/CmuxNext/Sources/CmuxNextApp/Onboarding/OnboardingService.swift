@@ -135,28 +135,42 @@ final class OnboardingService {
     }
 
     /// Opens onboarding at `step` (or brings the open one to that step).
-    func show(step: OnboardingModel.Step? = nil) {
+    func show(step: OnboardingModel.Step? = nil, resumingFirstRunAt resume: OnboardingModel.Step? = nil) {
+        var interrupted: OnboardingModel.Step?
         if let controller {
-            if Self.reusesWindow(showing: controller.model.steps, for: step) {
+            if resume == nil, Self.reusesWindow(showing: controller.model.steps, for: step) {
                 if let step { controller.model.go(to: step) }
                 controller.present()
                 return
             }
             // The open window was built without this step (for example the
-            // first run, or a helper that came up since): rebuild it.
-            controller.model.finish(completed: false)
+            // first run, or a helper that came up since): rebuild it. Closing
+            // leaves the first run unfinished (never skipped); it continues
+            // at its step when this window closes.
+            if controller.model.isFirstRun { interrupted = controller.model.step }
+            controller.close()
             self.controller = nil
         }
-        let model = OnboardingModel(services: AppOnboardingServices(owner: self), start: step)
+        let model = OnboardingModel(services: AppOnboardingServices(owner: self), start: step, resumingFirstRunAt: resume)
         let controller = OnboardingWindowController(model: model)
         controller.onClose = { [weak self] in
             self?.controller = nil
             // The task's session stays in acpmux (the agent may still be working); only the page closes.
             self?.firstTask?.view.close()
             self?.firstTask = nil
+            // A first run this window interrupted continues where it was.
+            if let interrupted, !model.isFirstRun, let self {
+                self.show(resumingFirstRunAt: interrupted)
+            }
         }
         self.controller = controller
         controller.present()
+    }
+
+    /// The first run is at `step`: kept so a relaunch resumes it there.
+    func recordProgress(_ step: OnboardingModel.Step) {
+        let state = state
+        write("onboarding progress") { try state.markProgress(step) }
     }
 
     /// First launch: show once the first window is up. A no-activate launch
@@ -167,9 +181,10 @@ final class OnboardingService {
         let state = state
         // task-owner: one-shot launch check; ends after one file read
         Task { [weak self] in
-            let needed = await Task.detached { state.needsOnboarding() }.value
+            let (needed, resume) = await Task.detached { (state.needsOnboarding(), state.resumeStep()) }.value
             guard needed, let self, !self.isShowing else { return }
-            show()
+            // An unfinished first run (quit, crash, new build) resumes at its step.
+            show(resumingFirstRunAt: resume)
         }
     }
 
@@ -181,7 +196,9 @@ final class OnboardingService {
     /// Onboarding ended: records it, and Done over Home lands on the New
     /// Tab page through the sidebar's New (`newTab`).
     func didEnd(completed: Bool) {
-        markDone(completed: completed)
+        // Only the first run's Skip or Done ends the first run; another
+        // window's (Import and Sync, a single step) leaves it as it is.
+        if controller?.model.isFirstRun ?? true { markDone(completed: completed) }
         guard Self.opensNewTab(completed: completed, shown: services.windows?.active?.shownTopPage) else { return }
         services.registry.perform("newTab")
     }

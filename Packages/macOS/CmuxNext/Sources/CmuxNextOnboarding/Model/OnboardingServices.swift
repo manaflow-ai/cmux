@@ -87,9 +87,13 @@ public protocol OnboardingServices: AnyObject {
     // Lifecycle
     /// The window closed; `completed` is false when the user skipped.
     func onboardingDidEnd(completed: Bool)
+    /// The first run is at `step` (shown, or moved to): the App keeps it, so
+    /// a relaunch or a rebuilt window resumes there.
+    func onboardingDidReach(_ step: OnboardingModel.Step)
 }
 
 public extension OnboardingServices {
+    func onboardingDidReach(_ step: OnboardingModel.Step) {}
     var canRunFirstTask: Bool { false }
     var firstTaskFolder: FirstTaskFolder { .live() }
     func makeFirstTaskView(cwd: URL, prompt: String) -> NSView? { nil }
