@@ -34,13 +34,16 @@ mod runtime {
     fn every_platform_names_a_cisco_url_and_a_sha256() {
         for platform in Platform::ALL {
             let bin = CiscoBinary::for_platform(platform);
-            assert!(bin.url.starts_with("http://ciscobinary.openh264.org/"), "{platform:?}");
+            assert!(bin.url.starts_with("https://ciscobinary.openh264.org/"), "{platform:?}");
             assert!(bin.url.ends_with(".bz2"), "Cisco serves bzip2 files: {platform:?}");
             assert_eq!(bin.sha256.len(), 64, "{platform:?}");
             assert!(bin.sha256.bytes().all(|b| b.is_ascii_hexdigit()), "{platform:?}");
         }
         let linux = CiscoBinary::for_platform(Platform::LinuxX64);
-        assert_eq!(linux.url, "http://ciscobinary.openh264.org/libopenh264-2.6.0-linux64.8.so.bz2");
+        assert_eq!(
+            linux.url,
+            "https://ciscobinary.openh264.org/libopenh264-2.6.0-linux64.8.so.bz2"
+        );
         assert_eq!(
             linux.sha256,
             "2f0cde7c6a6abcf5cae76942894ea42897fa677bce4ed6c91a24dd1b041d5f04"
@@ -111,7 +114,7 @@ mod cisco_install {
         let sha: String =
             sha2::Sha256::digest(library).iter().map(|b| format!("{b:02x}")).collect();
         CiscoBinary {
-            url: "http://ciscobinary.openh264.org/libfake.so.bz2",
+            url: "https://ciscobinary.openh264.org/libfake.so.bz2",
             file_name: "libfake.so",
             sha256: Box::leak(sha.into_boxed_str()),
         }
