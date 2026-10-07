@@ -29,7 +29,8 @@ enum ConversationTheme {
     static let reactionBadgeSize: CGFloat = 32
     static let emojiOnlyFontSize: CGFloat = 48
     static let maxImageWidthFraction: CGFloat = 0.63
-    static let maxImageHeight: CGFloat = 340
+    /// Measured: a 9:16 photo in Messages (iPhone 17 Pro) stops at 337 pt.
+    static let maxImageHeight: CGFloat = 337
 
     static let senderNameFont = UIFont.systemFont(ofSize: 12.5, weight: .regular)
     static let footerFont = UIFont.systemFont(ofSize: 12, weight: .semibold)

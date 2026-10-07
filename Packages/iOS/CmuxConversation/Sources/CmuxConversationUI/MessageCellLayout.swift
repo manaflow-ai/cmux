@@ -145,19 +145,19 @@ extension MessageCellLayout {
 
         if hasReactions { y += 18 }
 
+        // Messages stacks each photo at the full image width, 4 pt apart; a
+        // tall photo is capped in height and aspect-fills (it never narrows).
         var imageFrames: [CGRect] = []
+        let imageSpacing: CGFloat = 4
         for attachment in message.attachments {
-            let maxW = floor(width * t.maxImageWidthFraction)
-            var w = maxW
-            var h = w / CGFloat(attachment.aspectRatio)
-            if h > t.maxImageHeight {
-                h = t.maxImageHeight
-                w = max(120, h * CGFloat(attachment.aspectRatio))
-            }
+            let w = floor(width * t.maxImageWidthFraction)
+            let h = min(w / CGFloat(attachment.aspectRatio), t.maxImageHeight)
             imageFrames.append(bubbleRect(bodyWidth: round(w), y: y, height: round(h)))
-            y += round(h) + t.groupedSpacing
+            y += round(h) + imageSpacing
         }
-        if !imageFrames.isEmpty, message.text.isEmpty { y -= t.groupedSpacing }
+        if !imageFrames.isEmpty {
+            y += message.text.isEmpty ? -imageSpacing : t.groupedSpacing - imageSpacing
+        }
 
         var bubbleFrame: CGRect?
         var textFrame: CGRect?
