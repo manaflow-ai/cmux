@@ -22,7 +22,6 @@ import {
   parseInputsLock,
   percentile,
   profileLinks,
-  programChecksCommand,
   programInstallCommand,
   readInputsLock,
   rolesManifest,
@@ -30,6 +29,7 @@ import {
   validateInputsLock,
   withFingerprint,
 } from "../scripts/cmux-vm-image/lock";
+import { programChecksCommand } from "../scripts/cmux-vm-image/smoke";
 
 const lockText = readFileSync(DEFAULT_LOCK_PATH, "utf8");
 const fresh = () => JSON.parse(lockText) as Record<string, any>;
@@ -240,10 +240,12 @@ describe("roles: baked packages that stay off, first-use packages, optional prog
   test("roles manifest written to /etc/cmux/roles.json lists defaults and first-use closures", () => {
     const manifest = rolesManifest(lock);
     expect(manifest.schema).toBe(1);
-    expect(manifest.roles.display).toEqual({ default: "off", firstUse: false, apt: lock.roles.display.apt });
+    expect(manifest.roles.display).toEqual({ default: "off", firstUse: false, apt: lock.roles.display.apt, env: {}, programs: [] });
     expect(manifest.roles["cua-video"].firstUse).toBe(true);
     expect(manifest.firstUse["cua-video"]).toEqual(lock.apt.ubuntu.firstUse["cua-video"]);
     expect(manifest.aptSnapshot).toBe(lock.apt.ubuntu.uri);
+    expect(manifest.aptSources).toContain(`URIs: ${lock.apt.ubuntu.uri}`);
+    expect(manifest.aptSources).toContain(`Signed-By: ${lock.apt.ubuntu.signedBy}`);
   });
 
   test("cmux-cua 0.8.7 (full release, LICENSE inside) is pinned by URL, sha256, size and checksums.txt, role cua", () => {
@@ -281,7 +283,7 @@ describe("browser role: off by default, installed on first use, sandboxed, backg
       expect(lock.apt.ubuntu.firstUse.browser[name]).toBeDefined();
       expect(lock.apt.ubuntu.packages[name]).toBeUndefined();
     }
-    expect(lock.roles.browser.apt).toEqual(expect.arrayContaining(["libnss3", "libgbm1", "libasound2t64", "fonts-liberation"]));
+    expect(lock.roles.browser.apt).toEqual(expect.arrayContaining(["libnss3", "libasound2t64", "libcups2t64", "fonts-liberation"]));
   });
 
   test("Chrome for Testing 154 (the CEF fork's major) x86_64 is pinned by Google's release URL, our sha256 and size; first use, role browser", () => {
@@ -289,6 +291,8 @@ describe("browser role: off by default, installed on first use, sandboxed, backg
     expect(cft).toMatchObject({ ...chromeForTestingShape("154.0.8037.92"), sha256: CFT_SHA256, size: 196202491, firstUse: true });
     expect(cft.url).toBe("https://storage.googleapis.com/chrome-for-testing-public/154.0.8037.92/linux64/chrome-linux64.zip");
     expect(cft.source).toContain("md5=eb+FnbaHwkXCE8wFqB2DJw==");
+    expect(isExactProgramVersion("154.0.8037.92")).toBe(true);
+    expect(isExactProgramVersion("154.0.8037.*")).toBe(false);
   });
 
   test("first-use programs are not baked: no store install, no profile link, no programs-run check", () => {
@@ -342,5 +346,57 @@ describe("browser role: off by default, installed on first use, sandboxed, backg
     const raw = fresh();
     raw.programs[cftIndex()].url = "https://example.com/chrome-linux64.zip";
     expect(problemsOf(raw)).toContain(`programs[${cftIndex()}].url: must be ${chromeForTestingShape("154.0.8037.92").url}`);
+  });
+});
+
+describe("cmux-browser-host 0.1.0 in the browser role (release cmux-browser-host-v0.1.0, browser-host.md 6d)", () => {
+  const lock = readInputsLock();
+  const X64 = "79b0945cdbe6e585a781da2530b2a3aafaa10969bc6d63b7559ae6a96e57da18";
+  const ARM64 = "cca1a3a51d89e15c1bcf2e2bb2bec0462470f59756bb471d0564dd510f4239f2";
+  const base = "https://github.com/manaflow-ai/cmux/releases/download/cmux-browser-host-v0.1.0";
+  const hostIndex = () => fresh().programs.findIndex((p: { name: string }) => p.name === "cmux-browser-host");
+
+  test("pinned for both arches by release URL, sha256, size and SHA256SUMS; first use, role browser; notices ship with the binary", () => {
+    const host = lock.programs.find((p) => p.name === "cmux-browser-host")!;
+    expect(host).toMatchObject({
+      version: "0.1.0",
+      url: `${base}/cmux-browser-host-0.1.0-x86_64-unknown-linux-gnu.tar.gz`,
+      sha256: X64,
+      size: 2294597,
+      format: "tar.gz",
+      bin: { "cmux-browser-host": "bin/cmux-browser-host" },
+      versionArgs: ["version"],
+      expect: "cmux-browser-host 0.1.0 (db8565dfe127b2d182eb508754129c541cc7cecb)",
+      checksumsUrl: `${base}/SHA256SUMS`,
+      checksumsName: "./cmux-browser-host-0.1.0-x86_64-unknown-linux-gnu.tar.gz",
+      roles: ["browser"],
+      firstUse: true,
+      notices: ["LICENSE", "THIRD_PARTY_LICENSES.md"],
+      otherArches: { aarch64: { url: `${base}/cmux-browser-host-0.1.0-aarch64-unknown-linux-gnu.tar.gz`, sha256: ARM64, size: 2133182, checksumsName: "./cmux-browser-host-0.1.0-aarch64-unknown-linux-gnu.tar.gz" } },
+    });
+  });
+
+  test("the install fails without the license and the third-party notices", () => {
+    const cmd = programInstallCommand(lock.programs.find((p) => p.name === "cmux-browser-host")!);
+    expect(cmd).toContain(`test -s /opt/cmux/store/${X64}.partial/LICENSE`);
+    expect(cmd).toContain(`test -s /opt/cmux/store/${X64}.partial/THIRD_PARTY_LICENSES.md`);
+    expect(cmd.indexOf("test -s")).toBeLessThan(cmd.indexOf("chmod -R a-w"));
+  });
+
+  test("roles.json lists the host with its other arch for aarch64 hosts", () => {
+    const host = rolesManifest(lock).roles.browser.programs.find((p) => p.name === "cmux-browser-host")!;
+    expect(host).toMatchObject({ sha256: X64, notices: ["LICENSE", "THIRD_PARTY_LICENSES.md"], otherArches: { aarch64: { sha256: ARM64, size: 2133182 } } });
+    expect(rolesManifest(lock).roles.browser.programs.map((p) => p.name).sort()).toEqual(["chrome-for-testing", "cmux-browser-host"]);
+  });
+
+  test("another arch needs an https URL, a sha256 and a size; a notice is a relative path", () => {
+    const raw = fresh();
+    raw.programs[hostIndex()].otherArches.aarch64.sha256 = "nope";
+    raw.programs[hostIndex()].otherArches.riscv = { url: "http://x", size: 0 };
+    raw.programs[hostIndex()].notices = ["../LICENSE"];
+    const problems = problemsOf(raw);
+    expect(problems).toContain(`programs[${hostIndex()}].otherArches.aarch64.sha256: missing or not 64 lowercase hex`);
+    expect(problems).toContain(`programs[${hostIndex()}].otherArches.riscv: unknown arch`);
+    expect(problems).toContain(`programs[${hostIndex()}].notices: "../LICENSE" must be a relative path inside the store entry`);
   });
 });
