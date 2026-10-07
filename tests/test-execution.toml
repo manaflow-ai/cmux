@@ -1075,3 +1075,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_zig_free_step_lockfiles.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_ios_route.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_verify_app_libintl.py"
+lane = "linux-guard"
