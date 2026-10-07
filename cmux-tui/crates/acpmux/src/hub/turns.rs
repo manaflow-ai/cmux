@@ -813,6 +813,7 @@ impl Hub {
             remote_origin: parent_meta.remote_origin,
             // Never inherited: the fork request sets its own or runs without one.
             session_env,
+            harness_roots: vec![],
         };
         let new = self.make_session(meta);
         if is_claude {

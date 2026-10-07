@@ -143,6 +143,20 @@ pub struct SessionMeta {
     /// every spawn. Never copied to a fork or a handoff.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub session_env: BTreeMap<String, String>,
+    /// Chat store roots the harness's launch env named at its last spawn
+    /// (ALL-CHATS-ON-DEVICE C3): absolute, existing folders only.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub harness_roots: Vec<HarnessRoot>,
+}
+
+/// One chat store root a spawn's env named: `harness` is a chat index
+/// adapter id (`claude-code`, `codex`, ...) or, for a profile's own `sessions`
+/// roots, the profile id. Never carries other env values.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct HarnessRoot {
+    pub harness: String,
+    pub path: PathBuf,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -476,6 +490,7 @@ mod tests {
             last_turn: None,
             remote_origin: false,
             session_env: Default::default(),
+            harness_roots: vec![],
         }
     }
 
