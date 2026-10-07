@@ -111,8 +111,9 @@ describe("coderouter usage read timeouts", () => {
     const outcomes: Array<"timeout" | "ok"> = [];
     for (let index = 1; index < USAGE_TIMEOUT_ERROR_STREAK; index++) outcomes.push("timeout");
     outcomes.push("ok", "timeout");
+    const polls = outcomes.length;
     const run = poller(outcomes);
-    for (let poll = 0; poll < outcomes.length + 1; poll++) await run.load("team-1");
+    for (let poll = 0; poll < polls; poll++) await run.load("team-1");
     const last = run.reported.at(-1);
     expect(last?.context.consecutive).toBe(1);
     expect(last?.options.fault).toBe("upstream");
