@@ -153,9 +153,9 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("cmux-rd-installed-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(installed_library(Some(&dir), Platform::LinuxX64), None, "not installed");
-        std::fs::create_dir_all(&dir).expect("dir");
+        std::fs::create_dir_all(&dir).expect("dir"); // crash-allow: test fixture setup
         let file = dir.join(CiscoBinary::for_platform(Platform::LinuxX64).file_name);
-        std::fs::write(&file, b"x").expect("write");
+        std::fs::write(&file, b"x").expect("write"); // crash-allow: test fixture setup
         assert_eq!(installed_library(Some(&dir), Platform::LinuxX64), Some(file));
         assert_eq!(installed_library(None, Platform::LinuxX64), None, "no data directory");
         let _ = std::fs::remove_dir_all(dir);
