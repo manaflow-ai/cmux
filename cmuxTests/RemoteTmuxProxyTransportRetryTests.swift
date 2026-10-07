@@ -1202,7 +1202,7 @@ import Testing
     @Test func onlyThePersistentTransportNeedsATmuxLevelDetach() {
         #expect(RemoteTmuxSSHTransportProfile().remoteHalfSurvivesLocalExit == false)
         let et = RemoteTmuxETTransportProfile(
-            port: 2022, remoteTerminalPath: RemoteTmuxETTransportProfile.defaultRemoteTerminalPath
+            port: 2022, remoteTerminalPath: "/usr/local/bin/etterminal"
         )
         #expect(et.remoteHalfSurvivesLocalExit == true)
     }

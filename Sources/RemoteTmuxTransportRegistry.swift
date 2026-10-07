@@ -55,15 +55,13 @@ enum RemoteTmuxTransportKind: String, Sendable, Equatable, CaseIterable {
         case .et:
             // etserver listens on 2022 by default, and a host's `port` means "the port of
             // this host's transport" — for et that is etserver's, not sshd's.
-            // A terminal path has to be sent: `etterminal` is not on a non-interactive ssh PATH on
-            // macOS, and without the flag et fails with "Error starting ET process through ssh".
-            // Measured — dropping the flag entirely was worse than the literal it replaced.
-            // The path sent is the one `et --macserver` sends. Finding it per host would cost an
-            // extra ssh connection before every attach, which is exactly what a host that asks
-            // for a tap on every connection cannot afford.
+            // Leave the remote helper path unspecified. `--terminal-path` is an explicit override;
+            // choosing `/usr/local/bin/etterminal` here would assume both a host OS and an install
+            // prefix for a direct connection. ET can resolve its helper from the remote PATH when
+            // no override is supplied, and callers that know a non-standard path can construct an
+            // `RemoteTmuxETTransportProfile` with `remoteTerminalPath` explicitly.
             return RemoteTmuxETTransportProfile(
                 port: resolvedTransportPort(port),
-                remoteTerminalPath: RemoteTmuxETTransportProfile.defaultRemoteTerminalPath,
                 // Forwarded, and worth stating why this line is load-bearing: omitting it left the
                 // profile with no broker, so a brokered host silently built the direct argv —
                 // endpoint flags and all — and would have failed against a wrapper that rejects a
@@ -726,19 +724,14 @@ struct RemoteTmuxETTransportProfile: RemoteTmuxTransportProfile {
         return max(0, deliverableCommandBytes - overhead - 1)
     }
 
-    /// Where `etterminal` is expected on the remote. Sent explicitly because a non-interactive ssh
-    /// on macOS does not have it on PATH, which is also why `et` ships `--macserver`; this is the
-    /// same path `--macserver` sends.
-    static let defaultRemoteTerminalPath = "/usr/local/bin/etterminal"
-
     /// etserver's default port is 2022, not ssh's 22.
     let port: Int
     /// `et` binary path.
     let executable: String
     /// Set when the host is reached through a wrapper rather than directly.
     let broker: RemoteTmuxTransportBroker?
-    /// Path to `etterminal` on the server, needed when it is not on the remote PATH — which
-    /// is the case for a macOS server, where `--macserver` exists to set exactly this.
+    /// Optional path to `etterminal` on the server. When nil, ET resolves the helper using the
+    /// remote environment; a caller may set this only when it knows the host's actual path.
     let remoteTerminalPath: String?
 
     init(
