@@ -285,3 +285,18 @@ fn identify_advertises_workspace_group_icons() {
             .any(|value| value == "workspace-group-icon-v1")
     );
 }
+
+/// `workspace-group-pin-v1`: a personal workspace group can be pinned
+/// (saved) (`workspace_group.update {pinned}`, `list-personal` groups).
+#[test]
+fn identify_advertises_workspace_group_pins() {
+    let mux = personal_mux();
+    let identity = run(&mux, json!({"cmd":"identify"})).unwrap();
+    assert!(
+        identity["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == "workspace-group-pin-v1")
+    );
+}
