@@ -2,9 +2,11 @@ public import CmuxMobileWire
 import CmuxBrowserStream
 
 /// What the video shows: a rectangle of the target encoded at a pixel size.
-/// `seq` names the view; the Mac labels each video datagram's rd `stream`
-/// with the low 16 bits of the view it was encoded for, so the phone maps a
-/// frame through the right view even when it races the `view_applied` answer.
+/// `seq` names the view: the phone's requests count up from 1, and views
+/// the Mac starts itself (a VNC resize, a display switch) set the top bit.
+/// The Mac labels each video datagram's rd `stream` with `stream`, so the
+/// phone maps a frame through the right view even when it races the
+/// `view_applied` answer.
 public struct DesktopView: Hashable, Sendable {
     public var seq: UInt32
     public var rect: DesktopRect
@@ -18,8 +20,14 @@ public struct DesktopView: Hashable, Sendable {
         self.pixelHeight = pixelHeight
     }
 
-    /// The rd datagram `stream` that carries frames of this view.
-    public var stream: UInt16 { UInt16(truncatingIfNeeded: seq) }
+    /// First seq of views the Mac starts itself.
+    public static let hostSeqBase: UInt32 = 0x8000_0000
+
+    /// The rd datagram `stream` that carries frames of this view: the low 15
+    /// bits of `seq`, with bit 15 set for views the Mac started.
+    public var stream: UInt16 {
+        UInt16(truncatingIfNeeded: seq & 0x7fff) | (seq >= Self.hostSeqBase ? 0x8000 : 0)
+    }
 
     public var jsonMembers: [String: JSONValue] {
         var out = rect.jsonMembers

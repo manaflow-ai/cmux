@@ -84,3 +84,32 @@ struct DesktopWireTests {
         #expect(other == .otherControl(rb))
     }
 }
+
+@Suite("rd family fixtures (schemas/mobile-rpc/fixtures/rd.json)")
+struct RdFixtureTests {
+    @Test func everyOpenAndOpenedFixtureParses() throws {
+        var url = URL(fileURLWithPath: #filePath)
+        for _ in 0..<6 { url = url.deletingLastPathComponent() }
+        let data = try Data(contentsOf: url.appendingPathComponent("schemas/mobile-rpc/fixtures/rd.json"))
+        let file = try JSONDecoder().decode(JSONValue.self, from: data)
+        guard case .array(let cases)? = file["cases"] else {
+            Issue.record("rd.json has no cases")
+            return
+        }
+        var parsed = 0
+        for item in cases {
+            guard let frame = item["frame"], let params = frame["params"]?.objectValue else { continue }
+            switch frame["t"]?.stringValue {
+            case "channel.open":
+                _ = try RemoteDesktopChannelParams(params: params)
+                parsed += 1
+            case "channel.opened" where params["media"]?.stringValue == RemoteDesktopChannelOpened.rdDatagrams:
+                _ = try RemoteDesktopChannelOpened(params: params)
+                parsed += 1
+            default:
+                continue
+            }
+        }
+        #expect(parsed == 3)
+    }
+}

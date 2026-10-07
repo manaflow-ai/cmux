@@ -79,7 +79,7 @@ export const mobileCatalog = {
       { name: "browser.rd", kind: "record", plane: "stream", dir: "both", owner: "mac-browser-host" },
     ] },
     { name: "rd", plane: "stream", owner: "mac-rd-host", messages: [
-      { name: "rd", kind: "channel", plane: "stream", dir: "c2s", owner: "mac-rd-host", class: "interactive", errors: ["rd.display_not_found"] },
+      { name: "rd", kind: "channel", plane: "stream", dir: "c2s", owner: "mac-rd-host", class: "interactive", errors: ["rd.display_not_found", "rd.window_not_found", "rd.permission_denied", "rd.vnc_not_allowed", "rd.vnc_unreachable", "rd.vnc_auth_unsupported", "rd.unavailable", "rd.consent_denied", "rd.stopped_by_host"] },
       { name: "rd.frame", kind: "record", plane: "stream", dir: "both", owner: "mac-rd-host" },
     ] },
     { name: "files", plane: "stream", owner: "mac-host", messages: [

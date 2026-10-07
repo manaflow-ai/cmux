@@ -47,5 +47,8 @@ struct ViewFitTests {
 
     @Test func viewsLabelTheirFramesWithTheLow16Bits() {
         #expect(DesktopView(seq: 0x1_0005, rect: DesktopRect(width: 2, height: 2), pixelWidth: 2, pixelHeight: 2).stream == 5)
+        // Views the Mac starts never share a stream with the phone's requests.
+        let host = DesktopView(seq: DesktopView.hostSeqBase + 5, rect: DesktopRect(width: 2, height: 2), pixelWidth: 2, pixelHeight: 2)
+        #expect(host.stream == 0x8005)
     }
 }
