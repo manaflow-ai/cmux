@@ -206,7 +206,8 @@ final class BrowserPageRequests: BrowserTabDelegate {
     private func open(url: URL?, adopting child: (any BrowserTab)?, engine: String, profile: String?, in pane: PaneModel, background: Bool) {
         guard let services else { child?.close(); return }
         if let controller = services.paneController(for: pane) {
-            return controller.newBrowserTab(url: url, inherited: engine, adopting: child, background: background, profile: profile)
+            controller.newBrowserTab(url: url, inherited: engine, adopting: child, background: background, profile: profile)
+            return
         }
         // The opener's pane is not on screen (its page is kept alive).
         let browserTabs = services.cache.browserTabs!
