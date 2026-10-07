@@ -57,8 +57,9 @@ mode, so a host-side paste kind would only duplicate that.
   (`UIPasteboard.hasImages`, file URLs); a `UIDropInteraction` takes dropped images and files. Each
   item is staged by C4's `FileStager` (HEIC to JPEG per the C4 setting) and uploaded to the Mac inbox
   (`dest.kind = composer`); an "Uploading name" chip shows meanwhile. On success the POSIX
-  single-quoted path plus a space is inserted at the caret; a failure leaves a chip with Retry and
-  Remove. Send is disabled while uploads run.
+  single-quoted path plus a space is inserted at the caret; a failure leaves a chip with Remove (the
+  transfer list can still resume it; the path then does not reach the draft). Send is disabled while
+  uploads run.
 - Toggle: Settings > Terminal > Composer (C11) and Show/Hide Composer in the terminal More menu; the
   menu writes the same setting, so every terminal follows.
 
