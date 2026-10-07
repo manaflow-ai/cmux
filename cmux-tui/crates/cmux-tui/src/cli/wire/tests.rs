@@ -8,6 +8,7 @@ fn plan(operation: ResourceOperation) -> RequestPlan {
         idempotency_key: None,
         stream: false,
         resolve: Vec::new(),
+        view: Default::default(),
     }
 }
 
@@ -96,6 +97,7 @@ fn mutation_request_has_a_key_and_read_does_not() {
         idempotency_key: None,
         stream: false,
         resolve: Vec::new(),
+        view: Default::default(),
     };
     assert!(request_value(&mutation).unwrap().get("idempotency_key").is_some());
 
@@ -105,6 +107,7 @@ fn mutation_request_has_a_key_and_read_does_not() {
         idempotency_key: None,
         stream: false,
         resolve: Vec::new(),
+        view: Default::default(),
     };
     assert!(request_value(&read).unwrap().get("idempotency_key").is_none());
 }
@@ -200,6 +203,7 @@ fn terminal_wait_transport_timeout_follows_the_operation_timeout() {
             idempotency_key: None,
             stream: false,
             resolve: Vec::new(),
+            view: Default::default(),
         };
         assert_eq!(response_read_timeout(&bounded, false), Some(Duration::from_secs(7)));
 
@@ -216,6 +220,7 @@ fn stream_timeout_polling_is_only_a_signal_watcher_fallback() {
         idempotency_key: None,
         stream: true,
         resolve: Vec::new(),
+        view: Default::default(),
     };
     assert_eq!(response_read_timeout(&stream, false), Some(Duration::from_millis(250)));
     assert_eq!(response_read_timeout(&stream, true), None);
@@ -237,6 +242,7 @@ fn terminal_input_errors_use_localized_copy_and_keep_wire_reasons() {
                 idempotency_key: Some("input-error".into()),
                 stream: false,
                 resolve: Vec::new(),
+                view: Default::default(),
             };
             for (reason, expected) in [
                 ("terminal_input_too_large", catalog.terminal_input.too_large),
@@ -275,6 +281,7 @@ fn stopped_owner_reload_error_is_localized_for_human_output() {
             idempotency_key: Some("reload-owner-stopped".into()),
             stream: false,
             resolve: Vec::new(),
+            view: Default::default(),
         };
         let mut error = json!({
             "code":"operation.failed",
