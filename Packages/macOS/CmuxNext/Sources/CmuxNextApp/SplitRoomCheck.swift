@@ -26,6 +26,7 @@ extension AppServices {
     func splitRoom(for pane: PaneModel, edge: PaneEdge, movingFrom source: PaneModel? = nil) -> SplitRoomDecision {
         guard let controller = paneController(for: pane), let content = controller.workspace else { return .split }
         let layoutPane = controller.layoutPaneID
+        if ChatDockRules.isChatDock(pane, services: self) { return .refused(RefusalStrings.chatDockCannotSplit) }
         let axis: SplitAxis = edge == .left || edge == .right ? .horizontal : .vertical
         let removing = source.flatMap { source -> LayoutPaneID? in
             guard source !== pane, source.tabs.count == 1 else { return nil }

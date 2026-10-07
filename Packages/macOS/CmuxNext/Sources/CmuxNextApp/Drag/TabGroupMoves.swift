@@ -12,7 +12,8 @@ enum TabGroupMoves {
     static func move(_ group: TabGroupID, to pane: PaneModel, index: Int, services: AppServices,
                      transaction: ClientTransactionID, completion: @escaping Completion) {
         guard let daemon = owner(of: group, target: pane, services: services),
-              !refusesIncognitoCrossing(group, to: pane, services: services) else { return completion(false) }
+              !refusesIncognitoCrossing(group, to: pane, services: services),
+              !ChatDockRules.refusesGroupMove(to: pane, services: services) else { return completion(false) }
         let target = pane.handle
         run("move-tab-group", daemon: daemon, completion: completion) { connection in
             _ = try await connection.moveTabGroup(group, to: target, index: index, transaction: transaction)
