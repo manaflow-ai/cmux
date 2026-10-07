@@ -21,7 +21,7 @@ import Testing
         }
         func events(_ page: AgentSessionPage) async throws -> Data {
             calls.withLock { $0.append("events:\(page.afterSeq ?? 0)") }
-            return Data(#"{"events":[],"more":false}"#.utf8)
+            return Data(#"{"events":[],"hasMore":true,"lastSeq":9}"#.utf8)
         }
         func prompt(id: String, text: String) async throws -> Data {
             prompts.withLock { $0.append((id, text)) }
@@ -89,6 +89,10 @@ import Testing
         Self.send(wire, #"{"jsonrpc":"2.0","id":4,"method":"_acpmux/events","params":{"sessionId":"acp_1","afterSeq":3}}"#)
         try await waitUntil { frames.reply(4) != nil }
         #expect(client.calls.withLock { $0 }.contains("events:3"))
+        // The page's replay loop reads `more`.
+        #expect((frames.reply(4)?["result"] as? [String: Any])?["more"] as? Bool == true)
+        client.push(.changed(Data(#"{"sessionId":"acp_1","kind":"status","session":{"status":"idle"}}"#.utf8)))
+        try await waitUntil { frames.notifications("_acpmux/session_changed").count == 1 }
     }
 
     @Test func promptsAreTextOnlyOnThisSession() async throws {
@@ -140,6 +144,7 @@ import Testing
         client.push(.closed("lagged"))
         client.push(.closed("overflow"))
         #expect(frames.closes.withLock { $0 } == ["lagged"])
+        try await waitUntil { client.calls.withLock { $0 }.contains("close") }
         let sent = Mutex(true)
         wire.send(#"{"jsonrpc":"2.0","id":10,"method":"initialize"}"#) { value in sent.withLock { $0 = value } }
         #expect(!sent.withLock { $0 }, "a closed wire takes no frame")

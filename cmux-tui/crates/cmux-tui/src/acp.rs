@@ -68,21 +68,46 @@ fn open_command(args: &[String], exe: &str) -> Result<Vec<String>, String> {
 
 /// The acpmux unix socket the session daemon attaches agent tabs through
 /// (`agent-session-attach-v1`): the one `cmux acp` in this daemon's terminals
-/// reaches. `ACPMUX_SOCKET`, else the home `cmux acp` uses (`ACPMUX_HOME`,
-/// else the tag's own home, else `~/.acpmux`). Read once at daemon start.
+/// reaches. `ACPMUX_SOCKET`, else the socket of the home `cmux acp` uses
+/// (`ACPMUX_HOME`, else the tag's own home, else `~/.acpmux`). Read once at
+/// daemon start, without touching acpmux's process-wide config.
 #[cfg(unix)]
 pub(crate) fn daemon_socket_path() -> Option<PathBuf> {
-    let home = std::env::var("HOME").ok().map(PathBuf::from)?;
-    let identity = crate::app_identity::AppIdentity::detect(
-        |name| std::env::var(name).ok(),
-        std::env::current_exe().ok().as_deref(),
-    );
-    let tag = acpmux_tag(std::env::var("CMUX_TAG").ok(), identity);
-    if let Some(tagged) = tagged_home(tag.as_deref(), &home) {
-        // Below `ACPMUX_HOME`, as for `cmux acp` (config::home precedence).
-        acpmux::config::set_home_override(tagged);
+    let var = |name: &str| std::env::var(name).ok().filter(|value| !value.is_empty());
+    if let Some(socket) = var("ACPMUX_SOCKET") {
+        return Some(PathBuf::from(socket));
     }
-    Some(acpmux::config::socket_path())
+    let acpmux_home = match var("ACPMUX_HOME") {
+        Some(home) => PathBuf::from(home),
+        None => {
+            let home = PathBuf::from(var("HOME")?);
+            let identity = crate::app_identity::AppIdentity::detect(
+                |name| std::env::var(name).ok(),
+                std::env::current_exe().ok().as_deref(),
+            );
+            let tag = acpmux_tag(var("CMUX_TAG"), identity);
+            tagged_home(tag.as_deref(), &home).unwrap_or_else(|| home.join(".acpmux"))
+        }
+    };
+    // SAFETY: getuid has no preconditions and cannot fail.
+    let uid = unsafe { libc::getuid() };
+    Some(socket_in_home(&acpmux_home, uid))
+}
+
+/// acpmux `config::socket_path` for `home`: `<home>/acpmux.sock`, or, for a
+/// long home path, `/tmp/acpmux-<uid>/<fnv1a64(home)>.sock`.
+#[cfg(unix)]
+fn socket_in_home(home: &Path, uid: u32) -> PathBuf {
+    let preferred = home.join("acpmux.sock");
+    if preferred.as_os_str().len() < 96 {
+        return preferred;
+    }
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in home.to_string_lossy().bytes() {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x0100_0000_01b3);
+    }
+    PathBuf::from(format!("/tmp/acpmux-{uid}/{hash:016x}.sock"))
 }
 
 /// The binary started as `acpmux`. Its daemon is started from
@@ -145,6 +170,17 @@ fn sanitize_tag(raw: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn the_daemon_finds_the_acpmux_socket_where_acpmux_puts_it() {
+        let home = Path::new("/Users/me/.cmux/brains/chief/acpmux");
+        assert_eq!(socket_in_home(home, 501), home.join("acpmux.sock"));
+        let long = PathBuf::from(format!("/Users/me/{}", "d".repeat(100)));
+        let socket = socket_in_home(&long, 501);
+        assert!(socket.starts_with("/tmp/acpmux-501/"), "{socket:?}");
+        assert_eq!(socket.extension().and_then(|e| e.to_str()), Some("sock"));
+    }
 
     #[test]
     fn open_runs_the_acpmux_tui_in_a_new_tab() {

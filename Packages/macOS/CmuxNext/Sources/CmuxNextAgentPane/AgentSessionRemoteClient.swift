@@ -8,7 +8,7 @@ public nonisolated protocol AgentSessionRemoteClient: Sendable {
     /// Subscribes and returns acpmux's attach page `{session, events, hasMore, lastSeq}`.
     /// Events then go to `handler` until ``detach()``, ``close()`` or a `.closed` event.
     func attach(_ page: AgentSessionPage, events handler: @escaping @Sendable (AgentSessionRemoteEvent) -> Void) async throws -> Data
-    /// A page of the attached session's log (`{events, more}`).
+    /// A page of the attached session's log (`{events, hasMore, lastSeq}`).
     func events(_ page: AgentSessionPage) async throws -> Data
     /// Sends one text prompt; answers `{prompt_id, turn_id, queued}` once acpmux recorded it.
     func prompt(id: String, text: String) async throws -> Data
@@ -41,6 +41,8 @@ public nonisolated enum AgentSessionRemoteEvent: Sendable, Equatable {
     case record(Data)
     /// A permission request acpmux announced (`_acpmux/permission_pending` params).
     case permission(Data)
+    /// The session's status or queue changed (`_acpmux/session_changed` params).
+    case changed(Data)
     /// The attachment ended (`lagged`, `overflow`, `acpmux_closed`, `detached`, or the daemon
     /// connection dropped); the page reconnects and replays from the newest seq it holds.
     case closed(String)

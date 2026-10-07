@@ -65,6 +65,7 @@ nonisolated struct AgentTabRemoteClient: AgentSessionRemoteClient {
         switch name {
         case "agent-session-record": return .record(member("record"))
         case "agent-session-permission": return .permission(member("request"))
+        case "agent-session-changed": return .changed(member("change"))
         default: return .closed(object["reason"] as? String ?? "closed")
         }
     }

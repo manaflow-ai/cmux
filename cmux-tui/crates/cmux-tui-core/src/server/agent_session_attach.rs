@@ -34,7 +34,9 @@
 //! - `agent-session-detach {surface}`.
 //!
 //! Events: `agent-session-record {surface, record}` (one acpmux record,
-//! `eventStream` form), `agent-session-permission {surface, request}`, and
+//! `eventStream` form), `agent-session-permission {surface, request}`,
+//! `agent-session-changed {surface, change}` (acpmux `session_changed` of
+//! that session: status, queue), and
 //! `agent-session-closed {surface, reason}` (reasons `lagged`, `overflow`,
 //! `acpmux_closed`, `too_large`, `detached`): what the client received is a
 //! gap-free prefix of the log, so it attaches again with `after_seq` = the
@@ -51,7 +53,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Condvar, Mutex, RwLock};
+use std::sync::{Arc, Mutex, RwLock, Weak};
 use std::time::Duration;
 
 use serde::Deserialize;
@@ -75,6 +77,11 @@ const MAX_KINDS: usize = 8;
 /// Worker calls (pages, prompts, permission answers) per attachment.
 const MAX_CALLS: usize = 8;
 const CALL_TIMEOUT: Duration = Duration::from_secs(5);
+/// Notifications held while the attach call waits for its reply.
+const MAX_EARLY: usize = 256;
+/// Largest attach or events page sent to the client (a control message);
+/// older records past it are left for the next page (`hasMore`).
+pub(crate) const MAX_PAGE_BYTES: usize = 16 << 20;
 const THREAD_STACK_BYTES: usize = 256 * 1024;
 
 // MARK: State
@@ -162,6 +169,10 @@ struct Attachment {
     surface: SurfaceId,
     /// The acpmux session id (resolved by acpmux from the record's session).
     session: String,
+    /// The session the tab's store record named at attach; the attachment
+    /// ends when the record changes or the tab closes.
+    record_session: String,
+    mux: Weak<Mux>,
     link: Arc<AcpmuxLink>,
     writer: MessageWriter,
     outbound: OutboundStream,
@@ -186,19 +197,25 @@ impl Attachment {
         permissions.push_back(id.to_string());
     }
 
-    fn take_permission(&self, id: &str) -> bool {
-        let mut permissions = self.permissions.lock().unwrap_or_else(|e| e.into_inner());
-        match permissions.iter().position(|known| known == id) {
-            Some(index) => {
-                permissions.remove(index);
-                true
-            }
-            None => false,
-        }
+    fn has_permission(&self, id: &str) -> bool {
+        self.permissions.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|known| known == id)
+    }
+
+    /// An answered request: it cannot be answered again.
+    fn forget_permission(&self, id: &str) {
+        self.permissions.lock().unwrap_or_else(|e| e.into_inner()).retain(|known| known != id);
+    }
+
+    /// True while the tab's store record still shows the attached session.
+    fn tab_current(&self) -> bool {
+        self.mux.upgrade().is_some_and(|mux| {
+            tab_session(&mux, self.surface).as_deref() == Some(self.record_session.as_str())
+        })
     }
 
     /// Ends the attachment once; `reason` (when the client should hear it)
-    /// goes out as `agent-session-closed` after every record already queued.
+    /// goes out as `agent-session-closed`, a control message that can arrive
+    /// before records still queued (those may be dropped; the client replays).
     fn end(&self, reason: Option<&str>) {
         if self.ended.swap(true, Ordering::AcqRel) {
             return;
@@ -452,6 +469,7 @@ fn attach(
     let Some(session) = tab_session(mux, params.surface) else {
         return refuse(writer, id, Refusal::UnknownTab);
     };
+    let record_session = session.clone();
     let acpmux_params = match page_params(&session, &params, true) {
         Ok(value) => value,
         Err(refusal) => return refuse(writer, id, refusal),
@@ -481,6 +499,7 @@ fn attach(
                 worker_id,
                 socket,
                 surface,
+                record_session,
                 acpmux_params,
                 worker_writer,
             );
@@ -492,48 +511,63 @@ fn attach(
     true
 }
 
-/// The gate that holds live records until the attach reply is queued
-/// (control messages leave before stream messages, so a record queued
-/// earlier could overtake the reply).
+/// What the link's reader thread hands notifications to. Until the attach
+/// reply is queued, notifications wait here (bounded) so a record never
+/// overtakes the reply (control messages leave before stream messages) and
+/// the reader never blocks: the attach reply itself comes through it.
 #[derive(Default)]
-struct ReplyGate {
-    open: Mutex<bool>,
-    opened: Condvar,
+struct ReaderSlot {
+    attachment: Option<Arc<Attachment>>,
+    early: VecDeque<Inbound>,
+    overflowed: bool,
+    /// The resolved session once the attach answered: other sessions'
+    /// notifications (the watch) are not held.
+    session: Option<String>,
 }
 
-impl ReplyGate {
-    fn open(&self) {
-        *self.open.lock().unwrap_or_else(|e| e.into_inner()) = true;
-        self.opened.notify_all();
-    }
-
-    fn wait(&self) {
-        let mut open = self.open.lock().unwrap_or_else(|e| e.into_inner());
-        while !*open {
-            open = self.opened.wait(open).unwrap_or_else(|e| e.into_inner());
+impl ReaderSlot {
+    /// Holds one early notification; false when the attachment is live.
+    fn hold(&mut self, inbound: Inbound) -> Result<(), Inbound> {
+        if self.attachment.is_some() {
+            return Err(inbound);
         }
+        if let (Some(session), Inbound::Notification(_, params)) = (&self.session, &inbound)
+            && params.get("sessionId").and_then(Value::as_str).is_some_and(|id| id != session)
+        {
+            return Ok(());
+        }
+        if self.early.len() >= MAX_EARLY {
+            self.overflowed = true;
+        } else {
+            self.early.push_back(inbound);
+        }
+        Ok(())
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn connect_and_attach(
     mux: Arc<Mux>,
     client: u64,
     id: Option<Value>,
     socket: PathBuf,
     surface: SurfaceId,
+    record_session: String,
     params: Value,
     writer: MessageWriter,
 ) {
     let sessions = &mux.control_clients.agent_sessions;
     let release = |sessions: &AgentSessions| sessions.lock().reserved.remove(&(client, surface));
-    let slot: Arc<Mutex<Option<Arc<Attachment>>>> = Arc::default();
-    let gate = Arc::new(ReplyGate::default());
+    let newest_first = params.get("afterSeq").is_none() || params.get("beforeSeq").is_some();
+    let slot: Arc<Mutex<ReaderSlot>> = Arc::default();
     let reader_slot = slot.clone();
-    let reader_gate = gate.clone();
     let reader_mux = Arc::downgrade(&mux);
     let link = AcpmuxLink::connect(&socket, move |inbound| {
-        reader_gate.wait();
-        let attachment = reader_slot.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let inbound = match reader_slot.lock().unwrap_or_else(|e| e.into_inner()).hold(inbound) {
+            Ok(()) => return,
+            Err(inbound) => inbound,
+        };
+        let attachment = reader_slot.lock().unwrap_or_else(|e| e.into_inner()).attachment.clone();
         let Some(attachment) = attachment else { return };
         deliver(&attachment, inbound);
         if attachment.ended.load(Ordering::Acquire)
@@ -546,17 +580,15 @@ fn connect_and_attach(
         Ok(link) => link,
         Err(_) => {
             release(sessions);
-            gate.open();
             refuse(&writer, id, Refusal::Unavailable);
             return;
         }
     };
     let page = match link.call("_acpmux/attach", params, CALL_TIMEOUT) {
-        Ok(page) => page,
+        Ok(page) => bound_page(page, newest_first),
         Err(error) => {
             release(sessions);
             link.close();
-            gate.open();
             refuse(&writer, id, Refusal::of(error));
             return;
         }
@@ -565,16 +597,22 @@ fn connect_and_attach(
     let Ok(outbound) = writer.start_stream(&overflow) else {
         release(sessions);
         link.close();
-        gate.open();
         refuse(&writer, id, Refusal::Limit);
         return;
     };
     let resolved =
         page.pointer("/session/sessionId").and_then(Value::as_str).unwrap_or_default().to_string();
+    slot.lock().unwrap_or_else(|e| e.into_inner()).session = Some(resolved.clone());
+    // Session status changes (`_acpmux/session_changed`) come only to
+    // watchers; the reader keeps only this session's. The answer (every
+    // session's summary) is dropped here and never reaches the client.
+    let _ = link.call("_acpmux/watch", json!({"enabled": true}), CALL_TIMEOUT);
     let attachment = Arc::new(Attachment {
         client,
         surface,
         session: resolved,
+        record_session,
+        mux: Arc::downgrade(&mux),
         link: link.clone(),
         writer: writer.clone(),
         outbound,
@@ -596,18 +634,57 @@ fn connect_and_attach(
         if !writer.is_open() {
             drop(state);
             link.close();
-            gate.open();
             return;
         }
         state.attachments.insert((client, surface), attachment.clone());
     }
-    *slot.lock().unwrap_or_else(|e| e.into_inner()) = Some(attachment.clone());
     let replied = ok(&writer, id, page);
-    gate.open();
-    if !replied {
+    {
+        // The held notifications go out after the reply, in order, before
+        // any later one (the reader waits on this lock meanwhile).
+        let mut reader = slot.lock().unwrap_or_else(|e| e.into_inner());
+        for inbound in std::mem::take(&mut reader.early) {
+            deliver(&attachment, inbound);
+        }
+        if reader.overflowed {
+            attachment.end(Some("overflow"));
+        }
+        reader.attachment = Some(attachment.clone());
+    }
+    if !replied || attachment.ended.load(Ordering::Acquire) {
         sessions.remove(&attachment);
         attachment.end(None);
     }
+}
+
+/// `page` with at most [`MAX_PAGE_BYTES`] of records: a newest-first page
+/// drops its oldest records, a forward page its newest; `hasMore` then says
+/// more remain.
+pub(crate) fn bound_page(mut page: Value, newest_first: bool) -> Value {
+    let Some(events) = page.get_mut("events").and_then(Value::as_array_mut) else { return page };
+    let sizes: Vec<usize> = events
+        .iter()
+        .map(|event| serde_json::to_string(event).map_or(0, |text| text.len()))
+        .collect();
+    let mut total: usize = sizes.iter().sum();
+    if total <= MAX_PAGE_BYTES {
+        return page;
+    }
+    let mut keep_from = 0;
+    let mut keep_to = events.len();
+    while total > MAX_PAGE_BYTES && keep_from < keep_to {
+        if newest_first {
+            total -= sizes[keep_from];
+            keep_from += 1;
+        } else {
+            keep_to -= 1;
+            total -= sizes[keep_to];
+        }
+    }
+    let kept: Vec<Value> = events.drain(keep_from..keep_to).collect();
+    *events = kept;
+    page["hasMore"] = json!(true);
+    page
 }
 
 /// One notification or the close from the attachment's acpmux link.
@@ -620,6 +697,10 @@ fn deliver(attachment: &Attachment, inbound: Inbound) {
         Inbound::Notification(method, params) => (method, params),
     };
     let same_session = params.get("sessionId").and_then(Value::as_str) == Some(&attachment.session);
+    // A closed tab, or one that now shows another session, stops streaming.
+    if same_session && !attachment.tab_current() {
+        return attachment.end(Some("detached"));
+    }
     match method.as_str() {
         "_acpmux/event" if same_session => {
             let event = json!({"event": "agent-session-record", "surface": attachment.surface, "record": params});
@@ -635,6 +716,12 @@ fn deliver(attachment: &Attachment, inbound: Inbound) {
                 attachment.note_permission(permission);
             }
             let event = json!({"event": "agent-session-permission", "surface": attachment.surface, "request": params});
+            if attachment.writer.send_stream(&event, &attachment.outbound).is_err() {
+                attachment.end(None);
+            }
+        }
+        "_acpmux/session_changed" if same_session => {
+            let event = json!({"event": "agent-session-changed", "surface": attachment.surface, "change": params});
             if attachment.writer.send_stream(&event, &attachment.outbound).is_err() {
                 attachment.end(None);
             }
@@ -662,7 +749,7 @@ fn run_on_worker(
 ) -> bool {
     // The tab must still show the attached session (closed or rebound tabs
     // end their attachment).
-    if tab_session(mux, attachment.surface).is_none() {
+    if tab_session(mux, attachment.surface).as_deref() != Some(attachment.record_session.as_str()) {
         mux.control_clients.agent_sessions.remove(&attachment);
         attachment.end(Some("detached"));
         return refuse(writer, id, Refusal::UnknownTab);
@@ -705,12 +792,16 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
     let session = attachment.session.as_str();
     match command {
         AgentSessionCommand::Attach(params) => {
+            let newest_first = params.after_seq.is_none() || params.before_seq.is_some();
             let params = page_params(session, &params, true)?;
-            attachment.link.call("_acpmux/attach", params, CALL_TIMEOUT).map_err(Refusal::of)
+            let page = attachment.link.call("_acpmux/attach", params, CALL_TIMEOUT);
+            page.map(|page| bound_page(page, newest_first)).map_err(Refusal::of)
         }
         AgentSessionCommand::Events(params) => {
+            let newest_first = params.before_seq.is_some();
             let params = page_params(session, &params, false)?;
-            attachment.link.call("_acpmux/events", params, CALL_TIMEOUT).map_err(Refusal::of)
+            let page = attachment.link.call("_acpmux/events", params, CALL_TIMEOUT);
+            page.map(|page| bound_page(page, newest_first)).map_err(Refusal::of)
         }
         AgentSessionCommand::Prompt(PromptParams { prompt_id, text, .. }) => {
             prompt(attachment, prompt_id, text)
@@ -719,15 +810,17 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
             if option_id.is_empty() || option_id.len() > 256 {
                 return Err(Refusal::BadRequest);
             }
-            if !attachment.take_permission(&permission_id) {
+            if !attachment.has_permission(&permission_id) {
                 return Err(Refusal::UnknownPermission);
             }
             let params =
                 json!({"sessionId": session, "permissionId": permission_id, "optionId": option_id});
-            attachment
-                .link
-                .call("_acpmux/permission_respond", params, CALL_TIMEOUT)
-                .map_err(Refusal::of)
+            let answered = attachment.link.call("_acpmux/permission_respond", params, CALL_TIMEOUT);
+            // A failed answer stays answerable; a delivered one is spent.
+            if answered.is_ok() {
+                attachment.forget_permission(&permission_id);
+            }
+            answered.map_err(Refusal::of)
         }
         AgentSessionCommand::Cancel(_) | AgentSessionCommand::Detach(_) => Ok(json!({})),
     }
@@ -745,9 +838,7 @@ fn prompt(attachment: &Attachment, prompt_id: String, text: String) -> Result<Va
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
     {
         let mut prompts = attachment.prompts.lock().unwrap_or_else(|e| e.into_inner());
-        if prompts.len() >= super::agent_session_link::MAX_IN_FLIGHT
-            || prompts.contains_key(&prompt_id)
-        {
+        if prompts.len() >= MAX_CALLS || prompts.contains_key(&prompt_id) {
             return Err(Refusal::Limit);
         }
         prompts.insert(prompt_id.clone(), sender);
@@ -759,18 +850,12 @@ fn prompt(attachment: &Attachment, prompt_id: String, text: String) -> Result<Va
         "prompt": [{"type": "text", "text": text}],
         "_meta": {"acpmux": {"promptId": prompt_id}},
     });
-    let link = attachment.link.clone();
-    // The request's own reply comes at the end of the turn: send it on a
-    // thread that only drains it (bounded by the link's in-flight limit).
-    let drained = std::thread::Builder::new()
-        .name("mux-agent-turn".into())
-        .stack_size(THREAD_STACK_BYTES)
-        .spawn(move || {
-            let _ = link.call("session/prompt", params, Duration::from_secs(24 * 3600));
-        });
-    if drained.is_err() {
+    // The request's own reply comes at the end of the turn and is not
+    // waited for, so a queued prompt holds no call slot (permission answers
+    // stay possible while turns queue).
+    if let Err(error) = attachment.link.send_ignoring_reply("session/prompt", params) {
         attachment.prompts.lock().unwrap_or_else(|e| e.into_inner()).remove(&prompt_id);
-        return Err(Refusal::Limit);
+        return Err(Refusal::of(error));
     }
     let accepted = receiver.recv_timeout(CALL_TIMEOUT);
     attachment.prompts.lock().unwrap_or_else(|e| e.into_inner()).remove(&prompt_id);
@@ -820,7 +905,9 @@ impl Mux {
         self.control_clients.agent_sessions.set_socket(socket);
     }
 
+    /// True when this machine's acpmux socket exists (a daemon is or was
+    /// running there), so `identify` does not offer attach without one.
     pub(crate) fn serves_agent_session_attach(&self) -> bool {
-        self.control_clients.agent_sessions.socket().is_some()
+        self.control_clients.agent_sessions.socket().is_some_and(|socket| socket.exists())
     }
 }

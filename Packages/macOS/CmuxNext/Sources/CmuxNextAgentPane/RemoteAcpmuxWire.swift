@@ -102,13 +102,21 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     /// `_acpmux/watch` lists only this session (an attach of one record gives its summary);
     /// `_acpmux/attach` subscribes (again: the daemon only pages); `_acpmux/events` pages.
     private func page(_ method: String, _ page: AgentSessionPage, client: any AgentSessionRemoteClient) async throws -> Data {
-        if method == "_acpmux/events" { return try await client.events(page) }
+        if method == "_acpmux/events" { return Self.withMore(try await client.events(page)) }
         let result = try await client.attach(page) { [weak self] event in self?.pushed(event) }
         let object = (try? JSONSerialization.jsonObject(with: result)) as? [String: Any] ?? [:]
         let summary = object["session"] as? [String: Any]
         if let resolved = summary?["sessionId"] as? String { state.withLock { $0.resolved = resolved } }
         guard method == "_acpmux/watch" else { return result }
         return Self.json(["sessions": summary.map { [$0] } ?? []])
+    }
+
+    /// acpmux answers `hasMore`; the page's replay loop reads `more`, so both are set.
+    private static func withMore(_ result: Data) -> Data {
+        guard var object = (try? JSONSerialization.jsonObject(with: result)) as? [String: Any],
+              object["more"] == nil else { return result }
+        object["more"] = object["hasMore"] ?? false
+        return json(object)
     }
 
     private static func page(_ params: [String: Any], method: String) -> AgentSessionPage {
@@ -129,10 +137,17 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         case .permission(let data):
             guard let request = try? JSONSerialization.jsonObject(with: data) else { return }
             notify("_acpmux/permission_pending", request)
+        case .changed(let data):
+            guard let change = try? JSONSerialization.jsonObject(with: data) else { return }
+            notify("_acpmux/session_changed", change)
         case .closed(let reason):
             Self.logger.info("remote agent attachment ended reason=\(reason, privacy: .public)")
-            // The page reconnects (a fresh wire) and replays from the newest seq it holds.
+            // The page reconnects (a fresh wire and daemon connection) and replays from the
+            // newest seq it holds; this attachment's connection ends now.
             guard close() else { return }
+            let client = client
+            // task-owner: ends the ended attachment's daemon connection; nothing waits on it
+            Task { await client.close() }
             state.withLock { $0.onClose }?(1012, reason)
         }
     }
