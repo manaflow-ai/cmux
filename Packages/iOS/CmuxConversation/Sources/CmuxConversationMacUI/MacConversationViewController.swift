@@ -103,9 +103,9 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
     #endif
 
     // Reply / edit state.
-    private var replyTarget: ConversationMessage?
+    private(set) var replyTarget: ConversationMessage?
     var replyFocus: MacReplyFocusView?
-    private var editingMessageID: String?
+    private(set) var editingMessageID: String?
     /// Rows animating to zero height before Delete removes them.
     private var collapsingRowIDs: Set<String> = []
     private let replyBanner = MacReplyBanner()

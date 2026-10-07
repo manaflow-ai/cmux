@@ -112,29 +112,54 @@ extension MacConversationLab {
         return fields.joined(separator: " ")
     }
 
-    private static func windowPoint(_ point: CGPoint, in window: NSWindow) -> NSPoint {
+    static func windowPoint(_ point: CGPoint, in window: NSWindow) -> NSPoint {
         // Lab coordinates are top-left window-content points.
         NSPoint(x: point.x, y: (window.contentView?.bounds.height ?? window.frame.height) - point.y)
     }
 
     /// Posts the drag and release first, then delivers the press: AppKit's
     /// tracking loops (selection, drag-out, press-and-hold) read them back.
-    private static func mouse(_ type: NSEvent.EventType, path: [CGPoint], clickCount: Int, in window: NSWindow) {
+    static func mouse(_ type: NSEvent.EventType, path: [CGPoint], clickCount: Int, in window: NSWindow) {
         let now = ProcessInfo.processInfo.systemUptime
         func event(_ type: NSEvent.EventType, _ point: CGPoint, _ offset: TimeInterval) -> NSEvent? {
             NSEvent.mouseEvent(with: type, location: windowPoint(point, in: window), modifierFlags: [], timestamp: now + offset,
                                windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: clickCount, pressure: 1)
         }
         guard let first = path.first, let last = path.last, let down = event(.leftMouseDown, first, 0) else { return }
-        for (index, point) in path.dropFirst().enumerated() {
-            if let drag = event(.leftMouseDragged, point, 0.01 * Double(index + 1)) { NSApp.postEvent(drag, atStart: false) }
+        var queued = path.dropFirst().enumerated().compactMap { index, point in event(.leftMouseDragged, point, 0.01 * Double(index + 1)) }
+        if let up = event(.leftMouseUp, last, 0.01 * Double(path.count + 1)) { queued.append(up) }
+        post(queued)
+        if window.isVisible {
+            window.sendEvent(down)
+        } else {
+            // An off-screen window (tests) does not route mouse events; do
+            // what NSWindow does: hit test, let the enclosing table vet the
+            // responder, make it first responder, deliver the press.
+            guard let frame = window.contentView?.superview, let hit = frame.hitTest(down.locationInWindow) else { return }
+            var table: NSView? = hit.superview
+            while let current = table, !(current is NSTableView) { table = current.superview }
+            let allowed = (table as? NSTableView)?.validateProposedFirstResponder(hit, for: down) ?? true
+            let target = allowed ? hit : (table ?? hit)
+            if target.acceptsFirstResponder { window.makeFirstResponder(target) }
+            target.mouseDown(with: down)
         }
-        if let up = event(.leftMouseUp, last, 0.01 * Double(path.count + 1)) { NSApp.postEvent(up, atStart: false) }
-        window.sendEvent(down)
         // Drain anything the press's handler left unread.
-        while let pending = NSApp.nextEvent(matching: [.leftMouseDragged, .leftMouseUp], until: .distantPast, inMode: .default, dequeue: true) {
+        while let pending = NSApp.nextEvent(matching: [.leftMouseDragged, .leftMouseUp], until: .distantPast, inMode: .eventTracking, dequeue: true) {
             window.sendEvent(pending)
         }
+    }
+
+    /// NSApp.postEvent stops the main run loop that is running (to wake
+    /// NSApp.run). Under a test runner's own CFRunLoopRun that would end the
+    /// process, so the events are posted from a nested run that absorbs it.
+    private static func post(_ events: [NSEvent]) {
+        let mode = CFRunLoopMode("cmux.conversationLab.post" as CFString)
+        var posted = false
+        CFRunLoopPerformBlock(CFRunLoopGetMain(), mode.rawValue) {
+            MainActor.assumeIsolated { for event in events { NSApp.postEvent(event, atStart: false) } }
+            posted = true
+        }
+        while !posted { CFRunLoopRunInMode(mode, 0.1, true) }
     }
 
     private static let keyCodes: [String: UInt16] = [
@@ -144,7 +169,7 @@ extension MacConversationLab {
         "tab": 48, "return": 36, "space": 49, "esc": 53, "left": 123, "right": 124, "down": 125, "up": 126,
     ]
 
-    private static func sendKey(_ spec: String, to window: NSWindow) -> String {
+    static func sendKey(_ spec: String, to window: NSWindow) -> String {
         var flags: NSEvent.ModifierFlags = []
         var key = ""
         for token in spec.lowercased().split(separator: "+").map(String.init) {

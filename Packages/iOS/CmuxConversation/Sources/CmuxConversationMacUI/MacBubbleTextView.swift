@@ -147,7 +147,10 @@ final class MacBubbleTextView: NSTextView {
     override func resignFirstResponder() -> Bool {
         let resigned = super.resignFirstResponder()
         // One selection at a time across the transcript, as in Messages.
-        if resigned { setSelectedRange(NSRange(location: 0, length: 0)) }
+        if resigned {
+            setSelectedRange(NSRange(location: 0, length: 0))
+            transcript?.interaction?.transcriptFocusMayHaveLeft()
+        }
         return resigned
     }
 

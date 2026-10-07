@@ -13,6 +13,11 @@ final class MacConversationEntry {
         self.id = id
         store = ConversationStore(backend: ConversationSimBackend(endpoint: endpoint))
     }
+
+    init(id: String, store: ConversationStore) {
+        self.id = id
+        self.store = store
+    }
 }
 
 /// macOS Messages window: a sidebar of conversations, the transcript under a

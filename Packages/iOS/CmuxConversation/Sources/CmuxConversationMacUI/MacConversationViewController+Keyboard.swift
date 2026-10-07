@@ -170,9 +170,13 @@ extension MacConversationViewController: MacConversationCommandValidating, NSMen
 
     /// Copies the selected message (Edit > Copy with no text selected).
     @objc func copyMessage(_ sender: Any?) {
+        copyMessage(to: .general)
+    }
+
+    func copyMessage(to pasteboard: NSPasteboard) {
         guard let index = selectedMessageIndex, let model = messageModel(at: index) else { return NSSound.beep() }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(model.message.text, forType: .string)
+        pasteboard.clearContents()
+        pasteboard.setString(model.message.text, forType: .string)
     }
 
     @objc func copy(_ sender: Any?) { copyMessage(sender) }
