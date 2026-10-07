@@ -20,6 +20,8 @@
 //! - [`remote_entry`]: the session host's --remote-ws bind and auth mode (pure).
 //! - [`agent`]: the event loop over the [`agent::Platform`] trait.
 //! - [`roles`]: role supervision (order, deadlines, last errors).
+//! - [`proc_roles`]: process roles from `server.json` (server.md 5.1).
+//! - [`run_roles`]: `cmux host run` without a bind agent (macOS).
 //! - [`status`]: `cmux host status`.
 //! - [`cli`]: the verbs; also the standalone `cmux-host` binary.
 //! - `linux`: the Linux platform (descriptors, spawn, identity, `/proc`).
@@ -42,7 +44,9 @@ pub mod daemon_spec;
 pub mod linux;
 pub mod machine;
 pub mod metadata;
+pub mod proc_roles;
 pub mod remote_entry;
 pub mod retry;
 pub mod roles;
+pub mod run_roles;
 pub mod status;
