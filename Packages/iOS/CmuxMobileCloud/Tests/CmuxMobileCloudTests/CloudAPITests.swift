@@ -194,6 +194,45 @@ import Testing
         ))
     }
 
+    @Test func decodesTheSharedResourcePoolAndMachineShapes() throws {
+        let catalog = try decoding.catalog(from: Data("""
+        {
+          "vms": [
+            {"id":"vm1","provider":"freestyle","status":"running","resources":{"vcpus":16,"memoryMb":32768}},
+            {"id":"vm2","provider":"freestyle","status":"paused","resources":{"vcpus":0,"memoryMb":8192}}
+          ],
+          "limits": {
+            "planId": "pro",
+            "maxActiveVms": 5,
+            "poolVcpus": 20,
+            "poolMemoryMb": 40960,
+            "usedVcpus": 16,
+            "usedMemoryMb": 32768
+          }
+        }
+        """.utf8))
+
+        let pool = try #require(catalog.limits?.resourcePool)
+        #expect(pool == CloudResourcePool(poolVcpus: 20, poolMemoryMb: 40960, usedVcpus: 16, usedMemoryMb: 32768))
+        #expect(pool.freeVcpus == 4)
+        #expect(pool.freeMemoryMb == 8192)
+        #expect(pool.fits(vcpus: 4, memoryMb: 8192))
+        #expect(!pool.fits(vcpus: 8, memoryMb: 16384))
+        #expect(catalog.machines[0].resources == CloudMachineResources(vcpus: 16, memoryMb: 32768))
+        // A malformed shape is dropped rather than read as a zero-size machine.
+        #expect(catalog.machines[1].resources == nil)
+    }
+
+    @Test(arguments: [
+        #"{"vms":[],"limits":{"planId":"go","poolVcpus":null,"poolMemoryMb":null,"usedVcpus":2,"usedMemoryMb":4096}}"#,
+        #"{"vms":[],"limits":{"planId":"pro","maxActiveVms":5}}"#,
+    ])
+    func plansWithoutAPoolDecodeNoPool(_ body: String) throws {
+        let catalog = try decoding.catalog(from: Data(body.utf8))
+        #expect(catalog.limits != nil)
+        #expect(catalog.limits?.resourcePool == nil)
+    }
+
     @Test func toleratesServersWithoutMachineKindCapabilities() throws {
         let catalog = try decoding.catalog(from: Data(#"{"vms":[]}"#.utf8))
         #expect(catalog.availableKinds == nil)

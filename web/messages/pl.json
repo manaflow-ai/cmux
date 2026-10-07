@@ -80,6 +80,13 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go obsługuje 2 vCPU, 4 GiB RAM i 16 GiB dysku.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+    },
+    "resourcePool": {
+      "title": "Za mało zasobów Cloud VM",
+      "memoryMessage": "Twoje maszyny VM używają już {used} z {pool} GB RAM. Ta maszyna VM potrzebuje {requested} GB.",
+      "vcpuMessage": "Twoje maszyny VM używają już {used} z {pool} vCPU. Ta maszyna VM potrzebuje {requested} vCPU.",
+      "upgradeAction": "Wstrzymaj lub usuń maszynę VM albo przejdź na Max.",
+      "action": "Wstrzymaj lub usuń maszynę VM."
     }
   },
   "billingRecovery": {
@@ -490,16 +497,17 @@
           ],
           "pro": [
             "Agenci w chmurze na Cloud VMs",
-            "Do 5 Cloud VMs, maksymalnie 4 vCPU i 8 GB RAM na VM",
+            "Do 5 Cloud VMs współdzielących 20 vCPU i 40 GB RAM",
             "Aplikacja cmux na iOS"
           ],
           "max": [
-            "Do 5 Cloud VMs, maksymalnie 16 vCPU i 32 GB RAM na VM",
+            "Do 5 Cloud VMs współdzielących 80 vCPU i 160 GB RAM",
             "Większe maszyny",
             "Wszystko z planu Pro"
           ],
           "team": [
             "Wszystko z planu Pro dla każdego członka",
+            "Do 5 Cloud VMs na płatne miejsce, współdzielących 20 vCPU i 40 GB RAM na płatne miejsce w całym zespole",
             "Jedna faktura dla całego zespołu",
             "Priorytetowe wsparcie"
           ]
@@ -2150,6 +2158,7 @@
           "defaultSearchEngine": "Domyślna wyszukiwarka dla wpisów w pasku adresu przeglądarki, które nie są URL-ami. Użyj custom z customSearchEngineURLTemplate dla innych dostawców.",
           "customSearchEngineName": "Nazwa wyświetlana, gdy defaultSearchEngine ma wartość custom.",
           "customSearchEngineURLTemplate": "URL wyszukiwania używany, gdy defaultSearchEngine ma wartość custom. Dodaj symbol zastępczy zapytania lub %s dla zakodowanego zapytania. Bez symbolu zastępczego cmux doda q= do URL.",
+          "showLinkHoverURL": "Pokazuje adres docelowy linku w lewym dolnym rogu panelu przeglądarki, gdy wskaźnik znajduje się nad linkiem lub gdy link ma fokus klawiatury.",
           "urlAllowlist": "Wzorce hostów lub adresów URL ograniczające nawigację w osadzonej przeglądarce. Ustawienia sugerują lokalne źródła deweloperskie; zapisanie listy włącza opcjonalne ograniczenie. Usuń wpisy, aby je zablokować, albo pozostaw wartość użytkownika pustą bez zarządzanej zasady, aby wyłączyć ograniczenie."
         },
         "workspaceGroups": {
@@ -2920,11 +2929,12 @@
       "planMax": "Max",
       "sizesDefault": "Nowe maszyny używają 8 GB pamięci, gdy nie wybierzesz rozmiaru. Uruchom cmux vm ls --json, aby zobaczyć rozmiary dozwolone w Twoim planie.",
       "limitsTitle": "Limity planu",
-      "limitsDesc": "Limity planu dotyczą liczby maszyn, a nie wspólnej puli CPU czy pamięci. Każda maszyna dostaje zasoby odpowiadające jej rozmiarowi.",
+      "limitsDesc": "Twoje aktywne maszyny korzystają z jednej wspólnej puli vCPU i pamięci. Uruchom jedną dużą maszynę albo kilka małych. Wstrzymane maszyny nie zużywają puli. Dysk jest ustalany dla każdej maszyny osobno i nie należy do puli.",
       "limitsFree": "Konta darmowe nie mogą tworzyć maszyn.",
-      "limitsPaid": "Konta Pro i Max mogą mieć do 5 aktywnych maszyn. Maszyna jest aktywna, gdy działa lub się uruchamia.",
-      "limitsTeam": "Konta zespołowe mogą mieć do 5 aktywnych maszyn na każde płatne stanowisko.",
-      "limitsMax": "Maszyny większe niż 8 GB wymagają cmux Max. Maszyny Max mają do 32 GB i 16 vCPU.",
+      "limitsPaid": "Konta Pro i Founder's Edition mogą mieć do 5 aktywnych maszyn współdzielących 20 vCPU i 40 GB pamięci. Maszyna jest aktywna, gdy działa lub się uruchamia.",
+      "limitsTeam": "Konta zespołowe mogą mieć do 5 aktywnych maszyn na każde płatne stanowisko. Każde płatne stanowisko dodaje 20 vCPU i 40 GB pamięci do puli zespołu.",
+      "limitsMax": "Konta Max mogą mieć do 5 aktywnych maszyn współdzielących 80 vCPU i 160 GB pamięci. Jedna maszyna może mieć do 32 GB i 16 vCPU w planach Pro i Team albo do 64 GB i 32 vCPU w planie Max.",
+      "limitsPoolFull": "Jeśli nowa, wznowiona, powiększona lub rozwidlona maszyna przekroczyłaby pulę, cmux odrzuca żądanie i pokazuje, ile puli jest w użyciu. Wstrzymaj lub usuń maszynę, aby zwolnić zasoby, albo przejdź na Max.",
       "limitsPricing": "Aktualne ceny znajdziesz na stronie z cennikiem. Nie ma pomiaru zużycia ani opłat za przekroczenia.",
       "agentUpdatesTitle": "Aktualizuj agentów kodujących",
       "agentUpdatesDesc": "Gdy to ustawienie jest włączone, maszyna aktualizuje Claude Code, Codex, OpenCode, pi i agent-browser. Sprawdza po utworzeniu maszyny i przy każdym połączeniu, nie częściej niż raz na 24 godziny. Aktualizacja działa w odłączonym procesie, więc nigdy nie blokuje połączenia.",
@@ -2933,7 +2943,7 @@
       "agentUpdatesToggle": "Arkusz New Machine domyślnie włącza to ustawienie. Aby zmienić je dla istniejącej maszyny, kliknij maszynę prawym przyciskiem i wybierz Keep Agents Up to Date albo uruchom cmux vm agent-updates. cmux vm new zachowuje wersje z obrazu, chyba że podasz --agent-updates latest. Wyłączenie aktualizacji zachowuje już zainstalowane wersje.",
       "agentUpdatesNetwork": "Aktualizacje używają tylko github.com, api.github.com, objects.githubusercontent.com i release-assets.githubusercontent.com. cmux zezwala na te hosty w każdym trybie sieci, także Allowlist i No internet, więc polityka sieci nigdy nie blokuje aktualizacji.",
       "resizeTitle": "Zmiana rozmiaru",
-      "resizeDesc": "Możesz powiększyć maszynę bez utraty danych. Kliknij maszynę prawym przyciskiem i wybierz Resize machine lub użyj cmux vm resize. Zmiana rozmiaru może tylko powiększyć maszynę. Dysk rośnie w krokach po 4 GB do 256 GB, pamięć do 32 GB, a CPU do 16 vCPU. Rzeczywiste maksimum wyznacza Twój plan.",
+      "resizeDesc": "Możesz powiększyć maszynę bez utraty danych. Kliknij maszynę prawym przyciskiem i wybierz Resize machine lub użyj cmux vm resize. Zmiana rozmiaru może tylko powiększyć maszynę. Dysk rośnie w krokach po 4 GB do 256 GB. Pamięć rośnie do 32 GB, a CPU do 16 vCPU w planach Pro i Team albo do 64 GB i 32 vCPU w planie Max. Większa maszyna zużywa więcej Twojej puli. Rzeczywiste maksimum wyznacza Twój plan.",
       "pauseTitle": "Wstrzymywanie i wznawianie",
       "pauseDesc": "cmux vm pause zatrzymuje moc obliczeniową maszyny. Dysk, obszary robocze i historia terminali zostają zachowane. Działające procesy zostają zatrzymane. cmux vm resume ponownie uruchamia maszynę. Otwarcie wstrzymanej maszyny lub uruchomienie na niej polecenia również ją uruchamia.",
       "pauseIdle": "Maszyny nie wstrzymują się same, gdy są bezczynne. Maszyna działa, dopóki jej nie wstrzymasz lub nie usuniesz.",
@@ -3084,9 +3094,11 @@
       "errPlan": "Maszyny wirtualne Cloud wymagają płatnego planu",
       "fixPlan": "Konta darmowe nie mogą tworzyć maszyn. Zmień plan na stronie z cennikiem.",
       "errSize": "Rozmiar wymaga wyższego planu",
-      "fixSize": "Maszyny większe niż 8 GB wymagają cmux Max. Wybierz mniejszy rozmiar lub zmień plan.",
+      "fixSize": "Maszyny większe niż 32 GB wymagają cmux Max. Wybierz mniejszy rozmiar lub zmień plan.",
       "errLimit": "Osiągnięto limit aktywnych maszyn",
       "fixLimit": "Wstrzymaj lub usuń maszynę, a następnie spróbuj ponownie.",
+      "errPool": "Za mało zasobów Cloud VM",
+      "fixPool": "Twoje aktywne maszyny już zużywają współdzielone vCPU lub pamięć. Wstrzymaj lub usuń maszynę, wybierz mniejszy rozmiar albo przejdź na Max.",
       "errLocked": "Maszyna jest zablokowana",
       "fixLocked": "Twój płatny plan się skończył, a maszyna jest starsza niż 7 dni. Zmień plan, aby się połączyć. Twoje pliki są zachowane.",
       "errAgentMissing": "claude lub codex: command not found",
@@ -5332,7 +5344,7 @@
   "appProWelcome": {
     "eyebrow": "cmux Pro jest aktywny",
     "title": "Witamy w cmux Pro",
-    "body": "Funkcje Pro są nadal rozwijane. Dostęp do chmury pojawi się wkrótce, a za każdy miesiąc subskrypcji będą naliczane kredyty na wykorzystanie. Obecnie Pro obejmuje dostęp do cmux na iOS przez TestFlight.",
+    "body": "Pro obejmuje do 5 maszyn Cloud współdzielących 20 vCPU i 40 GB pamięci RAM oraz dostęp do cmux iOS przez TestFlight.",
     "done": "Przejdź do panelu",
     "steps": {
       "iosApp": {

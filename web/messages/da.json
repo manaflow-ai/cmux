@@ -80,6 +80,13 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go understøtter 2 vCPU, 4 GiB RAM og 16 GiB disk.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+    },
+    "resourcePool": {
+      "title": "Ikke nok Cloud VM-ressourcer",
+      "memoryMessage": "Dine VM'er bruger allerede {used} af {pool} GB RAM. Denne VM skal bruge {requested} GB.",
+      "vcpuMessage": "Dine VM'er bruger allerede {used} af {pool} vCPU'er. Denne VM skal bruge {requested} vCPU'er.",
+      "upgradeAction": "Sæt en VM på pause, eller slet den, eller opgrader til Max.",
+      "action": "Sæt en VM på pause, eller slet den."
     }
   },
   "billingRecovery": {
@@ -490,16 +497,17 @@
           ],
           "pro": [
             "Cloud-agenter på Cloud VMs",
-            "Op til 5 Cloud VMs, op til 4 vCPU'er og 8 GB RAM pr. VM",
+            "Op til 5 Cloud VMs, der deler 20 vCPU'er og 40 GB RAM",
             "cmux-appen til iOS"
           ],
           "max": [
-            "Op til 5 Cloud VMs, op til 16 vCPU'er og 32 GB RAM pr. VM",
+            "Op til 5 Cloud VMs, der deler 80 vCPU'er og 160 GB RAM",
             "Større maskinstørrelser",
             "Alt i Pro"
           ],
           "team": [
             "Alt i Pro til hvert medlem",
+            "Op til 5 Cloud VMs pr. betalt plads, der deler 20 vCPU'er og 40 GB RAM pr. betalt plads på tværs af teamet",
             "Én faktura til hele teamet",
             "Prioriteret support"
           ]
@@ -2149,6 +2157,7 @@
           "defaultSearchEngine": "Standardsøgemaskine for forespørgsler i browserens adresselinje, der ikke er URLer. Brug custom med customSearchEngineURLTemplate til andre udbydere.",
           "customSearchEngineName": "Visningsnavn brugt når defaultSearchEngine er custom.",
           "customSearchEngineURLTemplate": "Søge-URL brugt når defaultSearchEngine er custom. Medtag forespørgselspladsholderen eller %s for den kodede søgning. Uden en pladsholder tilføjer cmux q= til URLen.",
+          "showLinkHoverURL": "Viser linkets destination nederst til venstre i browserpanelet, mens markøren er over linket, eller mens linket har tastaturfokus.",
           "urlAllowlist": "Værts- eller URL-mønstre, der begrænser navigation i den indlejrede browser. Indstillinger foreslår lokale udviklingsoprindelser; når en liste gemmes, aktiveres den valgfri begrænsning. Fjern poster for at blokere dem, eller lad brugerværdien være tom uden en administreret politik for at deaktivere begrænsningen."
         },
         "workspaceGroups": {
@@ -2917,11 +2926,12 @@
       "planMax": "Max",
       "sizesDefault": "Nye maskiner bruger 8 GB hukommelse, når du ikke vælger en størrelse. Kør cmux vm ls --json for at se de størrelser, dit abonnement tillader.",
       "limitsTitle": "Abonnementsgrænser",
-      "limitsDesc": "Abonnementsgrænser tæller maskiner, ikke en fælles pulje af CPU eller hukommelse. Hver maskine får ressourcerne for sin størrelse.",
+      "limitsDesc": "Dine aktive maskiner deler én pulje af vCPU'er og hukommelse. Kør én stor maskine eller flere små. Maskiner på pause bruger ikke af puljen. Disken fastsættes pr. maskine og indgår ikke i puljen.",
       "limitsFree": "Gratis konti kan ikke oprette maskiner.",
-      "limitsPaid": "Pro- og Max-konti kan have op til 5 aktive maskiner. En maskine er aktiv, mens den kører eller starter.",
-      "limitsTeam": "Teamkonti kan have op til 5 aktive maskiner pr. betalt plads.",
-      "limitsMax": "Maskiner større end 8 GB kræver cmux Max. Max-maskiner går op til 32 GB og 16 vCPU'er.",
+      "limitsPaid": "Pro- og Founder's Edition-konti kan have op til 5 aktive maskiner, der deler 20 vCPU'er og 40 GB hukommelse. En maskine er aktiv, mens den kører eller starter.",
+      "limitsTeam": "Teamkonti kan have op til 5 aktive maskiner pr. betalt plads. Hver betalt plads lægger 20 vCPU'er og 40 GB hukommelse til teamets pulje.",
+      "limitsMax": "Max-konti kan have op til 5 aktive maskiner, der deler 80 vCPU'er og 160 GB hukommelse. Én maskine kan have op til 32 GB og 16 vCPU'er med Pro og Team, eller op til 64 GB og 32 vCPU'er med Max.",
+      "limitsPoolFull": "Hvis en ny, genoptaget, forstørret eller forket maskine ville overskride puljen, afviser cmux anmodningen og viser, hvor meget af puljen der er i brug. Sæt en maskine på pause, eller slet den for at frigøre ressourcer, eller opgrader til Max.",
       "limitsPricing": "Se prissiden for aktuelle priser. Der er ingen forbrugsmåling og ingen fakturering for overforbrug.",
       "agentUpdatesTitle": "Hold kodeagenter opdateret",
       "agentUpdatesDesc": "Når denne indstilling er slået til, opdaterer maskinen Claude Code, Codex, OpenCode, pi og agent-browser. Den tjekker efter maskinen er oprettet og hver gang du forbinder, højst én gang hver 24. time. Opdateringen kører frakoblet, så den blokerer aldrig forbindelsen.",
@@ -2930,7 +2940,7 @@
       "agentUpdatesToggle": "Arket New Machine slår dette til som standard. For at ændre det på en eksisterende maskine skal du højreklikke på maskinen og vælge Keep Agents Up to Date eller køre cmux vm agent-updates. cmux vm new beholder billedets versioner, medmindre du angiver --agent-updates latest. Når du slår opdateringer fra, beholdes de versioner, der allerede er installeret.",
       "agentUpdatesNetwork": "Opdateringer bruger kun github.com, api.github.com, objects.githubusercontent.com og release-assets.githubusercontent.com. cmux tillader disse værter i alle netværkstilstande, også Allowlist og No internet, så en netværkspolitik blokerer aldrig opdateringer.",
       "resizeTitle": "Ændr størrelse",
-      "resizeDesc": "Du kan gøre en maskine større uden tab af data. Højreklik på maskinen, og vælg Resize machine, eller brug cmux vm resize. En størrelsesændring kan kun gøre en maskine større. Disken vokser i trin á 4 GB op til 256 GB, hukommelsen op til 32 GB og CPU op til 16 vCPU. Dit abonnement fastsætter det reelle maksimum.",
+      "resizeDesc": "Du kan gøre en maskine større uden tab af data. Højreklik på maskinen, og vælg Resize machine, eller brug cmux vm resize. En størrelsesændring kan kun gøre en maskine større. Disken vokser i trin á 4 GB op til 256 GB. Hukommelsen vokser op til 32 GB og CPU op til 16 vCPU med Pro og Team, eller op til 64 GB og 32 vCPU med Max. En større maskine bruger mere af din pulje. Dit abonnement fastsætter det reelle maksimum.",
       "pauseTitle": "Pause og genoptagelse",
       "pauseDesc": "cmux vm pause stopper maskinens beregning. Disken, arbejdsområderne og terminalhistorikken bevares. Kørende processer stopper. cmux vm resume starter maskinen igen. Hvis du åbner en maskine på pause eller kører en kommando på den, starter den også.",
       "pauseIdle": "Maskiner sættes ikke på pause af sig selv, når de er inaktive. En maskine kører, indtil du sætter den på pause eller sletter den.",
@@ -3081,9 +3091,11 @@
       "errPlan": "Cloud-VM'er kræver et betalt abonnement",
       "fixPlan": "Gratis konti kan ikke oprette maskiner. Opgrader på prissiden.",
       "errSize": "En størrelse kræver et større abonnement",
-      "fixSize": "Maskiner større end 8 GB kræver cmux Max. Vælg en mindre størrelse, eller opgrader.",
+      "fixSize": "Maskiner større end 32 GB kræver cmux Max. Vælg en mindre størrelse, eller opgrader.",
       "errLimit": "Grænsen for aktive maskiner er nået",
       "fixLimit": "Sæt en maskine på pause, eller slet den, og prøv igen.",
+      "errPool": "Ikke nok Cloud VM-ressourcer",
+      "fixPool": "Dine aktive maskiner bruger allerede de delte vCPU'er eller den delte hukommelse. Sæt en maskine på pause, eller slet den, vælg en mindre størrelse, eller opgrader til Max.",
       "errLocked": "Maskinen er låst",
       "fixLocked": "Dit betalte abonnement er ophørt, og maskinen er ældre end 7 dage. Opgrader for at genoprette forbindelsen. Dine filer bevares.",
       "errAgentMissing": "claude eller codex: command not found",
@@ -5329,7 +5341,7 @@
   "appProWelcome": {
     "eyebrow": "cmux Pro er aktiv",
     "title": "Velkommen til cmux Pro",
-    "body": "Pro-funktionerne er stadig under udvikling. Cloudadgang kommer snart med brugskreditter, der optjenes for hver måned, du abonnerer. Lige nu omfatter Pro adgang til cmux på iOS via TestFlight.",
+    "body": "Pro inkluderer op til 5 Cloud-VM'er, der deler 20 vCPU'er og 40 GB RAM, samt adgang til cmux iOS via TestFlight.",
     "done": "Gå til kontrolpanelet",
     "steps": {
       "iosApp": {

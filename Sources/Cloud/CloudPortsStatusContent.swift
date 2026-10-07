@@ -8,7 +8,7 @@ import CmuxSurfaceCatalogModel
 final class CloudPortsStatusContent: NSView {
     private let titleLabel = NSTextField(wrappingLabelWithString: "")
     private let messageLabel = NSTextField(wrappingLabelWithString: "")
-    private let actionButton = NSButton(title: "", target: nil, action: nil)
+    private let actionButton = CloudPortsStatusActionButton()
     private var presentation: CloudPortsStatusPresentation?
     private var style = CloudTreeStyle.defaultStyle
     private var actionHandler: (() -> Void)?
@@ -29,7 +29,6 @@ final class CloudPortsStatusContent: NSView {
         messageLabel.maximumNumberOfLines = 0
         messageLabel.lineBreakMode = .byWordWrapping
         messageLabel.textColor = .secondaryLabelColor
-        actionButton.bezelStyle = .inline
         actionButton.target = self
         actionButton.action = #selector(performAction)
         actionButton.setAccessibilityRole(.button)
@@ -53,7 +52,8 @@ final class CloudPortsStatusContent: NSView {
         actionHandler = action
         titleLabel.stringValue = presentation.title
         messageLabel.stringValue = presentation.message
-        actionButton.title = presentation.actionTitle ?? ""
+        messageLabel.isHidden = presentation.message.isEmpty
+        actionButton.setTitle(presentation.actionTitle ?? "", fontSize: GlobalFontMagnification.scaledSize(max(10, style.detailSize)))
         actionButton.isHidden = presentation.action == .none || presentation.actionTitle == nil
         actionButton.setAccessibilityLabel(presentation.actionTitle ?? presentation.title)
         let fontSize = GlobalFontMagnification.scaledSize(max(10, style.detailSize))
@@ -73,18 +73,18 @@ final class CloudPortsStatusContent: NSView {
         let titleHeight = Self.textHeight(titleLabel.stringValue, font: titleLabel.font ?? .systemFont(ofSize: 11), width: width - inset * 2)
         titleLabel.frame = NSRect(x: inset, y: 2, width: width - inset * 2, height: titleHeight)
         let messageY = titleLabel.frame.maxY + 2
-        let messageHeight = Self.textHeight(messageLabel.stringValue, font: messageLabel.font ?? .systemFont(ofSize: 11), width: width - inset * 2)
-        messageLabel.frame = NSRect(x: inset, y: messageY, width: width - inset * 2, height: messageHeight)
+        let messageHeight = messageLabel.isHidden ? 0 : Self.textHeight(messageLabel.stringValue, font: messageLabel.font ?? .systemFont(ofSize: 11), width: width - inset * 2)
+        messageLabel.frame = messageLabel.isHidden ? .zero : NSRect(x: inset, y: messageY, width: width - inset * 2, height: messageHeight)
         if actionButton.isHidden {
             actionButton.frame = .zero
         } else {
-            // The inline bezel hugs its title; give it room on both sides.
+            // The button hugs its title; give it room on both sides.
             let padding = GlobalFontMagnification.scaledSize(Self.actionHorizontalPadding) * 2
             actionButton.frame = NSRect(x: inset, y: messageLabel.frame.maxY + 4, width: min(width - inset * 2, actionButton.fittingSize.width + padding), height: 22)
         }
     }
 
-    private static let actionHorizontalPadding: CGFloat = 8
+    private static let actionHorizontalPadding: CGFloat = 10
 
     override var intrinsicContentSize: NSSize {
         guard let presentation else { return NSSize(width: NSView.noIntrinsicMetric, height: 0) }
@@ -99,7 +99,7 @@ final class CloudPortsStatusContent: NSView {
             : NSFont.systemFont(ofSize: fontSize)
         let contentWidth = max(1, width - 4)
         let title = textHeight(presentation.title, font: titleFont, width: contentWidth)
-        let message = textHeight(presentation.message, font: messageFont, width: contentWidth)
+        let message = presentation.message.isEmpty ? 0 : textHeight(presentation.message, font: messageFont, width: contentWidth)
         let button: CGFloat = presentation.action == .none ? 0 : 26
         return ceil(title + message + button + 10)
     }
@@ -122,4 +122,75 @@ final class CloudPortsStatusContent: NSView {
     }
 
     @objc private func performAction() { actionHandler?() }
+}
+
+/// The Ports status action ("Refresh", "Set Up VPN…"): a quiet rounded chip
+/// in the Cloud tree's shape and fills (`CloudTreeHoverStyle`). Its title
+/// brightens and its fill deepens under the pointer, and again while pressed.
+@MainActor
+final class CloudPortsStatusActionButton: NSButton {
+    private var isHovered = false { didSet { if isHovered != oldValue { refreshAppearance() } } }
+    private var hoverTracking: NSTrackingArea?
+    private var chipTitle = ""
+    private static let restFill = CloudTreeHoverStyle.selectedOpacity
+    private static let hoverFill = CloudTreeHoverStyle.selectedOpacity + CloudTreeHoverStyle.hoverOpacity
+    private static let pressedFill = CloudTreeHoverStyle.selectedOpacity + CloudTreeHoverStyle.pressedOpacity
+    private var fontSize: CGFloat = 11
+
+    init() {
+        super.init(frame: .zero)
+        isBordered = false
+        wantsLayer = true
+        layer?.cornerRadius = CloudTreeHoverStyle.cornerRadius
+        layer?.cornerCurve = .continuous
+        setButtonType(.momentaryChange)
+        refreshAppearance()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    deinit {}
+
+    func setTitle(_ title: String, fontSize: CGFloat) {
+        chipTitle = title
+        self.fontSize = fontSize
+        refreshAppearance()
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverTracking { removeTrackingArea(hoverTracking) }
+        let area = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self)
+        addTrackingArea(area)
+        hoverTracking = area
+    }
+
+    override func mouseEntered(with event: NSEvent) { isHovered = true }
+    override func mouseExited(with event: NSEvent) { isHovered = false }
+
+    override var isHighlighted: Bool {
+        didSet { refreshAppearance() }
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        refreshAppearance()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil { isHovered = false }
+    }
+
+    private func refreshAppearance() {
+        let opacity = isHighlighted ? Self.pressedFill : (isHovered ? Self.hoverFill : Self.restFill)
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(opacity).cgColor
+        }
+        attributedTitle = NSAttributedString(string: chipTitle, attributes: [
+            .font: NSFont.systemFont(ofSize: fontSize, weight: .medium),
+            .foregroundColor: isHovered || isHighlighted ? NSColor.labelColor : NSColor.secondaryLabelColor,
+        ])
+    }
 }

@@ -78,6 +78,8 @@ export type VMHandle = {
 
 export type CreateOptions = {
   image: string; // provider-specific template/snapshot identifier
+  /** The image is a live machine snapshot (fork or checkpoint restore); create waits for this machine's own daemon. */
+  forked?: boolean;
   /** Provider-enforced lifetime runtime allowance for this allocation. */
   runtimeBudgetSeconds?: number;
   /** Human-facing machine label; providers may ignore this cosmetic field. */
@@ -132,6 +134,32 @@ export type CreateOptions = {
 export type ProviderNetworkRef = {
   readonly id: string;
   readonly memberIngress?: boolean;
+};
+
+export type VMFirewallEndpoint = {
+  readonly vmId?: string;
+  readonly vpcId?: string;
+  readonly tunnelId?: string;
+  readonly cidr?: string;
+  readonly public?: true;
+  readonly port?: number;
+  readonly protocol?: "tcp" | "udp" | "icmp";
+};
+
+export type VMFirewallRule = {
+  readonly id: string;
+  readonly action: "allow";
+  readonly source: VMFirewallEndpoint;
+  readonly destination: VMFirewallEndpoint;
+  readonly description?: string | null;
+  readonly createdAt?: string;
+  readonly updatedAt?: string;
+};
+
+export type VMFirewallRuleInput = {
+  readonly source: VMFirewallEndpoint;
+  readonly destination: VMFirewallEndpoint;
+  readonly description?: string;
 };
 
 /** One edge header-injection rule; see CreateOptions.edgeRules. */
@@ -322,6 +350,28 @@ export type ExecResult = {
   stderr: string;
 };
 
+export type VMFileEntry = {
+  name: string;
+  kind: "file" | "directory" | "symlink";
+  size?: number;
+  mode?: number;
+  modifiedAt?: number;
+};
+
+export type VMFileContents = {
+  path: string;
+  data: Uint8Array;
+  size: number;
+};
+
+export type VMFileStat = {
+  path: string;
+  kind: "file" | "directory" | "symlink";
+  size?: number;
+  mode?: number;
+  modifiedAt?: number;
+};
+
 export type ExecOptions = {
   readonly timeoutMs?: number;
   /** Server-side metadata persisted with the VM row, used for durable-home routing. */
@@ -463,6 +513,10 @@ export interface VMPrivateNetworking {
   detachTunnelNetwork?(tunnelId: string, networkId: string): Promise<void>;
   /** Ids of every tunnel attached to a network. */
   listNetworkTunnelIds?(networkId: string): Promise<string[]>;
+  listFirewallRules?(options?: { vmId?: string; vpcId?: string; tunnelId?: string }): Promise<VMFirewallRule[]>;
+  getFirewallRule?(ruleId: string): Promise<VMFirewallRule>;
+  createFirewallRule?(options: VMFirewallRuleInput): Promise<VMFirewallRule>;
+  deleteFirewallRule?(ruleId: string): Promise<void>;
 }
 
 export type EnsureProviderNetworkOptions = {
@@ -524,6 +578,14 @@ export interface VMProvider {
   setRuntimeBudget?(vmId: string, remainingSeconds: number | null): Promise<void>;
 
   exec(vmId: string, command: string, opts?: ExecOptions): Promise<ExecResult>;
+
+  /** Backend-wrapped guest filesystem operations. Paths are validated by the route and driver. */
+  listFiles?(vmId: string, path: string): Promise<VMFileEntry[]>;
+  readFile?(vmId: string, path: string): Promise<VMFileContents>;
+  writeFile?(vmId: string, path: string, data: Uint8Array, mode?: number): Promise<void>;
+  makeDirectory?(vmId: string, path: string): Promise<void>;
+  removeFile?(vmId: string, path: string): Promise<void>;
+  statFile?(vmId: string, path: string): Promise<VMFileStat>;
 
   // Optional: mint a private, token-gated HTTPS preview URL for an arbitrary HTTP port on the
   // VM (the exe.dev "https://vmname.exe.xyz:3456" equivalent). openUrl embeds the token as a

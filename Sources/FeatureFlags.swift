@@ -54,11 +54,7 @@ final class CmuxFeatureFlags {
     private nonisolated static let mobileTaskComposerDefault = true
     private static let goPlanDefault = false
     private static let agentInboxQuickViewDefault = false
-    #if DEBUG
     nonisolated static let cloudMachinesDefault = true
-    #else
-    nonisolated static let cloudMachinesDefault = false
-    #endif
     private nonisolated static let conversationSidebarDefault = false
 
     private static let overrideKeyPrefix = "cmux.flags.override."
@@ -456,20 +452,17 @@ final class CmuxFeatureFlags {
         self.publishesOffMainSnapshot = publishesOffMainSnapshot
         self.pinsFlagsToLocalValues = pinsFlagsToLocalValues
         self.remoteFlagValueProvider = remoteFlagValueProvider
-        // Reload's marker travels with the signed artifact, including an HQ
-        // restore on a fresh Mac. Seed both gates before publishing any flag
-        // snapshot; a remote false remains authoritative for release builds.
+        // Cloud's local value is now a first-use activation marker, so it must
+        // survive tagged debug artifact reloads just like any other persisted
+        // product state. The explicit dogfood marker may still opt a fresh
+        // debug artifact in; only the temporary remote override is reset when
+        // a tagged artifact is reopened.
         if overrideCapability.enablesCloudDogfood {
             defaults.set(true, forKey: BetaFeaturesCatalogSection().cloudMachines.userDefaultsKey)
             defaults.set(true, forKey: Self.overrideDefaultsKey(for: Self.cloudMachinesFlag.key))
         } else if overrideCapability.isTaggedDebugArtifact {
-            // A later tagged artifact can explicitly disable Cloud. Clear the
-            // previous debug marker's persisted gates so the old app identity
-            // cannot re-enable Cloud after a reload.
-            defaults.removeObject(forKey: BetaFeaturesCatalogSection().cloudMachines.userDefaultsKey)
             defaults.removeObject(forKey: Self.overrideDefaultsKey(for: Self.cloudMachinesFlag.key))
             if overrideCapability.hasCloudDogfoodMarker {
-                defaults.set(false, forKey: BetaFeaturesCatalogSection().cloudMachines.userDefaultsKey)
                 defaults.set(false, forKey: Self.overrideDefaultsKey(for: Self.cloudMachinesFlag.key))
             }
         }

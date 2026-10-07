@@ -35,6 +35,7 @@ import {
 import {
   defaultMemoryMbForPlan,
   lockedMemoryOptionsMbForPlan,
+  legacyPoolReservationForPlan,
   memoryOptionsMbForPlan,
   isPaidVmPlan,
   isVmBillingTeamResolutionError,
@@ -169,6 +170,10 @@ export async function GET(request: Request): Promise<Response> {
       // with nothing else to show for it. This, with the lookup error above,
       // separates that from nobody having set a name.
       setSpanAttributes(span, { "cmux.vm.creator_names": creatorNames.size });
+      // A legacy row without a reservation marker draws from the pool at the
+      // plan's default machine size, exactly as the repository counts it.
+      const legacyPoolShare = legacyPoolReservationForPlan(listEntitlements?.planId ?? null, process.env);
+      const poolShare = (entry: (typeof entries)[number]) => entry.resourceReservation ?? legacyPoolShare;
       const vms = entries.map((entry) => ({
         id: entry.providerVmId,
         provider: entry.provider,
@@ -199,11 +204,20 @@ export async function GET(request: Request): Promise<Response> {
         // Contract recorded when the provider attached cmux-tui. This is
         // rollout metadata, not a live daemon probe.
         cmuxTuiContract: entry.cmuxTuiContract,
+        // This machine's share of the shared vCPU/memory pool.
+        resources: poolShare(entry),
       }));
+      const activeEntries = entries.filter((vm) => vm.status === "running" || vm.status === "provisioning");
       const limits = listEntitlements
         ? {
           maxActiveVms: listEntitlements.maxActiveVms,
-          activeVmCount: entries.filter((vm) => vm.status === "running" || vm.status === "provisioning").length,
+          activeVmCount: activeEntries.length,
+          // The plan's shared pool (null when the plan has none) and what the
+          // active machines draw from it. Paused machines do not count.
+          poolVcpus: listEntitlements.resourcePool?.vcpus ?? null,
+          poolMemoryMb: listEntitlements.resourcePool?.memoryMb ?? null,
+          usedVcpus: activeEntries.reduce((sum, entry) => sum + poolShare(entry).vcpus, 0),
+          usedMemoryMb: activeEntries.reduce((sum, entry) => sum + poolShare(entry).memoryMb, 0),
           planId: listEntitlements.planId,
           freeAccessWindowDays,
           ...(listEntitlements.planId === "go" ? {
@@ -262,15 +276,11 @@ export async function POST(request: Request): Promise<Response> {
     async ({ user: initialUser, span, authDurationMs, routeStartedAtMs, setResponseFinalizer }) => {
       const timing = new VmTimingRecorder(span, "create", { startedAt: routeStartedAtMs });
       timing.record("auth", authDurationMs);
-      // Start the provider probe only after authentication. It is shared by
-      // concurrent creates, so the first authenticated request pays the cold
-      // connection once and unauthenticated traffic cannot consume provider
-      // capacity. The await below is bounded by the probe's own timeout.
-      const warmupStartedAt = performance.now();
-      const freestyleWarmup = preconnectFreestyle();
-      const connectionInitDuration = freestyleWarmup.then(
-        () => ({ durationMs: performance.now() - warmupStartedAt, endedAtMs: Date.now() }),
-      );
+      // Start the provider probe after authentication, but never make machine
+      // creation wait for it. The provider request owns its connection setup;
+      // a best-effort probe cannot guarantee socket reuse and otherwise adds
+      // its full latency to the first create.
+      void preconnectFreestyle();
       let admissionRecorded = false;
       let admissionStartedAt = performance.now();
       /** Records request validation even when it exits before provisioning. */
@@ -337,16 +347,9 @@ export async function POST(request: Request): Promise<Response> {
         "cmux.idempotency_key_set": !!idempotencyKey,
       });
 
-      // Only Freestyle creation needs this probe. Other providers must not
-      // wait behind an unrelated connection check, while the Freestyle path
-      // still overlaps the probe with authentication and request parsing.
-      if (provider === "freestyle") {
-        const connectionInit = await connectionInitDuration;
-        timing.record("connection_init", connectionInit.durationMs, { endedAtMs: connectionInit.endedAtMs });
-      }
-      // Admission starts after provider-specific connection readiness. Its
-      // budget describes only request validation; the durable begin_create
-      // phase is recorded inside the workflow and remains authoritative.
+      // Admission starts after request validation. Its budget describes only
+      // request validation; the durable begin_create phase is recorded inside
+      // the workflow and remains authoritative.
       admissionStartedAt = performance.now();
       recordAdmission();
 

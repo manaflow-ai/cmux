@@ -102,6 +102,7 @@ enum SettingsSearchAliasIndex {
         "app:telemetry": localized("settings.search.alias.setting.app.telemetry", defaultValue: "app.sendAnonymousTelemetry analytics crash reports sentry posthog usage anonymous privacy"),
         "app:warn-before-quit": localized("settings.search.alias.setting.app.warn-before-quit", defaultValue: "app.warnBeforeQuit quit confirmation command-q cmd-q exit close app"),
         "app:warn-before-closing-tab": localized("settings.search.alias.setting.app.warn-before-closing-tab", defaultValue: "app.warnBeforeClosingTab close tab confirmation command-w cmd-w terminal surface"),
+        "app:warn-before-closing-agent-session": localized("settings.search.alias.setting.app.warn-before-closing-agent-session", defaultValue: "app.warnBeforeClosingAgentSession close active agent session working turn confirmation"),
         "app:warn-before-closing-tab-x-button": localized(
             "settings.search.alias.setting.app.warn-before-closing-tab-x-button",
             defaultValue: "app.warnBeforeClosingTabXButton close tab x button confirmation terminal surface"
@@ -127,6 +128,7 @@ enum SettingsSearchAliasIndex {
         "terminal:session-content-width": localized("settings.search.alias.setting.terminal.session-content-width", defaultValue: "terminal.sessionContentMaxWidth terminal agent chat max width readable line length points pt narrow wide"),
         "terminal:session-content-alignment": localized("settings.search.alias.setting.terminal.session-content-alignment", defaultValue: "terminal.sessionContentAlignment terminal agent chat left center right alignment position"),
         "terminal:copy-on-select": localized("settings.search.alias.setting.terminal.copy-on-select", defaultValue: "terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm"),
+        "terminal:copy-confirmation": localized("settings.search.alias.setting.terminal.copy-confirmation", defaultValue: "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse"),
         "terminal:text-editing-gestures": localized("settings.search.alias.setting.terminal.text-editing-gestures", defaultValue: "terminal.textEditingGestures text editing gestures option alt word line kill readline emacs keybindings command arrow delete"),
         "terminal:confirm-unsafe-paste": localized("settings.search.alias.setting.terminal.confirm-unsafe-paste", defaultValue: "terminal.confirmUnsafePaste confirm unsafe paste protection warning multi-line newline clipboard sheet"),
         "terminal:reflow-hard-wrap-on-copy": localized("settings.search.alias.setting.terminal.reflow-hard-wrap-on-copy", defaultValue: "terminal.reflowHardWrapOnCopy reflow hard wrap copy soft wrap line breaks newlines paste"),
@@ -209,6 +211,7 @@ enum SettingsSearchAliasIndex {
         "browser:hidden-webview-discard-delay": localized("settings.search.alias.setting.browser.hidden-webview-discard-delay", defaultValue: "browser.hiddenWebViewDiscardDelaySeconds memory hidden tabs delay seconds discard unload"),
         "browser:unloaded-page-auto-restore": localized("settings.search.alias.setting.browser.unloaded-page-auto-restore", defaultValue: "browser.autoRestoreUnloadedPages restore reload unloaded discarded hidden tabs placeholder"),
         "browser:ask-where-to-save-downloads": localized("settings.search.alias.setting.browser.ask-where-to-save-downloads", defaultValue: "browser.askWhereToSaveDownloads downloads save panel folder attachments files pdf gmail"),
+        "browser:link-hover-url": localized("settings.search.alias.setting.browser.link-hover-url", defaultValue: "browser.showLinkHoverURL link hover url destination address status bar preview"),
         "browser:terminal-links": localized("settings.search.alias.setting.browser.terminal-links", defaultValue: "browser.openTerminalLinksInCmuxBrowser click url terminal links open in browser href"),
         "browser:intercept-open": localized("settings.search.alias.setting.browser.intercept-open", defaultValue: "browser.interceptTerminalOpenCommandInCmuxBrowser open command http https url terminal intercept"),
         "browser:host-whitelist": localized("settings.search.alias.setting.browser.host-whitelist", defaultValue: "browser.hostsToOpenInEmbeddedBrowser allowlist whitelist host wildcard domain embedded browser"),
@@ -228,6 +231,7 @@ enum SettingsSearchAliasIndex {
         "workspaceColors:indicator": localized("settings.search.alias.setting.workspaceColors.indicator", defaultValue: "workspaceColors.indicatorStyle tab indicator active workspace style color stripe dot"),
         "workspaceColors:selection": localized("settings.search.alias.setting.workspaceColors.selection", defaultValue: "workspaceColors.selectionColor selected workspace color highlight background active tab"),
         "workspaceColors:subtle-selection": localized("settings.search.alias.setting.workspaceColors.subtle-selection", defaultValue: "workspaceColors.subtleSelection subtle calm quiet selection highlight tint hairline edge selected workspace accent"),
+        "workspaceColors:brighten-dark-mode": localized("settings.search.alias.setting.workspaceColors.brighten-dark-mode", defaultValue: "workspaceColors.brightenInDarkMode brighten lighten dark mode workspace colors fill dim muted exact color"),
         "workspaceColors:badge": localized("settings.search.alias.setting.workspaceColors.badge", defaultValue: "workspaceColors.notificationBadgeColor unread notification badge color dot count"),
         "workspaceColors:palette": localized("settings.search.alias.setting.workspaceColors.palette", defaultValue: "workspaceColors.colors workspace palette named colors custom color reset built-in"),
         "settingsJSON:open-file": localized("settings.search.alias.setting.settingsJSON.open-file", defaultValue: "open config file json jsonc config editor ~/.config cmux preferences"),
