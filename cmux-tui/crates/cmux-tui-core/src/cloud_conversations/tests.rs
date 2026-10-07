@@ -892,7 +892,7 @@ fn the_mux_queue_and_its_acks_belong_to_the_leased_chief_only() {
     assert_eq!(target, Target::Mux(CHIEF.into()));
     let wire = backend.wire();
     wire.push_text(welcome());
-    service.subscribe(1, target.clone()).unwrap();
+    service.subscribe(1, target).unwrap();
     wait_until("the mux socket", || !backend.connected().is_empty());
     assert_eq!(backend.connected()[0].url, format!("wss://api.cmux.test/v1/wire/mux/{CHIEF}"));
     backend.reply("/v1/ops", 200, json!({"ok": true, "op": "mux.ack", "value": {"cursor": 4}, "revision": "1", "transaction": "t", "idempotency_key": "k", "replayed": false, "stream": "mux", "sequence": 1}));

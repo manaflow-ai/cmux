@@ -347,7 +347,7 @@ impl CloudConversations {
 
     fn lease_agent(&self) -> Result<String, CloudError> {
         let session = self.inner.usable_session()?;
-        session.agent.clone().ok_or_else(|| {
+        session.agent.ok_or_else(|| {
             CloudError::daemon_reject(
                 "mux_needs_chief",
                 "the wake queue needs a chief token (cloud-session-set with the chief's token)",
