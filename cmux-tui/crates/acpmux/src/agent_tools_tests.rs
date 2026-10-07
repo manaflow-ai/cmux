@@ -216,10 +216,15 @@ fn the_helper_token_is_never_on_a_command_line_and_its_config_file_is_private() 
     let state = Temp::new();
     let home = Temp::new();
     let mut with_app = inputs(bin.path(), None, state.path());
-    with_app.cua = crate::cua_socket::select(Some("/tmp/tag/cmux-cua.sock".into()), Some(token.into()));
+    with_app.cua =
+        crate::cua_socket::select(Some("/tmp/tag/cmux-cua.sock".into()), Some(token.into()));
     let tools = resolve(&with_app);
     // The cmux-cua child's argv.
-    assert!(!tools.servers[0].args.iter().any(|a| a.contains(token)), "{:?}", tools.servers[0].args);
+    assert!(
+        !tools.servers[0].args.iter().any(|a| a.contains(token)),
+        "{:?}",
+        tools.servers[0].args
+    );
     // The claude process's argv.
     let path = mcp_config_path(home.path(), "01a1-session");
     let args = tools.claude_args(&path);

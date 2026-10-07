@@ -196,7 +196,7 @@ pub fn mcp_config_path(home: &Path, session_id: &str) -> PathBuf {
 
 /// Remove the session's MCP config when the session ends.
 pub fn remove_mcp_config(home: &Path, session_id: &str) {
-    let _ = (home, session_id); // red: the file stays
+    let _ = std::fs::remove_file(mcp_config_path(home, session_id));
 }
 
 pub fn resolve(inputs: &Inputs) -> AgentTools {
@@ -308,9 +308,17 @@ impl AgentTools {
     pub fn claude_args(&self, config_file: &Path) -> Vec<String> {
         let mut args = Vec::new();
         if let Some(config) = self.mcp_config() {
-            let _ = config_file; // red: still inline
-            args.push("--mcp-config".into());
-            args.push(config.to_string());
+            match write_private(config_file, config.to_string().as_bytes()) {
+                Ok(()) => {
+                    args.push("--mcp-config".into());
+                    args.push(config_file.to_string_lossy().into_owned());
+                }
+                // Never fall back to inline JSON: that puts the token in argv.
+                Err(e) => tracing::warn!(
+                    "agent tools: MCP config {} not written, session gets no MCP servers: {e:#}",
+                    config_file.display()
+                ),
+            }
         }
         if let Some(dir) = &self.plugin_dir {
             args.push("--plugin-dir".into());
@@ -318,6 +326,28 @@ impl AgentTools {
         }
         args
     }
+}
+
+/// Write `bytes` to `path` as a 0600 file in a 0700 folder (to a temporary
+/// file first, then renamed, so claude never reads half a config).
+fn write_private(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
+    let dir = path.parent().ok_or_else(|| anyhow::anyhow!("no parent folder"))?;
+    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
+    std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
+    let tmp = dir.join(format!(".tmp-{}", uuid::Uuid::now_v7()));
+    let written = (|| -> std::io::Result<()> {
+        let mut f =
+            std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&tmp)?;
+        f.write_all(bytes)?;
+        f.sync_all()?;
+        std::fs::rename(&tmp, path)
+    })();
+    if written.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    Ok(written?)
 }
 
 fn is_executable(path: &Path) -> bool {
