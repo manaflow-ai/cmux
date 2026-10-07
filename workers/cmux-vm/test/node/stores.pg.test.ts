@@ -122,7 +122,7 @@ describe("api key store", () => {
     const { id, hash } = await insertKey({ scopes: ["vm:read", "vm:exec"], allowlist: [vmId] });
     const found = await run(Effect.flatMap(ApiKeyStore, (store) => store.findActiveByHash(hash, now)));
     expect(found).toEqual(
-      Option.some({ id, tenantId: "team_a", scopes: ["vm:read", "vm:exec"], resourceAllowlist: [vmId] }),
+      Option.some({ id, tenantId: "team_a", scopes: ["vm:read", "vm:exec"], resourceAllowlist: [vmId], expiresAt: null }),
     );
   });
 

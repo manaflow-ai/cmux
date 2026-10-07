@@ -20,6 +20,9 @@ import {
   Unauthorized,
 } from "./errors.ts";
 import { SnapshotId, VmId } from "./lib/ids.ts";
+import { SnapshotsGroupDefinition } from "./api/snapshots.ts";
+import { TerminalsGroupDefinition } from "./api/terminals.ts";
+import { ApiKeysGroupDefinition } from "./api/api-keys.ts";
 
 /**
  * Bearer authentication: a Stack Auth session token (with `X-Cmux-Team-Id`
@@ -432,11 +435,14 @@ export class CmuxVmApi extends HttpApi.make("cmux-vm")
   .add(VmsGroup)
   .add(ExecGroup)
   .add(FilesGroup)
+  .add(SnapshotsGroupDefinition.middleware(Authentication))
+  .add(TerminalsGroupDefinition.middleware(Authentication))
+  .add(ApiKeysGroupDefinition.middleware(Authentication))
   .annotateContext(
     OpenApi.annotations({
       title: "cmux VM API",
       version: "0.1.0",
       description: "Tenant-scoped virtual machines for cmux.",
-      servers: [{ url: "https://vm.cmux.com", description: "Production" }, { url: "https://vm-staging.cmux.com", description: "Staging" }],
+      servers: [{ url: "https://vm.cmux.dev", description: "Production" }, { url: "https://vm-staging.cmux.dev", description: "Staging" }],
     }),
   ) {}

@@ -17,6 +17,7 @@ import themes from "virtual:cmux-gallery/themes";
 import { EntryBoundary } from "./EntryBoundary";
 import { createGalleryRouter, validateShellSearch, VIEWS, type ShellSearch, type View } from "./router";
 import { GalleryVariantPick } from "./GalleryVariantPick";
+import { CompareView } from "./CompareView";
 import { Controls, SAMPLE_THEMES, Stage, useRoom } from "./Stage";
 import { EXPERIMENTAL_AREA, sidebarGroups } from "./groups";
 import { experimentalLabel } from "./strings";
@@ -26,6 +27,7 @@ const VIEW_LABELS: Record<View, string> = {
   variants: "All variants",
   locales: "All locales",
   themes: "Themes",
+  compare: "Compare arms",
 };
 
 export const { router } = createGalleryRouter(Layout);
@@ -354,7 +356,7 @@ function EntryView({ entry, address }: { entry: GalleryEntry; address: Address }
         </h1>
         <fieldset className="gallery-segmented">
           <legend>View</legend>
-          {VIEWS.map((view) => (
+          {VIEWS.filter((view) => view !== "compare" || entry.experiment).map((view) => (
             <label key={view}>
               <input
                 type="radio"
@@ -367,7 +369,10 @@ function EntryView({ entry, address }: { entry: GalleryEntry; address: Address }
             </label>
           ))}
         </fieldset>
-        <Controls env={env} onChange={(next) => go({ ...address, search: { ...next, view: search.view } }, true)} />
+        <Controls
+          env={env}
+          onChange={(next) => go({ ...address, search: { ...next, view: search.view, compare: search.compare } }, true)}
+        />
         <details className="gallery-covers">
           <summary>
             {entry.host} · covers {entry.covers.length}
@@ -376,7 +381,17 @@ function EntryView({ entry, address }: { entry: GalleryEntry; address: Address }
         </details>
       </header>
       <div ref={stagesRef} className={`gallery-stages gallery-stages--${search.view}`}>
-        {entry.pick && search.view === "variants" ? (
+        {entry.experiment && search.view === "compare" ? (
+          <CompareView
+            entry={entry}
+            experiment={entry.experiment}
+            variant={variant}
+            env={env}
+            compare={search.compare}
+            room={room}
+            onCompare={(compare, replace) => go({ ...address, search: { ...search, compare } }, replace)}
+          />
+        ) : entry.pick && search.view === "variants" ? (
           <GalleryVariantPick
             entry={entry}
             locale={env.locale}
