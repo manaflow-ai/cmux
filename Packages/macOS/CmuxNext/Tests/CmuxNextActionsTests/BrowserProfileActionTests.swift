@@ -47,7 +47,8 @@ import Testing
         #expect(ids(.tab).isSuperset(of: ["browserProfile.moveTab", "browserProfile.duplicateTab"]))
         #expect(ids(.newTab).contains("browserProfile.newTab"))
         #expect(ids(.workspaceRow).isSuperset(of: ["browserProfile.setWorkspaceDefault", "browserProfile.clearWorkspaceDefault"]))
-        #expect(ids(.profile).isSuperset(of: ["browserProfile.setSpaceDefault", "browserProfile.clearSpaceDefault"]))
+        // The space menu is Arc's short list (F3): Set Browser Profile ›; clearing stays in the palette and the CLI.
+        #expect(ids(.profile).contains("browserProfile.setSpaceDefault"))
         #expect(ids(.browserProfile).isSuperset(of: ["browserProfile.newTab", "browserProfile.rename", "browserProfile.delete",
                                                      "browserProfile.manageExtensions"]))
     }
