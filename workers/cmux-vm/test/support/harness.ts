@@ -164,7 +164,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
     memoryLimitsLayer(),
     Layer.succeed(
       UpstreamClient,
-      makeUpstreamClient({ baseUrl: UPSTREAM_URL, apiKey: Redacted.make(UPSTREAM_KEY), fetch: upstream.fetch }),
+      makeUpstreamClient({ baseUrl: UPSTREAM_URL, apiKey: Redacted.make(UPSTREAM_KEY), environment: "local", fetch: upstream.fetch }),
     ),
     Layer.succeed(SessionVerifier, makeStackSessionVerifier({ apiUrl: STACK_API_URL, projectId: STACK_PROJECT_ID, getKey })),
     Layer.succeed(TeamMembership, {

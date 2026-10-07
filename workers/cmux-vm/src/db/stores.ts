@@ -158,7 +158,7 @@ export const sqlStoresLayer: Layer.Layer<OwnershipStore | ApiKeyStore | AuditSto
           .query(
             "ownership.record",
             `INSERT INTO cmux_vm.resources (cmux_id, tenant_id, kind, upstream_id, created_by, created_at, display_name, labels)
-             VALUES ($1, $2, $3, $4, $5, $6::timestamptz, $7, $8::jsonb)`,
+             VALUES ($1, $2, $3, $4, $5, $6::timestamptz, $7, $8::text::jsonb)`,
             params,
           )
           .pipe(Effect.asVoid);
@@ -181,7 +181,7 @@ export const sqlStoresLayer: Layer.Layer<OwnershipStore | ApiKeyStore | AuditSto
               WHERE tenant_id = $1 AND kind = $2 AND deleted_at IS NULL
                 AND ($3::timestamptz IS NULL OR (created_at, cmux_id) < ($3::timestamptz, $4::text))
                 AND ($5::text IS NULL OR cmux_id = ANY (string_to_array($5::text, ' ')))
-                AND ($7::jsonb IS NULL OR labels @> $7::jsonb)
+                AND ($7::text::jsonb IS NULL OR labels @> $7::text::jsonb)
               ORDER BY created_at DESC, cmux_id DESC
               LIMIT $6`,
             params,
