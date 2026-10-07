@@ -2,6 +2,7 @@
 
 use std::ffi::{CString, c_char, c_int, c_void};
 
+use cmux_remote_browser::proto::HistoryOp;
 use cmux_remote_browser::rp_input::RpCall;
 use cmux_remote_browser::session::ScreenSize;
 
@@ -327,6 +328,14 @@ impl Presentation for ShimPresentation {
             // SAFETY: plain value; UI thread.
             unsafe { rb_shim_surface_close(surface) };
         }
+    }
+
+    fn load_url(&mut self, _browser: i32, _url: &str) -> bool {
+        false
+    }
+
+    fn history(&mut self, _browser: i32, _op: HistoryOp) -> bool {
+        false
     }
 
     fn popup_menu_result(&mut self, fork_token: i64, indices: Option<&[u32]>) -> bool {

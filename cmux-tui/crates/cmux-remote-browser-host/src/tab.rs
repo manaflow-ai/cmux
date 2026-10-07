@@ -6,8 +6,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use cmux_remote_browser::menu::{MenuEffect, MenuInput, MenuReject, MenuTokens, command_ids};
 use cmux_remote_browser::proto::{
-    Control, Dialog, InputEvent, Menu, MenuChoice, MenuKind, PointerKind, Rect, RefuseReason,
-    SessionState, SurfaceKind,
+    Control, Dialog, HistoryOp, InputEvent, Menu, MenuChoice, MenuKind, PointerKind, Rect,
+    RefuseReason, SessionState, SurfaceKind,
 };
 use cmux_remote_browser::rp_input::{InputReject, RpCall, map_input};
 use cmux_remote_browser::session::{ScreenSize, Session, SessionEffect, SessionInput};
@@ -33,6 +33,18 @@ pub trait Presentation {
     fn surface_capture(&mut self, surface: u32) -> bool;
     /// Closes popup surface `surface`; the fork then reports it hidden.
     fn surface_close(&mut self, surface: u32);
+    /// Loads `url` in the tab's main frame (`rb.navigate`).
+    fn load_url(&mut self, browser: i32, url: &str) -> bool;
+    /// Back, forward, reload or stop (`rb.history`).
+    fn history(&mut self, browser: i32, op: HistoryOp) -> bool;
+}
+
+/// A page fact the shim reported (`rb.page` carries all of them).
+#[derive(Debug, Clone, PartialEq)]
+pub enum PageChange {
+    Url(String),
+    Title(String),
+    Loading { loading: bool, can_go_back: bool, can_go_forward: bool },
 }
 
 /// What the host does for a popup surface (RP7) besides the shim calls.
@@ -412,6 +424,45 @@ impl HostTab {
         }
         self.note_held(event);
         Ok(p.input(browser, &call))
+    }
+
+    /// One viewer input event with its rd input seq (`None` when unknown):
+    /// a key-down's seq is what `rb.key_unhandled` names.
+    pub fn input_seq(
+        &mut self,
+        event: &InputEvent,
+        _seq: Option<u32>,
+        p: &mut dyn Presentation,
+    ) -> Result<bool, InputReject> {
+        self.input(event, p)
+    }
+
+    /// The page did not handle the last key-down: `rb.key_unhandled`
+    /// naming its seq (once).
+    pub fn key_unhandled(&mut self) -> Option<Control> {
+        None
+    }
+
+    /// A page fact changed: `rb.page` with every fact, when one moved.
+    pub fn page_changed(&mut self, _change: PageChange) -> Option<Control> {
+        None
+    }
+
+    /// The page's cursor changed (`cef_cursor_type_t`): `rb.cursor` when
+    /// the shape moved.
+    pub fn cursor_changed(&mut self, _cef_type: i32) -> Option<Control> {
+        None
+    }
+
+    /// The page asked for a new tab or window (`cef_window_open_disposition_t`):
+    /// `rb.open_tab` for the App, or `None` for a disposition that opens nothing.
+    pub fn popup_requested(
+        &mut self,
+        _url: &str,
+        _cef_disposition: i32,
+        _user_gesture: bool,
+    ) -> Option<Control> {
+        None
     }
 
     /// Records which keys and buttons the viewer holds after `event`.

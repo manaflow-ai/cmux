@@ -21,7 +21,6 @@ use cmux_encode::videotoolbox::{
     ColorTag, SurfaceEncoder, SurfaceFormat, SurfaceFrame, SurfaceRect, VideoToolbox,
 };
 use cmux_rd_core::flow::Rect;
-use cmux_rd_core::service::negotiate;
 use cmux_rd_engine::EngineConfig;
 use cmux_rd_proto::control::Control as RdControl;
 use cmux_rd_proto::{
@@ -673,7 +672,7 @@ fn session(mut stream: TcpStream) -> std::io::Result<String> {
     let RdControl::Hello { service, caps, max_datagram, .. } = hello else {
         return Ok("the first control message is not hello".into());
     };
-    let negotiated = match negotiate(&service, &caps, &[SERVICE_REMOTE_BROWSER], &[]) {
+    let negotiated = match crate::handshake::negotiate_hello(&service, &caps) {
         Ok(n) => n,
         Err(refusal) => {
             write_rd(&mut stream, &RdControl::Refused { reason: refusal.reason().into() })?;

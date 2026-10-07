@@ -279,8 +279,9 @@ fn rb_message<'a>(controls: &'a [serde_json::Value], t: &str) -> Option<&'a serd
     controls.iter().map(|c| &c["body"]).find(|b| b["t"] == t)
 }
 
-fn hello() -> Vec<u8> {
-    let control = Control::Hello {
+/// The probe's hello: service `rb/1`, as the Mac client sends it.
+pub fn hello_control() -> Control {
+    Control::Hello {
         user: "probe".into(),
         install: "probe".into(),
         class: "viewer".into(),
@@ -290,7 +291,17 @@ fn hello() -> Vec<u8> {
         token: None,
         service: SERVICE_REMOTE_BROWSER.into(),
         caps: vec![],
-    };
+    }
+}
+
+/// True when the host's welcome in `controls` grants service input (the
+/// Mac client sends no input otherwise).
+pub fn input_granted(_controls: &[serde_json::Value]) -> bool {
+    true
+}
+
+fn hello() -> Vec<u8> {
+    let control = hello_control();
     let mut out = Vec::new();
     let json = serde_json::to_vec(&control).unwrap_or_default();
     let _ = encode_stream_frame(STREAM_CONTROL, &json, &mut out);

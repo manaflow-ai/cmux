@@ -43,6 +43,9 @@ pub struct PumpOut {
     pub datagrams: Vec<Vec<u8>>,
     /// rb input events from the viewer, applied exactly once, in order.
     pub input: Vec<InputEvent>,
+    /// The rd input sequence number of each `input` event (same index),
+    /// when the pump knows it (`rb.key_unhandled` names it).
+    pub input_seqs: Vec<Option<u32>>,
     /// Release every key and button the viewer holds (input skipped a gap).
     pub release_all: bool,
     /// Ask the capture for a full frame (the engine wants a frame and the
@@ -229,7 +232,10 @@ impl<E: FrameEncoder> Pump<E> {
         for event in engine_out.inject {
             match event {
                 RdInput::Service { bytes, .. } => match serde_json::from_slice(&bytes) {
-                    Ok(event) => out.input.push(event),
+                    Ok(event) => {
+                        out.input.push(event);
+                        out.input_seqs.push(None);
+                    }
                     Err(_) => self.stats.bad_input += 1,
                 },
                 _ => self.stats.foreign_input += 1,

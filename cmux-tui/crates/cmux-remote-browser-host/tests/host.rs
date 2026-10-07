@@ -2,12 +2,12 @@
 //! the host call, and what the viewer gets back.
 
 use cmux_remote_browser::proto::{
-    Control, Dialog, DialogKind, InputEvent, Menu, MenuChoice, MenuItem, MenuKind, PointerKind,
-    Rect, ScreenInfo, SessionState, SurfaceKind, ViewerCaps,
+    Control, CursorShape, Dialog, DialogKind, Disposition, HistoryOp, InputEvent, Menu, MenuChoice,
+    MenuItem, MenuKind, PointerKind, Rect, ScreenInfo, SessionState, SurfaceKind, ViewerCaps,
 };
 use cmux_remote_browser::rp_input::{InputReject, RpCall};
 use cmux_remote_browser::session::ScreenSize;
-use cmux_remote_browser_host::tab::{HostTab, Presentation, SurfaceOut};
+use cmux_remote_browser_host::tab::{HostTab, PageChange, Presentation, SurfaceOut};
 
 #[derive(Default)]
 struct Fake {
@@ -68,6 +68,14 @@ impl Presentation for Fake {
     }
     fn surface_close(&mut self, surface: u32) {
         self.ui.push(format!("surface_close {surface}"));
+    }
+    fn load_url(&mut self, browser: i32, url: &str) -> bool {
+        self.calls.push(format!("load_url {browser} {url}"));
+        true
+    }
+    fn history(&mut self, browser: i32, op: HistoryOp) -> bool {
+        self.calls.push(format!("history {browser} {op:?}"));
+        true
     }
 }
 
@@ -626,4 +634,171 @@ fn release_all_releases_a_button_held_on_a_popup_surface() {
             modifiers: 0
         }]
     );
+}
+
+#[test]
+fn navigate_loads_the_url_in_the_main_frame() {
+    let mut fake = Fake::default();
+    let mut tab = live_tab(&mut fake);
+    let out = tab.control("v1", &Control::Navigate { url: "https://cmux.com/".into() }, &mut fake);
+    assert!(out.is_empty());
+    assert_eq!(fake.calls, vec!["load_url 7 https://cmux.com/"]);
+}
+
+#[test]
+fn navigate_before_the_browser_exists_loads_once_it_does() {
+    let mut fake = Fake::default();
+    let mut tab = HostTab::new(1, 41, "https://example.com/");
+    tab.control("v1", &open("v1", screen(1200, 800, 2.0)), &mut fake);
+    tab.control("v1", &Control::Navigate { url: "https://cmux.com/".into() }, &mut fake);
+    assert!(!fake.calls.iter().any(|c| c.starts_with("load_url")));
+    tab.tab_created(7, &mut fake);
+    assert!(fake.calls.iter().any(|c| c == "load_url 7 https://cmux.com/"), "{:?}", fake.calls);
+}
+
+#[test]
+fn history_ops_reach_the_shim() {
+    let mut fake = Fake::default();
+    let mut tab = live_tab(&mut fake);
+    for op in [
+        HistoryOp::Back,
+        HistoryOp::Forward,
+        HistoryOp::Reload,
+        HistoryOp::ReloadNoCache,
+        HistoryOp::Stop,
+    ] {
+        assert!(tab.control("v1", &Control::History { op }, &mut fake).is_empty());
+    }
+    assert_eq!(
+        fake.calls,
+        vec![
+            "history 7 Back",
+            "history 7 Forward",
+            "history 7 Reload",
+            "history 7 ReloadNoCache",
+            "history 7 Stop",
+        ]
+    );
+}
+
+fn page(url: &str, title: &str, loading: bool, back: bool, forward: bool) -> Control {
+    Control::Page {
+        url: url.into(),
+        title: title.into(),
+        loading,
+        can_go_back: back,
+        can_go_forward: forward,
+    }
+}
+
+#[test]
+fn every_page_fact_change_sends_rb_page_and_a_repeat_sends_nothing() {
+    let mut fake = Fake::default();
+    let mut tab = live_tab(&mut fake);
+    let loading = PageChange::Loading { loading: true, can_go_back: false, can_go_forward: false };
+    assert_eq!(tab.page_changed(loading.clone()), Some(page("", "", true, false, false)));
+    let url = PageChange::Url("https://cmux.com/".into());
+    assert_eq!(
+        tab.page_changed(url.clone()),
+        Some(page("https://cmux.com/", "", true, false, false))
+    );
+    assert_eq!(tab.page_changed(url), None, "the same URL again");
+    assert_eq!(
+        tab.page_changed(PageChange::Title("cmux".into())),
+        Some(page("https://cmux.com/", "cmux", true, false, false))
+    );
+    let done = PageChange::Loading { loading: false, can_go_back: true, can_go_forward: false };
+    assert_eq!(tab.page_changed(done), Some(page("https://cmux.com/", "cmux", false, true, false)));
+    assert_eq!(
+        tab.page_changed(loading.clone()),
+        Some(page("https://cmux.com/", "cmux", true, false, false))
+    );
+}
+
+#[test]
+fn a_reopen_by_the_same_viewer_applies_its_screen_without_a_second_opened() {
+    let mut fake = Fake::default();
+    let mut tab = live_tab(&mut fake);
+    let out = tab.control("v1", &open("v1", screen(1000, 700, 2.0)), &mut fake);
+    assert!(!out.iter().any(|c| matches!(c, Control::Opened { .. })), "{out:?}");
+    assert!(
+        out.contains(&Control::ScreenApplied {
+            seq: 0,
+            pixel_width: 2000,
+            pixel_height: 1400,
+            scale: 2.0
+        }),
+        "{out:?}"
+    );
+    assert_eq!(fake.calls, vec!["set_screen 1000x700@2"]);
+}
+
+#[test]
+fn a_viewer_that_opens_after_the_page_loaded_gets_rb_page() {
+    let mut fake = Fake::default();
+    let mut tab = live_tab(&mut fake);
+    tab.page_changed(PageChange::Url("https://cmux.com/".into()));
+    tab.page_changed(PageChange::Title("cmux".into()));
+    let out = tab.control("v2", &open("v2", screen(1200, 800, 2.0)), &mut fake);
+    assert!(out.contains(&page("https://cmux.com/", "cmux", false, false, false)), "{out:?}");
+}
+
+#[test]
+fn an_unhandled_key_names_the_seq_of_the_last_key_down_once() {
+    let mut fake = Fake::default();
+    let mut tab = live_tab(&mut fake);
+    assert_eq!(tab.input_seq(&key_event(true, "KeyJ", "j"), Some(41), &mut fake), Ok(true));
+    assert_eq!(tab.input_seq(&key_event(false, "KeyJ", "j"), Some(42), &mut fake), Ok(true));
+    assert_eq!(tab.key_unhandled(), Some(Control::KeyUnhandled { input_seq: 41 }));
+    assert_eq!(tab.key_unhandled(), None, "reported once");
+    assert_eq!(tab.input_seq(&key_event(true, "KeyK", "k"), None, &mut fake), Ok(true));
+    assert_eq!(tab.key_unhandled(), None, "an unknown seq is never guessed");
+}
+
+fn cursor(kind: &str) -> Control {
+    Control::Cursor { cursor: CursorShape { kind: kind.into(), hash: None } }
+}
+
+#[test]
+fn cursor_changes_map_cef_types_to_css_names_once_per_change() {
+    let mut fake = Fake::default();
+    let mut tab = live_tab(&mut fake);
+    // cef_cursor_type_t: CT_HAND 2, CT_IBEAM 3, CT_POINTER 0, CT_GRABBING 42.
+    assert_eq!(tab.cursor_changed(2), Some(cursor("pointer")));
+    assert_eq!(tab.cursor_changed(2), None);
+    assert_eq!(tab.cursor_changed(3), Some(cursor("text")));
+    assert_eq!(tab.cursor_changed(42), Some(cursor("grabbing")));
+    assert_eq!(tab.cursor_changed(0), Some(cursor("default")));
+    assert_eq!(tab.cursor_changed(9999), None, "an unknown type keeps the last shape");
+}
+
+#[test]
+fn a_page_popup_asks_the_app_for_a_tab_with_rising_requests() {
+    let mut fake = Fake::default();
+    let mut tab = live_tab(&mut fake);
+    // cef_window_open_disposition_t: 3 foreground tab, 4 background tab,
+    // 5 popup, 6 new window, 7 save to disk.
+    assert_eq!(
+        tab.popup_requested("https://a.example/", 4, true),
+        Some(Control::OpenTab {
+            request: 1,
+            url: "https://a.example/".into(),
+            disposition: Disposition::BackgroundTab,
+            user_gesture: true,
+        })
+    );
+    let popup = tab.popup_requested("https://b.example/", 5, false);
+    assert!(
+        matches!(popup, Some(Control::OpenTab { request: 2, disposition: Disposition::Popup, .. })),
+        "{popup:?}"
+    );
+    let window = tab.popup_requested("https://c.example/", 6, true);
+    assert!(
+        matches!(window, Some(Control::OpenTab { disposition: Disposition::NewWindow, .. })),
+        "{window:?}"
+    );
+    assert_eq!(tab.popup_requested("https://d.example/", 7, true), None, "save to disk");
+    let answer = Control::OpenTabResult { request: 1, tab: Some("tab-2".into()), refused: None };
+    assert!(tab.control("v1", &answer, &mut fake).is_empty());
+    assert!(fake.calls.is_empty());
 }
