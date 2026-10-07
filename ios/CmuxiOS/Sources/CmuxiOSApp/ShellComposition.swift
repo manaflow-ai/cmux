@@ -22,7 +22,8 @@ import UIKit
 enum ShellComposition {
     static func makeShell(
         container: AppContainer, account: SignedInAccount, home: UIViewController,
-        searchOpener: any SearchOpening, replayTour: @escaping @MainActor () -> Void
+        searchOpener: any SearchOpening, replayTour: @escaping @MainActor () -> Void,
+        eraseAllData: @escaping @MainActor () async -> EraseReport
     ) -> (shell: ShellRootController, features: ShellFeatures) {
         let sources = container.featureSources(for: account)
         // Lane C4: built with the seams so background transfer handling runs
@@ -41,6 +42,8 @@ enum ShellComposition {
             notifications: container.notificationPreferences,
             notificationAuthorization: SystemNotificationAuthorization(permissions: container.permissions),
             privacy: container.privacy,
+            haptics: container.haptics,
+            eraseAllData: eraseAllData,
             signOut: { [weak container] in await container?.auth.signOut() }
         )
         // Lane C9: the Hosts tab over this account's host records and the
@@ -50,6 +53,8 @@ enum ShellComposition {
                              appearance: container.terminalPreferences)
         // Lane C14: a host's localhost in the in-app browser (Hosts swipe action).
         ssh.browsers = WebComposition.screens(WebComposition.feature(clients: container.webClients))
+        // Lane E5: an SSH host's files over SFTP (Hosts swipe action).
+        ssh.files = container.sftp.screens
         // Lane C6: the Feed tab over the account's feed seam.
         let feedSource = sources.feed
         let feedIsMock = sources.resolved[.feed] != .real
@@ -133,6 +138,39 @@ enum ShellComposition {
         )
         shellBox.controller = shell
         return (shell, ShellFeatures(workspaces: workspaces, ssh: ssh, settings: settings, search: search))
+    }
+
+    /// The tabs of the signed-out guest shell (deferred sign-in): SSH hosts
+    /// and Settings. Every other tab's owner is account-scoped.
+    static let guestTabs: [ShellTab] = [.hosts, .settings]
+
+    /// The guest shell (e5-extras.md section 5): Hosts over the device's
+    /// host owner (recording what is added), SSH terminals and SFTP files,
+    /// and Settings with Sign In instead of the account.
+    static func makeGuestShell(
+        container: AppContainer, signIn: @escaping @MainActor () -> Void,
+        eraseAllData: @escaping @MainActor () async -> EraseReport
+    ) -> ShellRootController {
+        let settings = ShellSettingsModel(
+            account: ShellAccount(displayName: "", email: nil),
+            about: ShellAbout.current(),
+            registry: nil,
+            developer: developerScreen(container: container),
+            links: PlatformComposition.settingsLinks(container: container),
+            terminal: container.terminalPreferences,
+            privacy: container.privacy,
+            haptics: container.haptics,
+            eraseAllData: eraseAllData,
+            signIn: signIn,
+            signOut: {}
+        )
+        let ssh = SSHFeature(hosts: container.guestHosts, device: container.sshDevice,
+                             appearance: container.terminalPreferences)
+        ssh.files = container.sftp.screens
+        let content = ShellContent(sources: FeatureSources.mock(), home: UIViewController(), settings: settings,
+                                   screens: [.hosts: { ssh.makeHostsScreen() }])
+        return ShellRootController(tabs: guestTabs, sidebar: container.flags.isEnabled(.iPadSidebar),
+                                   content: { content.controller(for: $0) })
     }
 
     /// Live link badges per device: the real owner once B5/D1 register it;

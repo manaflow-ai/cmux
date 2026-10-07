@@ -21,13 +21,16 @@ public enum ShellFeatureFlag: String, CaseIterable, Hashable, Sendable {
     /// the VM runs the cmux host (phase 2), so no socket is opened that
     /// HostDO would refuse.
     case cloudWorkspaces
+    /// Lane E5: the Keep Mac Awake onboarding card. Off until D1b registers
+    /// the Mac's power assertion behind `KeepAwakeControl`.
+    case keepAwake
 
     /// On in DEBUG so lanes see their tab; off in Release until the lane ships.
     public func defaultValue(isDebug: Bool) -> Bool {
         switch self {
         case .feedTab, .workspacesTab, .composeTab, .hostsTab, .searchTab, .cloudTab: isDebug
         case .iPadSidebar: true
-        case .billing, .cloudOnboarding, .cloudWorkspaces: false
+        case .billing, .cloudOnboarding, .cloudWorkspaces, .keepAwake: false
         }
     }
 
@@ -53,6 +56,7 @@ public enum ShellFeatureFlag: String, CaseIterable, Hashable, Sendable {
         case .cloudTab: String(localized: "shell.flag.cloudTab", defaultValue: "Cloud Tab", bundle: .module)
         case .cloudOnboarding: String(localized: "shell.flag.cloudOnboarding", defaultValue: "Cloud Onboarding", bundle: .module)
         case .cloudWorkspaces: String(localized: "shell.flag.cloudWorkspaces", defaultValue: "Cloud Workspaces", bundle: .module)
+        case .keepAwake: String(localized: "shell.flag.keepAwake", defaultValue: "Keep Mac Awake Card", bundle: .module)
         }
     }
 }

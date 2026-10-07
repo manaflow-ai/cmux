@@ -14,6 +14,7 @@ enum SSHText {
     static var add: String { String(localized: "ssh.common.add", defaultValue: "Add", bundle: .module) }
     static var edit: String { String(localized: "ssh.common.edit", defaultValue: "Edit", bundle: .module) }
     static var browser: String { String(localized: "ssh.common.browser", defaultValue: "Browser", bundle: .module) }
+    static var files: String { String(localized: "ssh.common.files", defaultValue: "Files", bundle: .module) }
     static var delete: String { String(localized: "ssh.common.delete", defaultValue: "Delete", bundle: .module) }
     static var cancel: String { String(localized: "ssh.common.cancel", defaultValue: "Cancel", bundle: .module) }
     static var save: String { String(localized: "ssh.common.save", defaultValue: "Save", bundle: .module) }

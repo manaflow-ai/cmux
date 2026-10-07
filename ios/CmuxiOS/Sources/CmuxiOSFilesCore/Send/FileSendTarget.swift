@@ -6,4 +6,6 @@ public enum FileSendTarget: Hashable, Sendable {
     case composer
     /// Save to the Mac's inbox only.
     case inbox
+    /// Save into this folder on the host (SSH hosts over SFTP, lane E5).
+    case directory(String)
 }

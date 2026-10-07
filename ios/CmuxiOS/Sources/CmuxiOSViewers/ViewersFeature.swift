@@ -38,9 +38,11 @@ public final class ViewersFeature {
         return controller
     }
 
-    /// The workspace's folder on the Mac.
-    public func makeFiles(for target: ViewerTarget) -> UIViewController {
-        let controller = FileBrowserViewController(model: FileBrowserModel(target: target, source: source), router: router)
+    /// The workspace's folder on the Mac (or an SSH host's login folder);
+    /// `onLeave` runs once when the screen leaves its navigation stack.
+    public func makeFiles(for target: ViewerTarget, onLeave: (@MainActor () -> Void)? = nil) -> UIViewController {
+        let controller = FileBrowserViewController(model: FileBrowserModel(target: target, source: source), router: router,
+                                                   onLeave: onLeave)
         controller.hidesBottomBarWhenPushed = true
         return controller
     }

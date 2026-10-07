@@ -1,29 +1,27 @@
+import CmuxiOSDesign
 import CmuxiOSFeedModel
 import UIKit
 
 /// Haptic feedback for intent outcomes and selections.
 @MainActor
 struct FeedHaptics {
-    private let notification = UINotificationFeedbackGenerator()
-    private let selection = UISelectionFeedbackGenerator()
+    private let haptics = Haptics()
 
-    func prepare() {
-        notification.prepare()
-    }
+    func prepare() {}
 
     func selectionChanged() {
-        selection.selectionChanged()
+        haptics.play(.selection)
     }
 
     func outcome(_ outcome: FeedIntentOutcome) {
         switch outcome {
         case .committed(let intent):
-            if case .answer = intent { notification.notificationOccurred(.success) }
-            if case .decline = intent { notification.notificationOccurred(.success) }
+            if case .answer = intent { haptics.play(.success) }
+            if case .decline = intent { haptics.play(.success) }
         case .refused:
-            notification.notificationOccurred(.warning)
+            haptics.play(.warning)
         case .notSent:
-            notification.notificationOccurred(.error)
+            haptics.play(.error)
         }
     }
 }

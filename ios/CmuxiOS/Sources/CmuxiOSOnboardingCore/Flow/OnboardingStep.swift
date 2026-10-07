@@ -11,6 +11,8 @@ public enum OnboardingStep: String, CaseIterable, Codable, CodingKeyRepresentabl
     case installMac
     case localNetwork
     case pair
+    /// Lane E5: keep the paired Mac awake (behind the `keepAwake` flag).
+    case keepAwake
     case sshHost
     /// Lane C12: create the first Cloud machine (behind a flag).
     case cloudMachine
@@ -19,7 +21,7 @@ public enum OnboardingStep: String, CaseIterable, Codable, CodingKeyRepresentabl
     public var phase: OnboardingPhase {
         switch self {
         case .welcome, .approve, .reply, .signIn: .intro
-        case .notifications, .installMac, .localNetwork, .pair, .sshHost, .cloudMachine, .celebrate: .setup
+        case .notifications, .installMac, .localNetwork, .pair, .keepAwake, .sshHost, .cloudMachine, .celebrate: .setup
         }
     }
 

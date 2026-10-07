@@ -77,6 +77,16 @@ final class AppContainer {
     let feedNavigator = FeedNavigator()
     /// SSH state that stays on this device (lane C9): logins, keys, pins.
     let sshDevice: SSHDeviceState
+    /// Lane E5: SSH hosts' files over SFTP (sessions, transfers, viewers).
+    let sftp = SFTPComposition()
+    /// Lane E5 deferred sign-in (e5-extras.md section 5): the stored "Use SSH
+    /// Without an Account" choice, how this launch applies it, and the hosts
+    /// added signed out (offered for sync on sign-in).
+    let guestMode = GuestModeStore()
+    let guestPolicy: GuestAccessPolicy
+    let guestHostsLedger: GuestHostsLedger
+    /// Set by the root controller: the sign-in screens' guest entry.
+    var onContinueWithoutAccount: (@MainActor () -> Void)?
     /// Lane C11 (c11-settings.md): this device's terminal look, fed to every
     /// terminal surface, and the crash-report consent (shared key).
     let terminalPreferences = TerminalPreferencesStore()
@@ -84,6 +94,8 @@ final class AppContainer {
     /// and sent history on this device; cleared on sign-out.
     let terminalCompose = TerminalComposeStore(persistence: FileTerminalComposePersistence.standard())
     let privacy = PrivacyPreferences(consentKey: UserDefaultsAnalyticsConsentProvider.telemetryKey)
+    /// Lane E5: the haptics toggle over the one `HapticsPreference` owner.
+    let haptics = HapticsSettings()
     /// C7 fills this with the push owner's per-device filter; nil keeps the
     /// notification preferences on this device.
     var notificationPreferencesSinkFactory: (@Sendable () -> any NotificationPreferencesSink)?
@@ -187,6 +199,8 @@ final class AppContainer {
         sshDevice = SSHDeviceState(directory: sshDirectory)
         let localHosts = LocalHostsStore(url: sshDirectory.appendingPathComponent("hosts.json"))
         self.localHosts = localHosts
+        guestHostsLedger = GuestHostsLedger(url: sshDirectory.appendingPathComponent("guest-hosts.json"))
+        guestPolicy = GuestAccessPolicy(environment: environment, isDebug: isDebug)
         var factories = RealFeatureFactories()
         factories.hosts = { localHosts }
         sourceModes = FeatureSourceModeStore(environment: environment, isDebug: isDebug)
@@ -604,6 +618,25 @@ final class AppContainer {
     }
 
     var apiBaseURL: String { auth.composition.config.apiBaseURL }
+
+    /// Signed out by choice: the guest shell shows instead of sign-in.
+    var isGuest: Bool { guestPolicy.isGuest(stored: guestMode.isChosen) }
+
+    /// The guest shell's hosts: the device's owner, recording what is added.
+    var guestHosts: any HostsStore {
+        GuestRecordingHostsStore(base: localHosts, ledger: guestHostsLedger)
+    }
+
+    /// Hosts added signed out that still exist (the sync offer).
+    func pendingGuestHosts() async -> [HostRecord] {
+        await guestHostsLedger.pending(in: await localHosts.current())
+    }
+
+    /// Joins hosts added signed out to the account's synced set.
+    func adoptGuestHosts(_ hosts: [HostID]) async {
+        await LocalHostsAdopter(store: localHosts).adopt(hosts)
+        await guestHostsLedger.clear()
+    }
 }
 
 /// Adapts the install principal to the push client's token seam.

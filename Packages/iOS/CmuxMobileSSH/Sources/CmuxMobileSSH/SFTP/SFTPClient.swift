@@ -21,7 +21,7 @@ public actor SFTPClient {
         case discarded
     }
 
-    private let session: SSHSessionChannel
+    private let session: any SFTPChannel
     private var framer = SFTPFramer()
     private var slots: [UInt32: Slot] = [:]
     private var nextID: UInt32 = 0
@@ -29,14 +29,19 @@ public actor SFTPClient {
     private var lost = false
     private var reader: Task<Void, Never>?
 
-    private init(session: SSHSessionChannel) {
+    private init(session: any SFTPChannel) {
         self.session = session
     }
 
     /// Opens the `sftp` subsystem on `connection` and completes the version handshake.
     public static func open(on connection: SSHConnection) async throws -> SFTPClient {
-        let session = try await connection.openSession(start: .subsystem("sftp"))
-        let client = SFTPClient(session: session)
+        try await open(channel: try await connection.openSession(start: .subsystem("sftp")))
+    }
+
+    /// Completes the version handshake over an already open subsystem channel.
+    /// Closes the channel when the handshake fails.
+    public static func open(channel: any SFTPChannel) async throws -> SFTPClient {
+        let client = SFTPClient(session: channel)
         do {
             try await client.handshake()
         } catch {
@@ -150,7 +155,7 @@ public actor SFTPClient {
         let handle = try await openFile(path, flags: .read)
         var data = Data()
         do {
-            try await readChunks(handle: handle, limit: UInt64(max(0, maxBytes))) { offset, chunk in
+            try await readChunks(handle: handle, from: 0, limit: UInt64(max(0, maxBytes))) { offset, chunk in
                 let end = Int(offset) + chunk.count
                 if data.count < end { data.count = end }
                 data.replaceSubrange(Int(offset)..<end, with: chunk)
@@ -163,24 +168,33 @@ public actor SFTPClient {
         return data
     }
 
-    /// Streams `remote` into `localURL` (created or replaced) without buffering
-    /// the whole file.
+    /// Streams `remote` into `localURL` without buffering the whole file.
+    /// `resumeFrom` 0 creates or replaces the local file; a positive value
+    /// keeps that many local bytes and reads the rest from the same offset
+    /// (an interrupted download continues where its bytes end).
     public func download(
         _ remote: String,
         to localURL: URL,
+        resumeFrom: UInt64 = 0,
         progress: (@Sendable (SFTPTransferProgress) -> Void)? = nil
     ) async throws {
         let handle = try await openFile(remote, flags: .read)
         do {
             let total = (try? attributes(try await call(.fstat, { $0.string(handle) })))?.size
-            guard FileManager.default.createFile(atPath: localURL.path, contents: nil) else {
-                throw SFTPError.failure("cannot create \(localURL.path)")
+            let localSize = (try? FileManager.default.attributesOfItem(atPath: localURL.path)[.size] as? NSNumber)?
+                .uint64Value ?? 0
+            let start = min(resumeFrom, localSize, total ?? resumeFrom)
+            if start == 0 || !FileManager.default.fileExists(atPath: localURL.path) {
+                guard FileManager.default.createFile(atPath: localURL.path, contents: nil) else {
+                    throw SFTPError.failure("cannot create local file")
+                }
             }
             let file = try FileHandle(forWritingTo: localURL)
             defer { try? file.close() }
-            var received: UInt64 = 0
-            var end: UInt64 = 0
-            try await readChunks(handle: handle, limit: .max) { offset, chunk in
+            var received: UInt64 = start
+            var end: UInt64 = start
+            try file.truncate(atOffset: start)
+            try await readChunks(handle: handle, from: start, limit: .max) { offset, chunk in
                 try file.seek(toOffset: offset)
                 try file.write(contentsOf: chunk)
                 received += UInt64(chunk.count)
@@ -199,15 +213,18 @@ public actor SFTPClient {
     /// chunks may arrive out of order when the server returns short reads.
     private func readChunks(
         handle: Data,
+        from start: UInt64,
         limit: UInt64,
         sink: (UInt64, Data) throws -> Void
     ) async throws {
         var inFlight: [(id: UInt32, offset: UInt64, length: UInt32)] = []
-        var nextOffset: UInt64 = 0
+        var nextOffset: UInt64 = start
         var reachedEOF = false
         defer { discard(inFlight.map(\.id)) }
 
         while true {
+            // A cancelled transfer stops between chunks; the caller's catch closes the handle.
+            try Task.checkCancellation()
             while !reachedEOF, inFlight.count < Self.window, nextOffset < limit {
                 let length = UInt32(min(UInt64(Self.chunkSize), limit - nextOffset))
                 inFlight.append((try await sendRead(handle, offset: nextOffset, length: length), nextOffset, length))
@@ -256,16 +273,21 @@ public actor SFTPClient {
         } progress: { _ in }
     }
 
-    /// Streams `localURL` to `remote`, creating or truncating it.
+    /// Streams `localURL` to `remote`. `resumeFrom` 0 creates or truncates
+    /// the remote file; a positive value keeps that many remote bytes and
+    /// writes the rest of the local file from the same offset.
     public func upload(
         from localURL: URL,
         to remote: String,
+        resumeFrom: UInt64 = 0,
         progress: (@Sendable (SFTPTransferProgress) -> Void)? = nil
     ) async throws {
         let file = try FileHandle(forReadingFrom: localURL)
         defer { try? file.close() }
         let total = (try? FileManager.default.attributesOfItem(atPath: localURL.path)[.size] as? NSNumber)?.uint64Value
-        try await writeChunks(path: remote) {
+        let start = min(resumeFrom, total ?? 0)
+        try file.seek(toOffset: start)
+        try await writeChunks(path: remote, from: start) {
             let chunk = try file.read(upToCount: Self.chunkSize) ?? Data()
             return chunk.isEmpty ? nil : chunk
         } progress: { sent in
@@ -276,17 +298,19 @@ public actor SFTPClient {
     /// Pipelined WRITE loop fed by `nextChunk` until it returns `nil`.
     private func writeChunks(
         path: String,
+        from start: UInt64 = 0,
         nextChunk: () throws -> Data?,
         progress: (UInt64) -> Void
     ) async throws {
-        let handle = try await openFile(path, flags: [.write, .create, .truncate])
+        let handle = try await openFile(path, flags: start == 0 ? [.write, .create, .truncate] : [.write, .create])
         var inFlight: [(id: UInt32, length: Int)] = []
         do {
             defer { discard(inFlight.map(\.id)) }
-            var offset: UInt64 = 0
-            var acknowledged: UInt64 = 0
+            var offset: UInt64 = start
+            var acknowledged: UInt64 = start
             var exhausted = false
             while true {
+                try Task.checkCancellation()
                 while !exhausted, inFlight.count < Self.window {
                     guard let chunk = try nextChunk() else { exhausted = true; break }
                     let id = try await send(.write) {

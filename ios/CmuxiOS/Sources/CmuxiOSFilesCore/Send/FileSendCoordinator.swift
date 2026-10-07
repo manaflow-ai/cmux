@@ -34,6 +34,7 @@ public final class FileSendCoordinator {
             switch target {
             case .terminal(let id): destination = .terminal(id: id)
             case .composer, .inbox: destination = .composer
+            case .directory(let path): destination = .directory(path)
             }
             let request = TransferRequest(hostID: host, direction: .upload(localURL: file.url), byteCount: file.byteCount,
                                           destination: destination, name: file.name, mime: file.mime)
@@ -82,7 +83,7 @@ public final class FileSendCoordinator {
             let attachment = FileAttachment(id: item.id, hostID: host, remotePath: path, name: entry.file.name,
                                             mime: entry.file.mime, byteCount: entry.file.byteCount)
             Task { await attachments.attach(attachment) }
-        case .inbox:
+        case .inbox, .directory:
             break
         }
     }

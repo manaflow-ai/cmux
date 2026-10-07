@@ -84,6 +84,7 @@ let package = Package(
                 .product(name: "CmuxLink", package: "CmuxLink"),
                 "CmuxiOSSSH",
                 "CmuxiOSSSHCore",
+                "CmuxiOSSFTPCore",
                 "CmuxiOSBrowser",
                 "CmuxiOSBrowserCore",
                 .product(name: "CmuxBrowserStream", package: "CmuxBrowserStream"),
@@ -157,6 +158,7 @@ let package = Package(
         .target(
             name: "CmuxiOSTerminal",
             dependencies: [
+                "CmuxiOSDesign",
                 .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit"),
                 .product(name: "CmuxTerminalStream", package: "CmuxTerminalStream"),
                 .product(name: "CmuxTerminalRenderCore", package: "CmuxTerminalRenderCore"),
@@ -237,6 +239,7 @@ let package = Package(
         ),
         .target(
             name: "CmuxiOSDesign",
+            dependencies: ["CmuxiOSFeatureKit"],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         // Feature seams (protocols, value types, mocks) for the ios-next
@@ -386,7 +389,7 @@ let package = Package(
         // The AVFoundation QR scanner (replaces C10's placeholder viewfinder).
         .target(
             name: "CmuxiOSPairing",
-            dependencies: ["CmuxiOSPairingCore", .product(name: "CmuxPairing", package: "CmuxPairing")],
+            dependencies: ["CmuxiOSPairingCore", "CmuxiOSDesign", .product(name: "CmuxPairing", package: "CmuxPairing")],
             resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
@@ -414,9 +417,34 @@ let package = Package(
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         // The Hosts tab, host editor, keys, trust prompts and SSH terminal screen.
+        // Lane E5 (e5-extras.md section 1): SFTP for SSH hosts behind C4's
+        // FileTransfer and C13's viewer source.
+        .target(
+            name: "CmuxiOSSFTPCore",
+            dependencies: [
+                "CmuxiOSFeatureKit",
+                "CmuxiOSSSHCore",
+                "CmuxiOSViewersCore",
+                .product(name: "CmuxMobileSSH", package: "CmuxMobileSSH"),
+                .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
+            ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .testTarget(
+            name: "CmuxiOSSFTPCoreTests",
+            dependencies: [
+                "CmuxiOSSFTPCore",
+                "CmuxiOSFeatureKit",
+                "CmuxiOSViewersCore",
+                .product(name: "CmuxMobileSSH", package: "CmuxMobileSSH"),
+                .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
+            ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
         .target(
             name: "CmuxiOSSSH",
             dependencies: [
+                "CmuxiOSSFTPCore",
                 "CmuxiOSSSHCore",
                 "CmuxiOSFeatureKit",
                 "CmuxiOSDesign",

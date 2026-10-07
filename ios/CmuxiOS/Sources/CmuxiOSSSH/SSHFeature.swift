@@ -1,4 +1,5 @@
 public import CmuxiOSFeatureKit
+import CmuxiOSSFTPCore
 public import CmuxiOSSSHCore
 import CmuxMobileSSH
 public import CmuxTerminalRenderCore
@@ -16,6 +17,8 @@ public final class SSHFeature {
     let appearance: (any TerminalAppearanceProviding)?
     /// Lane C14: browser screens for a host's localhost; nil hides the action.
     public var browsers: SSHBrowserScreens?
+    /// Lane E5: an SSH host's files over SFTP; nil hides the action.
+    public var files: SSHFileScreens?
     private weak var navigation: UINavigationController?
     /// Opens a paired Mac's row (lane C3: the remote desktop entry). Set by
     /// the composition root; nil leaves paired Macs informational.
@@ -146,6 +149,29 @@ public final class SSHFeature {
             }
         case .direct:
             break
+        }
+    }
+
+    /// Opens `host`'s files over SFTP (lane E5) on the same hop chain, trust
+    /// prompts and credentials as its terminal.
+    func openFiles(_ host: HostRecord, records: [HostRecord], from list: UIViewController) {
+        guard let files, case .ssh = host.kind else { return }
+        Task {
+            let chain: SSHHostChain
+            do {
+                chain = try SSHHostChain(target: host.id, records: records)
+            } catch {
+                showFailure(SSHSessionFailure(error), on: list)
+                return
+            }
+            for hop in chain.hops where await device.settings.settings(for: hop.hostID).auth == .unset {
+                showEditor(.edit(hop.hostID), records: records, from: list)
+                return
+            }
+            let verifier = TOFUHostKeyVerifier(knownHosts: device.knownHosts, prompter: prompter, names: chain.names)
+            let opener = NIOSSHSFTPOpener(chain: chain, credentials: device.credentials, verifier: verifier)
+            let screen = await files.open(host.id, host.name, opener)
+            list.navigationController?.pushViewController(screen, animated: true)
         }
     }
 

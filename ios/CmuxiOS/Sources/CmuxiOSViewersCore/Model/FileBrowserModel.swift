@@ -26,6 +26,50 @@ public final class FileBrowserModel {
 
     public var hasMore: Bool { next != nil }
 
+    /// New Folder, Rename and Delete; nil where the source cannot write (Macs).
+    public var operations: (any ViewerFileOperations)? { source as? any ViewerFileOperations }
+
+    /// Creates a folder in this folder, then reloads. Nil on success.
+    public func makeFolder(named raw: String) async -> ViewerSourceError? {
+        guard let name = ViewerFileName(raw) else { return .failed("invalid name") }
+        guard let operations, let path else { return .forbidden }
+        return await write { try await operations.makeDirectory(host: self.target.hostID, path: Self.join(path, name.value)) }
+    }
+
+    /// Renames an entry of this folder, then reloads. Nil on success.
+    public func rename(_ entry: FilesListEntry, to raw: String) async -> ViewerSourceError? {
+        guard let name = ViewerFileName(raw) else { return .failed("invalid name") }
+        guard let operations, let path else { return .forbidden }
+        guard name.value != entry.name else { return nil }
+        return await write {
+            try await operations.rename(host: self.target.hostID, from: Self.join(path, entry.name), to: Self.join(path, name.value))
+        }
+    }
+
+    /// Deletes a file or an empty folder of this folder, then reloads. Nil on success.
+    public func delete(_ entry: FilesListEntry) async -> ViewerSourceError? {
+        guard let operations, let path else { return .forbidden }
+        return await write {
+            try await operations.remove(host: self.target.hostID, path: Self.join(path, entry.name), isDirectory: entry.kind == .dir)
+        }
+    }
+
+    private func write(_ body: @escaping @MainActor () async throws -> Void) async -> ViewerSourceError? {
+        do {
+            try await body()
+        } catch is CancellationError {
+            return nil
+        } catch {
+            return error as? ViewerSourceError ?? .failed(String(describing: error))
+        }
+        await load()
+        return nil
+    }
+
+    static func join(_ folder: String, _ name: String) -> String {
+        folder.hasSuffix("/") ? folder + name : folder + "/" + name
+    }
+
     public func load() async {
         phase = .loading
         do {
@@ -61,7 +105,7 @@ public final class FileBrowserModel {
 
     public func childPath(_ entry: FilesListEntry) -> String? {
         guard let path else { return nil }
-        return path.hasSuffix("/") ? path + entry.name : path + "/" + entry.name
+        return Self.join(path, entry.name)
     }
 
     /// Folders first, then by name in Finder order.

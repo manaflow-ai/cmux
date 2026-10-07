@@ -88,13 +88,11 @@ final class ToastOverlayView: UIView {
     }
 
     private static func haptic(_ style: ToastStyle) {
-        let kind: UINotificationFeedbackGenerator.FeedbackType
         switch style {
         case .info: return
-        case .success: kind = .success
-        case .warning: kind = .warning
-        case .failure: kind = .error
+        case .success: Haptics().play(.success)
+        case .warning: Haptics().play(.warning)
+        case .failure: Haptics().play(.error)
         }
-        UINotificationFeedbackGenerator().notificationOccurred(kind)
     }
 }

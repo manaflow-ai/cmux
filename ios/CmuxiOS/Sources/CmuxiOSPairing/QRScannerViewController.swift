@@ -1,5 +1,6 @@
 @preconcurrency import AVFoundation
 import CmuxPairing
+import CmuxiOSDesign
 import UIKit
 
 /// Camera preview that reports the first cmux pairing link it sees (B6;
@@ -66,7 +67,7 @@ final class QRScannerViewController: UIViewController, AVCaptureMetadataOutputOb
             guard let url = URL(string: text), Self.isPairingLink(url) else { continue }
             delivered = true
             capture.stop()
-            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            Haptics().play(.success)
             onLink?(url)
             return
         }
