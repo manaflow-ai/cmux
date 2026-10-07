@@ -232,6 +232,15 @@ public actor MobileLinkClient {
         Task { await link.close() }
     }
 
+    /// The device's network changed (NWPathMonitor): the current link
+    /// session races its carriers again at once (a3-link.md section 3).
+    public func networkDidChange() async {
+        await session?.link.networkDidChange()
+    }
+
+    /// Whether a link session is live or being made (diagnostics, tests).
+    public var hasSession: Bool { session != nil }
+
     /// Ends the current session and refuses later opens.
     public func close() {
         closed = true
