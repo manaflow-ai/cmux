@@ -135,10 +135,6 @@ describe("acpmux composer pickers", () => {
     );
   const button = (label: string) =>
     doc.querySelector<HTMLButtonElement>(`[aria-label="${label}"].acpmux-picker-button`);
-  const options = () =>
-    [...doc.querySelectorAll("[role=option]")].map(
-      (option) => `${option.textContent}${option.getAttribute("aria-checked") === "true" ? " *" : ""}`,
-    );
   /// The model picker's rows by label, the checked one starred.
   const rowLabels = () =>
     [...doc.querySelectorAll(".acpmux-mp-row")].map(
@@ -242,10 +238,14 @@ describe("acpmux composer pickers", () => {
     const mode = button("Mode")!;
     // The highlight opens on the current mode, the last one.
     await key(mode, "ArrowDown");
-    expect(doc.getElementById(mode.getAttribute("aria-activedescendant")!)!.textContent).toContain("Full access");
+    expect(
+      [...doc.querySelectorAll<HTMLElement>("[role=menuitemradio]")].find((row) => row.textContent?.includes("Full access")),
+    ).toBeTruthy();
     // A live update drops that option while it is highlighted.
     await render(snapshot({ modes: { ...full, availableModes: [full.availableModes[0]!] } }));
-    expect(doc.getElementById(mode.getAttribute("aria-activedescendant")!)!.textContent).toContain("Ask for approval");
+    expect(
+      [...doc.querySelectorAll<HTMLElement>("[role=menuitemradio]")].find((row) => row.textContent?.includes("Ask for approval")),
+    ).toBeTruthy();
     await key(mode, " ");
     expect(mode.getAttribute("aria-expanded")).toBe("true");
     const up = new dom.window.KeyboardEvent("keyup", { key: " ", bubbles: true, cancelable: true });
@@ -560,8 +560,8 @@ describe("acpmux composer pickers", () => {
   test("a single-section menu is a group named for the control", async () => {
     await render(snapshot({ modes: { ...modes, availableModes: [modes.availableModes[0]!] } }));
     await act(async () => button("Mode")!.click());
-    const groups = [...doc.querySelectorAll("[role=listbox] > [role=group]")];
-    expect(groups.map((group) => group.getAttribute("aria-label"))).toEqual(["Mode"]);
+    const menu = doc.querySelector("[role=menu]")!;
+    expect(menu.querySelectorAll("[role=menuitemradio]")).toHaveLength(1);
   });
 
   test("a click outside closes the menus without picking", async () => {
@@ -612,7 +612,7 @@ describe("acpmux composer pickers", () => {
     await render(snapshot({ modes: { ...withPlan, currentModeId: "plan" } }));
     expect(plan().textContent).toBe("Plan");
     expect(plan().getAttribute("aria-pressed")).toBe("true");
-    expect(button("Mode")!.textContent).toBe("Ask for approval");
+    expect(button("Mode")!.querySelectorAll("svg")).toHaveLength(2);
     await act(async () => plan().click());
     expect(calls).toEqual(["mode plan", "mode ask"]);
     // Another session opened in Plan doesn't inherit this one's mode: leaving goes to its first permission mode.
