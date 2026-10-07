@@ -59,4 +59,106 @@ struct NotificationAuthorizationRefreshCoordinatorTests {
         await coordinator.refresh().value
         #expect(published == [.provisional, .unknown])
     }
+
+    @Test
+    func newerReadWinsWhenCallbacksFinishInReverseOrder() async {
+        let reads = NotificationAuthorizationRefreshReadProbe()
+        var published: [NotificationAuthorizationState] = []
+        let coordinator = NotificationAuthorizationRefreshCoordinator(
+            statusProvider: { await reads.read() }, publish: { published.append($0) }
+        )
+        coordinator.markWindowSetupComplete()
+        let older = coordinator.refresh()
+        await reads.waitForRead(1)
+        let newer = coordinator.refresh()
+        await reads.waitForRead(2)
+        reads.completeRead(1, with: .success(.authorized))
+        await newer.value
+        reads.completeRead(0, with: .success(.denied))
+        await older.value
+        #expect(published == [.authorized])
+    }
+
+    @Test
+    func directGrantInvalidatesOlderRead() async {
+        await expectDirectOutcomeWins(.authorized, olderResult: .denied)
+    }
+
+    @Test
+    func directDenialInvalidatesOlderRead() async {
+        await expectDirectOutcomeWins(.denied, olderResult: .authorized)
+    }
+
+    @Test
+    func repeatedDirectOutcomeStillInvalidatesOlderRead() async {
+        let reads = NotificationAuthorizationRefreshReadProbe()
+        var published: [NotificationAuthorizationState] = []
+        let coordinator = NotificationAuthorizationRefreshCoordinator(
+            statusProvider: { await reads.read() }, publish: { published.append($0) }
+        )
+        coordinator.markWindowSetupComplete()
+        coordinator.accept(.authorized)
+        let older = coordinator.refresh()
+        await reads.waitForRead(1)
+        coordinator.accept(.authorized)
+        reads.completeRead(0, with: .success(.denied))
+        await older.value
+        #expect(published == [.authorized])
+    }
+
+    @Test
+    func admissionBeforeDirectOutcomeIsInvalidEvenBeforeTaskStarts() async {
+        var published: [NotificationAuthorizationState] = []
+        let coordinator = NotificationAuthorizationRefreshCoordinator(
+            statusProvider: { .success(.denied) }, publish: { published.append($0) }
+        )
+        coordinator.markWindowSetupComplete()
+        let older = coordinator.refresh()
+        coordinator.accept(.authorized)
+        await older.value
+        #expect(published == [.authorized])
+    }
+
+    @Test
+    func readAdmittedAfterDirectOutcomeRemainsEligible() async {
+        var published: [NotificationAuthorizationState] = []
+        let coordinator = NotificationAuthorizationRefreshCoordinator(
+            statusProvider: { .success(.authorized) }, publish: { published.append($0) }
+        )
+        coordinator.markWindowSetupComplete()
+        coordinator.accept(.denied)
+        await coordinator.refresh().value
+        await coordinator.refresh().value
+        #expect(published == [.denied, .authorized])
+    }
+
+    @Test
+    func newReadFailureAfterDirectGrantPreservesUnknownPolicy() async {
+        var published: [NotificationAuthorizationState] = []
+        let coordinator = NotificationAuthorizationRefreshCoordinator(
+            statusProvider: { .failure(.timedOut) }, publish: { published.append($0) }
+        )
+        coordinator.markWindowSetupComplete()
+        coordinator.accept(.authorized)
+        await coordinator.refresh().value
+        #expect(published == [.authorized, .unknown])
+    }
+
+    private func expectDirectOutcomeWins(
+        _ state: NotificationAuthorizationState,
+        olderResult: UserNotificationAuthorizationStatus
+    ) async {
+        let reads = NotificationAuthorizationRefreshReadProbe()
+        var published: [NotificationAuthorizationState] = []
+        let coordinator = NotificationAuthorizationRefreshCoordinator(
+            statusProvider: { await reads.read() }, publish: { published.append($0) }
+        )
+        coordinator.markWindowSetupComplete()
+        let older = coordinator.refresh()
+        await reads.waitForRead(1)
+        coordinator.accept(state)
+        reads.completeRead(0, with: .success(olderResult))
+        await older.value
+        #expect(published == [state])
+    }
 }

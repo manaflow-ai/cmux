@@ -65,13 +65,19 @@ struct Options: OptionSet, Sendable {
         let store = TerminalNotificationStore()
         if mode == "post" { await store.markWindowSetupComplete()?.value }
         if mode == "grant" || mode.hasPrefix("request-") { store.userNotificationCenter.status = .success(.notDetermined) }
-        if mode == "request-denied" { store.userNotificationCenter.grant = .success(false) }
-        if mode == "request-error" { store.userNotificationCenter.grant = .failure(.timedOut) }
+        if mode.hasPrefix("request-denied") { store.userNotificationCenter.grant = .success(false) }
+        if mode.hasPrefix("request-error") { store.userNotificationCenter.grant = .failure(.timedOut) }
         if mode == "failure" { store.userNotificationCenter.status = .failure(.timedOut) }
         if mode == "status" { store.userNotificationCenter.status = .success(.provisional) }
         let decision = Decision()
-        store.deliver { allowed, state in decision.allowed = allowed; decision.state = state; decision.finished = true }
-        for _ in 0..<100 { if decision.finished { break }; await Task.yield() }
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            store.deliver { allowed, state in
+                decision.allowed = allowed
+                decision.state = state
+                decision.finished = true
+                continuation.resume()
+            }
+        }
         precondition(decision.finished, "delivery completion lost")
         if mode == "post" {
             precondition(store.authorizationState == .denied)
@@ -84,9 +90,20 @@ struct Options: OptionSet, Sendable {
         precondition(store.changes == 0 && store.posts == 0, "early publication")
         if mode == "status" { precondition(decision.allowed && decision.state == .provisional, "delivery used gated stale state") }
         if mode == "grant" { precondition(decision.allowed && decision.state == .authorized) }
-        if mode == "request-denied" { precondition(!decision.allowed && decision.state == .denied) }
-        if mode == "request-error" { precondition(!decision.allowed && decision.state == .unknown) }
-        await store.markWindowSetupComplete()?.value
+        if mode.hasPrefix("request-denied") { precondition(!decision.allowed && decision.state == .denied) }
+        if mode.hasPrefix("request-error") { precondition(!decision.allowed && decision.state == .unknown) }
+        if mode == "request-denied-retained" { store.userNotificationCenter.status = .success(.denied) }
+        if mode == "request-error-retained" { store.userNotificationCenter.status = .failure(.timedOut) }
+        let refresh = store.markWindowSetupComplete()
+        if mode == "request-denied-retained" {
+            precondition(store.authorizationState == .denied, "completed denial was not retained at gate opening")
+            precondition(store.changes == 1 && store.posts == 1, "stale intermediate outcome was published")
+        }
+        if mode == "request-error-retained" {
+            precondition(store.authorizationState == .unknown, "completed failure was not retained at gate opening")
+            precondition(store.changes == 0 && store.posts == 0, "unchanged unknown should not publish")
+        }
+        await refresh?.value
         let changes = store.changes
         precondition(store.markWindowSetupComplete() == nil)
         precondition(store.changes == changes)

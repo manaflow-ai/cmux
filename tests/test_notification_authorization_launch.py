@@ -128,6 +128,8 @@ class AuthorizationLaunchTests(unittest.TestCase):
     def test_early_failure_does_not_publish(self): self.run_case('failure')
     def test_early_denial_callback_does_not_publish(self): self.run_case('request-denied')
     def test_early_error_callback_does_not_publish(self): self.run_case('request-error')
+    def test_early_denial_is_first_state_when_gate_opens(self): self.run_case('request-denied-retained')
+    def test_early_error_retains_unknown_without_publication(self): self.run_case('request-error-retained')
     def test_post_setup_and_noop_publication(self): self.run_case('post')
 
 
