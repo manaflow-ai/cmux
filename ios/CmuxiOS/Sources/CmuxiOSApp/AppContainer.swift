@@ -52,6 +52,8 @@ final class AppContainer {
     /// API origin is configured (SSH-only and preview launches).
     var remoteConfigFactory: (@Sendable () -> any RemoteConfigSource)?
     private let remoteConfigCache = RemoteConfigCache()
+    private var remoteConfigFactoryForAccount: (@Sendable (String) -> any RemoteConfigSource)? = nil
+    private var remoteConfigAccountID: String? = nil
     private var remoteConfigTask: Task<Void, Never>?
     /// The account's remote config (flags, Mac floor, demo content).
     private(set) var remoteConfig = RemoteConfig.empty
@@ -242,15 +244,15 @@ final class AppContainer {
         // C12: the team's Cloud machines over CloudDO.
         let coordinator = gate.coordinator
         if let base {
-            let cached = remoteConfigCache.load() ?? .empty
+            let cache = remoteConfigCache
             let sessionToken: @Sendable () async throws -> String = { @MainActor in
                 try await coordinator.accessToken()
             }
-            remoteConfigFactory = {
+            remoteConfigFactoryForAccount = { account in
                 URLSessionRemoteConfigSource(
                     baseURL: base,
                     appVersion: version,
-                    initial: cached,
+                    initial: cache.load(for: account) ?? .empty,
                     token: sessionToken
                 )
             }
@@ -309,8 +311,6 @@ final class AppContainer {
                 Logger(subsystem: "dev.cmux.ios", category: "identity").error("install revoke failed")
             }
         }
-        // The last account's config applies before auth restores; sign-out clears it.
-        if let cached = remoteConfigCache.load() { applyRemoteConfig(cached) }
         feedResponder.openItem = { item in
             // Replaced by the root controller, which opens the Feed tab.
             Logger(subsystem: "dev.cmux.ios", category: "push").info("open feed item \(item, privacy: .public)")
@@ -446,7 +446,9 @@ final class AppContainer {
     /// Follows the account's remote config until sign-out.
     private func startRemoteConfig() {
         remoteConfigTask?.cancel()
-        let source = remoteConfigFactory?() ?? MockRemoteConfigSource(remoteConfigCache.load() ?? .empty)
+        let source = remoteConfigFactory?() ?? MockRemoteConfigSource(
+            remoteConfigAccountID.flatMap { remoteConfigCache.load(for: $0) } ?? .empty
+        )
         remoteConfigTask = Task { [weak self] in
             for await snapshot in await source.updates() {
                 guard !Task.isCancelled else { return }
@@ -459,7 +461,7 @@ final class AppContainer {
         guard config != remoteConfig else { return }
         let wasDemo = isDemo
         remoteConfig = config
-        remoteConfigCache.save(config)
+        if let account = remoteConfigAccountID { remoteConfigCache.save(config, for: account) }
         flags.applyRemote(config)
         if isDemo != wasDemo {
             diagnostics.info("demo", isDemo ? "demo content on" : "demo content off")
@@ -470,7 +472,9 @@ final class AppContainer {
     private func stopRemoteConfig() {
         remoteConfigTask?.cancel()
         remoteConfigTask = nil
-        remoteConfigCache.clear()
+        if let account = remoteConfigAccountID { remoteConfigCache.clear(for: account) }
+        remoteConfigAccountID = nil
+        remoteConfigFactory = nil
         let wasDemo = isDemo
         remoteConfig = .empty
         flags.applyRemote(.empty)
@@ -575,6 +579,8 @@ final class AppContainer {
         diagnostics.info("auth", "signed in")
         let switched = signedInAccount.map { $0.userID != account.userID } ?? false
         signedInAccount = account
+        remoteConfigAccountID = account.userID
+        remoteConfigFactory = remoteConfigFactoryForAccount?(account.userID)
         startLinks(resetting: switched)
         startRemoteConfig()
         let coordinator = auth.coordinator

@@ -42,6 +42,23 @@ import Testing
         #expect(received == [.stdout(Data([0x61])), .closed])
     }
 
+    @Test func overflowDoesNotEmitAFalseClosedMarker() async throws {
+        let (events, continuation) = AsyncStream<SSHSessionEvent>.makeStream(
+            bufferingPolicy: .bufferingOldest(2)
+        )
+        let channel = EmbeddedChannel(handler: SSHSessionChannelHandler(continuation: continuation))
+
+        try channel.writeInbound(Self.data(byte: 0x61))
+        try channel.writeInbound(Self.data(byte: 0x62))
+        try channel.writeInbound(Self.data(byte: 0x63))
+        channel.embeddedEventLoop.run()
+
+        var received: [SSHSessionEvent] = []
+        for await event in events { received.append(event) }
+        #expect(!received.contains(.closed))
+        _ = try channel.finish(acceptAlreadyClosed: true)
+    }
+
     private static func data(byte: UInt8) -> SSHChannelData {
         var buffer = ByteBufferAllocator().buffer(capacity: 1)
         buffer.writeInteger(byte)

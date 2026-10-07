@@ -37,12 +37,13 @@ struct RemoteConfigTests {
     @Test func cacheRoundTripsAndClears() throws {
         let defaults = try #require(UserDefaults(suiteName: "c16.remote." + UUID().uuidString))
         let cache = RemoteConfigCache(defaults: defaults)
-        #expect(cache.load() == nil)
+        #expect(cache.load(for: "user-a") == nil)
         let config = RemoteConfig(flags: ["hostsTab": .bool(true)], demoContent: true)
-        cache.save(config)
-        #expect(cache.load() == config)
-        cache.clear()
-        #expect(cache.load() == nil)
+        cache.save(config, for: "user-a")
+        #expect(cache.load(for: "user-a") == config)
+        #expect(cache.load(for: "user-b") == nil)
+        cache.clear(for: "user-a")
+        #expect(cache.load(for: "user-a") == nil)
     }
 
     @Test func mockSourceStreamsCurrentThenChanges() async {

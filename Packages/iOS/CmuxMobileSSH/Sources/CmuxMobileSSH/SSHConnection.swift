@@ -210,16 +210,44 @@ public actor SSHConnection {
             try await session.sendEOF()
         }
         var result = SSHExecResult(stdout: Data(), stderr: Data(), exitStatus: nil)
+        var closed = false
         for await event in session.events {
             switch event {
-            case .stdout(let data): result.stdout.append(data)
-            case .stderr(let data): result.stderr.append(data)
+            case .stdout(let data):
+                do {
+                    try Self.append(data, to: &result.stdout)
+                } catch {
+                    await session.close()
+                    throw error
+                }
+            case .stderr(let data):
+                do {
+                    try Self.append(data, to: &result.stderr)
+                } catch {
+                    await session.close()
+                    throw error
+                }
             case .exitStatus(let status): result.exitStatus = status
             case .exitSignal: result.exitStatus = result.exitStatus ?? -1
-            case .closed: break
+            case .closed: closed = true
             }
         }
+        // A bounded ingress refusal finishes without the normal close marker.
+        // Never return a partial command result as if the remote command ended.
+        guard closed else { throw SSHConnectionError.closed }
         return result
+    }
+
+    /// Commands are used for discovery and small control operations. Keep a
+    /// finite transcript even when the consumer drains promptly, so a hostile
+    /// command cannot grow memory without bound.
+    private static let maximumExecOutputBytes = 4 * 1024 * 1024
+
+    private static func append(_ data: Data, to output: inout Data) throws {
+        guard data.count <= maximumExecOutputBytes - output.count else {
+            throw SSHConnectionError.outputLimitExceeded
+        }
+        output.append(data)
     }
 
     // MARK: - Forwarding
