@@ -1,110 +1,55 @@
 public import CmuxNextSettings
 public import Foundation
 
-/// The app's copy of the cmux model catalog (decision M2, contract
-/// `.cmux-scratch/nx-model-catalog/CONTRACT.md`): `GET <api>/api/models/catalog`, revalidated
-/// with its ETag, kept on disk for the next launch and for offline use. A body that is not a
-/// schema 1 catalog never replaces the good copy. The page bundles its own snapshot, so a store
-/// with no copy answers `catalog: null` and the composer still has models.
-///
-/// Fetch policy: the first request after launch revalidates (a cheap 304 when nothing changed),
-/// then a copy older than ``maximumAge`` does, and `refresh` always does. A failed fetch is not
-/// retried for ``retryInterval`` unless `refresh` asks.
-public actor AgentModelCatalogStore {
-    public typealias Fetch = @Sendable (URLRequest) async throws -> (Data, URLResponse)
+/// Where the app reads the cmux model catalog: acpmux, which fetches it for every client
+/// (MODEL-CATALOG-CURATED-PROXY). `get` is `catalog.get`, `refresh` is `catalog.refresh`.
+public protocol AgentModelCatalogSource: Sendable {
+    func get() async throws -> JSONValue
+    func refresh() async throws -> JSONValue
+}
 
+/// The app's view of the cmux model catalog (decision M2) as a thin acpmux client: acpmux owns
+/// the fetch, the last good copy and the bundled fallback, so the app never fetches over HTTP.
+/// A page's `models.catalog` reads `catalog.get`; `refresh` asks `catalog.refresh` first. When
+/// acpmux cannot answer, the last catalog it gave stands in, else `catalog: null` and the page
+/// keeps its own bundled snapshot.
+public actor AgentModelCatalogStore {
     public struct Result: Sendable, Equatable {
-        /// The catalog JSON, or nil when the app has no copy yet.
+        /// The catalog JSON, or nil when acpmux has given none yet.
         public var catalog: JSONValue?
-        /// `network` (fetched this launch) or `disk` (an earlier launch's copy); nil with no copy.
+        /// `network` (acpmux fetched it) or `disk` (acpmux's stored or bundled copy); nil with no copy.
         public var delivery: String?
-        /// A fetch during this call replaced the catalog with a different one (push it to open pages).
+        /// This call saw a catalog different from the one before (push it to open pages).
         public var changed: Bool
     }
 
-    private struct Meta: Codable {
-        var etag: String?
-        var fetchedAt: Date
-    }
-
-    public static let maximumAge: TimeInterval = 6 * 3600
-    public static let retryInterval: TimeInterval = 5 * 60
-    static let requestTimeout: TimeInterval = 20
-
-    private let endpoint: URL?
-    private let cacheFile: URL
-    private let metaFile: URL
-    private let fetch: Fetch
-    private var now: @Sendable () -> Date
-
-    private var loaded = false
+    private let source: (any AgentModelCatalogSource)?
     private var catalog: JSONValue?
-    private var meta: Meta?
     private var delivery: String?
-    private var fetchedThisLaunch = false
-    private var lastFailure: Date?
-    private var changedByFetch = false
-    private var inFlight: Task<Void, Never>?
 
-    public init(endpoint: URL?, cacheFile: URL,
-                fetch: @escaping Fetch = { try await URLSession.shared.data(for: $0) },
-                now: @escaping @Sendable () -> Date = { Date() }) {
-        self.endpoint = endpoint
-        self.cacheFile = cacheFile
-        metaFile = cacheFile.deletingPathExtension().appendingPathExtension("meta.json")
-        self.fetch = fetch
-        self.now = now
+    public init(source: (any AgentModelCatalogSource)?) {
+        self.source = source
     }
 
     /// The catalog for a page request. `remote` false (cmux.json `agentPane.models.remoteCatalog`)
-    /// answers from disk only.
+    /// never asks acpmux to fetch; it still reads acpmux's copy.
     public func current(refresh: Bool, remote: Bool) async -> Result {
-        loadDisk()
-        if remote, endpoint != nil, shouldFetch(refresh: refresh) {
-            if inFlight == nil {
-                inFlight = Task { await self.revalidate() }
-            }
-            await inFlight?.value
-            inFlight = nil
+        guard let source else { return Result(catalog: nil, delivery: nil, changed: false) }
+        if refresh, remote { _ = try? await source.refresh() }
+        let previous = catalog
+        if let reply = try? await source.get(), let next = reply["catalog"], Self.isCatalog(next) {
+            catalog = next
+            delivery = Self.delivery(reply["delivery"]?.stringValue)
         }
-        let changed = changedByFetch
-        changedByFetch = false
-        return Result(catalog: catalog, delivery: catalog == nil ? nil : delivery, changed: changed)
+        return Result(catalog: catalog, delivery: catalog == nil ? nil : delivery, changed: catalog != nil && catalog != previous)
     }
 
-    func setClockForTests(_ clock: @escaping @Sendable () -> Date) { now = clock }
-
-    private func shouldFetch(refresh: Bool) -> Bool {
-        if refresh || !fetchedThisLaunch && lastFailure == nil { return true }
-        if let lastFailure, now().timeIntervalSince(lastFailure) < Self.retryInterval { return false }
-        guard let meta else { return true }
-        return now().timeIntervalSince(meta.fetchedAt) >= Self.maximumAge
-    }
-
-    private func revalidate() async {
-        guard let endpoint else { return }
-        var request = URLRequest(url: endpoint, timeoutInterval: Self.requestTimeout)
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        if catalog != nil, let etag = meta?.etag { request.setValue(etag, forHTTPHeaderField: "If-None-Match") }
-        do {
-            let (data, response) = try await fetch(request)
-            guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
-            switch http.statusCode {
-            case 304 where catalog != nil:
-                store(body: nil, etag: http.value(forHTTPHeaderField: "ETag") ?? meta?.etag)
-            case 200:
-                guard let value = try? JSONValue.parse(data), Self.isCatalog(value) else { throw URLError(.cannotParseResponse) }
-                changedByFetch = changedByFetch || value != catalog
-                catalog = value
-                delivery = "network"
-                store(body: data, etag: http.value(forHTTPHeaderField: "ETag"))
-            default:
-                throw URLError(.badServerResponse)
-            }
-            fetchedThisLaunch = true
-            lastFailure = nil
-        } catch {
-            lastFailure = now()
+    /// acpmux's `delivery` as the page's: `fetched` is `network`, `stored` and `bundled` are `disk`.
+    static func delivery(_ acpmux: String?) -> String? {
+        switch acpmux {
+        case "fetched": "network"
+        case "stored", "bundled": "disk"
+        default: nil
         }
     }
 
@@ -112,26 +57,6 @@ public actor AgentModelCatalogStore {
     static func isCatalog(_ value: JSONValue) -> Bool {
         value["schemaVersion"]?.intValue == 1 && value["harnesses"]?.arrayValue != nil
             && value["models"]?.objectValue != nil && value["providers"]?.objectValue != nil
-    }
-
-    private func loadDisk() {
-        guard !loaded else { return }
-        loaded = true
-        guard let data = try? Data(contentsOf: cacheFile), let value = try? JSONValue.parse(data), Self.isCatalog(value) else { return }
-        catalog = value
-        delivery = "disk"
-        meta = (try? Data(contentsOf: metaFile)).flatMap { try? JSONDecoder().decode(Meta.self, from: $0) }
-    }
-
-    /// Writes the body (when new) and the ETag + fetch time; a failed write only costs the next
-    /// launch a full fetch.
-    private func store(body: Data?, etag: String?) {
-        let next = Meta(etag: etag, fetchedAt: now())
-        meta = next
-        let directory = cacheFile.deletingLastPathComponent()
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        if let body { try? body.write(to: cacheFile, options: .atomic) }
-        if let encoded = try? JSONEncoder().encode(next) { try? encoded.write(to: metaFile, options: .atomic) }
     }
 
     /// The page reply and event value: `{catalog, delivery, user}` (CONTRACT section 2).
@@ -146,4 +71,29 @@ public actor AgentModelCatalogStore {
 
     /// `agentPane.models` in a cmux.json document.
     public static let configPath = ["agentPane", "models"]
+}
+
+/// ``AgentModelCatalogSource`` over the acpmux unix socket.
+public nonisolated struct AcpmuxModelCatalogSource: AgentModelCatalogSource {
+    public let socketPath: String
+    public init(socketPath: String) { self.socketPath = socketPath }
+
+    public func get() async throws -> JSONValue {
+        try await call("catalog.get", deadline: .seconds(2))
+    }
+
+    /// A fetch: allow for a slow network (acpmux's own timeout is 30 s).
+    public func refresh() async throws -> JSONValue {
+        try await call("catalog.refresh", deadline: .seconds(35))
+    }
+
+    /// One element per acpmux `catalog.changed`, until the daemon closes the connection.
+    public func changes() -> AsyncThrowingStream<Void, any Error> {
+        AcpmuxCatalogWatcher.changes(socketPath: socketPath)
+    }
+
+    private func call(_ method: String, deadline: Duration) async throws -> JSONValue {
+        let box = try await AcpmuxStatusClient.request(socketPath: socketPath, method: method, deadline: deadline)
+        return JSONValue(foundation: box.value) ?? .null
+    }
 }

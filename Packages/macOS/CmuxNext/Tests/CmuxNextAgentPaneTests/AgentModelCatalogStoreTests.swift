@@ -3,111 +3,98 @@ import Foundation
 import Testing
 @testable import CmuxNextAgentPane
 
-/// The app host's copy of the cmux model catalog (decision M2): fetched from the cmux server with
-/// If-None-Match, kept on disk for the next launch, served offline, never replaced by a bad body.
+/// The app's view of the cmux model catalog (decision M2) as a thin acpmux client: it reads
+/// `catalog.get`, asks `catalog.refresh` only for a refresh with the remote catalog on, keeps the
+/// last good answer when acpmux cannot reply, and never fetches over HTTP itself.
 @Suite struct AgentModelCatalogStoreTests {
-    fileprivate nonisolated static let endpoint = URL(string: "https://cmux.test/api/models/catalog")!
-    private static let body = Data(#"{"schemaVersion":1,"generatedAt":"2026-10-06T18:00:00.000Z","source":"live","harnesses":[{"id":"claude","name":"Claude Code","brand":"claude","families":["claude"],"modelSource":"catalog","models":[]}],"models":{},"providers":{}}"#.utf8)
+    private static func catalog(_ generatedAt: String) -> JSONValue {
+        ["schemaVersion": .number(1), "generatedAt": .string(generatedAt), "source": .string("live"),
+         "harnesses": .array([["id": .string("claude"), "name": .string("Claude Code"), "brand": .string("claude"),
+                               "families": .array([.string("claude")]), "modelSource": .string("catalog"), "models": .array([])]]),
+         "models": .object([:]), "providers": .object([:])]
+    }
 
-    /// A scripted server: each request takes the next answer and is recorded.
-    private actor Server {
-        private var answers: [Result<(Int, Data, String?), Error>]
-        private var requests: [URLRequest] = []
-        init(_ answers: [Result<(Int, Data, String?), Error>]) { self.answers = answers }
-        func fetch(_ request: URLRequest) throws -> (Data, URLResponse) {
-            requests.append(request)
-            let answer = answers.isEmpty ? .failure(URLError(.notConnectedToInternet)) : answers.removeFirst()
-            let (status, data, etag) = try answer.get()
-            var headers = ["Content-Type": "application/json"]
-            if let etag { headers["ETag"] = etag }
-            let url = request.url ?? AgentModelCatalogStoreTests.endpoint
-            let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: headers) ?? HTTPURLResponse()
-            return (data, response)
+    /// A scripted acpmux: each `catalog.get` takes the next answer; calls are counted.
+    private actor Acpmux: AgentModelCatalogSource {
+        private var answers: [Result<JSONValue, any Error>]
+        private(set) var gets = 0
+        private(set) var refreshes = 0
+        init(_ answers: [Result<JSONValue, any Error>]) { self.answers = answers }
+        func get() async throws -> JSONValue {
+            gets += 1
+            return try (answers.isEmpty ? .failure(AcpmuxStatusClient.Failure.closed) : answers.removeFirst()).get()
         }
-        var count: Int { requests.count }
-        func header(_ index: Int, _ name: String) -> String? { requests[index].value(forHTTPHeaderField: name) }
+        func refresh() async throws -> JSONValue {
+            refreshes += 1
+            return ["changed": .bool(true)]
+        }
     }
 
-    private func directory() throws -> URL {
-        let url = FileManager.default.temporaryDirectory.appending(path: "model-catalog-\(UUID().uuidString)", directoryHint: .isDirectory)
-        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-        return url
+    private static func reply(_ catalog: JSONValue, delivery: String) -> Result<JSONValue, any Error> {
+        .success(["catalog": catalog, "delivery": .string(delivery), "schemaVersion": .number(1)])
     }
 
-    private func store(_ server: Server, cache: URL, now: Date = Date(timeIntervalSince1970: 1_800_000_000)) -> AgentModelCatalogStore {
-        AgentModelCatalogStore(endpoint: Self.endpoint, cacheFile: cache.appending(path: "model-catalog.json"),
-                               fetch: { try await server.fetch($0) }, now: { now })
-    }
-
-    @Test func aFetchedCatalogIsServedAndKeptOnDiskForTheNextLaunch() async throws {
-        let cache = try directory()
-        let server = Server([.success((200, Self.body, "\"v1\""))])
-        let first = await store(server, cache: cache).current(refresh: false, remote: true)
-        #expect(first.delivery == "network")
+    @Test func theCatalogComesFromAcpmuxWithItsDelivery() async {
+        let acpmux = Acpmux([Self.reply(Self.catalog("2026-10-07T00:00:00Z"), delivery: "fetched"),
+                             Self.reply(Self.catalog("2026-10-07T00:00:00Z"), delivery: "stored")])
+        let store = AgentModelCatalogStore(source: acpmux)
+        let first = await store.current(refresh: false, remote: true)
         #expect(first.catalog?["schemaVersion"] == .number(1))
+        #expect(first.delivery == "network")
         #expect(first.changed)
-
-        // The next launch answers from disk at once and revalidates with the saved ETag.
-        let offline = Server([.success((304, Data(), "\"v1\""))])
-        let next = store(offline, cache: cache)
-        let second = await next.current(refresh: false, remote: true)
-        #expect(second.catalog?["harnesses"]?.arrayValue?.count == 1)
+        let second = await store.current(refresh: false, remote: true)
         #expect(second.delivery == "disk")
-        #expect(await offline.count == 1)
-        #expect(await offline.header(0, "If-None-Match") == "\"v1\"")
-        #expect(!second.changed)
+        #expect(!second.changed, "the same catalog is no change")
+        #expect(await acpmux.refreshes == 0)
     }
 
-    @Test func offlineWithACopyServesTheDiskCopyAndOfflineWithoutOneServesNothing() async throws {
-        let cache = try directory()
-        _ = await store(Server([.success((200, Self.body, nil))]), cache: cache).current(refresh: false, remote: true)
-        let down = await store(Server([.failure(URLError(.notConnectedToInternet))]), cache: cache).current(refresh: false, remote: true)
-        #expect(down.delivery == "disk")
-        #expect(down.catalog != nil)
+    @Test func aRefreshAsksAcpmuxToFetchAndANewCatalogIsAChange() async {
+        let acpmux = Acpmux([Self.reply(Self.catalog("2026-10-07T00:00:00Z"), delivery: "bundled"),
+                             Self.reply(Self.catalog("2026-10-07T06:00:00Z"), delivery: "fetched")])
+        let store = AgentModelCatalogStore(source: acpmux)
+        _ = await store.current(refresh: false, remote: true)
+        let refreshed = await store.current(refresh: true, remote: true)
+        #expect(await acpmux.refreshes == 1)
+        #expect(refreshed.changed)
+        #expect(refreshed.catalog?["generatedAt"] == .string("2026-10-07T06:00:00Z"))
+    }
 
-        let empty = await store(Server([.failure(URLError(.timedOut))]), cache: try directory()).current(refresh: false, remote: true)
+    @Test func remoteOffNeverAsksAcpmuxToFetch() async {
+        let acpmux = Acpmux([Self.reply(Self.catalog("2026-10-07T00:00:00Z"), delivery: "stored")])
+        let result = await AgentModelCatalogStore(source: acpmux).current(refresh: true, remote: false)
+        #expect(await acpmux.refreshes == 0)
+        #expect(result.catalog != nil)
+    }
+
+    @Test func whenAcpmuxCannotAnswerTheLastCatalogStandsAndABadOneNeverReplacesIt() async {
+        let acpmux = Acpmux([
+            Self.reply(Self.catalog("2026-10-07T00:00:00Z"), delivery: "fetched"),
+            .success(["catalog": ["schemaVersion": .number(2)], "delivery": .string("fetched")]),
+            .failure(AcpmuxStatusClient.Failure.unreachable("no socket")),
+        ])
+        let store = AgentModelCatalogStore(source: acpmux)
+        _ = await store.current(refresh: false, remote: true)
+        let afterBad = await store.current(refresh: false, remote: true)
+        #expect(afterBad.catalog?["schemaVersion"] == .number(1))
+        let afterDown = await store.current(refresh: false, remote: true)
+        #expect(afterDown.catalog?["generatedAt"] == .string("2026-10-07T00:00:00Z"))
+        #expect(!afterDown.changed)
+
+        let empty = await AgentModelCatalogStore(source: Acpmux([])).current(refresh: false, remote: true)
         #expect(empty.catalog == nil)
         #expect(empty.delivery == nil)
+        let none = await AgentModelCatalogStore(source: nil).current(refresh: true, remote: true)
+        #expect(none.catalog == nil)
     }
 
-    @Test func aBadBodyNeverReplacesTheGoodCopy() async throws {
-        let cache = try directory()
-        let server = Server([
-            .success((200, Self.body, "\"v1\"")),
-            .success((200, Data(#"{"schemaVersion":2}"#.utf8), "\"v2\"")),
-            .success((500, Data("oops".utf8), nil)),
-        ])
-        let catalog = store(server, cache: cache)
-        _ = await catalog.current(refresh: false, remote: true)
-        let afterBad = await catalog.current(refresh: true, remote: true)
-        #expect(afterBad.catalog?["schemaVersion"] == .number(1))
-        let afterError = await catalog.current(refresh: true, remote: true)
-        #expect(afterError.catalog?["schemaVersion"] == .number(1))
-        let reloaded = await store(Server([]), cache: cache).current(refresh: false, remote: false)
-        #expect(reloaded.catalog?["schemaVersion"] == .number(1))
-    }
-
-    @Test func aFreshCopyIsNotFetchedAgainUntilItIsOldOrARefreshAsks() async throws {
-        let cache = try directory()
-        let server = Server([.success((200, Self.body, "\"v1\"")), .success((304, Data(), "\"v1\"")), .success((304, Data(), "\"v1\""))])
-        let start = Date(timeIntervalSince1970: 1_800_000_000)
-        let catalog = store(server, cache: cache, now: start)
-        _ = await catalog.current(refresh: false, remote: true)
-        _ = await catalog.current(refresh: false, remote: true)
-        #expect(await server.count == 1)
-        _ = await catalog.current(refresh: true, remote: true)
-        #expect(await server.count == 2)
-        let later = start.addingTimeInterval(7 * 3600)
-        await catalog.setClockForTests { later }
-        _ = await catalog.current(refresh: false, remote: true)
-        #expect(await server.count == 3)
-    }
-
-    @Test func remoteOffNeverFetches() async throws {
-        let server = Server([.success((200, Self.body, nil))])
-        let result = await store(server, cache: try directory()).current(refresh: true, remote: false)
-        #expect(await server.count == 0)
-        #expect(result.catalog == nil)
+    @Test func theWatcherSeesOnlyCatalogChangedNotifications() {
+        let reader = LineReader()
+        let lines = reader.append(Data(#"{"jsonrpc":"2.0","id":1,"result":{}}"#.utf8) + Data([0x0A])
+            + Data(#"{"jsonrpc":"2.0","method":"catalog.changed","params":{"schemaVersion":1}}"#.utf8) + Data([0x0A])
+            + Data(#"{"jsonrpc":"2.0","method":"_acpmux/sess"#.utf8))
+        #expect(lines.map(AcpmuxCatalogWatcher.isChanged) == [false, true])
+        let rest = reader.append(Data(#"ion_changed","params":{}}"#.utf8) + Data([0x0A]))
+        #expect(rest.map(AcpmuxCatalogWatcher.isChanged) == [false])
     }
 
     @Test func thePageAsksForTheCatalogByMethodName() {
@@ -123,5 +110,7 @@ import Testing
         #expect(AgentModelCatalogStore.remoteEnabled(user) == false)
         #expect(AgentModelCatalogStore.remoteEnabled(nil))
         #expect(AgentPageEvent.modelCatalog(reply).kind == "models.catalog")
+        #expect(AgentModelCatalogStore.delivery("fetched") == "network")
+        #expect(AgentModelCatalogStore.delivery("bundled") == "disk")
     }
 }
