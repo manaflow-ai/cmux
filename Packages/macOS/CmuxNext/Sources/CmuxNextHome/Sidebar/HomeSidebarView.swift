@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxHomeCore
+import CmuxNextDesign
 import MessagesLabSidebar
 
 /// The Home page's left column: MessagesLab's conversation list
@@ -10,6 +11,14 @@ import MessagesLabSidebar
 public final class HomeSidebarView: NSView {
     public var onSelect: (ConversationID) -> Void = { _ in }
     public var onSetPinned: (Bool, ConversationID) -> Void = { _, _ in }
+    /// Mark as Read (the menu offers it only while the conversation has unread messages).
+    public var onMarkRead: (ConversationID) -> Void = { _ in }
+    /// The host's context-menu items for a conversation (Archive Chief on a Chief).
+    public var menuItems: (ConversationID) -> [NSMenuItem] = { _ in [] }
+    /// Teammates matching a query that have no DM yet (the list's extra search section).
+    public var teammates: (String) -> [HomeContact] = { _ in [] }
+    /// A teammate from the search section was chosen: start (or open) the DM.
+    public var onStartTeammate: (HomeContact) -> Void = { _ in }
     public var onNewMessage: () -> Void = {}
     /// The compose button's right-click menu (New Chief, Invite), or nil for none.
     public var composeMenu: () -> NSMenu? = { nil }
@@ -36,6 +45,21 @@ public final class HomeSidebarView: NSView {
         addSubview(compose)
         list.onSelect = { [weak self] id in if let id { self?.onSelect(ConversationID(id)) } }
         list.onSetPinned = { [weak self] on, id in self?.onSetPinned(on, ConversationID(id)) }
+        list.onSetRead = { [weak self] read, id in if read { self?.onMarkRead(ConversationID(id)) } }
+        list.menuItems = { [weak self] id in self?.menuItems(ConversationID(id)) ?? [] }
+        list.searchSection = { [weak self] query in
+            guard let self else { return nil }
+            let people = teammates(query)
+            guard !people.isEmpty else { return nil }
+            return CmuxSidebarSearchSection(title: HomeConversationStrings.teammatesSection, results: people.map {
+                CmuxSidebarSearchResult(id: $0.id.rawValue, title: $0.name, initials: Self.initials($0.name))
+            })
+        }
+        list.onSelectSearchResult = { [weak self] id in
+            guard let self, let person = teammates(list.searchQuery).first(where: { $0.id.rawValue == id }) else { return }
+            onStartTeammate(person)
+        }
+        applyColors()
     }
 
     @available(*, unavailable)
@@ -63,6 +87,32 @@ public final class HomeSidebarView: NSView {
     }
 
     @objc func newMessage() { onNewMessage() }
+
+    /// A context-menu item for `menuItems` that runs `handler`.
+    public static func menuItem(_ title: String, handler: @escaping () -> Void) -> NSMenuItem {
+        CmuxSidebarMenuItem(title: title, handler: handler)
+    }
+
+    /// One or two letters for a teammate's monogram.
+    static func initials(_ name: String) -> String {
+        let words = name.split(whereSeparator: \.isWhitespace)
+        return String(words.prefix(2).compactMap(\.first)).uppercased()
+    }
+
+    /// The unread dot uses the app's theme accent (sent bubbles alone are iMessage blue).
+    func applyColors() {
+        list.unreadColor = performWithTheme { Palette.accent }
+    }
+
+    public override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyColors()
+    }
+
+    public override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        applyColors()
+    }
 
     public override func layout() {
         super.layout()

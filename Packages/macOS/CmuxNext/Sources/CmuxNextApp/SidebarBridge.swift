@@ -21,6 +21,8 @@ final class SidebarBridge {
     private var profileObservation: Task<Void, Never>?
     /// Item presentation for sidebar sections (SidebarBridge+Sections).
     var sectionsObservation: Task<Void, Never>?
+    /// The optional Chats section (`sidebar.showChats`, SIDEBAR-NO-RECENTS).
+    let chatsMount = SidebarChatsMount()
     var cardsObservation: Task<Void, Never>?
     /// True once the sidebar shows real content: saved rows, the first
     /// live rows, or a settled empty or unavailable state, which marks the
@@ -52,13 +54,7 @@ final class SidebarBridge {
         container.sidebarView.contextMenuProvider = { [weak self] target in self?.contextMenu(for: target) }
         container.sidebarView.resourceSource = services.resources
         container.sidebarView.hoverCards = services.hoverCards
-        let recents = services.agentRecents.map { feed in
-            AgentRecentsSection(feed: feed) { [weak services] id in
-                guard let services else { return }
-                try? DeepLinkNavigator(services: services).open(DeepLink(.session(id, turn: nil)), background: false)
-            }
-        }
-        container.sidebarView.appSections = SidebarAppSections(registry: services.apps.registry, host: services.apps.host, recents: recents)
+        container.sidebarView.appSections = chatsMount.makeSections(services: services)
         // Return or Escape in the inline rename field gives the keyboard
         // back to the focused content (plans/cmux-next/focus.md R8).
         container.sidebarView.onRenameEnded = { [weak state] byKeyboard in

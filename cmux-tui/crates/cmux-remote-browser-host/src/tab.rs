@@ -2,11 +2,12 @@
 //! presentation (the CEF shim) and control messages for the viewers out.
 //! Pure; the shim and the transport live outside.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use cmux_remote_browser::menu::{MenuEffect, MenuInput, MenuReject, MenuTokens, command_ids};
 use cmux_remote_browser::proto::{
-    Control, Dialog, InputEvent, Menu, MenuChoice, MenuKind, Rect, RefuseReason, SessionState,
+    Control, Dialog, InputEvent, Menu, MenuChoice, MenuKind, PointerKind, Rect, RefuseReason,
+    SessionState, SurfaceKind,
 };
 use cmux_remote_browser::rp_input::{InputReject, RpCall, map_input};
 use cmux_remote_browser::session::{ScreenSize, Session, SessionEffect, SessionInput};
@@ -25,6 +26,26 @@ pub trait Presentation {
     fn popup_menu_result(&mut self, fork_token: i64, indices: Option<&[u32]>) -> bool;
     /// Answers the JS dialog with the fork's token (`text` for a prompt).
     fn dialog_result(&mut self, fork_token: i64, accept: bool, text: Option<&str>) -> bool;
+    /// The viewer's window is active or not (page popups open only in an
+    /// active widget; `cmux_rp_set_active`).
+    fn set_active(&mut self, browser: i32, active: bool) -> bool;
+    /// Captures popup surface `surface` (its frames name the surface).
+    fn surface_capture(&mut self, surface: u32) -> bool;
+    /// Closes popup surface `surface`; the fork then reports it hidden.
+    fn surface_close(&mut self, surface: u32);
+}
+
+/// What the host does for a popup surface (RP7) besides the shim calls.
+#[derive(Debug, Clone, PartialEq)]
+pub enum SurfaceOut {
+    /// Send to the viewers.
+    Control(Control),
+    /// Encode `surface`'s frames on `stream` (`width` x `height` pixels)
+    /// with an encoder of their own. Comes before the `rb.surface.show`
+    /// that names the stream.
+    AddStream { surface: u32, stream: u16, width: u32, height: u32 },
+    /// Stop encoding `stream` and give its held frame back.
+    RemoveStream { stream: u16 },
 }
 
 /// The screen a tab opens with before any viewer reported one.
@@ -56,6 +77,26 @@ pub struct HostTab {
     /// The token the next JS dialog gets (tokens start at 1, never repeat).
     next_dialog: u64,
     fork_dialog: Option<ForkDialog>,
+    /// Keys a viewer holds down (DOM code to DOM key), from its input.
+    held_keys: BTreeMap<String, String>,
+    /// Mouse buttons a viewer holds down, per surface (0 = page).
+    held_buttons: BTreeSet<(u32, u8)>,
+    /// The last pointer position per surface: a released button goes up there.
+    pointer_at: BTreeMap<u32, (f64, f64)>,
+    /// Open popup surfaces (RP7) by the fork's surface id.
+    surfaces: BTreeMap<u32, HostSurface>,
+    /// The stream the next shown surface gets (never 0, the page's).
+    next_stream: u16,
+}
+
+/// One open popup surface.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct HostSurface {
+    kind: SurfaceKind,
+    /// Its rect in the page (DIP).
+    anchor: Rect,
+    /// Its stream and pixel size once a frame arrived.
+    shown: Option<(u16, u32, u32)>,
 }
 
 /// The JS dialog Chromium has open, with the fork's own token.
@@ -81,6 +122,11 @@ impl HostTab {
             viewer_seqs: BTreeMap::new(),
             next_dialog: 1,
             fork_dialog: None,
+            held_keys: BTreeMap::new(),
+            held_buttons: BTreeSet::new(),
+            pointer_at: BTreeMap::new(),
+            surfaces: BTreeMap::new(),
+            next_stream: 1,
         }
     }
 
@@ -112,13 +158,19 @@ impl HostTab {
                 SessionEffect::StartCapture => {
                     self.capture_wanted = true;
                     if let Some(browser) = self.browser {
-                        self.capture_on = p.capture(browser, true);
+                        self.start_capture(browser, p);
                     }
                 }
                 SessionEffect::StopCapture => {
                     self.capture_wanted = false;
                     if let Some(browser) = self.browser {
+                        // No viewer sees the popups: close them (the fork
+                        // reports each hidden, which hides it on the viewers).
+                        for &surface in self.surfaces.keys() {
+                            p.surface_close(surface);
+                        }
                         p.capture(browser, false);
+                        p.set_active(browser, false);
                     }
                     self.capture_on = false;
                 }
@@ -138,7 +190,16 @@ impl HostTab {
     pub fn tab_created(&mut self, browser: i32, p: &mut dyn Presentation) {
         self.browser = Some(browser);
         if self.capture_wanted {
-            self.capture_on = p.capture(browser, true);
+            self.start_capture(browser, p);
+        }
+    }
+
+    /// Captures the page; a captured tab is active (a viewer sees it), so
+    /// its page popups can open.
+    fn start_capture(&mut self, browser: i32, p: &mut dyn Presentation) {
+        self.capture_on = p.capture(browser, true);
+        if self.capture_on {
+            p.set_active(browser, true);
         }
     }
 
@@ -203,6 +264,8 @@ impl HostTab {
                 }
             }
             Control::Close => {
+                // A viewer that leaves cannot send the releases of what it held.
+                self.release_all(p);
                 match self.session.apply(SessionInput::Leave { viewer: viewer.to_string() }) {
                     Ok(effects) => {
                         self.viewer_seqs.remove(viewer);
@@ -277,6 +340,26 @@ impl HostTab {
         }
     }
 
+    /// Chromium closed its menu itself (the `<select>` went away or the
+    /// page navigated): the viewers get `rb.menu.cancel`, Chromium gets no
+    /// answer.
+    pub fn menu_closed_by_page(&mut self, fork_token: i64) -> Vec<Control> {
+        let Some(open) = self.fork_menu.take_if(|m| m.fork_token == fork_token) else {
+            return Vec::new();
+        };
+        let Ok(outcome) = self.menus.apply(MenuInput::PageCancel { token: open.rb_token }) else {
+            return Vec::new();
+        };
+        outcome
+            .effects
+            .into_iter()
+            .filter_map(|e| match e {
+                MenuEffect::ViewerCancel { token } => Some(Control::MenuCancel { token }),
+                _ => None,
+            })
+            .collect()
+    }
+
     /// Chromium opened a context menu or a `<select>` popup (fork token);
     /// returns the messages for the viewers.
     pub fn menu_opened(
@@ -321,10 +404,157 @@ impl HostTab {
         p: &mut dyn Presentation,
     ) -> Result<bool, InputReject> {
         let call = map_input(event)?;
-        match self.browser {
-            Some(browser) => Ok(p.input(browser, &call)),
-            None => Ok(false),
+        let Some(browser) = self.browser else { return Ok(false) };
+        if let RpCall::SurfaceMouse { surface, .. } = call
+            && !self.surfaces.contains_key(&surface)
+        {
+            return Ok(false);
         }
+        self.note_held(event);
+        Ok(p.input(browser, &call))
+    }
+
+    /// Records which keys and buttons the viewer holds after `event`.
+    fn note_held(&mut self, event: &InputEvent) {
+        match event {
+            InputEvent::Key { down: true, code, key, .. } => {
+                self.held_keys.insert(code.clone(), key.clone());
+            }
+            InputEvent::Key { down: false, code, .. } => {
+                self.held_keys.remove(code);
+            }
+            InputEvent::Pointer { surface, kind, x, y, button, .. } => {
+                self.pointer_at.insert(*surface, (*x, *y));
+                match kind {
+                    PointerKind::Down => {
+                        self.held_buttons.insert((*surface, *button));
+                    }
+                    PointerKind::Up => {
+                        self.held_buttons.remove(&(*surface, *button));
+                    }
+                    PointerKind::Move | PointerKind::Enter | PointerKind::Leave => {}
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// The engine's "release all keys and buttons" signal (the input
+    /// skipped a gap, so a release may be lost): a key-up for every key and
+    /// a button-up for every button a viewer holds down, then none is held.
+    pub fn release_all(&mut self, p: &mut dyn Presentation) {
+        let keys = std::mem::take(&mut self.held_keys);
+        let buttons = std::mem::take(&mut self.held_buttons);
+        let Some(browser) = self.browser else { return };
+        for (code, key) in keys {
+            let up = RpCall::SendKey {
+                down: false,
+                code,
+                key,
+                text: String::new(),
+                unmodified_text: String::new(),
+                modifiers: 0,
+                commands: Vec::new(),
+            };
+            p.input(browser, &up);
+        }
+        for (surface, button) in buttons {
+            let (x, y) = self.pointer_at.get(&surface).copied().unwrap_or((0.0, 0.0));
+            let (kind, button, click_count, modifiers) = (2, i32::from(button), 1, 0);
+            let up = if surface == 0 {
+                RpCall::PageMouse { kind, x, y, button, click_count, modifiers }
+            } else {
+                RpCall::SurfaceMouse { surface, kind, x, y, button, click_count, modifiers }
+            };
+            p.input(browser, &up);
+        }
+    }
+
+    /// Keys and buttons a viewer holds down now.
+    pub fn held(&self) -> (usize, usize) {
+        (self.held_keys.len(), self.held_buttons.len())
+    }
+
+    /// The fork opened (`visible`) or moved popup surface `surface` at
+    /// `anchor` (page DIP), or closed it.
+    pub fn surface_changed(
+        &mut self,
+        surface: u32,
+        kind: SurfaceKind,
+        visible: bool,
+        anchor: Rect,
+        p: &mut dyn Presentation,
+    ) -> Vec<SurfaceOut> {
+        if !visible {
+            let Some(gone) = self.surfaces.remove(&surface) else { return Vec::new() };
+            self.held_buttons.retain(|&(s, _)| s != surface);
+            self.pointer_at.remove(&surface);
+            return match gone.shown {
+                Some((stream, _, _)) => vec![
+                    SurfaceOut::Control(Control::SurfaceHide { surface }),
+                    SurfaceOut::RemoveStream { stream },
+                ],
+                None => Vec::new(),
+            };
+        }
+        if let Some(open) = self.surfaces.get_mut(&surface) {
+            if open.anchor == anchor {
+                return Vec::new();
+            }
+            open.anchor = anchor;
+            return match open.shown {
+                Some((_, width, height)) => vec![SurfaceOut::Control(Control::SurfaceUpdate {
+                    surface,
+                    anchor,
+                    width,
+                    height,
+                })],
+                None => Vec::new(),
+            };
+        }
+        if p.surface_capture(surface) {
+            self.surfaces.insert(surface, HostSurface { kind, anchor, shown: None });
+        } else {
+            // A surface no viewer can see would trap the page's focus.
+            p.surface_close(surface);
+        }
+        Vec::new()
+    }
+
+    /// A captured frame of `surface` with its pixel size: the first one
+    /// (or one of a new size) gives the surface a stream and shows it.
+    pub fn surface_frame(&mut self, surface: u32, width: u32, height: u32) -> Vec<SurfaceOut> {
+        let Some(open) = self.surfaces.get(&surface).copied() else { return Vec::new() };
+        let mut out = Vec::new();
+        match open.shown {
+            Some((_, w, h)) if (w, h) == (width, height) => return out,
+            // A new size is a new encoder: the old stream ends, a new one starts.
+            Some((stream, _, _)) => {
+                out.push(SurfaceOut::Control(Control::SurfaceHide { surface }));
+                out.push(SurfaceOut::RemoveStream { stream });
+            }
+            None => {}
+        }
+        let stream = self.next_stream;
+        self.next_stream = self.next_stream.checked_add(1).unwrap_or(1);
+        if let Some(entry) = self.surfaces.get_mut(&surface) {
+            entry.shown = Some((stream, width, height));
+        }
+        out.push(SurfaceOut::AddStream { surface, stream, width, height });
+        out.push(SurfaceOut::Control(Control::SurfaceShow {
+            surface,
+            stream,
+            kind: open.kind,
+            anchor: open.anchor,
+            width,
+            height,
+        }));
+        out
+    }
+
+    /// The stream that carries `surface`, once it is shown.
+    pub fn surface_stream(&self, surface: u32) -> Option<u16> {
+        self.surfaces.get(&surface)?.shown.map(|(stream, _, _)| stream)
     }
 
     /// The anchor of a `<select>` popup in the page (helper for the shim's
@@ -385,7 +615,7 @@ impl HostTab {
     /// the tab's later shim callbacks: title, URL, load).
     pub fn retry_capture(&mut self, p: &mut dyn Presentation) {
         if let (true, false, Some(browser)) = (self.capture_wanted, self.capture_on, self.browser) {
-            self.capture_on = p.capture(browser, true);
+            self.start_capture(browser, p);
         }
     }
 
