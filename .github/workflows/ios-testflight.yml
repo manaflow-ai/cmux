@@ -781,16 +781,11 @@ jobs:
           if [ "$IOS_BETA_PROFILE_TYPE" = "internal" ] || [ "$IOS_BETA_PROFILE_TYPE" = "beta" ] || [ -n "${IOS_BETA_EXTENSION_PROVISIONING_PROFILE_BASE64:-}" ]; then
             EXTENSION_ENV="$RUNNER_TEMP/cmux-${IOS_BETA_PROFILE_TYPE}-extension.env"
             : > "$EXTENSION_ENV"
-            ENABLE_CLOUD_VPN=0
-            if [ "$IOS_BETA_PROFILE_TYPE" = "beta" ]; then
-              ENABLE_CLOUD_VPN=1
-            fi
             IOS_APPSTORE_TEAM_ID=7WLXT3NR37 \
             IOS_APPSTORE_BUNDLE_IDENTIFIER="$IOS_BETA_BUNDLE_ID" \
             IOS_APPSTORE_EXTENSION_BUNDLE_IDENTIFIER="$EXTENSION_BUNDLE_ID" \
             IOS_APPSTORE_PROVISIONING_PROFILE_BASE64="$PROFILE_BASE64" \
             IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_BASE64="${IOS_BETA_EXTENSION_PROVISIONING_PROFILE_BASE64:-}" \
-            IOS_APPSTORE_ENABLE_CLOUD_VPN="$ENABLE_CLOUD_VPN" \
             IOS_APPSTORE_KEYCHAIN_NAME=ios-testflight.keychain \
             GITHUB_ENV="$EXTENSION_ENV" \
               ./.github/scripts/install-app-store-provisioning-profile.sh
@@ -801,14 +796,6 @@ jobs:
             fi
             echo "IOS_BETA_EXTENSION_PROVISIONING_PROFILE_NAME=$EXTENSION_PROFILE_NAME" >> "$GITHUB_ENV"
             echo "Installed $IOS_BETA_PROFILE_TYPE notification extension profile: $EXTENSION_PROFILE_NAME"
-            if [ "$ENABLE_CLOUD_VPN" = "1" ]; then
-              CLOUD_VPN_PROFILE_NAME="$(sed -n 's/^IOS_APPSTORE_CLOUD_VPN_PROVISIONING_PROFILE_NAME=//p' "$EXTENSION_ENV")"
-              if [ -z "$CLOUD_VPN_PROFILE_NAME" ]; then
-                echo "CloudVPN profile resolver returned no profile name" >&2
-                exit 1
-              fi
-              echo "IOS_BETA_CLOUD_VPN_PROVISIONING_PROFILE_NAME=$CLOUD_VPN_PROFILE_NAME" >> "$GITHUB_ENV"
-            fi
           else
             echo "Missing IOS_BETA_EXTENSION_PROVISIONING_PROFILE_BASE64 for $IOS_BETA_PROFILE_TYPE notification extension" >&2
             exit 1

@@ -1,9 +1,10 @@
-// Window mode: an entry at its real size, in a cmux window of a real size, with the app's layout
-// around it (sidebar, titlebar, the pane's tab strip, the split it lives in). The geometry is
-// computed here once, from the app's own metrics (MetricTunables.swift, per density), so the
-// stage frame draws it, the shell scales it and the matrix generator sizes its viewport from
-// the same numbers. Layout happens at the real size; the shell only scales the finished window
-// down with one transform, so text and spacing shrink together and nothing reflows.
+// Window mode: the surface at the REAL size it has in the app. The size is computed, never drawn:
+// a cmux window of a real size (a preset), the app's own metrics (MetricTunables.swift, per
+// density: sidebar width, titlebar, tab strip, column gap) and the pane layout give the pane the
+// surface lives in. Only the surface renders, at that size; the native parts (sidebar, tab strip,
+// window chrome) are not imitated (Lawrence 2026-10-07: no fake Swift UI parts). The shell scales
+// the finished surface down with one transform, so text and spacing shrink together and nothing
+// reflows; the matrix generator sizes its viewport from the same numbers.
 
 export const WINDOW_PRESETS = {
   "16x9": { label: "16:9", width: 1920, height: 1080 },
@@ -99,6 +100,17 @@ export function windowGeometry(
 /** The pane the entry lives in. */
 export const entryPane = (geometry: WindowGeometry) =>
   geometry.panes.find((pane) => pane.hostsEntry) ?? geometry.panes[0]!;
+
+/** The size of the surface's pane in window mode: what the stage renders at. */
+export function entryPaneSize(
+  window: string,
+  layout: PaneLayout,
+  density: "compact" | "comfortable",
+  metrics: ChromeMetrics,
+): { width: number; height: number } {
+  const { content } = entryPane(windowGeometry(windowSize(window), layout, density, metrics));
+  return { width: Math.round(content.width), height: Math.round(content.height) };
+}
 
 /** The scale that fits a `width` x `height` window into `available` px (never above 1). */
 export function fitScale(

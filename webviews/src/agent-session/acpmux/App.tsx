@@ -41,7 +41,6 @@ import { harnessProfiles } from "./harnessProfiles";
 import { MockAcpmuxSocket, mockHost, type MockScript } from "./mock";
 import { BridgeSocket } from "./bridgeSocket";
 import { useComposerKeyboard } from "./composerFocus";
-import { installTooltips } from "../../ui/titleTooltips";
 import { createAcpmuxDebug, type AcpmuxDebug } from "./debug";
 import { acpWire } from "./wire";
 import { acpmuxPerf } from "./perf";
@@ -89,6 +88,7 @@ import { chatImages, type ChatImage } from "./conversation/chatImages";
 import { ImageViewer } from "./conversation/ImageViewer";
 import { ImageViewerContext } from "./conversation/imageViewerContext";
 import { sessionLink } from "./links";
+import { ChatHeaderStatus } from "./header/ChatHeaderStatus";
 import { ChatHeaderTools, HEADER_ACTIONS, type ChatMenuItem } from "./header/ChatHeaderTools";
 import { Thinking } from "./conversation/Thinking";
 import { WorkingFor } from "./conversation/WorkingFor";
@@ -874,7 +874,6 @@ function DefaultComposerChips({ snapshot }: { snapshot: AcpmuxSnapshot }) {
 
 export function AcpmuxApp() {
   const [queryClient] = useState(createPaneQueryClient);
-  useEffect(() => installTooltips(document), []);
   return (
     <QueryClientProvider client={queryClient}>
       <AcpmuxPane />
@@ -2142,7 +2141,7 @@ function AcpmuxPane() {
     );
   return (
     <ShortcutsContext.Provider value={shortcuts}>
-      <section className="acpmux-shell">
+      <section className="acpmux-shell" aria-label={composerSnapshot.summary?.title || t("header.agentChat")}>
         <div className="acpmux-main" data-new-chat={freshView && !showNewTab ? "" : undefined}>
           {showNewTab && newTab.layout === "b" ? (
             <NewTabScreen
@@ -2183,7 +2182,6 @@ function AcpmuxPane() {
                 selectSession(sessionId);
               }}
               onShowAll={() => searchEvent("toggle")}
-              onImport={() => void callNative("action.run", { id: "palette.welcomeChecklist" })}
               onBrowseProject={() => void callNative("action.run", { id: "palette.welcomeChecklist" })}
               onEditShortcut={(kind) => void callNative("shortcut.edit", { kind })}
             />
@@ -2191,10 +2189,7 @@ function AcpmuxPane() {
             <>
               <div className={`acpmux-stage${diffFiles ? " acpmux-reviewing" : ""}`}>
                 <header className="acpmux-header">
-                  <div>
-                    <strong className="acpmux-title">{header.title}</strong>
-                    {header.status && <span className="acpmux-status">{header.status}</span>}
-                  </div>
+                  <ChatHeaderStatus status={header.status} detail={header.detail} />
                   <div className="acpmux-handoff-header-tools">
                     {preview && (
                       <span
@@ -2245,12 +2240,7 @@ function AcpmuxPane() {
                     }
                   />
                 ) : freshView ? (
-                  <EmptyState
-                    project={projectName(snapshot.summary?.cwd)}
-                    // A generic New picks the kind on the New Tab page; only "New chat" starts a chat.
-                    onNew={() => void callNative("action.run", { id: "newTab.page" }).catch(() => undefined)}
-                    onImport={() => void callNative("onboarding.importAndSync").catch(() => undefined)}
-                  />
+                  <EmptyState project={projectName(snapshot.summary?.cwd)} />
                 ) : (
                   transcript
                 )}
