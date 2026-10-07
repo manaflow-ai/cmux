@@ -50,19 +50,27 @@ final class ConversationHeaderView: UIView {
         backGlass.contentView.addSubview(unreadPill)
         unreadPill.addSubview(unreadLabel)
         unreadPill.isUserInteractionEnabled = false
+        // The count is spoken as the back button's value, not as a stray "349".
+        unreadPill.isAccessibilityElement = false
+        unreadPill.accessibilityElementsHidden = true
 
         clusterDisc.isUserInteractionEnabled = false
         clusterDisc.isHidden = true
         addSubview(clusterDisc)
         addSubview(avatarTapButton)
         avatarTapButton.addAction(UIAction { [weak self] _ in self?.onInfo?() }, for: .touchUpInside)
+        avatarTapButton.accessibilityLabel = String(localized: "conversation.ax.contactPhoto", defaultValue: "Contact photo", bundle: .module)
+        avatarTapButton.accessibilityHint = String(localized: "conversation.ax.contactPhoto.hint", defaultValue: "Double-tap to view details", bundle: .module)
 
         addSubview(namePillGlass)
         namePillGlass.contentView.addSubview(nameButton)
-        nameLabel.font = .systemFont(ofSize: 17, weight: .semibold)
+        nameLabel.font = Self.nameFont
         nameLabel.textColor = .label
         namePillGlass.contentView.addSubview(nameLabel)
+        // The pill's button speaks the name; the label is its visual only.
+        nameLabel.isAccessibilityElement = false
         chevron.tintColor = .tertiaryLabel
+        chevron.isAccessibilityElement = false
         namePillGlass.contentView.addSubview(chevron)
         nameButton.addAction(UIAction { [weak self] _ in self?.onInfo?() }, for: .touchUpInside)
         nameButton.accessibilityIdentifier = "conversation.header.name"
@@ -101,6 +109,9 @@ final class ConversationHeaderView: UIView {
         clusterDisc.isHidden = info.kind != .group
         unreadLabel.text = unreadCount > 0 ? "\(unreadCount)" : nil
         unreadPill.isHidden = unreadCount <= 0
+        backButton.accessibilityValue = unreadCount > 0
+            ? String(format: String(localized: "conversation.ax.backUnread", defaultValue: "%d unread", bundle: .module), unreadCount)
+            : nil
         setNeedsLayout()
     }
 
@@ -116,10 +127,23 @@ final class ConversationHeaderView: UIView {
             self.trailingButton.setImage(UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: mode == .close ? 17 : 19, weight: mode == .close ? .semibold : .regular)), for: .normal)
             self.trailingButton.accessibilityLabel = mode == .close
                 ? String(localized: "conversation.header.close", defaultValue: "Close", bundle: .module)
-                : String(localized: "conversation.header.action", defaultValue: "Call", bundle: .module)
+                : (self.trailingSymbol.hasPrefix("video")
+                    ? String(localized: "conversation.ax.facetime", defaultValue: "FaceTime", bundle: .module)
+                    : String(localized: "conversation.header.action", defaultValue: "Call", bundle: .module))
         }
         guard animated else { apply(); return }
         UIView.transition(with: trailingButton, duration: 0.2, options: .transitionCrossDissolve, animations: apply)
+    }
+
+    /// The name grows with Dynamic Type up to XXL, then holds (Messages caps it there).
+    static var nameFont: UIFont { ConversationTheme.font(17, .semibold, style: .headline, maximum: 21) }
+
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        if traitCollection.changesTextMetrics(from: previousTraitCollection) {
+            nameLabel.font = Self.nameFont
+            setNeedsLayout()
+        }
     }
 
     override func layoutSubviews() {
@@ -156,9 +180,11 @@ final class ConversationHeaderView: UIView {
         nameLabel.sizeToFit()
         let pillWidth2 = min(bounds.width - 2 * (margin + 60), nameLabel.bounds.width + 36)
         let pillY = max(top + 53, clusterBottom - 7)
-        namePillGlass.frame = CGRect(x: centerX - pillWidth2 / 2, y: pillY, width: pillWidth2, height: 33)
-        nameLabel.frame = CGRect(x: 13, y: 0, width: pillWidth2 - 34, height: 33)
-        chevron.frame = CGRect(x: pillWidth2 - 19, y: 11, width: 8, height: 11)
+        let pillHeight = max(33, ceil(nameLabel.font.lineHeight) + 13)
+        namePillGlass.frame = CGRect(x: centerX - pillWidth2 / 2, y: pillY, width: pillWidth2, height: pillHeight)
+        nameLabel.frame = CGRect(x: 13, y: 0, width: pillWidth2 - 34, height: pillHeight)
+        namePillGlass.layer.cornerRadius = pillHeight / 2
+        chevron.frame = CGRect(x: pillWidth2 - 19, y: (pillHeight - 11) / 2, width: 8, height: 11)
         nameButton.frame = namePillGlass.bounds
         statusLabel.frame = CGRect(x: 0, y: namePillGlass.frame.maxY + 2, width: bounds.width, height: 14)
     }

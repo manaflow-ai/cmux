@@ -5,14 +5,49 @@ import UIKit
 enum ConversationTheme {
     // MARK: Metrics (points)
 
-    static let bodyFont = UIFont.systemFont(ofSize: 17)
+    // MARK: Dynamic Type
+    //
+    // Messages sizes transcript text with the body style (ChatKit's
+    // ShortBody): 14 pt at XS, 17 at Large, 21 at XXL, 40 at AX3, and the
+    // bubble's corner grows with it. Metrics below are the Large values,
+    // scaled by the current content size category at each read.
+
+    /// `value` (a Large-size metric) at the current content size category.
+    static func scaled(_ value: CGFloat, _ style: UIFont.TextStyle = .body) -> CGFloat {
+        UIFontMetrics(forTextStyle: style).scaledValue(for: value)
+    }
+
+    /// A system font scaled like `style`, a weight step heavier with Bold Text.
+    static func font(_ size: CGFloat, _ weight: UIFont.Weight = .regular, style: UIFont.TextStyle = .body, maximum: CGFloat? = nil) -> UIFont {
+        var pointSize = scaled(size, style)
+        if let maximum { pointSize = min(pointSize, maximum) }
+        return .systemFont(ofSize: pointSize, weight: UIAccessibility.isBoldTextEnabled ? boldTextWeight(weight) : weight)
+    }
+
+    private static func boldTextWeight(_ weight: UIFont.Weight) -> UIFont.Weight {
+        switch weight {
+        case .ultraLight, .thin, .light: return .regular
+        case .regular: return .semibold
+        case .medium, .semibold: return .bold
+        default: return .heavy
+        }
+    }
+
+    /// Accessibility sizes widen the bubble column (ChatKit: max width 314.5
+    /// at Large and up to XXXL, 346.7 at AX3 on a 402 pt transcript).
+    static var maxWidthBoost: CGFloat {
+        // Body reaches 28 pt at the first accessibility size.
+        scaled(17) >= 28 ? 1.1023 : 1
+    }
+
+    static var bodyFont: UIFont { font(17) }
     static var bodyFontSize: CGFloat { bodyFont.pointSize }
-    /// Line pitch inside bubbles and the composer (measured 24 pt).
-    static let lineHeight: CGFloat = 24
+    /// Line pitch inside bubbles and the composer (measured 24 pt at Large).
+    static var lineHeight: CGFloat { ceil(scaled(24)) }
     static let bubbleHorizontalPadding: CGFloat = 14.5
     /// (44 pt single-line body - 24 pt line) / 2.
     static let bubbleVerticalPadding: CGFloat = 10
-    static let bubbleCornerRadius: CGFloat = 19
+    static var bubbleCornerRadius: CGFloat { scaled(19) }
     /// Width the tail adds beyond the bubble body.
     static let tailWidth: CGFloat = 5
     /// Max bubble width as a fraction of the view width.
@@ -27,21 +62,23 @@ enum ConversationTheme {
     /// A timestamp separates messages this far apart.
     static let timestampGap: TimeInterval = 60 * 60
     static let reactionBadgeSize: CGFloat = 32
-    static let emojiOnlyFontSize: CGFloat = 48
+    static var emojiOnlyFontSize: CGFloat { scaled(48) }
     static let maxImageWidthFraction: CGFloat = 0.63
     static let maxImageHeight: CGFloat = 340
 
-    static let senderNameFont = UIFont.systemFont(ofSize: 12.5, weight: .regular)
-    static let footerFont = UIFont.systemFont(ofSize: 12, weight: .semibold)
-    static let editedFont = UIFont.systemFont(ofSize: 12, weight: .regular)
-    static let timestampFont = UIFont.systemFont(ofSize: 12, weight: .regular)
-    static let timestampBoldFont = UIFont.systemFont(ofSize: 12, weight: .semibold)
+    static var senderNameFont: UIFont { font(12.5, style: .caption2) }
+    static var footerFont: UIFont { font(12, .semibold, style: .caption2) }
+    static var editedFont: UIFont { font(12, style: .caption2) }
+    static var timestampFont: UIFont { font(12, style: .caption2) }
+    static var timestampBoldFont: UIFont { font(12, .semibold, style: .caption2) }
+    static var quoteFont: UIFont { font(15, style: .subheadline) }
 
     /// Composer metrics.
     static let composerSideInset: CGFloat = 27
     static let plusButtonSize: CGFloat = 40
     static let composerFieldGap: CGFloat = 13
-    static let composerMinHeight: CGFloat = 42
+    /// One line plus 9 pt above and below (42 pt at Large).
+    static var composerMinHeight: CGFloat { lineHeight + 18 }
 
     // MARK: Colors
 
@@ -85,13 +122,15 @@ enum ConversationTheme {
     }
 
     /// Body paragraph with the measured 24 pt pitch, glyphs vertically centered in the line.
-    nonisolated(unsafe) static let bodyParagraph: NSParagraphStyle = {
+    static var bodyParagraph: NSParagraphStyle {
         let style = NSMutableParagraphStyle()
         style.minimumLineHeight = lineHeight
         style.maximumLineHeight = lineHeight
         style.lineBreakMode = .byWordWrapping
+        // At accessibility sizes Messages hyphenates long words ("din-ner").
+        if maxWidthBoost > 1 { style.hyphenationFactor = 1 }
         return style
-    }()
+    }
 
     /// A fixed line height puts its extra space above the glyphs; frames shift up by this to center them.
     static var bodyGlyphLift: CGFloat { ((lineHeight - bodyFont.lineHeight) / 2).rounded(.down) }

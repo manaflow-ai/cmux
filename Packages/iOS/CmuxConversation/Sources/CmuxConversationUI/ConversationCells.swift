@@ -26,6 +26,7 @@ final class MessageCell: UICollectionViewCell {
     private(set) var imageViews: [UIImageView] = []
     /// Everything that moves with the bubble during swipes.
     let shiftable = UIView()
+    private(set) lazy var accessibility = MessageCellAccessibility(cell: self)
 
     private(set) var model: MessageRowModel?
     private var previousRowID: String?
@@ -123,6 +124,7 @@ final class MessageCell: UICollectionViewCell {
         self.cellLayout = layout
         let message = model.message
         placeShiftable()
+        applyScaledFonts()
 
         senderLabel.isHidden = layout.senderNameFrame == nil
         senderLabel.text = model.senderName
@@ -267,13 +269,7 @@ final class MessageCell: UICollectionViewCell {
         timeLabel.text = message.sentAt.formatted(date: .omitted, time: .shortened)
         setNeedsLayout()
         applyShifts()
-        accessibilityLabel = [model.senderName, message.text].compactMap { $0 }.joined(separator: ", ")
-        // VoiceOver hears what the bubble shows: "Edited" and the current status.
-        accessibilityValue = [
-            editedLabel.isHidden ? nil : editedLabel.text,
-            footerLabel.isHidden ? nil : footerLabel.text,
-        ].compactMap { $0 }.joined(separator: ", ")
-        isAccessibilityElement = true
+        accessibility.update(model: model, layout: layout)
     }
 
     override func layoutSubviews() {
@@ -422,7 +418,8 @@ final class TimestampCell: UICollectionViewCell {
         label.frame = contentView.bounds.inset(by: UIEdgeInsets(top: 10, left: 16, bottom: 4, right: 16))
     }
 
-    static let height: CGFloat = 32
+    /// 32 pt at Large; grows with the timestamp font.
+    static var height: CGFloat { max(32, ceil(ConversationTheme.timestampFont.lineHeight) + 18) }
 
     static func text(for date: Date, now: Date = Date()) -> NSAttributedString {
         let calendar = Calendar.current
@@ -481,7 +478,7 @@ final class LoadingCell: UICollectionViewCell {
 /// The top of history: service name and subtitle, as Messages shows above the first message.
 final class ConversationStartCell: UICollectionViewCell {
     static let reuseID = "start"
-    static let height: CGFloat = 54
+    static var height: CGFloat { max(54, 2 * ceil(ConversationTheme.font(11, style: .caption2).lineHeight) + 26) }
     private let title = UILabel()
     private let subtitle = UILabel()
 
@@ -501,17 +498,19 @@ final class ConversationStartCell: UICollectionViewCell {
     required init?(coder: NSCoder) { fatalError() }
 
     func configure(title: String, subtitle: String) {
+        self.title.font = ConversationTheme.font(11, .semibold, style: .caption2)
         self.title.text = title
         let attachment = NSTextAttachment(image: UIImage(systemName: "lock.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 8, weight: .semibold))!.withTintColor(ConversationTheme.secondaryText, renderingMode: .alwaysOriginal))
         let text = NSMutableAttributedString(attachment: attachment)
-        text.append(NSAttributedString(string: " " + subtitle, attributes: [.font: UIFont.systemFont(ofSize: 11), .foregroundColor: ConversationTheme.secondaryText]))
+        text.append(NSAttributedString(string: " " + subtitle, attributes: [.font: ConversationTheme.font(11, style: .caption2), .foregroundColor: ConversationTheme.secondaryText]))
         self.subtitle.attributedText = text
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        title.frame = CGRect(x: 0, y: 14, width: contentView.bounds.width, height: 14)
-        subtitle.frame = CGRect(x: 0, y: 29, width: contentView.bounds.width, height: 14)
+        let line = max(14, ceil(title.font.lineHeight))
+        title.frame = CGRect(x: 0, y: 14, width: contentView.bounds.width, height: line)
+        subtitle.frame = CGRect(x: 0, y: 15 + line, width: contentView.bounds.width, height: line)
     }
 }
 

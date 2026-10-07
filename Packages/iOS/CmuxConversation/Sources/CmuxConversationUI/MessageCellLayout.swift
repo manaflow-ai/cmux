@@ -106,7 +106,7 @@ extension MessageCellLayout {
         let outgoingBodyTrailing = width - margin - (isFailed ? 32 : 0)
         // Outgoing measures against the full width; incoming against the
         // space right of the avatar column (282 pt max on a 440 pt screen).
-        let maxBubbleWidth = floor((model.isOutgoing ? width : width - (model.isGroup ? t.avatarSize + t.avatarGap : 0)) * t.maxBubbleWidthFraction)
+        let maxBubbleWidth = floor(min(width - 2 * margin - avatarColumn, (model.isOutgoing ? width : width - (model.isGroup ? t.avatarSize + t.avatarGap : 0)) * t.maxBubbleWidthFraction * t.maxWidthBoost))
         let hasReactions = !model.reactionKinds.isEmpty
 
         /// Frame (tail area included) for a bubble whose body is `w` wide.
@@ -120,7 +120,7 @@ extension MessageCellLayout {
         var quoteFrame: CGRect?
         var quoteTextFrame: CGRect?
         if let quote = model.replyQuote {
-            let quoteFont = UIFont.systemFont(ofSize: 15)
+            let quoteFont = t.quoteFont
             let quoteString = NSAttributedString(string: quote.text, attributes: [.font: quoteFont])
             let size = measure(quoteString, maxWidth: maxBubbleWidth - 24)
             let textHeight = min(size.height, ceil(quoteFont.lineHeight * 2))
@@ -139,8 +139,9 @@ extension MessageCellLayout {
 
         var senderNameFrame: CGRect?
         if model.showsSenderName, model.senderName != nil {
-            senderNameFrame = CGRect(x: incomingBodyLeading + 15, y: y, width: maxBubbleWidth, height: 16)
-            y += 19
+            let nameHeight = max(16, ceil(t.senderNameFont.lineHeight))
+            senderNameFrame = CGRect(x: incomingBodyLeading + 15, y: y, width: maxBubbleWidth, height: nameHeight)
+            y += nameHeight + 3
         }
 
         if hasReactions { y += 18 }
@@ -223,7 +224,7 @@ extension MessageCellLayout {
         // Footers align ~9 pt inside the body edge on the sender's side.
         let bodyTrailing = model.isOutgoing ? outgoingBodyTrailing : primary.maxX
         let bodyLeading = model.isOutgoing ? primary.minX : incomingBodyLeading
-        let footerHeight: CGFloat = 15
+        let footerHeight = max(15, ceil(t.footerFont.lineHeight))
         var editedFrame: CGRect?
         var repliesFrame: CGRect?
         var footerFrame: CGRect?

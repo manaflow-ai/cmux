@@ -16,6 +16,7 @@ final class ReplyThreadOverlay: UIView {
     override init(frame: CGRect) {
         super.init(frame: frame)
         accessibilityIdentifier = "conversation.replyThread"
+        content.accessibilityLabel = String(localized: "conversation.ax.replyTranscript", defaultValue: "Reply transcript", bundle: .module)
         addSubview(blur)
         dim.backgroundColor = UIColor { $0.userInterfaceStyle == .dark ? UIColor.black.withAlphaComponent(0.62) : UIColor.white.withAlphaComponent(0.45) }
         dim.alpha = 0
@@ -29,6 +30,11 @@ final class ReplyThreadOverlay: UIView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
+
+    override func accessibilityPerformEscape() -> Bool {
+        onClose?()
+        return true
+    }
 
     @objc private func tapped(_ tap: UITapGestureRecognizer) {
         let point = tap.location(in: content)
@@ -61,6 +67,9 @@ extension ConversationViewController {
         populate(overlay, rootID: rootID)
         composer.isReplyMode = true
         header.setTrailingMode(.close, animated: true)
+        // The blurred transcript behind the thread is out of VoiceOver's reach.
+        collectionView.accessibilityElementsHidden = true
+        UIAccessibility.post(notification: .screenChanged, argument: overlay.content)
         overlay.content.alpha = 0
         overlay.content.transform = CGAffineTransform(translationX: 0, y: 24)
         composer.textView.becomeFirstResponder()
@@ -94,6 +103,7 @@ extension ConversationViewController {
             let cellLayout = MessageCellLayout.compute(model: model, width: width, margin: layoutMargin, text: layoutCache.attributedText(for: model))
             let cell = MessageCell(frame: CGRect(x: 0, y: y, width: width, height: cellLayout.height))
             cell.configure(model: model, layout: cellLayout, text: layoutCache.attributedText(for: model))
+            configureAccessibility(cell, model: model)
             overlay.content.addSubview(cell)
             cell.layoutIfNeeded()
             cells.append(cell)
@@ -125,6 +135,8 @@ extension ConversationViewController {
         replyTarget = nil
         composer.isReplyMode = false
         header.setTrailingMode(isSelecting ? .close : .action, animated: true)
+        collectionView.accessibilityElementsHidden = false
+        UIAccessibility.post(notification: .screenChanged, argument: nil)
         UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 1, initialSpringVelocity: 0) {
             overlay.blur.effect = nil
             overlay.dim.alpha = 0

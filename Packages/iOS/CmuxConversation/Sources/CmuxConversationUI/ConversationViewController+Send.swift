@@ -45,6 +45,8 @@ extension ConversationViewController: ConversationComposerViewDelegate {
         pendingFlight = nil
         if replyTarget != nil { exitReplyMode() }
         launch(flight, rowID: rowID)
+        // The send button leaves with the text; VoiceOver stays in the field.
+        UIAccessibility.post(notification: .layoutChanged, argument: composer.textView)
     }
 
     /// Animates a bubble from the composer field into its slot. The real

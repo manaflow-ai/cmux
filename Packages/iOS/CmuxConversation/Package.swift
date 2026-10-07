@@ -20,7 +20,11 @@ let package = Package(
         .library(name: "CmuxConversationMacUI", targets: ["CmuxConversationMacUI"]),
     ],
     targets: [
-        .target(name: "CmuxConversationCore", swiftSettings: swiftSettings),
+        .target(
+            name: "CmuxConversationCore",
+            resources: [.process("Resources")],
+            swiftSettings: swiftSettings
+        ),
         .target(name: "CmuxConversationGeometry", swiftSettings: swiftSettings),
         .target(
             name: "CmuxConversationUI",
