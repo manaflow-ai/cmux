@@ -127,7 +127,7 @@ impl VisitStores {
     /// Removes the page visits named by entry ids (`page:<profile>:<id>`);
     /// other ids are ignored. Returns how many visits went.
     pub fn remove_ids<S: AsRef<str>>(&mut self, ids: &[S]) -> Result<Removal, HistoryError> {
-        let backup = new_restore_id();
+        let backup = new_restore_id()?;
         let mut removed = 0;
         for id in ids {
             if let Some((profile, visit)) = parse_page_id(id.as_ref()) {
@@ -144,7 +144,7 @@ impl VisitStores {
         host: &str,
         profile: Option<&str>,
     ) -> Result<Removal, HistoryError> {
-        let backup = new_restore_id();
+        let backup = new_restore_id()?;
         let mut removed = 0;
         for profile in self.targets(profile)? {
             removed += self.store(&profile)?.remove_host(host, &backup)?;
@@ -159,7 +159,7 @@ impl VisitStores {
         since_ms: Option<i64>,
         profile: Option<&str>,
     ) -> Result<Removal, HistoryError> {
-        let backup = new_restore_id();
+        let backup = new_restore_id()?;
         let mut removed = 0;
         for profile in self.targets(profile)? {
             removed += self.store(&profile)?.remove_since(since_ms, &backup)?;
@@ -207,26 +207,14 @@ fn removal(removed: usize, backup: String) -> Removal {
     Removal { removed, restore_id: (removed > 0).then_some(backup) }
 }
 
-/// A fresh restore id, `history:<32 hex>`: 128 bits from the process's
-/// random hasher keys mixed with the time and a counter, so ids differ per
-/// removal and cannot be guessed from another one.
-fn new_restore_id() -> String {
-    use std::collections::hash_map::RandomState;
-    use std::hash::{BuildHasher, Hasher};
-    use std::sync::atomic::{AtomicU64, Ordering};
-    static COUNTER: AtomicU64 = AtomicU64::new(0);
-    let count = COUNTER.fetch_add(1, Ordering::Relaxed);
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_nanos());
-    let half = |salt: u64| {
-        let mut hasher = RandomState::new().build_hasher();
-        hasher.write_u64(salt);
-        hasher.write_u64(count);
-        hasher.write_u128(nanos);
-        hasher.finish()
-    };
-    format!("history:{:016x}{:016x}", half(1), half(2))
+/// A fresh restore id, `history:<32 hex>`: 128 bits from the OS random
+/// source. An id is a capability to bring data back, so it is never
+/// derived from another one.
+fn new_restore_id() -> Result<String, HistoryError> {
+    let mut bytes = [0u8; 16];
+    getrandom::fill(&mut bytes)
+        .map_err(|error| HistoryError::Io(std::io::Error::other(error.to_string())))?;
+    Ok(format!("history:{}", bytes.iter().map(|b| format!("{b:02x}")).collect::<String>()))
 }
 
 /// `page:<profile>:<visit id>`; the profile may contain colons.

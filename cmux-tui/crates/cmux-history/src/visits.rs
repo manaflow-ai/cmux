@@ -322,10 +322,21 @@ impl VisitStore {
                 }
             }
         }
+        // One transaction for the whole host: all of it moves, or none.
+        let transaction = self.connection.unchecked_transaction()?;
         let mut removed = 0;
-        for id in ids {
-            removed += self.remove_visit(id, backup)?;
+        {
+            let mut keep = transaction.prepare(
+                "INSERT INTO removed_visits(backup, id, url, title, visit_time_ms, tab) \
+                 SELECT ?1, id, url, title, visit_time_ms, tab FROM visits WHERE id = ?2",
+            )?;
+            let mut delete = transaction.prepare("DELETE FROM visits WHERE id = ?1")?;
+            for id in ids {
+                keep.execute(params![backup, id])?;
+                removed += delete.execute(params![id])?;
+            }
         }
+        transaction.commit()?;
         Ok(removed)
     }
 
