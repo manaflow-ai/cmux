@@ -38,7 +38,7 @@ export function historyFixtureOps(state: HistoryPageVariant, changed: () => void
   return {
     [HistoryOps.list]: (params: { kinds?: string[]; text?: string; limit?: number }) => {
       if (state.loading) return never();
-      if (failure) throw failure;
+      if (failure && state.error !== "permission") throw failure;
       return {
         entries: entries.filter((entry) => historyMatches(entry, params)).slice(0, params.limit ?? 200),
         revision: 1,
@@ -116,19 +116,19 @@ export function keybindingsFixtureOps(state: KeybindingsPageVariant): Record<str
   return {
     [KeybindingOps.list]: () => {
       if (state.loading) return never();
-      if (failure) throw failure;
+      if (failure && state.error === "network") throw failure;
       return { bindings };
     },
     [KeybindingOps.set]: () => {
-      if (failure) throw failure;
+      if (failure && state.error !== "not-found") throw failure;
       return {};
     },
     [KeybindingOps.remove]: () => {
-      if (failure) throw failure;
+      if (failure && state.error !== "not-found") throw failure;
       return {};
     },
     [KeybindingOps.reset]: () => {
-      if (failure) throw failure;
+      if (failure && state.error !== "not-found") throw failure;
       return {};
     },
     [KeybindingOps.recordStart]: () => ({}),

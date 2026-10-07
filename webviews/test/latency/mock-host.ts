@@ -21,6 +21,8 @@ export interface MockHost {
   /** Every call the page made, in order. */
   readonly calls: Array<{ op: string; params: unknown; opid?: string }>;
   delayMs: number;
+  /** Resolves after every initial stream event has reached the page. */
+  initialEventsDelivered: Promise<void>;
 }
 
 export function hostDelay(): number {
@@ -33,11 +35,15 @@ export function installMockHost(
   streamNames: readonly string[],
   initialEvents: Record<string, unknown> = {},
 ): MockHost {
+  const initial = new Set(Object.keys(initialEvents));
+  const delivered = Promise.withResolvers<void>();
+  if (initial.size === 0) delivered.resolve();
   const streams = new Map<string, number>();
   const seqs = new Map<number, number>();
   let nextSub = 1;
   const host: MockHost = {
     calls: [],
+    initialEventsDelivered: delivered.promise,
     delayMs: hostDelay(),
     emit(stream, data, opid) {
       const sub = streams.get(stream);
@@ -45,7 +51,10 @@ export function installMockHost(
       const seq = (seqs.get(sub) ?? 0) + 1;
       seqs.set(sub, seq);
       const receive = (globalThis as unknown as Record<string, (message: unknown) => void>)[RECEIVE_NAME];
-      setTimeout(() => receive?.(opid ? { t: "ev", sub, seq, data, opid } : { t: "ev", sub, seq, data }), 0);
+      setTimeout(() => {
+        receive?.(opid ? { t: "ev", sub, seq, data, opid } : { t: "ev", sub, seq, data });
+        if (initial.delete(stream) && initial.size === 0) delivered.resolve();
+      }, 0);
     },
   };
   const wait = () => new Promise((resolve) => setTimeout(resolve, host.delayMs));

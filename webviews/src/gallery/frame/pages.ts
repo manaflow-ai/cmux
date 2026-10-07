@@ -12,8 +12,6 @@ import { CodeRouterOps } from "../../pages/coderouter/types";
 import { MockCodeRouterProvider } from "../../pages/coderouter/mockProvider";
 import { ACTION_RUN as CHANGELOG_ACTION_RUN, ChangelogOps } from "../../pages/changelog/types";
 import { MockChangelogProvider } from "../../pages/changelog/mockProvider";
-import { IconPickerOps } from "../../pages/icon-picker/host";
-import { MockIconPickerHost } from "../../pages/icon-picker/mockHost";
 import { diffViewerLabelsFor, diffViewerLanguage } from "../../labels";
 import type {
   AppsPageVariant,
@@ -23,7 +21,6 @@ import type {
   DiffFixtureFile,
   DiffPageVariant,
   EditorPageVariant,
-  IconPickerPageVariant,
   MarkdownPageVariant,
 } from "../format";
 import { addPseudoLocales, isPseudo, pseudoText } from "../pseudo";
@@ -342,31 +339,6 @@ export async function mountChangelogPage(state: ChangelogPageVariant, _context: 
   await import("../../pages/changelog/main");
 }
 
-export async function mountIconPickerPage(state: IconPickerPageVariant, _context: StageContext): Promise<void> {
-  const provider = new MockIconPickerHost();
-  const host = installMockHost(
-    pageOps(provider, Object.values(IconPickerOps), { firstOperation: IconPickerOps.prefsLoad }),
-    [IconPickerOps.session],
-  );
-  host.delayMs = 0;
-  document.documentElement.dataset.cmuxPage = "icon-picker";
-  document.documentElement.dataset.cmuxWebviewKind = "icon-picker";
-  await import("../../pages/icon-picker/main");
-  const picker = (
-    globalThis as {
-      cmuxIconPicker?: {
-        open(session: unknown): void;
-        store: { setQuery(query: string): void; setActive(index: number): void };
-      };
-    }
-  ).cmuxIconPicker;
-  if (!picker) return;
-  picker.open(state.session);
-  if (state.mode === "empty") picker.store.setQuery(state.query ?? "no matching icon");
-  else if (state.query) picker.store.setQuery(state.query);
-  if (state.active !== undefined) picker.store.setActive(state.active);
-}
-
 const never = (): Promise<never> => new Promise(() => undefined);
 
 function fixtureHash(text: string): string {
@@ -502,3 +474,5 @@ export async function mountEditorPage(state: EditorPageVariant, context: StageCo
 export { mountSettingsPage, mountPasswordsPage } from "./settingsPasswords";
 
 export { mountHistoryPage, mountKeybindingsPage } from "./historyKeybindings";
+
+export { mountIconPickerPage } from "./iconPicker";
