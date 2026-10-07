@@ -13,7 +13,13 @@ struct TabIconHistory {
 
     /// Changes the icon of tab `id` from `previous` to `icon` (nil removes it).
     func change(_ id: String, from previous: String?, to icon: String?, origin: ActionOrigin, undoManager: UndoManager?) {
-        _ = apply(id, icon.map { .set($0) } ?? .clear)
+        guard apply(id, icon.map { .set($0) } ?? .clear) else { return }
+        guard origin == .user, previous != icon, let undoManager else { return }
+        // Undo runs the inverse change, which registers the redo on the same manager.
+        let record = PinUndoRecord { [self, weak undoManager] in change(id, from: icon, to: previous, origin: .user, undoManager: undoManager) }
+        // The record is the target and the retained object, so it lives as long as the undo entry.
+        undoManager.registerUndo(withTarget: record, selector: #selector(PinUndoRecord.run(_:)), object: record)
+        undoManager.setActionName(icon == nil ? TabIconStrings.undoRemove : TabIconStrings.undoSet)
     }
 }
 
