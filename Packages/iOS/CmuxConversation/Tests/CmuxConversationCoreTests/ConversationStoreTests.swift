@@ -517,3 +517,43 @@ extension ConversationStoreWindowTests {
         #expect(store.messages.count == 60)
     }
 }
+
+@MainActor
+@Suite struct ConversationStoreOrderTests {
+    /// Acknowledged messages ascend by seq; sends in flight follow, oldest first.
+    private func expectOrdered(_ store: ConversationStore, sourceLocation: SourceLocation = #_sourceLocation) {
+        let acked = store.messages.prefix { $0.seq != nil }
+        #expect(acked.compactMap(\.seq) == acked.compactMap(\.seq).sorted(), sourceLocation: sourceLocation)
+        let pending = store.messages.dropFirst(acked.count)
+        #expect(pending.allSatisfy { $0.seq == nil }, sourceLocation: sourceLocation)
+        #expect(pending.map(\.sentAt) == pending.map(\.sentAt).sorted(), sourceLocation: sourceLocation)
+        for (index, message) in store.messages.enumerated() {
+            #expect(store.message(id: message.id) == message, sourceLocation: sourceLocation)
+            _ = index
+        }
+    }
+
+    @Test func sendsAcksAndArrivalsStayOrderedAndIndexed() async throws {
+        let backend = ScriptedBackend(total: 50)
+        let store = ConversationStore(backend: backend, pageSize: 30)
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+        var eventSeq = 0
+        for round in 0..<4 {
+            backend.holdSend = true
+            store.send(text: "send \(round)")
+            expectOrdered(store)
+            // Someone else's message lands while mine is in flight: it sorts above it.
+            eventSeq += 1
+            backend.total += 1
+            store.apply(.message(backend.makeMessage(seq: backend.total, sender: "lc"), eventSeq: eventSeq))
+            expectOrdered(store)
+            #expect(store.messages.last?.text == "send \(round)")
+            backend.releaseSend()
+            try await waitUntil { store.messages.allSatisfy { $0.seq != nil } }
+            backend.total += 1
+            expectOrdered(store)
+        }
+        #expect(store.messages.filter { $0.text.hasPrefix("send") }.count == 4)
+    }
+}

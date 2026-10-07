@@ -193,7 +193,9 @@ public final class ConversationStore {
             messages[index] = merged(existing: messages[index], incoming: incoming)
             indexByID[pendingID] = nil
             indexByID[incoming.id] = index
-            sortAndReindex()
+            // Acknowledged now: it sorts by seq, no longer by its failure anchor.
+            if incoming.seq != nil { failedAnchorSeq[pendingID] = nil }
+            sortAndReindexUnlessInPlace(index)
             return false
         }
         messages.append(incoming)
@@ -235,23 +237,34 @@ public final class ConversationStore {
         return deliveryRank(rhs) >= deliveryRank(lhs) ? rhs : lhs
     }
 
-    /// `upsert` just appended one message. Live traffic almost always lands
-    /// after everything loaded with nothing local pending, which is already
-    /// sorted and indexed; only then skip the full sort (O(n log n) plus a
-    /// reindex of the whole window per arriving message).
+    /// `upsert` just appended one message.
     private func sortAndReindexAfterAppend() {
-        let count = messages.count
-        if count >= 2, let seq = messages[count - 1].seq {
-            let previous = messages[count - 2]
-            // Sends in flight sort last, so a pending one would be `previous`;
-            // every failed send has an anchor until it is retried or discarded.
-            if let previousSeq = previous.seq, previousSeq < seq, failedAnchorSeq.isEmpty {
-                return
-            }
-        } else if count == 1, messages[0].seq != nil {
-            return
+        sortAndReindexUnlessInPlace(messages.count - 1)
+    }
+
+    /// Everything but `index` is already in order (the store keeps that
+    /// invariant). Live arrivals land last, a new send joins the in-flight
+    /// tail, and an acknowledged send usually stays where it was; for those the
+    /// full sort and reindex (O(n log n) per message on a long window) is
+    /// skipped. Anything else, or any failed send present, sorts in full.
+    private func sortAndReindexUnlessInPlace(_ index: Int) {
+        guard messages.indices.contains(index), failedAnchorSeq.isEmpty else { return sortAndReindex() }
+        let message = messages[index]
+        let hasPrevious = index > 0
+        let hasNext = index + 1 < messages.count
+        let inPlace: Bool
+        if let seq = message.seq {
+            let previousOK = !hasPrevious || messages[index - 1].seq.map { $0 < seq } ?? false
+            let nextOK = !hasNext || messages[index + 1].seq.map { $0 > seq } ?? (messages[index + 1].delivery?.isFailed != true)
+            inPlace = previousOK && nextOK
+        } else if message.delivery?.isFailed != true {
+            let previousOK = !hasPrevious || messages[index - 1].seq != nil || messages[index - 1].sentAt <= message.sentAt
+            let nextOK = !hasNext || (messages[index + 1].seq == nil && messages[index + 1].sentAt >= message.sentAt)
+            inPlace = previousOK && nextOK
+        } else {
+            inPlace = false
         }
-        sortAndReindex()
+        if !inPlace { sortAndReindex() }
     }
 
     /// Acknowledged messages ascend by seq. A failed send keeps its place in
@@ -516,7 +529,7 @@ public final class ConversationStore {
             delivery: .sending
         )
         upsert(pending)
-        sortAndReindex()
+        sortAndReindexAfterAppend()
         notify(.live(insertedRowIDs: [pending.rowID], sentByMe: true))
         setLocalTyping(false)
         transmit(clientID: clientID, images: images)
