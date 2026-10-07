@@ -174,7 +174,7 @@ Done: design; Mac side in `CmuxMobileHost` (`MobileTaskRunner`, `MobileTaskPolic
 `TaskStreamOwner`, `MobileTaskService` in `MobileOpExecutor`, multi-stream rpc channel and uplink,
 `read task.list`, caps `task.stream`/`task.dispatch`, `allowsTaskDispatch` default off; 18 new tests,
 69 total green with `swift test`); schema `$defs` for the task stream state; FeatureKit additions;
-`CmuxiOSComposerCore` (39 tests incl. 6 session tests, green on macOS through a scratch package, 52
+`CmuxiOSComposerCore` (31 tests incl. 6 session tests, green on macOS through a scratch package, 52
 with FeatureKit's); `CmuxiOSComposer` (Compose tab, sheet, floating button over Feed and Workspaces when
 the `composeTab` flag is on); `AppContainer.realFactories.composer` registered (DEBUG still defaults
 to mocks: `CMUX_IOS_SOURCE_COMPOSER=real`). `CmuxiOSApp`, `CmuxiOSComposerCoreTests`,
