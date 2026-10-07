@@ -2,6 +2,7 @@ use super::*;
 use acpmux::adopt::HarnessHomes;
 
 const ID: &str = "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b";
+const LIVE_ID: &str = "0199a1b2-1111-7e5f-8a9b-0c1d2e3f4a5b";
 
 /// A hub whose fake harnesses are Codex-family, and a fixture Codex store
 /// holding one rollout recorded in a temp project folder.
@@ -123,36 +124,42 @@ async fn adopt_refuses_unknown_ids_and_agents_that_cannot_resume() {
 /// "open"` adopts it anyway; only Claude Code chats fork on adopt.
 #[tokio::test]
 async fn adopt_refuses_a_chat_live_in_another_process() {
-    let (hub, mut c, root, _) = adopt_setup().await;
+    let (hub, mut c, root, project) = adopt_setup().await;
+    // Its own chat: the process below names it, and tests run in parallel.
+    let rollout =
+        root.join(format!("codex/sessions/2026/10/02/rollout-2026-10-02T10-00-00-{LIVE_ID}.jsonl"));
+    let record = json!({"type": "session_meta", "payload": {"id": LIVE_ID, "cwd": project}});
+    std::fs::write(&rollout, format!("{record}\n")).unwrap();
+    backdate(&rollout);
     let mut other = std::process::Command::new("sh")
-        .args(["-c", "sleep 60", "codex", "resume", ID])
+        .args(["-c", "sleep 60", "codex", "resume", LIVE_ID])
         .spawn()
         .unwrap();
-    let refused = c.request(method::SESSION_NEW, adopt("fakecodex", ID)).await.unwrap_err();
+    let refused = c.request(method::SESSION_NEW, adopt("fakecodex", LIVE_ID)).await.unwrap_err();
     assert!(refused.contains("open in another process"), "{refused}");
     assert!(refused.contains(&other.id().to_string()), "{refused}");
-    let fork = c.request(method::SESSION_NEW, adopt_if_live("fakecodex", ID, Some("fork"))).await;
+    let fork =
+        c.request(method::SESSION_NEW, adopt_if_live("fakecodex", LIVE_ID, Some("fork"))).await;
     assert!(fork.unwrap_err().contains("only Claude Code chats fork"));
     assert!(hub.sessions().is_empty());
     let _ = other.kill();
     let _ = other.wait();
 
     // No process names it, but its transcript was just written.
-    let rollout =
-        root.join(format!("codex/sessions/2026/10/02/rollout-2026-10-02T09-00-00-{ID}.jsonl"));
     std::fs::File::options()
         .write(true)
         .open(&rollout)
         .unwrap()
         .set_modified(std::time::SystemTime::now())
         .unwrap();
-    let recent = c.request(method::SESSION_NEW, adopt("fakecodex", ID)).await.unwrap_err();
+    let recent = c.request(method::SESSION_NEW, adopt("fakecodex", LIVE_ID)).await.unwrap_err();
     assert!(recent.contains("written"), "{recent}");
     assert!(hub.sessions().is_empty());
 
-    let opened = c.request(method::SESSION_NEW, adopt_if_live("fakecodex", ID, Some("open"))).await;
+    let opened =
+        c.request(method::SESSION_NEW, adopt_if_live("fakecodex", LIVE_ID, Some("open"))).await;
     let id = opened.unwrap()["sessionId"].as_str().unwrap().to_owned();
-    assert_eq!(hub.resolve(&id).unwrap().meta().agent_session_id.as_deref(), Some(ID));
+    assert_eq!(hub.resolve(&id).unwrap().meta().agent_session_id.as_deref(), Some(LIVE_ID));
     let _ = std::fs::remove_dir_all(root);
 }
 
