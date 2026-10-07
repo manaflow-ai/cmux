@@ -6,8 +6,6 @@
    transparent (fills and rules) or one of the theme's text tokens. Other themes keep
    their own cast. Percentages are measured against #f8f8f3 on #272823. */
 
-@import "../../../markdown-task-checkbox.css";
-
 :root {
   --cv-text: var(--agent-text);
   --cv-text-muted: var(--agent-muted); /* "Worked for", tool verbs */
