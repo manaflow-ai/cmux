@@ -50,7 +50,7 @@ extension PageHostPool {
         guard spare === host else { return }
         measure("pool.makeSpare.load") { host.startLoading() }
         await host.waitUntilLoaded()
-        guard spare === host, host.isLoaded else {
+        guard spare === host, host.loaded else {
             if spare === host { dropSpare() }
             return
         }
