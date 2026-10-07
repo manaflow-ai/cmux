@@ -8,14 +8,22 @@ import Testing
 /// reads, and stop and the session's end close the stream.
 @Suite(.serialized)
 struct RemoteRdUpstreamTransportTests {
-    nonisolated struct Session {
+    /// One viewer session against a fake host; the actor owns both iterators.
+    actor Session {
         let host: FakeRdHost
         let transport: RemoteRdStreamTransport
-        var frames: AsyncStream<(UInt8, Data)>.Iterator
-        var statuses: AsyncStream<RemoteViewStatus>.Iterator
+        private var frames: AsyncStream<(UInt8, Data)>.Iterator
+        private var statuses: AsyncStream<RemoteViewStatus>.Iterator
+
+        init(host: FakeRdHost, transport: RemoteRdStreamTransport, statuses: AsyncStream<RemoteViewStatus>) {
+            self.host = host
+            self.transport = transport
+            frames = host.frames.makeAsyncIterator()
+            self.statuses = statuses.makeAsyncIterator()
+        }
 
         /// The next control message from the viewer (skips datagrams).
-        mutating func nextControl() async throws -> RemoteRdControl {
+        func nextControl() async throws -> RemoteRdControl {
             while let frame = await frames.next() {
                 if frame.0 == 1 { return try RemoteRdControl.parse(frame.1) }
             }
@@ -23,7 +31,7 @@ struct RemoteRdUpstreamTransportTests {
         }
 
         /// Statuses until `done` holds; nil when the stream finished first.
-        mutating func status(where done: (RemoteViewStatus) -> Bool) async -> RemoteViewStatus? {
+        func status(where done: @Sendable (RemoteViewStatus) -> Bool) async -> RemoteViewStatus? {
             while let status = await statuses.next() {
                 if done(status) { return status }
             }
@@ -40,10 +48,7 @@ struct RemoteRdUpstreamTransportTests {
             hello: RemoteRdHello(user: "u", install: "i", token: nil, caps: ["stream.open", "up_media"]),
             startKey: "display:0", control: true
         ))
-        var session = Session(
-            host: host, transport: transport,
-            frames: host.frames.makeAsyncIterator(), statuses: transport.statusUpdates().makeAsyncIterator()
-        )
+        let session = Session(host: host, transport: transport, statuses: transport.statusUpdates())
         transport.connect()
         _ = try await session.nextControl() // hello
         _ = try await session.nextControl() // start
@@ -54,7 +59,7 @@ struct RemoteRdUpstreamTransportTests {
     }
 
     @Test func aGrantedRequestOpensTheStreamAndStopClosesIt() async throws {
-        var s = try await Self.start(caps: ["stream.open", "up_media"])
+        let s = try await Self.start(caps: ["stream.open", "up_media"])
         defer { s.host.stop() }
         let offered = await s.status { $0.state == .streaming && $0.upstream.offered }
         #expect(offered != nil)
@@ -73,7 +78,7 @@ struct RemoteRdUpstreamTransportTests {
     }
 
     @Test func aDeniedPermissionOrAHostWithoutUpMediaOpensNothing() async throws {
-        var s = try await Self.start(caps: ["stream.open"])
+        let s = try await Self.start(caps: ["stream.open"])
         defer { s.host.stop() }
         let status = await s.status { $0.state == .streaming }
         #expect(status?.upstream.offered == false)
@@ -83,7 +88,7 @@ struct RemoteRdUpstreamTransportTests {
         s.transport.stop()
         #expect(try await s.nextControl() == .stop)
 
-        var granted = try await Self.start(caps: ["stream.open", "up_media"])
+        let granted = try await Self.start(caps: ["stream.open", "up_media"])
         defer { granted.host.stop() }
         _ = await granted.status { $0.state == .streaming && $0.upstream.offered }
         granted.transport.requestUpstream(.camera, permissionGranted: false)
@@ -92,7 +97,7 @@ struct RemoteRdUpstreamTransportTests {
     }
 
     @Test func refusalsAndTheHostsCloseRevokeAndTheViewersStopClosesFirst() async throws {
-        var s = try await Self.start(caps: ["stream.open", "up_media"])
+        let s = try await Self.start(caps: ["stream.open", "up_media"])
         defer { s.host.stop() }
         _ = await s.status { $0.state == .streaming && $0.upstream.offered }
         s.transport.requestUpstream(.screen, permissionGranted: true)
