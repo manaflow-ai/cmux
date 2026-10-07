@@ -53,6 +53,8 @@ on:
       - scripts/ci/select_package_tests.py
       - scripts/ci/cmux_next_push_attribution.py
       - tests/test_cmux_next_route.py
+      - tests/test_swift_exports_key.py
+      - scripts/cmux-next/swift-exports-key.py
       - scripts/cmux-next/ci-target-graph.py
       - scripts/cmux-next/regenerate-action-contracts.sh
       - .github/actions/setup-cmux-tui-rust/**
@@ -135,6 +137,8 @@ on:
       - scripts/ci/select_package_tests.py
       - scripts/ci/cmux_next_push_attribution.py
       - tests/test_cmux_next_route.py
+      - tests/test_swift_exports_key.py
+      - scripts/cmux-next/swift-exports-key.py
       - scripts/cmux-next/ci-target-graph.py
       - scripts/cmux-next/regenerate-action-contracts.sh
       - .github/actions/setup-cmux-tui-rust/**
@@ -663,6 +667,7 @@ jobs:
           bash scripts/cmux-next/tests/daemon-capabilities-fresh.test.sh
           bash scripts/cmux-next/tests/crash-ratchet-tracked.test.sh
           bash scripts/cmux-next/tests/check-fleet-only.test.sh
+          python3 tests/test_swift_exports_key.py
           bash scripts/cmux-next/tests/release-compile-derived-data.test.sh
           bash scripts/cmux-next/tests/scheme-compile-derived-data.test.sh
           bash scripts/cmux-next/tests/dev-account-guard.test.sh
