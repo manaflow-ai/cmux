@@ -1,8 +1,8 @@
 // l10n-allow-file: gallery fixtures (sample projects), not shipped UI.
 import { createElement } from "react";
 import type { ReactNode } from "react";
-import { componentEntry } from "../../../gallery/format";
-import type { Play } from "../../../gallery/play";
+import { componentEntry } from "../../gallery/format";
+import type { Play } from "../../gallery/play";
 import type { Project } from "./ProjectChooser";
 
 type Props = {
