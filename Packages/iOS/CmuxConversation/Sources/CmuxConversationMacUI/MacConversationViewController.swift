@@ -124,6 +124,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         view.addSubview(scrollView)
 
         composer.delegate = self
+        composer.linkPreview.fetch = { [weak store] url in await store?.fetchLinkPreview(for: url) }
         replyBanner.translatesAutoresizingMaskIntoConstraints = false
         replyBanner.isHidden = true
         replyBanner.onClose = { [weak self] in self?.exitReplyOrEdit() }
@@ -700,6 +701,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         }
         let replyTo = replyTarget?.id
         let text = composer.text
+        let linkPreview = composer.linkPreview.sendablePreview
         // The bubble flies from where the draft sits, captured before the
         // composer collapses; the collapse and insert land in one scroll.
         flightSource = (
@@ -710,7 +712,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         isSubmitting = true
         composer.clearAfterSend()
         trace("submit.cleared")
-        let rowID = store.send(text: text, images: images, replyToID: replyTo)
+        let rowID = store.send(text: text, images: images, replyToID: replyTo, linkPreview: linkPreview)
         isSubmitting = false
         // The flight's scroll animates to the new bottom.
         updateInsets(followingBottom: false)
