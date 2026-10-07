@@ -74,8 +74,8 @@ enum RemoteBrowserPages {
         return nil
     }
 
-    /// `debug.remote_browser`. Actions: `open` (`address`, `url`?) runs the
-    /// shared open path in the focused pane; `state` (default) lists live
+    /// `debug.remote_browser`. Actions: `open` (`address`, `url`?, `pane`?)
+    /// runs the shared open path in that pane or the focused one; `state` (default) lists live
     /// sessions; `navigate` (`url`, `tab`?) loads a page the way the omnibar
     /// does (`BrowserTab.load`); `menu_choose` (`id` or `index`, `tab`?)
     /// answers the open native menu; `menu_cancel` dismisses it.
@@ -85,7 +85,14 @@ enum RemoteBrowserPages {
         let target = params["tab"]?.stringValue.flatMap { live[$0] } ?? live.values.first
         switch params["action"]?.stringValue ?? "state" {
         case "open":
-            guard let pane = services.windows.active?.focusedPane else { return ["error": "no focused pane"] }
+            // A background app has no active window: `pane` names one, else
+            // the active window's focused pane, else the first window's.
+            let named = params["pane"]?.stringValue.flatMap { key in
+                services.windows.controllers.lazy.compactMap { $0.content?.panes.values.first { $0.paneKey == key } }.first
+            }
+            guard let pane = named ?? services.windows.active?.focusedPane ?? services.windows.controllers.first?.focusedPane else {
+                return ["error": "no pane"]
+            }
             do {
                 try open(address: params["address"]?.stringValue ?? "", url: params["url"]?.stringValue, in: pane)
                 return ["opened": true]
