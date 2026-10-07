@@ -357,7 +357,9 @@ final class ScriptedBackend: ConversationBackend, @unchecked Sendable {
     }
 
     func setTyping(_ isTyping: Bool) async {}
-    func markRead(upToSeq: Int) async {}
+    private var _markedRead: [Int] = []
+    var markedRead: [Int] { lock.withLock { _markedRead } }
+    func markRead(upToSeq: Int) async { lock.withLock { _markedRead.append(upToSeq) } }
     func uploadImage(_ data: Data, mimeType: String) async throws -> ConversationAttachment {
         ConversationAttachment(id: "up", kind: .image, width: 10, height: 10, url: nil)
     }

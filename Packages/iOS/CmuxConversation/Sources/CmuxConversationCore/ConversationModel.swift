@@ -193,3 +193,18 @@ public struct ConversationOutgoingDraft: Sendable {
         self.mentions = mentions
     }
 }
+
+/// The shared read marker of a conversation, as the service reports it.
+/// `unreadCount` counts messages from others with `seq > lastReadSeq` as of
+/// `headSeq`; later arrivals from others add to it.
+public struct ConversationReadState: Sendable, Hashable {
+    public var lastReadSeq: Int
+    public var unreadCount: Int
+    public var headSeq: Int
+
+    public init(lastReadSeq: Int, unreadCount: Int, headSeq: Int) {
+        self.lastReadSeq = lastReadSeq
+        self.unreadCount = unreadCount
+        self.headSeq = headSeq
+    }
+}

@@ -19,14 +19,14 @@ process and keep growing.
 
 | method | params | result |
 | --- | --- | --- |
-| `hello` | `{clientId, resumeAfterEventSeq?}` | `{conversation, me: Participant, headSeq, headEventSeq, serverTime, lagged}` |
+| `hello` | `{clientId, resumeAfterEventSeq?}` | `{conversation, me: Participant, headSeq, headEventSeq, serverTime, lagged, lastReadSeq, unreadCount}` |
 | `history` | `{beforeSeq: Int?, limit: Int}` | `{messages: [Message], hasMore: Bool}` |
 | `send` | `{clientMessageId, text, replyToId?, attachmentIds?, mentions?: [Mention]}` | `{message: Message}` |
 | `react` | `{messageId, reaction: Reaction?}` | `{message: Message}` |
 | `edit` | `{messageId, text}` | `{message: Message}` (at most 5 edits per message; then error `-32004`) |
 | `unsend` | `{messageId}` | `{message: Message}` (Undo Send: text and attachments cleared, `unsentAt` set; error `-32003` after 2 minutes) |
 | `typing` | `{isTyping: Bool}` | `{}` |
-| `markRead` | `{upToSeq: Int}` | `{}` |
+| `markRead` | `{upToSeq: Int}` | `{}` (the read receipt; never moves the marker back) |
 
 `history` with `beforeSeq: null` returns the newest page. Messages are sorted
 ascending by `seq`. `send` is idempotent on `clientMessageId`: a retry returns
@@ -45,6 +45,14 @@ the newest page and rebase.
 - `message.updated {message}` (edit, reaction, delivery status, reply count)
 
 `typing {participantId, isTyping}` is ephemeral and carries no `eventSeq`.
+
+`readState {lastReadSeq, unreadCount, headSeq}` goes to every connection on
+the conversation whenever the shared read marker moves (`markRead` from any
+device, my `send`, which reads the conversation, or `/admin/unread`).
+`unreadCount` counts messages from others with `seq > lastReadSeq` as of
+`headSeq`; later arrivals from others add to it until the next `readState`.
+It carries no `eventSeq` and is not replayed: `hello` returns the current
+marker.
 `replayDone {}` ends a resume replay.
 
 Event delivery is ordered per connection. Duplicates are possible; the client
@@ -85,6 +93,11 @@ Reaction = "heart"|"thumbsup"|"thumbsdown"|"haha"|"exclamation"|"question"
   messages rapidly (pressure testing).
 - `POST /admin/mention?conversation=<id>&target=<participantId>&from=<botId>`:
   a bot sends a message mentioning `target` (default: me) at once.
+- `POST /admin/unread?conversation=<id>&count=<n>`: move the read marker so
+  exactly `n` messages from others are unread (catch-up testing; the range
+  may include my own messages, which real traffic never does). Boot leaves the
+  last `GROUP_UNREAD` (60) and `DIRECT_UNREAD` (3) messages unread, all from
+  others.
 - `POST /admin/disconnect`: drop every socket (reconnect testing).
 - `POST /admin/knobs` JSON `{latencyScale, failRate, historyFailRate,
   duplicateRate, disconnectEverySeconds, botIntervalScale}`.

@@ -52,7 +52,7 @@ public final class ConversationViewController: UIViewController {
     let layoutCache = MessageLayoutCache()
 
     private(set) var rows: [ConversationRow] = []
-    private var rowIndex: [String: Int] = [:]
+    private(set) var rowIndex: [String: Int] = [:]
     /// Rows whose insertion should use a specific appearance on the next update.
     var appearances: [String: ConversationTranscriptLayout.Appearance] = [:]
     /// Outgoing rows hidden while their send animation flies.
@@ -63,7 +63,14 @@ public final class ConversationViewController: UIViewController {
     var arrivingRowIDs: [String] = []
     /// The incoming message replacing a typing indicator in the current change.
     var typingHandoffRowID: String?
-    private var hasPositionedInitially = false
+    private(set) var hasPositionedInitially = false
+    /// The catch-up arrow (see +CatchUp).
+    let catchUpButton = UIButton(type: .custom)
+    /// Between viewDidAppear and viewWillDisappear.
+    var isOnScreen = false
+    /// Live back-button count set by the host; overrides `options.unreadCount`.
+    var backUnreadCount: Int?
+    private var headerUnreadCount: Int { backUnreadCount ?? options.unreadCount }
     private var lastBottomInset: CGFloat = 0
     /// Whether the reader is following the bottom. Only the reader's own
     /// scrolling (or a send) changes it; inset changes never do.
@@ -192,6 +199,7 @@ public final class ConversationViewController: UIViewController {
         NotificationCenter.default.addObserver(forName: UIResponder.keyboardWillShowNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.dismissPhotoDrawer() }
         }
+        installCatchUp()
         store.onChange = { [weak self] change in self?.storeDidChange(change) }
         store.start()
         rebuild(change: .reset)
@@ -200,6 +208,18 @@ public final class ConversationViewController: UIViewController {
     public override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         navigationController?.setNavigationBarHidden(true, animated: animated)
+    }
+
+    public override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        isOnScreen = true
+        updateViewing()
+    }
+
+    public override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        isOnScreen = false
+        store.endVisit()
     }
 
     public override func viewDidLayoutSubviews() {
@@ -272,7 +292,10 @@ public final class ConversationViewController: UIViewController {
         switch change {
         case .connection:
             header.setConnectionStatus(store.connection == .connected ? nil : String(localized: "conversation.header.connecting", defaultValue: "Connecting…", bundle: .module))
-            if let info = store.info { header.configure(info: info, meID: store.meID, unreadCount: options.unreadCount) }
+            if let info = store.info { header.configure(info: info, meID: store.meID, unreadCount: headerUnreadCount) }
+            return
+        case .readState:
+            updateCatchUp()
             return
         default:
             rebuild(change: change)
@@ -286,9 +309,10 @@ public final class ConversationViewController: UIViewController {
         }
         let newRows = ConversationRowBuilder.rows(store: store)
         apply(newRows, change: change)
+        updateCatchUp()
         if let info = store.info, header.window != nil, !hasConfiguredHeader {
             hasConfiguredHeader = true
-            header.configure(info: info, meID: store.meID, unreadCount: options.unreadCount)
+            header.configure(info: info, meID: store.meID, unreadCount: headerUnreadCount)
         }
         maybeLoadOlder()
     }
@@ -767,9 +791,9 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
         }
         maybeLoadOlder()
         for case let cell as MessageCell in collectionView.visibleCells { cell.updateScreenGradients() }
-        if store.hasLoadedNewest, isNearBottom(tolerance: 60) {
-            store.markNewestRead()
-        }
+        // Reading follows viewing (see +CatchUp), not scroll position:
+        // Messages reads the whole conversation on open.
+        updateCatchUp()
     }
 
     public func collectionView(_ collectionView: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {

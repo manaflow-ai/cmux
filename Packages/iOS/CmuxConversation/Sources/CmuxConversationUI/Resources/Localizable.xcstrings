@@ -816,6 +816,23 @@
           }
         }
       }
+    },
+    "conversation.catchUp.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scroll to first unread message"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最初の未開封メッセージまでスクロール"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

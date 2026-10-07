@@ -20,7 +20,14 @@ if arguments.count > 2 {
 }
 // Messages' menu bar (Edit > Reply/Tapback/Edit Last, Window > Next Conversation…).
 MainActor.assumeIsolated { app.mainMenu = MacConversationLab.makeMainMenu() }
-let controller = MainActor.assumeIsolated { MacConversationLab.open(endpoint: endpoint) }
+let controller = MainActor.assumeIsolated {
+    MacConversationLab.treatsInactiveAsViewing = driven
+    // Messages badges its Dock icon with the total unread count.
+    MacConversationLab.onUnreadTotalChange = { total in
+        NSApp.dockTile.badgeLabel = total > 0 ? "\(total)" : nil
+    }
+    return MacConversationLab.open(endpoint: endpoint)
+}
 // The lab opens on the display named by CMUX_LAB_DISPLAY (default "LG HDR 4K"),
 // never on the person's main working display.
 do {

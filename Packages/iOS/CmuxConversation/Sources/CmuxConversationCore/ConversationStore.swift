@@ -26,6 +26,8 @@ public enum ConversationStoreChange: Sendable, Equatable {
     case typing
     case older
     case connection
+    /// Unread count, read marker or catch-up target changed.
+    case readState
 }
 
 /// Backend-agnostic transcript state: one ordered window of messages that
@@ -41,6 +43,21 @@ public final class ConversationStore {
     public private(set) var hasLoadedNewest = false
     public private(set) var typingParticipantIDs: [String] = []
     public private(set) var connection: ConversationConnectionState = .connecting
+    /// Everything from others at or below this seq has been read.
+    public private(set) var lastReadSeq = 0
+    /// Messages from others after `lastReadSeq` (including ones above the loaded window).
+    public private(set) var unreadCount = 0
+    /// The read marker as it stood when the current viewing began with unread
+    /// messages: the catch-up arrow jumps to the first message from others
+    /// after it. Nil when there is nothing to catch up on.
+    public private(set) var catchUpMarker: Int?
+    /// How many messages were unread when the current viewing began.
+    public private(set) var catchUpCount = 0
+    /// The conversation is on screen in a foreground window: arrivals are read
+    /// (and receipts sent) as they land, as in Messages.
+    public private(set) var isViewing = false
+    private var serverRead: ConversationReadState?
+    private var catchUpCaptured = false
 
     public var onChange: (@MainActor (ConversationStoreChange) -> Void)? {
         get { primaryObserver }
@@ -75,7 +92,9 @@ public final class ConversationStore {
     private var newestTask: Task<Void, Never>?
     private var typingExpiry: [String: Task<Void, Never>] = [:]
     private var olderWanted = false
-    private var markedReadSeq = 0
+    /// Highest seq this device asked the service to mark read and the
+    /// service has not yet confirmed; a confirmation below it is stale.
+    private var pendingReadSeq = 0
     private var localTyping = false
     private var localTypingTask: Task<Void, Never>?
     private var bufferedLive: [ConversationMessage] = []
@@ -130,6 +149,9 @@ public final class ConversationStore {
             self.info = info
             self.meID = meID
             connection = .connected
+            // Unconfirmed reads from the dropped session may never have
+            // arrived; the read state that follows hello is authoritative.
+            pendingReadSeq = 0
             notify(.connection)
             if lagged || !hasLoadedNewest {
                 loadNewest(rebase: lagged)
@@ -143,6 +165,13 @@ public final class ConversationStore {
         case .disconnected:
             connection = .reconnecting
             notify(.connection)
+        case let .readState(state):
+            serverRead = state
+            if state.lastReadSeq >= pendingReadSeq {
+                pendingReadSeq = 0
+                lastReadSeq = state.lastReadSeq
+            }
+            refreshReadState()
         }
     }
 
@@ -182,6 +211,7 @@ public final class ConversationStore {
         // Only sends from this device count as "mine" for scrolling; the same
         // account on another device behaves like any other sender.
         notify(.live(insertedRowIDs: isNew ? [incoming.rowID] : [], sentByMe: false))
+        if isNew { refreshReadState() }
     }
 
     /// Inserts or merges a message. Returns true when a new row appeared.
@@ -351,6 +381,7 @@ public final class ConversationStore {
         for message in buffered { ingestBuffered(message) }
         older = page.hasMore ? .idle : .exhausted
         notify(.reset)
+        refreshReadState()
         if olderWanted { loadOlder() }
     }
 
@@ -409,6 +440,7 @@ public final class ConversationStore {
         if inserted { sortAndReindex() }
         older = page.hasMore ? .idle : .exhausted
         notify(.prepended)
+        refreshReadState()
     }
 
     static func backoff(_ attempt: Int) -> Duration {
@@ -533,6 +565,11 @@ public final class ConversationStore {
                 if acked.delivery == nil { acked.delivery = .sent }
                 if self.upsert(acked) { self.sortAndReindex() }
                 self.notify(.live(insertedRowIDs: [], sentByMe: true))
+                // Sending reads the conversation (the service moves the marker too).
+                if let seq = acked.seq, seq > self.lastReadSeq {
+                    self.lastReadSeq = seq
+                    self.refreshReadState()
+                }
             } catch {
                 self.markFailed(clientID: clientID, reason: String(describing: error))
             }
@@ -659,9 +696,164 @@ public final class ConversationStore {
 
     /// Called while the newest message is on screen.
     public func markNewestRead() {
-        guard let newest = messages.last(where: { $0.seq != nil && $0.senderID != meID })?.seq,
-              newest > markedReadSeq else { return }
-        markedReadSeq = newest
-        Task { [backend] in await backend.markRead(upToSeq: newest) }
+        guard let newest = newestIncomingSeq else { return }
+        markRead(through: newest)
+    }
+
+    // MARK: Read state and catch-up
+
+    private var newestIncomingSeq: Int? {
+        messages.last { $0.seq != nil && $0.senderID != meID }?.seq
+    }
+
+    /// Marks everything from others through `seq` read and sends the receipt.
+    public func markRead(through seq: Int) {
+        guard seq > lastReadSeq else { return }
+        lastReadSeq = seq
+        pendingReadSeq = max(pendingReadSeq, seq)
+        Task { [backend] in await backend.markRead(upToSeq: seq) }
+        refreshReadState()
+    }
+
+    /// The host reports whether this conversation is on screen in a
+    /// foreground window. While it is, everything that arrives is read; the
+    /// unread backlog found when the visit begins becomes the catch-up
+    /// target. Going inactive (app switch, occlusion) keeps the visit.
+    public func setViewing(_ viewing: Bool) {
+        guard viewing != isViewing else { return }
+        isViewing = viewing
+        // Coming back from the background, messages that arrived meanwhile
+        // are a backlog of their own (ChatKit re-checks on resume).
+        if !viewing { catchUpCaptured = false }
+        if viewing { refreshReadState() }
+    }
+
+    /// The reader left the conversation (back, another conversation
+    /// selected): the catch-up target ends; the next visit finds its own.
+    public func endVisit() {
+        isViewing = false
+        catchUpCaptured = false
+        guard catchUpMarker != nil else { return }
+        catchUpMarker = nil
+        catchUpCount = 0
+        notify(.readState)
+    }
+
+    /// The reader reached the first unread message (or tapped the arrow).
+    public func dismissCatchUp() {
+        guard catchUpMarker != nil else { return }
+        catchUpMarker = nil
+        catchUpCount = 0
+        notify(.readState)
+    }
+
+    /// The first message from others after the catch-up marker, once the
+    /// window reaches down to the marker (an unread message above the window
+    /// is not the first one).
+    public var catchUpTarget: ConversationMessage? {
+        guard let marker = catchUpMarker,
+              let oldest = messages.first(where: { $0.seq != nil })?.seq,
+              oldest <= marker + 1 || older == .exhausted else { return nil }
+        return messages.first { ($0.seq ?? 0) > marker && $0.senderID != meID }
+    }
+
+    /// Loads older pages until the catch-up target is in the window and
+    /// returns its row id. Nil when there is no target or loading failed.
+    public func loadCatchUpTarget() async -> String? {
+        guard let marker = catchUpMarker else { return nil }
+        guard await loadThrough(seq: marker + 1) else { return nil }
+        guard catchUpMarker == marker else { return nil }
+        return catchUpTarget?.rowID
+    }
+
+    /// Fetches history above the window until `seq` is loaded (or history
+    /// ends), in pages of up to 200, retrying failures with backoff.
+    public func loadThrough(seq target: Int) async -> Bool {
+        var attempt = 0
+        while !Task.isCancelled {
+            await olderTask?.value
+            guard hasLoadedNewest else { return false }
+            guard let oldest = messages.first(where: { $0.seq != nil })?.seq else { return false }
+            if oldest <= target || older == .exhausted { return true }
+            older = .loading
+            notify(.older)
+            do {
+                // A few messages of context above the target, as Messages shows.
+                let limit = min(200, max(pageSize, oldest - target + 8))
+                let page = try await backend.history(beforeSeq: oldest, limit: limit)
+                applyOlder(page, expectedOldest: oldest)
+                attempt = 0
+            } catch {
+                attempt += 1
+                older = .idle
+                notify(.older)
+                if attempt > 4 { return false }
+                try? await clock.sleep(for: Self.backoff(attempt))
+            }
+        }
+        return false
+    }
+
+    /// Recomputes the unread count from the window (exact when it covers the
+    /// marker) or the service's count plus later arrivals; while viewing,
+    /// captures the catch-up target and reads everything.
+    private func refreshReadState() {
+        let before = (lastReadSeq, unreadCount, catchUpMarker)
+        unreadCount = computeUnread()
+        if isViewing, hasLoadedNewest {
+            if !catchUpCaptured, serverRead != nil {
+                catchUpCaptured = true
+                // An earlier target still pending stays: it is the older one.
+                if unreadCount > 0, catchUpMarker == nil {
+                    catchUpMarker = lastReadSeq
+                    catchUpCount = unreadCount
+                }
+            }
+            if let newest = newestIncomingSeq, newest > lastReadSeq {
+                lastReadSeq = newest
+                pendingReadSeq = max(pendingReadSeq, newest)
+                Task { [backend] in await backend.markRead(upToSeq: newest) }
+                unreadCount = computeUnread()
+            }
+        }
+        if before != (lastReadSeq, unreadCount, catchUpMarker) { notify(.readState) }
+    }
+
+    private func computeUnread() -> Int {
+        // Unread is the service's notion; without its read state there is none.
+        guard let serverRead else { return 0 }
+        let oldestLoaded = hasLoadedNewest ? messages.first(where: { $0.seq != nil })?.seq : nil
+        func incoming(after seq: Int) -> Int {
+            messages.reduce(0) { $0 + (($1.seq ?? 0) > seq && $1.senderID != meID ? 1 : 0) }
+        }
+        if let oldestLoaded, lastReadSeq >= oldestLoaded - 1 || older == .exhausted {
+            return incoming(after: lastReadSeq)
+        }
+        let base = serverRead.lastReadSeq == lastReadSeq ? serverRead.unreadCount : 0
+        return base + (hasLoadedNewest ? incoming(after: max(serverRead.headSeq, lastReadSeq)) : 0)
+    }
+}
+
+/// Unread totals across conversations: the iOS back-button count (every
+/// other conversation) and the Dock badge (all of them).
+@MainActor
+public final class ConversationUnreadBadge {
+    public let stores: [ConversationStore]
+    public var onChange: (@MainActor () -> Void)?
+
+    public init(stores: [ConversationStore]) {
+        self.stores = stores
+        for store in stores {
+            store.addObserver { [weak self] change in
+                guard change == .readState else { return }
+                self?.onChange?()
+            }
+        }
+    }
+
+    public var total: Int { stores.reduce(0) { $0 + $1.unreadCount } }
+
+    public func total(excluding store: ConversationStore) -> Int {
+        stores.reduce(0) { $0 + ($1 === store ? 0 : $1.unreadCount) }
     }
 }

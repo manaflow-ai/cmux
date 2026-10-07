@@ -74,6 +74,9 @@ const EVENT_LOG_CAP = Number(process.env.EVENT_LOG_CAP ?? 50_000);
 const REPLAY_LIMIT = 500;
 const GROUP_COUNT = Number(process.env.GROUP_MESSAGES ?? 20_000);
 const DIRECT_COUNT = Number(process.env.DIRECT_MESSAGES ?? 5_000);
+// Messages from others left unread at boot (the catch-up backlog).
+const GROUP_UNREAD = Number(process.env.GROUP_UNREAD ?? 60);
+const DIRECT_UNREAD = Number(process.env.DIRECT_UNREAD ?? 3);
 
 const knobs = {
   latencyScale: 1,
@@ -165,6 +168,35 @@ class Store {
   conns = new Set<Conn>();
   lastReadSeq = 0;
   constructor(public conv: Conversation) {}
+
+  /** Messages from others after the read marker. */
+  unreadCount() {
+    let n = 0;
+    for (let seq = this.headSeq; seq > this.lastReadSeq; seq--) if (this.messages[seq - 1].senderId !== ME.id) n++;
+    return n;
+  }
+  readState() {
+    return { lastReadSeq: this.lastReadSeq, unreadCount: this.unreadCount(), headSeq: this.headSeq };
+  }
+  /** Moves the read marker (any device's markRead, my send, admin) and tells every device. */
+  setLastRead(seq: number, force = false) {
+    const next = Math.max(0, Math.min(seq, this.headSeq));
+    if (!force && next <= this.lastReadSeq) return;
+    if (next === this.lastReadSeq) return;
+    this.lastReadSeq = next;
+    const state = this.readState();
+    for (const c of this.conns) if (c.subscribed) c.notify("readState", state, true);
+  }
+  /** Places the read marker so exactly `count` messages from others are unread. */
+  leaveUnread(count: number) {
+    let seq = this.headSeq;
+    let n = 0;
+    while (seq > 0 && n < count) {
+      if (this.messages[seq - 1].senderId !== ME.id) n++;
+      seq--;
+    }
+    return seq;
+  }
 
   get headSeq() {
     return this.messages.length;
@@ -360,6 +392,20 @@ function boot() {
   const direct = new Store({ id: "direct", title: "John Appleseed", kind: "direct", participants: [ME, JOHN] });
   generateHistory(group, GROUP_COUNT, 0.25, SEED);
   generateHistory(direct, DIRECT_COUNT, 0.45, SEED + 1);
+  // A real backlog never contains my own messages (sending reads the
+  // conversation), so the boot backlog is the last N messages, all from others.
+  for (const store of [group, direct]) {
+    const n = store === group ? GROUP_UNREAD : DIRECT_UNREAD;
+    const bots = store.bots();
+    for (let seq = Math.max(1, store.headSeq - n + 1); seq <= store.headSeq; seq++) {
+      const m = store.messages[seq - 1];
+      if (m.senderId !== ME.id) continue;
+      m.senderId = bots[seq % bots.length].id;
+      delete m.status;
+      delete m.readAt;
+    }
+    store.lastReadSeq = store.leaveUnread(n);
+  }
   stores.set("group", group);
   stores.set("direct", direct);
   log(
@@ -486,6 +532,7 @@ async function handleRpc(conn: Conn, rpcId: unknown, method: string, p: any): Pr
         headEventSeq: store.headEventSeq,
         serverTime: Date.now(),
         lagged,
+        ...store.readState(),
       };
       if (rpcId !== undefined) conn.respond(rpcId, result);
       if (resume !== undefined && resume !== null && !lagged) {
@@ -556,7 +603,9 @@ async function handleRpc(conn: Conn, rpcId: unknown, method: string, p: any): Pr
       return {};
     case "markRead":
       if (!Number.isInteger(p?.upToSeq)) throw invalid("upToSeq");
-      store.lastReadSeq = Math.max(store.lastReadSeq, Math.min(p.upToSeq, store.headSeq));
+      // The read receipt: on direct, the other side would now see "Read".
+      store.setLastRead(p.upToSeq);
+      vlog(`markRead conn=${conn.id} upTo=${p.upToSeq} lastRead=${store.lastReadSeq}`);
       return {};
     default:
       throw new RpcError(-32601, `method not found: ${method}`);
@@ -598,6 +647,8 @@ async function handleSend(conn: Conn, p: any): Promise<Message> {
     attachments,
     ...(mentions.length ? { mentions } : {}),
   });
+  // Replying reads the conversation (Messages clears unread when you send).
+  store.setLastRead(m.seq);
   afterMySend(store, m);
   if (fail) throw new RpcError(-32002, "not delivered");
   return m;
@@ -851,6 +902,15 @@ async function handleHttp(req: Request, server: ReturnType<typeof Bun.serve>): P
     log(`admin mention conv=${conv} from=${bot.id} target=${target.id} seq=${m.seq}`);
     return json({ ok: true, message: wireMessage(m, base) });
   }
+  if (path === "/admin/unread" && req.method === "POST") {
+    const conv = url.searchParams.get("conversation") ?? "group";
+    const store = stores.get(conv);
+    if (!store) return json({ error: `unknown conversation ${conv}` }, 404);
+    const count = Math.min(5000, Math.max(0, Number(url.searchParams.get("count") ?? 60) || 0));
+    store.setLastRead(store.leaveUnread(count), true);
+    log(`admin unread conv=${conv} count=${count} lastReadSeq=${store.lastReadSeq}`);
+    return json({ ok: true, conversation: conv, ...store.readState() });
+  }
   if (path === "/admin/disconnect" && req.method === "POST") {
     return json({ ok: true, dropped: dropAll("admin disconnect") });
   }
@@ -863,6 +923,7 @@ async function handleHttp(req: Request, server: ReturnType<typeof Bun.serve>): P
         oldestEventSeq: s.oldestEventSeq,
         connections: s.conns.size,
         lastReadSeq: s.lastReadSeq,
+        unreadCount: s.unreadCount(),
       };
     return json({ knobs, conversations, uploads: [...media.values()].filter((m) => m.bytes).length });
   }

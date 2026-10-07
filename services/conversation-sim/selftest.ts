@@ -120,6 +120,7 @@ async function main() {
   check(h.conversation.participants.length === 4 && h.conversation.participants.every((p: any) => /^#[0-9A-F]{6}$/i.test(p.colorHex)), "4 participants with colorHex");
   check(h.me.isMe && h.me.initials === "AA", "me is Aziz Albahar (AA)");
   check(h.headSeq >= 19_000 && h.lagged === false && typeof h.serverTime === "number", `headSeq=${h.headSeq} lagged=false`);
+  check(h.unreadCount >= 60 && h.lastReadSeq < h.headSeq, `hello carries read state (unread=${h.unreadCount} lastReadSeq=${h.lastReadSeq})`);
 
   console.log("history paging");
   const newest = await c.call("history", { beforeSeq: null, limit: 50 });
@@ -290,6 +291,34 @@ async function main() {
   check(back.length === bytes.length && back.every((b, i) => b === bytes[i]), "uploaded bytes served back verbatim");
   const withImg = await l.call("send", { clientMessageId: `img-${crypto.randomUUID()}`, text: "", attachmentIds: [up.attachment.id] });
   check(withImg.message.attachments[0]?.id === up.attachment.id, "send with attachmentIds attaches the upload");
+
+  console.log("read state");
+  const r1 = await Client.connect("group");
+  const r2 = await Client.connect("group");
+  await r1.call("hello", { clientId: "selftest-read-1" });
+  await r2.call("hello", { clientId: "selftest-read-2" });
+  const marked = await post("/admin/unread?conversation=group&count=25");
+  check(marked.unreadCount === 25 && marked.lastReadSeq < marked.headSeq, "admin unread leaves exactly 25 messages from others unread");
+  const seen = await r1.waitFor(() => r1.frames.find((f) => f.method === "readState" && f.params.unreadCount === 25), 3000, "readState 25");
+  check(seen.params.lastReadSeq === marked.lastReadSeq, "readState notification carries the moved marker");
+  const page = await r1.call("history", { beforeSeq: null, limit: 200 });
+  const firstUnread = page.messages.find((m: any) => m.seq > marked.lastReadSeq && m.senderId !== "aziz");
+  const lastOther = page.messages.filter((m: any) => m.senderId !== "aziz").at(-1);
+  await r1.call("markRead", { upToSeq: firstUnread.seq });
+  const partial = await r2.waitFor(() => r2.frames.find((f) => f.method === "readState" && f.params.lastReadSeq === firstUnread.seq), 3000, "partial readState on other device");
+  check(partial.params.unreadCount === 24, "markRead through the first unread leaves 24, pushed to the other device");
+  await r1.call("markRead", { upToSeq: marked.lastReadSeq });
+  const stale = await fetch(base + "/admin/state").then((x) => x.json());
+  check(stale.conversations.group.lastReadSeq === firstUnread.seq, "markRead never moves the marker backwards");
+  await r2.call("markRead", { upToSeq: lastOther.seq });
+  await r1.waitFor(() => r1.frames.find((f) => f.method === "readState" && f.params.unreadCount === 0), 3000, "readState 0");
+  check(true, "reading to the newest clears unread on every device");
+  await post("/admin/unread?conversation=group&count=4");
+  await r1.call("send", { clientMessageId: `read-${crypto.randomUUID()}`, text: "caught up" });
+  const afterSend = await fetch(base + "/admin/state").then((x) => x.json());
+  check(afterSend.conversations.group.unreadCount === 0, "sending reads the conversation");
+  r1.close();
+  r2.close();
 
   console.log("admin disconnect");
   await post("/admin/disconnect");
