@@ -74,6 +74,7 @@ const VM_ENV_KEYS = [
 const originalEnv = Object.fromEntries(
   VM_ENV_KEYS.map((key) => [key, process.env[key]]),
 ) as Record<(typeof VM_ENV_KEYS)[number], string | undefined>;
+const originalFetch = globalThis.fetch;
 
 // Capture the real implementations BY VALUE before mocking. bun's
 // mock.module can mutate an already-loaded module namespace in place, so a
@@ -247,11 +248,15 @@ const { VmPublicationProviderError } = await import(
 beforeAll(() => {
   useWorkflowStubs = true;
   useStubDb = true;
+  // POST /api/vm now awaits the provider connection probe. Keep this route
+  // suite deterministic and local while still exercising that await.
+  globalThis.fetch = (async () => new Response(null, { status: 204 })) as typeof globalThis.fetch;
 });
 
 afterAll(() => {
   useWorkflowStubs = false;
   useStubDb = false;
+  globalThis.fetch = originalFetch;
 });
 
 beforeEach(() => {
@@ -532,7 +537,7 @@ describe("VM REST auth", () => {
       billingCustomerType: "team",
       billingTeamId: "team-1",
       billingPlanId: "pro",
-      maxActiveVms: 50,
+      maxActiveVms: 5,
       provider: "freestyle",
       image: "snapshot-test",
       imageVersion: null,
@@ -557,6 +562,14 @@ describe("VM REST auth", () => {
     runVmWorkflow.mockResolvedValue([{
       providerVmId: "provider-vm-team-1", provider: "freestyle",
       image: "snapshot-test", status: "running", createdAt: 1_777_000_000_000,
+    }, {
+      providerVmId: "provider-vm-team-2", provider: "freestyle",
+      image: "snapshot-test", status: "provisioning", createdAt: 1_777_000_000_000,
+      resourceReservation: { vcpus: 16, memoryMb: 32768 },
+    }, {
+      providerVmId: "provider-vm-team-3", provider: "freestyle",
+      image: "snapshot-test", status: "paused", createdAt: 1_777_000_000_000,
+      resourceReservation: { vcpus: 32, memoryMb: 65536 },
     }]);
 
     const response = await GET(new Request("https://cmux.test/api/vm", {
@@ -567,8 +580,17 @@ describe("VM REST auth", () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
-      limits: { planId: "team", maxActiveVms: 200, activeVmCount: 1, freeAccessWindowDays: 0, freeAccessExpiresAt: null },
-      vms: [{ freeAccessExpiresAt: null }],
+      // Four paid seats share 4 x (20 vCPUs, 40 GB). The legacy row without a
+      // marker counts at the 8 GB default; the paused machine does not count.
+      limits: {
+        planId: "team", maxActiveVms: 20, activeVmCount: 2, freeAccessWindowDays: 0, freeAccessExpiresAt: null,
+        poolVcpus: 80, poolMemoryMb: 163840, usedVcpus: 20, usedMemoryMb: 40960,
+      },
+      vms: [
+        { freeAccessExpiresAt: null, resources: { vcpus: 4, memoryMb: 8192 } },
+        { resources: { vcpus: 16, memoryMb: 32768 } },
+        { resources: { vcpus: 32, memoryMb: 65536 } },
+      ],
     });
     expect(listUserVms).toHaveBeenCalledWith("user-1", "team-1");
     expect(listTeams).toHaveBeenCalledTimes(1);
@@ -948,7 +970,7 @@ describe("VM REST auth", () => {
     expect(createVm).toHaveBeenCalledWith(expect.objectContaining({
       billingTeamId: "team-1",
       billingPlanId: "pro",
-      maxActiveVms: 50,
+      maxActiveVms: 5,
     }));
   });
 
@@ -1023,14 +1045,14 @@ describe("VM REST auth", () => {
     expect(createVm).toHaveBeenCalledWith(expect.objectContaining({ memoryMb: 8192 }));
   });
 
-  test("refuses a 32 GB machine on Pro with the Max upgrade instead of coercing it", async () => {
+  test("refuses a 64 GB machine on Pro with the Max upgrade instead of coercing it", async () => {
     getUser.mockResolvedValue(authedStackUser());
 
     const response = await POST(
       new Request("https://cmux.test/api/vm", {
         method: "POST",
         headers: { origin: "https://cmux.test" },
-        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test", memoryMb: 32768 }),
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test", memoryMb: 65536 }),
       }),
     );
 
@@ -1041,13 +1063,13 @@ describe("VM REST auth", () => {
       upgradeRequired: true,
       upgradePlanId: "max",
       upgradeUrl: "https://cmux.com/api/billing/checkout?plan=max&cmux_source=vm_memory_limit",
-      memoryMb: 32768,
-      maxMemoryMb: 24576,
+      memoryMb: 65536,
+      maxMemoryMb: 32768,
     });
     expect(runVmWorkflow).not.toHaveBeenCalled();
   });
 
-  test("starts a 64 GB machine on Max", async () => {
+  test("starts a 32 GB machine on Max", async () => {
     getUser.mockResolvedValue(stackUserForPlan("max"));
     runVmWorkflow.mockResolvedValue({
       providerVmId: "provider-vm-max",
@@ -1061,12 +1083,12 @@ describe("VM REST auth", () => {
       new Request("https://cmux.test/api/vm", {
         method: "POST",
         headers: { origin: "https://cmux.test" },
-        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test", memoryMb: 65536 }),
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test", memoryMb: 32768 }),
       }),
     );
 
     expect(response.status).toBe(200);
-    expect(createVm).toHaveBeenCalledWith(expect.objectContaining({ memoryMb: 65536 }));
+    expect(createVm).toHaveBeenCalledWith(expect.objectContaining({ memoryMb: 32768 }));
   });
 
   test("rejects malformed memory sizes before billing or provider work", async () => {
@@ -2033,7 +2055,7 @@ describe("VM REST auth", () => {
       billingCustomerType: "team",
       billingTeamId: "team-2",
       billingPlanId: "team",
-      maxActiveVms: 200,
+      maxActiveVms: 20,
     }));
     expect(runVmWorkflow).toHaveBeenCalled();
   });
@@ -2136,7 +2158,8 @@ describe("VM REST auth", () => {
       context,
     );
     expect(response.status).toBe(200);
-    expect(openVmCmuxRemote).toHaveBeenCalledWith({
+    const { deferAfterResponse, ...attachInput } = (openVmCmuxRemote.mock.calls[0] as unknown[])[0] as Record<string, unknown>;
+    expect(attachInput).toEqual({
       userId: "user-1",
       billingTeamId: "team-1",
       teamIds: ["team-1"],
@@ -2144,9 +2167,11 @@ describe("VM REST auth", () => {
       deviceFingerprint: "fp-device-1",
       clientCapabilities: ["direct-ws-user-agent"],
       callerPlanId: "pro",
-      maxActiveVms: 50,
+      maxActiveVms: 5,
       modelPlane: expect.objectContaining({}),
     });
+    // An opted-in machine's agent-update exec runs after the response.
+    expect(typeof deferAfterResponse).toBe("function");
     expect(openAttachEndpoint).not.toHaveBeenCalled();
     const payload = await response.json();
     expect(payload.transport).toBe("cmux-remote");
@@ -2394,7 +2419,7 @@ describe("VM REST auth", () => {
       providerVmId: "provider-vm-team-1",
       callerPlanId: "pro",
       command: "true",
-      maxActiveVms: 50,
+      maxActiveVms: 5,
       timeoutMs: 30_000,
       modelPlane: expect.objectContaining({}),
     });

@@ -19,6 +19,7 @@ import CmuxSidebarProviderKit
 import CmuxExtensionSidebarExamples
 import CmuxSettingsUI
 import CmuxSidebar
+import CmuxSurfaceCatalogModel
 import CmuxSidebarRemoteRender
 import CmuxSwiftRender
 import CmuxSwiftRenderUI
@@ -1003,6 +1004,10 @@ struct ContentView: View {
     @State private var commandPaletteSearchCorpus: [CommandPaletteSearchCorpusEntry<String>] = []
     @State private var commandPaletteSearchCorpusByID: [String: CommandPaletteSearchCorpusEntry<String>] = [:]
     @State private var commandPaletteSearchCommandsByID: [String: CommandPaletteCommand] = [:]
+    @State private var commandPaletteCloudWorkspaceTargetsCache: [CommandPaletteCloudWorkspaceTarget] = []
+    @State private var commandPaletteCloudWorkspaceTargetsFingerprint: Int?
+    @State private var commandPaletteCloudWorkspaceTargetsCacheRevision: UInt64 = 0
+    @State private var commandPaletteCloudWorkspaceTargetsCachedRevision: UInt64?
 
     private var isCommandPalettePresented: Bool {
         commandPaletteOverlayState.isCommandPalettePresented
@@ -1128,9 +1133,9 @@ struct ContentView: View {
     private static let commandPaletteVisiblePreviewResultLimit = 48
     private static let commandPaletteVisiblePreviewCandidateLimit = 128
     private static let maximumSidebarWidthRatio: CGFloat = 1.0 / 3.0
-    private static let minimumRightSidebarWidth: CGFloat = CGFloat(RightSidebarWidthSettings.minimumWidth)
-    private static let maximumRightSidebarWidth: CGFloat = CGFloat(RightSidebarWidthSettings.builtInMaximumWidth)
-    private static let minimumTerminalWidthWithRightSidebar: CGFloat = 360
+    static let minimumRightSidebarWidth: CGFloat = CGFloat(RightSidebarWidthSettings.minimumWidth)
+    static let maximumRightSidebarWidth: CGFloat = CGFloat(RightSidebarWidthSettings.builtInMaximumWidth)
+    static let minimumTerminalWidthWithRightSidebar: CGFloat = 360
 
     private var minimumSidebarWidth: CGFloat {
         CGFloat(SessionPersistencePolicy.sanitizedMinimumSidebarWidth(sidebarMinimumWidthSetting))
@@ -1172,11 +1177,7 @@ struct ContentView: View {
                 captureStart: { fileExplorerDragStartWidth = fileExplorerWidth },
                 updateWidth: { translation in
                     let startWidth = fileExplorerDragStartWidth ?? fileExplorerWidth
-                    let nextWidth = Self.clampedRightSidebarWidth(
-                        startWidth - translation,
-                        availableWidth: resolvedRightSidebarAvailableWidth(availableWidth),
-                        configuredMaximumWidth: rightSidebarConfiguredMaximumWidth
-                    )
+                    let nextWidth = normalizedRightSidebarWidth(startWidth - translation, availableWidth: availableWidth)
                     withTransaction(Transaction(animation: nil)) {
                         fileExplorerWidth = nextWidth
                     }
@@ -1224,28 +1225,6 @@ struct ContentView: View {
             )
         }
         return max(minimumWidth, min(sanitizedMaximumWidth, candidate))
-    }
-
-    static func clampedRightSidebarWidth(
-        _ candidate: CGFloat,
-        availableWidth: CGFloat,
-        configuredMaximumWidth: CGFloat? = nil
-    ) -> CGFloat {
-        let minimumWidth = Self.minimumRightSidebarWidth
-        let sanitizedCandidate = candidate.isFinite ? candidate : 220
-        let sanitizedAvailableWidth = availableWidth.isFinite && availableWidth > 0 ? availableWidth : 1920
-        let availableWidthCap = max(
-            minimumWidth,
-            sanitizedAvailableWidth - Self.minimumTerminalWidthWithRightSidebar
-        )
-        let configuredOrDefaultCap: CGFloat
-        if let configuredMaximumWidth, configuredMaximumWidth.isFinite {
-            configuredOrDefaultCap = max(minimumWidth, configuredMaximumWidth)
-        } else {
-            configuredOrDefaultCap = Self.maximumRightSidebarWidth
-        }
-        let maximumWidth = min(configuredOrDefaultCap, availableWidthCap)
-        return max(minimumWidth, min(maximumWidth, sanitizedCandidate))
     }
 
     private func clampSidebarWidthIfNeeded(availableWidth: CGFloat? = nil) {
@@ -1312,7 +1291,8 @@ struct ContentView: View {
         Self.clampedRightSidebarWidth(
             candidate,
             availableWidth: resolvedRightSidebarAvailableWidth(availableWidth),
-            configuredMaximumWidth: rightSidebarConfiguredMaximumWidth
+            configuredMaximumWidth: rightSidebarConfiguredMaximumWidth,
+            contentMinimumWidth: fileExplorerState.modeBarMinimumWidth
         )
     }
 
@@ -1974,6 +1954,7 @@ struct ContentView: View {
                 }
             }
         }
+        .onChange(of: fileExplorerState.modeBarMinimumWidth) { _ in clampRightSidebarWidthIfNeeded() }
         .onChange(of: fileExplorerState.width) { newValue in
             if fileExplorerDragStartWidth == nil {
                 let sanitized = normalizedRightSidebarWidth(newValue)
@@ -2684,6 +2665,17 @@ struct ContentView: View {
                     ])
                 }
             }
+        })
+
+        view = AnyView(view.onReceive(
+            NotificationCenter.default.publisher(for: SurfaceCatalog.didChangeNotification, object: SurfaceCatalog.shared)
+        ) { _ in
+            invalidateCommandPaletteCloudWorkspaceTargets()
+        })
+        view = AnyView(view.onReceive(
+            NotificationCenter.default.publisher(for: CloudSidebarOrganizationStore.didChangeNotification, object: SurfaceCatalog.shared.sidebarOrganization)
+        ) { _ in
+            invalidateCommandPaletteCloudWorkspaceTargets()
         })
 
         view = AnyView(view.onChange(of: tabManager.selectedTabId) { newValue in
@@ -5071,7 +5063,8 @@ struct ContentView: View {
         return commandPaletteEntriesFingerprint(
             for: scope,
             includeSurfaces: commandPaletteSwitcherIncludesSurfaceEntries,
-            commandsContext: scope == .commands ? commandPaletteCachedCommandsContext() : nil
+            commandsContext: scope == .commands ? commandPaletteCachedCommandsContext() : nil,
+            cloudWorkspaceTargets: nil
         )
     }
 
@@ -5179,20 +5172,25 @@ struct ContentView: View {
     private func commandPaletteEntries(for scope: CommandPaletteListScope) -> [CommandPaletteCommand] {
         commandPaletteEntries(
             for: scope,
-            includeSurfaces: commandPaletteSwitcherIncludesSurfaceEntries
+            includeSurfaces: commandPaletteSwitcherIncludesSurfaceEntries,
+            cloudWorkspaceTargets: scope == .switcher ? commandPaletteCloudWorkspaceTargets() : nil
         )
     }
 
     private func commandPaletteEntries(
         for scope: CommandPaletteListScope,
         includeSurfaces: Bool,
-        commandsContext: CommandPaletteCommandsContext? = nil
+        commandsContext: CommandPaletteCommandsContext? = nil,
+        cloudWorkspaceTargets: [CommandPaletteCloudWorkspaceTarget]? = nil
     ) -> [CommandPaletteCommand] {
         switch scope {
         case .commands:
             return commandPaletteCommands(commandsContext: commandsContext ?? commandPaletteCachedCommandsContext())
         case .switcher:
-            return commandPaletteSwitcherEntries(includeSurfaces: includeSurfaces)
+            return commandPaletteSwitcherEntries(
+                includeSurfaces: includeSurfaces,
+                cloudWorkspaceTargets: cloudWorkspaceTargets
+            )
         }
     }
 
@@ -5228,10 +5226,14 @@ struct ContentView: View {
         let commandsContext = scope == .commands
             ? commandPaletteCommandsContext(terminalOpenTargets: terminalOpenTargets)
             : nil
+        let cloudWorkspaceTargets = scope == .switcher
+            ? commandPaletteCloudWorkspaceTargets()
+            : nil
         let fingerprint = commandPaletteEntriesFingerprint(
             for: scope,
             includeSurfaces: includeSurfaces,
-            commandsContext: commandsContext
+            commandsContext: commandsContext,
+            cloudWorkspaceTargets: cloudWorkspaceTargets
         )
         guard force || cachedCommandPaletteScope != scope || cachedCommandPaletteFingerprint != fingerprint else {
             return
@@ -5240,7 +5242,8 @@ struct ContentView: View {
         let entries = commandPaletteEntries(
             for: scope,
             includeSurfaces: includeSurfaces,
-            commandsContext: commandsContext
+            commandsContext: commandsContext,
+            cloudWorkspaceTargets: cloudWorkspaceTargets
         )
         commandPaletteSearchCommandsByID = CommandPaletteSearchOrchestrator.firstValueDictionary(
             entries,
@@ -5613,7 +5616,8 @@ struct ContentView: View {
     private func commandPaletteEntriesFingerprint(
         for scope: CommandPaletteListScope,
         includeSurfaces: Bool,
-        commandsContext: CommandPaletteCommandsContext? = nil
+        commandsContext: CommandPaletteCommandsContext? = nil,
+        cloudWorkspaceTargets: [CommandPaletteCloudWorkspaceTarget]? = nil
     ) -> Int {
         switch scope {
         case .commands:
@@ -5621,7 +5625,10 @@ struct ContentView: View {
                 commandsContext: commandsContext ?? commandPaletteCachedCommandsContext()
             )
         case .switcher:
-            return commandPaletteSwitcherEntriesFingerprint(includeSurfaces: includeSurfaces)
+            return commandPaletteSwitcherEntriesFingerprint(
+                includeSurfaces: includeSurfaces,
+                cloudWorkspaceTargets: cloudWorkspaceTargets
+            )
         }
     }
 
@@ -5632,7 +5639,10 @@ struct ContentView: View {
         return hasher.finalize()
     }
 
-    private func commandPaletteSwitcherEntriesFingerprint(includeSurfaces: Bool) -> Int {
+    private func commandPaletteSwitcherEntriesFingerprint(
+        includeSurfaces: Bool,
+        cloudWorkspaceTargets: [CommandPaletteCloudWorkspaceTarget]? = nil
+    ) -> Int {
         if commandPaletteCurrentWorkSnapshot != nil {
             var hasher = Hasher()
             hasher.combine("current-work")
@@ -5672,7 +5682,9 @@ struct ContentView: View {
                 }
             )
         }
-        return CommandPaletteSwitcherFingerprintContext.fingerprint(windowContexts: fingerprintContexts)
+        var fingerprint = CommandPaletteSwitcherFingerprintContext.fingerprint(windowContexts: fingerprintContexts)
+        fingerprint = fingerprint &* 31 &+ (commandPaletteCloudWorkspaceTargetsFingerprint ?? 0)
+        return fingerprint
     }
 
     private static func commandPaletteHighlightedTitleText(_ title: String, matchedIndices: Set<Int>) -> Text {
@@ -5743,7 +5755,94 @@ struct ContentView: View {
         }
     }
 
-    private func commandPaletteSwitcherEntries(includeSurfaces: Bool) -> [CommandPaletteCommand] {
+    private struct CommandPaletteCloudWorkspaceTarget {
+        let machine: SurfaceMachineID
+        let workspace: SurfaceRemoteWorkspace
+        let group: SurfaceResourceGroup
+    }
+
+    private func commandPaletteCloudWorkspaceTargets() -> [CommandPaletteCloudWorkspaceTarget] {
+        guard CloudMachinesFeature.isEnabled else { return [] }
+        if commandPaletteCloudWorkspaceTargetsCachedRevision == commandPaletteCloudWorkspaceTargetsCacheRevision {
+            return commandPaletteCloudWorkspaceTargetsCache
+        }
+        let catalog = SurfaceCatalog.shared
+        let snapshot = catalog.snapshot
+        let allNodes = CloudTreeNodeBuilder.nodes(
+            machines: [],
+            snapshot: snapshot,
+            localWorkspaces: [],
+            includeLocalMachine: false
+        )
+        let sidebarNodes = CloudSidebarOrganizationTree(nodes: allNodes).arrange(
+            using: catalog.sidebarOrganization.state
+        )
+        let sidebarWorkspaceIDs = Set(
+            CloudTreeNodeBuilder.flattened(sidebarNodes).compactMap { node -> String? in
+                guard case .workspace(let machine, let workspace, _, _, _) = node.kind else { return nil }
+                return "\(machine.rawValue):\(workspace.id)"
+            }
+        )
+
+        let orderedNodes = CloudTreeNodeBuilder.flattened(sidebarNodes) +
+            CloudTreeNodeBuilder.flattened(allNodes).filter { node in
+                guard case .workspace(let machine, let workspace, _, _, _) = node.kind else { return false }
+                return !sidebarWorkspaceIDs.contains("\(machine.rawValue):\(workspace.id)")
+            }
+
+        var seen = Set<String>()
+        let targets: [CommandPaletteCloudWorkspaceTarget] = orderedNodes.compactMap { node in
+            guard case .workspace(let machine, let workspace, _, _, _) = node.kind,
+                  let group = node.dragGroup,
+                  seen.insert("\(machine.rawValue):\(workspace.id)").inserted else { return nil }
+            return CommandPaletteCloudWorkspaceTarget(machine: machine, workspace: workspace, group: group)
+        }
+        var fingerprintHasher = Hasher()
+        for target in targets {
+            fingerprintHasher.combine(target.machine.rawValue)
+            let machineName = catalog.machineInfo(for: target.machine)?.name ?? target.machine.rawValue
+            fingerprintHasher.combine(machineName)
+            fingerprintHasher.combine(target.workspace.id)
+            fingerprintHasher.combine(target.workspace.name)
+            fingerprintHasher.combine(target.group)
+        }
+        commandPaletteCloudWorkspaceTargetsFingerprint = fingerprintHasher.finalize()
+        commandPaletteCloudWorkspaceTargetsCache = targets
+        commandPaletteCloudWorkspaceTargetsCachedRevision = commandPaletteCloudWorkspaceTargetsCacheRevision
+        return targets
+    }
+
+    private func openCommandPaletteCloudWorkspace(_ target: CommandPaletteCloudWorkspaceTarget) {
+        let actions = CloudTreeNodeActions.bound(
+            navigationHost: AppDelegate.makeCloudTerminalNavigationHost(),
+            catalog: { SurfaceCatalog.shared },
+            selectedWorkspaceID: { self.tabManager.selectedTabId },
+            selectLocalWorkspace: { workspaceID in self.tabManager.selectedTabId = workspaceID },
+            onDidMutate: {},
+            onFailure: { _ in NSSound.beep() },
+            refresh: {},
+            workspaceCreationHost: { CloudWorkspaceCreationHost(manager: self.tabManager) }
+        )
+        actions.openWorkspace(target.machine, target.workspace, target.group)
+    }
+
+    private func invalidateCommandPaletteCloudWorkspaceTargets() {
+        commandPaletteCloudWorkspaceTargetsCacheRevision &+= 1
+        commandPaletteCloudWorkspaceTargetsCachedRevision = nil
+        commandPaletteCloudWorkspaceTargetsCache = []
+        commandPaletteCloudWorkspaceTargetsFingerprint = nil
+        guard isCommandPalettePresented,
+              commandPaletteListScope == .switcher else { return }
+        scheduleCommandPaletteResultsRefresh(
+            query: commandPaletteQuery,
+            forceSearchCorpusRefresh: true
+        )
+    }
+
+    private func commandPaletteSwitcherEntries(
+        includeSurfaces: Bool,
+        cloudWorkspaceTargets: [CommandPaletteCloudWorkspaceTarget]? = nil
+    ) -> [CommandPaletteCommand] {
         if let snapshot = commandPaletteCurrentWorkSnapshot {
             return commandPaletteCurrentWorkEntries(snapshot: snapshot)
         }
@@ -5852,6 +5951,36 @@ struct ContentView: View {
                     nextRank += 1
                 }
             }
+        }
+
+        let cloudWorkspaceKind = String(localized: "commandPalette.kind.cloudWorkspace", defaultValue: "Cloud Workspace")
+        for target in cloudWorkspaceTargets ?? commandPaletteCloudWorkspaceTargets() {
+            let machineName = SurfaceCatalog.shared.machineInfo(for: target.machine)?.name ?? target.machine.rawValue
+            let title = target.workspace.name
+            let commandID = "switcher.cloudWorkspace.\(target.machine.rawValue).\(target.workspace.id)"
+            let keywords = CommandPaletteSwitcherSearchIndexer(
+                baseKeywords: [
+                    "cloud", "workspace", "remote", "vm", "open", "go", "switch", title, machineName
+                ],
+                metadata: CommandPaletteSwitcherSearchMetadata(),
+                detail: .workspace
+            ).keywords
+            entries.append(
+                CommandPaletteCommand(
+                    id: commandID,
+                    rank: nextRank,
+                    title: title,
+                    subtitle: Self.commandPaletteSwitcherSubtitle(base: cloudWorkspaceKind + " • " + machineName, windowLabel: nil),
+                    shortcutHint: nil,
+                    kindLabel: cloudWorkspaceKind,
+                    keywords: keywords,
+                    dismissOnRun: true,
+                    action: {
+                        self.openCommandPaletteCloudWorkspace(target)
+                    }
+                )
+            )
+            nextRank += 1
         }
 
         return entries
@@ -7173,7 +7302,7 @@ struct ContentView: View {
             // publishes authoritative server capabilities.
             snapshot.setBool(
                 CommandPaletteContextKeys.cloudVMSupportsFork,
-                cloudCapabilities?.fork ?? true
+                cloudCapabilities?.canFork ?? true
             )
             snapshot.setBool(
                 CommandPaletteContextKeys.cloudVMSupportsSnapshot,
@@ -7760,16 +7889,6 @@ struct ContentView: View {
                 keywords: ["update", "upgrade", "release"]
             )
         )
-        if let target = AppChannelSwitchTarget.counterpart(ofBundleIdentifier: Bundle.main.bundleIdentifier) {
-            contributions.append(
-                CommandPaletteCommandContribution(
-                    commandId: "palette.switchAppChannel",
-                    title: constant(AppChannelSwitchPresenter.actionTitle(for: target)),
-                    subtitle: constant(String(localized: "command.checkForUpdates.subtitle", defaultValue: "Global")),
-                    keywords: ["nightly", "stable", "channel", "switch", "install"]
-                )
-            )
-        }
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.applyUpdateIfAvailable",
@@ -9037,9 +9156,6 @@ struct ContentView: View {
         registry.register(commandId: "palette.checkForUpdates") {
             AppDelegate.shared?.checkForUpdates(nil)
         }
-        registry.register(commandId: "palette.switchAppChannel") {
-            AppDelegate.shared?.switchAppChannel(nil)
-        }
         registry.register(commandId: "palette.applyUpdateIfAvailable") {
             AppDelegate.shared?.applyUpdateIfAvailable(nil)
         }
@@ -10027,6 +10143,7 @@ struct ContentView: View {
     }
 
     private func openCommandPaletteSwitcher() {
+        invalidateCommandPaletteCloudWorkspaceTargets()
         handleCommandPaletteListRequest(scope: .switcher)
     }
 
@@ -10933,10 +11050,14 @@ struct ContentView: View {
 
         var openedCount = 0
         if BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowser() {
+            let externalNavigationHandler = BrowserExternalNavigationHandler()
             for pullRequest in pullRequests {
-                if tabManager.openBrowser(url: pullRequest.url, insertAtEnd: true) != nil {
-                    openedCount += 1
-                } else if NSWorkspace.shared.open(pullRequest.url) {
+                let destination = externalNavigationHandler.sidebarLinkDestination(
+                    for: pullRequest.url, prefersEmbeddedBrowser: true
+                )
+                let openedEmbedded = destination == .embeddedBrowser
+                    && tabManager.openBrowser(url: pullRequest.url, insertAtEnd: true) != nil
+                if openedEmbedded || NSWorkspace.shared.open(pullRequest.url) {
                     openedCount += 1
                 }
             }
@@ -12584,6 +12705,7 @@ struct VerticalTabsSidebar: View, Equatable {
             contextMenuPinState: rowSnapshot.contextMenu.pinState,
             workspaceGroupMenuSnapshot: rowSnapshot.contextMenu.groupMenuSnapshot,
             colorScheme: environment.colorScheme,
+            brightenInDarkMode: input.settings.brightenInDarkMode,
             refreshSnapshot: { [workspaceId = tab.id] in
                 scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)
             },
@@ -12595,7 +12717,8 @@ struct VerticalTabsSidebar: View, Equatable {
             snapshotProvider: { [snapshot = input.workspace] in snapshot }
         )
         let openInBrowser: @MainActor (URL, Bool) -> Void = { [weak tabManager, workspaceId = tab.id] url, preferBrowser in
-            if preferBrowser,
+            if BrowserExternalNavigationHandler()
+                .sidebarLinkDestination(for: url, prefersEmbeddedBrowser: preferBrowser) == .embeddedBrowser,
                let tabManager,
                tabManager.openBrowser(
                    inWorkspace: workspaceId,
@@ -14838,7 +14961,8 @@ struct VerticalTabsSidebar: View, Equatable {
         opensInCmuxBrowser: Bool
     ) {
         selectWorkspaceRow(workspace, index: index, modifiers: NSEvent.modifierFlags)
-        if opensInCmuxBrowser,
+        if BrowserExternalNavigationHandler()
+            .sidebarLinkDestination(for: url, prefersEmbeddedBrowser: opensInCmuxBrowser) == .embeddedBrowser,
            tabManager.openBrowser(
                inWorkspace: workspace.id,
                url: url,
@@ -15332,6 +15456,7 @@ private struct SidebarFooter: View {
 
 struct SidebarFooterButtons: View {
     @Environment(\.cmuxAccentColor) private var cmuxAccent
+    private var accountFlow: HostAccountFlow? { AppDelegate.shared?.auth?.accountFlow }
     var updateViewModel: UpdateStateModel
     @ObservedObject var fileExplorerState: FileExplorerState
     let modifierKeyMonitor: WindowScopedShortcutHintModifierMonitor
@@ -15351,6 +15476,16 @@ struct SidebarFooterButtons: View {
 
     private var presentationMode: WorkspacePresentationModeSettings.Mode {
         WorkspacePresentationModeSettings.mode(for: workspacePresentationMode)
+    }
+
+    private var billingPlanRefreshID: String? {
+        guard let flow = accountFlow, let accountID = flow.currentIdentity?.id else { return nil }
+        return "\(accountID):\(flow.confirmedTeamID ?? "personal"):\(flow.isProUpgradeAvailable):\(flow.isAuthenticated)"
+    }
+
+    private var isProStatusKnownForUpgrade: Bool {
+        guard let flow = accountFlow else { return true }
+        return !flow.isWorkingOnAuth && (flow.currentIdentity == nil || flow.hasLoadedBillingPlan)
     }
 
     private func shows(_ control: SidebarFooterControl) -> Bool {
@@ -15378,7 +15513,13 @@ struct SidebarFooterButtons: View {
                (showModifierHoldHints && modifierKeyMonitor.isModifierPressed) || isShortcutPopoverPresented {
                 ShortcutDiscoveryButton(isPopoverPresented: $isShortcutPopoverPresented)
             }
-            if shows(.upgrade) {
+            if shows(.upgrade),
+               SidebarFooterPresentationPolicy.isUpgradeVisible(
+                   featureFlagEnabled: accountFlow?.isProUpgradeAvailable
+                       ?? CmuxFeatureFlags.shared.isProUpgradeUIEnabled,
+                   isProActive: accountFlow?.isProActive == true,
+                   isProStatusKnown: isProStatusKnownForUpgrade
+               ) {
                 SidebarProBadge()
             }
             // The puzzle button opens the extensions browser; it only shows
@@ -15405,6 +15546,10 @@ struct SidebarFooterButtons: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .task(id: billingPlanRefreshID) {
+            guard let flow = accountFlow, flow.isAuthenticated else { return }
+            await flow.refreshBillingPlan()
+        }
     }
 }
 
@@ -16641,6 +16786,7 @@ struct TabItemView: View, Equatable {
             colorScheme: colorScheme,
             sidebarSelectionColorHex: sidebarSelectionColorHex,
             subtleSelection: settings.subtleSelection,
+            brightenInDarkMode: settings.brightenInDarkMode,
             isEmphasized: isEmphasized,
             increaseContrast: colorSchemeContrast == .increased,
             accent: settings.accentColor
@@ -16670,7 +16816,8 @@ struct TabItemView: View, Equatable {
         WorkspaceTabColorSettings.displayNSColor(
             hex: hex,
             colorScheme: colorScheme,
-            forceBright: activeTabIndicatorStyle == .leftRail
+            forceBright: activeTabIndicatorStyle == .leftRail,
+            brightenInDarkMode: settings.brightenInDarkMode
         ) ?? NSColor(hex: hex) ?? .gray
     }
 

@@ -80,6 +80,13 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go prend en charge 2 vCPU, 4 Gio de RAM et 16 Gio de disque.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+    },
+    "resourcePool": {
+      "title": "Ressources Cloud VM insuffisantes",
+      "memoryMessage": "Vos VMs utilisent déjà {used} Go de RAM sur {pool}. Cette VM a besoin de {requested} Go.",
+      "vcpuMessage": "Vos VMs utilisent déjà {used} vCPU sur {pool}. Cette VM a besoin de {requested} vCPU.",
+      "upgradeAction": "Mettez en pause ou supprimez une VM, ou passez à Max.",
+      "action": "Mettez en pause ou supprimez une VM."
     }
   },
   "billingRecovery": {
@@ -490,16 +497,17 @@
           ],
           "pro": [
             "Agents cloud sur des Cloud VMs",
-            "24 Go de RAM et 6 vCPU partagés entre les VM",
+            "Jusqu'à 5 Cloud VMs qui partagent 20 vCPU et 40 Go de RAM",
             "L'app cmux pour iOS"
           ],
           "max": [
-            "64 Go de RAM et 16 vCPU partagés entre les VM",
+            "Jusqu'à 5 Cloud VMs qui partagent 80 vCPU et 160 Go de RAM",
             "Des machines plus grandes",
             "Tout ce qu'inclut Pro"
           ],
           "team": [
             "Tout ce qu'inclut Pro pour chaque membre",
+            "Jusqu'à 5 Cloud VMs par siège payant, qui partagent 20 vCPU et 40 Go de RAM par siège payant dans toute l'équipe",
             "Une seule facture pour toute l'équipe",
             "Support prioritaire"
           ]
@@ -542,6 +550,11 @@
         "team": "Créer une équipe",
         "banner": "Vous êtes maintenant sur {plan}.",
         "bannerLink": "Forfait et facturation"
+      },
+      "appStore": {
+        "title": "Facturé via l’App Store",
+        "body": "Votre forfait a été acheté dans l’app cmux pour iPhone et est facturé par Apple. Modifiez-le ou résiliez-le dans vos abonnements App Store.",
+        "manage": "Gérer dans l’App Store"
       }
     },
     "mobileDevices": {
@@ -1126,6 +1139,80 @@
       "revokeApiKeyConfirmTitle": "Révoquer cette clé API ?",
       "apiKeyUsageDetail": "30 derniers jours : {completions} complétions · {tokens} tokens ({input} entrée / {output} sortie) · équivalent API {value}",
       "apiKeyUsageUnavailable": "Utilisation indisponible",
+      "revokeApiKeyConfirmBody": "Les clients utilisant cette clé ne pourront plus s’authentifier immédiatement."
+    },
+    "cloud": {
+      "title": "Machines Cloud et accès Mac",
+      "description": "Définissez le réseau sortant de chaque machine et consultez les Mac disposant d’un accès WireGuard à votre réseau privé de VM Cloud. Les associations iPhone et Iroh sont gérées séparément.",
+      "macAccessTitle": "Accès Mac",
+      "machines": {
+        "title": "Machines",
+        "empty": "Vous n’avez aucune machine Cloud.",
+        "personal": "personnel",
+        "team": "équipe",
+        "status": {
+          "provisioning": "démarrage",
+          "running": "en cours d’exécution",
+          "failed": "échec",
+          "paused": "en pause",
+          "destroyed": "supprimée"
+        }
+      },
+      "network": {
+        "open": "Réseau",
+        "title": "Réseau sortant de {name}",
+        "description": "Choisissez ce que cette machine peut joindre. Les modifications s’appliquent immédiatement, sans redémarrage.",
+        "loading": "Chargement de la politique réseau…",
+        "loadError": "Impossible de charger la politique réseau de cette machine.",
+        "saveError": "Impossible d’appliquer cette politique réseau.",
+        "unsupported": "Cette machine ne prend pas en charge le contrôle du réseau sortant.",
+        "retry": "Réessayer",
+        "appliedLabel": "État :",
+        "applied": {
+          "applied": "appliquée",
+          "pending": "application en cours",
+          "failed": "échec de l’application"
+        },
+        "unsaved": "modifications non enregistrées",
+        "refresh": "Actualiser",
+        "modeLabel": "Accès sortant",
+        "mode": {
+          "full": {
+            "label": "Internet complet",
+            "description": "Toute adresse publique."
+          },
+          "allowlist": {
+            "label": "Liste d’autorisation",
+            "description": "Uniquement les préréglages, domaines et plages IP que vous indiquez."
+          },
+          "none": {
+            "label": "Pas d’internet",
+            "description": "Uniquement les hôtes cmux listés ci-dessous."
+          }
+        },
+        "presetsTitle": "Préréglages",
+        "presetsNote": "Chaque préréglage ajoute des noms d’hôte exacts. Un service qui utilise d’autres sous-domaines peut nécessiter des domaines supplémentaires.",
+        "domainsTitle": "Domaines",
+        "domainsNote": "Noms d’hôte exacts uniquement, HTTPS sur le port 443 uniquement. Les caractères génériques ne sont pas encore pris en charge.",
+        "domainInput": "Domaine",
+        "rangesTitle": "Plages IP",
+        "rangesNote": "Le pare-feu du fournisseur les applique en dehors de la machine. Laissez le port vide pour autoriser tous les ports. Un port nécessite un protocole.",
+        "cidrInput": "Plage IP (CIDR)",
+        "portInput": "Port",
+        "protocolInput": "Protocole",
+        "anyProtocol": "tous",
+        "noteInput": "Note (facultative)",
+        "allPorts": "tous les ports",
+        "dnsLabel": "Autoriser le DNS",
+        "dnsNote": "Permet aux outils de résoudre les noms vers lesquels pointent vos plages IP. Les domaines n’ont pas besoin du DNS. Un DNS ouvert est un canal sortant : un processus peut envoyer des données dans les noms qu’il interroge.",
+        "requiredTitle": "Toujours autorisés",
+        "requiredNote": "cmux a besoin de ces hôtes dans tous les modes pour installer et mettre à jour la CLI sur la machine.",
+        "add": "Ajouter",
+        "remove": "Supprimer",
+        "discard": "Annuler les modifications",
+        "close": "Fermer",
+        "apply": "Appliquer"
+      },
       "revokeApiKeyConfirmBody": "Les clients utilisant cette clé ne pourront plus s’authentifier immédiatement.",
       "apiKeysEmptyTitle": "Aucune clé API pour l’instant",
       "apiKeysEmptyHint": "Créez-en une pour authentifier un client CodeRouter.",
@@ -2070,6 +2157,7 @@
           "defaultSearchEngine": "Moteur de recherche par défaut pour les saisies de la barre d’adresse du navigateur qui ne sont pas des URL. Utilisez custom avec customSearchEngineURLTemplate pour d’autres fournisseurs.",
           "customSearchEngineName": "Nom affiché lorsque defaultSearchEngine vaut custom.",
           "customSearchEngineURLTemplate": "URL de recherche utilisée lorsque defaultSearchEngine vaut custom. Incluez l’espace réservé de requête ou %s pour la requête encodée. Sans espace réservé, cmux ajoute q= à l’URL.",
+          "showLinkHoverURL": "Affiche la destination d’un lien en bas à gauche du panneau du navigateur lorsque le pointeur survole le lien ou que le lien a le focus clavier.",
           "urlAllowlist": "Motifs d’hôte ou d’URL qui limitent la navigation du navigateur intégré. Les réglages suggèrent les origines de développement local ; enregistrer une liste active la restriction facultative. Supprimez des entrées pour les bloquer ou laissez la valeur utilisateur vide, sans politique gérée, pour désactiver la restriction."
         },
         "workspaceGroups": {
@@ -2844,14 +2932,21 @@
       "planMax": "Max",
       "sizesDefault": "Les nouvelles machines utilisent 8 GB de mémoire si vous ne choisissez pas de taille. Exécutez cmux vm ls --json pour voir les tailles autorisées par votre forfait.",
       "limitsTitle": "Limites de forfait",
-      "limitsDesc": "Les limites de forfait comptent les machines, pas un pool partagé de CPU ou de mémoire. Chaque machine reçoit les ressources de sa taille.",
+      "limitsDesc": "Vos machines actives partagent un même pool de vCPU et de mémoire. Lancez une grande machine ou plusieurs petites. Les machines en pause n'utilisent pas le pool. Le disque est défini par machine et ne fait pas partie du pool.",
       "limitsFree": "Les comptes gratuits ne peuvent pas créer de machines.",
-      "limitsPaid": "Les comptes Pro et Max peuvent avoir jusqu'à 50 machines actives. Une machine est active tant qu'elle est en cours d'exécution ou de démarrage.",
-      "limitsTeam": "Les comptes Team peuvent avoir jusqu'à 50 machines actives par siège payant.",
-      "limitsMax": "Les machines de plus de 24 GB nécessitent cmux Max.",
+      "limitsPaid": "Les comptes Pro et Founder's Edition peuvent avoir jusqu'à 5 machines actives qui partagent 20 vCPU et 40 GB de mémoire. Une machine est active tant qu'elle est en cours d'exécution ou de démarrage.",
+      "limitsTeam": "Les comptes Team peuvent avoir jusqu'à 5 machines actives par siège payant. Chaque siège payant ajoute 20 vCPU et 40 GB de mémoire au pool de l'équipe.",
+      "limitsMax": "Les comptes Max peuvent avoir jusqu'à 5 machines actives qui partagent 80 vCPU et 160 GB de mémoire. Une machine peut aller jusqu'à 32 GB et 16 vCPU avec Pro et Team, ou jusqu'à 64 GB et 32 vCPU avec Max.",
+      "limitsPoolFull": "Si une machine créée, reprise, agrandie ou dupliquée dépasse le pool, cmux refuse la demande et indique la part du pool déjà utilisée. Mettez en pause ou supprimez une machine pour libérer des ressources, ou passez à Max.",
       "limitsPricing": "Consultez la page des tarifs pour les prix actuels. Il n'y a ni facturation à l'usage ni frais de dépassement.",
+      "agentUpdatesTitle": "Garder les agents de code à jour",
+      "agentUpdatesDesc": "Avec ce réglage activé, la machine met à jour Claude Code, Codex, OpenCode, pi et agent-browser. Elle vérifie après la création de la machine et à chaque connexion, au plus une fois toutes les 24 heures. La mise à jour s'exécute en arrière-plan de façon détachée, elle ne bloque donc jamais la connexion.",
+      "agentUpdatesSource": "Chaque outil provient de sa version GitHub officielle et est vérifié avec l'empreinte sha256 de l'asset de la version. npm n'est pas utilisé. Une version ne s'installe qu'après 3 jours de publication, et une mise à jour n'installe jamais une version plus ancienne. Un agent en cours d'exécution garde les fichiers avec lesquels il a démarré, et une mise à jour échouée laisse la version actuelle en place.",
+      "agentUpdatesStatus": "Le résultat de la dernière vérification se trouve dans /etc/cmux/agent-updates.state, et le journal de la mise à jour dans /var/log/cmux-agent-updates.log. Une vérification échouée est relancée à la connexion suivante.",
+      "agentUpdatesToggle": "La feuille Nouvelle machine active ce réglage par défaut. Pour le changer sur une machine existante, faites un clic droit sur la machine et choisissez Garder les agents à jour, ou exécutez cmux vm agent-updates. cmux vm new garde les versions de l'image sauf si vous passez --agent-updates latest. Désactiver les mises à jour conserve les versions déjà installées.",
+      "agentUpdatesNetwork": "Les mises à jour n'utilisent que github.com, api.github.com, objects.githubusercontent.com et release-assets.githubusercontent.com. cmux autorise ces hôtes dans tous les modes réseau, y compris Liste autorisée et Pas d'internet, donc une politique réseau ne bloque jamais les mises à jour.",
       "resizeTitle": "Redimensionner",
-      "resizeDesc": "Vous pouvez agrandir une machine sans perte de données. Faites un clic droit sur la machine et choisissez Resize machine, ou utilisez cmux vm resize. Le redimensionnement ne peut qu'agrandir une machine. Le disque augmente par paliers de 4 GB jusqu'à 256 GB, la mémoire jusqu'à 64 GB et le CPU jusqu'à 32 vCPU. Votre forfait fixe le maximum réel.",
+      "resizeDesc": "Vous pouvez agrandir une machine sans perte de données. Faites un clic droit sur la machine et choisissez Resize machine, ou utilisez cmux vm resize. Le redimensionnement ne peut qu'agrandir une machine. Le disque augmente par paliers de 4 GB jusqu'à 256 GB. La mémoire va jusqu'à 32 GB et le CPU jusqu'à 16 vCPU avec Pro et Team, ou jusqu'à 64 GB et 32 vCPU avec Max. Une machine plus grande utilise davantage votre pool. Votre forfait fixe le maximum réel.",
       "pauseTitle": "Mettre en pause et reprendre",
       "pauseDesc": "cmux vm pause arrête le calcul de la machine. Le disque, les espaces de travail et l'historique des terminaux sont conservés. Les processus en cours s'arrêtent. cmux vm resume redémarre la machine. Ouvrir une machine en pause ou y exécuter une commande la redémarre aussi.",
       "pauseIdle": "Les machines ne se mettent pas en pause d'elles-mêmes lorsqu'elles sont inactives. Une machine continue de tourner jusqu'à ce que vous la mettiez en pause ou la supprimiez.",
@@ -3002,9 +3097,11 @@
       "errPlan": "Les VM Cloud nécessitent un forfait payant",
       "fixPlan": "Les comptes gratuits ne peuvent pas créer de machines. Passez à un forfait payant sur la page des tarifs.",
       "errSize": "Une taille nécessite un forfait supérieur",
-      "fixSize": "Les machines de plus de 24 GB nécessitent cmux Max. Choisissez une taille plus petite ou passez à un forfait supérieur.",
+      "fixSize": "Les machines de plus de 32 GB nécessitent cmux Max. Choisissez une taille plus petite ou passez à un forfait supérieur.",
       "errLimit": "Limite de machines actives atteinte",
       "fixLimit": "Mettez en pause ou supprimez une machine, puis réessayez.",
+      "errPool": "Ressources Cloud VM insuffisantes",
+      "fixPool": "Vos machines actives utilisent déjà les vCPU ou la mémoire partagés. Mettez en pause ou supprimez une machine, choisissez une taille plus petite ou passez à Max.",
       "errLocked": "La machine est verrouillée",
       "fixLocked": "Votre forfait payant a pris fin et la machine a plus de 7 jours. Reprenez un forfait payant pour vous reconnecter. Vos fichiers sont conservés.",
       "errAgentMissing": "claude ou codex : command not found",
@@ -5107,7 +5204,8 @@
   "pricing": {
     "billingUnavailable": "La facturation n'est pas disponible pour le moment. Réessayez plus tard.",
     "signedOutNotice": "Vous n'êtes pas connecté. Connectez-vous pour voir votre forfait actuel ou restaurer un achat existant.",
-    "signedOutSignIn": "Se connecter"
+    "signedOutSignIn": "Se connecter",
+    "manageInAppStore": "Gérer dans l’App Store"
   },
   "platforms": {
     "macos": "macOS",
@@ -5249,7 +5347,7 @@
   "appProWelcome": {
     "eyebrow": "cmux Pro est actif",
     "title": "Bienvenue dans cmux Pro",
-    "body": "Les fonctionnalités Pro sont encore en cours de développement. L’accès au cloud arrive bientôt, avec des crédits d’utilisation cumulés pour chaque mois d’abonnement. Aujourd’hui, Pro inclut l’accès à cmux iOS via TestFlight.",
+    "body": "Pro inclut jusqu’à 5 VM Cloud partageant 20 vCPU et 40 Go de RAM, ainsi que l’accès à cmux iOS via TestFlight.",
     "done": "Accéder au tableau de bord",
     "steps": {
       "iosApp": {

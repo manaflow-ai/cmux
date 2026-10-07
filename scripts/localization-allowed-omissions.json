@@ -462,6 +462,26 @@
     "source": "%@ [%@] clients=%lld socket=%@",
     "class": "syntax"
   },
+  "cli.localZellij.output.attached": {
+    "source": "OK session=%@ surface=%@ mode=local-zellij",
+    "class": "syntax"
+  },
+  "cli.localZellij.output.idSuffix": {
+    "source": " id=%@",
+    "class": "syntax"
+  },
+  "cli.localZellij.output.record": {
+    "source": "OK session=%@ id=%@ state=%@ socket=%@",
+    "class": "syntax"
+  },
+  "cli.localZellij.output.sessionRow": {
+    "source": "%@ [%@]",
+    "class": "syntax"
+  },
+  "cli.localZellij.output.status": {
+    "source": "%@ [%@] socket=%@",
+    "class": "syntax"
+  },
   "cli.readSelection.output.url": {
     "class": "format",
     "source": "URL: %@"
@@ -2059,13 +2079,18 @@
       "de": "Reviewed native word, technical abbreviation, or SaaS tier name with the same spelling in this context."
     }
   },
-  "pricing.native.compare.concurrent.free": {
-    "class": "format",
-    "source": "1"
-  },
   "pricing.native.compare.concurrent.paid": {
-    "class": "format",
-    "source": "50"
+    "source": "5",
+    "identityLocales": {
+      "de": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
+      "fr": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
+      "ar": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
+      "es": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
+      "zh-Hant": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
+      "zh-Hans": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
+      "ko": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
+      "ja": "The concurrent machine count is a numeric plan limit and is invariant across locales."
+    }
   },
   "pricing.native.compare.support.community": {
     "source": "Community",
@@ -4286,6 +4311,17 @@
       "ko": "Name: value separator between two runtime placeholders; the colon and spacing are correct unchanged in this locale. The translated entry is still required."
     }
   },
+  "cli.vm.tree.vcpu": {
+    "source": "%.0f vCPU",
+    "identityLocales": {
+      "de": "vCPU is an invariant resource unit symbol; placeholders and the separator are identical in this locale.",
+      "fr": "vCPU is an invariant resource unit symbol; placeholders and the separator are identical in this locale.",
+      "es": "vCPU is an invariant resource unit symbol; placeholders and the separator are identical in this locale.",
+      "ar": "vCPU is an invariant resource unit symbol; the placeholder is identical in this locale.",
+      "ja": "vCPU is an invariant resource unit symbol; the placeholder is identical in this locale.",
+      "ko": "vCPU is an invariant resource unit symbol; the placeholder is identical in this locale."
+    }
+  },
   "terminalSharing.device.mac": {
     "class": "brand",
     "source": "Mac"
@@ -4378,6 +4414,10 @@
       "de": "\"Desktop\" is the established German loanword, spelled identically."
     }
   },
+  "browser.repl.sessionTabTitle": {
+    "class": "format",
+    "source": "%1$@ · %2$@"
+  },
   "cli.help.agents.messages": {
     "source": "agent messages [on|off|status] [<target>] [--workspace]",
     "identityLocales": {
@@ -4400,6 +4440,503 @@
       "uk": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
       "zh-Hans": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
       "zh-Hant": "Command-line syntax is invariant across locales; the translated catalog entry is still required."
+    }
+  },
+  "pricing.native.compare.concurrent.free": {
+    "source": "1",
+    "identityLocales": {
+      "de": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
+      "fr": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
+      "ar": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
+      "es": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
+      "zh-Hant": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
+      "zh-Hans": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
+      "ko": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
+      "ja": "The concurrent machine count is a numeric plan limit and is invariant across locales."
+    }
+  },
+  "machines.new.plan.retry": {
+    "source": "Retry",
+    "identityLocales": {
+      "ar": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Retry"
+        ]
+      },
+      "bs": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Retry"
+        ]
+      },
+      "da": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Retry"
+        ]
+      },
+      "de": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Retry"
+        ]
+      },
+      "es": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Retry"
+        ]
+      },
+      "fr": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Retry"
+        ]
+      },
+      "it": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Retry"
+        ]
+      },
+      "ja": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Retry"
+        ]
+      },
+      "km": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Retry"
+        ]
+      },
+      "ko": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Retry"
+        ]
+      },
+      "nb": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Retry"
+        ]
+      },
+      "pl": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Retry"
+        ]
+      },
+      "pt-BR": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Retry"
+        ]
+      },
+      "ru": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Retry"
+        ]
+      },
+      "th": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Retry"
+        ]
+      },
+      "tr": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Retry"
+        ]
+      },
+      "uk": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Retry"
+        ]
+      },
+      "zh-Hans": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Retry"
+        ]
+      },
+      "zh-Hant": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Retry"
+        ]
+      }
+    }
+  },
+  "machines.new.plan.error": {
+    "source": "Cloud plan details are still loading. Retry in a moment.",
+    "identityLocales": {
+      "ar": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Cloud plan details are still loading. Retry in a moment."
+        ]
+      },
+      "bs": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Cloud plan details are still loading. Retry in a moment."
+        ]
+      },
+      "da": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Cloud plan details are still loading. Retry in a moment."
+        ]
+      },
+      "de": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Cloud plan details are still loading. Retry in a moment."
+        ]
+      },
+      "es": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Cloud plan details are still loading. Retry in a moment."
+        ]
+      },
+      "fr": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Cloud plan details are still loading. Retry in a moment."
+        ]
+      },
+      "it": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Cloud plan details are still loading. Retry in a moment."
+        ]
+      },
+      "ja": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Cloud plan details are still loading. Retry in a moment."
+        ]
+      },
+      "km": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Cloud plan details are still loading. Retry in a moment."
+        ]
+      },
+      "ko": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Cloud plan details are still loading. Retry in a moment."
+        ]
+      },
+      "nb": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Cloud plan details are still loading. Retry in a moment."
+        ]
+      },
+      "pl": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Cloud plan details are still loading. Retry in a moment."
+        ]
+      },
+      "pt-BR": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Cloud plan details are still loading. Retry in a moment."
+        ]
+      },
+      "ru": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Cloud plan details are still loading. Retry in a moment."
+        ]
+      },
+      "th": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Cloud plan details are still loading. Retry in a moment."
+        ]
+      },
+      "tr": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Cloud plan details are still loading. Retry in a moment."
+        ]
+      },
+      "uk": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Cloud plan details are still loading. Retry in a moment."
+        ]
+      },
+      "zh-Hans": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Cloud plan details are still loading. Retry in a moment."
+        ]
+      },
+      "zh-Hant": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Cloud plan details are still loading. Retry in a moment."
+        ]
+      }
+    }
+  },
+  "machines.new.plan.loading": {
+    "source": "Loading your Cloud machine plan…",
+    "identityLocales": {
+      "de": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Loading your Cloud machine plan…"
+        ]
+      },
+      "fr": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Loading your Cloud machine plan…"
+        ]
+      },
+      "ar": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Loading your Cloud machine plan…"
+        ]
+      },
+      "es": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Loading your Cloud machine plan…"
+        ]
+      },
+      "zh-Hant": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Loading your Cloud machine plan…"
+        ]
+      },
+      "zh-Hans": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Loading your Cloud machine plan…"
+        ]
+      },
+      "ko": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Loading your Cloud machine plan…"
+        ]
+      },
+      "ja": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Loading your Cloud machine plan…"
+        ]
+      }
+    }
+  },
+  "surfaceTabBar.compact.menu.terminal": {
+    "source": "Terminal",
+    "identityLocales": {
+      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "es": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "surfaceTabBar.compact.menu.browser": {
+    "source": "Browser",
+    "identityLocales": {
+      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "cloudTree.group.coderouter": {
+    "class": "brand",
+    "source": "Coderouter"
+  },
+  "coderouter.guide.title": {
+    "class": "brand",
+    "source": "coderouter"
+  },
+  "cli.help.agents.inbox": {
+    "source": "agent inbox [--surface <target>] [--state <state>] [--mark-read]",
+    "identityLocales": {
+      "ar": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "de": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "es": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "fr": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "ja": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "ko": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "zh-Hans": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "zh-Hant": "Command-line syntax is invariant across locales; the translated catalog entry is still required."
+    }
+  },
+  "cli.help.agents.message": {
+    "source": "agent message <target> [--from <name>] <text|->",
+    "identityLocales": {
+      "ar": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "de": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "es": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "fr": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "ja": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "ko": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "zh-Hans": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "zh-Hant": "Command-line syntax is invariant across locales; the translated catalog entry is still required."
+    }
+  },
+  "cli.help.agents.reply": {
+    "source": "agent message --reply-to <id> [--from <name>] <text|->",
+    "identityLocales": {
+      "ar": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "de": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "es": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "fr": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "ja": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "ko": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "zh-Hans": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "zh-Hant": "Command-line syntax is invariant across locales; the translated catalog entry is still required."
+    }
+  },
+  "cloudTree.device.build.dev": {
+    "source": "DEV",
+    "identityLocales": {
+      "ar": "DEV is the invariant cmux build channel name.",
+      "de": "DEV is the invariant cmux build channel name.",
+      "es": "DEV is the invariant cmux build channel name.",
+      "fr": "DEV is the invariant cmux build channel name.",
+      "ja": "DEV is the invariant cmux build channel name.",
+      "ko": "DEV is the invariant cmux build channel name.",
+      "zh-Hans": "DEV is the invariant cmux build channel name.",
+      "zh-Hant": "DEV is the invariant cmux build channel name."
+    }
+  },
+  "cloudTree.device.build.nightly": {
+    "source": "Nightly",
+    "identityLocales": {
+      "ar": "Nightly is the invariant cmux build channel name.",
+      "de": "Nightly is the invariant cmux build channel name.",
+      "es": "Nightly is the invariant cmux build channel name.",
+      "fr": "Nightly is the invariant cmux build channel name.",
+      "ja": "Nightly is the invariant cmux build channel name.",
+      "ko": "Nightly is the invariant cmux build channel name.",
+      "zh-Hans": "Nightly is the invariant cmux build channel name.",
+      "zh-Hant": "Nightly is the invariant cmux build channel name."
+    }
+  },
+  "cloudTree.device.build.rc": {
+    "source": "RC",
+    "identityLocales": {
+      "ar": "RC is the invariant cmux build channel name.",
+      "de": "RC is the invariant cmux build channel name.",
+      "es": "RC is the invariant cmux build channel name.",
+      "fr": "RC is the invariant cmux build channel name.",
+      "ja": "RC is the invariant cmux build channel name.",
+      "ko": "RC is the invariant cmux build channel name.",
+      "zh-Hans": "RC is the invariant cmux build channel name.",
+      "zh-Hant": "RC is the invariant cmux build channel name."
+    }
+  },
+  "cloudTree.device.build.staging": {
+    "source": "Staging",
+    "identityLocales": {
+      "ar": "Staging is the invariant cmux build channel name.",
+      "de": "Staging is the invariant cmux build channel name.",
+      "es": "Staging is the invariant cmux build channel name.",
+      "fr": "Staging is the invariant cmux build channel name.",
+      "ja": "Staging is the invariant cmux build channel name.",
+      "ko": "Staging is the invariant cmux build channel name.",
+      "zh-Hans": "Staging is the invariant cmux build channel name.",
+      "zh-Hant": "Staging is the invariant cmux build channel name."
+    }
+  },
+  "cloudTree.device.build.tagged": {
+    "source": "%1$@ · %2$@",
+    "identityLocales": {
+      "ar": "Format-only string; the placeholders and separator are invariant.",
+      "de": "Format-only string; the placeholders and separator are invariant.",
+      "es": "Format-only string; the placeholders and separator are invariant.",
+      "fr": "Format-only string; the placeholders and separator are invariant.",
+      "ja": "Format-only string; the placeholders and separator are invariant.",
+      "ko": "Format-only string; the placeholders and separator are invariant.",
+      "zh-Hans": "Format-only string; the placeholders and separator are invariant.",
+      "zh-Hant": "Format-only string; the placeholders and separator are invariant."
+    }
+  },
+  "mobile.agentFeed.filter": {
+    "source": "Filter",
+    "identityLocales": {
+      "de": "Filter has the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "mobile.agentFeed.title": {
+    "source": "Feed",
+    "identityLocales": {
+      "de": "Feed is the established product term in this locale; a translated entry is still required.",
+      "es": "Feed is the established product term in this locale; a translated entry is still required."
+    }
+  },
+  "mobile.tabs.feed": {
+    "source": "Feed",
+    "identityLocales": {
+      "de": "Feed is the established product term in this locale; a translated entry is still required.",
+      "es": "Feed is the established product term in this locale; a translated entry is still required."
+    }
+  },
+  "cloud.network.domains.label": {
+    "source": "Domains (HTTPS)",
+    "identityLocales": {
+      "de": "Domains and HTTPS are the established technical terms in this locale; a translated entry is still required."
+    }
+  },
+  "cloud.network.ranges.port": {
+    "source": "Port",
+    "identityLocales": {
+      "de": "Port is the established networking term with the same spelling in this locale; a translated entry is still required.",
+      "fr": "Port is the established networking term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "cloudTree.device.status.offline": {
+    "source": "Offline",
+    "identityLocales": {
+      "de": "Offline has the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "cloudTree.device.status.online": {
+    "source": "Online",
+    "identityLocales": {
+      "de": "Online has the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "machines.new.row.agents.short": {
+    "source": "Agents",
+    "identityLocales": {
+      "de": "Agents has the same spelling in this locale; a translated entry is still required.",
+      "fr": "Agents has the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "sidebar.account.settingsLabel": {
+    "source": "%1$@, %2$@",
+    "identityLocales": {
+      "de": "Format-only string; the placeholders and separator are invariant.",
+      "es": "Format-only string; the placeholders and separator are invariant.",
+      "fr": "Format-only string; the placeholders and separator are invariant.",
+      "ko": "Format-only string; the placeholders and separator are invariant."
+    }
+  },
+  "mobile.agentFeed.question.pageLabel": {
+    "source": "Question %lld",
+    "identityLocales": {
+      "fr": "Question has the same spelling in this locale; the placeholder is invariant."
     }
   }
 }

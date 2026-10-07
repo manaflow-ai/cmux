@@ -3,7 +3,7 @@ import { renderToReadableStream } from "react-dom/server";
 import { renderSettled } from "./helpers/render-settled";
 import { readInitialMain } from "./helpers/render-stream";
 
-import { stripeSubscriptions } from "../db/schema";
+import { appleSubscriptions, stripeSubscriptions } from "../db/schema";
 import enMessages from "../messages/en.json";
 import jaMessages from "../messages/ja.json";
 import { fallbackContentLocales } from "../i18n/locale-availability";
@@ -20,6 +20,19 @@ const realCreateAwsRdsIamPool = dbClientModule.createAwsRdsIamPool;
 
 let stackConfigured = false;
 let stripeSubscriptionRows: Array<Record<string, unknown>> = [];
+let appleRows: Array<Record<string, unknown>> = [];
+function rowsFor(table: unknown): Array<Record<string, unknown>> {
+  if (table === stripeSubscriptions) return stripeSubscriptionRows;
+  if (table === appleSubscriptions) return appleRows;
+  return [];
+}
+function appleMaxRow() {
+  return {
+    originalTransactionId: "otx-apple", planId: "max", status: "active", environment: "Production",
+    bundleId: "com.cmux.app", expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), gracePeriodExpiresAt: null,
+    autoRenewEnabled: true,
+  };
+}
 const proUser = {
   id: "user-pro",
   isAnonymous: false,
@@ -90,18 +103,18 @@ mock.module("../db/client", () => ({
   cloudDb: () => withAccountMutationLeaseSupport({
     select: () => ({
       from: (table: unknown) => ({
-        where: () => Object.assign(Promise.resolve(table === stripeSubscriptions ? stripeSubscriptionRows : []), {
-          limit: async () => (table === stripeSubscriptions ? stripeSubscriptionRows : []),
+        where: () => Object.assign(Promise.resolve(rowsFor(table)), {
+          limit: async () => rowsFor(table),
         }),
       }),
     }),
   }),
 }));
 
-const { default: PricingPage } = await import("../app/[locale]/pricing/page");
+const { default: PricingPage } = await import("../app/[locale]/(landing)/pricing/page");
 
 describe("localized pricing page", () => {
-  test("hides Go and all annual offers when the Go rollout is disabled", async () => {
+  test("hides Go when the Go rollout is disabled", async () => {
     const previous = process.env.CMUX_TEST_GO_PLAN_DISABLED;
     process.env.CMUX_TEST_GO_PLAN_DISABLED = "1";
     try {
@@ -110,8 +123,6 @@ describe("localized pricing page", () => {
       expect(html).toContain("Get Max");
       expect(html).not.toContain("Get Go");
       expect(html).not.toContain("$10");
-      expect(html).not.toContain("Save 20%");
-      expect(html).not.toContain("interval=year");
       expect(html).toContain("25% repeat(5,15%)");
     } finally {
       if (previous === undefined) delete process.env.CMUX_TEST_GO_PLAN_DISABLED;
@@ -130,7 +141,7 @@ describe("localized pricing page", () => {
     try {
       const first = await readInitialMain(reader);
       expect(first.includes("$50") && first.includes("$200")).toBe(true);
-      expect(first.includes("Up to 50 Cloud VMs sharing 64 GB RAM and 16 vCPUs")).toBe(true);
+      expect(first.includes("Up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM")).toBe(true);
       expect(first.includes("animate-pulse")).toBe(false);
       expect(first.includes("Current plan")).toBe(false);
     } finally {
@@ -155,15 +166,15 @@ describe("localized pricing page", () => {
     }
   });
 
-  test("shows monthly prices only even for old annual pricing links", async () => {
+  test("offers yearly billing on Pro only", async () => {
     const element = await PricingPage({ params: Promise.resolve({ locale: "en" }), searchParams: Promise.resolve({ interval: "year" }) });
     const html = (await renderSettled(element));
     expect(html).toContain("$50");
     expect(html).toContain("$200");
-    expect(html).not.toContain('role="radiogroup"');
-    expect(html).not.toContain("Save 20%");
-    expect(html).not.toContain("interval=year");
-    expect(html).not.toContain("billed annually");
+    expect(html).not.toMatch(/billed yearly, save/);
+    expect(html).toContain("$40");
+    expect(html).toMatch(/interval(=|%3D|%253D)year/);
+    expect(html).not.toMatch(/plan=(go|max|team)[^"]*interval=year/);
   });
 
   test("publishes pricing only in its fully authored English and Japanese catalogs", () => {
@@ -172,10 +183,12 @@ describe("localized pricing page", () => {
 
   test("keeps paid-plan copy flat: no metering, trials, or CodeRouter", () => {
     expect(enMessages.pricing.team.features).toEqual([
+      "Up to 5 Cloud VMs per paid seat, sharing 20 vCPUs and 40 GB RAM per paid seat across the team",
       "Centralized billing for your whole team",
       "Priority support",
     ]);
     expect(jaMessages.pricing.team.features).toEqual([
+      "有料シートごとに最大 5 台の Cloud VM、有料シートごとの 20 vCPU と 40 GB RAM をチーム全体で共有",
       "チーム全体の一元請求",
       "優先サポート",
     ]);
@@ -200,9 +213,9 @@ describe("localized pricing page", () => {
       label: "Concurrent Cloud VMs",
       go: "1",
       free: "false",
-      pro: "50",
-      max: "50",
-      team: "50 per user",
+      pro: "5",
+      max: "5",
+      team: "5 per paid seat",
       enterprise: "Custom",
     });
     expect(enMessages.dashboard.billing.free.upsellTitle).toBe(
@@ -267,13 +280,13 @@ describe("localized pricing page", () => {
     expect(html).toContain("plan%253Dpro");
     expect(html).toContain("plan%253Dteam");
     expect(html).toMatch(
-      /href="\/handler\/sign-in\?after_auth_return_to=[^"]*plan%253Dpro[^"]*"[^>]*class="[^"]*min-h-12 px-5 py-3 text-\[15px\][^"]*"[^>]*><span>Get Pro/,
+      /href="\/handler\/sign-in\?after_auth_return_to=[^"]*plan%253Dpro[^"]*"[^>]*class="[^"]*h-12 px-5 text-\[15px\][^"]*"[^>]*><span>Get Pro/,
     );
     expect(html).toMatch(
-      /href="\/handler\/sign-in\?after_auth_return_to=[^"]*plan%253Dteam[^"]*"[^>]*class="[^"]*min-h-12 px-5 py-3 text-\[15px\][^"]*"[^>]*><span>Get Teams/,
+      /href="\/handler\/sign-in\?after_auth_return_to=[^"]*plan%253Dteam[^"]*"[^>]*class="[^"]*h-12 px-5 text-\[15px\][^"]*"[^>]*><span>Get Teams/,
     );
     expect(html).toMatch(
-      /href="\/handler\/sign-in\?after_auth_return_to=[^"]*plan%253Dmax[^"]*"[^>]*class="[^"]*min-h-12 px-5 py-3 text-\[15px\][^"]*"[^>]*><span>Get Max/,
+      /href="\/handler\/sign-in\?after_auth_return_to=[^"]*plan%253Dmax[^"]*"[^>]*class="[^"]*h-12 px-5 text-\[15px\][^"]*"[^>]*><span>Get Max/,
     );
     expect(html).toContain('<p class="mt-5 text-sm font-medium">Includes:</p>');
     expect(html).not.toContain('style="min-height:4rem"');
@@ -302,7 +315,7 @@ describe("localized pricing page", () => {
     expect(html).toContain("$200");
     expect(html).toContain("$200 /mo");
     expect(html).not.toContain("$200/mo, billed yearly");
-    expect(html).toContain("Up to 50 Cloud VMs sharing 64 GB RAM and 16 vCPUs");
+    expect(html).toContain("Up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM");
     expect(html).toContain("Get Go");
     expect(html).toContain("2 vCPU, 4 GiB RAM, and 16 GiB disk");
     expect(html).toContain("For individuals");
@@ -362,6 +375,20 @@ describe("localized pricing page", () => {
     expect(html).toMatch(/plan=max[^"]*"[^>]*><span>Get Max/);
   });
 
+  test("an App Store subscriber who also pays Stripe keeps Stripe's Manage billing", async () => {
+    stackConfigured = true;
+    stripeSubscriptionRows = [{ id: "sub_123", plan: "pro" }];
+    appleRows = [appleMaxRow()];
+
+    const element = await PricingPage({ params: Promise.resolve({ locale: "en" }) });
+    const html = (await renderSettled(element));
+    appleRows = [];
+
+    expect(html).toContain("Manage in the App Store");
+    expect(html).toContain('href="/api/billing/portal"');
+    expect(html).toContain("Manage billing");
+  });
+
   test("renders monthly offers for an old annual link", async () => {
     const element = await PricingPage({
       params: Promise.resolve({ locale: "en" }),
@@ -417,7 +444,7 @@ describe("localized pricing page", () => {
     expect(html).toContain("$50");
     expect(html).toContain("$60");
     expect(html).toContain(
-      "Up to 50 Cloud VMs, with 24 GB RAM and 6 vCPUs shared across all VMs",
+      "Up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM",
     );
     expect(html).toContain("Unlimited workspaces");
     expect(html).not.toContain("Unlimited active Cloud VMs");

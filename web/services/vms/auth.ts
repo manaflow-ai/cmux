@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { eq } from "drizzle-orm";
+import { after } from "next/server";
 import { getStackServerApp, isStackConfigured } from "../../app/lib/stack";
 import {
   stackAccessTokenVerifierFromEnv,
@@ -290,6 +291,35 @@ export async function withSubrouterAuthorizationDeadline<T>(
     ]);
   } finally {
     if (timeout !== undefined) clearTimeout(timeout);
+  }
+}
+
+/**
+ * Run a Stack call under a caller's authorization deadline. The call shares
+ * the deadline-gated concurrency slots and `cmux.stack_auth.*` span with
+ * verification, and rejects with `SubrouterAuthorizationTimeoutError` once the
+ * signal aborts. A call that has not started when the signal aborts never
+ * starts.
+ */
+export function deadlineGatedStackCall<T>(
+  operation: () => Promise<T>,
+  signal: AbortSignal,
+  operationName: string,
+): Promise<T> {
+  return stackAuthorizationCall(operation, signal, operationName);
+}
+
+/**
+ * Persist the identity snapshot after the response. `after` keeps the
+ * function alive on Vercel; outside a request scope (tests, scripts) it
+ * throws and the write runs detached. The write already swallows its own
+ * failures.
+ */
+function deferIdentitySnapshotWrite(write: () => Promise<void>): void {
+  try {
+    after(write);
+  } catch {
+    void write();
   }
 }
 
@@ -591,9 +621,15 @@ async function verifyNativeRequest(
     }
     if (resolved) {
       recordAuthResolution({ source: "stack", providerCalled: true });
-      await writeIdentitySnapshot(resolved.user, {
+      const writeSnapshot = () => writeIdentitySnapshot(resolved.user, {
         completeTeamList: resolved.completeTeamList,
       });
+      // The snapshot is a best-effort optimization. A deadline-gated caller
+      // must not spend its Stack budget waiting for a database connection:
+      // production traces showed this upsert idle 6-11 s behind a saturated
+      // pool, which alone pushed /api/coderouter/organizations past 10 s.
+      if (options.subrouterAuthorizationSignal) deferIdentitySnapshotWrite(writeSnapshot);
+      else await writeSnapshot();
     }
     return resolved?.user ?? null;
   }

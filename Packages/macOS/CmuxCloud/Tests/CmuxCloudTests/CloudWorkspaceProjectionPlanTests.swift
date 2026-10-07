@@ -8,6 +8,28 @@ import Testing
 struct CloudWorkspaceProjectionPlanTests {
     private let machine = SurfaceMachineID.cloud("desktop-plan")
 
+    @Test("A workspace display shown by its own pane is listed once")
+    func membershipDisplayIsNotListedTwiceForItsLocalPane() {
+        let display = SurfaceResourceID(machine: machine, kind: .display, key: "display:1")
+        let workspace = SurfaceRemoteWorkspace(id: "remote-workspace", name: "layout", index: 0, focused: true)
+        let pool = SurfaceResource(id: display, title: "Display 1", detail: nil, lifecycle: .running,
+                                   agent: nil, remoteWorkspace: nil, remoteViews: nil, port: 6901, url: nil)
+        // `cloudWorkspaceResources` appends a copy of a member display that
+        // carries the membership view, keeping the pool resource first.
+        var member = pool
+        member.remoteViews = [SurfaceRemoteView(
+            tabID: SurfaceRemoteView.cloudDisplayMembershipViewPrefix + "view-1",
+            workspace: workspace, name: nil, index: 0, focused: false
+        )]
+        member.remoteWorkspace = workspace
+        let pane = SurfaceProjection(resource: display, workspaceID: UUID(), panelID: UUID(),
+                                     remoteWorkspaceID: workspace.id)
+
+        let extra = SurfaceProjection.localWorkspaceMembers(resources: [pool, member], projections: [pane])
+
+        #expect(extra.isEmpty)
+    }
+
     @Test("A local Desktop preview survives a refresh with a remote placement")
     func localDisplayPreviewIsNotClosedAsObsolete() {
         let display = SurfaceResourceID(machine: machine, kind: .display, key: "display:1")

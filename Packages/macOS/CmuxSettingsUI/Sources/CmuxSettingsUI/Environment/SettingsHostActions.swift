@@ -44,7 +44,7 @@ public final class CustomSidebarTemplateGalleryRequest {
 /// check for `nil` callbacks and hide the corresponding buttons
 /// when no host action is available.
 @MainActor
-public protocol SettingsHostActions: AnyObject {
+public protocol SettingsHostActions: AnyObject, CloudMachinesSettingsActions {
     func computersSettingsActions() -> ComputersSettingsActions
     /// A registry snapshot used to populate the per-agent notification sound
     /// matrix. The host owns discovery so newly registered agents appear
@@ -396,37 +396,6 @@ public protocol SettingsHostActions: AnyObject {
     /// Opens the Screen Recording pane in System Settings.
     func openComputerUseScreenRecordingSettings()
 
-    /// Whether the host exposes Cloud Machines (persistent cloud VMs). When
-    /// false the Cloud Machines settings section renders nothing.
-    var isCloudMachinesAvailable: Bool { get }
-
-    /// The caller's machine plan: plan name, machines in use, and the plan's
-    /// machine ceiling. `nil` when signed out or the backend is unreachable.
-    func cloudMachinesPlanSummary() async -> CloudMachinesPlanSummary?
-
-    /// Reveals the right-sidebar Machines panel in the active main window.
-    func openCloudMachinesPanel()
-
-    /// Opens the optional system-wide VPN explanation and its explicit connection controls.
-    func openCloudVPNSetup()
-
-    /// Opens the host's plan management / upgrade flow.
-    func openCloudMachinesBilling()
-
-    /// The release app the App section offers to switch to, or `nil` to hide the row
-    /// (tagged development builds and package-only hosts).
-    func appChannelSwitchTarget() -> SettingsAppChannelSwitchTarget?
-
-    /// Opens the other release app, downloading and installing it first when missing.
-    func switchAppChannel()
-}
-
-/// The release app a cmux build can switch to from Settings.
-public enum SettingsAppChannelSwitchTarget: Equatable, Sendable {
-    /// cmux NIGHTLY, offered by the stable app.
-    case nightly
-    /// The stable app, offered by cmux NIGHTLY.
-    case stable
 }
 
 /// Host-provided summary of the existing config-backed automation rules.
@@ -518,18 +487,6 @@ public extension SettingsHostActions {
     func rightSidebarTabsUpdates() -> AsyncStream<[RightSidebarTabSettingsItem]> {
         AsyncStream { $0.finish() }
     }
-
-    /// Cloud Machines defaults for previews, tests, and package-only hosts:
-    /// unavailable, no plan, no-op actions.
-    var isCloudMachinesAvailable: Bool { false }
-    func cloudMachinesPlanSummary() async -> CloudMachinesPlanSummary? { nil }
-    func openCloudMachinesPanel() {}
-    func openCloudVPNSetup() {}
-    func openCloudMachinesBilling() {}
-
-    /// No release-app switch for previews, tests, and package-only hosts.
-    func appChannelSwitchTarget() -> SettingsAppChannelSwitchTarget? { nil }
-    func switchAppChannel() {}
 
     /// Default no-op for package-only settings hosts without Ghostty.
     func terminalAdaptiveDefaultThemeDidChange() {}

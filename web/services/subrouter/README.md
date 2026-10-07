@@ -1,16 +1,18 @@
 # Hosted Subrouter
 
 The dashboard and `/api/subrouter/accounts` use the signed-in Stack access
-token to exchange a Stack team for a deterministic tenant on `sr.cmux.com`.
+token to exchange a Stack team for a deterministic tenant on hosted Subrouter.
 The Go service verifies the token and team membership. The trusted web broker
 also enforces the team allowlist, Stack permissions, and hosted cutover gate
 before it requests a capability-scoped tenant key. Direct client exchange is
 rejected. The web app stores no tenant keys and needs no Subrouter admin token
 or database row.
 
-Production defaults to `https://sr.cmux.com`; previews and local development
-default to `https://staging.sr.cmux.com`. `SUBROUTER_HOSTED_URL` overrides the
-environment default.
+`SUBROUTER_HOSTED_URL` selects the hosted service and has no default. The
+former `sr.cmux.com` and `staging.sr.cmux.com` deployments were retired on
+2026-09-30. Without the variable the hosted client reports itself as not
+configured and makes no request: the dashboard shows the shared-accounts
+"not configured" notice and the `/api/subrouter/*` routes answer 503.
 
 `/api/cli/config` publishes the same-origin `/api/subrouter/exchange` broker
 for native clients. `SUBROUTER_STACK_TENANT_DELETE_TOKEN` authenticates the
@@ -37,9 +39,11 @@ finalization command after an interrupted gate write. The operator derives
 destination tenant keys from short-lived Stack impersonation sessions and
 revokes each session without logging tokens or keys.
 
-`SUBROUTER_BASE_URL` and `SUBROUTER_ADMIN_TOKEN` remain deployed until the
-mapping table is empty. Account deletion retires both mapped legacy tenants and
-hosted tenants before removing the Stack user.
+The legacy Subrouter (`subrouter.cmux.dev`) is being retired. Account deletion
+no longer calls it: it deletes hosted tenants and the local legacy mapping rows
+before removing the Stack user. Retiring the legacy worker revokes every legacy
+tenant key. `SUBROUTER_BASE_URL` and `SUBROUTER_ADMIN_TOKEN` are read only by
+the migration script above and can be removed from deployments.
 
 ## Capacity and session contract
 

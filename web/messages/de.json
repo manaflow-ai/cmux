@@ -80,6 +80,13 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go unterstützt 2 vCPU, 4 GiB RAM und 16 GiB Speicherplatz.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+    },
+    "resourcePool": {
+      "title": "Nicht genug Cloud-VM-Ressourcen",
+      "memoryMessage": "Ihre VMs nutzen bereits {used} von {pool} GB RAM. Diese VM benötigt {requested} GB.",
+      "vcpuMessage": "Ihre VMs nutzen bereits {used} von {pool} vCPUs. Diese VM benötigt {requested} vCPUs.",
+      "upgradeAction": "Pausieren oder löschen Sie eine VM, oder wechseln Sie zu Max.",
+      "action": "Pausieren oder löschen Sie eine VM."
     }
   },
   "billingRecovery": {
@@ -490,16 +497,17 @@
           ],
           "pro": [
             "Cloud-Agenten auf Cloud VMs",
-            "24 GB RAM und 6 vCPUs für alle VMs",
+            "Bis zu 5 Cloud VMs, die sich 20 vCPUs und 40 GB RAM teilen",
             "Die cmux iOS-App"
           ],
           "max": [
-            "64 GB RAM und 16 vCPUs für alle VMs",
+            "Bis zu 5 Cloud VMs, die sich 80 vCPUs und 160 GB RAM teilen",
             "Größere Maschinengrößen",
             "Alles aus Pro"
           ],
           "team": [
             "Alles aus Pro für jedes Mitglied",
+            "Bis zu 5 Cloud VMs pro bezahltem Platz, die sich im ganzen Team 20 vCPUs und 40 GB RAM pro bezahltem Platz teilen",
             "Eine Rechnung für das ganze Team",
             "Priorisierter Support"
           ]
@@ -542,6 +550,11 @@
         "team": "Team erstellen",
         "banner": "Du nutzt jetzt {plan}.",
         "bannerLink": "Plan & Abrechnung"
+      },
+      "appStore": {
+        "title": "Abrechnung über den App Store",
+        "body": "Dein Tarif wurde in der cmux iPhone-App gekauft und wird von Apple abgerechnet. Ändere oder kündige ihn in deinen App Store-Abonnements.",
+        "manage": "Im App Store verwalten"
       }
     },
     "mobileDevices": {
@@ -1126,6 +1139,80 @@
       "revokeApiKeyConfirmTitle": "Diesen API-Schlüssel widerrufen?",
       "apiKeyUsageDetail": "Letzte 30 Tage: {completions} Abschlüsse · {tokens} Tokens ({input} Eingabe / {output} Ausgabe) · {value} API-Äquivalent",
       "apiKeyUsageUnavailable": "Nutzung nicht verfügbar",
+      "revokeApiKeyConfirmBody": "Clients mit diesem Schlüssel können sich sofort nicht mehr authentifizieren."
+    },
+    "cloud": {
+      "title": "Cloud-Maschinen und Mac-Zugriff",
+      "description": "Lege für jede Maschine das ausgehende Netzwerk fest und prüfe die Macs mit WireGuard-Zugriff auf dein privates Cloud-VM-Netzwerk. iPhone- und Iroh-Kopplungen werden separat verwaltet.",
+      "macAccessTitle": "Mac-Zugriff",
+      "machines": {
+        "title": "Maschinen",
+        "empty": "Du hast keine Cloud-Maschinen.",
+        "personal": "persönlich",
+        "team": "Team",
+        "status": {
+          "provisioning": "wird gestartet",
+          "running": "läuft",
+          "failed": "fehlgeschlagen",
+          "paused": "pausiert",
+          "destroyed": "gelöscht"
+        }
+      },
+      "network": {
+        "open": "Netzwerk",
+        "title": "Ausgehendes Netzwerk für {name}",
+        "description": "Wähle, was diese Maschine erreichen kann. Änderungen gelten sofort, ohne Neustart.",
+        "loading": "Netzwerkrichtlinie wird geladen…",
+        "loadError": "Die Netzwerkrichtlinie für diese Maschine konnte nicht geladen werden.",
+        "saveError": "Diese Netzwerkrichtlinie konnte nicht angewendet werden.",
+        "unsupported": "Diese Maschine unterstützt keine Steuerung des ausgehenden Netzwerks.",
+        "retry": "Erneut versuchen",
+        "appliedLabel": "Status:",
+        "applied": {
+          "applied": "angewendet",
+          "pending": "wird angewendet",
+          "failed": "Anwenden fehlgeschlagen"
+        },
+        "unsaved": "ungespeicherte Änderungen",
+        "refresh": "Aktualisieren",
+        "modeLabel": "Ausgehender Zugriff",
+        "mode": {
+          "full": {
+            "label": "Volles Internet",
+            "description": "Jede öffentliche Adresse."
+          },
+          "allowlist": {
+            "label": "Zulassungsliste",
+            "description": "Nur die Vorlagen, Domains und IP-Bereiche, die du angibst."
+          },
+          "none": {
+            "label": "Kein Internet",
+            "description": "Nur die unten aufgeführten cmux-Hosts."
+          }
+        },
+        "presetsTitle": "Vorlagen",
+        "presetsNote": "Jede Vorlage fügt exakte Hostnamen hinzu. Ein Dienst, der weitere Subdomains nutzt, kann zusätzliche Domains benötigen.",
+        "domainsTitle": "Domains",
+        "domainsNote": "Nur exakte Hostnamen, nur HTTPS auf Port 443. Platzhalter werden noch nicht unterstützt.",
+        "domainInput": "Domain",
+        "rangesTitle": "IP-Bereiche",
+        "rangesNote": "Die Firewall des Anbieters setzt diese außerhalb der Maschine durch. Lass den Port leer, um alle Ports zuzulassen. Ein Port erfordert ein Protokoll.",
+        "cidrInput": "IP-Bereich (CIDR)",
+        "portInput": "Port",
+        "protocolInput": "Protokoll",
+        "anyProtocol": "beliebig",
+        "noteInput": "Notiz (optional)",
+        "allPorts": "alle Ports",
+        "dnsLabel": "DNS zulassen",
+        "dnsNote": "Ermöglicht Tools, die Namen aufzulösen, auf die deine IP-Bereiche verweisen. Domains benötigen kein DNS. Offenes DNS ist ein ausgehender Kanal: Ein Prozess kann Daten in den abgefragten Namen nach außen senden.",
+        "requiredTitle": "Immer zugelassen",
+        "requiredNote": "cmux benötigt diese Hosts in jedem Modus, um die CLI auf der Maschine zu installieren und zu aktualisieren.",
+        "add": "Hinzufügen",
+        "remove": "Entfernen",
+        "discard": "Änderungen verwerfen",
+        "close": "Schließen",
+        "apply": "Anwenden"
+      },
       "revokeApiKeyConfirmBody": "Clients mit diesem Schlüssel können sich sofort nicht mehr authentifizieren.",
       "apiKeysEmptyTitle": "Noch keine API-Schlüssel",
       "apiKeysEmptyHint": "Erstelle einen, um einen CodeRouter-Client zu authentifizieren.",
@@ -2070,6 +2157,7 @@
           "defaultSearchEngine": "Standardsuchmaschine für Nicht-URL-Eingaben in der Browser-Adressleiste. Verwenden Sie custom mit customSearchEngineURLTemplate für beliebige Anbieter.",
           "customSearchEngineName": "Anzeigename, der verwendet wird, wenn defaultSearchEngine custom ist.",
           "customSearchEngineURLTemplate": "Such-URL, die verwendet wird, wenn defaultSearchEngine custom ist. Verwenden Sie den Abfrageplatzhalter oder %s für den kodierten Suchbegriff. Ohne Platzhalter fügt cmux q= zur URL hinzu.",
+          "showLinkHoverURL": "Zeigt das Ziel eines Links unten links im Browserbereich an, solange sich der Zeiger über dem Link befindet oder der Link den Tastaturfokus hat.",
           "urlAllowlist": "Host- oder URL-Muster, die die Navigation im eingebetteten Browser einschränken. Die Einstellungen schlagen lokale Entwicklungsursprünge vor; durch Speichern einer Liste wird die optionale Einschränkung aktiviert. Entfernen Sie Einträge, um sie zu blockieren, oder lassen Sie den Benutzerwert ohne verwaltete Richtlinie leer, um die Einschränkung zu deaktivieren."
         },
         "workspaceGroups": {
@@ -2842,14 +2930,21 @@
       "planMax": "Max",
       "sizesDefault": "Neue Maschinen erhalten 8 GB Arbeitsspeicher, wenn du keine Größe wählst. Führe cmux vm ls --json aus, um die Größen zu sehen, die dein Plan erlaubt.",
       "limitsTitle": "Planlimits",
-      "limitsDesc": "Planlimits zählen Maschinen, keinen gemeinsamen Pool aus CPU oder Arbeitsspeicher. Jede Maschine erhält die Ressourcen ihrer Größe.",
+      "limitsDesc": "Deine aktiven Maschinen teilen sich einen Pool aus vCPUs und Arbeitsspeicher. Betreibe eine große Maschine oder mehrere kleine. Pausierte Maschinen belegen den Pool nicht. Die Festplatte gilt pro Maschine und gehört nicht zum Pool.",
       "limitsFree": "Kostenlose Konten können keine Maschinen erstellen.",
-      "limitsPaid": "Pro- und Max-Konten können bis zu 50 aktive Maschinen haben. Eine Maschine ist aktiv, solange sie läuft oder startet.",
-      "limitsTeam": "Team-Konten können pro bezahltem Platz bis zu 50 aktive Maschinen haben.",
-      "limitsMax": "Maschinen mit mehr als 24 GB benötigen cmux Max.",
+      "limitsPaid": "Pro- und Founder's-Edition-Konten können bis zu 5 aktive Maschinen haben, die sich 20 vCPUs und 40 GB Arbeitsspeicher teilen. Eine Maschine ist aktiv, solange sie läuft oder startet.",
+      "limitsTeam": "Team-Konten können pro bezahltem Platz bis zu 5 aktive Maschinen haben. Jeder bezahlte Platz fügt dem Pool des Teams 20 vCPUs und 40 GB Arbeitsspeicher hinzu.",
+      "limitsMax": "Max-Konten können bis zu 5 aktive Maschinen haben, die sich 80 vCPUs und 160 GB Arbeitsspeicher teilen. Eine einzelne Maschine kann bei Pro und Team bis zu 32 GB und 16 vCPUs haben, bei Max bis zu 64 GB und 32 vCPUs.",
+      "limitsPoolFull": "Würde eine neue, fortgesetzte, vergrößerte oder geforkte Maschine den Pool überschreiten, lehnt cmux die Anfrage ab und zeigt, wie viel vom Pool belegt ist. Pausiere oder lösche eine Maschine, um Ressourcen freizugeben, oder führe ein Upgrade auf Max durch.",
       "limitsPricing": "Aktuelle Preise findest du auf der Preisseite. Es gibt keine nutzungsbasierte Abrechnung und keine Überschreitungsgebühren.",
+      "agentUpdatesTitle": "Coding-Agents aktuell halten",
+      "agentUpdatesDesc": "Ist diese Einstellung aktiv, aktualisiert die Maschine Claude Code, Codex, OpenCode, pi und agent-browser. Sie prüft nach dem Erstellen der Maschine und bei jedem Verbinden, höchstens einmal alle 24 Stunden. Das Update läuft losgelöst im Hintergrund und blockiert das Verbinden nie.",
+      "agentUpdatesSource": "Jedes Tool kommt aus seinem offiziellen GitHub-Release und wird mit dem sha256-Digest des Release-Assets geprüft. npm wird nicht verwendet. Ein Release wird erst installiert, wenn es seit 3 Tagen öffentlich ist, und ein Update installiert nie eine ältere Version. Ein laufender Agent behält die Dateien, mit denen er gestartet ist, und ein fehlgeschlagenes Update lässt die aktuelle Version bestehen.",
+      "agentUpdatesStatus": "Das Ergebnis der letzten Prüfung steht in /etc/cmux/agent-updates.state, das Log des Updaters in /var/log/cmux-agent-updates.log. Eine fehlgeschlagene Prüfung läuft beim nächsten Verbinden erneut.",
+      "agentUpdatesToggle": "Im Dialog Neue Maschine ist diese Einstellung standardmäßig aktiv. Um sie für eine bestehende Maschine zu ändern, klicke mit der rechten Maustaste auf die Maschine und wähle Agents aktuell halten, oder führe cmux vm agent-updates aus. cmux vm new behält die Versionen des Images, außer du übergibst --agent-updates latest. Wenn du Updates ausschaltest, bleiben die installierten Versionen erhalten.",
+      "agentUpdatesNetwork": "Updates nutzen nur github.com, api.github.com, objects.githubusercontent.com und release-assets.githubusercontent.com. cmux erlaubt diese Hosts in jedem Netzwerkmodus, auch bei Zulassungsliste und Kein Internet, daher blockiert eine Netzwerkrichtlinie Updates nie.",
       "resizeTitle": "Größe ändern",
-      "resizeDesc": "Du kannst eine Maschine ohne Datenverlust vergrößern. Klicke mit der rechten Maustaste auf die Maschine und wähle Resize machine, oder nutze cmux vm resize. Eine Maschine lässt sich nur vergrößern. Die Festplatte wächst in 4-GB-Schritten bis 256 GB, der Arbeitsspeicher bis 64 GB und die CPU bis 32 vCPU. Das tatsächliche Maximum legt dein Plan fest.",
+      "resizeDesc": "Du kannst eine Maschine ohne Datenverlust vergrößern. Klicke mit der rechten Maustaste auf die Maschine und wähle Resize machine, oder nutze cmux vm resize. Eine Maschine lässt sich nur vergrößern. Die Festplatte wächst in 4-GB-Schritten bis 256 GB. Arbeitsspeicher und CPU wachsen bei Pro und Team bis 32 GB und 16 vCPU, bei Max bis 64 GB und 32 vCPU. Eine größere Maschine belegt mehr von deinem Pool. Das tatsächliche Maximum legt dein Plan fest.",
       "pauseTitle": "Pausieren und fortsetzen",
       "pauseDesc": "cmux vm pause stoppt die Rechenleistung der Maschine. Festplatte, Workspaces und Terminalverlauf bleiben erhalten. Laufende Prozesse werden beendet. cmux vm resume startet die Maschine wieder. Auch das Öffnen einer pausierten Maschine oder das Ausführen eines Befehls darauf startet sie.",
       "pauseIdle": "Maschinen pausieren nicht von selbst, wenn sie im Leerlauf sind. Eine Maschine läuft weiter, bis du sie pausierst oder löschst.",
@@ -3000,9 +3095,11 @@
       "errPlan": "Cloud-VMs erfordern einen kostenpflichtigen Plan",
       "fixPlan": "Kostenlose Konten können keine Maschinen erstellen. Führe auf der Preisseite ein Upgrade durch.",
       "errSize": "Eine Größe erfordert einen höheren Plan",
-      "fixSize": "Maschinen mit mehr als 24 GB benötigen cmux Max. Wähle eine kleinere Größe oder führe ein Upgrade durch.",
+      "fixSize": "Maschinen mit mehr als 32 GB benötigen cmux Max. Wähle eine kleinere Größe oder führe ein Upgrade durch.",
       "errLimit": "Limit für aktive Maschinen erreicht",
       "fixLimit": "Pausiere oder lösche eine Maschine und versuche es erneut.",
+      "errPool": "Nicht genug Cloud-VM-Ressourcen",
+      "fixPool": "Deine aktiven Maschinen belegen bereits die gemeinsamen vCPUs oder den Arbeitsspeicher. Pausiere oder lösche eine Maschine, wähle eine kleinere Größe oder führe ein Upgrade auf Max durch.",
       "errLocked": "Maschine ist gesperrt",
       "fixLocked": "Dein kostenpflichtiger Plan ist abgelaufen, und die Maschine ist älter als 7 Tage. Führe ein Upgrade durch, um dich wieder zu verbinden. Deine Dateien bleiben erhalten.",
       "errAgentMissing": "claude oder codex: command not found",
@@ -5105,7 +5202,8 @@
   "pricing": {
     "billingUnavailable": "Die Abrechnung ist derzeit nicht verfügbar. Bitte versuche es später erneut.",
     "signedOutNotice": "Du bist nicht angemeldet. Melde dich an, um deinen aktuellen Tarif zu sehen oder einen bestehenden Kauf wiederherzustellen.",
-    "signedOutSignIn": "Anmelden"
+    "signedOutSignIn": "Anmelden",
+    "manageInAppStore": "Im App Store verwalten"
   },
   "platforms": {
     "macos": "macOS",
@@ -5247,7 +5345,7 @@
   "appProWelcome": {
     "eyebrow": "cmux Pro ist aktiv",
     "title": "Willkommen bei cmux Pro",
-    "body": "Die Pro-Funktionen werden noch entwickelt. Der Cloud-Zugang kommt bald, mit Nutzungsguthaben für jeden Monat Ihres Abonnements. Derzeit umfasst Pro den TestFlight-Zugang zu cmux für iOS.",
+    "body": "Pro umfasst bis zu 5 Cloud-VMs mit gemeinsam genutzten 20 vCPUs und 40 GB RAM sowie Zugang zu cmux iOS über TestFlight.",
     "done": "Zum Dashboard",
     "steps": {
       "iosApp": {

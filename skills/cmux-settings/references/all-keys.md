@@ -30,6 +30,7 @@ General app preferences from Settings > App.
 | `app.sendAnonymousTelemetry` | boolean | `true` | Allow anonymous telemetry. |
 | `app.warnBeforeQuit` | boolean | `true` | Show a confirmation before quitting cmux. |
 | `app.warnBeforeClosingTab` | boolean | `true` | Show a confirmation before closing a tab. |
+| `app.warnBeforeClosingAgentSession` | boolean | `true` | Show a confirmation before closing an agent session while it is mid-turn. |
 | `app.renameSelectsExistingName` | boolean | `true` | Select the current name when opening rename flows. |
 | `app.commandPaletteSearchesAllSurfaces` | boolean | `false` | Search every surface in the command palette switcher instead of only the active workspace. |
 | `app.windowTitleTemplate` | string | `""` | Optional NSWindow title template. Blank preserves cmux's existing default title behavior, including the current-directory fallback. Supported placeholders: {windowId}, {windowToken}, {activeWorkspace}, {activeDirectory}, {defaultTitle}, {appName}. |
@@ -45,6 +46,14 @@ General app preferences from Settings > App.
 | `app.hideTabCloseButton` | boolean | `false` | Hide tab close buttons in the pane tab bar. |
 | `app.tabBarVisibility` | `"always"` or `"multiple-tabs"` | `"always"` | Control when each pane's surface tab bar is shown. `"always"` shows it even when the pane has a single tab; `"multiple-tabs"` hides the bar until the pane has two or more tabs. Minimal mode (app.minimalMode) always shows it, because there the top tab bar is the titlebar row. |
 
+## surfaceTabBar
+
+Surface tab bar typography from Settings > Terminal.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `surfaceTabBar.fontSize` | number | `11.0` | Default surface tab bar font size in points. The legacy Ghostty key `surface-tab-bar-font-size` remains a fallback alias. |
+
 ## terminal
 
 Terminal presentation settings from Settings > Terminal.
@@ -57,7 +66,10 @@ Terminal presentation settings from Settings > Terminal.
 | `terminal.scrollSpeed` | number | `1.0` | Multiplier applied to terminal scroll wheel and trackpad deltas. Higher values scroll faster; lower values scroll slower. |
 | `terminal.sessionContentMaxWidth` | boolean or number | `false` | Optional maximum width, in points, for terminal and built-in agent chat content. Set false to use the full pane width. |
 | `terminal.sessionContentAlignment` | `"left"` or `"center"` or `"right"` | `"center"` | Horizontal placement for terminal and built-in agent chat content when sessionContentMaxWidth is enabled. |
+| `terminal.titleUpdates` | object | — | Terminal title update throttling and diagnostics. |
+| `terminal.runawayMemoryGuardrail` | object | — | Per-pane process-tree memory monitoring. |
 | `terminal.copyOnSelect` | boolean | `false` | When true, copy selected terminal text to the system clipboard when the selection is committed. When false, cmux does not emit a Ghostty copy-on-select override; Ghostty config and defaults control selection-clipboard behavior. |
+| `terminal.showCopyConfirmation` | boolean | `false` | Briefly show "Copied to clipboard" at the bottom of a terminal after selecting text copies it. Applies whether copyOnSelect or Ghostty's copy-on-select turned copying on. Copies made with a keyboard shortcut or by a program (OSC 52) never show it. |
 | `terminal.confirmUnsafePaste` | boolean | `false` | When true, a paste that Ghostty's clipboard-paste-protection flags as unsafe (for example, text with a line break going to a program that has not enabled bracketed paste) waits for confirmation in a sheet attached to the terminal's window. When false, cmux pastes it without asking. OSC 52 clipboard reads are not affected. |
 | `terminal.reflowHardWrapOnCopy` | boolean | `false` | When true, copying terminal text also joins a line that exactly fills the terminal width onto the next line, undoing hard wraps a program inserted at the grid edge. Soft-wrapped rows are always joined. |
 | `terminal.textEditingGestures` | boolean | `false` | Replay macOS text-editing gestures as line-editor keys at the shell prompt: Command and Option arrow keys move by line and word, and Command and Option Delete kill by line and word. While a full-screen application (vim, less, htop, tmux) has the terminal on the alternate screen, it gets the keys as if gestures were off, unless textEditingGesturesInFullScreenApps is on. Ghostty's own bindings still apply there, so Command+Left sends Ctrl+A and Option+Left sends Esc b. |
@@ -110,6 +122,7 @@ Sidebar content and metadata visibility from Settings > Sidebar.
 
 | Key | Type | Default | Description |
 |---|---|---|---|
+| `sidebar.fontSize` | number | `12.5` | Sidebar font size in points. The legacy Ghostty key `sidebar-font-size` remains a fallback alias. |
 | `sidebar.hideAllDetails` | boolean | `false` | Hide all per-workspace detail rows. |
 | `sidebar.showWorkspaceDescription` | boolean | `true` | Show custom workspace descriptions in the sidebar. |
 | `sidebar.workspaceDescriptionColor` | colorHexOrNull | `null` | Override the workspace description text color in the sidebar. |
@@ -132,6 +145,10 @@ Sidebar content and metadata visibility from Settings > Sidebar.
 | `sidebar.compactStatusIcons` | object | `{}` | SF Symbol names that replace the compactAgentStatus glyph for each state, for example {"terminal": "apple.terminal", "needsInput": "hand.raised.fill"}. Unset states keep the built-in symbol, and a name that does not render falls back to it. |
 | `sidebar.wrapWorkspaceTitles` | boolean | `false` | Allow workspace titles in the sidebar to wrap to multiple lines instead of truncating after one line. |
 | `sidebar.beta` | object | — | Experimental sidebar features. |
+| `sidebar.branchVerticalLayout` | boolean | `true` | Show git branch details stacked vertically when true, or inline when false. |
+| `sidebar.activeTabIndicatorStyle` | string | `"leftRail"` | Active workspace indicator style in the sidebar. |
+| `sidebar.selectionColor` | colorHexOrNull | `null` | Override the selected workspace background color in the sidebar. |
+| `sidebar.notificationBadgeColor` | colorHexOrNull | `null` | Override the unread notification badge color in the sidebar. |
 | `sidebar.notificationMessageLineLimit` | integer | `12` | Maximum lines shown for the latest notification below each workspace title. |
 | `sidebar.watchGitStatus` | boolean | `true` | Watch repository files for sidebar branch and pull request metadata without polling git. |
 | `sidebar.showAgentActivity` | boolean | `true` | Show the loading spinner on workspaces with running coding agents or active loaders. |
@@ -148,6 +165,7 @@ Workspace tab and badge colors from Settings > Workspace Colors.
 | `workspaceColors.indicatorStyle` | `"leftRail"` or `"solidFill"` or `"rail"` or `"border"` or `"wash"` or `"lift"` or `"typography"` or `"washRail"` or `"blueWashColorRail"` | `"leftRail"` | Active workspace indicator style. Legacy aliases are accepted and normalized. |
 | `workspaceColors.selectionColor` | colorHexOrNull | `null` | Override the selected workspace background color. |
 | `workspaceColors.subtleSelection` | boolean | `false` | Show the selected workspace as a faint accent tint with a thin edge instead of a solid fill. |
+| `workspaceColors.brightenInDarkMode` | boolean | `true` | Lighten workspace colors in dark mode. `false` shows colors exactly as chosen (`solidFill` only). |
 | `workspaceColors.notificationBadgeColor` | colorHexOrNull | `null` | Override the unread notification badge color. |
 | `workspaceColors.colors` | object | `{"Red": "#C0392B", "Crimson": "#922B21", "Orange": "#A04000", "Amber": "#7D6608", "Olive": "#4A5C18", "Green": "#196F3D", "Teal": "#006B6B", "Aqua": "#0E6B8C", "Blue": "#1565C0", "Navy": "#1A5276", "Indigo": "#283593", "Purple": "#6A1B9A", "Magenta": "#AD1457", "Rose": "#880E4F", "Brown": "#7B3F00", "Charcoal": "#3E4B5E"}` | Full named workspace color palette. Include built-in entries you want to keep, remove keys to remove colors, and add more named entries to extend the picker. |
 | `workspaceColors.paletteOverrides` | object | `{}` | Legacy workspace color overrides for built-in palette names. Prefer workspaceColors.colors for new configs. |
@@ -224,6 +242,7 @@ Embedded browser settings from Settings > Browser.
 | `browser.hiddenWebViewDiscardDelaySeconds` | number | `300` | Seconds a browser tab must stay hidden before cmux may free its page memory. In timer mode, every tab hidden this long is freed. |
 | `browser.autoRestoreUnloadedPages` | boolean | `true` | Restore a browser page unloaded to save memory, or whose web process ended while hidden, as soon as its tab is shown. When `false`, the tab shows the page's last snapshot until you click Restore. |
 | `browser.askWhereToSaveDownloads` | boolean | `false` | Show a save panel for browser downloads instead of saving directly to Downloads. |
+| `browser.showLinkHoverURL` | boolean | `true` | Show a link's destination at the bottom-left of a browser pane while the pointer is over the link or the link has keyboard focus. |
 | `browser.urlAllowlist` | array<string> | `["localhost", "*.localhost", "127.0.0.1", "::1", "0.0.0.0", "*.localtest.me"]` | Host or URL patterns that restrict embedded-browser navigation. The Settings UI suggests local development origins; saving a list opts into the optional restriction. Remove entries to block them, or leave the user value empty to disable it when no managed policy applies. |
 
 ## markdown

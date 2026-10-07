@@ -4,6 +4,19 @@ import Testing
 
 @Suite("Remote paste file transfer policy")
 struct RemotePasteFileTransferPolicyTests {
+    @Test("maintenance reports the remote home used for absolute paste paths")
+    func maintenanceReportsRemoteHome() {
+        let policy = RemotePasteFileTransferPolicy(
+            sessionID: UUID(uuidString: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")!
+        )
+
+        #expect(
+            policy.maintenanceScript().contains(
+                "printf '__CMUX_REMOTE_PASTE_HOME__%s\\n' \"$HOME\""
+            )
+        )
+    }
+
     @Test("remote paths use a private random directory and sanitized extension")
     func remotePathUsesPrivateRandomName() {
         let policy = RemotePasteFileTransferPolicy(
@@ -11,12 +24,31 @@ struct RemotePasteFileTransferPolicyTests {
         )
         let path = policy.remotePath(
             for: URL(fileURLWithPath: "/tmp/clipboard image.PnG;touch") ,
+            homeDirectory: "/home/test user/",
             uuid: UUID(uuidString: "01234567-89AB-CDEF-0123-456789ABCDEF")!
         )
 
-        #expect(path == "~/.cache/cmux/paste/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/cmux-paste-01234567-89ab-cdef-0123-456789abcdef.pngtouch")
+        #expect(path == "/home/test user/.cache/cmux/paste/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/cmux-paste-01234567-89ab-cdef-0123-456789abcdef.pngtouch")
         #expect(!path.contains("/tmp"))
         #expect(!path.contains(";"))
+    }
+
+    @Test("maintenance output resolves an absolute home and accepts absolute paths")
+    func maintenanceOutputResolvesAbsoluteHome() {
+        let policy = RemotePasteFileTransferPolicy(
+            sessionID: UUID(uuidString: "bbbbbbbb-cccc-dddd-eeee-ffffffffffff")!
+        )
+        let output = "login banner\n__CMUX_REMOTE_PASTE_HOME__/home/test user\n"
+        #expect(policy.remoteHomeDirectory(fromMaintenanceOutput: output) == "/home/test user")
+        #expect(policy.remoteHomeDirectory(fromMaintenanceOutput: "__CMUX_REMOTE_PASTE_HOME__relative") == nil)
+
+        let path = policy.remotePath(
+            for: URL(fileURLWithPath: "/tmp/a.png"),
+            homeDirectory: "/home/test user",
+            uuid: UUID(uuidString: "01234567-89AB-CDEF-0123-456789ABCDEF")!
+        )
+        #expect(policy.finalizeScript(for: path) != "false")
+        #expect(policy.cleanupScript(for: [path]).contains("cmux-paste-01234567-89ab-cdef-0123-456789abcdef.png"))
     }
 
     @Test("maintenance removes old files and trims oldest files over the cap")

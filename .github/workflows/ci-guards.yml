@@ -142,6 +142,18 @@ jobs:
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_ci_guard_attribution.py
 
+      - name: Validate main-fix merge evidence
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: python3 tests/test_gh_merge_green.py
+
+      - name: Validate gh-merge-green --revert
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: python3 tests/test_gh_merge_green_revert.py
+
+      - name: Validate base-red excusal for gh-merge-green
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: python3 tests/test_base_red_excuse.py
+
       - name: Validate main compile attribution
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_main_compile_attribution.py
@@ -149,6 +161,10 @@ jobs:
       - name: Validate CI failure attribution
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_ci_classify_failures.py
+
+      - name: Validate the workflow_run handlers' API budget
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: python3 tests/test_ci_workflow_run_api_budget.py
 
       - name: Validate the report-only reverse test impact selector
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
@@ -241,6 +257,10 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: ./tests/test_reload_resolves_cmux_tui_client_before_build.sh
 
+      - name: Validate reload --release builds the Release configuration
+        if: ${{ matrix.group == 'preflight' }}
+        run: ./tests/test_reload_release_configuration.sh
+
       - name: Validate docs deployment authentication guard
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_docs_deploy_auth_guard.py
@@ -273,6 +293,10 @@ jobs:
       - name: Validate reload shared DerivedData default
         if: ${{ matrix.group == 'preflight' }}
         run: ./tests/test_reload_shared_derived_data.sh
+
+      - name: Validate reload emits the app module on Xcode versions that fail the module merge
+        if: ${{ matrix.group == 'preflight' }}
+        run: ./tests/test_reload_app_module_emission.sh
 
       - name: Validate sidebar extension point generation
         if: ${{ matrix.group == 'preflight' }}
@@ -323,6 +347,10 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: git ls-files 'tests/*.py' 'tests_v2/*.py' 'scripts/*.py' | xargs python3 -m py_compile
 
+      - name: Test private R2 URL presigner
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_r2_presign.py
+
       - name: Validate CI process-tree cancellation cleanup
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_ci_process_tree_reaping.py
@@ -367,6 +395,10 @@ jobs:
           python3 tests/test_localization_catalog.py
           python3 tests/test_localize_changes.py
           python3 tests/test_localization_defaults.py
+
+      - name: Test fake-socket CLI test helpers
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_fake_socket_env.py
 
       - name: Test the PR media uploader
         if: ${{ matrix.group == 'preflight' }}
@@ -473,10 +505,21 @@ jobs:
       - name: Validate Testbox cleanup receipt ownership
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: ./tests/test_testbox_cleanup_receipt_ref.sh
+      - name: Testbox keepalive counts a command in the checkout as use
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: ./tests/test_testbox_keepalive_busy.sh
+
+      - name: The retired Testbox approve helper approves nothing
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: ./tests/test_testbox_approve.sh
+
+      - name: The Testbox demo stops its box and cancels its run on every failure
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: ./tests/test_testbox_demo_cleanup.sh
 
       - name: Lint the Testbox lane helpers
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
-        run: shellcheck scripts/blacksmith-bounded-command.sh scripts/blacksmith-cmux-tui-testbox-stage.sh scripts/blacksmith-testbox-cleanup.sh scripts/blacksmith-testbox-keepalive.sh scripts/ci/install-actionlint.sh tests/test_ci_actionlint_download.sh
+        run: shellcheck scripts/blacksmith-bounded-command.sh scripts/blacksmith-cmux-tui-testbox-stage.sh scripts/blacksmith-testbox-cleanup.sh scripts/blacksmith-testbox-keepalive.sh scripts/blacksmith-testbox-busy.sh tests/test_testbox_keepalive_busy.sh scripts/ci/install-actionlint.sh tests/test_ci_actionlint_download.sh scripts/blacksmith-testbox-demo.sh scripts/blacksmith-testbox-approve.sh tests/test_testbox_approve.sh tests/test_testbox_demo_cleanup.sh
 
       - name: Test the actionlint downloader without a network outage
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
@@ -617,6 +660,10 @@ jobs:
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_ci_owned_build_state.py
 
+      - name: Validate canonical root ownership boundary
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: python3 tests/test_ci_take_canonical_root.py
+
       - name: Validate warm-state distance recording and routing
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_ci_warm_distance.py
@@ -632,6 +679,10 @@ jobs:
       - name: Validate the persistent-pool rescue
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_ci_owned_pool_rescue.py
+
+      - name: Validate the backend migrations plan
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: python3 tests/test_backend_migrations_plan.py
 
       - name: Validate the owned Mac warm state
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
@@ -660,6 +711,14 @@ jobs:
       - name: Validate required checks are bounded
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_ci_required_checks_are_bounded.py
+
+      - name: Validate required checks have no paths filters
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: python3 tests/test_ci_required_checks_have_no_path_filters.py
+
+      - name: Validate workflow write permissions are job-scoped
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: python3 tests/test_ci_workflow_permissions_are_job_scoped.py
 
       - name: Validate triage radar scoring
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
@@ -901,6 +960,10 @@ jobs:
         if: ${{ matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_appstore_lane_identity.py
 
+      - name: Validate public iOS VPN signing
+        if: ${{ matrix.group == 'release-ios' }}
+        run: python3 ios/tests/test_cloud_vpn_distribution.py
+
       - name: Validate the cmux.app upload marker follows the receipt
         if: ${{ matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_appstore_upload_marker.py
@@ -940,6 +1003,10 @@ jobs:
       - name: Validate cached iOS release-gate launch contract
         if: ${{ matrix.group == 'release-ios' }}
         run: node --test ios/tests/iroh-cached-launch.test.mjs
+
+      - name: Validate iPhone dogfood readiness modes
+        if: ${{ matrix.group == 'release-ios' }}
+        run: python3 ios/tests/test_dogfood_readiness_app_receipt.py
 
       - name: Validate manual iOS workflow ref resolution
         if: ${{ matrix.group == 'release-ios' }}
@@ -1052,6 +1119,14 @@ jobs:
       - name: Validate universal nightly workflow
         if: ${{ matrix.group == 'release-notary' }}
         run: bash ./tests/test_nightly_universal_build.sh
+
+      - name: Validate the nightly dSYM upload retries and never fails the nightly
+        if: ${{ matrix.group == 'release-notary' }}
+        run: bash ./tests/test_upload_sentry_dsyms.sh
+
+      - name: Validate nightly release notes and appcast summaries
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_release_notes.py
 
       - name: Validate nightly Sparkle key selection
         if: ${{ matrix.group == 'release-notary' }}
@@ -1238,10 +1313,24 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           # PR/merge-group synthetic commits need only HEAD + first parent.
-          # Manual dispatches have no synthetic parent, so retain full history
-          # and origin/main for the policy's fallback merge-base comparison.
-          fetch-depth: ${{ github.event_name == 'workflow_dispatch' && '0' || '2' }}
+          # fetch-depth 0 would also fetch every branch of the repository
+          # (about ten thousand). That took 3-10 minutes and sometimes the
+          # whole 15 minute job (run 37374680247).
+          fetch-depth: 2
           persist-credentials: false
+
+      - name: Fetch main history for a manual dispatch
+        # A manual dispatch has no synthetic parent, so the policy falls back
+        # to merge-base(origin/main, HEAD). Fetch only those two histories,
+        # without file contents; the policy reads the few it needs on demand.
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          CHECKED_OUT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --filter=blob:none --unshallow origin \
+            +refs/heads/main:refs/remotes/origin/main "$CHECKED_OUT_SHA"
+          git merge-base origin/main HEAD
 
       - name: Bind package policy to synthetic merge base
         if: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' }}

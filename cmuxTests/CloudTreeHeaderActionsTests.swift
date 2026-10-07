@@ -103,6 +103,18 @@ struct CloudTreeHeaderActionsTests {
         #expect(title.frame == restingTitleFrame)
     }
 
+    @Test("Section headers carry their refresh icon after the count, not with the hover buttons")
+    func sectionRefresh() {
+        let idle = CloudTreeNode.Kind.cloudMachinesSection(canCreateMachine: false, refresh: CloudTreeSectionRefresh())
+        #expect(CloudTreeRowContentView.sectionRefresh(for: idle) == CloudTreeSectionRefresh(), "a plan at its limit still refreshes")
+        #expect(!CloudTreeRowHoverButtons.hasButtons(for: idle))
+        #expect(CloudTreeRowContentView.sectionRefresh(for: .cloudMachinesSection(canCreateMachine: true)) == nil,
+                "no refresh while Cloud is off")
+        let running = CloudTreeNode.Kind.devicesSection(CloudTreeDevicesSection(isRefreshing: true))
+        #expect(CloudTreeRowContentView.sectionRefresh(for: running)?.isRefreshing == true)
+        #expect(CloudTreeRowContentView.sectionRefresh(for: .devicesSection(CloudTreeDevicesSection()))?.isRefreshing == false)
+    }
+
     /// The header renders while Cloud Machines is off too; there it has nothing
     /// to create, so it carries no "+".
     @Test("Cloud Machines' + is present only when a machine can be created")
@@ -200,7 +212,7 @@ struct CloudTreeHeaderActionsTests {
         let controls = try #require(tree.devicesSection.children.first {
             if case .devicesEmpty = $0.kind { true } else { false }
         })
-        // "No other Macs yet", then both independent actions in every state.
+        // "No other devices yet", then both independent actions in every state.
         let inlineRows = (listedMacs == 0 ? 1 : 0) + 2
         let style = tree.outline.treeStyle
         // Each inline row plus the 2 pt top and bottom inset, nothing more.
@@ -236,7 +248,8 @@ struct CloudTreeHeaderActionsTests {
 
         NotificationCenter.default.post(name: NSMenu.didEndTrackingNotification, object: menu)
         tree.move(to: tree.devicesSection)
-        #expect(try Self.controls(in: tree.cell(for: machineNode)).alphaValue == 0)
+        // Machine rows keep their buttons at rest, dimmed until hovered.
+        #expect(try Self.controls(in: tree.cell(for: machineNode)).alphaValue == CloudTreeCellView.restingButtonsAlpha)
         #expect(try Self.controls(in: tree.cell(for: tree.devicesSection)).alphaValue == 1)
     }
 

@@ -72,7 +72,8 @@ public struct MachineSnapshot: Equatable, Identifiable, Sendable {
     /// on its own and on control planes that do not send an author.
     public let createdBy: VMCreator?
     /// User-chosen label; nil when the machine has no label.
-    public let label: String?
+    /// User-chosen label; mutable for the sidebar's in-flight optimistic rename.
+    public var label: String?
     /// Server-generated three-word name; nil for machines older than naming.
     public var slug: String? = nil
     /// Free-plan access window position; `.unrestricted` on paid plans.
@@ -88,6 +89,8 @@ public struct MachineSnapshot: Equatable, Identifiable, Sendable {
     public var privateAddress: String?
     /// True when the user explicitly pinned this machine in the Cloud tree.
     public var isPinned: Bool = false
+    /// Coding-agent update setting; nil when the server predates it.
+    public var agentUpdates: CloudAgentUpdates?
 
     /// Whether a new Cloud workspace can be created here. A machine past its
     /// free-access window is locked (the backend refuses access verbs), so it
