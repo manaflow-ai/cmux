@@ -84,8 +84,10 @@ extension CMUXCLI {
             printRemotesTable(remotes)
 
         case "add":
-            let (routeValues, rem0) = parseRepeatedOption(rest, name: "--route")
-            let (tagOpt, rem1) = parseOption(rem0, name: "--tag")
+            let (routeValues, rem0) = parseRepeatedOption(
+                rest, name: "--route", allowOptionLikeValue: false)
+            let (tagOpt, rem1) = parseOption(
+                rem0, name: "--tag", allowOptionLikeValue: false)
             // Unknown flags (typos such as `--rouet=...`) used to disappear in
             // the positional filter below; refuse them so nothing is silently
             // dropped. A bare `--route`/`--tag` left here means its value is
@@ -293,13 +295,14 @@ extension CMUXCLI {
     private func remotesArgumentCLIError(_ error: Error, command: String) -> CLIError {
         switch error {
         case let RemotesArgumentError.unknownFlag(flag):
+            let displayFlag = flag.split(separator: "=", maxSplits: 1).first.map(String.init) ?? flag
             let message = String(
                 format: String(
                     localized: "cli.remotes.error.unknownFlag",
                     defaultValue: "%1$@: unknown flag '%2$@'."
                 ),
                 command,
-                flag
+                displayFlag
             )
             return CLIError(message: message + "\n\n" + Self.remotesUsage)
         case let RemotesArgumentError.unexpectedArgument(argument):
