@@ -1,0 +1,66 @@
+//! Rust client for the cmux VM API.
+//!
+//! [`Client`] and the [`types`] module are generated from the cmux VM OpenAPI
+//! document by `cmux-vm-codegen` (see `scripts/regenerate.sh`). This file adds
+//! only what the document cannot express: the default host and bearer
+//! authentication.
+
+#[allow(
+    clippy::all,
+    clippy::pedantic,
+    unused_imports,
+    unused_mut,
+    dead_code,
+    missing_docs
+)]
+mod generated;
+
+pub use generated::*;
+
+/// The production cmux VM API.
+pub const DEFAULT_BASE_URL: &str = "https://vm.cmux.com";
+
+/// Why a client could not be built.
+#[derive(Debug)]
+pub enum ClientBuildError {
+    /// The API key contains bytes that are not allowed in an HTTP header.
+    InvalidApiKey,
+    /// The HTTP client could not be constructed.
+    Http(reqwest::Error),
+}
+
+impl std::fmt::Display for ClientBuildError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidApiKey => f.write_str("the API key is not a valid HTTP header value"),
+            Self::Http(e) => write!(f, "could not build the HTTP client: {e}"),
+        }
+    }
+}
+
+impl std::error::Error for ClientBuildError {}
+
+/// Builds a client that sends `Authorization: Bearer <api_key>` on every
+/// request. The header is marked sensitive so it never appears in debug output.
+pub fn authenticated_client(
+    base_url: &str,
+    api_key: &str,
+    user_agent: &str,
+) -> Result<Client, ClientBuildError> {
+    let mut auth = reqwest::header::HeaderValue::try_from(format!("Bearer {api_key}"))
+        .map_err(|_| ClientBuildError::InvalidApiKey)?;
+    auth.set_sensitive(true);
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert(reqwest::header::AUTHORIZATION, auth);
+    let http = reqwest::Client::builder()
+        .default_headers(headers)
+        .user_agent(user_agent)
+        .connect_timeout(std::time::Duration::from_secs(15))
+        .timeout(std::time::Duration::from_secs(120))
+        .build()
+        .map_err(ClientBuildError::Http)?;
+    Ok(Client::new_with_client(
+        base_url.trim_end_matches('/'),
+        http,
+    ))
+}
