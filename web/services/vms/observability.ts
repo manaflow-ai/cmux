@@ -95,9 +95,11 @@ export function annotateVmErrorSpan(span: Span, input: VmErrorResponseInput): vo
  * - annotates the active span so the full operator context reaches Axiom;
  * - records the error on the request context so the response finalizer can
  *   ship it to PostHog with the user, client, duration and trace ids;
- * - reports to Sentry. Operator faults are `error` level, user faults are
- *   `warning`, both fingerprinted by code and provider so one condition is
- *   one issue. Every event carries the trace id as a tag and trace context.
+ * - reports operator faults to Sentry at `error` level, fingerprinted by
+ *   code and provider so one condition is one issue, with the trace id as a
+ *   tag and trace context. A user or tenant fault (a 4xx such as
+ *   `vm_not_found`, `vm_requires_pro`, `vm_command_too_large`) is an expected
+ *   answer, not an exception: the span and `cloud_vm_request` record it.
  */
 export function reportVmErrorResponse(input: VmErrorResponseInput): void {
   const activeSpan = trace.getActiveSpan();
@@ -107,7 +109,7 @@ export function reportVmErrorResponse(input: VmErrorResponseInput): void {
   retainCloudServerError(input, context);
   const diagnostics = input.diagnostics ?? {};
   const provider = stringOrUndefined(diagnostics.provider);
-  const operatorFault = isOperatorFaultVmError(input);
+  if (!isOperatorFaultVmError(input)) return;
   reportError(
     new Error(`cloud VM ${input.error}: ${input.message}`),
     {
@@ -115,7 +117,7 @@ export function reportVmErrorResponse(input: VmErrorResponseInput): void {
       code: input.error,
       status: input.status,
       phase: input.phase ?? "unknown",
-      operator_fault: operatorFault,
+      operator_fault: true,
       reason: input.reason ?? input.message,
       ...vmErrorRequestContext(context),
       ...(input.details ?? {}),
@@ -123,12 +125,12 @@ export function reportVmErrorResponse(input: VmErrorResponseInput): void {
     },
     {
       fingerprint: ["cmux-vm-error", input.error, provider ?? "unknown"],
-      level: operatorFault ? "error" : "warning",
+      level: "error",
       tags: {
         "vm.error_code": input.error,
         "vm.phase": input.phase ?? "unknown",
         "vm.status": input.status,
-        "vm.operator_fault": operatorFault,
+        "vm.operator_fault": true,
         "vm.provider": provider,
         ...vmErrorRequestTags(context),
       },
@@ -212,7 +214,12 @@ export const VM_REQUEST_POSTHOG_EVENT = "cloud_vm_request";
  */
 export const VM_REQUEST_POSTHOG_SCHEMA_VERSION = 2;
 
-type PostHogProperties = Record<string, string | number | boolean | Record<string, string>>;
+type PostHogExceptionEntry = {
+  readonly type: string;
+  readonly value: string;
+  readonly mechanism: { readonly handled: boolean; readonly type: string; readonly synthetic: boolean };
+};
+type PostHogProperties = Record<string, string | number | boolean | Record<string, string> | readonly PostHogExceptionEntry[]>;
 
 function vmAnalyticsEnabled(env: Record<string, string | undefined>): boolean {
   return env.VERCEL_ENV === "production" || env.CMUX_VM_ANALYTICS_FORCE === "1";
@@ -252,8 +259,9 @@ function requestTelemetryProperties(
  * - PostHog `cloud_vm_request`: every failure, plus successes of the
  *   operations a user waits on (create, attach, base open, ...) with their
  *   duration. Polled reads succeed silently.
- * - PostHog `$exception` (Error Tracking): every failure, fingerprinted by
- *   error code, with the scrubbed reason, phase and the same ids.
+ * - PostHog `$exception` (Error Tracking): operator faults only,
+ *   fingerprinted by error code, with the scrubbed reason, phase and the same
+ *   ids. User and tenant faults stay in `cloud_vm_request`.
  *
  * Every event carries the server trace id, so a PostHog row, a Sentry issue
  * and an Axiom trace of one failure share one key. Reads only the status
@@ -342,7 +350,7 @@ export function captureVmRequestOutcome(
   if (provider) requestProperties.provider = provider;
   const timestamp = new Date().toISOString();
   const batch = requestAnalyticsBatch(requestProperties, errorCode);
-  if (!success) {
+  if (operatorFault) {
     const reason = scrubForAnalytics(lastError?.reason ?? lastError?.message ?? `HTTP ${status}`);
     batch.push({
       event: "$exception",
@@ -354,15 +362,17 @@ export function captureVmRequestOutcome(
         operator_fault: operatorFault,
         error_code: errorCode ?? `http_${status}`,
         error_phase: lastError?.phase ?? "unknown",
-        $exception_level: operatorFault ? "error" : "warning",
+        $exception_level: "error",
         $exception_fingerprint: `cmux-vm-error:${errorCode ?? `http_${status}`}`,
-        $exception_list: JSON.stringify([
+        // A JSON array, never a string: PostHog rejects a string list and
+        // then files the event with no exception type.
+        $exception_list: [
           {
             type: errorCode ?? `http_${status}`,
             value: reason,
             mechanism: { handled: true, type: "cmux_vm_api", synthetic: true },
           },
-        ]),
+        ],
         schema_version: 1,
         $insert_id: randomUUID(),
         $geoip_disable: true,
