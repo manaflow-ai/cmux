@@ -532,3 +532,74 @@ async fn bad_base_url_and_empty_team_are_usage_errors() {
     .await;
     assert_eq!(out.code, exit::USAGE, "stderr: {}", out.stderr);
 }
+
+#[tokio::test]
+async fn json_output_keeps_fields_this_cli_does_not_know() {
+    let mut body = vm("hibernating");
+    body["region"] = json!("eu-west");
+    body["resources"]["gpus"] = json!(1);
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path(format!("/v1/vms/{VM_ID}")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(body.clone()))
+        .mount(&server)
+        .await;
+
+    let out = cli(&server, &["--json", "get", VM_ID]).await;
+
+    assert_eq!(out.code, exit::OK, "stderr: {}", out.stderr);
+    assert_eq!(json_stdout(&out), body);
+}
+
+#[tokio::test]
+async fn usage_errors_are_json_with_the_json_flag() {
+    let out = cli_with_env(&["--json", "get"], &[("CMUX_VM_API_KEY", KEY)]).await;
+
+    assert_eq!(out.code, exit::USAGE, "stderr: {}", out.stderr);
+    let error: Value = serde_json::from_str(out.stderr.trim())
+        .unwrap_or_else(|e| panic!("stderr is not JSON ({e}): {}", out.stderr));
+    assert_eq!(error["error"]["exitCode"], exit::USAGE);
+    assert_eq!(error["error"]["tag"], "UsageError");
+}
+
+#[tokio::test]
+async fn a_broken_default_config_only_warns_when_env_gives_every_value() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path(format!("/v1/vms/{VM_ID}")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(vm("running")))
+        .mount(&server)
+        .await;
+    let dir = std::env::temp_dir().join(format!(
+        "cmux-vm-broken-config-test-{}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(dir.join("cmux")).expect("create temp dir");
+    std::fs::write(dir.join("cmux").join("vm.json"), "{ not json").expect("write config");
+    let xdg = dir.to_string_lossy().into_owned();
+    let uri = server.uri();
+
+    let complete = cli_with_env(
+        &["get", VM_ID],
+        &[
+            ("XDG_CONFIG_HOME", xdg.as_str()),
+            ("CMUX_VM_API_KEY", KEY),
+            ("CMUX_VM_BASE_URL", uri.as_str()),
+        ],
+    )
+    .await;
+    let incomplete = cli_with_env(
+        &["get", VM_ID],
+        &[("XDG_CONFIG_HOME", xdg.as_str()), ("CMUX_VM_API_KEY", KEY)],
+    )
+    .await;
+    let _ = std::fs::remove_dir_all(&dir);
+
+    assert_eq!(complete.code, exit::OK, "stderr: {}", complete.stderr);
+    assert!(
+        complete.stderr.contains("warning"),
+        "stderr: {}",
+        complete.stderr
+    );
+    assert_eq!(incomplete.code, exit::USAGE, "stderr: {}", incomplete.stderr);
+}
