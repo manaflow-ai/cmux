@@ -1,6 +1,35 @@
 {
   "description" : "Managed settings for cmux (every channel). Keys are cmux.json key paths; capitalized keys are policy keys. Forced values lock the setting; non-forced values replace its default.",
   "properties" : {
+    "agentPane.editedFiles.maxRows" : {
+      "default" : 5,
+      "description" : "agentPane.editedFiles.maxRows",
+      "maximum" : 50,
+      "minimum" : 1,
+      "title" : "Edited Files Shown",
+      "type" : "number"
+    },
+    "agentPane.editedFiles.scope" : {
+      "default" : "turn",
+      "description" : "agentPane.editedFiles.scope",
+      "enum" : [
+        "turn",
+        "session"
+      ],
+      "title" : "Edited Files Card Covers",
+      "type" : "string"
+    },
+    "agentPane.editedFiles.show" : {
+      "default" : "always",
+      "description" : "The card that lists a turn's edited files, with Undo and View changes.",
+      "enum" : [
+        "always",
+        "collapsed",
+        "never"
+      ],
+      "title" : "Edited Files Card",
+      "type" : "string"
+    },
     "agentPane.images.remote" : {
       "default" : "click",
       "description" : "A web image loads from its site, which then sees that you read the reply.",
@@ -881,6 +910,16 @@
       "title" : "New Column Sizing",
       "type" : "string"
     },
+    "layout.newPanePlacement" : {
+      "default" : "tab",
+      "description" : "Open a Tab adds a tab to the focused pane. Split Automatically splits the largest pane, like New Pane (Auto Layout).",
+      "enum" : [
+        "tab",
+        "split"
+      ],
+      "title" : "New Terminals and Browsers",
+      "type" : "string"
+    },
     "layout.paneBorder" : {
       "default" : "subtle",
       "description" : "layout.paneBorder",
@@ -955,6 +994,12 @@
       ],
       "title" : "Column Scroll Bar",
       "type" : "string"
+    },
+    "layout.tileBrowsers" : {
+      "default" : false,
+      "description" : "With Split Automatically, new browsers also get their own pane instead of a tab.",
+      "title" : "Split for Browsers Too",
+      "type" : "boolean"
     },
     "ManagedTeam" : {
       "description" : "Team id (team_...) that manages this device.",
@@ -1999,6 +2044,12 @@
       ],
       "title" : "When an Update Is Ready",
       "type" : "string"
+    },
+    "updates.showWhatsNew" : {
+      "default" : true,
+      "description" : "After an update, a What's New item shows at the top of the sidebar until you open it.",
+      "title" : "Show What's New After Updates",
+      "type" : "boolean"
     },
     "window.titlebar" : {
       "default" : "minimal",

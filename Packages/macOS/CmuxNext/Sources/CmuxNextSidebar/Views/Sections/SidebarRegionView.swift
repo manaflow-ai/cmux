@@ -210,14 +210,16 @@ final class SidebarRegionView: NSView {
                 self?.onActivate?(id)
             }
         }
+        addSubview(view)
+        itemViews[id] = view
+        // A client-only item (What's New) only opens: no drag, no menu.
+        guard !id.isTransient else { return view }
         view.onDragged = { [weak self] start, event in self?.dragMoved(.item(id), from: start, event) ?? false }
         view.onDragEnded = { [weak self] in self?.finishDrag() }
         view.onContextMenu = { [weak self] event, view in
             guard let menu = self?.contextMenuProvider?(.layoutItem(id)) else { return }
             NSMenu.popUpContextMenu(menu, with: event, for: view)
         }
-        addSubview(view)
-        itemViews[id] = view
         return view
     }
 

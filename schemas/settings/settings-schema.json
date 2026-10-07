@@ -1609,6 +1609,53 @@
       "default" : true,
       "default_label" : null,
       "group" : {
+        "key" : "settings.group.updates",
+        "text" : "Updates"
+      },
+      "help" : {
+        "key" : "settings.updates.showWhatsNew.help",
+        "text" : "After an update, a What's New item shows at the top of the sidebar until you open it."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "updates.showWhatsNew",
+      "keywords" : [
+        "whats new",
+        "release notes",
+        "changelog",
+        "update",
+        "sidebar"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "updates",
+        "showWhatsNew"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.updates.showWhatsNew",
+        "text" : "Show What's New After Updates"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
         "key" : "settings.group.announcements",
         "text" : "Announcements"
       },
@@ -2157,6 +2204,118 @@
       "title" : {
         "key" : "settings.layout.minimumPaneHeight",
         "text" : "Minimum Pane Height"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "tab",
+        "split"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.newPaneTab",
+            "text" : "Open a Tab"
+          },
+          "value" : "tab"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.newPaneSplit",
+            "text" : "Split Automatically"
+          },
+          "value" : "split"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "tab",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.columns",
+        "text" : "Columns"
+      },
+      "help" : {
+        "key" : "settings.layout.newPanePlacement.help",
+        "text" : "Open a Tab adds a tab to the focused pane. Split Automatically splits the largest pane, like New Pane (Auto Layout)."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "layout.newPanePlacement",
+      "keywords" : [
+        "tab",
+        "split",
+        "pane",
+        "auto layout",
+        "smart arrange",
+        "zellij",
+        "tile"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "layout",
+        "newPanePlacement"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.layout.newPanePlacement",
+        "text" : "New Terminals and Browsers"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.columns",
+        "text" : "Columns"
+      },
+      "help" : {
+        "key" : "settings.layout.tileBrowsers.help",
+        "text" : "With Split Automatically, new browsers also get their own pane instead of a tab."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "layout.tileBrowsers",
+      "keywords" : [
+        "browser",
+        "tile",
+        "split",
+        "pane",
+        "tab"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "layout",
+        "tileBrowsers"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.layout.tileBrowsers",
+        "text" : "Split for Browsers Too"
       },
       "validation" : "portable"
     },
@@ -14429,6 +14588,191 @@
     },
     {
       "accepts" : [
+        "always",
+        "collapsed",
+        "never"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.editedFilesAlways",
+            "text" : "Always"
+          },
+          "value" : "always"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editedFilesCollapsed",
+            "text" : "Collapsed"
+          },
+          "value" : "collapsed"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editedFilesNever",
+            "text" : "Never"
+          },
+          "value" : "never"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "always",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.editedFiles.show.help",
+        "text" : "The card that lists a turn's edited files, with Undo and View changes."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.editedFiles.show",
+      "keywords" : [
+        "edited",
+        "files",
+        "undo",
+        "changes",
+        "agent"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "editedFiles",
+        "show"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.agentPane.editedFiles.show",
+        "text" : "Edited Files Card"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        1,
+        50,
+        25.5
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 5,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.editedFiles.maxRows",
+      "keywords" : [
+        "edited",
+        "files",
+        "rows",
+        "agent"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "editedFiles",
+        "maxRows"
+      ],
+      "range" : {
+        "max" : 50,
+        "min" : 1,
+        "placeholder" : 1,
+        "step" : 1,
+        "unit" : "count"
+      },
+      "refuses" : [
+        -48,
+        99,
+        "1"
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.agentPane.editedFiles.maxRows",
+        "text" : "Edited Files Shown"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "turn",
+        "session"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.editedFilesTurn",
+            "text" : "Each Turn"
+          },
+          "value" : "turn"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editedFilesSession",
+            "text" : "The Whole Chat"
+          },
+          "value" : "session"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "turn",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.editedFiles.scope",
+      "keywords" : [
+        "edited",
+        "files",
+        "session",
+        "turn",
+        "agent"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "editedFiles",
+        "scope"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.agentPane.editedFiles.scope",
+        "text" : "Edited Files Card Covers"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -15203,7 +15547,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "68fc3c2529901936f8eef1a9ccbd1d18ca7135f9760568cee8e73a2b6cc558c3",
+  "schema_hash" : "9aab3f3de94cbad7c515b82df130c30389beb5a3ae6919101c9f576284a8ccd6",
   "sections" : [
     {
       "id" : "general",

@@ -26,19 +26,19 @@ extension SidebarBridge {
         .newBrowser: "openBrowser",
         .newAgentChat: "palette.newAgentChat",
         .customize: "appearance.customize",
+        .searchChats: "agentPane.searchChats",
     ]
 
     /// Runs item `id` as a click does: a top-section item that stands for a
     /// page opens that page in this window (TOP-SECTION-ITEMS-ARE-PAGES).
     func activateLayoutItem(_ id: LayoutItemID, opensWorkspace: Bool = false) {
-        guard let item = model.layout.item(id) else { return }
+        guard let item = model.layout.item(id) else { return WhatsNewPage.activateClientItem(id, services: services, in: state) }
         if let region = model.layout.region(of: id), let route = TopPageRoute(item.ref, in: region),
            TopPages.show(route, services: services, in: state) != nil { return }
         activate(item.ref, opensWorkspace: opensWorkspace)
     }
 
-    /// Runs a sidebar item (sidebar-sections.md 2): pinned tabs, pages and
-    /// spaces are in SidebarBridge+PinnedItems.
+    /// Runs a sidebar item (sidebar-sections.md 2); pinned tabs, pages, spaces: SidebarBridge+PinnedItems.
     func activate(_ ref: LayoutItemRef, opensWorkspace: Bool = false) {
         if let builtIn = ref.builtIn, let action = Self.builtInActions[builtIn] {
             var invocation = ActionInvocation(origin: .user)

@@ -67,6 +67,7 @@ extension FrontendBrowserHistory.Entry {
 public struct SetFrontendBrowserHistoryRequest: DaemonRequest {
     public typealias Response = EmptyResponse
     public static let command = "set-frontend-browser-history"
+    public static let requiredCapability: String? = DaemonCapabilities.shared.frontendBrowserHistory
     public var surface: SurfaceID
     public var history: FrontendBrowserHistory?
 
@@ -90,6 +91,7 @@ public struct GetFrontendBrowserHistoryRequest: DaemonRequest {
         public var history: FrontendBrowserHistory?
     }
     public static let command = "get-frontend-browser-history"
+    public static let requiredCapability: String? = DaemonCapabilities.shared.frontendBrowserHistory
     public var surface: SurfaceID
 
     public init(surface: SurfaceID) {

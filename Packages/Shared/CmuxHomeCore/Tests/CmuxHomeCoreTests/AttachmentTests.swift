@@ -5,6 +5,7 @@ import CryptoKit
 import Foundation
 import ImageIO
 import Testing
+import CmuxHomeCoreTestSupport
 import UniformTypeIdentifiers
 @testable import CmuxHomeCore
 
@@ -646,11 +647,6 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
         await store.open(conversation)
         await waitUntil { !store.transcript(for: conversation).isEmpty }
         return (store, source)
-    }
-
-    /// Waits on observation changes, never on a clock.
-    func waitUntil(_ condition: @escaping @MainActor () -> Bool) async {
-        for _ in 0..<5_000 where !condition() { await Task.yield() }
     }
 
     /// Lets queued main-actor and source tasks run (for "nothing happens" checks).

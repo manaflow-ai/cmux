@@ -138,10 +138,9 @@ public actor DaemonConnection {
 
     public func request<R: DaemonRequest>(_ request: R, timeout: Duration?) async throws -> R.Response {
         guard case .ready(let transport, _, _) = phase else { throw DaemonError.notConnected }
+        try R.requireServed(by: identity)
         let response = try await Self.perform(request, on: transport, timeout: timeout)
-        if let scope = DaemonCommandScope.current, let creating = request as? any DaemonCreatingRequest {
-            scope.noteCreated(creating.createdObjects(inAny: response))
-        }
+        DaemonCommandScope.noteCreated(by: request, response: response)
         return response
     }
 
@@ -192,7 +191,7 @@ public actor DaemonConnection {
         do {
             let endpoint = try await endpointProvider()
             DaemonLaunchTimings.shared.mark("daemon.endpoint_resolved")
-            let transport = try LineTransport(path: endpoint.socketPath)
+            let transport = try LineTransport(path: endpoint.socketPath, preamble: endpoint.preamble)
             DaemonLaunchTimings.shared.mark("daemon.socket_connected")
             let gate = EventGate()
             let continuation = continuation

@@ -70,6 +70,13 @@ budget. CI runs the same in `.github/workflows/cmux-vm.yml`.
 
 ## Operations
 
+API key management (`/v1/api-keys`) writes `cmux_vm.api_keys`. Besides
+SELECT, the Worker's database role needs, applied by an operator:
+
+```sql
+GRANT INSERT, UPDATE ON cmux_vm.api_keys TO <worker role>;
+```
+
 Migrations are applied by an operator with `psql -f migrations/<file>.sql`,
 staging branch first; the Worker never runs DDL. Deploys run only from CI,
 gated by the environment variable `CMUX_VM_DEPLOY_ENABLED`, and create or

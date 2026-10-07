@@ -9,6 +9,7 @@ import { newBindToken, sha256Hex } from "./cloud-link.ts"
 import { AccessAudit } from "./cloud-connect.ts"
 import { registerVmInstall, revokeVmInstall, VmStatusQueue } from "./cloud-vm.ts"
 import { VmInstallRevokes } from "./cloud-vm-revoke.ts"
+import { CoderouterEdge } from "./cloud-coderouter-edge.ts"
 import { publicSnapshot, type SnapshotRow } from "./domains/cloud-snapshot.ts"
 import { BACKSTOP_IDLE_SECONDS, silentSince } from "./cloud-idle.ts"
 import { planView, teamPlan, type CloudConfig } from "./domains/cloud-plan.ts"
@@ -43,6 +44,8 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
   protected readonly vmStatus = new VmStatusQueue(this.sqlStore)
   /** The one durable path that ends VM installs (cloud-vm-revoke.ts). */
   protected readonly vmRevokes = new VmInstallRevokes(this.sqlStore)
+  /** The coderouter.cmux.internal edge rule and its token refresh (development only; cloud-coderouter-edge.ts). */
+  protected readonly edge = new CoderouterEdge(this.sqlStore, this.env)
   /** Test only: fail the next N revoke calls (fakeControl `fail_revokes`). */
   protected failRevokes = 0
   protected async drainRevokes(now: number): Promise<void> {
@@ -309,7 +312,9 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
             const m = engine.rows.get<MachineRow>(TABLE_MACHINE, row.machine)?.row
             // A restore boots its snapshot (a recorded, guarded slug); every other create the deployment's image.
             const fromSnapshot = m?.from_snapshot
-            const id = (await driver.ensure(row.provider_name, tag, { idleSeconds: 0, ...(fromSnapshot ? { snapshot: fromSnapshot } : {}) })).id
+            const edgeRule = await this.edge.ruleForCreate(row.machine, m?.creator, Date.now() + this.skewMs)
+            const id = (await driver.ensure(row.provider_name, tag, { idleSeconds: 0, ...(fromSnapshot ? { snapshot: fromSnapshot } : {}), ...(edgeRule ? { edgeRules: [edgeRule] } : {}) })).id
+            if (edgeRule) this.edge.created(row.machine, Date.now() + this.skewMs)
             // 5.8 item 1: a fresh one-time bind token into the VM; only its sha256 is committed.
             const token = newBindToken()
             // a9's contract: one image for every environment, so the file names the https API origin and the env tag (checked above).
@@ -337,6 +342,7 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
       }
       this.submitSystem("cloud.driver_result", result, commitKey)
       if (!result.ok) return
+      if (row.op === "start" && driver) await this.edge.started(driver, tag.team, row.machine, engine.rows.get<MachineRow>(TABLE_MACHINE, row.machine)?.row, Date.now() + this.skewMs)
     }
   }
 
@@ -353,6 +359,8 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
     // removed), their overdue times would re-fire the alarm at once, forever (third review P2-1).
     if (cloudProviderReady(this.env)) {
       times.push(...Object.values(state.watch ?? {}).map((w) => w.due_at))
+      const edgeDue = this.edge.schedule.dueAt()
+      if (edgeDue !== null) times.push(edgeDue)
       if (this.hasRows()) times.push(this.sweep.dueAt() ?? Date.now())
     }
     return times.length ? Math.min(...times) : null
@@ -380,6 +388,7 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
     const team = engine.currentState.team
     if (!driver || !team) return
     await this.lookUpCancelled(now, team, driver)
+    for (const m of this.edge.schedule.due(now)) await this.edge.refresh(driver, team, m, engine.rows.get<MachineRow>(TABLE_MACHINE, m)?.row, now)
     // N5: only while the team has machine, ledger or tombstone rows.
     if (this.hasRows()) await this.sweep.maybeRun(now, team, engine.stream, () => collectSuspects(driver, team, engine.rows))
   }

@@ -286,6 +286,44 @@ import Testing
         #expect(released == nil)
     }
 
+    /// Reopening Cmd-Shift-P from a shortcut replaces the root page inside the
+    /// action's task-local scope while a search may still hold the old one.
+    /// Every root provider must be released without a main-actor deinit hop
+    /// (EXC_BREAKPOINT in TaskLocal StopLookupScope from WorkspacePaletteProvider).
+    @Test func reopeningTheRootPageInsideAnActionReleasesEveryProvider() async {
+        let registry = ActionRegistry.standard()
+        let data = MockPaletteData()
+        let model = PaletteModel(persistence: nil)
+        var released: [() -> (any PaletteProvider)?] = []
+
+        func openAndClose() {
+            let providers: [any PaletteProvider] = [
+                RegistryPaletteProvider(registry: registry, includeUnbound: true),
+                WorkspacePaletteProvider(source: data, showsItemsForEmptyQuery: false),
+                TabPaletteProvider(source: data, showsItemsForEmptyQuery: false),
+                RecentDirectoriesPaletteProvider(source: data, showsItemsForEmptyQuery: false),
+                SettingsPaletteProvider(source: data, showsItemsForEmptyQuery: false),
+                OpenInPaletteProvider(source: data, showsItemsForEmptyQuery: true),
+                KeyboardShortcutsPaletteProvider(registry: registry),
+            ]
+            released += providers.map { provider in { [weak provider] in provider } }
+            ActionRunScope.$current.withValue(ActionRunScope(origin: .user, allowsViewChange: true)) {
+                model.reset(to: PalettePageSpec(id: "commands", title: "Commands", placeholder: "Search", providers: providers))
+                model.query = "work"
+                model.handle(.escape)
+                model.handle(.escape)
+            }
+        }
+
+        for _ in 0..<8 {
+            openAndClose()
+            await Task.yield()
+        }
+        await model.settle()
+        for _ in 0..<100 { await Task.yield() }
+        #expect(released.allSatisfy { $0() == nil })
+    }
+
     @Test func goToWorkspaceOpensNestedList() async {
         let registry = ActionRegistry.standard()
         let data = MockPaletteData()

@@ -80,7 +80,7 @@ final class SettingsWindowService: InternalPageProvider {
     }
 
     private static func hasPane(_ window: WindowController) -> Bool {
-        window.content.map { !$0.panes.isEmpty } ?? false
+        window.workspaceContent.map { !$0.panes.isEmpty } ?? false
     }
 
     /// The page fragment for `section` and `setting`: a schema setting focuses its row; any other
