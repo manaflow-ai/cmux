@@ -278,6 +278,53 @@ fn tab_update_stores_zoom_and_rejects_history_on_a_terminal_tab() {
     );
 }
 
+/// ICON-PICKER-ALL-EMOJI-AND-SF-SYMBOLS: a tab carries a user icon (one
+/// emoji or an SF Symbol name, the shared icon wire string) on its record,
+/// listed in the snapshot so every client shows it; null clears it.
+#[test]
+fn tab_update_sets_and_clears_a_user_icon() {
+    let mux = Mux::new_for_test("state-tab-icon", SurfaceOptions::default());
+    let tabs = terminal_tabs(&mux, 1);
+    let tab = tab_id(&mux, tabs[0]);
+    let before = revision(&mux);
+    let set = mutate(&mux, "tab.update", json!({"tab": tab, "icon": "🚀"}), "icon-1");
+    assert_eq!(set["extra"]["icon"], "🚀");
+    assert!(
+        changes_after(&mux, before)
+            .iter()
+            .any(|change| change["id"] == tab && change["value"]["extra"]["icon"] == "🚀")
+    );
+    let symbol = mutate(
+        &mux,
+        "tab.update",
+        json!({"tab": tab, "icon": "hammer.fill", "zoom": 1.25}),
+        "icon-2",
+    );
+    assert_eq!(symbol["extra"]["icon"], "hammer.fill");
+    assert_eq!(symbol["extra"]["zoom"], 1.25);
+    let listed = snapshot(&mux)["tabs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["id"] == tab)
+        .unwrap()
+        .clone();
+    assert_eq!(listed["extra"]["icon"], "hammer.fill");
+    // Clearing the zoom keeps the icon; clearing the icon removes it.
+    let zoom_cleared = mutate(&mux, "tab.update", json!({"tab": tab, "zoom": null}), "icon-3");
+    assert_eq!(zoom_cleared["extra"]["icon"], "hammer.fill");
+    let cleared = mutate(&mux, "tab.update", json!({"tab": tab, "icon": null}), "icon-4");
+    assert!(cleared["extra"].get("icon").is_none());
+    for (index, bad) in ["two words", "🚀🚀", "Hammer", ""].into_iter().enumerate() {
+        let key = format!("icon-bad-{index}");
+        assert_eq!(
+            error_code(send(&mux, "tab.update", json!({"tab": tab, "icon": bad}), Some(&key))),
+            "validation.invalid",
+            "{bad:?} must be refused"
+        );
+    }
+}
+
 #[test]
 fn tab_groups_create_edit_move_ungroup_and_close_through_public_ids() {
     let mux = Mux::new_for_test("state-tab-groups", SurfaceOptions::default());
