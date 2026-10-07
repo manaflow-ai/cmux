@@ -36,7 +36,7 @@ struct CertificateRecheckBeforeCommitTests {
 
     @Test func thePageDoesNotCommitBeforeTheCheckAnswers() async {
         let (engine, answer) = engine()
-        let tab = engine.makeWebKitTab(BrowserTabConfiguration(profile: .default))
+        let tab = engine.makeWebKitTab(profile: .default)
         let decisions = Decisions()
         engine.admitMainFrameLoad(page, in: tab) { decisions.values.append($0) }
         for _ in 0 ..< 50 { await Task.yield() }
@@ -52,7 +52,7 @@ struct CertificateRecheckBeforeCommitTests {
 
     @Test func aTrustedHostLoadsAndEndsTheRecheck() async {
         let (engine, answer) = engine()
-        let tab = engine.makeWebKitTab(BrowserTabConfiguration(profile: .default))
+        let tab = engine.makeWebKitTab(profile: .default)
         let decisions = Decisions()
         engine.admitMainFrameLoad(page, in: tab) { decisions.values.append($0) }
         answer.yield(.trusted)
@@ -64,7 +64,7 @@ struct CertificateRecheckBeforeCommitTests {
 
     @Test func anUnknownResultLoadsButKeepsTheRecheck() async {
         let (engine, answer) = engine()
-        let tab = engine.makeWebKitTab(BrowserTabConfiguration(profile: .default))
+        let tab = engine.makeWebKitTab(profile: .default)
         let decisions = Decisions()
         engine.admitMainFrameLoad(page, in: tab) { decisions.values.append($0) }
         answer.yield(.unknown)
@@ -78,7 +78,7 @@ struct CertificateRecheckBeforeCommitTests {
     @Test func otherLoadsAreNotHeld() {
         let (engine, answer) = engine()
         answer.yield(.untrusted(chain: [], reason: "would block"))
-        let tab = engine.makeWebKitTab(BrowserTabConfiguration(profile: .default))
+        let tab = engine.makeWebKitTab(profile: .default)
         let decisions = Decisions()
         engine.admitMainFrameLoad(URL(string: "https://other.test/")!, in: tab) { decisions.values.append($0) }
         engine.admitMainFrameLoad(URL(string: "http://\(host)/")!, in: tab) { decisions.values.append($0) }

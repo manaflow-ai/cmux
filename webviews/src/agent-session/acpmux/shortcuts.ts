@@ -3,7 +3,6 @@ import { createContext, useContext } from "react";
 /// The app actions whose shortcuts the page shows. The host binds them (Settings, cmux.json) and
 /// pushes their keycaps through the bridge's applyShortcuts (CmuxNextAgentPane AgentPaneShortcuts).
 export const SHORTCUT_ACTIONS = {
-  searchChats: "agentPane.searchChats",
   newAgentChat: "palette.newAgentChat",
   toggleDictation: "palette.toggleDictation",
   permissionAllowOnce: "agentPane.permission.allowOnce",
@@ -17,7 +16,7 @@ export const SHORTCUT_ACTIONS = {
   copyTabLink: "palette.copySurfaceLink",
 } as const;
 
-/// Keycaps by action id, such as `{"agentPane.searchChats": "⌘K"}`. An action without a
+/// Keycaps by action id, such as `{"palette.newAgentChat": "⇧⌘I"}`. An action without a
 /// shortcut is absent, so the page shows none rather than a stale default.
 export type ShortcutLabels = Readonly<Record<string, string>>;
 
@@ -29,7 +28,7 @@ export function readShortcuts(value: unknown): ShortcutLabels {
   );
 }
 
-/// A tooltip naming its shortcut, "Search chats (⌘K)", or the plain label without one.
+/// A tooltip naming its shortcut, "New chat (⇧⌘I)", or the plain label without one.
 export const withShortcut = (label: string, shortcut: string | undefined) =>
   shortcut ? `${label} (${shortcut})` : label;
 
