@@ -14,21 +14,33 @@ public final class TerminalViewController: UIViewController {
     /// Invisible; its bottom is the keyboard's top. A view, so a keyboard
     /// move runs `viewDidLayoutSubviews` inside the keyboard's animation.
     private let keyboardTop = UIView()
+    /// The device's terminal settings (theme, font, cursor, key bar); nil
+    /// keeps the renderer defaults.
+    private let appearanceOwner: (any TerminalAppearanceProviding)?
+    /// The theme the terminal was opened with; Settings' "Match Mac" keeps it.
+    private let openedTheme: ThemeInput?
+    private var appearanceTask: Task<Void, Never>?
 
     /// A terminal of a cmux session host through the transport seam.
     public convenience init(source: any TerminalSessionSource, terminal: TerminalRef,
+                            appearance: (any TerminalAppearanceProviding)? = nil,
                             clock: any Clock<Duration> = ContinuousClock()) {
-        self.init(source: SessionTerminalByteSource(source: source, terminal: terminal), title: terminal.title, clock: clock)
+        self.init(source: SessionTerminalByteSource(source: source, terminal: terminal), title: terminal.title,
+                  appearance: appearance, clock: clock)
     }
 
     /// A terminal fed by any byte source.
     public init(source: any TerminalByteSource, title: String?, theme: ThemeInput? = nil,
+                appearance: (any TerminalAppearanceProviding)? = nil,
                 clock: any Clock<Duration> = ContinuousClock()) {
         let view = GhosttyTerminalView(authority: source.authority)
         view.theme = theme
+        openedTheme = theme
+        appearanceOwner = appearance
         session = TerminalSession(source: source, view: view, clock: clock)
         super.init(nibName: nil, bundle: nil)
         self.title = title
+        if let appearance { apply(appearance.appearance) }
     }
 
     @available(*, unavailable)
@@ -70,11 +82,39 @@ public final class TerminalViewController: UIViewController {
     public override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         session.start()
+        followAppearance()
     }
 
     public override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
         session.stop()
+        appearanceTask?.cancel()
+        appearanceTask = nil
+    }
+
+    /// Follows Settings while visible, so a change made in another tab
+    /// reaches this terminal when it shows again (and live on iPad).
+    private func followAppearance() {
+        guard let appearanceOwner, appearanceTask == nil else { return }
+        let updates = appearanceOwner.appearanceUpdates()
+        appearanceTask = Task { [weak self] in
+            for await appearance in updates {
+                self?.apply(appearance)
+            }
+        }
+    }
+
+    /// Applies the device's terminal settings to the surface.
+    public func apply(_ appearance: TerminalAppearance) {
+        terminalView.theme = appearance.theme ?? openedTheme
+        terminalView.fontFamily = appearance.fontFamily
+        terminalView.cursorStyle = appearance.cursorStyle
+        terminalView.cursorBlink = appearance.cursorBlink
+        terminalView.followsDynamicType = appearance.followsDynamicType
+        let sizing = appearance.fontSizing(from: terminalView.fontSizing)
+        if sizing != terminalView.fontSizing { terminalView.fontSizing = sizing }
+        terminalView.keyBarKeys = TerminalKeyBarKey.keys(fromSetting: appearance.keyBarKeyIDs)
+        if isViewLoaded { view.backgroundColor = terminalView.backgroundColor }
     }
 
     /// DEBUG diagnostics of the surface and the stream.

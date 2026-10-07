@@ -8,9 +8,11 @@ enum PlatformText {
     static var crashReports: String {
         String(localized: "platform.diagnostics.crashReports", defaultValue: "Share Crash Reports", bundle: .module)
     }
-    static var crashReportsFooter: String {
-        String(localized: "platform.diagnostics.crashReportsFooter",
-               defaultValue: "Sends crash and hang reports without your name, email or terminal contents.", bundle: .module)
+    static var on: String { String(localized: "platform.diagnostics.on", defaultValue: "On", bundle: .module) }
+    static var off: String { String(localized: "platform.diagnostics.off", defaultValue: "Off", bundle: .module) }
+    static var crashReportsMovedFooter: String {
+        String(localized: "platform.diagnostics.crashReportsMoved",
+               defaultValue: "Change this in Settings > Preferences > Privacy.", bundle: .module)
     }
     static var logSection: String {
         String(localized: "platform.diagnostics.logSection", defaultValue: "Log", bundle: .module)
