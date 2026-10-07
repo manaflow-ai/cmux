@@ -358,7 +358,7 @@ extension RemoteTmuxControlConnection {
                 return
             }
             rawQueryTimeoutTasks[token] = Task { @MainActor [weak self] in
-                try? await Task.sleep(nanoseconds: UInt64(max(0, timeout) * 1_000_000_000))
+                await RemoteTmuxRetryDelay.wait(milliseconds: Int(max(0, timeout) * 1_000))
                 guard !Task.isCancelled, let self,
                       let completion = self.rawQueryCompletions.removeValue(forKey: token) else { return }
                 self.rawQueryTimeoutTasks.removeValue(forKey: token)

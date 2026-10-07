@@ -11,7 +11,7 @@ import Foundation
 /// stream, calls ``plan(...)``, and applies the result. Pure and deterministic so
 /// the whole policy stays unit-testable without tmux/SSH.
 enum RemoteTmuxLinkedViewPlan {
-    struct Snapshot {
+    struct Snapshot: Sendable {
         /// `list-sessions -F RemoteTmuxViewSession.listFormat` rows.
         let sessions: [RemoteTmuxViewSession.SessionRow]
         /// `list-windows -a -F RemoteTmuxLinkedWorkspaceModel.listFormat` rows.
@@ -23,7 +23,7 @@ enum RemoteTmuxLinkedViewPlan {
         let placeholderWindowId: String?
     }
 
-    struct Plan: Equatable {
+    struct Plan: Equatable, Sendable {
         /// True when no live, current-format, owned view session exists yet and
         /// the coordinator must create one (via `view.createCommands`).
         let needsViewCreate: Bool

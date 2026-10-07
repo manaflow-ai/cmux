@@ -1825,12 +1825,6 @@ final class CmuxConfigStore: ObservableObject {
     /// never has to infer action identity from equal payloads.
     @Published private(set) var surfaceTabBarActionReferenceIDs: [String: String] = [:]
     @Published private(set) var notificationHooks: [CmuxResolvedNotificationHook] = []
-    /// Brokers declared under `remoteTmux.brokers`, already filtered to the ones fit to launch.
-    /// Resolved at load so the control socket can answer a broker request with a lookup.
-    @Published private(set) var remoteTmuxBrokers = RemoteTmuxBrokerRegistry()
-    /// Why each refused broker was refused, keyed by name. Kept so asking for one can say what is
-    /// wrong with it rather than claiming it was never declared.
-    private(set) var remoteTmuxBrokerRejections: [String: String] = [:]
     @Published private(set) var configurationIssues: [CmuxConfigIssue] = []
     @Published private(set) var configRevision: UInt64 = 0
 
@@ -2317,6 +2311,8 @@ final class CmuxConfigStore: ObservableObject {
         // get a trust prompt before they run; this seam has no equivalent, so it takes the setting
         // only from the file the user owns.
         let remoteTmuxDefinition = globalConfig?.remoteTmux
+        let remoteTmuxBrokers: RemoteTmuxBrokerRegistry
+        let remoteTmuxBrokerRejections: [String: String]
         if let remoteTmuxDefinition {
             let resolved = RemoteTmuxBrokerRegistry.make(from: remoteTmuxDefinition)
             remoteTmuxBrokers = resolved.registry
@@ -2325,7 +2321,8 @@ final class CmuxConfigStore: ObservableObject {
             remoteTmuxBrokers = RemoteTmuxBrokerRegistry()
             remoteTmuxBrokerRejections = [:]
         }
-        // Publish for the socket's parsing path, which cannot reach this actor mid-parse.
+        // Socket-only state does not invalidate SwiftUI through this config store.
+        // Publish for the parsing path, which cannot reach this actor mid-parse.
         RemoteTmuxBrokerSnapshot.shared.update(
             registry: remoteTmuxBrokers, rejections: remoteTmuxBrokerRejections
         )

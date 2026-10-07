@@ -301,8 +301,6 @@ extension RemoteTmuxController {
             // master, and the retry resumes this stream over it instead of starting over.
             let profile = host.transportProfile
             let awaitingLogin = hostAuth.isAwaiting(host)
-                || heldView?.lastStreamAwaitedCredentials == true
-                || heldView?.connection?.isAwaitingCredentials == true
             // Either way nothing was mirrored into the window this attach opened. After a
             // login the retry opens its own.
             if let dedicatedWindowId {
@@ -359,25 +357,15 @@ extension RemoteTmuxController {
     ///
     /// A stream that is waiting for a passcode produces no error of its own — it prints a prompt and
     /// sits there — so the deadline expires first and the generic message sends the user to check the
-    /// network instead of their second factor. The view latches that observation while its connection
-    /// still exists; the live connection is consulted too, for the case where nothing has torn down yet.
+    /// network instead of their second factor. The host ledger owns this verdict;
+    /// a held view from an older attach must not override a successful login.
     func multiplexedMirrorFailure(host: RemoteTmuxHost, view: RemoteTmuxViewConnection?) -> RemoteTmuxError {
-        // The caller passes the view it already holds; re-reading the dictionary here found nil once the
-        // teardown had run. The host-level note is the fallback for when even that view is gone.
+        // Keep the held view only for diagnostics that survive transport teardown.
         let live = view ?? multiplexedViewsByHost[host.connectionHash]
-        let fromNote = hostAuth.isAwaiting(host)
-        let fromLatch = live?.lastStreamAwaitedCredentials == true
-        let fromConnection = live?.connection?.isAwaitingCredentials == true
-        let awaited = fromNote || fromLatch || fromConnection
+        let awaited = hostAuth.isAwaiting(host)
         live?.connection?.record(
-            "mirror-failure awaiting=\(awaited) note=\(fromNote) latch=\(fromLatch) "
-                + "conn=\(fromConnection) hasView=\(live != nil) hasConn=\(live?.connection != nil)")
-        #if DEBUG
-        cmuxDebugLog(
-            "remote-tmux: mirror-failure host=\(host.destination) awaiting=\(awaited) note=\(fromNote) "
-                + "latch=\(fromLatch) conn=\(fromConnection) hasView=\(live != nil) "
+            "mirror-failure awaiting=\(awaited) hasView=\(live != nil) "
                 + "hasConn=\(live?.connection != nil)")
-        #endif
         return RemoteTmuxController.mirrorFailure(
             destination: host.destination,
             awaitingCredentials: awaited,
@@ -416,8 +404,13 @@ extension RemoteTmuxController {
             self?.teardownMultiplexedHost(host: host)
         }
         // Store the verdict host-wide before the teardown above can discard the view holding it.
-        view.onAwaitingCredentials = { [weak self] in
-            self?.noteAwaitingCredentials(host: host)
+        view.onAwaitingCredentials = { [weak self, weak view] in
+            guard let self, let view, self.multiplexedViewsByHost[host.connectionHash] === view else { return }
+            self.noteAwaitingCredentials(host: host)
+        }
+        view.onAuthenticated = { [weak self, weak view] in
+            guard let self, let view, self.multiplexedViewsByHost[host.connectionHash] === view else { return }
+            self.noteMirrorConnected(host: host)
         }
         // Same login path the GA (one-connection-per-session) mirrors use. Without this a
         // multiplexed host that parks on authentication offers no login at all and every session
@@ -427,6 +420,9 @@ extension RemoteTmuxController {
             self?.presentReconnectAuthentication(host: host, sshArgv: sshArgv) ?? false
         }
         multiplexedViewsByHost[host.connectionHash] = view
+        // A fresh owner starts a new authentication attempt. Old callbacks above
+        // cannot publish into it; a failed attempt's note otherwise outlives teardown.
+        hostAuth.retire(host)
         do {
             try view.start()
         } catch {

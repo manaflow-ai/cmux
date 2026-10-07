@@ -1,3 +1,4 @@
+import CmuxFoundation
 import CmuxRemoteSession
 import Foundation
 import os
@@ -193,6 +194,9 @@ final class RemoteTmuxControlConnection {
     var trackedSendCompletions: [UUID: (Bool) -> Void] = [:]
 
     private var process: Process?
+    /// Cleanup belongs to the ended spawn, and must finish even if a replacement
+    /// stream starts or the last mirror releases this connection in the meantime.
+    private var processTerminationTasks: [UUID: Task<Void, Never>] = [:]
     var stdinWriter: RemoteTmuxControlPipeWriter?
     private var stdoutReader: FileHandle?
     private var stdoutPipeReader: RemoteTmuxProcessOutputReader?
@@ -342,19 +346,6 @@ final class RemoteTmuxControlConnection {
     /// would silently become false — a login that was seen and then forgotten. Reset per spawn along
     /// with the buffer it summarises.
     private var sawUnansweredCredentialPrompt = false
-    /// Whether the bytes before control mode are an unanswered credential prompt: a transport waiting
-    /// for a passcode it has no terminal to ask on.
-#if DEBUG
-    /// The pre-control region as the classifier sees it, capped, for diagnostics only. Distinguishes
-    /// "nothing arrived" from "something arrived and did not match", which look identical from outside.
-    /// Debug-only: its sole reader is a `cmuxDebugLog` call, so the release binary does not carry it.
-    var preControlObservationForDebug: String {
-        let combined = preControlOutputBuffer + parser.unterminatedTail
-        let flat = combined.replacingOccurrences(of: "\n", with: "\\n")
-        return flat.count <= 200 ? flat : String(flat.suffix(200))
-    }
-#endif
-
     /// Where this connection's attach stands, or nil when there is nothing left to wait for: it
     /// was never started, it ended, or it is parked until someone logs in.
     func attachProgress(now: ContinuousClock.Instant = .now) -> RemoteTmuxAttachProgress? {
@@ -1122,13 +1113,21 @@ final class RemoteTmuxControlConnection {
     private func terminateProcessTree(_ proc: Process?) {
         guard let proc, proc.processIdentifier > 0 else { return }
         let root = proc.processIdentifier
-        let tree = Self.processTree(root: root)
-        for pid in tree.reversed() { Self.signalProcess(pid, SIGTERM) }
-        proc.terminate()
-        Task.detached {
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
-            for pid in tree.reversed() where Darwin.kill(pid, 0) == 0 {
-                Self.signalProcess(pid, SIGKILL)
+        let tree = Self.processTree(root: root).compactMap { AgentPIDProcessIdentity(pid: $0) }
+        for identity in tree.reversed() where AgentPIDProcessIdentity(pid: identity.pid) == identity {
+            Self.signalProcess(identity.pid, SIGTERM)
+        }
+        guard !tree.isEmpty else { return }
+        let token = UUID()
+        // Retain the owner for this bounded cleanup. Cancelling at reconnect or
+        // root exit could strand children that ignored SIGTERM. A birth timestamp
+        // check prevents the delayed escalation from targeting a reused PID.
+        processTerminationTasks[token] = Task { @MainActor [self] in
+            defer { processTerminationTasks[token] = nil }
+            await RemoteTmuxRetryDelay.wait(milliseconds: 2_000)
+            guard !Task.isCancelled else { return }
+            for identity in tree.reversed() where AgentPIDProcessIdentity(pid: identity.pid) == identity {
+                Self.signalProcess(identity.pid, SIGKILL)
             }
         }
     }

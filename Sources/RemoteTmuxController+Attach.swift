@@ -218,7 +218,7 @@ extension RemoteTmuxController {
     /// went quiet (`stall`, with the phase it was in), or the transport ended and left a reason
     /// (`transportDetail`). The sentence with neither is what is left when the stream ended
     /// without saying anything.
-    static func mirrorFailure(
+    nonisolated static func mirrorFailure(
         destination: String,
         awaitingCredentials: Bool,
         stall: RemoteTmuxAttachProgress? = nil,
@@ -260,8 +260,12 @@ extension RemoteTmuxController {
         // so both count as ready without waiting.
         var pending: [(workspaceId: UUID, connection: RemoteTmuxControlConnection)] = []
         var ready: [UUID] = []
+        let mirrorsByWorkspace = Dictionary(
+            sessionMirrors.values.compactMap { mirror in
+                mirror.workspace.map { ($0.id, mirror) }
+            }, uniquingKeysWith: { first, _ in first })
         for workspaceId in workspaceIds {
-            guard let mirror = sessionMirrors.values.first(where: { $0.workspace?.id == workspaceId })
+            guard let mirror = mirrorsByWorkspace[workspaceId]
             else { continue }
             guard let connection = mirror.connection as? RemoteTmuxControlConnection,
                   connection.started
@@ -289,9 +293,10 @@ extension RemoteTmuxController {
                 return (UUID(), false)
             }
             var results: [UUID: Bool] = [:]
-            let expected = pending.count
+            let pendingIDs = Set(pending.map(\.workspaceId))
+            let expected = pendingIDs.count
             while let (workspaceId, isReady) = await group.next() {
-                if pending.contains(where: { $0.workspaceId == workspaceId }) {
+                if pendingIDs.contains(workspaceId) {
                     results[workspaceId] = isReady
                     if results.count == expected { break }
                 } else {
@@ -415,7 +420,7 @@ extension RemoteTmuxController {
     @discardableResult
     func presentReconnectAuthentication(host: RemoteTmuxHost, sshArgv: [String]) -> Bool {
         guard !sshArgv.isEmpty else {
-            Self.logger.error("reconnect-auth: empty sshArgv for \(host.connectionHash, privacy: .public)")
+            Self.logger.error("reconnect-auth: empty sshArgv for \(host.connectionHash, privacy: .private)")
             return false
         }
         let key = host.connectionHash
@@ -426,7 +431,7 @@ extension RemoteTmuxController {
         // Arm the master waiter so the parked stream resumes once that login lands.
         if windowRegistry.isAttachInFlight(hostHash: key) {
             Self.logger.info(
-                "reconnect-auth: attach in flight for \(host.destination, privacy: .public); caller owns the login")
+                "reconnect-auth: attach in flight for \(host.destination, privacy: .private); caller owns the login")
             ensureAuthenticationWait(host: host)
             return true
         }
@@ -442,7 +447,7 @@ extension RemoteTmuxController {
                 .map(\.connection.connectionState)
         ) {
             Self.logger.info(
-                "reconnect-auth: \(host.connectionHash, privacy: .public) already has a live connection; not offering")
+                "reconnect-auth: \(host.connectionHash, privacy: .private) already has a live connection; not offering")
             return false
         }
         // Reserve the slot BEFORE creating anything. Several sessions on one host report
@@ -455,10 +460,10 @@ extension RemoteTmuxController {
                 // Report NOT presented, so the caller keeps retrying quietly. Claiming
                 // otherwise is what stranded the host after a dismissal.
                 Self.logger.info(
-                    "reconnect-auth: login dismissed for \(host.connectionHash, privacy: .public); not re-offering")
+                    "reconnect-auth: login dismissed for \(host.connectionHash, privacy: .private); not re-offering")
                 return false
             }
-            Self.logger.info("reconnect-auth: login already offered for \(host.connectionHash, privacy: .public)")
+            Self.logger.info("reconnect-auth: login already offered for \(host.connectionHash, privacy: .private)")
             ensureAuthenticationWait(host: host)
             return true
         }
@@ -480,7 +485,7 @@ extension RemoteTmuxController {
             controller.v2WorkspaceCreate(params: params)
         }
         Self.logger.info(
-            "reconnect-auth: login workspace for \(host.connectionHash, privacy: .public): \(Self.loginWorkspaceOutcomeLabel(result), privacy: .public)")
+            "reconnect-auth: login workspace for \(host.connectionHash, privacy: .private): \(Self.loginWorkspaceOutcomeLabel(result), privacy: .public)")
         guard case .ok(let payload) = result,
               let workspaceId = (payload as? [String: Any])?["workspace_id"] as? String,
               let loginWorkspace = UUID(uuidString: workspaceId) else {
@@ -491,7 +496,7 @@ extension RemoteTmuxController {
             // loop instead: it is rate-limited by backoff, and a later attempt can offer
             // the login again.
             Self.logger.error(
-                "reconnect-auth: no login workspace for \(host.connectionHash, privacy: .public); resuming retries")
+                "reconnect-auth: no login workspace for \(host.connectionHash, privacy: .private); resuming retries")
             loginOffers.abandon(host: key, generation: generation)
             resumeReconnectAfterAuthentication(host: host)
             return false
@@ -525,7 +530,7 @@ extension RemoteTmuxController {
         // prevent, in mirror image and permanent.
         hostAuth.retire(host)
         if loginOffers.hasOffer(host: key) {
-            Self.logger.info("reconnect-auth: \(host.connectionHash, privacy: .public) reconnected; offer released")
+            Self.logger.info("reconnect-auth: \(host.connectionHash, privacy: .private) reconnected; offer released")
             // Clear the offer BEFORE closing the workspace. `TabManager.closeWorkspace` reports
             // every login workspace to `noteLoginWorkspaceClosed`, which cannot tell cmux's own
             // close from the user's: with the offer still present it takes the decline path on a
@@ -776,7 +781,7 @@ extension RemoteTmuxController {
             return
         }
         Self.logger.info(
-            "reconnect-auth: login dismissed for \(host.connectionHash, privacy: .public); retrying quietly")
+            "reconnect-auth: login dismissed for \(host.connectionHash, privacy: .private); retrying quietly")
         loginOffers.noteDeclined(host: key, generation: offer.generation)
         cancelAuthWait(host: key)
         resumeReconnectAfterAuthentication(host: host)

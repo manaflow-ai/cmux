@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Darwin
 import Foundation
 import Testing
@@ -24,6 +25,49 @@ import Testing
         var requiresPseudoTerminal: Bool { false }
         var remoteHalfSurvivesLocalExit: Bool { false }
         var authenticationIsSSHShaped: Bool { false }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func stoppingAReleasedConnectionStillReapsATransportThatIgnoresTermination() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("remote-tmux-termination-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let pidFile = root.appendingPathComponent("pid")
+        let client = root.appendingPathComponent("client")
+        try """
+        #!/bin/sh
+        trap '' TERM
+        echo "$$" > '\(pidFile.path)'
+        printf '\\033P1000p%%begin 1 1 0\\n%%end 1 1 0\\n'
+        sleep 60 &
+        wait $!
+        """.write(to: client, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: client.path)
+
+        var connection: RemoteTmuxControlConnection? = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "termination@example.test"), sessionName: "dev",
+            transportProfile: SelfAuthenticatingProfile(executable: client.path))
+        defer { connection?.stop() }
+        try connection?.start()
+        try #require(await connection?.waitUntilConnected() == true)
+        let pidText = try String(contentsOf: pidFile, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
+        let pid = try #require(pid_t(pidText))
+        let identities = RemoteTmuxControlConnection.processTree(root: pid)
+            .compactMap { AgentPIDProcessIdentity(pid: $0) }
+        try #require(!identities.isEmpty)
+        defer {
+            for identity in identities where AgentPIDProcessIdentity(pid: identity.pid) == identity {
+                _ = Darwin.kill(identity.pid, SIGKILL)
+            }
+        }
+
+        connection?.stop()
+        connection = nil
+        let reaped = await AppKitTestEventPump().waitUntil(timeout: .seconds(10)) {
+            identities.allSatisfy { AgentPIDProcessIdentity(pid: $0.pid) != $0 }
+        }
+        #expect(reaped, "the stopped stream's process tree must be reaped after its consumer releases it")
     }
 
     @Test(.timeLimit(.minutes(1)))

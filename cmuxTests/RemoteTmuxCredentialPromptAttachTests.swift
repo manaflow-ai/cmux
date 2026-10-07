@@ -103,7 +103,10 @@ struct RemoteTmuxCredentialPromptAttachTests {
             host: RemoteTmuxHost(destination: "user@host", transport: .et, transportPort: 2039),
             ownerId: "test-owner"
         )
-        #expect(!view.lastStreamAwaitedCredentials)
+        let controller = RemoteTmuxController()
+        let host = view.host
+        view.onAwaitingCredentials = { controller.noteAwaitingCredentials(host: host) }
+        #expect(!controller.hostAuth.isAwaiting(view.host))
 
         view.connection = brokeredConnection()
         view.connection?.ingest(Data("Passcode: ".utf8))
@@ -112,7 +115,7 @@ struct RemoteTmuxCredentialPromptAttachTests {
         view.stop()
         #expect(view.connection == nil, "stop discards the connection, which is the whole problem")
         #expect(
-            view.lastStreamAwaitedCredentials,
+            controller.hostAuth.isAwaiting(view.host),
             "the reason must outlive the connection, or the caller has nothing to report"
         )
     }
@@ -125,9 +128,12 @@ struct RemoteTmuxCredentialPromptAttachTests {
         )
         view.connection = brokeredConnection()
         view.connection?.ingest(Data("Passcode: ".utf8))
+        let controller = RemoteTmuxController()
+        let host = view.host
+        view.onAwaitingCredentials = { controller.noteAwaitingCredentials(host: host) }
         view.stop()
         view.stop()
-        #expect(view.lastStreamAwaitedCredentials)
+        #expect(controller.hostAuth.isAwaiting(view.host))
     }
 
     /// All three places that report "nothing mirrored" route through one function, so they cannot

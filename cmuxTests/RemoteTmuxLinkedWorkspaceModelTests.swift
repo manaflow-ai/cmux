@@ -10,6 +10,34 @@ import Testing
 @Suite struct RemoteTmuxLinkedWorkspaceModelTests {
     private typealias Model = RemoteTmuxLinkedWorkspaceModel
 
+    @Test func aThousandMirrorsRecoverRenamesFromWindowIdentityBeforeSessionIDsArrive() {
+        let workspaces = (0..<1_000).map {
+            Model.Workspace(sessionName: "new-\($0)", windowIds: ["@\($0)"], sessionId: $0)
+        }
+        let existing = (0..<1_000).map {
+            RemoteTmuxMultiplexReconciler.ExistingMirror(
+                sessionName: "old-\($0)", sessionId: nil, windowIds: [$0])
+        }
+        let result = RemoteTmuxMultiplexReconciler.plan(
+            workspaces: workspaces, existingMirrors: existing, intents: .init()).plan
+        #expect(result.create.isEmpty)
+        #expect(result.remove.isEmpty)
+        #expect(result.rename.map(\.oldName) == (0..<1_000).map { "old-\($0)" })
+        #expect(result.rename.map(\.view.sessionName) == workspaces.map(\.sessionName))
+    }
+
+    @Test func ambiguousWindowIdentityDoesNotRenameAnUnrelatedMirror() {
+        let result = RemoteTmuxMultiplexReconciler.plan(
+            workspaces: [.init(sessionName: "new", windowIds: ["@1", "@2"], sessionId: 3)],
+            existingMirrors: [
+                .init(sessionName: "first", sessionId: nil, windowIds: [1]),
+                .init(sessionName: "second", sessionId: nil, windowIds: [2])
+            ], intents: .init()).plan
+        #expect(result.rename.isEmpty)
+        #expect(result.create.map(\.view.sessionName) == ["new"])
+        #expect(Set(result.remove) == ["first", "second"])
+    }
+
     @Test func parseRowsReadsAllFieldsIncludingSessionId() {
         let rows = Model.parseRows("$3:@7:2:1:work\n$3:@8:0:0:work\n")
         #expect(rows == [

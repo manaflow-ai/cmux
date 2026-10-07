@@ -15,7 +15,7 @@ import Foundation
 ///
 /// Pure value type: builds names, the tmux option-set commands, and the
 /// classification predicates. No tmux/SSH here so the policy is unit-testable.
-struct RemoteTmuxViewSession: Equatable {
+struct RemoteTmuxViewSession: Equatable, Sendable {
     /// Stable per-cmux-install owner id (e.g. a UUID persisted in defaults). Lets
     /// us reattach our own view and avoid other cmux installs' views.
     let ownerId: String
@@ -99,7 +99,7 @@ struct RemoteTmuxViewSession: Equatable {
         "#{\(optView)}:#{\(optOwner)}:#{\(optVersion)}:#{session_name}"
 
     /// One parsed `list-sessions` row (from ``listFormat``).
-    struct SessionRow: Equatable {
+    struct SessionRow: Equatable, Sendable {
         let name: String
         let isView: Bool       // @cmux_view == "1"
         let owner: String      // @cmux_view_owner ("" if unset)

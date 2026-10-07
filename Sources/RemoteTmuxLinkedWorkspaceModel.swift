@@ -26,7 +26,7 @@ enum RemoteTmuxLinkedWorkspaceModel {
     /// `sessionId` is that session's stable tmux id (`$N`, "" if absent) — the
     /// identity that survives a `rename-session`, so the reconciler can tell a
     /// renamed session from a removed + created one.
-    struct WindowRow: Equatable {
+    struct WindowRow: Equatable, Sendable {
         let sessionName: String
         let sessionId: String    // stable $id of the listing session ("" if absent)
         let windowId: String     // stable @id
@@ -63,7 +63,7 @@ enum RemoteTmuxLinkedWorkspaceModel {
     /// `sessionId` is the home session's stable numeric id (`$N` → `N`), or nil
     /// when the rows carried no parseable id; the reconciler uses it to survive
     /// `rename-session` (same id, new name) without destroying the workspace.
-    struct Workspace: Equatable {
+    struct Workspace: Equatable, Sendable {
         let sessionName: String
         let windowIds: [String]   // ordered by window index
         let activeWindowId: String?

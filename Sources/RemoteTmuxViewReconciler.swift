@@ -25,7 +25,7 @@ import Foundation
 ///   command order (testable, and stable for logging).
 enum RemoteTmuxViewReconciler {
     /// One reconciliation step against the view session.
-    enum Action: Equatable, CustomStringConvertible {
+    enum Action: Equatable, CustomStringConvertible, Sendable {
         /// `link-window -s <windowId> -t <view>`: pull a mirrored window into the view.
         case link(windowId: String)
         /// `unlink-window` the view's copy of `<windowId>`: drop a window cmux

@@ -236,6 +236,12 @@ enum RemoteTmuxMultiplexReconciler {
         }
         guard !candidates.isEmpty else { return [:] }
 
+        var candidatesByWindow: [Int: Set<Int>] = [:]
+        for (index, candidate) in candidates.enumerated() {
+            for windowID in candidate.windowIds {
+                candidatesByWindow[windowID, default: []].insert(index)
+            }
+        }
         var candidateByViewName: [String: String] = [:]
         var viewNamesByCandidate: [String: [String]] = [:]
         for view in views {
@@ -244,11 +250,13 @@ enum RemoteTmuxMultiplexReconciler {
                   !view.windowIds.isEmpty else {
                 continue
             }
-            let viewWindows = Set(view.windowIds)
-            let matches = candidates.filter { candidate in
-                !viewWindows.isDisjoint(with: candidate.windowIds)
+            var matches: Set<Int> = []
+            for windowID in view.windowIds {
+                matches.formUnion(candidatesByWindow[windowID] ?? [])
+                if matches.count > 1 { break }
             }
-            guard matches.count == 1, let match = matches.first else { continue }
+            guard matches.count == 1, let index = matches.first else { continue }
+            let match = candidates[index]
             candidateByViewName[view.sessionName] = match.sessionName
             viewNamesByCandidate[match.sessionName, default: []].append(view.sessionName)
         }

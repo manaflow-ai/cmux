@@ -61,6 +61,9 @@ enum RemoteTmuxRetryDelay {
 
     /// Resumes the continuation exactly once, whether the timer fires first or the
     /// task is cancelled first (including a cancellation that lands before arming).
+    /// The cancellation handler is synchronous and can run before the continuation
+    /// is installed. This lock bridges those callbacks without scheduling an actor
+    /// task that could arm a timer after cancellation has already returned.
     private final class Gate: @unchecked Sendable {
         private let lock = NSLock()
         private var continuation: CheckedContinuation<Void, Never>?
@@ -132,12 +135,9 @@ final class RemoteTmuxViewConnection {
     /// that outlives this view — the teardown discards it before the attach reports anything.
     var onAwaitingCredentials: (() -> Void)?
 
-    /// Whether the stream this view last carried ended waiting for credentials.
-    ///
-    /// Latched rather than read on demand: by the time a caller gives up waiting, `connection` is
-    /// already nil, so asking it what happened returns nothing. Measured — an earlier version of this
-    /// check read through the live connection and found `conn=nil` every time.
-    private(set) var lastStreamAwaitedCredentials = false
+    /// The stream reached control mode, retiring the host's pending login even
+    /// before reconciliation publishes its first mirror.
+    var onAuthenticated: (() -> Void)?
     /// Where the attach stood when a wait for first workspaces gave up on it, or nil if none has.
     private(set) var lastAttachStall: RemoteTmuxAttachProgress?
     /// What the transport last said before control mode, latched for the same reason as the
@@ -252,8 +252,9 @@ final class RemoteTmuxViewConnection {
             onTopologyChanged: { [weak self] in self?.scheduleReconcile() },
             onExit: { [weak self] in self?.handleEnded() },
             onConnectionStateChanged: { [weak self] state in
-                guard let self else { return }
+                guard let self, !self.isStopped else { return }
                 if state == .connected {
+                    self.onAuthenticated?()
                     self.scheduleReconcile()
                 } else {
                     // The stream dropped. A bootstrap `new-session` that was buffered
@@ -274,12 +275,12 @@ final class RemoteTmuxViewConnection {
                 }
             },
             onAuthRequired: { [weak self] sshArgv in
-                guard let self else { return false }
-                // The stream is parked for interactive credentials. Latch the verdict now, not
+                guard let self, !self.isStopped else { return false }
+                // The stream is parked for interactive credentials. Publish the verdict now, not
                 // only at teardown, and wake the attach barrier once the login has been offered:
                 // a caller waiting on first workspaces can then report authentication in the
                 // time the connect took to fail instead of after the full barrier timeout.
-                self.lastStreamAwaitedCredentials = true
+                self.onAwaitingCredentials?()
                 let handled = self.onAuthRequired?(sshArgv) ?? false
                 self.resolveFirstWorkspacesWaiters(false)
                 return handled
@@ -613,7 +614,7 @@ final class RemoteTmuxViewConnection {
     /// would be rejected the same way — and the retry asks to reconnect on its timeout, which
     /// would drop a healthy stream over one rejected command. `handleCommandResult` already
     /// logs the `%error` text; the reconcile waits for the next notification instead.
-    static func shouldRetryReconcileQuery(after outcome: RemoteTmuxRawQueryOutcome) -> Bool {
+    nonisolated static func shouldRetryReconcileQuery(after outcome: RemoteTmuxRawQueryOutcome) -> Bool {
         if case .unanswered = outcome { return true }
         return false
     }
@@ -634,9 +635,34 @@ final class RemoteTmuxViewConnection {
             && snapshot.windows.contains { $0.sessionName == viewSessionName }
     }
 
+    /// Parse and plan from immutable inputs away from the UI actor. The caller
+    /// validates the stream generation again before applying this result.
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
+    nonisolated private static func prepareReconciliation(
+        sessionLines: [String],
+        windowLines: [String],
+        view: RemoteTmuxViewSession,
+        ownedWindowIds: Set<String>,
+        placeholderWindowId: String?
+    ) async -> (RemoteTmuxLinkedViewPlan.Snapshot, RemoteTmuxLinkedViewPlan.Plan?) {
+        let snapshot = RemoteTmuxLinkedViewPlan.Snapshot(
+            sessions: RemoteTmuxViewSession.parseRows(sessionLines.joined(separator: "\n")),
+            windows: RemoteTmuxLinkedWorkspaceModel.parseRows(windowLines.joined(separator: "\n")),
+            cmuxOwnedWindowIds: ownedWindowIds,
+            placeholderWindowId: placeholderWindowId)
+        let plan = snapshotNamesViewSession(snapshot, viewSessionName: view.sessionName)
+            ? RemoteTmuxLinkedViewPlan.plan(view: view, snapshot: snapshot) : nil
+        return (snapshot, plan)
+    }
+
     func reconcile() async {
         guard !isStopped, let conn = connection, conn.connectionState == .connected else { return }
         if reconcileInFlight { reconcileQueued = true; return }
+        let generation = conn.processGeneration
         reconcileInFlight = true
         defer {
             reconcileInFlight = false
@@ -676,20 +702,24 @@ final class RemoteTmuxViewConnection {
         else { return }
         // The query round-trips above are suspension points; bail if we were stopped
         // (window closed / teardown) meanwhile, so we never apply a plan to a dead view.
-        guard !isStopped else { return }
+        guard !isStopped, connection === conn, conn.processGeneration == generation,
+              conn.connectionState == .connected else { return }
 
-        let snapshot = RemoteTmuxLinkedViewPlan.Snapshot(
-            sessions: RemoteTmuxViewSession.parseRows(sessOut.joined(separator: "\n")),
-            windows: RemoteTmuxLinkedWorkspaceModel.parseRows(winOut.joined(separator: "\n")),
-            cmuxOwnedWindowIds: ownedWindowIds,
+        let (snapshot, preparedPlan) = await Self.prepareReconciliation(
+            sessionLines: sessOut,
+            windowLines: winOut,
+            view: view,
+            ownedWindowIds: ownedWindowIds,
             placeholderWindowId: placeholderWindowId)
+        guard !isStopped, !Task.isCancelled, connection === conn,
+              conn.processGeneration == generation, conn.connectionState == .connected else { return }
         // This stream is attached to the view session, so a real answer to either query names
         // it: the session exists, and a session always has a window. Replies are matched to
         // commands by position, so an answer without it is some other command's reply sitting
         // in this one's place. Read as a snapshot it says the host has nothing on it, and the
         // plan below would close every workspace for a host that is still connected. Nothing
         // on this stream can be trusted after that, so start a fresh one.
-        guard Self.snapshotNamesViewSession(snapshot, viewSessionName: view.sessionName) else {
+        guard let plan = preparedPlan else {
             #if DEBUG
             cmuxDebugLog(
                 "remote-tmux: reconcile-reply-mismatch sessions=\(snapshot.sessions.count)"
@@ -699,8 +729,6 @@ final class RemoteTmuxViewConnection {
             conn.beginReconnecting(preservingBackoff: true)
             return
         }
-        let plan = RemoteTmuxLinkedViewPlan.plan(view: view, snapshot: snapshot)
-
         // Garbage-collect the views this owner left behind under a different name or format
         // version. They are ordinary sessions to tmux, so the kill rides the same stream as
         // everything else; the plan already refuses to list a foreign owner's view.
@@ -791,21 +819,14 @@ final class RemoteTmuxViewConnection {
         onEnded?()
     }
 
-    /// Records whether the stream was waiting for credentials, while the connection still exists to
-    /// be asked. Only ever latches true: a later teardown must not erase the reason for the first one.
+    /// Publishes the credential verdict to the host's owner before discarding the
+    /// stream. The owner retains it across teardown and retires it on authentication.
     private func latchCredentialVerdict() {
         guard let connection else { return }
         if let detail = connection.transportStartDetail, !connection.everReachedControlMode {
             lastTransportStartDetail = detail
         }
-        #if DEBUG
-        cmuxDebugLog(
-            "remote-tmux: latch-check host=\(host.destination) "
-                + "awaiting=\(connection.isAwaitingCredentials) "
-                + "preControl=\(connection.preControlObservationForDebug)")
-        #endif
         guard connection.isAwaitingCredentials else { return }
-        lastStreamAwaitedCredentials = true
         onAwaitingCredentials?()
     }
 
