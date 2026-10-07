@@ -32,8 +32,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     var isVisible: Bool { presence == .visible }
     /// Tabs closed locally while the daemon confirms, so a close looks instant.
     var pendingClosed: Set<String> = []
-    /// New chats bound for a new chat dock, never shown in this strip (``NewChatPlacement``).
-    var pendingDock: Set<String> = []
+    var pendingDock: Set<String> = [] // chats bound for a new chat dock, never in this strip (NewChatPlacement)
     /// A tab this app just created here; selected once the daemon reports it (`selectWhenReported`).
     private(set) var pendingSelectSurface: SurfaceID?
     /// Same, named by tab resource id (a reopened tab's restored view).
@@ -47,8 +46,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         var connected: Bool
         var generation: String?
         var surfaces: [UInt64]
-        /// The chat dock or a lone chat with one tab shows no strip (``ChatDockChrome``).
-        var hidesStrip = false
+        var hidesStrip = false // the chat dock or a lone chat with one tab (ChatDockChrome)
     }
 
     init(pane: PaneModel, daemon: DaemonService, layoutPaneID: LayoutPaneID, services: AppServices, state: WindowState) {
