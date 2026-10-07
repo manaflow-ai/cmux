@@ -67,6 +67,7 @@ enum AppBrowserPage {
                 throw ControlError(code: "js_error", message: String(describing: error))
             }
         case .evaluateAsync(let body):
+            try await ensureBrowser(page)
             do {
                 let value = try await BrowserPageAutomation(page).evaluateAsync(body)
                 return ["value": JSONValue(foundation: value.foundationValue) ?? .null]
@@ -74,8 +75,11 @@ enum AppBrowserPage {
                 throw ControlError(code: "js_error", message: String(describing: error))
             }
         case .screenshot(let capture):
+            try await ensureBrowser(page)
             return try await screenshot(page, tabID: tabID, capture)
         case .cookies(let request):
+            // Chromium's cookies go through the browser's DevTools session.
+            try await ensureBrowser(page)
             return try await cookies(page, request)
         }
         return [:]
