@@ -1,0 +1,74 @@
+import CmuxHomeCore
+import CmuxNextHome
+import Foundation
+import Observation
+
+/// Pins kept on this Mac per account (`cmux.home.pins.<account>` in the
+/// app's defaults): the daemon's cloud proxy refuses `inbox.pin` and the
+/// local owner refuses pins, so the owner cannot hold them yet. When the
+/// proxy forwards `inbox.pin`, these become the owner's pins.
+@MainActor
+final class HomePinStore {
+    private let defaults: UserDefaults
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
+
+    func pins(account: String) -> HomePins {
+        guard let data = defaults.data(forKey: Self.key(account)), let pins = try? JSONDecoder().decode(HomePins.self, from: data) else {
+            return HomePins()
+        }
+        return pins
+    }
+
+    func save(_ pins: HomePins, account: String) {
+        guard let data = try? JSONEncoder().encode(pins) else { return }
+        defaults.set(data, forKey: Self.key(account))
+    }
+
+    static func key(_ account: String) -> String { "cmux.home.pins.\(account)" }
+}
+
+/// The data source of the Home sidebar (the vendored MessagesLab sidebar
+/// reads it): the model from HomeStore's rows, the pins, the search text,
+/// and the user's choices (select a conversation, pin, start a DM).
+@Observable @MainActor
+final class HomeSidebarSource {
+    @ObservationIgnored private let store: HomePinStore
+    @ObservationIgnored private let account: @MainActor () -> String
+    @ObservationIgnored private let rows: @MainActor () -> [InboxRow]
+    @ObservationIgnored private let me: @MainActor () -> ParticipantID?
+    @ObservationIgnored private let contacts: @MainActor () -> [HomeContact]
+    var query = ""
+    private(set) var pins = HomePins()
+    @ObservationIgnored var onSelect: (ConversationID) -> Void = { _ in }
+    @ObservationIgnored var onStart: (HomeContact) -> Void = { _ in }
+
+    init(store: HomePinStore, account: @escaping @MainActor () -> String, rows: @escaping @MainActor () -> [InboxRow],
+         me: @escaping @MainActor () -> ParticipantID?, contacts: @escaping @MainActor () -> [HomeContact]) {
+        self.store = store
+        self.account = account
+        self.rows = rows
+        self.me = me
+        self.contacts = contacts
+    }
+
+    func model(now: Date = Date()) -> HomeSidebarModel {
+        HomeSidebarModel(rows: rows(), pins: pins, me: me(), query: query, contacts: query.isEmpty ? [] : contacts(), now: now)
+    }
+
+    func select(_ id: ConversationID) { onSelect(id) }
+
+    func start(with contact: HomeContact) { onStart(contact) }
+
+    /// Pins or unpins `id` and keeps it for this account.
+    func setPinned(_ on: Bool, _ id: ConversationID) {
+        guard let row = rows().first(where: { $0.id == id }) else { return }
+        pins.setPinned(on, row)
+        store.save(pins, account: account())
+    }
+
+    /// The signed-in account changed: its own pins.
+    func reloadPins() { pins = store.pins(account: account()) }
+}
