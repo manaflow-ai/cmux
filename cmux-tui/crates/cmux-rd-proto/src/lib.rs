@@ -9,6 +9,7 @@
 
 #[cfg(feature = "serde")]
 pub mod control;
+mod clock;
 mod datagram;
 mod error;
 mod feedback;
@@ -16,6 +17,7 @@ mod frame;
 mod input;
 mod stream;
 
+pub use clock::{ClockEstimate, ClockPing, ClockPong};
 pub use datagram::{
     DatagramHeader, DatagramKind, HEADER_LEN, MAX_FEC_BLOCK, MAX_FRAME_SHARDS, VERSION, flags,
 };

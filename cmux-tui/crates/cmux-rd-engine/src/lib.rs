@@ -420,6 +420,11 @@ impl MediaEngine {
         self.applier.reset();
     }
 
+    /// The viewer's clock estimate (red-commit stub).
+    pub fn clock(&self) -> Option<cmux_rd_proto::ClockEstimate> {
+        None
+    }
+
     /// How long the viewer has sent no feedback.
     pub fn silent_for_us(&self, now_us: u64) -> u64 {
         now_us.saturating_sub(self.last_feedback_us)
