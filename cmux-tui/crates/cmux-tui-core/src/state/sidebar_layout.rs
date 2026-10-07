@@ -1,146 +1,100 @@
 //! The pure reducer of the sidebar section layout (`sidebar-layout-v1`,
 //! plans/cmux-next/sidebar-sections.md section 4). No I/O. It mirrors the
 //! app's `SidebarLayoutReducer` (CmuxNextSidebar/Sections) exactly: same
-//! JSON, same index rules, same invariants L1-L6, same reject reasons.
+//! JSON, same defaults, same index rules, same invariants L1-L6, same reject
+//! reasons. The shared fixture
+//! Packages/macOS/CmuxNext/Tests/CmuxNextSidebarTests/Fixtures/sidebar-layout-cases.json
+//! keeps the two reducers equal.
+//!
+//! L5: values and keys from a newer client are kept verbatim. Enumerated
+//! strings (region, look, content, arrangement layout and align) keep an
+//! unknown value as `Other`, and sections, items, refs and arrangements keep
+//! unknown keys in `extra`, so a stored document never loses what a newer
+//! app wrote.
 
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 
 pub const MAX_SECTIONS: usize = 32;
 pub const MAX_ITEMS: usize = 200;
 pub const MAX_TITLE_CHARS: usize = 80;
 pub const MAX_ROWS: std::ops::RangeInclusive<i64> = 1..=50;
 pub const GAP_RANGE: std::ops::RangeInclusive<i64> = 0..=32;
+/// Grid columns, and an item's grid span.
 pub const COLUMNS_RANGE: std::ops::RangeInclusive<i64> = 1..=12;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Region {
-    Top,
-    Middle,
-    Bottom,
-}
-
-impl Region {
-    fn rank(self) -> u8 {
-        match self {
-            Region::Top => 0,
-            Region::Middle => 1,
-            Region::Bottom => 2,
+/// A string enum whose unknown values survive a round trip (L5).
+macro_rules! open_enum {
+    ($(#[$meta:meta])* $name:ident { $($variant:ident => $text:literal),+ $(,)? }) => {
+        $(#[$meta])*
+        #[derive(Debug, Clone, PartialEq, Eq)]
+        pub enum $name {
+            $($variant,)+
+            /// A value from a newer client, kept verbatim.
+            Other(String),
         }
-    }
-}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Look {
-    BuiltIn,
-    List,
-}
+        impl $name {
+            pub fn as_str(&self) -> &str {
+                match self {
+                    $($name::$variant => $text,)+
+                    $name::Other(value) => value,
+                }
+            }
+        }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Content {
-    Items,
-    Workspaces,
-    /// A section an app supplies (`contribution`); it holds no items.
-    App,
-}
+        impl Serialize for $name {
+            fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+                serializer.serialize_str(self.as_str())
+            }
+        }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum ArrangementLayout {
-    #[default]
-    List,
-    Inline,
-    Grid,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Alignment {
-    Leading,
-    Center,
-    Trailing,
-    Fill,
-}
-
-/// Unknown values from a newer app read as the default (L5), like the
-/// app's decoder, so a stored document never stops parsing.
-macro_rules! lenient {
-    ($name:ident, $default:ident, $($text:literal => $variant:ident),+) => {
         impl<'de> Deserialize<'de> for $name {
             fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-                Ok(match Option::<String>::deserialize(deserializer)?.as_deref() {
-                    $(Some($text) => $name::$variant,)+
-                    _ => $name::$default,
+                Ok(match String::deserialize(deserializer)?.as_str() {
+                    $($text => $name::$variant,)+
+                    other => $name::Other(other.to_string()),
                 })
             }
         }
     };
 }
 
-lenient!(Look, List, "built_in" => BuiltIn, "list" => List);
-lenient!(ArrangementLayout, List, "list" => List, "inline" => Inline, "grid" => Grid);
-lenient!(Alignment, Leading, "leading" => Leading, "center" => Center, "trailing" => Trailing, "fill" => Fill);
+open_enum!(
+    /// Where a section sits. A newer region sorts after `bottom`.
+    Region { Top => "top", Middle => "middle", Bottom => "bottom" }
+);
+open_enum!(
+    /// How a section's rows look (the app reads an unknown look as list).
+    Look { BuiltIn => "built_in", List => "list" }
+);
+open_enum!(
+    /// What a section holds. A newer content kind holds no items here.
+    Content { Items => "items", Workspaces => "workspaces", App => "app" }
+);
+open_enum!(
+    ArrangementLayout { List => "list", Inline => "inline", Grid => "grid", Tiles => "tiles" }
+);
+open_enum!(
+    Alignment { Leading => "leading", Center => "center", Trailing => "trailing", Fill => "fill" }
+);
 
-/// `{layout, align, gap?, columns?}`; every key optional on input (layout
-/// list, align leading).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-pub struct Arrangement {
-    pub layout: ArrangementLayout,
-    pub align: Alignment,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub gap: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub columns: Option<i64>,
-}
-
-impl Default for Arrangement {
-    fn default() -> Self {
-        Arrangement {
-            layout: ArrangementLayout::List,
-            align: Alignment::Leading,
-            gap: None,
-            columns: None,
+impl Region {
+    fn rank(&self) -> u8 {
+        match self {
+            Region::Top => 0,
+            Region::Middle => 1,
+            Region::Bottom => 2,
+            Region::Other(_) => 3,
         }
     }
 }
 
-impl<'de> Deserialize<'de> for Arrangement {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        #[derive(Deserialize)]
-        struct Raw {
-            #[serde(default)]
-            layout: Option<ArrangementLayout>,
-            #[serde(default)]
-            align: Option<Alignment>,
-            #[serde(default)]
-            gap: Option<i64>,
-            #[serde(default)]
-            columns: Option<i64>,
-        }
-        let raw = Raw::deserialize(deserializer)?;
-        Ok(Arrangement {
-            layout: raw.layout.unwrap_or_default(),
-            align: raw.align.unwrap_or(Alignment::Leading),
-            gap: raw.gap,
-            columns: raw.columns,
-        })
-    }
-}
-
-impl Arrangement {
-    pub fn is_valid(&self) -> bool {
-        self.gap.is_none_or(|gap| GAP_RANGE.contains(&gap))
-            && self.columns.is_none_or(|columns| COLUMNS_RANGE.contains(&columns))
-    }
-}
-
-/// What an item points at; unknown kinds are kept verbatim (L5).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ItemRef {
-    pub kind: String,
-    pub value: String,
+/// A value that may be null: its default.
+fn default_if_null<'de, D: serde::Deserializer<'de>, T: Deserialize<'de> + Default>(
+    deserializer: D,
+) -> Result<T, D::Error> {
+    Ok(Option::<T>::deserialize(deserializer)?.unwrap_or_default())
 }
 
 fn yes() -> bool {
@@ -152,11 +106,78 @@ fn true_unless_false<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Resul
     Ok(Option::<bool>::deserialize(deserializer)?.unwrap_or(true))
 }
 
-/// A value that may be null: its default.
-fn default_if_null<'de, D: serde::Deserializer<'de>, T: Deserialize<'de> + Default>(
+fn list() -> ArrangementLayout {
+    ArrangementLayout::List
+}
+
+fn leading() -> Alignment {
+    Alignment::Leading
+}
+
+fn layout_or_list<'de, D: serde::Deserializer<'de>>(
     deserializer: D,
-) -> Result<T, D::Error> {
-    Ok(Option::<T>::deserialize(deserializer)?.unwrap_or_default())
+) -> Result<ArrangementLayout, D::Error> {
+    Ok(Option::<ArrangementLayout>::deserialize(deserializer)?.unwrap_or(ArrangementLayout::List))
+}
+
+fn align_or_leading<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Alignment, D::Error> {
+    Ok(Option::<Alignment>::deserialize(deserializer)?.unwrap_or(Alignment::Leading))
+}
+
+/// `{layout, align, gap?, columns?}`; every key optional on input (layout
+/// list, align leading).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Arrangement {
+    #[serde(default = "list", deserialize_with = "layout_or_list")]
+    pub layout: ArrangementLayout,
+    #[serde(default = "leading", deserialize_with = "align_or_leading")]
+    pub align: Alignment,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gap: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub columns: Option<i64>,
+    #[serde(flatten)]
+    pub extra: Map<String, Value>,
+}
+
+impl Default for Arrangement {
+    fn default() -> Self {
+        Arrangement::new(ArrangementLayout::List, Alignment::Leading)
+    }
+}
+
+impl Arrangement {
+    pub fn new(layout: ArrangementLayout, align: Alignment) -> Self {
+        Arrangement { layout, align, gap: None, columns: None, extra: Map::new() }
+    }
+
+    pub fn is_valid(&self) -> bool {
+        self.gap.is_none_or(|gap| GAP_RANGE.contains(&gap))
+            && self.columns.is_none_or(|columns| COLUMNS_RANGE.contains(&columns))
+    }
+}
+
+/// What an item points at; unknown kinds and built-in ids are kept
+/// verbatim (L5). Two refs are the same reference when kind and value match.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ItemRef {
+    pub kind: String,
+    pub value: String,
+    #[serde(flatten)]
+    pub extra: Map<String, Value>,
+}
+
+impl ItemRef {
+    pub fn new(kind: &str, value: &str) -> Self {
+        ItemRef { kind: kind.into(), value: value.into(), extra: Map::new() }
+    }
+
+    /// L3 identity, like the app's `LayoutItemRef` equality.
+    pub fn same(&self, other: &ItemRef) -> bool {
+        self.kind == other.kind && self.value == other.value
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -166,6 +187,17 @@ pub struct Item {
     pub reference: ItemRef,
     #[serde(default = "yes", deserialize_with = "true_unless_false")]
     pub shows_label: bool,
+    /// Columns the item takes on a grid line (1...12); absent = one tile.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span: Option<i64>,
+    #[serde(flatten)]
+    pub extra: Map<String, Value>,
+}
+
+impl Item {
+    fn new(id: &str, reference: ItemRef, shows_label: bool) -> Self {
+        Item { id: id.into(), reference, shows_label, span: None, extra: Map::new() }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -189,9 +221,29 @@ pub struct Section {
     pub contribution: Option<String>,
     #[serde(default, deserialize_with = "default_if_null")]
     pub items: Vec<Item>,
+    #[serde(flatten)]
+    pub extra: Map<String, Value>,
 }
 
 impl Section {
+    /// A section with no title, room, row limit, contribution or items.
+    pub fn new(id: &str, region: Region, look: Look, content: Content) -> Self {
+        Section {
+            id: id.into(),
+            title: None,
+            shows_title: true,
+            region,
+            look,
+            arrangement: Arrangement::default(),
+            room: None,
+            max_rows: None,
+            content,
+            contribution: None,
+            items: Vec::new(),
+            extra: Map::new(),
+        }
+    }
+
     /// The app that owns an app section: the id before `#`.
     pub fn owning_app_id(&self) -> Option<&str> {
         if self.content != Content::App {
@@ -325,73 +377,32 @@ impl Reject {
     }
 }
 
-fn builtin(id: &str, value: &str, shows_label: bool) -> Item {
-    Item {
-        id: id.into(),
-        reference: ItemRef { kind: "built_in".into(), value: value.into() },
-        shows_label,
-    }
-}
+/// The section id of the recent agent chats (`SidebarLayoutDocument+Recents`).
+pub const RECENTS_SECTION_ID: &str = "sec_recents";
+pub const RECENTS_CONTRIBUTION: &str = "cmux/agent-chats#recents";
 
-/// Top: Home, then the App Store. Middle: workspaces. Bottom: Settings with its label at the
-/// leading edge and the account avatar at the trailing edge, one line.
-/// Fixed ids, so a never-written layout is identical on every device.
+/// The app's `SidebarLayoutDocument.defaults`: on top Home and the App Store
+/// as app rows; in the middle the workspaces, then the recent agent chats
+/// (an app section); at the bottom one inline line, leading, with the
+/// account avatar and the Settings gear, icons only. Fixed ids, so a
+/// never-written layout is identical on every device.
 pub fn defaults() -> Document {
-    let sticky = |id: &str, region, arrangement, items| Section {
-        id: String::from(id),
-        title: None,
-        shows_title: true,
-        region,
-        look: Look::BuiltIn,
-        arrangement,
-        room: None,
-        max_rows: None,
-        content: Content::Items,
-        contribution: None,
-        items,
-    };
-    Document {
-        revision: 0,
-        sections: vec![
-            sticky(
-                "sec_top",
-                Region::Top,
-                Arrangement::default(),
-                vec![
-                    builtin("itm_home", "home", true),
-                    builtin("itm_app_store", "app_store", true),
-                ],
-            ),
-            Section {
-                id: "sec_workspaces".into(),
-                title: None,
-                shows_title: true,
-                region: Region::Middle,
-                look: Look::List,
-                arrangement: Arrangement::default(),
-                room: None,
-                max_rows: None,
-                content: Content::Workspaces,
-                contribution: None,
-                items: vec![],
-            },
-            sticky(
-                "sec_bottom",
-                Region::Bottom,
-                Arrangement {
-                    layout: ArrangementLayout::Inline,
-                    align: Alignment::Fill,
-                    gap: None,
-                    columns: None,
-                },
-                vec![
-                    builtin("itm_settings", "settings", true),
-                    builtin("itm_customize", "customize", false),
-                    builtin("itm_account", "account", false),
-                ],
-            ),
-        ],
-    }
+    let mut top = Section::new("sec_top", Region::Top, Look::BuiltIn, Content::Items);
+    top.items = vec![
+        Item::new("itm_home", ItemRef::new("app", "cmux/home"), true),
+        Item::new("itm_app_store", ItemRef::new("app", "cmux/app-store"), true),
+    ];
+    let workspaces =
+        Section::new("sec_workspaces", Region::Middle, Look::List, Content::Workspaces);
+    let mut recents = Section::new(RECENTS_SECTION_ID, Region::Middle, Look::List, Content::App);
+    recents.contribution = Some(RECENTS_CONTRIBUTION.into());
+    let mut bottom = Section::new("sec_bottom", Region::Bottom, Look::BuiltIn, Content::Items);
+    bottom.arrangement = Arrangement::new(ArrangementLayout::Inline, Alignment::Leading);
+    bottom.items = vec![
+        Item::new("itm_account", ItemRef::new("built_in", "account"), false),
+        Item::new("itm_settings", ItemRef::new("built_in", "settings"), false),
+    ];
+    Document { revision: 0, sections: vec![top, workspaces, recents, bottom] }
 }
 
 /// The new document, or the reject. A change bumps `revision` by one; a
@@ -404,8 +415,8 @@ pub fn reduce(document: &Document, op: &Op) -> Result<Document, Reject> {
         Op::SectionMove { id, region, index } => {
             let s = find_section(id, &sections)?;
             let mut section = sections.remove(s);
-            section.region = *region;
-            let at = insertion_index(*region, *index, &sections);
+            section.region = region.clone();
+            let at = insertion_index(region, *index, &sections);
             sections.insert(at, section);
         }
         Op::SectionRemove { id } => {
@@ -422,14 +433,11 @@ pub fn reduce(document: &Document, op: &Op) -> Result<Document, Reject> {
             sections[s].items.remove(i);
         }
         Op::ItemRemoveRef { reference } => {
-            if !sections
-                .iter()
-                .any(|section| section.items.iter().any(|item| &item.reference == reference))
-            {
+            if !sections.iter().any(|s| s.items.iter().any(|item| item.reference.same(reference))) {
                 return Err(Reject::UnknownItem);
             }
             for section in &mut sections {
-                section.items.retain(|item| &item.reference != reference);
+                section.items.retain(|item| !item.reference.same(reference));
             }
         }
         Op::ItemUpdate { id, shows_label } => {
@@ -464,9 +472,9 @@ fn clamp(index: i64, count: usize) -> usize {
 
 /// Document index for the `index`-th slot (clamped) among `region`'s
 /// sections; an empty region goes after every section of an earlier region.
-fn insertion_index(region: Region, index: i64, sections: &[Section]) -> usize {
+fn insertion_index(region: &Region, index: i64, sections: &[Section]) -> usize {
     let in_region: Vec<usize> =
-        (0..sections.len()).filter(|&s| sections[s].region == region).collect();
+        (0..sections.len()).filter(|&s| &sections[s].region == region).collect();
     if in_region.is_empty() {
         return sections
             .iter()
@@ -481,7 +489,7 @@ fn ensure_items(section: &Section) -> Result<(), Reject> {
     match section.content {
         Content::Items => Ok(()),
         Content::Workspaces => Err(Reject::WorkspacesRequired),
-        Content::App => Err(Reject::ItemsNotAllowed),
+        Content::App | Content::Other(_) => Err(Reject::ItemsNotAllowed),
     }
 }
 
@@ -498,6 +506,14 @@ fn validate_title(title: Option<&String>) -> Result<(), Reject> {
 fn validate_max_rows(max_rows: Option<i64>) -> Result<(), Reject> {
     match max_rows {
         Some(rows) if !MAX_ROWS.contains(&rows) => Err(Reject::InvalidMaxRows),
+        _ => Ok(()),
+    }
+}
+
+/// L4: an item's grid span is 1...12, like the arrangement's columns.
+fn validate_span(span: Option<i64>) -> Result<(), Reject> {
+    match span {
+        Some(span) if !COLUMNS_RANGE.contains(&span) => Err(Reject::InvalidArrangement),
         _ => Ok(()),
     }
 }
@@ -519,7 +535,8 @@ fn add_section(section: &Section, index: i64, sections: &mut Vec<Section>) -> Re
     {
         return Err(Reject::DuplicateId);
     }
-    // L1: exactly one workspaces section, and it holds no items.
+    // L1: exactly one workspaces section, and it holds no items. A content
+    // kind from a newer client is kept as it came.
     match section.content {
         Content::Workspaces => return Err(Reject::WorkspacesRequired),
         Content::App if section.owning_app_id().is_none() || !section.items.is_empty() => {
@@ -535,6 +552,9 @@ fn add_section(section: &Section, index: i64, sections: &mut Vec<Section>) -> Re
     if !section.arrangement.is_valid() {
         return Err(Reject::InvalidArrangement);
     }
+    for item in &section.items {
+        validate_span(item.span)?;
+    }
     let mut ids: Vec<&str> =
         sections.iter().flat_map(|s| s.items.iter().map(|item| item.id.as_str())).collect();
     let before = ids.len();
@@ -545,8 +565,12 @@ fn add_section(section: &Section, index: i64, sections: &mut Vec<Section>) -> Re
     if unique.len() != ids.len() {
         return Err(Reject::DuplicateId);
     }
-    let mut refs: Vec<&ItemRef> = section.items.iter().map(|item| &item.reference).collect();
-    refs.sort_by(|a, b| (&a.kind, &a.value).cmp(&(&b.kind, &b.value)));
+    let mut refs: Vec<(&str, &str)> = section
+        .items
+        .iter()
+        .map(|item| (item.reference.kind.as_str(), item.reference.value.as_str()))
+        .collect();
+    refs.sort_unstable();
     refs.dedup();
     if refs.len() != section.items.len() {
         return Err(Reject::DuplicateRef);
@@ -554,7 +578,7 @@ fn add_section(section: &Section, index: i64, sections: &mut Vec<Section>) -> Re
     if before + section.items.len() > MAX_ITEMS {
         return Err(Reject::TooMany);
     }
-    let at = insertion_index(section.region, index, sections);
+    let at = insertion_index(&section.region, index, sections);
     sections.insert(at, section.clone());
     Ok(())
 }
@@ -566,18 +590,18 @@ fn update_section(id: &str, patch: &SectionPatch, sections: &mut [Section]) -> R
         validate_title(Some(title))?;
     }
     patch.title.apply(&mut section.title);
-    if let Some(look) = patch.look {
-        section.look = look;
+    if let Some(look) = &patch.look {
+        section.look = look.clone();
     }
     if let Some(shows_title) = patch.shows_title {
         section.shows_title = shows_title;
     }
-    let mut arrangement = section.arrangement;
-    if let Some(layout) = patch.layout {
-        arrangement.layout = layout;
+    let mut arrangement = section.arrangement.clone();
+    if let Some(layout) = &patch.layout {
+        arrangement.layout = layout.clone();
     }
-    if let Some(align) = patch.align {
-        arrangement.align = align;
+    if let Some(align) = &patch.align {
+        arrangement.align = align.clone();
     }
     patch.gap.apply(&mut arrangement.gap);
     patch.columns.apply(&mut arrangement.columns);
@@ -605,13 +629,14 @@ fn add_item(
 ) -> Result<(), Reject> {
     let s = find_section(section, sections)?;
     ensure_items(&sections[s])?;
+    validate_span(item.span)?;
     if locate(&item.id, sections).is_some()
         || sections.iter().any(|existing| existing.id == item.id)
     {
         return Err(Reject::DuplicateId);
     }
     // L3: pinning a reference twice into one section is a no-op.
-    if sections[s].items.iter().any(|existing| existing.reference == item.reference) {
+    if sections[s].items.iter().any(|existing| existing.reference.same(&item.reference)) {
         return Ok(());
     }
     if item_count(sections) >= MAX_ITEMS {
@@ -627,7 +652,7 @@ fn move_item(id: &str, target: &str, index: i64, sections: &mut [Section]) -> Re
     let t = find_section(target, sections)?;
     ensure_items(&sections[t])?;
     let item = sections[s].items[i].clone();
-    if t != s && sections[t].items.iter().any(|existing| existing.reference == item.reference) {
+    if t != s && sections[t].items.iter().any(|existing| existing.reference.same(&item.reference)) {
         return Err(Reject::DuplicateRef);
     }
     sections[s].items.remove(i);
