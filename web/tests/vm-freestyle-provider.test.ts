@@ -423,6 +423,36 @@ describe("Freestyle platform contract", () => {
     expect(normalizeFreestyleExecTimeout(12_345)).toBe(12_345);
   });
 
+  // A command that outlives its timeout and whose kill reports no exit comes
+  // back from Freestyle as 409 VM_NON_RESPONSIVE ("exec produced no exit
+  // within 35s") even though the machine answers the next exec at once. That
+  // is the command's timeout, the same outcome the guest reports as a null
+  // status, not a provider outage (production 2026-10-07, vm-96e008...).
+  const execFailing = (err: unknown) => ({
+    client: {
+      vms: { ref: () => ({ exec: async () => { throw err; } }) },
+    } as unknown as Freestyle,
+  });
+
+  test("an exec the provider saw no exit for reads as a command timeout (124)", async () => {
+    const fake = execFailing(new FreestyleApiError(409, {
+      code: "VM_NON_RESPONSIVE",
+      message: "vm stopped responding: exec produced no exit within 35s; the guest likely stopped mid-command",
+    }));
+    const result = await providerWith(fake).exec(VM_ID, "sleep 999", { timeoutMs: 30_000 });
+    expect(result.exitCode).toBe(124);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("did not exit within 30s");
+  });
+
+  test("other non-responsive answers stay provider errors", async () => {
+    const fake = execFailing(new FreestyleApiError(409, {
+      code: "VM_NON_RESPONSIVE",
+      message: "vm stopped responding: read_file stream: early eof",
+    }));
+    await expect(providerWith(fake).exec(VM_ID, "true", { timeoutMs: 30_000 })).rejects.toBeInstanceOf(ProviderError);
+  });
+
   test("stopped VMs read as paused (start() recovers them), not destroyed", () => {
     expect(mapFreestyleState("starting")).toBe("creating");
     expect(mapFreestyleState("running")).toBe("running");
