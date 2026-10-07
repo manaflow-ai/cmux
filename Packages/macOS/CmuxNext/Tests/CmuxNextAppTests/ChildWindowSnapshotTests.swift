@@ -51,6 +51,13 @@ struct ChildWindowSnapshotTests {
         child.orderFrontRegardless()
         window.displayIfNeeded()
         child.displayIfNeeded()
+        // The window server draws a new window on a later display cycle;
+        // until then its image is blank. Give both windows up to 3 s.
+        let deadline = Date().addingTimeInterval(3)
+        while Date() < deadline, window.compositedSnapshot(includeChild: { _ in false }) == nil
+            || child.compositedSnapshot() == nil {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
         return Fixture(window: window, child: child)
     }
 
