@@ -85,15 +85,20 @@ existing server credential and the host with the token it holds. The page itself
 own optchat-chief binary, so only JSON crosses the link. Until then the action opens the local
 Chief only and says so for a remote one.
 
-## Status (2026-10-06)
+## Status (2026-10-07)
 
 - Landed on feat-cmux-next: d0a1d5603451 (red tests a069281246cd, feature 4862d71eece9, review
-  fixes 3e499312044c). Follow-up: open from Home, preflight script.
-- Preflight on cmux-lawrence-2 (`scripts/cmux-next/chief-inspector-preflight.py`, tag chinsp-v1,
-  fleet build 7d1be20cb6b7a14152bf6bd5): a real claude-sr turn over 320 seeded notes; the API
-  rebuilt that turn with view, system and message hashes all equal to the trace (cached layout,
-  first cache mark at byte 49929). The palette row "Chief: Open Memory Inspector" ran and opened
-  the tab. From Home the first build refused with "No pane is focused"; the Home anchor fixes it.
-- Not done: pixel screenshots of the page (window snapshots do not render Chromium content; the
-  page is checked through the app's browser automation text and DOM instead), and the remote
-  brain path.
+  fixes 3e499312044c). Follow-ups gated at 5c6dc9ab7e68: open from Home into a user workspace
+  (the home workspace holds only the Chief conversation), a ticket reload within 10 s keeps its
+  session (the browser loads the URL again when the tab moves into its column), preflight script.
+- Gates on 5c6dc9ab: CmuxNext compile and catalog suites (fleet step 5f84... superseded by
+  the step on 5c6dc9ab, 31 tests), optchat-chief fmt, clippy and all tests on a Testbox (inspect
+  suite 6 tests), page tests under bun test with jsdom, bundle --check.
+- Preflight (`scripts/cmux-next/chief-inspector-preflight.py`, tag chinsp-v4, fleet build
+  355deb86570c70cee483ee84, M1 Max under ~/cmux-agent-work/hq-6d-inspector): 320 seeded notes,
+  a real claude-sr turn, Cmd-Shift-P "memory inspector" Return from Home opened the page in a new
+  column of workspace-2; the turn's prompt shows "Exact bytes", cache marks and our marker; Tree
+  zoom 0+8 > 0+4 > 0+2 > 0+1 (3 hops) with the agent's zoom answer at each hop. API: view,
+  system and message hashes equal the trace, first cache mark at byte 49929.
+- Not done: pixel screenshots of the page (window snapshots do not render Chromium content and
+  showed the workspace's first column, not the scrolled-in new one); remote brain path.
