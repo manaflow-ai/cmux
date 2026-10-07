@@ -1624,3 +1624,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_backend_migrations_plan.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_gh_merge_green_revert.py"
+lane = "linux-guard"
