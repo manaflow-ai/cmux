@@ -104,7 +104,10 @@ public final class FilePickerCoordinator: NSObject {
     /// Stages each PHPicker result off the main actor; the provider's file
     /// URL only lives inside its callback, so the copy happens there. Also
     /// stages pasted and dropped items for the terminal composer (E4).
-    public nonisolated static func stage(_ provider: NSItemProvider, stager: FileStager, convertHEIC: Bool) async -> StagedFile? {
+    /// Runs on the caller's actor (`nonisolated(nonsending)`): the provider
+    /// is not Sendable, so it never leaves the caller; only the copy in the
+    /// load callback runs elsewhere.
+    public nonisolated(nonsending) static func stage(_ provider: NSItemProvider, stager: FileStager, convertHEIC: Bool) async -> StagedFile? {
         let type = provider.registeredTypeIdentifiers.first { identifier in
             guard let type = UTType(identifier) else { return false }
             return type.conforms(to: .image) || type.conforms(to: .movie) || type.conforms(to: .data)
