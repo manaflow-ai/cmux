@@ -95,12 +95,12 @@ export const sqlIdempotencyStoreLayer: Layer.Layer<IdempotencyStore, never, SqlC
       Effect.gen(function* () {
         yield* sql.query(
           "idempotency.expire",
-          "DELETE FROM cmux_vm_idempotency_keys WHERE tenant_id = $1 AND key = $2 AND expires_at <= $3::timestamptz",
+          "DELETE FROM cmux_vm.idempotency_keys WHERE tenant_id = $1 AND key = $2 AND expires_at <= $3::timestamptz",
           [tenantId, key, now.toISOString()],
         );
         const inserted = yield* sql.query(
           "idempotency.claim",
-          `INSERT INTO cmux_vm_idempotency_keys (tenant_id, key, fingerprint, state, created_at, expires_at)
+          `INSERT INTO cmux_vm.idempotency_keys (tenant_id, key, fingerprint, state, created_at, expires_at)
            VALUES ($1, $2, $3, 'pending', $4::timestamptz, $5::timestamptz)
            ON CONFLICT (tenant_id, key) DO NOTHING
            RETURNING key`,
@@ -110,7 +110,7 @@ export const sqlIdempotencyStoreLayer: Layer.Layer<IdempotencyStore, never, SqlC
         const rows = yield* sql
           .query(
             "idempotency.read",
-            "SELECT fingerprint, state, response_body FROM cmux_vm_idempotency_keys WHERE tenant_id = $1 AND key = $2",
+            "SELECT fingerprint, state, response_body FROM cmux_vm.idempotency_keys WHERE tenant_id = $1 AND key = $2",
             [tenantId, key],
           )
           .pipe(
@@ -131,7 +131,7 @@ export const sqlIdempotencyStoreLayer: Layer.Layer<IdempotencyStore, never, SqlC
       sql
         .query(
           "idempotency.complete",
-          `UPDATE cmux_vm_idempotency_keys SET state = 'completed', response_status = 201, response_body = $4
+          `UPDATE cmux_vm.idempotency_keys SET state = 'completed', response_status = 201, response_body = $4
             WHERE tenant_id = $1 AND key = $2 AND fingerprint = $3 AND state = 'pending'`,
           [tenantId, key, fingerprint, body],
         )
@@ -140,7 +140,7 @@ export const sqlIdempotencyStoreLayer: Layer.Layer<IdempotencyStore, never, SqlC
       sql
         .query(
           "idempotency.release",
-          "DELETE FROM cmux_vm_idempotency_keys WHERE tenant_id = $1 AND key = $2 AND fingerprint = $3 AND state = 'pending'",
+          "DELETE FROM cmux_vm.idempotency_keys WHERE tenant_id = $1 AND key = $2 AND fingerprint = $3 AND state = 'pending'",
           [tenantId, key, fingerprint],
         )
         .pipe(Effect.asVoid),

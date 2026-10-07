@@ -1,13 +1,15 @@
 /**
  * Raw provider transport for the snapshot and terminal clients: JSON requests
- * and WebSocket upgrades with the provider key attached. Only the upstream
- * client modules call this, and only with an upstream id taken from a minted
+ * and WebSocket upgrades with the provider key attached. Like live.ts, lint
+ * lets only src/upstream/, src/proofs/ and src/index.ts import it. Only the
+ * live upstream client modules call this, and only with an upstream id taken from a minted
  * TenantOwnsResource proof (or returned by a create the caller was proven to
  * be allowed). The key never leaves this closure.
  */
 import { Effect, Redacted } from "effect";
-import type { TenantOwnsResource } from "../proofs/tenant-owns-resource.ts";
-import { UpstreamError, type UpstreamConfig } from "./client.ts";
+import { upstreamIdOf, type TenantOwnsResource } from "../proofs/tenant-owns-resource.ts";
+import { UpstreamError } from "./client.ts";
+import type { UpstreamConfig } from "./live.ts";
 
 const MAX_RESPONSE_BYTES = 1024 * 1024;
 
@@ -95,4 +97,4 @@ export function makeUpstreamHttp(config: UpstreamConfig): UpstreamHttp {
 }
 
 /** The upstream id a minted ownership proof carries, percent-encoded for a path segment. */
-export const proofSegment = <C, R>(owns: TenantOwnsResource<C, R>): string => encodeURIComponent(owns.upstreamId);
+export const proofSegment = <C, R>(owns: TenantOwnsResource<C, R>): string => encodeURIComponent(upstreamIdOf(owns));

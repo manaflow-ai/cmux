@@ -33,16 +33,29 @@ beforeEach(async () => {
 });
 
 describe("migration", () => {
-  it("is idempotent and additive", async () => {
+  it("is idempotent and creates nothing outside the cmux_vm schema", async () => {
     await pg.exec(migration);
-    const tables = await pg.query<{ table_name: string }>(
-      "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name",
+    const tables = await pg.query<{ name: string }>(
+      `SELECT table_schema || '.' || table_name AS name FROM information_schema.tables
+        WHERE table_schema NOT IN ('pg_catalog', 'information_schema') ORDER BY name`,
     );
-    expect(tables.rows.map((row) => row.table_name)).toEqual(["cmux_vm_api_keys", "cmux_vm_resources"]);
+    expect(tables.rows.map((row) => row.name)).toEqual(["cmux_vm.api_keys", "cmux_vm.resources"]);
+    const indexes = await pg.query<{ name: string }>(
+      `SELECT schemaname || '.' || indexname AS name FROM pg_indexes
+        WHERE schemaname NOT IN ('pg_catalog', 'information_schema') ORDER BY name`,
+    );
+    expect(indexes.rows.map((row) => row.name)).toEqual([
+      "cmux_vm.api_keys_key_hash_key",
+      "cmux_vm.api_keys_pkey",
+      "cmux_vm.api_keys_tenant_idx",
+      "cmux_vm.resources_kind_upstream_key",
+      "cmux_vm.resources_pkey",
+      "cmux_vm.resources_tenant_kind_created_idx",
+    ]);
   });
 
   it("refuses a second claim on the same upstream id and a mismatched id prefix", async () => {
-    const insert = "INSERT INTO cmux_vm_resources (cmux_id, tenant_id, kind, upstream_id, created_by) VALUES ($1, $2, $3, $4, 'user:x')";
+    const insert = "INSERT INTO cmux_vm.resources (cmux_id, tenant_id, kind, upstream_id, created_by) VALUES ($1, $2, $3, $4, 'user:x')";
     await pg.query(insert, [newVmId(), "team_a", "vm", "vm-upstream-1"]);
     await expect(pg.query(insert, [newVmId(), "team_b", "vm", "vm-upstream-1"])).rejects.toThrow();
     await expect(pg.query(insert, [newVmId(), "team_b", "snapshot", "sc-1"])).rejects.toThrow();
@@ -75,7 +88,7 @@ describe("ownership store", () => {
   it("hides soft-deleted resources", async () => {
     const vmId = newVmId();
     await pg.query(
-      "INSERT INTO cmux_vm_resources (cmux_id, tenant_id, kind, upstream_id, created_by, deleted_at) VALUES ($1, 'team_a', 'vm', 'vm-up-2', 'user:x', now())",
+      "INSERT INTO cmux_vm.resources (cmux_id, tenant_id, kind, upstream_id, created_by, deleted_at) VALUES ($1, 'team_a', 'vm', 'vm-up-2', 'user:x', now())",
       [vmId],
     );
     const found = await run(Effect.flatMap(OwnershipStore, (store) => store.find(TenantId.make("team_a"), "vm", vmId)));
@@ -89,7 +102,7 @@ describe("api key store", () => {
     const hash = await Effect.runPromise(hashApiKey(secret));
     const id = newApiKeyId();
     await pg.query(
-      `INSERT INTO cmux_vm_api_keys (id, tenant_id, name, key_hash, scopes, resource_allowlist, created_by, expires_at, revoked_at)
+      `INSERT INTO cmux_vm.api_keys (id, tenant_id, name, key_hash, scopes, resource_allowlist, created_by, expires_at, revoked_at)
        VALUES ($1, 'team_a', 'ci', $2, $3, $4, 'user:alice', $5::timestamptz, CASE WHEN $6 THEN now() ELSE NULL END)`,
       [id, hash, options.scopes, options.allowlist ?? null, options.expiresAt ?? null, options.revoked ?? false],
     );

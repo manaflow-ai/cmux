@@ -74,7 +74,7 @@ export const sqlStoresLayer: Layer.Layer<OwnershipStore | ApiKeyStore, never, Sq
           .query(
             "ownership.find",
             `SELECT tenant_id, kind, cmux_id, upstream_id, created_by, created_at
-               FROM cmux_vm_resources
+               FROM cmux_vm.resources
               WHERE cmux_id = $1 AND tenant_id = $2 AND kind = $3 AND deleted_at IS NULL
               LIMIT 1`,
             [cmuxId, tenantId, kind],
@@ -104,7 +104,7 @@ export const sqlStoresLayer: Layer.Layer<OwnershipStore | ApiKeyStore, never, Sq
         return sql
           .query(
             "ownership.record",
-            `INSERT INTO cmux_vm_resources (cmux_id, tenant_id, kind, upstream_id, created_by, created_at)
+            `INSERT INTO cmux_vm.resources (cmux_id, tenant_id, kind, upstream_id, created_by, created_at)
              VALUES ($1, $2, $3, $4, $5, $6::timestamptz)`,
             params,
           )
@@ -121,7 +121,7 @@ export const sqlStoresLayer: Layer.Layer<OwnershipStore | ApiKeyStore, never, Sq
                     array_to_string(scopes, ' ') AS scopes,
                     CASE WHEN resource_allowlist IS NULL THEN NULL
                          ELSE array_to_string(resource_allowlist, ' ') END AS resource_allowlist
-               FROM cmux_vm_api_keys
+               FROM cmux_vm.api_keys
               WHERE key_hash = $1
                 AND revoked_at IS NULL
                 AND (expires_at IS NULL OR expires_at > $2::timestamptz)

@@ -84,7 +84,7 @@ export const sqlSnapshotStoreLayer: Layer.Layer<SnapshotStore, never, SqlClient>
         sql
           .query(
             "snapshots.record",
-            `INSERT INTO cmux_vm_resources
+            `INSERT INTO cmux_vm.resources
                (cmux_id, tenant_id, kind, upstream_id, created_by, created_at, parent_cmux_id, display_name, labels)
              VALUES ($1, $2, 'snapshot', $3, $4, $5::timestamptz, $6, $7, $8::jsonb)`,
             [
@@ -103,7 +103,7 @@ export const sqlSnapshotStoreLayer: Layer.Layer<SnapshotStore, never, SqlClient>
         sql
           .query(
             "snapshots.describe",
-            `SELECT ${COLUMNS} FROM cmux_vm_resources
+            `SELECT ${COLUMNS} FROM cmux_vm.resources
               WHERE cmux_id = $1 AND tenant_id = $2 AND kind = 'snapshot' AND deleted_at IS NULL
               LIMIT 1`,
             [id, tenantId],
@@ -113,7 +113,7 @@ export const sqlSnapshotStoreLayer: Layer.Layer<SnapshotStore, never, SqlClient>
         sql
           .query(
             "snapshots.list",
-            `SELECT ${COLUMNS} FROM cmux_vm_resources
+            `SELECT ${COLUMNS} FROM cmux_vm.resources
               WHERE tenant_id = $1 AND kind = 'snapshot' AND deleted_at IS NULL
                 AND ($2::text IS NULL OR parent_cmux_id = $2::text)
                 AND ($3::timestamptz IS NULL OR (created_at, cmux_id) < ($3::timestamptz, $4::text))
@@ -134,7 +134,7 @@ export const sqlSnapshotStoreLayer: Layer.Layer<SnapshotStore, never, SqlClient>
         sql
           .query(
             "snapshots.markDeleted",
-            `UPDATE cmux_vm_resources SET deleted_at = $3::timestamptz
+            `UPDATE cmux_vm.resources SET deleted_at = $3::timestamptz
               WHERE cmux_id = $1 AND tenant_id = $2 AND kind = 'snapshot' AND deleted_at IS NULL`,
             [id, tenantId, at.toISOString()],
           )

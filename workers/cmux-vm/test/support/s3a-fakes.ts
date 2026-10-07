@@ -13,8 +13,10 @@ import { StoreError } from "../../src/db/sql.ts";
 import type { OwnedResource } from "../../src/db/stores.ts";
 import { newSnapshotId, SnapshotId, TenantId, UpstreamId, type VmId } from "../../src/lib/ids.ts";
 import { Entitlements } from "../../src/proofs/tenant-may-create.ts";
-import { makeUpstreamSnapshots, UpstreamSnapshots } from "../../src/upstream/snapshots.ts";
-import { makeUpstreamTerminals, UpstreamTerminals } from "../../src/upstream/terminals.ts";
+import { makeUpstreamSnapshots } from "../../src/upstream/live-snapshots.ts";
+import { makeUpstreamTerminals } from "../../src/upstream/live-terminals.ts";
+import { UpstreamSnapshots } from "../../src/upstream/snapshots.ts";
+import { UpstreamTerminals } from "../../src/upstream/terminals.ts";
 
 const UPSTREAM_URL = "https://upstream.test";
 const UPSTREAM_KEY = "upstream-test-key";

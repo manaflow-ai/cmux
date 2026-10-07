@@ -1,5 +1,6 @@
 /**
- * Provider terminal (PTY) operations. Every method demands proof that the
+ * Provider terminal (PTY) operations, as handlers see them; the implementation
+ * that holds the provider key is src/upstream/live-terminals.ts. Every method demands proof that the
  * caller's tenant owns the VM and that the credential carries `vm:terminal`.
  * See upstream/PINNED.json for the pinned provider API surface.
  */
@@ -8,8 +9,7 @@ import { Context, Effect, Schema } from "effect";
 import type { VmId } from "../lib/ids.ts";
 import type { KeyHasScope } from "../proofs/key-has-scope.ts";
 import type { TenantOwnsResource } from "../proofs/tenant-owns-resource.ts";
-import { type UpstreamConfig, UpstreamError } from "./client.ts";
-import { makeUpstreamHttp, proofSegment } from "./http.ts";
+import type { UpstreamError } from "./client.ts";
 
 export const UpstreamPtySession = Schema.Struct({
   sessionId: Schema.Int,
@@ -23,8 +23,8 @@ export const UpstreamPtySession = Schema.Struct({
 });
 export type UpstreamPtySession = typeof UpstreamPtySession.Type;
 
-const ListPtySessions = Schema.Struct({ sessions: Schema.Array(UpstreamPtySession) });
-const ClosedPtySession = Schema.Struct({ sessionId: Schema.Int, exitCode: Schema.optional(Schema.NullOr(Schema.Int)) });
+export const ListPtySessions = Schema.Struct({ sessions: Schema.Array(UpstreamPtySession) });
+export const ClosedPtySession = Schema.Struct({ sessionId: Schema.Int, exitCode: Schema.optional(Schema.NullOr(Schema.Int)) });
 export type UpstreamClosedPtySession = typeof ClosedPtySession.Type;
 
 export interface OpenPtyOptions {
@@ -67,53 +67,3 @@ export interface UpstreamTerminalsService {
 
 export class UpstreamTerminals extends Context.Tag("cmux-vm/UpstreamTerminals")<UpstreamTerminals, UpstreamTerminalsService>() {}
 
-const query = (entries: ReadonlyArray<readonly [string, string | number | boolean | undefined]>): string => {
-  const params = new URLSearchParams();
-  for (const [key, value] of entries) if (value !== undefined) params.set(key, String(value));
-  const text = params.toString();
-  return text.length === 0 ? "" : `?${text}`;
-};
-
-const decodeAs =
-  <A, I>(schema: Schema.Schema<A, I>, operation: string) =>
-  (body: unknown): Effect.Effect<A, UpstreamError> =>
-    Schema.decodeUnknown(schema)(body).pipe(Effect.mapError(() => new UpstreamError({ operation, status: null })));
-
-export function makeUpstreamTerminals(config: UpstreamConfig): UpstreamTerminalsService {
-  const http = makeUpstreamHttp(config);
-  return {
-    openTerminal: (_vm, { owns }, options) =>
-      http.upgrade(
-        "openTerminal",
-        `/v5/vms/${proofSegment(owns)}/pty${query([
-          ["exec", options.command],
-          ["cols", options.cols],
-          ["rows", options.rows],
-          ["linuxUser", options.user],
-          ["slug", options.name],
-          ["replaceOnExit", options.restartOnExit],
-        ])}`,
-      ),
-    attachTerminal: (_vm, { owns }, session, user) =>
-      http.upgrade(
-        "attachTerminal",
-        `/v5/vms/${proofSegment(owns)}/pty/sessions/${encodeURIComponent(session)}${query([["linuxUser", user]])}`,
-      ),
-    listTerminals: (_vm, { owns }, user) =>
-      http
-        .json("listTerminals", "GET", `/v5/vms/${proofSegment(owns)}/pty/sessions${query([["linuxUser", user]])}`)
-        .pipe(
-          Effect.flatMap(decodeAs(ListPtySessions, "listTerminals")),
-          Effect.map((body) => body.sessions),
-        ),
-    closeTerminal: (_vm, { owns }, session, user) =>
-      http
-        .json(
-          "closeTerminal",
-          "DELETE",
-          `/v5/vms/${proofSegment(owns)}/pty/sessions/${encodeURIComponent(session)}${query([["linuxUser", user]])}`,
-        )
-        .pipe(Effect.flatMap(decodeAs(ClosedPtySession, "closeTerminal"))),
-    scrubTarget: ({ owns }) => decodeURIComponent(proofSegment(owns)),
-  };
-}

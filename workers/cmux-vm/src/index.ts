@@ -7,13 +7,13 @@ import { makeWebHandler } from "./app.ts";
 import { stackLayers } from "./auth/credentials.ts";
 import { hyperdriveSqlLayer } from "./db/sql.ts";
 import { sqlStoresLayer } from "./db/stores.ts";
-import { makeUpstreamClient, UpstreamClient } from "./upstream/client.ts";
+import { upstreamLayer } from "./upstream/live.ts";
 import { sqlAuditLogLayer } from "./db/audit.ts";
 import { sqlIdempotencyStoreLayer } from "./db/idempotency.ts";
 import { sqlSnapshotStoreLayer } from "./db/snapshots.ts";
 import { entitlementsDenyAllLayer } from "./proofs/tenant-may-create.ts";
-import { makeUpstreamSnapshots, UpstreamSnapshots } from "./upstream/snapshots.ts";
-import { makeUpstreamTerminals, UpstreamTerminals } from "./upstream/terminals.ts";
+import { upstreamSnapshotsLayer } from "./upstream/live-snapshots.ts";
+import { upstreamTerminalsLayer } from "./upstream/live-terminals.ts";
 
 export interface Env {
   readonly HYPERDRIVE: Hyperdrive;
@@ -27,10 +27,7 @@ export interface Env {
 const liveServices = (env: Env) =>
   Layer.mergeAll(
     sqlStoresLayer.pipe(Layer.provide(hyperdriveSqlLayer(env.HYPERDRIVE.connectionString))),
-    Layer.succeed(
-      UpstreamClient,
-      makeUpstreamClient({ baseUrl: env.UPSTREAM_API_URL, apiKey: Redacted.make(env.UPSTREAM_API_KEY) }),
-    ),
+    upstreamLayer({ baseUrl: env.UPSTREAM_API_URL, apiKey: env.UPSTREAM_API_KEY }),
     stackLayers({
       apiUrl: env.STACK_API_URL,
       projectId: env.STACK_PROJECT_ID,
@@ -41,25 +38,41 @@ const liveServices = (env: Env) =>
 
 /** Snapshots and terminals (slice S3a). Creates stay refused until the billing hook replaces the deny-all entitlements. */
 const s3aServices = (env: Env) => {
-  const upstream = { baseUrl: env.UPSTREAM_API_URL, apiKey: Redacted.make(env.UPSTREAM_API_KEY) };
+  const upstream = { baseUrl: env.UPSTREAM_API_URL, apiKey: env.UPSTREAM_API_KEY };
   return Layer.mergeAll(
     Layer.mergeAll(sqlSnapshotStoreLayer, sqlAuditLogLayer, sqlIdempotencyStoreLayer).pipe(
       Layer.provide(hyperdriveSqlLayer(env.HYPERDRIVE.connectionString)),
     ),
     entitlementsDenyAllLayer,
-    Layer.succeed(UpstreamSnapshots, makeUpstreamSnapshots(upstream)),
-    Layer.succeed(UpstreamTerminals, makeUpstreamTerminals(upstream)),
+    upstreamSnapshotsLayer(upstream),
+    upstreamTerminalsLayer(upstream),
   );
 };
 
 let cached: { readonly env: Env; readonly handler: (request: Request) => Promise<Response> } | undefined;
 
+/** A missing secret or binding answers 503 instead of crashing every request. */
+const notConfigured = (): Promise<Response> =>
+  Promise.resolve(
+    Response.json({ _tag: "ServiceUnavailable", message: "The cmux VM service is not configured" }, { status: 503 }),
+  );
+
+const makeHandler = (env: Env): ((request: Request) => Promise<Response>) => {
+  try {
+    if (!env.HYPERDRIVE || !env.UPSTREAM_API_KEY || !env.STACK_PROJECT_ID || !env.STACK_SECRET_SERVER_KEY) {
+      return notConfigured;
+    }
+    const { handler } = makeWebHandler(liveServices(env));
+    return (incoming) => handler(incoming);
+  } catch {
+    console.error("cmux-vm configuration invalid");
+    return notConfigured;
+  }
+};
+
 export default {
   fetch(request: Request, env: Env): Promise<Response> {
-    if (cached === undefined || cached.env !== env) {
-      const { handler } = makeWebHandler(liveServices(env));
-      cached = { env, handler: (incoming) => handler(incoming) };
-    }
+    if (cached === undefined || cached.env !== env) cached = { env, handler: makeHandler(env) };
     return cached.handler(request);
   },
 } satisfies ExportedHandler<Env>;

@@ -59,13 +59,13 @@ describe("migration 0002", () => {
   it("is idempotent and additive", async () => {
     await pg.exec(snapshots);
     const tables = await pg.query<{ table_name: string }>(
-      "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name",
+      "SELECT table_schema || '.' || table_name AS table_name FROM information_schema.tables WHERE table_schema IN ('public', 'cmux_vm') ORDER BY 1",
     );
     expect(tables.rows.map((row) => row.table_name)).toEqual([
-      "cmux_vm_api_keys",
-      "cmux_vm_audit_log",
-      "cmux_vm_idempotency_keys",
-      "cmux_vm_resources",
+      "cmux_vm.api_keys",
+      "cmux_vm.audit_log",
+      "cmux_vm.idempotency_keys",
+      "cmux_vm.resources",
     ]);
   });
 });
@@ -140,7 +140,7 @@ describe("audit log", () => {
         log.record({ tenantId: TENANT_A, actor: "key:vmk_x", action: "snapshot.create", resourceId: id, outcome: "succeeded", at: new Date() }),
       ),
     );
-    const rows = await pg.query<{ resource_id: string; action: string }>("SELECT resource_id, action FROM cmux_vm_audit_log");
+    const rows = await pg.query<{ resource_id: string; action: string }>("SELECT resource_id, action FROM cmux_vm.audit_log");
     expect(rows.rows).toEqual([{ resource_id: id, action: "snapshot.create" }]);
     const leaked = Effect.flatMap(AuditLog, (log) =>
       log.record({ tenantId: TENANT_A, actor: "key:vmk_x", action: "snapshot.create", resourceId: "sc-upstream", outcome: "failed", at: new Date() }),

@@ -57,7 +57,7 @@ export const sqlAuditLogLayer: Layer.Layer<AuditLog, never, SqlClient> = Layer.e
       sql
         .query(
           "audit.record",
-          `INSERT INTO cmux_vm_audit_log (tenant_id, actor, action, resource_id, outcome, created_at)
+          `INSERT INTO cmux_vm.audit_log (tenant_id, actor, action, resource_id, outcome, created_at)
            VALUES ($1, $2, $3, $4, $5, $6::timestamptz)`,
           [entry.tenantId, entry.actor, entry.action, entry.resourceId, entry.outcome, entry.at.toISOString()],
         )
