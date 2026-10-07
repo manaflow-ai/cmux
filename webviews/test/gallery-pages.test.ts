@@ -49,17 +49,9 @@ for (const { entry, make, rows } of cases) {
     await store.start();
     const snapshot = store.getSnapshot();
     expect(snapshot.loading).toBe(false);
-    expect(
-      "failed" in snapshot
-        ? snapshot.failed
-        : "error" in snapshot
-          ? snapshot.error
-          : "notice" in snapshot
-            ? snapshot.notice?.kind === "failed"
-              ? snapshot.notice.message
-              : undefined
-            : undefined,
-    ).toContain("Sample owner");
+    expect("failed" in snapshot ? snapshot.failed : "error" in snapshot ? snapshot.error : undefined).toContain(
+      "Sample owner",
+    );
   });
   test(`${entry.id}: a held reply keeps the page loading`, async () => {
     const store = make(client(entry.variants.loading!));
