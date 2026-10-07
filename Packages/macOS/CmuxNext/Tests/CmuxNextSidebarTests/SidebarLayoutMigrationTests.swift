@@ -22,9 +22,11 @@ import Testing
         #expect(stored.layoutMigration.sections == SidebarLayoutDocument.migrationTarget.sections)
         // Each op is a change the owner commits, so the revision moves on.
         #expect(migrated.revision > stored.revision)
-        // Moves keep item ids: the account is the same item, at the bottom
-        // (after Recents); Settings left with amendment 2 (it is in the profile menu).
-        #expect(migrated.locate(LayoutItemID("itm_account"))?.section == 3)
+        // Moves keep item ids: the account is the same item, in the bottom
+        // section (found by id: SIDEBAR-NO-RECENTS changed the section count);
+        // Settings left with amendment 2 (it is in the profile menu).
+        let bottom = migrated.sections.firstIndex { $0.id == SidebarLayoutDocument.bottomSectionID }
+        #expect(migrated.locate(LayoutItemID("itm_account"))?.section == bottom)
         #expect(migrated.locate(LayoutItemID("itm_settings")) == nil)
     }
 
