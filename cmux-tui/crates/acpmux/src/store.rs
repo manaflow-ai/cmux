@@ -138,6 +138,11 @@ pub struct SessionMeta {
     /// its harness never spawns with a preset's args or system prompt.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub remote_origin: bool,
+    /// Per-session env (`session_env.rs`): allowlisted keys set by the unix
+    /// socket on session/new or session/fork, applied over the preset env at
+    /// every spawn. Never copied to a fork or a handoff.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub session_env: BTreeMap<String, String>,
     /// Chat store roots the harness's launch env named at its last spawn
     /// (ALL-CHATS-ON-DEVICE C3): absolute, existing folders only.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -484,6 +489,7 @@ mod tests {
             unread: false,
             last_turn: None,
             remote_origin: false,
+            session_env: Default::default(),
             harness_roots: vec![],
         }
     }

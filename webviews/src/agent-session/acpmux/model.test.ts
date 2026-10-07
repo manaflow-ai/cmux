@@ -156,21 +156,32 @@ describe("acpmux pane header", () => {
     expect(paneHeader(snapshot({ ...base, connection: "session changed" }))).toEqual({ title: "Codex", status: "" });
     expect(paneHeader(snapshot({ ...base, connection: "tool_call", isWorking: true }))).toEqual({
       title: "Codex",
-      status: "Working",
+      status: "",
     });
     expect(paneHeader(snapshot({ ...base, connection: "disconnected" }))).toEqual({
       title: "Codex",
-      status: "Reconnecting",
+      status: "Disconnected",
+      detail: "Disconnected",
     });
-    expect(paneHeader(snapshot({ connection: "mock" }))).toEqual({ title: "Agent Chat", status: "Mock" });
+    expect(paneHeader(snapshot({ connection: "mock" }))).toEqual({ title: "Agent Chat", status: "" });
   });
 
   /// While the daemon is down the pane retries, setting "connecting" or "connecting: <error>"; a turn
   /// that was running when the connection dropped never ends, so connection trouble wins over Working.
   test("shows connection trouble while retrying, even during a turn", () => {
-    expect(paneHeader(snapshot({ connection: "connecting" })).status).toBe("Connecting");
-    expect(paneHeader(snapshot({ connection: "connecting: Error: refused" })).status).toBe("Connecting");
-    expect(paneHeader(snapshot({ connection: "disconnected", isWorking: true })).status).toBe("Reconnecting");
+    expect(paneHeader(snapshot({ connection: "connecting" })).status).toBe("");
+    expect(paneHeader(snapshot({ connection: "connecting: Error: refused" })).status).toBe("Reconnecting");
+    expect(paneHeader(snapshot({ connection: "disconnected", isWorking: true })).status).toBe("Disconnected");
+  });
+
+  test("failure details come from the latest failed row, while recovery hides them", () => {
+    const rows: AcpmuxRow[] = [
+      { id: "old", version: 1, at: 1, kind: "user", error: "Old error" },
+      { id: "new", version: 1, at: 2, kind: "user", error: "Model unavailable" },
+    ];
+    expect(paneHeader(snapshot({ connection: "failed", rows })).detail).toBe("Model unavailable");
+    expect(paneHeader(snapshot({ connection: "connected", rows })).status).toBe("");
+    expect(paneHeader(snapshot({ connection: "connected", rows })).detail).toBeUndefined();
   });
 });
 

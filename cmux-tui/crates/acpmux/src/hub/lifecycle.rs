@@ -83,7 +83,18 @@ impl Hub {
     pub async fn new_session(self: &Arc<Self>, req: NewRequest) -> Result<Arc<Session>, RpcError> {
         // Harness discovery and launcher checks finish in the background.
         self.wait_startup().await;
-        let NewRequest { harness, preset, name, cwd, policy, model, effort, adopt, remote } = req;
+        let NewRequest {
+            harness,
+            preset,
+            name,
+            cwd,
+            policy,
+            model,
+            effort,
+            adopt,
+            remote,
+            env: session_env,
+        } = req;
         // An adopted session's harness names the head unless one was given.
         let harness = harness.or_else(|| adopt.as_ref().and_then(|a| a.harness.clone()));
         // Resolution is a lookup, never a guess: preset → head (family or
@@ -134,11 +145,15 @@ impl Hub {
             policy,
             remote,
         });
+        meta.session_env = session_env;
         // A pooled session of exactly this shape (`pool/`) gives the session
         // its id; `ensure_child` then takes it instead of starting cold.
+        // A pooled harness started without this session's env: never claimed.
         let pooled = match &adopt {
-            None => self.pool_claim(&meta, &profile, &defaults.env).await,
-            Some(_) => None,
+            None if meta.session_env.is_empty() => {
+                self.pool_claim(&meta, &profile, &defaults.env).await
+            }
+            _ => None,
         };
         // Every way out of here (an error, or this future dropped) before
         // `ensure_child` took the entry puts it back or ends it.
@@ -390,7 +405,7 @@ impl Hub {
                 .unwrap_or("default")
                 .to_owned();
             let model = current_model(&meta).unwrap_or_else(|| "default".into());
-            let plan = crate::claude_stdio::spawn_plan(
+            let mut plan = crate::claude_stdio::spawn_plan(
                 profile,
                 resume,
                 fork,
@@ -399,6 +414,13 @@ impl Hub {
                 &mode,
                 Some(&model),
             );
+            // A remote chain runs inside the Seatbelt sandbox, canary-checked
+            // at this spawn (`remote_sandbox.rs`).
+            if meta.remote_origin {
+                let (program, args) =
+                    self.sandboxed_claude_plan(session, profile, plan.program, plan.args).await?;
+                plan = crate::claude_stdio::SpawnPlan { program, args };
+            }
             // A fresh process was given its id; a resumed one already has it.
             let known = if fork { None } else { fresh_id.clone().or_else(|| existing_sid.clone()) };
             if self.agent_hosts_enabled() {
@@ -979,4 +1001,6 @@ pub struct NewRequest {
     pub remote: bool,
     /// A harness session to resume instead of starting a new one.
     pub adopt: Option<crate::adopt::AdoptRequest>,
+    /// Per-session env (`session_env.rs`), already checked by the caller.
+    pub env: std::collections::BTreeMap<String, String>,
 }
