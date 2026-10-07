@@ -59,6 +59,14 @@ public final class ConversationStore {
         for observer in observers { observer(change) }
     }
 
+    /// Client-side translation state (Translate menu, automatic translation).
+    public lazy var translations = ConversationTranslations(store: self)
+
+    /// Translation state changed: rows redraw in place.
+    func translationsDidChange() {
+        notify(.live(insertedRowIDs: [], sentByMe: false))
+    }
+
     public let pageSize: Int
     private let backend: any ConversationBackend
     private let clock: any Clock<Duration>
