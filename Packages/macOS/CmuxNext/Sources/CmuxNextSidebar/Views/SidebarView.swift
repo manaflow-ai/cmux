@@ -56,10 +56,12 @@ public final class SidebarView: NSView {
     var isChromeRevealed = false
     /// Bands minimal mode hides right now (the fade's target, R54).
     var minimalHiddenBands: (top: Bool, bottom: Bool) = (false, false)
-    private var accessories: [SidebarAccessorySlot: NSView] = [:]
+    var accessories: [SidebarAccessorySlot: NSView] = [:]
     let footer = NSView()
     /// The staged update card above the footer (`SidebarModel.updateCard`).
     let updateCardView = SidebarUpdateCardView()
+    /// Back, in the footer band's spot while a destination is open (`SidebarView+Footer`).
+    let backButton = SidebarBackButton()
     /// Where the spaces dots sit (`sidebar.spacesPosition`, R109).
     public var spacesPosition: SpacesPosition = .bottom {
         didSet { if spacesPosition != oldValue { needsLayout = true } }
@@ -104,17 +106,6 @@ public final class SidebarView: NSView {
             }
             needsLayout = true
         }
-    }
-
-    /// Installs (or removes, with nil) the view in a footer slot.
-    public func setAccessory(_ view: NSView?, for slot: SidebarAccessorySlot) {
-        accessories[slot]?.removeFromSuperview()
-        accessories[slot] = view
-        if let view {
-            view.translatesAutoresizingMaskIntoConstraints = true
-            footer.addSubview(view)
-        }
-        needsLayout = true
     }
 
     /// Focuses the workspace list for keyboard navigation.
@@ -209,6 +200,7 @@ public final class SidebarView: NSView {
         buildBands()
 
         addSubview(footer)
+        installBackButton()
         footer.addSubview(profileBar)
         installUpdateCard()
     }
@@ -270,6 +262,7 @@ public final class SidebarView: NSView {
         placeUpdateCard(above: footer.frame.minY, slotHeight: updateHeight)
         footerCards?.frame = NSRect(x: 0, y: footer.frame.minY - updateHeight - cardsHeight, width: b.width, height: cardsHeight)
         layoutFooter(visibleSlots)
+        layoutBack()
         placeSpaces(top: y, height: spacesHeight)
         edgeFade.frame = listFrame
         scrollView.tile()
@@ -324,6 +317,7 @@ public final class SidebarView: NSView {
         var fontSize: CGFloat
         var titlebarHeight: CGFloat
         var updateCard: SidebarUpdateCard?
+        var showsBack: Bool
     }
 
     private func observe() {
@@ -348,7 +342,8 @@ public final class SidebarView: NSView {
                     metrics: .standard,
                     fontSize: Typography.body.pointSize,
                     titlebarHeight: Metrics.titlebarHeight,
-                    updateCard: model.updateCard
+                    updateCard: model.updateCard,
+                    showsBack: model.showsBack
                 )
             }) {
                 self?.render(state)
@@ -387,7 +382,7 @@ public final class SidebarView: NSView {
             updateCardView.configure(state.updateCard)
             needsLayout = true
         }
-        if chromeChanged || profilesChanged { needsLayout = true }
+        if chromeChanged || profilesChanged || lastState?.showsBack != state.showsBack { needsLayout = true }
         lastState = state
     }
 

@@ -73,6 +73,10 @@ export interface ReplyHandler {
 
 export const RECEIVE_NAME = "__cmuxPageReceive";
 
+/** How many not-yet-registered subscriptions, and events per subscription, the client holds. */
+const EARLY_SUBS = 16;
+const EARLY_EVENTS = 64;
+
 /**
  * The bridge client: the page posts envelopes and awaits the reply; the host pushes events and its
  * own calls through `window.__cmuxPageReceive(envelope)`.
@@ -82,6 +86,8 @@ export class BridgePageClient implements PageClient {
   private readonly listeners = new Map<number, (data: unknown, seq: number, meta?: PageEventMeta) => void>();
   private readonly lastSeq = new Map<number, number>();
   private readonly handlers = new Map<string, PageHandler>();
+  /** Events for a sub id whose subscribe reply the page has not read yet, replayed on registration. */
+  private readonly early = new Map<number, { data: unknown; seq: number; meta: PageEventMeta }[]>();
 
   constructor(
     private readonly handler: ReplyHandler,
@@ -137,7 +143,12 @@ export class BridgePageClient implements PageClient {
     const value = (await this.post(envelope)) as { sub?: unknown } | undefined;
     const sub = value?.sub;
     if (typeof sub !== "number") throw pageError("cmux.protocol.invalid_result", `subscribe ${stream}: no sub id`);
-    this.listeners.set(sub, onEvent as (data: unknown, seq: number, meta?: PageEventMeta) => void);
+    const listener = onEvent as (data: unknown, seq: number, meta?: PageEventMeta) => void;
+    this.listeners.set(sub, listener);
+    const held = this.early.get(sub) ?? [];
+    this.early.delete(sub);
+    for (const event of held.sort((a, b) => a.seq - b.seq))
+      this.deliver(sub, listener, event.data, event.seq, event.meta);
     return () => {
       if (!this.listeners.delete(sub)) return;
       this.lastSeq.delete(sub);
@@ -173,17 +184,43 @@ export class BridgePageClient implements PageClient {
     throw pageError("cmux.protocol.invalid_result", "malformed reply");
   }
 
+  /** Events of one subscription are ordered from 1; a duplicate or old event is dropped. */
+  private deliver(
+    sub: number,
+    listener: (data: unknown, seq: number, meta?: PageEventMeta) => void,
+    data: unknown,
+    seq: number,
+    meta: PageEventMeta,
+  ): void {
+    if (seq <= (this.lastSeq.get(sub) ?? 0)) return;
+    this.lastSeq.set(sub, seq);
+    listener(data, seq, meta);
+  }
+
+  /** Bounded: a sub id the page never registers (a cancelled subscribe) cannot grow memory. */
+  private hold(sub: number, event: { data: unknown; seq: number; meta: PageEventMeta }): void {
+    if (!this.early.has(sub) && this.early.size >= EARLY_SUBS) {
+      const oldest = this.early.keys().next().value;
+      if (oldest !== undefined) this.early.delete(oldest);
+    }
+    const held = this.early.get(sub) ?? [];
+    if (held.length >= EARLY_EVENTS) held.shift();
+    held.push(event);
+    this.early.set(sub, held);
+  }
+
   /** Host to page. Exposed for tests; the host calls it through `window.__cmuxPageReceive`. */
   receive(message: unknown): void {
     const envelope = message as Partial<Envelope> | null;
     if (envelope?.t === "ev") {
       const { sub, seq, data, opid } = envelope as { sub: number; seq: number; data: unknown; opid?: unknown };
+      const meta: PageEventMeta = typeof opid === "string" ? { opid } : {};
       const listener = this.listeners.get(sub);
-      if (!listener) return;
-      // Events of one subscription are ordered from 1; a duplicate or old event is dropped.
-      if (seq <= (this.lastSeq.get(sub) ?? 0)) return;
-      this.lastSeq.set(sub, seq);
-      listener(data, seq, typeof opid === "string" ? { opid } : {});
+      if (!listener) {
+        this.hold(sub, { data, seq, meta });
+        return;
+      }
+      this.deliver(sub, listener, data, seq, meta);
       return;
     }
     if (envelope?.t === "call") {

@@ -37,7 +37,7 @@ fn dock_column_persists_across_restart() {
             )
             .unwrap();
     }
-    let expected = ColumnDock { edge: DockEdge::Left, mode: DockMode::Overlay, permanent: false };
+    let expected = ColumnDock::new(DockEdge::Left, DockMode::Overlay);
 
     let mux = open_restart_mux(&root, session);
     let pane = mux.with_state(|state| {
@@ -91,10 +91,7 @@ fn dock_column_registry_record_is_additive() {
     let mut with_dock = old;
     with_dock["dock"] = serde_json::json!({"edge": "right", "mode": "docked"});
     let column: RegistryViewportColumn = serde_json::from_value(with_dock.clone()).unwrap();
-    assert_eq!(
-        column.dock,
-        Some(ColumnDock { edge: DockEdge::Right, mode: DockMode::Docked, permanent: false })
-    );
+    assert_eq!(column.dock, Some(ColumnDock::new(DockEdge::Right, DockMode::Docked)));
     assert_eq!(serde_json::to_value(&column).unwrap(), with_dock);
 }
 
@@ -121,8 +118,8 @@ fn dock_column_flags_cleared_by_a_close_stay_cleared_after_restart() {
             )
             .unwrap();
     }
-    let left = ColumnDock { edge: DockEdge::Left, mode: DockMode::Docked, permanent: false };
-    let right = ColumnDock { edge: DockEdge::Right, mode: DockMode::Docked, permanent: false };
+    let left = ColumnDock::new(DockEdge::Left, DockMode::Docked);
+    let right = ColumnDock::new(DockEdge::Right, DockMode::Docked);
 
     let mux = open_restart_mux(&root, session);
     // Three columns: the fixture's two plus a new one holding a second tab
@@ -196,7 +193,7 @@ fn edge_dock_persists_across_restart_outside_the_viewport_record() {
             )
             .unwrap();
     }
-    let bottom = ColumnDock { edge: DockEdge::Bottom, mode: DockMode::Overlay, permanent: false };
+    let bottom = ColumnDock::new(DockEdge::Bottom, DockMode::Overlay);
     let mux = open_restart_mux(&root, session);
     let pane = mux.with_state(|state| {
         state.workspaces[0].screens[0].layout_columns[1].root.first_visible_pane()
@@ -261,7 +258,7 @@ fn an_older_side_pin_wins_over_a_dock_that_would_leave_no_column_scrolling() {
             )
             .unwrap();
     }
-    let top = ColumnDock { edge: DockEdge::Top, mode: DockMode::Docked, permanent: false };
+    let top = ColumnDock::new(DockEdge::Top, DockMode::Docked);
     let mux = open_restart_mux(&root, session);
     let pane = mux.with_state(|state| {
         state.workspaces[0].screens[0].layout_columns[0].root.first_visible_pane()
@@ -296,7 +293,7 @@ fn an_older_side_pin_wins_over_a_dock_that_would_leave_no_column_scrolling() {
         .unwrap();
     drop(connection);
 
-    let left = ColumnDock { edge: DockEdge::Left, mode: DockMode::Docked, permanent: false };
+    let left = ColumnDock::new(DockEdge::Left, DockMode::Docked);
     let registry = WorkspaceRegistry::open(&root, session).unwrap();
     let topology = registry.resource_topology_snapshot().unwrap();
     let screen = topology.screens.iter().find(|screen| screen.public_id == screen_id).unwrap();
@@ -316,7 +313,7 @@ fn edge_dock_is_never_serialized_into_the_viewport_record() {
     }))
     .unwrap();
     for edge in [DockEdge::Top, DockEdge::Bottom] {
-        column.dock = Some(ColumnDock { edge, mode: DockMode::Docked, permanent: false });
+        column.dock = Some(ColumnDock::new(edge, DockMode::Docked));
         assert!(serde_json::to_value(&column).unwrap().get("dock").is_none());
     }
 }

@@ -209,6 +209,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             )
         )
         settings.start()
+        ChatSettingsPush.start(settings: settings, environment: QuitAgents.environment(services))
+        services.chatsFeed?.keepCurrent()
         // The GitHub connection is deliberately off by default. Changes in
         // Settings apply to the one feed owner and never create a second
         // inbox store.
