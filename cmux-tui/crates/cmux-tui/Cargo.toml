@@ -28,6 +28,9 @@ cmux-tui-core.workspace = true
 cmux-tui-cdp.workspace = true
 cmux-tui-machine-agent-protocol.workspace = true
 cmux-tui-machine-protocol.workspace = true
+# `cmux server …`, the machine server verbs (plans/cmux-next/server.md).
+cmux-server.workspace = true
+cmux-server-core.workspace = true
 ratatui.workspace = true
 crossterm.workspace = true
 crossbeam-channel.workspace = true

@@ -21,9 +21,12 @@ import Testing
         let services = MockOnboardingServices()
         services.firstTaskView = NSView()
         services.agentProjects = projects
+        // One chat, so the chats screen stays after the scan.
+        services.agentChats = [AgentChat(sessionID: "a", app: .claudeCode, folder: URL(fileURLWithPath: "/work/app"),
+                                         title: "Chat", prompts: 1, lastActive: Date())]
         let model = OnboardingModel(services: services, start: .projects)
         model.stepDidAppear()
-        await settle { model.projects.scanned }
+        await settle { model.projects.scanned && model.chats.scanned }
         return (model, services)
     }
 

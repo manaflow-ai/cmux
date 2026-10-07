@@ -2,7 +2,7 @@
 // ETag, 304 on a matching If-None-Match, and shared-cache headers. No auth,
 // no cookies, no user data.
 
-import type { BuiltCatalog, CatalogStore, Defer } from "./store";
+import type { BuiltCatalog, CatalogStore } from "./store";
 
 /** Clients check every 6 h; the CDN keeps a live copy for 1 h and may serve it stale for a day. */
 export const LIVE_CACHE_CONTROL = "public, max-age=300, s-maxage=3600, stale-while-revalidate=86400";
@@ -17,10 +17,14 @@ function commonHeaders(built: BuiltCatalog | undefined): Record<string, string> 
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": ALLOW_METHODS,
     "Access-Control-Allow-Headers": ALLOW_HEADERS,
-    "Access-Control-Expose-Headers": "ETag, X-Cmux-Catalog-Source",
+    "Access-Control-Expose-Headers": "ETag, X-Cmux-Catalog-Source, X-Cmux-Catalog-Version",
     "X-Content-Type-Options": "nosniff",
     ...(built
-      ? { ETag: built.etag, "X-Cmux-Catalog-Source": built.catalog.source }
+      ? {
+          ETag: built.etag,
+          "X-Cmux-Catalog-Source": built.catalog.source,
+          ...(built.version === null ? {} : { "X-Cmux-Catalog-Version": String(built.version) }),
+        }
       : {}),
   };
 }
@@ -33,10 +37,10 @@ export function matchesETag(header: string | null, etag: string): boolean {
   });
 }
 
-export async function serveModelCatalog(request: Request, store: CatalogStore, defer: Defer): Promise<Response> {
+export async function serveModelCatalog(request: Request, store: Pick<CatalogStore, "current">): Promise<Response> {
   // Read the request first: it marks the route dynamic, so it is never prerendered at build time.
   const ifNoneMatch = request.headers.get("if-none-match");
-  const built = await store.current(defer);
+  const built = await store.current();
   if (matchesETag(ifNoneMatch, built.etag)) {
     return new Response(null, { status: 304, headers: commonHeaders(built) });
   }
