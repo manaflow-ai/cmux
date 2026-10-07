@@ -296,11 +296,15 @@ impl Hub {
     pub(super) async fn handle_permission_for(
         self: &Arc<Self>,
         session: &Arc<Session>,
-        request: Value,
+        mut request: Value,
         epoch: u64,
         turn_id: Option<String>,
         agent_request_id: Option<&Id>,
     ) -> Value {
+        // One harness-neutral copy of any questions, before rules and the
+        // record see the request (questions.rs).
+        super::questions::normalize(&mut request);
+        let needs_person = super::questions::needs_person(&request);
         let (rx, prev, grouping, permission_id) = {
             let cfg = self.config.read().await;
             let mut state = session.permissions.lock().unwrap();
@@ -370,6 +374,9 @@ impl Hub {
             };
             let auto = if denied {
                 pick(&["reject_once", "reject_always"])
+            } else if needs_person {
+                // Policy never answers a question: only a person does.
+                None
             } else {
                 chat_option.clone().or(auto)
             };
@@ -494,6 +501,9 @@ impl Hub {
                     return Err(RpcError::new(-32000, "policy_changed")
                         .with_data(json!({"reason":"policy_changed"})));
                 }
+            }
+            if let Some(a) = &answers {
+                super::questions::check_answers(&p.request, a)?;
             }
             let p = map.remove(permission_id).unwrap();
             if let Some(group) = state.finish_item(&session.id, permission_id, option_id.is_none())

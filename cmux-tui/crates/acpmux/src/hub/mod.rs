@@ -35,6 +35,7 @@ pub use spawn::expand_env_value;
 mod peers;
 mod permission_groups;
 mod permissions;
+mod questions;
 pub use permission_groups::PERMISSION_GROUP_OPERATIONS;
 pub mod rules;
 mod transfer;
