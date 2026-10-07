@@ -97,6 +97,9 @@ public final class CmuxSidebarView: NSView {
         controller.reloadData()
     }
 
+    /// True while the list is too narrow for the search field.
+    public var searchHidden: Bool { controller.searchField.isHidden }
+
     /// Selects `id` without reporting it (the page already shows it).
     public func select(_ id: String?) {
         guard id != controller.selectedID else { return }
