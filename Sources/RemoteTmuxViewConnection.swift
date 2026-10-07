@@ -684,7 +684,8 @@ final class RemoteTmuxViewConnection {
                 scheduleBringupRetry()
                 return
             }
-            guard !isStopped else { return }
+            guard !isStopped, connection === conn, conn.processGeneration == generation,
+                  conn.connectionState == .connected else { return }
             didBootstrapView = true
             bringupRetries = 0
         }
