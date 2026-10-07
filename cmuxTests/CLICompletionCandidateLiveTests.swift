@@ -219,6 +219,10 @@ struct CLICompletionCandidateLiveTests {
              ["--workspace", "workspace:2", "--surface", ""], ["surface:B1"]),
             ("surfaces", "surface.list", "surfaces",
              ["--workspace=workspace:2", "--surface", ""], ["surface:B1"]),
+            // Bash splits `--workspace=<ref>` at the `=` in COMP_WORDS; the lone
+            // `=` is not the selector's value.
+            ("surfaces", "surface.list", "surfaces",
+             ["--workspace", "=", "workspace:2", "--surface", ""], ["surface:B1"]),
             ("surfaces", "surface.list", "surfaces",
              ["--window", "window:2", "--workspace", "workspace:2", "--surface", ""], ["surface:B1"]),
             ("surfaces", "surface.list", "surfaces", ["--surface", ""], ["surface:A1"]),
@@ -226,6 +230,8 @@ struct CLICompletionCandidateLiveTests {
              ["--workspace", "workspace:2", "--pane", ""], ["pane:B1"]),
             ("panes", "pane.list", "panes",
              ["--window=window:2", "--pane", ""], ["pane:W2"]),
+            ("panes", "pane.list", "panes",
+             ["--window", "=", "window:2", "--pane", ""], ["pane:W2"]),
             ("panes", "pane.list", "panes", ["--pane", ""], ["pane:A1"]),
         ]
 
