@@ -85,7 +85,7 @@ jobs:
         with:
           testbox_id: ${{ inputs.testbox_id }}
 
-      # main can move while a reviewer approves the deployment. Record which
+      # main can move while the deployment gate waits. Record which
       # commit this job actually hydrates and fail closed if the dispatch ref
       # changed under it.
       - name: Revalidate broker identity after token exposure

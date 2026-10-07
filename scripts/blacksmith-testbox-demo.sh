@@ -54,9 +54,12 @@ test -x "$BOUNDED" || { echo "missing $BOUNDED; run from a cmux worktree" >&2; e
 # the trap runs at once and cleanup terminates the step it interrupted.
 active_pid=""
 bounded() {
+  local rc=0
   "$BOUNDED" "$@" &
   active_pid=$!
-  wait "$active_pid"
+  wait "$active_pid" || rc=$?
+  active_pid=""
+  return "$rc"
 }
 test -f "$WORKFLOW" || { echo "missing $WORKFLOW; rebase onto a main that has the lane" >&2; exit 65; }
 [[ "$WARMUP_TIMEOUT" =~ ^[0-9]+$ ]] || { echo "CMUX_TESTBOX_DEMO_WARMUP_TIMEOUT must be seconds" >&2; exit 64; }
@@ -137,7 +140,10 @@ warmup_out="$(mktemp)"
 cleanup() {
   local status=$?
   [[ -z "${1:-}" ]] || status="$1"
-  trap - EXIT INT TERM
+  # Ignore further Ctrl-C and TERM until the box is stopped: a second Ctrl-C
+  # must not abort the stop. Each cleanup call has its own bound instead.
+  trap '' INT TERM
+  trap - EXIT
   if [[ -n "$active_pid" ]] && kill -0 "$active_pid" 2>/dev/null; then
     kill -TERM "$active_pid" 2>/dev/null || true
     wait "$active_pid" 2>/dev/null || true
@@ -153,23 +159,23 @@ cleanup() {
   # A box named without RUN=: find its warmup run by the title the workflow
   # gives it, so the keepalive runner is released too.
   if [[ -n "$TBX" && -z "$RUN_ID" ]]; then
-    RUN_ID="$(gh api "repos/manaflow-ai/cmux/actions/workflows/cmux-tui-testbox-warmup.yml/runs?event=workflow_dispatch&branch=main&per_page=50" \
+    RUN_ID="$("$BOUNDED" 60 gh api "repos/manaflow-ai/cmux/actions/workflows/cmux-tui-testbox-warmup.yml/runs?event=workflow_dispatch&branch=main&per_page=50" \
       --jq ".workflow_runs[] | select(.display_title == \"$TITLE_PREFIX $TBX\") | .id" 2>/dev/null | head -1 || true)"
     [[ -n "$RUN_ID" ]] || echo "no warmup run names $TBX yet; check: gh run list --repo manaflow-ai/cmux --workflow cmux-tui-testbox-warmup.yml" >&2
   fi
   if [[ -n "$TBX" ]]; then
     say "Stopping the box this script created ($TBX)"
-    blacksmith testbox stop --id "$TBX" || echo "stop failed; stop it by hand: blacksmith testbox stop --id $TBX" >&2
-    blacksmith testbox list --all || true
+    "$BOUNDED" 120 blacksmith testbox stop --id "$TBX" || echo "stop failed; stop it by hand: blacksmith testbox stop --id $TBX" >&2
+    "$BOUNDED" 60 blacksmith testbox list --all || true
   fi
   # Stopping the box does not end its run. The keepalive step keeps holding a
   # 32 vCPU runner until the run itself ends, so cancel it too.
   if [[ -n "$RUN_ID" ]]; then
     say "Cancelling the warmup run of this box ($RUN_ID)"
-    gh run cancel "$RUN_ID" --repo manaflow-ai/cmux >/dev/null 2>&1 \
+    "$BOUNDED" 60 gh run cancel "$RUN_ID" --repo manaflow-ai/cmux >/dev/null 2>&1 \
       || echo "cancel failed; cancel it by hand: gh run cancel $RUN_ID --repo manaflow-ai/cmux" >&2
     echo "cancelling takes a few minutes to land; final state:"
-    gh api "repos/manaflow-ai/cmux/actions/runs/$RUN_ID" --jq '"\(.status) \(.conclusion // "pending")"' || true
+    "$BOUNDED" 60 gh api "repos/manaflow-ai/cmux/actions/runs/$RUN_ID" --jq '"\(.status) \(.conclusion // "pending")"' || true
   fi
   exit "$status"
 }
