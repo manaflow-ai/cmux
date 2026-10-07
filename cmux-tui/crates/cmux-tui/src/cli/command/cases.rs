@@ -818,6 +818,8 @@ fn state_resource_cases<'a>(
                 "2",
                 "--icon",
                 "folder.fill",
+                "--pinned",
+                "true",
             ],
             "workspace_group.update",
         ),

@@ -178,6 +178,13 @@ or an SF Symbol name, the rule every icon field uses) and `icon: null` clears
 it; anything else refuses with `validation.invalid`. `WorkspaceGroupSnapshot.icon`
 and the raw `list-personal` groups report it (null: no icon, and clients draw
 their default group glyph). Older daemons omit the field.
+`workspace-group-pin-v1` pins (saves) a personal group:
+`workspace_group.update {pinned: true}` pins it and `false` unpins it;
+`WorkspaceGroupSnapshot.pinned` and the raw `list-personal` groups report it.
+The daemon never removes a group because it is empty, pinned or not; the pin
+tells clients to keep an empty group as a saved group (closing its
+workspaces leaves it collapsed and empty, and opening it restores them)
+instead of hiding it. Older daemons omit the field (not pinned).
 `workspace.agent_folder.set {workspace, path}` (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE,
 capability `workspace-agent-folder-v1`) sets the folder new agent chats of the workspace start in, for every client.
 `path` is an absolute path of an existing directory in canonical form (the

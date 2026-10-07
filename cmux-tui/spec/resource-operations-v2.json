@@ -5719,6 +5719,14 @@
             }
           },
           "description": "workspace-group-icon-v1: the group's icon, an SF Symbol name or one emoji (the shared icon string), or null for none. Absent from daemons without the capability."
+        },
+        "pinned": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "workspace-group-pin-v1: the group is pinned (saved): it stays when its workspaces close, and clients keep it as an empty saved group. Absent from daemons without the capability (not pinned)."
         }
       },
       "extra": false
@@ -20070,6 +20078,14 @@
             },
             "description": "workspace-group-icon-v1: the group's icon, an SF Symbol name or one emoji (the shared icon string); null clears it. Shown as the group's icon on every client."
           },
+          "pinned": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "workspace-group-pin-v1: true pins (saves) the group, false unpins it."
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -20081,7 +20097,7 @@
         },
         "extra": false,
         "constraints": [
-          "At least one of name, color, collapsed, room, top_index, or icon is present.",
+          "At least one of name, color, collapsed, room, top_index, icon, or pinned is present.",
           "A top_index at or before the home workspace's index is refused with home.pinned_first."
         ]
       },

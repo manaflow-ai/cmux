@@ -31,6 +31,7 @@ fn group_value(group: &PersonalGroup) -> Value {
         "index": group.index,
         "top_index": group.top_index,
         "icon": group.icon,
+        "pinned": group.pinned,
     })
 }
 
@@ -225,6 +226,14 @@ pub(crate) fn set_group_icon(
     icon: Option<&str>,
 ) -> anyhow::Result<PersonalGroup> {
     WorkspaceRegistry::set_personal_group_icon_in(tx, id, icon).map(|(group, _)| group)
+}
+
+pub(crate) fn set_group_pinned(
+    tx: &Transaction<'_>,
+    id: &str,
+    pinned: bool,
+) -> anyhow::Result<PersonalGroup> {
+    WorkspaceRegistry::set_personal_group_pinned_in(tx, id, pinned).map(|(group, _)| group)
 }
 
 pub(crate) fn place_workspace(

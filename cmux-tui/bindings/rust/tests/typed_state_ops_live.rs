@@ -224,6 +224,7 @@ fn workspace_groups_live_daemon() {
         room: None,
         top_index: Update::Unchanged,
         icon: Update::Unchanged,
+        pinned: None,
     };
     let updated = session.update_workspace_group(&work.id, update).unwrap().value;
     assert_eq!(
