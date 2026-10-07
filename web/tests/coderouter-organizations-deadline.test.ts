@@ -15,20 +15,33 @@ const stackUser = {
   primaryEmail: "user@example.com",
   selectedTeam: { id: "team-a", displayName: "Team A", clientReadOnlyMetadata: {} },
   clientReadOnlyMetadata: {},
-  listTeams: async () => [
-    { id: "team-a", displayName: "Team A", clientReadOnlyMetadata: {} },
-    { id: "team-b", displayName: "Team B", clientReadOnlyMetadata: {} },
-    { id: "team-c", displayName: "Team C", clientReadOnlyMetadata: {} },
-  ],
+  listTeams: async () => memberTeams.map((id) => ({
+    id,
+    displayName: id,
+    clientReadOnlyMetadata: {},
+  })),
 };
+
+const defaultMemberTeams = ["team-a", "team-b", "team-c"];
+let memberTeams = defaultMemberTeams;
 
 const state = {
   stallSnapshotWrite: false,
   stallServerUser: false,
   snapshotWrites: 0,
   serverUserFetches: 0,
+  teamFetches: 0,
   permissionLookups: 0,
 };
+
+// Stalled calls are settled in afterEach so none keeps a slot of the shared
+// Stack gate (module state in services/vms/auth) across cases.
+const pendingStalls: Array<(value: unknown) => void> = [];
+function stalled<T>(value: T): Promise<T> {
+  return new Promise((resolve) => {
+    pendingStalls.push(() => resolve(value));
+  });
+}
 
 const hasPermission = mock(async () => {
   state.permissionLookups += 1;
@@ -41,10 +54,13 @@ mock.module("../app/lib/stack", () => ({
     getUser: async (arg: unknown) => {
       if (typeof arg !== "string") return stackUser;
       state.serverUserFetches += 1;
-      if (state.stallServerUser) return new Promise(() => {});
-      return { id: arg, hasPermission };
+      const serverUser = { id: arg, hasPermission };
+      return state.stallServerUser ? stalled(serverUser) : serverUser;
     },
-    getTeam: async (id: string) => ({ id }),
+    getTeam: async (id: string) => {
+      state.teamFetches += 1;
+      return { id };
+    },
   }),
 }));
 
@@ -56,7 +72,7 @@ mock.module("../services/auth/identitySnapshot", () => ({
     if (!options.completeTeamList) return Promise.resolve();
     state.snapshotWrites += 1;
     // A saturated pool: the upsert never gets a connection.
-    return state.stallSnapshotWrite ? new Promise(() => {}) : Promise.resolve();
+    return state.stallSnapshotWrite ? stalled(undefined) : Promise.resolve();
   },
 }));
 
@@ -81,12 +97,17 @@ beforeEach(() => {
   state.stallServerUser = false;
   state.snapshotWrites = 0;
   state.serverUserFetches = 0;
+  state.teamFetches = 0;
   state.permissionLookups = 0;
+  memberTeams = defaultMemberTeams;
   hasPermission.mockClear();
   process.env.SUBROUTER_STACK_AUTH_TIMEOUT_MS = "300";
 });
 
-afterEach(() => {
+afterEach(async () => {
+  for (const settle of pendingStalls.splice(0)) settle(undefined);
+  // Let settled calls release their gate slots before the next case.
+  await Promise.resolve();
   if (originalTimeout === undefined) delete process.env.SUBROUTER_STACK_AUTH_TIMEOUT_MS;
   else process.env.SUBROUTER_STACK_AUTH_TIMEOUT_MS = originalTimeout;
 });
@@ -109,17 +130,37 @@ describe("GET /api/coderouter/organizations deadline", () => {
     expect(state.permissionLookups).toBe(3);
   });
 
+  test("a user in more teams than the Stack gate queues still gets the catalog", async () => {
+    memberTeams = Array.from({ length: 50 }, (_, index) => `team-${index}`);
+    const response = await organizationsGet(organizationsRequest(), authorizedCoderouterTeams);
+    expect(response.status).toBe(200);
+    const body = await response.json() as { teams: unknown[] };
+    expect(body.teams).toHaveLength(51);
+    expect(state.permissionLookups).toBe(50);
+  });
+
   test("a deadline during permission lookups reports the 503 and starts no more Stack calls", async () => {
     state.stallServerUser = true;
+    let catalog: Promise<unknown> | undefined;
+    const listTeams = (user: Parameters<typeof authorizedCoderouterTeams>[0], signal: AbortSignal) => {
+      const pending = authorizedCoderouterTeams(user, signal);
+      catalog = pending;
+      return pending;
+    };
     const consoleError = spyOn(console, "error").mockImplementation(() => {});
     try {
-      const response = await organizationsGet(organizationsRequest(), authorizedCoderouterTeams);
+      const response = await organizationsGet(organizationsRequest(), listTeams);
       expect(response.status).toBe(503);
       expect(consoleError.mock.calls.some((call) => call[0] === "cmux.observability.error")).toBe(true);
     } finally {
       consoleError.mockRestore();
     }
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    // Let the stalled Stack user fetch finish after the 503, then wait for the
+    // abandoned catalog to settle: it must not start any team lookups.
+    for (const settle of pendingStalls.splice(0)) settle(undefined);
+    expect(catalog).toBeDefined();
+    await expect(catalog!).rejects.toThrow("deadline exceeded");
+    expect(state.teamFetches).toBe(0);
     expect(state.permissionLookups).toBe(0);
   });
 });

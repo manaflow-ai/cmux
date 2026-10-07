@@ -48,7 +48,10 @@ async function apiKeyAdministrationGrants(
   const app = getStackServerApp();
   const stackUser = await deadlineGatedStackCall(() => app.getUser(userId), signal, "get_user_by_id");
   if (!stackUser) return new Set();
-  const granted = await Promise.all(teamIds.map(async (teamId) => {
+  // Bounded below the shared gate (8 active, 32 queued per instance): an
+  // unbounded fan-out for a user in 41+ teams would overflow the queue and
+  // turn a healthy request into a 503, and would starve concurrent logins.
+  const granted = await mapBounded(teamIds, API_KEY_GRANT_CONCURRENCY, async (teamId) => {
     const team = await deadlineGatedStackCall(() => app.getTeam(teamId), signal, "get_team");
     if (!team) return null;
     const allowed = await deadlineGatedStackCall(
@@ -57,8 +60,35 @@ async function apiKeyAdministrationGrants(
       "has_permission",
     );
     return allowed ? teamId : null;
-  }));
+  });
   return new Set(granted.filter((teamId): teamId is string => teamId !== null));
+}
+
+const API_KEY_GRANT_CONCURRENCY = 4;
+
+/** `work` over `items` with at most `limit` in flight, in input order. The
+ * first rejection stops workers from starting more items. */
+async function mapBounded<Item, Result>(
+  items: readonly Item[],
+  limit: number,
+  work: (item: Item) => Promise<Result>,
+): Promise<Result[]> {
+  const results: Result[] = new Array(items.length);
+  let next = 0;
+  let failed = false;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (!failed && next < items.length) {
+      const index = next++;
+      try {
+        results[index] = await work(items[index]!);
+      } catch (error) {
+        failed = true;
+        throw error;
+      }
+    }
+  });
+  await Promise.all(workers);
+  return results;
 }
 
 /** The API-key routes' gate: null when the caller may create or revoke the
