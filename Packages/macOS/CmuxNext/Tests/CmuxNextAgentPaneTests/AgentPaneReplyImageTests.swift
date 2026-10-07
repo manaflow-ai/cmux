@@ -65,6 +65,35 @@ import UniformTypeIdentifiers
         #expect(AgentPaneReplyLinkTests.code(await Self.load(model, "file:///etc/hosts")) == "link.path_outside_roots")
     }
 
+    /// A PDF shows as its first page: a PNG thumbnail at most ``AgentPaneReplyImages/thumbnailSide``
+    /// on its longest side, never the document itself.
+    @Test func aPDFShowsItsFirstPageAsAPNG() async throws {
+        let folder = FileManager.default.temporaryDirectory.appending(path: "reply-pdf-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let file = folder.appending(path: "report.pdf")
+        var box = CGRect(x: 0, y: 0, width: 612, height: 792)
+        let pdf = try #require(CGContext(file as CFURL, mediaBox: &box, nil))
+        for _ in 0..<2 {
+            pdf.beginPDFPage(nil)
+            pdf.setFillColor(CGColor(red: 0, green: 0, blue: 1, alpha: 1))
+            pdf.fill(CGRect(x: 100, y: 100, width: 200, height: 200))
+            pdf.endPDFPage()
+        }
+        pdf.closePDF()
+        let src = try await AgentPaneReplyImages.local(file.path).get()
+        #expect(src.hasPrefix("data:image/png;base64,"))
+        let data = try #require(Data(base64Encoded: String(src.dropFirst("data:image/png;base64,".count))))
+        let source = try #require(CGImageSourceCreateWithData(data as CFData, nil))
+        let image = try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
+        #expect(max(image.width, image.height) == AgentPaneReplyImages.thumbnailSide)
+        #expect(image.height > image.width, "portrait like the page")
+        // Bytes that only claim to be a PDF are refused.
+        let fake = folder.appending(path: "fake.pdf")
+        try Data("not a pdf".utf8).write(to: fake)
+        #expect(await AgentPaneReplyImages.local(fake.path) == .failure(.imageFailed))
+    }
+
     @Test func anSVGLosesScriptHandlersAndLinksOut() throws {
         let svg = #"""
         <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" onload="alert(1)">

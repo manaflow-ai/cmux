@@ -66,6 +66,10 @@ describe("image outputs of a tool call", () => {
       "/tmp/frame-2.png",
       "/tmp/frame-3.png",
     ]);
+    // A PDF shows as its first page (the host renders the thumbnail).
+    expect(toolImages(tool({ kind: "execute", output: "Wrote report to /repo/out/report.pdf\n" }))).toEqual([
+      "/repo/out/report.pdf",
+    ]);
     // Not images, relative paths and a running call show nothing.
     expect(toolImages(tool({ output: "wrote /repo/notes.md and out/rel.png and https://x.dev/a.png" }))).toEqual([]);
     expect(toolImages(tool({ status: "in_progress", output: "/tmp/a.png" }))).toEqual([]);
