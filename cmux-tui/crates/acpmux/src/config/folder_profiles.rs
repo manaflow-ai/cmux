@@ -276,6 +276,29 @@ pub fn disable(gate: &FolderGate, folder: &Path, id: &str) -> Result<bool, Strin
     Ok(true)
 }
 
+/// Folder profile `id` of `start` or of its nearest parent that has
+/// `.cmux/harnesses/<id>.toml`. None: no folder has the file, or `id` is not
+/// a valid id or is a catalog name (a folder profile never replaces one).
+pub fn find_nearest(
+    cfg: &Config,
+    gate: &FolderGate,
+    id: &str,
+    start: &Path,
+) -> Option<FolderProfile> {
+    let folder = nearest_folder(cfg, id, start)?;
+    load_one(cfg, gate, &folder, id)
+}
+
+/// The nearest folder (`start` or a parent) with `.cmux/harnesses/<id>.toml`.
+fn nearest_folder(cfg: &Config, id: &str, start: &Path) -> Option<PathBuf> {
+    if !super::profiles::valid_id(id) || catalog_names(cfg).contains(id) || !start.is_absolute() {
+        return None;
+    }
+    let start = canonical(start).ok()?;
+    let found = start.ancestors().find(|f| profile_dir(f).join(format!("{id}.toml")).exists());
+    found.map(Path::to_path_buf)
+}
+
 /// What `enable` shows before it records anything, gathered once for the
 /// CLI (`cmux harness enable`) and the app's sheet (`_acpmux/harness_enable`)
 /// so both show the same facts: the profile and its prompt (`prompt`).
@@ -366,12 +389,7 @@ pub fn resolve_for_session(
     remote: bool,
 ) -> Option<Result<(HarnessProfile, PathBuf), String>> {
     let gate = cfg.folder_gate.as_ref()?;
-    if !super::profiles::valid_id(id) || catalog_names(cfg).contains(id) || !cwd.is_absolute() {
-        return None;
-    }
-    let cwd = canonical(cwd).ok()?;
-    let folder =
-        cwd.ancestors().find(|f| profile_dir(f).join(format!("{id}.toml")).exists())?.to_owned();
+    let folder = nearest_folder(cfg, id, cwd)?;
     if remote {
         return Some(Err(format!(
             "harness {id} is a folder profile ({}); a Web or peer connection cannot start it",

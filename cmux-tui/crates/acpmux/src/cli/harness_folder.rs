@@ -8,12 +8,12 @@
 //! only the bytes it showed.
 
 use std::io::{BufRead, IsTerminal, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Result, anyhow, bail};
 use serde_json::json;
 
-use crate::config::Config;
+use crate::config::{Config, HarnessProfile};
 use crate::config::folder_profiles::{self, FolderGate, FolderProfile, FolderState};
 use crate::config::profiles::Severity;
 
@@ -136,4 +136,47 @@ pub fn disable_cmd(id: &str, folder: &Path) -> Result<()> {
         println!("{id} was not enabled for {}", folder.display());
     }
     Ok(())
+}
+
+/// An enabled folder profile that `cmux harness doctor` checks.
+pub struct DoctorTarget {
+    pub profile: HarnessProfile,
+    /// The folder that holds `.cmux/harnesses`; doctor starts the harness in it.
+    pub folder: PathBuf,
+    pub path: String,
+}
+
+/// `cmux harness doctor ID` for an id the catalog does not have: folder
+/// profile `id` of `start` or its nearest parent that has the file. None: no
+/// folder has it. Err((detail, fix)): it may not run now; `fix` is the next
+/// step (`next_step`), or the file's own fix for an invalid file.
+pub fn doctor_target(
+    cfg: &Config,
+    id: &str,
+    start: &Path,
+) -> Option<Result<DoctorTarget, (String, Option<String>)>> {
+    let gate = cfg.folder_gate.as_ref()?;
+    let fp = folder_profiles::find_nearest(cfg, gate, id, start)?;
+    Some(match (fp.state, fp.profile.clone()) {
+        (FolderState::Enabled, Some(profile)) => {
+            Ok(DoctorTarget { profile, folder: PathBuf::from(&fp.folder), path: fp.path })
+        }
+        (FolderState::NeedsEnable, _) => Err((
+            format!(
+                "{id} is a folder profile in {} that is not enabled (or changed since it was enabled)",
+                fp.folder
+            ),
+            next_step(&fp),
+        )),
+        (FolderState::NeedsTrust, _) => {
+            Err((folder_profiles::refusal(&fp).unwrap_or_default(), next_step(&fp)))
+        }
+        _ => {
+            let fix = fp.diagnostics.iter().find(|d| d.severity == Severity::Error);
+            let fix = fix.and_then(|d| d.fix.clone());
+            let detail = folder_profiles::refusal(&fp)
+                .unwrap_or_else(|| format!("{}: the profile cannot be used", fp.path));
+            Err((detail, fix))
+        }
+    })
 }

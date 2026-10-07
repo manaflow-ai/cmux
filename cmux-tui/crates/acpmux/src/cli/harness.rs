@@ -5,7 +5,12 @@
 //!
 //! `doctor` starts the harness in a fresh private temp folder, runs the ACP
 //! handshake (`initialize`, `session/new`) and one prompt, and prints each
-//! step with an exact fix. It never prints an env value: every resolved env
+//! step with an exact fix. An id the catalog lacks may be a folder profile
+//! (`--folder DIR` or the current folder, or their nearest parent): an
+//! enabled one starts with its folder as the working folder, because its
+//! relative arguments and PATH entries (and the bytes `enable` hashed) are
+//! relative to that folder and a session may use it only inside it; one that
+//! is not enabled fails with the exact next step. It never prints an env value: every resolved env
 //! value is masked in all output, harness stderr included.
 
 use std::collections::BTreeMap;
@@ -451,28 +456,52 @@ pub async fn doctor(cfg: &Config, id: &str, opts: &DoctorOptions) -> DoctorRepor
     // 1. The profile.
     let problems: Vec<&profiles::Diagnostic> =
         cfg.profile_diagnostics.iter().filter(|d| d.id.as_deref() == Some(id)).collect();
-    let Some(profile) = cfg.harnesses.get(id) else {
-        match problems.iter().find(|d| d.severity == Severity::Error) {
-            Some(d) => r.push(
-                "profile",
-                StepStatus::Fail,
-                &format!("{}: {}", d.path, d.message),
-                d.fix.clone(),
-            ),
-            None => r.push(
-                "profile",
-                StepStatus::Fail,
-                &format!("no harness {id:?}"),
-                Some(format!("create it: cmux harness add {id} --command <program>")),
-            ),
-        }
-        return r.done();
+    let catalog_error = problems.iter().find(|d| d.severity == Severity::Error);
+    // An id the catalog lacks may be a folder profile (H4): only an enabled
+    // one runs, inside its folder.
+    let folder_target = match (cfg.harnesses.get(id), catalog_error) {
+        (None, None) => opts
+            .folder
+            .as_deref()
+            .and_then(|start| super::harness_folder::doctor_target(cfg, id, start)),
+        _ => None,
     };
-    let source = cfg
-        .profile_meta
-        .get(id)
-        .map(|m| m.source_path.clone())
-        .unwrap_or_else(|| "acpmux config or PATH discovery".into());
+    let (profile, workdir, source) = match (cfg.harnesses.get(id), &folder_target) {
+        (Some(profile), _) => {
+            let source = cfg
+                .profile_meta
+                .get(id)
+                .map(|m| m.source_path.clone())
+                .unwrap_or_else(|| "acpmux config or PATH discovery".into());
+            (profile, None, source)
+        }
+        (None, Some(Ok(target))) => (
+            &target.profile,
+            Some(target.folder.as_path()),
+            format!("{} (folder profile, enabled)", target.path),
+        ),
+        (None, Some(Err((detail, fix)))) => {
+            r.push("profile", StepStatus::Fail, detail, fix.clone());
+            return r.done();
+        }
+        (None, None) => {
+            match catalog_error {
+                Some(d) => r.push(
+                    "profile",
+                    StepStatus::Fail,
+                    &format!("{}: {}", d.path, d.message),
+                    d.fix.clone(),
+                ),
+                None => r.push(
+                    "profile",
+                    StepStatus::Fail,
+                    &format!("no harness {id:?}"),
+                    Some(format!("create it: cmux harness add {id} --command <program>")),
+                ),
+            }
+            return r.done();
+        }
+    };
     r.push(
         "profile",
         StepStatus::Pass,
@@ -484,7 +513,7 @@ pub async fn doctor(cfg: &Config, id: &str, opts: &DoctorOptions) -> DoctorRepor
     }
     // 2. The program.
     let program = profile.argv.first().cloned().unwrap_or_default();
-    match folder_profiles::resolve_program(profile, None) {
+    match folder_profiles::resolve_program(profile, workdir) {
         Some(path) => r.push("command", StepStatus::Pass, &path.to_string_lossy(), None),
         None => {
             r.push(
@@ -545,7 +574,7 @@ pub async fn doctor(cfg: &Config, id: &str, opts: &DoctorOptions) -> DoctorRepor
         }
     }
     match profile.kind {
-        HarnessKind::Acp => acp_steps(&mut r, cfg, id, profile, env, opts).await,
+        HarnessKind::Acp => acp_steps(&mut r, cfg, id, profile, env, opts, workdir).await,
         HarnessKind::Terminal | HarnessKind::ClaudeStdio => {
             let argv = vec![program.clone(), "--version".to_owned()];
             match run_short(&argv, &env, Duration::from_secs(20)).await {
@@ -613,7 +642,8 @@ async fn run_short(
     }
 }
 
-/// The ACP steps: spawn in a temp folder, initialize, session/new, prompt.
+/// The ACP steps: spawn in `workdir` (a folder profile's folder) or a temp
+/// folder, initialize, session/new, prompt.
 async fn acp_steps(
     r: &mut Report,
     cfg: &Config,
@@ -621,25 +651,33 @@ async fn acp_steps(
     profile: &HarnessProfile,
     env: BTreeMap<String, String>,
     opts: &DoctorOptions,
+    workdir: Option<&Path>,
 ) {
-    let folder = match TempFolder::new(id) {
-        Ok(f) => f,
-        Err(e) => {
-            r.push("launch", StepStatus::Fail, &format!("temp folder: {e}"), None);
-            return;
-        }
+    let temp;
+    let folder: &Path = match workdir {
+        Some(dir) => dir,
+        None => match TempFolder::new(id) {
+            Ok(f) => {
+                temp = f;
+                &temp.path
+            }
+            Err(e) => {
+                r.push("launch", StepStatus::Fail, &format!("temp folder: {e}"), None);
+                return;
+            }
+        },
     };
     let home = dirs::home_dir().unwrap_or_default();
     let model = profile.model.clone().unwrap_or_default();
     let mut spawn = profile.clone();
     spawn.env = env;
     for v in spawn.env.values_mut() {
-        *v = crate::hub::expand_env_value(v, &folder.path, &home, &model);
+        *v = crate::hub::expand_env_value(v, folder, &home, &model);
     }
     for a in spawn.argv.iter_mut() {
-        *a = crate::hub::expand_env_value(a, &folder.path, &home, &model);
+        *a = crate::hub::expand_env_value(a, folder, &home, &model);
     }
-    let mut cmd = match crate::agent::harness_command(id, &spawn, &folder.path, None, None) {
+    let mut cmd = match crate::agent::harness_command(id, &spawn, folder, None, None) {
         Ok(cmd) => cmd,
         Err(e) => {
             r.push("launch", StepStatus::Fail, &e.to_string(), None);
@@ -686,7 +724,7 @@ async fn acp_steps(
     r.push(
         "launch",
         StepStatus::Pass,
-        &format!("pid {} in {}", pid.unwrap_or(0), folder.path.display()),
+        &format!("pid {} in {}", pid.unwrap_or(0), folder.display()),
         None,
     );
     let mut wire = Wire {
@@ -696,7 +734,7 @@ async fn acp_steps(
         reply: String::new(),
         noise: 0,
     };
-    let outcome = handshake(r, &mut wire, &folder.path, opts).await;
+    let outcome = handshake(r, &mut wire, folder, opts).await;
     // Stop the harness and everything it started (its own process group),
     // then read the rest of its stderr: the pipe closes when it exits.
     if let Some(pid) = pid {
