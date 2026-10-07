@@ -42,26 +42,9 @@ enum CLIVersionSkew {
 
         private static func text(_ value: Any?) -> String? {
             guard let string = value as? String else { return nil }
-            let trimmed = printable(string).trimmingCharacters(in: .whitespaces)
+            let trimmed = CLITerminalText.printable(string).trimmingCharacters(in: .whitespaces)
             return trimmed.isEmpty ? nil : trimmed
         }
-    }
-
-    /// `text` without terminal control characters. The peer controls every
-    /// string it reports, and an escape sequence or newline in them could
-    /// rewrite the terminal or forge extra lines of this message. Drops C0
-    /// and C1 controls (ESC, BEL, CSI, CR, LF), bidirectional marks,
-    /// overrides, and isolates, and Unicode line and paragraph separators.
-    static func printable(_ text: String) -> String {
-        var scalars = String.UnicodeScalarView()
-        scalars.append(contentsOf: text.unicodeScalars.filter { scalar in
-            if scalar.properties.generalCategory == .control { return false }
-            switch scalar.value {
-            case 0x061C, 0x200E, 0x200F, 0x2028, 0x2029, 0x202A...0x202E, 0x2066...0x2069: return false
-            default: return true
-            }
-        })
-        return String(scalars)
     }
 
     /// The product name this CLI belongs to, as `system.identify` reports it.
@@ -69,7 +52,9 @@ enum CLIVersionSkew {
 
     /// The user-facing explanation, or nil when the original error already
     /// says enough: the app is the same build as this CLI, lists the method,
-    /// or this CLI cannot read its own version.
+    /// or this CLI cannot read its own version. `bundle` selects the string
+    /// table (nil is the main bundle); tests pass one without a table to get
+    /// the English source text on any system language.
     static func message(
         method: String,
         socketPath: String,
@@ -78,7 +63,8 @@ enum CLIVersionSkew {
         cliBuild: String? = nil,
         cliPath: String?,
         peer: Peer?,
-        original: String
+        original: String,
+        bundle: Bundle? = nil
     ) -> String? {
         if let methods = peer?.methods, methods.contains(method) { return nil }
         guard let details = details(
@@ -86,20 +72,22 @@ enum CLIVersionSkew {
             cliShortVersion: cliShortVersion,
             cliBuild: cliBuild,
             cliPath: cliPath,
-            peer: peer
+            peer: peer,
+            bundle: bundle
         ) else {
             return nil
         }
         let header = String(
             format: String(
                 localized: "cli.versionSkew.header",
-                defaultValue: "%1$@ is not supported by the app on %2$@. The CLI and the app come from different builds."
+                defaultValue: "%1$@ is not supported by the app on %2$@. The CLI and the app come from different builds.",
+                bundle: bundle
             ),
             locale: .current,
             method,
             socketPath
         )
-        return ([header] + details + ["(\(printable(original)))"]).joined(separator: "\n")
+        return ([header] + details + ["(\(CLITerminalText.printable(original)))"]).joined(separator: "\n")
     }
 
     /// The CLI line, app line, and fix, or nil when there is no skew or this
@@ -109,7 +97,8 @@ enum CLIVersionSkew {
         cliShortVersion: String?,
         cliBuild: String?,
         cliPath: String?,
-        peer: Peer?
+        peer: Peer?,
+        bundle: Bundle?
     ) -> [String]? {
         let otherProduct = peer?.app.map { $0 != cliProduct } ?? false
         let order = versionOrder(
@@ -127,14 +116,14 @@ enum CLIVersionSkew {
         let cliLine = cliPath.map { "\(cliVersion) (\($0))" } ?? cliVersion
         var lines = [
             "  " + String(
-                format: String(localized: "cli.versionSkew.cliLine", defaultValue: "This CLI: %@"),
+                format: String(localized: "cli.versionSkew.cliLine", defaultValue: "This CLI: %@", bundle: bundle),
                 locale: .current,
                 cliLine
             ),
             "  " + String(
-                format: String(localized: "cli.versionSkew.appLine", defaultValue: "Connected app: %@"),
+                format: String(localized: "cli.versionSkew.appLine", defaultValue: "Connected app: %@", bundle: bundle),
                 locale: .current,
-                appDescription(peer)
+                appDescription(peer, bundle: bundle)
             ),
         ]
 
@@ -146,7 +135,8 @@ enum CLIVersionSkew {
                 fix = String(
                     format: String(
                         localized: "cli.versionSkew.fix.otherProduct",
-                        defaultValue: "This socket belongs to %1$@, which has its own CLI. Run %2$@, or put its directory first on PATH."
+                        defaultValue: "This socket belongs to %1$@, which has its own CLI. Run %2$@, or put its directory first on PATH.",
+                        bundle: bundle
                     ),
                     locale: .current,
                     app,
@@ -156,7 +146,8 @@ enum CLIVersionSkew {
                 fix = String(
                     format: String(
                         localized: "cli.versionSkew.fix.otherProductNoPath",
-                        defaultValue: "This socket belongs to %@, which has its own CLI. Run the cmux CLI inside that app's bundle (Contents/Resources/bin/cmux)."
+                        defaultValue: "This socket belongs to %@, which has its own CLI. Run the cmux CLI inside that app's bundle (Contents/Resources/bin/cmux).",
+                        bundle: bundle
                     ),
                     locale: .current,
                     app
@@ -167,7 +158,8 @@ enum CLIVersionSkew {
             fix = String(
                 format: String(
                     localized: "cli.versionSkew.fix.cliOlder",
-                    defaultValue: "This CLI is older than the app. Run the app's CLI, %@, or remove the older cmux from PATH."
+                    defaultValue: "This CLI is older than the app. Run the app's CLI, %@, or remove the older cmux from PATH.",
+                    bundle: bundle
                 ),
                 locale: .current,
                 peerCLI ?? "Contents/Resources/bin/cmux"
@@ -178,29 +170,32 @@ enum CLIVersionSkew {
             // usually an installed update waiting for a relaunch.
             fix = String(
                 localized: "cli.versionSkew.fix.appOlder",
-                defaultValue: "The running app is older than this CLI. Quit and reopen cmux to finish an installed update, or update it with cmux > Check for Updates."
+                defaultValue: "The running app is older than this CLI. Quit and reopen cmux to finish an installed update, or update it with cmux > Check for Updates.",
+                bundle: bundle
             )
         } else {
             // identify failed or returned a version this CLI cannot parse:
             // the direction of the skew is unknown, so do not guess it.
             fix = String(
                 localized: "cli.versionSkew.fix.unknown",
-                defaultValue: "Could not read the app's version. Compare it in cmux > About cmux with this CLI, then relaunch or update the older one."
+                defaultValue: "Could not read the app's version. Compare it in cmux > About cmux with this CLI, then relaunch or update the older one.",
+                bundle: bundle
             )
         }
         lines.append(String(
-            format: String(localized: "cli.versionSkew.fixLine", defaultValue: "Fix: %@"),
+            format: String(localized: "cli.versionSkew.fixLine", defaultValue: "Fix: %@", bundle: bundle),
             locale: .current,
             fix
         ))
         return lines
     }
 
-    private static func appDescription(_ peer: Peer?) -> String {
+    private static func appDescription(_ peer: Peer?, bundle: Bundle?) -> String {
         guard let peer else {
             return String(
                 localized: "cli.versionSkew.app.unknown",
-                defaultValue: "unknown (it does not answer system.identify)"
+                defaultValue: "unknown (it does not answer system.identify)",
+                bundle: bundle
             )
         }
         let name = peer.app ?? cliProduct
@@ -213,7 +208,8 @@ enum CLIVersionSkew {
             return String(
                 format: String(
                     localized: "cli.versionSkew.app.noVersion",
-                    defaultValue: "%@, a build that does not report its version"
+                    defaultValue: "%@, a build that does not report its version",
+                    bundle: bundle
                 ),
                 locale: .current,
                 name

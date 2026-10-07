@@ -43509,7 +43509,10 @@ struct CMUXTermMain {
             try await cli.run()
         } catch {
             if !cli.shouldSuppressSSHPTYAttachRetryError(error) {
-                CMUXCLIOutput.writeStandardError("Error: \(error)\n")
+                // Error text can carry strings from the app on the socket.
+                CMUXCLIOutput.writeStandardError(
+                    "Error: \(CLITerminalText.printable(String(describing: error), keepingLineBreaks: true))\n"
+                )
             }
             let exitCode = (error as? CLIError)?.exitCode ?? 1
             exit(exitCode)

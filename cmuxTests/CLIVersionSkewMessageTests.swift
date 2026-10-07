@@ -4,7 +4,19 @@ import Testing
 /// Branch coverage for the CLI's version-skew message. The CLI product tests
 /// drive the same code end to end through a fake socket; these cover the
 /// branches a subprocess cannot reach cheaply.
+///
+/// Messages render from a bundle with no string table, so they come out in
+/// the English source text whatever the host's language is.
 struct CLIVersionSkewMessageTests {
+    /// A directory bundle without `Localizable` strings: every
+    /// `String(localized:defaultValue:bundle:)` lookup returns its default.
+    private static let sourceTextBundle: Bundle = {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-skew-source-text-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return Bundle(url: directory) ?? Bundle(for: SourceTextBundleAnchor.self)
+    }()
+
     private func message(
         cliShortVersion: String? = "0.65.0",
         cliBuild: String? = "108",
@@ -18,7 +30,8 @@ struct CLIVersionSkewMessageTests {
             cliBuild: cliBuild,
             cliPath: "/usr/local/bin/cmux",
             peer: peer,
-            original: "method_not_found: Unknown method"
+            original: "method_not_found: Unknown method",
+            bundle: Self.sourceTextBundle
         )
     }
 
@@ -96,9 +109,10 @@ struct CLIVersionSkewMessageTests {
 
     @Test("Peer text loses control characters and bidi overrides")
     func printableStripsControls() {
-        #expect(CLIVersionSkew.printable("a\u{1B}[31mb\u{07}c\u{9B}d\ne\r\u{202E}f\u{2066}g") == "a[31mbcdefg")
-        #expect(CLIVersionSkew.printable("cmux-next 0.3.0 日本") == "cmux-next 0.3.0 日本")
-        #expect(CLIVersionSkew.printable("/a\u{200F}b\u{200E}c\u{061C}d\u{2028}e\u{2029}f") == "/abcdef")
+        #expect(CLITerminalText.printable("a\u{1B}[31mb\u{07}c\u{9B}d\ne\r\u{202E}f\u{2066}g") == "a[31mbcdefg")
+        #expect(CLITerminalText.printable("cmux-next 0.3.0 日本") == "cmux-next 0.3.0 日本")
+        #expect(CLITerminalText.printable("/a\u{200F}b\u{200E}c\u{061C}d\u{2028}e\u{2029}f") == "/abcdef")
+        #expect(CLITerminalText.printable("one\r\ntwo\tthree\u{2028}\u{1B}[0m", keepingLineBreaks: true) == "one\ntwo\tthree[0m")
         let peer = CLIVersionSkew.Peer(identify: ["app": " \u{1B}]0;x\u{07} ", "version": "\n\t"])
         #expect(peer.app == "]0;x")
         #expect(peer.version == nil)
@@ -113,9 +127,12 @@ struct CLIVersionSkewMessageTests {
             cliShortVersion: "0.65.0",
             cliPath: nil,
             peer: CLIVersionSkew.Peer(app: "cmux", version: "0.64.0", build: nil, cliPath: nil),
-            original: "method_not_found: x\u{1B}[2J"
+            original: "method_not_found: x\u{1B}[2J",
+            bundle: Self.sourceTextBundle
         ))
         #expect(!text.unicodeScalars.contains { $0 == "\u{1B}" })
         #expect(text.hasSuffix("(method_not_found: x[2J)"))
     }
 }
+
+private final class SourceTextBundleAnchor {}

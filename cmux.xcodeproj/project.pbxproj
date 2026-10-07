@@ -703,6 +703,8 @@
 		F12713000000000000000101 /* CLISSHPTYStopPipe.swift in Sources */ = {isa = PBXBuildFile; fileRef = F12713000000000000000001 /* CLISSHPTYStopPipe.swift */; };
 		A7367001A1B2C3D4E5F60718 /* CLISSHSessionAttachAnchorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7367002A1B2C3D4E5F60718 /* CLISSHSessionAttachAnchorTests.swift */; };
 		C11757000000000000000033 /* CLIStdioSIGPIPERegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1175700000000000000001A /* CLIStdioSIGPIPERegressionTests.swift */; };
+		C5E7D1A90000000000000012 /* CLITerminalText.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5E7D1A90000000000000011 /* CLITerminalText.swift */; };
+		C5E7D1A90000000000000013 /* CLITerminalText.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5E7D1A90000000000000011 /* CLITerminalText.swift */; };
 		C11757000000000000000045 /* CLITestBundleAnchor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11757000000000000000053 /* CLITestBundleAnchor.swift */; };
 		C11757000000000000000054 /* CLITestBundleAnchor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11757000000000000000053 /* CLITestBundleAnchor.swift */; };
 		C117570000000000000000B2 /* CLITmuxCompatBufferContentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C117570000000000000000B1 /* CLITmuxCompatBufferContentTests.swift */; };
@@ -5261,6 +5263,7 @@
 		F12713000000000000000001 /* CLISSHPTYStopPipe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLISSHPTYStopPipe.swift; sourceTree = "<group>"; };
 		A7367002A1B2C3D4E5F60718 /* CLISSHSessionAttachAnchorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLISSHSessionAttachAnchorTests.swift; sourceTree = "<group>"; };
 		C1175700000000000000001A /* CLIStdioSIGPIPERegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIStdioSIGPIPERegressionTests.swift; sourceTree = "<group>"; };
+		C5E7D1A90000000000000011 /* CLITerminalText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLITerminalText.swift; sourceTree = "<group>"; };
 		C11757000000000000000053 /* CLITestBundleAnchor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLITestBundleAnchor.swift; sourceTree = "<group>"; };
 		C117570000000000000000B1 /* CLITmuxCompatBufferContentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLITmuxCompatBufferContentTests.swift; sourceTree = "<group>"; };
 		B05553B10000000000000002 /* CLITmuxCompatRemoteSplitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLITmuxCompatRemoteSplitTests.swift; sourceTree = "<group>"; };
@@ -12033,6 +12036,7 @@
 				B9000045A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatSupport.swift */,
 				D1275700D1275700D1275702 /* SocketClient+V2.swift */,
 				C5E79F791C88A42032AB6198 /* CLIVersionSkew.swift */,
+				C5E7D1A90000000000000011 /* CLITerminalText.swift */,
 				C5E7D1A90000000000000001 /* CLIVersionSkew+Diagnose.swift */,
 				B9000049A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatHUDSupport.swift */,
 				B9000051A1B2C3D4E5F60719 /* CMUXCLI+Config.swift */,
@@ -16927,6 +16931,7 @@
 				C11218000000000000000054 /* CLIError.swift in Sources */,
 				B900004AA1B2C3D4E5F60719 /* CLISocketPathResolver.swift in Sources */,
 				C12985000000000000000002 /* CLISocketSentryTelemetry.swift in Sources */,
+				C5E7D1A90000000000000012 /* CLITerminalText.swift in Sources */,
 				C5E7D1A90000000000000002 /* CLIVersionSkew+Diagnose.swift in Sources */,
 				C5E719492D2B290FD528A0A2 /* CLIVersionSkew.swift in Sources */,
 					575000010000000000000001 /* CLIWriteDescriptor.swift in Sources */,
@@ -17497,6 +17502,7 @@
 				C77070000000000000000004 /* CLISSHPTYAttachTransientBridgeFailureExitCodeTests.swift in Sources */,
 				F12713000000000000000101 /* CLISSHPTYStopPipe.swift in Sources */,
 				A7367001A1B2C3D4E5F60718 /* CLISSHSessionAttachAnchorTests.swift in Sources */,
+				C5E7D1A90000000000000013 /* CLITerminalText.swift in Sources */,
 				C11757000000000000000054 /* CLITestBundleAnchor.swift in Sources */,
 				B05553B10000000000000001 /* CLITmuxCompatRemoteSplitTests.swift in Sources */,
 				7837E0057837E0057837E005 /* CLITmuxCompatResizePaneTests.swift in Sources */,
