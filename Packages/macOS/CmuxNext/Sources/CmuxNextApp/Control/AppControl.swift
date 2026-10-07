@@ -345,6 +345,7 @@ final class AppControl {
                 .value(services.map { DebugExtensionPrompts.run(call.params, $0) } ?? .null)
             },
             .mainActor("debug.crash.app") { call in DebugCrashes.crashApp(call.params) },
+            .mainActor("debug.crash.exception") { _ in .value(DebugCrashes.raiseException()) },
             // Low Power Mode as WebKit tabs follow it: `enabled: bool` overrides
             // macOS (no sudo needed), `enabled: null` follows macOS again.
             .mainActor("debug.low_power_mode") { call in

@@ -14,7 +14,7 @@ struct CrashOnExceptions {
     /// The registration for a build: DEV (a Debug compile) and NIGHTLY
     /// (`DevTools`) crash on exceptions; others register nothing.
     static func defaults(bundleID: String?, isDebugBuild: Bool) -> [String: Any] {
-        [:]
+        DevTools.isAvailable(bundleID: bundleID, isDebugBuild: isDebugBuild) ? [key: true] : [:]
     }
 
     /// Registers this process's choice; call before NSApplication exists.
