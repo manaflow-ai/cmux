@@ -139,10 +139,24 @@ cmux browser "$TAB" screenshot --full-page --out full.png
 Without `--out` the PNG goes to a new file in the temporary directory and the
 command prints its path; `--out -` writes the PNG to stdout.
 
+## Input
+
+```bash
+cmux browser "$TAB" hover "#menu"
+cmux browser "$TAB" select "#size" m
+cmux browser "$TAB" check "#terms"
+cmux browser "$TAB" scroll "#results" --dy 300
+cmux browser "$TAB" press Enter
+```
+
+`press` sends page-level (untrusted) key events, so browser defaults such as
+Tab moving focus do not run. It is temporary: it will move to trusted key
+input.
+
 ## What the per-tab CLI does not cover
 
 The per-tab commands have no saved state, console capture, dialogs,
-downloads, recording, hover, scroll or proxies. The REPL has all of them (see "Pick the surface"). Network routing, geolocation, offline
+downloads, recording, double click or proxies. The REPL has all of them (see "Pick the surface"). Network routing, geolocation, offline
 and viewport emulation, `identify` and profiles have no agent surface yet.
 
 Some have UI actions that act on the focused browser and return no data:
