@@ -175,6 +175,9 @@ def find_products(
 
 ADMISSION_JOB = "macOS compile admission"
 PRODUCT_RUNNERS = {"15": "blacksmith-6vcpu-macos-15", "26": "blacksmith-6vcpu-macos-26"}
+OWNED_POOL = re.compile(
+    r"^glaeda-(?:(?P<namespace>[a-z0-9]+)-)?(?:root-)?(?:xl|std|light)-xcode-(?P<xcode>[0-9.]+)$"
+)
 
 
 def product_runner(repository: str, run_id: str, api: Callable[[str], dict], pages: int = 5) -> str:
@@ -195,7 +198,13 @@ def product_runner(repository: str, run_id: str, api: Callable[[str], dict], pag
                 for label in job.get("labels", []):
                     # An owned Mac pool carries the pull-request lane's Xcode,
                     # which is the macOS 26 pools' pin (pr_runner_pool.py).
-                    if re.fullmatch(r"glaeda-(?:root-)?(?:xl|std|light)-xcode-[0-9.]+", label):
+                    owned = OWNED_POOL.fullmatch(label)
+                    if owned:
+                        # AWS runners carry Xcode 26.3 while the hosted macOS
+                        # 26 image carries 26.6. A rerun must use the image
+                        # whose developer directory matches the products.
+                        if owned.group("namespace") == "aws" and owned.group("xcode") == "26.3":
+                            return PRODUCT_RUNNERS["15"]
                         return PRODUCT_RUNNERS["26"]
                     match = re.search(r"macos-(\d+)", label)
                     if match and match.group(1) in PRODUCT_RUNNERS:

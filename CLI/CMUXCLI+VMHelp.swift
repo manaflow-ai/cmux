@@ -10,6 +10,9 @@ extension CMUXCLI {
     static func vmSubcommandUsage(_ args: [String]) -> String? {
         guard let verb = args.first?.lowercased() else { return nil }
         switch verb {
+        case "new", "create": return vmNewUsage
+        case "ls", "list": return vmListUsage
+        case "ports": return vmPortsUsage
         case "resize": return vmResizeUsage
         case "network": return vmNetworkUsage
         case "agent-updates": return vmAgentUpdatesUsage
@@ -118,6 +121,39 @@ extension CMUXCLI {
           cmux vm prompt --open <agent>    Open a local terminal running <agent> with that
                                            prompt (claude|codex|opencode|pi).
         """
+    }
+
+    static var vmNewUsage: String {
+        String(localized: "cli.vm.new.usage", defaultValue: """
+        Usage:
+          cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]
+                      [--name <label>] [--provider <provider>] [--image <image-id>]
+                      [--workspace <workspace-id>] [--network <full|allowlist|none>]
+                      [--focus|--no-focus] [--detach|-d]
+
+        Create a Cloud VM. Pro supports sizes through 32g; 64g requires Max.
+        The server enforces plan limits and shared CPU and memory pools.
+        `--detach` creates the machine without opening its workspace.
+        """)
+    }
+
+    static var vmListUsage: String {
+        String(localized: "cli.vm.list.usage", defaultValue: """
+        Usage:
+          cmux vm ls [--json]
+          cmux vm list [--json]
+
+        List your Cloud VMs, their state, provider, image, and plan usage.
+        """)
+    }
+
+    static var vmPortsUsage: String {
+        String(localized: "cli.vm.ports.usage", defaultValue: """
+        Usage:
+          cmux vm ports <machine> [--json]
+
+        Show listening TCP ports inside a Cloud VM.
+        """)
     }
 
     static var vmBaseUsage: String {

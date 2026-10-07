@@ -5578,14 +5578,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         presentCloudWelcomeIfNeeded(over: window)
     }
 
-    /// Once per Mac, after the first main window is up. Tests never see it.
+    /// In release builds, once per Mac after the first main window is up. Tests
+    /// never see it; debug builds can open it from Help when needed.
     private func presentCloudWelcomeIfNeeded(over window: NSWindow) {
+#if DEBUG
+        // Keep the first-run welcome available from Help while iterating on the
+        // app, but do not interrupt every development launch with it.
+        return
+#else
         let env = ProcessInfo.processInfo.environment
         guard !isRunningUnderXCTestCached, !isRunningUnderXCTest(env), env["CMUX_UI_TEST_MODE"] != "1" else { return }
         // Next turn of the main loop, so the window is on screen to place it over.
         DispatchQueue.main.async { [weak self, weak window] in
             self?.cloudWelcomeWindowController.presentIfNeeded(over: window)
         }
+#endif
     }
 
 #if DEBUG
@@ -14383,6 +14390,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return notificationStore?.notifications.first(where: { $0.id == openedId })
     }
 
+    /// Installs the production responder guards plus the test window-routing override.
     static func installWindowResponderSwizzlesForTesting() {
         _ = didInstallApplicationAccessibilitySwizzle
         _ = didInstallApplicationSendActionSwizzle
@@ -14390,6 +14398,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ = didInstallWindowKeyEquivalentSwizzle
         _ = didInstallWindowFirstResponderSwizzle
         _ = didInstallWindowSendEventSwizzle
+        SwiftUIKeyViewProxyResponderGuard.install()
 #if DEBUG
         installShortcutRoutingFocusedWindowSwizzleForTesting()
 #endif
@@ -14407,6 +14416,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 #endif
 
+    /// Installs event routing and stale SwiftUI proxy guards once during application setup.
     private func installWindowResponderSwizzles() {
         _ = Self.didInstallApplicationAccessibilitySwizzle
         _ = Self.didInstallApplicationSendActionSwizzle
@@ -14414,6 +14424,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ = Self.didInstallWindowKeyEquivalentSwizzle
         _ = Self.didInstallWindowFirstResponderSwizzle
         _ = Self.didInstallWindowSendEventSwizzle
+        SwiftUIKeyViewProxyResponderGuard.install()
     }
 
     private func installShortcutMonitor() {
@@ -20614,7 +20625,6 @@ extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
     func updaterWillRelaunchApplication() {
         isRelaunchingForUpdate = true
         persistSessionForUpdateRelaunch()
-        TerminalController.shared.stop(cleanupDiscoveryState: true)
         NSApp.invalidateRestorableState()
         for window in NSApp.windows {
             window.invalidateRestorableState()

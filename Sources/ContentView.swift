@@ -11906,6 +11906,7 @@ struct VerticalTabsSidebar: View, Equatable {
                 SidebarFooter(
                     updateViewModel: updateViewModel,
                     fileExplorerState: fileExplorerState,
+                    modifierKeyMonitor: modifierKeyMonitor,
                     onSendFeedback: onSendFeedback
                 )
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -15438,13 +15439,14 @@ struct SidebarWorkspaceRowFramePreferenceKey: PreferenceKey {
 private struct SidebarFooter: View {
     var updateViewModel: UpdateStateModel
     @ObservedObject var fileExplorerState: FileExplorerState
+    let modifierKeyMonitor: WindowScopedShortcutHintModifierMonitor
     let onSendFeedback: () -> Void
 
     var body: some View {
 #if DEBUG
-        SidebarDevFooter(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, onSendFeedback: onSendFeedback)
+        SidebarDevFooter(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, modifierKeyMonitor: modifierKeyMonitor, onSendFeedback: onSendFeedback)
 #else
-        SidebarFooterButtons(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, onSendFeedback: onSendFeedback)
+        SidebarFooterButtons(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, modifierKeyMonitor: modifierKeyMonitor, onSendFeedback: onSendFeedback)
             .padding(.leading, 6)
             .padding(.trailing, 10)
             .padding(.bottom, 6)
@@ -15457,11 +15459,16 @@ struct SidebarFooterButtons: View {
     private var accountFlow: HostAccountFlow? { AppDelegate.shared?.auth?.accountFlow }
     var updateViewModel: UpdateStateModel
     @ObservedObject var fileExplorerState: FileExplorerState
+    let modifierKeyMonitor: WindowScopedShortcutHintModifierMonitor
     let onSendFeedback: () -> Void
     @State private var extensionBrowserAnchorView: NSView?
     @LiveSetting(\.betaFeatures.extensions) private var extensionsExperimentalEnabled
+    // Reuse the same Command-hold signal as the per-row shortcut badges.
+    @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
     @AppStorage(WorkspacePresentationModeSettings.modeKey)
     private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
+    /// Keeps the discovery popover open after the Command key is released.
+    @State private var isShortcutPopoverPresented = false
 
     private var presentationMode: WorkspacePresentationModeSettings.Mode {
         WorkspacePresentationModeSettings.mode(for: workspacePresentationMode)
@@ -15506,6 +15513,11 @@ struct SidebarFooterButtons: View {
             }
             if shows(.mobileConnect), CmuxFeatureFlags.shared.isMobileConnectButtonEnabled {
                 SidebarMobileConnectButton()
+            }
+            // Command-hold reveal: keep the popover mounted while it is open.
+            if shows(.shortcutDiscovery),
+               (showModifierHoldHints && modifierKeyMonitor.isModifierPressed) || isShortcutPopoverPresented {
+                ShortcutDiscoveryButton(isPopoverPresented: $isShortcutPopoverPresented)
             }
             // The badge is an upgrade prompt, so Pro accounts don't get it.
             if shows(.upgrade),
