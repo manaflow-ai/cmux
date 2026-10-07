@@ -10,8 +10,6 @@
 //! clock in microseconds, and each source keeps its own I/O loop, capture
 //! and encoder.
 
-mod loss;
-
 use std::collections::{BTreeMap, VecDeque};
 
 use cmux_rd_core::cc::{CcConfig, CongestionController, PathKind};
@@ -25,7 +23,7 @@ use cmux_rd_proto::{
     MAX_NACK_FRAMES, MAX_NACK_INDEXES, Nack, REF_NONE, flags,
 };
 
-pub use loss::LossMeter;
+pub use cmux_rd_core::loss::LossMeter;
 
 /// Frames kept for NACK resends.
 pub const HISTORY_FRAMES: usize = 16;
