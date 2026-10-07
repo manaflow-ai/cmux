@@ -48,6 +48,7 @@ on:
       - docs/mdm/**
       - webviews/test/fixtures/**
       - tests/fixtures/cua-helper-signatures/**
+      - scripts/whats-new/fixtures/**
       - scripts/ci/cmux_next_route.py
       - scripts/ci/select_package_tests.py
       - scripts/ci/cmux_next_push_attribution.py
@@ -129,6 +130,7 @@ on:
       - docs/mdm/**
       - webviews/test/fixtures/**
       - tests/fixtures/cua-helper-signatures/**
+      - scripts/whats-new/fixtures/**
       - scripts/ci/cmux_next_route.py
       - scripts/ci/select_package_tests.py
       - scripts/ci/cmux_next_push_attribution.py
