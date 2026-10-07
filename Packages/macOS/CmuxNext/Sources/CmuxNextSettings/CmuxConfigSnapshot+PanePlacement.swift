@@ -12,6 +12,22 @@ nonisolated extension CmuxConfigSnapshot {
     /// Browser tiling stays opt-in.
     public static let tileBrowsersFallback = false
 
-    /// RED STUB: parses nothing yet.
-    static func parsePanePlacement(_ root: JSONValue, into snapshot: inout CmuxConfigSnapshot) {}
+    /// Parses every pane placement key into `snapshot`.
+    static func parsePanePlacement(_ root: JSONValue, into snapshot: inout CmuxConfigSnapshot) {
+        var diagnostics: [SettingsDiagnostic] = []
+        snapshot.newPanePlacement = ColumnLayoutSettings.choice(root, newPanePlacementPath, fallback: newPanePlacementFallback,
+                                                                diagnostics: &diagnostics)
+        if let value = root.value(at: tileBrowsersPath) {
+            if let on = value.boolValue {
+                snapshot.tileBrowsers = on
+            } else {
+                snapshot.tileBrowsers = tileBrowsersFallback
+                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: tileBrowsersPath.joined(separator: "."),
+                                                      message: "expected true or false"))
+            }
+        } else {
+            snapshot.tileBrowsers = tileBrowsersFallback
+        }
+        snapshot.diagnostics += diagnostics
+    }
 }
