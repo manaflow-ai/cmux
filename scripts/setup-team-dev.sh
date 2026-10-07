@@ -29,11 +29,13 @@ Complete profiles are kept unless their refresh option is selected:
   --refresh-production  Configure or replace the optional production account.
 
 Development: ~/.secrets/cmuxterm-dev.env (CMUX_DOGFOOD_STACK_* / CMUX_UITEST_STACK_*)
-Production:  ~/.secrets/cmux-beta-production.env (CMUX_DOGFOOD_STACK_*)
+Production:  ~/.secrets/cmuxterm-prod.env (CMUX_DOGFOOD_STACK_*)
+An existing complete cmux-beta-production.env is copied to the production path
+only if that path is absent; the legacy file stays available to explicit callers.
 Production requires an explicit --credentials-file selection on a launcher
 configured for production; normal development launches never select this file.
 Passwords are hidden, verified with the matching sign-in environment, and saved
-with mode 600. Requires curl and python3 when verifying new credentials.
+with mode 600. Requires python3 to verify or adopt credentials and curl for sign-in.
 HELP
       exit 0 ;;
     *) echo "error: unknown argument: $1" >&2; exit 2 ;;
@@ -42,7 +44,7 @@ done
 
 SECRETS_DIR="${HOME:?HOME must be set}/.secrets"
 DEV_ENV_FILE="$SECRETS_DIR/cmuxterm-dev.env"
-PRODUCTION_ENV_FILE="$SECRETS_DIR/cmux-beta-production.env"
+PRODUCTION_ENV_FILE="$SECRETS_DIR/cmuxterm-prod.env"
 
 validate_existing_file() {
   local file="$1"
@@ -55,6 +57,31 @@ profile_configured() {
   # A subshell keeps the loader's exported variables out of subsequent profiles.
   (cmux_dev_secrets_load --profile "$2" --credentials-file "$1" >/dev/null 2>&1)
 }
+
+adopt_legacy_production() (
+  local legacy_file="$SECRETS_DIR/cmux-beta-production.env" temporary_file=""
+  # Never replace even an incomplete canonical profile or combine its values
+  # with legacy credentials. Existing explicit callers retain their old file.
+  [[ ! -e "$PRODUCTION_ENV_FILE" && ! -L "$PRODUCTION_ENV_FILE" ]] || return 0
+  [[ -e "$legacy_file" || -L "$legacy_file" ]] || return 0
+  cmux_dev_secrets_validate_file "$legacy_file"
+  profile_configured "$legacy_file" personal || return 0
+
+  umask 077
+  temporary_file="$(mktemp "$SECRETS_DIR/.cmux-credentials.XXXXXX")"
+  trap 'rm -f "$temporary_file"' EXIT
+  cat "$legacy_file" > "$temporary_file"
+  chmod 600 "$temporary_file"
+  # Publish a complete copy atomically. An exclusive link also protects a
+  # canonical path created by another setup process while this copy was made.
+  python3 -c '
+import os, sys
+try:
+    os.link(sys.argv[1], sys.argv[2])
+except FileExistsError:
+    pass
+' "$temporary_file" "$PRODUCTION_ENV_FILE"
+)
 
 prompt_credentials() {
   local label="$1" optional="$2"
@@ -187,6 +214,7 @@ configure_production() {
   echo "==> Optional production verification"
   echo "    Add this only if you may want to verify against the production environment."
   echo "    These credentials are separate from development and require explicit selection."
+  adopt_legacy_production
   validate_existing_file "$PRODUCTION_ENV_FILE"
   if [[ "$REFRESH_PRODUCTION" -eq 0 ]]; then
     if profile_configured "$PRODUCTION_ENV_FILE" personal; then

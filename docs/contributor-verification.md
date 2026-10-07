@@ -133,10 +133,14 @@ are preserved on rerun; use `--refresh` to replace the personal profile or
 Setup also offers an optional production account for developers who may want
 to verify against the production environment. Press Enter or answer `no` to
 skip it. Production credentials are verified against production and stored in
-`~/.secrets/cmux-beta-production.env`, separately from development credentials.
+`~/.secrets/cmuxterm-prod.env`, separately from development credentials.
 Use `--refresh-production` to configure or replace them later. A production
 verification launcher must explicitly select that file with `--credentials-file`
 and use the production environment; normal development launches do not read it.
+If the production file is absent, setup adopts a complete, protected
+`~/.secrets/cmux-beta-production.env` by copying it to the production path.
+The legacy file remains intact for callers that explicitly select it. Setup
+never overwrites an existing production file or combines partial profiles.
 
 Without that access, the source checks, package tests and build-only steps above
 remain available. Record runtime verification as not performed and identify an
