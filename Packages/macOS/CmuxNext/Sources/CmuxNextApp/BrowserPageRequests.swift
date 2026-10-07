@@ -212,8 +212,9 @@ final class BrowserPageRequests: BrowserTabDelegate {
                       opener: SurfaceID, background: Bool) {
         guard let services else { child?.close(); return }
         if let controller = services.paneController(for: pane) {
-            return controller.newBrowserTab(url: url, inherited: engine, adopting: child, background: background, profile: profile,
-                                            opener: opener)
+            controller.newBrowserTab(url: url, inherited: engine, adopting: child, background: background, profile: profile,
+                                     opener: opener)
+            return
         }
         // The opener's pane is not on screen (its page is kept alive).
         let browserTabs = services.cache.browserTabs!
