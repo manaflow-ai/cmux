@@ -15,7 +15,7 @@
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use serde::Deserialize;
@@ -42,6 +42,8 @@ const PATHS: [&str; 7] = [
 /// The brain refuses answers above 4 MiB; a reply line above this is refused.
 pub(super) const MAX_REPLY_BYTES: usize = 5 * 1024 * 1024;
 const TIMEOUT: Duration = Duration::from_secs(10);
+/// The tools socket taken from the environment at startup (`take_from_env`).
+static TAKEN: OnceLock<Option<PathBuf>> = OnceLock::new();
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -67,13 +69,33 @@ pub(super) fn error_code(error: &anyhow::Error) -> Option<String> {
     error.downcast_ref::<NotOwner>().map(|_| ORIGIN_FORBIDDEN.to_string())
 }
 
-/// Whether this daemon can forward (the brain's tools socket is configured).
-pub(super) fn configured() -> bool {
-    std::env::var_os(TOOLS_SOCKET_ENV).is_some_and(|v| !v.is_empty())
+/// Reads `CMUX_TUI_CHIEF_TOOLS_SOCKET` and removes it from this process's
+/// environment, so no terminal, shell or agent the daemon spawns learns the
+/// brain's tools path. Later reads use the taken value.
+///
+/// # Safety
+///
+/// Call it before this process starts any thread (first thing in `main`):
+/// removing an environment variable is unsound while another thread can read
+/// the environment.
+pub unsafe fn take_tools_socket_from_env() {
+    let value = std::env::var_os(TOOLS_SOCKET_ENV).filter(|v| !v.is_empty()).map(PathBuf::from);
+    // SAFETY: forwarded from this function's contract (no other thread yet).
+    unsafe { std::env::remove_var(TOOLS_SOCKET_ENV) };
+    let _ = TAKEN.set(value);
 }
 
+/// Whether this daemon can forward (the brain's tools socket is configured).
+pub(super) fn configured() -> bool {
+    tools_socket().is_some()
+}
+
+/// The taken value; a library user that never took it reads the environment.
 fn tools_socket() -> Option<PathBuf> {
-    std::env::var_os(TOOLS_SOCKET_ENV).filter(|v| !v.is_empty()).map(PathBuf::from)
+    match TAKEN.get() {
+        Some(taken) => taken.clone(),
+        None => std::env::var_os(TOOLS_SOCKET_ENV).filter(|v| !v.is_empty()).map(PathBuf::from),
+    }
 }
 
 /// The owner: a registered Unix client with no link peer record (local, or

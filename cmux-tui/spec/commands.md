@@ -5679,7 +5679,9 @@ before anything is forwarded, and the remote relay never admits it. `path` must
 be one of `/api/status`, `/api/turns`, `/api/turn`, `/api/node`, `/api/level`,
 `/api/date`, `/api/search`; a reply line above 5 MiB is refused, never cut.
 Without the environment variable the daemon does not advertise the capability
-and refuses the command.
+and refuses the command. The daemon reads the variable once at startup and
+removes it from its environment, so no terminal shell, agent or hook it spawns
+inherits the brain's tools path.
 
 Params: `path` (required), `query` (optional map of strings).
 
