@@ -165,41 +165,58 @@ Snapshot state of `trust:<user>`: `{devices, guests, requests, remote}` (maps; a
 
 ## 7. Client APIs (Swift)
 
-`Packages/Shared/CmuxPairing` (Foundation, CryptoKit, CmuxControlPlane, CmuxMobileWire, CmuxLinkDirect):
+`Packages/Shared/CmuxPairing` (Foundation, CryptoKit, CmuxControlPlane, CmuxMobileWire, CmuxLinkDirect;
+shared by the iPhone and the Mac host):
 
 ```swift
-public struct LinkCertificate: Codable, Hashable { purpose, user, install, key, issuedAt, expiresAt, signature
-    func signedMessage(environment:) -> Data; func verify(publicKey: P256.Signing.PublicKey, environment:) throws }
-public protocol LinkKeySigning: Sendable { func sign(_ message: Data) async throws -> Data }   // the SE install key
-public struct LinkCertificateIssuer { func issue(purpose:key:user:install:environment:now:) async throws -> LinkCertificate }
-public struct PairingLink: Hashable { enum Kind { pair(offer:host:team:hostKey:expires:name:), attach(host:team:) }
-    init(url: URL) throws(PairingLinkError); var url: URL }
-public struct TrustStoreState: Hashable, Sendable { devices, guests, requests, remote; apply(event:) }
-public actor TrustStoreMirror { updates(); state; start(client:user:) }      // over ControlPlaneClient trust:<user>
+public struct LinkCertificate: Codable, Hashable { purpose, user, install, key, issuedAt, expiresAt, signature; keyBytes
+    static func signedMessage(environment:purpose:user:install:key:issuedAt:expiresAt:) -> Data
+    func verify(installKey: P256.Signing.PublicKey, environment: String, now: Int64) throws(LinkCertificateError) }
+public protocol LinkKeySigning: Sendable { func sign(_ message: Data) async throws -> Data }   // SE install key (raw r||s)
+public struct LinkCertificateIssuer { init(environment:user:install:signer:); issue(purpose:key:now:lifetime:) async throws }
+public struct InstallPublicKey: Codable { x, y; init(P256.Signing.PublicKey); signingKey }      // the backend JWK
+public struct PairingLink { kind: .pair(PairingOffer) | .attach(host:team:); init(url:now:) throws(PairingLinkError); url }
+public struct TrustStoreState { devices, guests, requests, remote; init(snapshot:); mutating apply(EventFrame) throws }
+public actor TrustStoreMirror { start(client:user:); stop(); state; updates(); apply(StreamUpdate) -> Bool }
 public protocol TrustedKeyLookup: Sendable {
-    func hostKey(for host: String) async -> TrustedHostKey?                         // B4 resolver pin, C9 HostsStore
-    func isTrustedDevice(directKey: Data, onHost host: String?) async -> Bool         // B4 DirectAuthorizer (B5 on the Mac)
-    func verifyFingerprint(_ cert: LinkCertificate, from install: String) async -> Bool // B2 DTLS check
+    func hostKey(for host: String) async -> TrustedHostKey?                          // B4 endpoint pin, C9 direct hosts
+    func isTrustedDevice(directKey: Data, onHost host: String?) async -> Bool          // B4 DirectAuthorizer (B5 on the Mac)
+    func verifyFingerprint(_ certificate: LinkCertificate, from install: String) async -> Bool  // B2 DTLS proof
 }
-public struct TrustStoreAuthorizer: DirectAuthorizer   // TrustedKeyLookup → B4's hook
-public struct PairingClient { offer, claim, accept, decline, revoke, publish }   // ops over ControlPlaneClient
+public struct TrustStoreKeyLookup: TrustedKeyLookup { init(mirror:environment:user:now:) }
+public struct TrustStoreAuthorizer: DirectAuthorizer { init(lookup:host:) }
+public struct PairingClient { publish(_:host:), offer(host:team:), claim(_:), accept(offerID:), decline(offerID:), revoke(host:install:) }
 ```
 
-iOS: `CmuxiOSPairingCore` (`ControlPlaneDeviceRegistry: DeviceRegistry`, `PairingTicket` codec,
-`PairingLinkHandler` for C16's `.pairing(URL)`), `CmuxiOSPairing` (`QRScannerView`, AVFoundation
-`AVCaptureMetadataOutput` for `.qr`, replacing C10's placeholder in `CameraSheet`).
+How lanes use it:
+- B4/B5 (Mac): `DirectAcceptor(identity:hostID:authorizer: TrustStoreAuthorizer(lookup: TrustStoreKeyLookup(...), host: hostID))`;
+  the Mac publishes its `direct` cert with `PairingClient.publish(cert, host:)` and makes QR codes with `offer(host:team:)`.
+- B4 (phone): `TrustedKeyLookup.hostKey(for:)` gives the pinned key for `DirectEndpoint.hostKey`
+  (`TrustedHostKey.directKeyBase64` is the standard base64 `DirectHostKey` takes).
+- B2: sign the local DTLS fingerprint with `LinkCertificateIssuer.issue(purpose: .dtls, key: sha256Fingerprint)`, send it in
+  the offer/answer `body.fingerprint_cert`, check the peer's with `verifyFingerprint(_:from: signal.from)` and compare
+  `keyBytes` with the SDP fingerprint.
+
+iOS (`ios/CmuxiOS`): `CmuxiOSPairingCore` (`ControlPlaneDeviceRegistry: DeviceRegistry` with one shared pipeline,
+`DeviceProjection`, `DeviceRecordID`, `PairingTicketPayload`, `PairingLinkHandler`, `ControlPlanePairingOps`,
+`ControlPlaneHostPresence`, `KeychainDirectKeyStore`), `CmuxiOSPairing` (`QRScannerView`, AVFoundation
+`AVCaptureMetadataOutput` for `.qr`, in C10's `CameraSheet`). The app registers the registry as
+`RealFeatureFactories.devices` (`PairingComposition`) and handles `.pairing(URL)` in `RootViewController+Pairing`.
 
 ## 8. Tests
 
-- vitest (`backend/apps/api/test`): `trust-domain.test.ts` (reducer: publish, rotate, revoke, limits,
-  request expiry, guest/remote, redaction of codes), `pairing-offer.test.ts` (offer, claim binding,
-  single use, expiry, same-account trusted, cross-account pending → accept → guest admission,
-  decline, revoke closes admission, signature and freshness refusals).
-- Swift Testing (`Packages/Shared/CmuxPairing`): link grammar (round trip, versions, bad fields,
-  expiry, https and bundle schemes), certificate chain (sign with a P-256 key, verify, wrong
-  environment, tamper, expiry, lifetime cap, cross-check vector with the TS message), trust mirror
-  (snapshot, events in order, revoke removes keys, lookup answers). `CmuxiOSPairingCore`: registry
-  projection of the mirror and receipts.
+- vitest (`backend/apps/api/test`): `pairing-trust.test.ts` (8: publish and host binding, rotation, forged, foreign,
+  stale, wrong-environment, over-long and dtls certs, revoke drops certs, same-account offer and claim with key
+  binding and single use, only the enrolling Mac offers, cross-account pending → accept → guest admission on the
+  HostDO socket → guest revoke, decline, owner revoke), `trust-domain.test.ts` (7: reducer expiry and guest move,
+  peer cert checks, system-only writes, message format, Swift signature vector, offer codes and links, guest caps).
+  Full API suite: 121 files, 755 tests green.
+- Swift Testing: `Packages/Shared/CmuxPairing` (16: link grammar, certificate chain with a WebCrypto cross-check
+  vector, trust state events and snapshot round trip, verified lookups, DTLS proofs, mirror resync);
+  `CmuxiOSPairingCoreTests` (7: Connect flips own Macs to trusted only via the owner event, presence lastSeen,
+  QR claim verifies the host cert against the scanned key, refusals as receipts and offline throws, intent routing,
+  projection, link handler), run on macOS through a scratch package over the same sources, stable over 5 runs.
+- `CmuxiOSApp` compiles for `arm64-apple-ios17.0-simulator` with SwiftPM.
 
 ## 9. Open
 
