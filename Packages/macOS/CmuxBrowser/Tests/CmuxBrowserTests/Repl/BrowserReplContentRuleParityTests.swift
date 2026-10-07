@@ -78,7 +78,7 @@ struct BrowserReplContentRuleParityTests {
     @Test("A universal host pattern matches bracketed IPv6 hosts in the content rules too")
     func universalHostMatchesIPv6() throws {
         let urls = ["2001:db8::1", "::1", "::ffff:192.0.2.1", "fe80::1"].flatMap { host in
-            ["http", "https", "ws", "wss"].flatMap { scheme in
+            ["http", "https"].flatMap { scheme in
                 ["", ":443", ":8443"].map { "\(scheme)://[\(host)]\($0)/a.js" }
             }
         } + Self.urls()

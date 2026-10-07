@@ -84,15 +84,48 @@ struct BrowserReplContentRuleIPTests {
         }
     }
 
+    /// r26 native#3: WebKit compiles a universal host pattern's IPv6
+    /// filter and applies it: `prohibitedDomains: ["http://*"]` stops an
+    /// IPv6 subresource and `allowedDomains: ["*"]` lets one load, while an
+    /// IPv4 address written as IPv6, which the policy refuses natively,
+    /// stays blocked under the allow list.
+    @Test("A universal host pattern judges IPv6 subresources in WebKit as the policy does")
+    func universalHostJudgesIPv6InWebKit() async throws {
+        let v6 = try await LoopbackServer.start(host: "::1")
+        defer { v6.stop() }
+        let v4 = try await LoopbackServer.start(host: "127.0.0.1")
+        defer { v4.stop() }
+
+        var prohibiting = BrowserReplDomainPolicy()
+        prohibiting.prohibited = [try BrowserReplDomainPattern.parse("http://*", title: "t")]
+        let blocked = try await Self.page(prohibiting)
+        #expect(try await Self.fetch("http://[::1]:\(v6.port)/prohibited", in: blocked) == "failed")
+        #expect(!v6.paths.contains("/prohibited"), "an IPv6 subresource reached the server under prohibitedDomains http://*")
+
+        var allowing = BrowserReplDomainPolicy()
+        allowing.allowed = [try BrowserReplDomainPattern.parse("*", title: "t")]
+        let open = try await Self.page(allowing)
+        #expect(try await Self.fetch("http://[::1]:\(v6.port)/allowed", in: open) == "loaded")
+        #expect(v6.paths.contains("/allowed"), "allowedDomains * blocked an IPv6 subresource the policy allows")
+        #expect(allowing.blockReason("http://[::ffff:127.0.0.1]:\(v4.port)/mapped") != nil)
+        #expect(try await Self.fetch("http://[::ffff:127.0.0.1]:\(v4.port)/mapped", in: open) == "failed")
+        #expect(!v4.paths.contains("/mapped"), "an IPv4 address written as IPv6 loaded under allowedDomains *")
+    }
+
     // MARK: - Support
 
     /// A page on a non-IP origin, with the policy's content rules when
     /// `blockingIPs`.
     private static func page(blockingIPs: Bool) async throws -> WKWebView {
+        var policy = BrowserReplDomainPolicy()
+        policy.blockIPAddresses = blockingIPs
+        return try await page(blockingIPs ? policy : nil)
+    }
+
+    /// A page on a non-IP origin, with `policy`'s content rules when given.
+    private static func page(_ policy: BrowserReplDomainPolicy?) async throws -> WKWebView {
         let configuration = WKWebViewConfiguration()
-        if blockingIPs {
-            var policy = BrowserReplDomainPolicy()
-            policy.blockIPAddresses = true
+        if let policy {
             configuration.userContentController.add(try await compile(policy.contentRules))
         }
         let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 200, height: 200), configuration: configuration)
