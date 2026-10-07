@@ -156,6 +156,12 @@ enum TabLifecycle {
     /// absent, see `BrowserEngineResolver`). An explicit Chromium request
     /// never silently becomes WebKit.
     static func newBrowser(_ ctx: AppActionContext, _ invocation: ActionInvocation) {
+        var invocation = invocation
+        // A Chromium internal page opens in a Chromium tab (never searched in WebKit).
+        if invocation["engine"] == nil, let text = invocation["url"]?.stringValue,
+           ChromiumInternalURL(typed: text.trimmingCharacters(in: .whitespacesAndNewlines)) != nil {
+            invocation.arguments["engine"] = .string(BrowserEngineTag.cef.rawValue)
+        }
         var url: URL?
         if let text = invocation["url"]?.stringValue {
             let chromium = invocation["engine"]?.stringValue == BrowserEngineTag.cef.rawValue
