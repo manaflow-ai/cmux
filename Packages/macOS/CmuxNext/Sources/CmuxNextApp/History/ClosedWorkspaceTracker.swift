@@ -8,27 +8,21 @@ import Observation
 /// or restarts takes its workspaces out without recording them. Incognito
 /// workspaces are never recorded. A workspace close ends its terminals, so
 /// Reopen makes a new workspace with the same name in the same directory.
+///
+/// A close never touches a workspace's agent-home folder; an entry that
+/// expires (it falls off the end, or the user removes it or clears History)
+/// sends the folder to the Trash (``AgentHomeHistory``).
 final class ClosedWorkspaceTracker {
-    struct Record: Equatable {
-        var id = UUID().uuidString
-        var machine: String
-        var name: String
-        var cwd: String?
-        var tabCount: Int
-        var closedAt: Date
-        var isIncognito = false
-    }
+    typealias Record = ClosedWorkspaceLog.Record
 
-    static let capacity = 20
-    private unowned let services: AppServices
-    private(set) var records: [Record] = []
-    /// What each machine showed last: workspace id to its record.
-    private var known: [String: [String: Record]] = [:]
-    private var generations: [String: String] = [:]
+    static let capacity = ClosedWorkspaceLog.capacity
+    private var log = ClosedWorkspaceLog()
+    var records: [Record] { log.records }
+    let agentHomes: AgentHomeHistory
     private var observation: Task<Void, Never>?
 
     init(services: AppServices) {
-        self.services = services
+        agentHomes = AgentHomeHistory()
         let machines = services.machines
         observation = Task { [weak self, weak services] in
             for await snapshot in Observations({
@@ -39,14 +33,15 @@ final class ClosedWorkspaceTracker {
         }
     }
 
-    deinit { observation?.cancel() }
-
-    private struct Snapshot: Sendable {
-        var machines: [String: (generation: String, workspaces: [String: Record])]
+    /// A tracker fed by hand (tests).
+    init(agentHomes: AgentHomeHistory) {
+        self.agentHomes = agentHomes
     }
 
-    private static func snapshot(of daemons: [DaemonService], incognito: (String) -> Bool) -> Snapshot {
-        var machines: [String: (String, [String: Record])] = [:]
+    deinit { observation?.cancel() }
+
+    private static func snapshot(of daemons: [DaemonService], incognito: (String) -> Bool) -> ClosedWorkspaceLog.Snapshot {
+        var machines: [String: ClosedWorkspaceLog.Snapshot.Machine] = [:]
         for daemon in daemons {
             let store = daemon.store
             guard case .connected = store.connectionState, store.isLoaded else { continue }
@@ -55,44 +50,49 @@ final class ClosedWorkspaceTracker {
                 let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
                 workspaces[workspace.id] = Record(machine: daemon.machineID, name: workspace.displayName,
                                                   cwd: tabs.lazy.compactMap(\.cwd).first, tabCount: tabs.count, closedAt: Date(),
-                                                  isIncognito: incognito(workspace.id))
+                                                  isIncognito: incognito(workspace.id),
+                                                  agentHomeID: daemon.isLocal ? workspace.id : nil)
             }
-            machines[daemon.machineID] = (store.generation?.rawValue ?? "", workspaces)
+            machines[daemon.machineID] = .init(generation: store.generation?.rawValue ?? "", workspaces: workspaces)
         }
-        return Snapshot(machines: machines)
+        return ClosedWorkspaceLog.Snapshot(machines: machines)
     }
 
-    private func apply(_ snapshot: Snapshot) {
-        for (machine, current) in snapshot.machines {
-            defer {
-                known[machine] = current.workspaces
-                generations[machine] = current.generation
-            }
-            guard generations[machine] == current.generation, let previous = known[machine] else { continue }
-            for (id, record) in previous where current.workspaces[id] == nil {
-                guard !record.isIncognito else { continue }
-                var closed = record
-                closed.closedAt = Date()
-                records.append(closed)
-            }
-        }
-        // A machine that dropped forgets its baseline (no closes recorded).
-        for machine in known.keys where snapshot.machines[machine] == nil { known[machine] = nil }
-        if records.count > Self.capacity { records.removeFirst(records.count - Self.capacity) }
+    func apply(_ snapshot: ClosedWorkspaceLog.Snapshot) {
+        expire(log.apply(snapshot))
     }
 
+    /// Takes a record to reopen it; its agent-home folder moves to the new workspace
+    /// (``AgentHomeHistory/reopened(from:to:)``).
     func take(_ id: String) -> Record? {
-        guard let index = records.firstIndex(where: { $0.id == id }) else { return nil }
-        return records.remove(at: index)
+        log.take(id)
+    }
+
+    /// The key of the workspace that reopens `record`: a fresh one, and the record's agent-home
+    /// folder already moved to it.
+    func reopenKey(for record: Record) -> WorkspaceKey {
+        let key = WorkspaceKey.generate()
+        agentHomes.reopened(from: record.agentHomeID, to: key.rawValue)
+        return key
+    }
+
+    /// Removes an entry from History: it expires.
+    func discard(_ id: String) {
+        guard let record = log.take(id) else { return }
+        expire([record])
     }
 
     /// Puts a record back (a reopen that could not run).
     func restore(_ record: Record) {
-        records.append(record)
-        records.sort { $0.closedAt < $1.closedAt }
+        log.restore(record)
     }
 
     func clear(since: Date?) {
-        records.removeAll { record in since.map { record.closedAt >= $0 } ?? true }
+        expire(log.clear(since: since))
+    }
+
+    private func expire(_ records: [Record]) {
+        let ids = records.compactMap(\.agentHomeID)
+        if !ids.isEmpty { agentHomes.expired(ids) }
     }
 }

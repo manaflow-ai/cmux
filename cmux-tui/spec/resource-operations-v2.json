@@ -1779,7 +1779,7 @@
               "name": "JsonValue"
             }
           },
-          "description": "Explicit forward-compatible data. Optional title, color, and icon carry the shared workspace identity; ephemeral is true for a workspace the daemon closes at its next start. Unknown sibling fields remain forbidden."
+          "description": "Explicit forward-compatible data. Optional title, color, and icon carry the shared workspace identity; ephemeral is true for a workspace the daemon closes at its next start; agent_folder is the folder new agent chats start in (workspace.agent_folder.set). Unknown sibling fields remain forbidden."
         }
       },
       "extra": false
@@ -18301,6 +18301,68 @@
           {
             "kind": "ref",
             "name": "WindowRecordSnapshot"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "workspace.agent_folder.set": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "workspace",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "required"
+        },
+        "fields": {
+          "path": {
+            "required": true,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            },
+            "description": "The folder new agent chats of the workspace start in: an absolute path of an existing directory in canonical form (no symlink, no . or .. step, no trailing slash), at most 4096 bytes. null clears it."
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Only origin user (a verified cmux app connection, gate A2) may send it; the app sends it after a real user gesture. Any other origin is refused with origin.forbidden before the request is parsed. The result and every later workspace snapshot carry extra.agent_folder until it is cleared (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE)."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "WorkspaceSnapshot"
           }
         ]
       },

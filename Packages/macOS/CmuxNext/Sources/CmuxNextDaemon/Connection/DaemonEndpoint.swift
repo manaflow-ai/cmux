@@ -148,6 +148,9 @@ public struct DaemonCapabilities: Sendable {
     public let localConversations = "local-conversations-v1"
     /// `workspace.ensure_home` and the home workspace (`kind: home`; home.md 7).
     public let workspaceKind = "workspace-kind-v1"
+    /// `workspace.agent_folder.set` and `extra.agent_folder` (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE).
+    /// An older daemon kept running across an app update lacks it: Choose Folder… asks for a restart.
+    public let workspaceAgentFolder = "workspace-agent-folder-v1"
     /// Conversation tabs: `new-conversation-tab` and the `conversation` tab kind.
     /// Echoed so the daemon sends the canonical kind instead of `browser`.
     public let conversationTabs = "conversation-tabs-v1"
@@ -225,7 +228,7 @@ public struct DaemonCapabilities: Sendable {
                                             terminalCommandJournal, dockColumns, edgeDocks, rows, tabColumnRespawn, endTerminalsKeepLayout, stateResources,
                                             sessionIdentity, localConversations, tabSplitRespawn, frontendBrowserHistory,
                                             attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,
-                                            workspaceKind, conversationTabs, agentSessionTabs, pageTabs, conversationSearch, cloudConversations, localAttachments,
+                                            workspaceKind, workspaceAgentFolder, conversationTabs, agentSessionTabs, pageTabs, conversationSearch, cloudConversations, localAttachments,
                                             tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory, terminalSnapshotImages,
                                             terminalClipboardRead, personalMixedOrder] }
 
