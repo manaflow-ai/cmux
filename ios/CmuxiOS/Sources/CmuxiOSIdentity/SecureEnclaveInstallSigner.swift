@@ -17,9 +17,16 @@ public struct SecureEnclaveInstallSigner: InstallSigner {
         service = "\(bundleID).install-key.\(environment)"
     }
 
-    public func publicKeyX963() async throws -> Data { try key().publicKeyX963 }
+    public func publicKeyX963() async throws -> Data { try publicKeyX963Now() }
 
-    public func sign(_ message: Data) async throws -> Data { try key().sign(message) }
+    public func sign(_ message: Data) async throws -> Data { try signNow(message) }
+
+    /// The same key, synchronously: the link hello proof and the WebRTC
+    /// fingerprint binding sign inside synchronous protocol requirements.
+    public func publicKeyX963Now() throws -> Data { try key().publicKeyX963 }
+
+    /// Raw r||s with the install key, synchronously (see `publicKeyX963Now`).
+    public func signNow(_ message: Data) throws -> Data { try key().sign(message) }
 
     /// Destroys the key; the next use makes a new one.
     public func rotate() async throws { destroy() }

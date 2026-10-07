@@ -1,7 +1,7 @@
 public import CmuxiOSFeatureKit
 public import CmuxLink
 public import CmuxLinkDirect
-public import CmuxMobileConnect
+import CmuxMobileConnect
 public import CmuxMobileLink
 public import CmuxPairing
 import Foundation
@@ -22,9 +22,11 @@ public final class AccountLinkDirectory: MobileLinkDirectory {
     private var browser: DirectBrowser?
     private var book = MobileRouteBook()
     private var trusted: [String: TrustedHostKey] = [:]
-    private var routeWaiters: [UUID: AsyncStream<Void>.Continuation] = [:]
+    private var clientWaiters: [UUID: (host: String, continuation: CheckedContinuation<Void, Never>)] = [:]
     private var generation = 0
     private let clock: any Clock<Duration>
+    /// This install once the account's links started.
+    public private(set) var install: String?
 
     public init(clock: any Clock<Duration> = ContinuousClock()) {
         self.clock = clock
@@ -43,6 +45,7 @@ public final class AccountLinkDirectory: MobileLinkDirectory {
             let registry = MobileLinkRegistry(credentials: made.credentials, options: made.options,
                                               snapshot: monitor.currentSnapshot, signaling: made.signaling)
             self.registry = registry
+            self.install = made.credentials.signer.install
             self.follow(made, monitor: monitor, saved: saved, browse: browse, generation: current)
             return registry
         }
@@ -61,27 +64,25 @@ public final class AccountLinkDirectory: MobileLinkDirectory {
         registry = nil
         book = MobileRouteBook()
         trusted = [:]
-        for waiter in routeWaiters.values { waiter.finish() }
-        routeWaiters.removeAll()
+        install = nil
+        for waiter in clientWaiters.values { waiter.continuation.resume() }
+        clientWaiters.removeAll()
     }
 
     public func client(for host: HostID) async -> MobileLinkClient? {
         guard let registry = await ready?.value else { return nil }
         if let client = registry.client(for: host.rawValue) { return client }
-        let changes = routeChanges()
+        let id = UUID()
         let clock = self.clock
-        let wait = Self.routeWait
-        await withTaskGroup(of: Void.self) { group in
-            group.addTask { @MainActor [weak self] in
-                for await _ in changes where self?.registry?.client(for: host.rawValue) != nil { return }
-            }
-            group.addTask {
-                // wakeup-allow: one-shot bound on waiting for the trust store's first snapshot, injected clock, cancelled when the Mac appears
-                try? await clock.sleep(for: wait)
-            }
-            await group.next()
-            group.cancelAll()
+        let deadline = Task { [weak self] in
+            // wakeup-allow: one-shot bound on waiting for the trust store's first snapshot, injected clock, cancelled when the Mac appears
+            try? await clock.sleep(for: Self.routeWait)
+            self?.resumeWaiter(id)
         }
+        await withCheckedContinuation { continuation in
+            clientWaiters[id] = (host.rawValue, continuation)
+        }
+        deadline.cancel()
         return self.registry?.client(for: host.rawValue)
     }
 
@@ -144,14 +145,10 @@ public final class AccountLinkDirectory: MobileLinkDirectory {
 
     private func applyRoutes() {
         registry?.update(routes: book.routes())
-        for waiter in routeWaiters.values { waiter.yield() }
+        for (id, waiter) in clientWaiters where registry?.client(for: waiter.host) != nil { resumeWaiter(id) }
     }
 
-    private func routeChanges() -> AsyncStream<Void> {
-        let (stream, continuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
-        let id = UUID()
-        routeWaiters[id] = continuation
-        continuation.onTermination = { [weak self] _ in Task { @MainActor in self?.routeWaiters[id] = nil } }
-        return stream
+    private func resumeWaiter(_ id: UUID) {
+        clientWaiters.removeValue(forKey: id)?.continuation.resume()
     }
 }
