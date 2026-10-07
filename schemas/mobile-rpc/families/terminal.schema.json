@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "families/terminal.schema.json",
+  "title": "cmux.mobile/1 terminal family (stream; owner the Mac session host)",
+  "description": "Binary records: terminal.output is a terminal-snapshot-v1 TerminalFrame (Packages/Shared/CmuxTerminalStream), terminal.input is u8 kind (0 bytes, 1 paste) + payload; see fixtures/binary.json. JSON messages below ride JSON-flagged records on the terminal channel.",
+  "$defs": {
+    "terminal": {
+      "type": "object", "additionalProperties": false, "required": ["terminal", "viewport", "visible", "counts", "snapshot"],
+      "properties": {
+        "terminal": { "$ref": "../common.schema.json#/$defs/TerminalId" },
+        "viewport": { "$ref": "../common.schema.json#/$defs/Viewport" },
+        "visible": { "type": "boolean" },
+        "counts": { "type": "boolean" },
+        "snapshot": {
+          "type": "object", "additionalProperties": false, "required": ["format", "versions"],
+          "properties": { "format": { "const": "ghostsnp" }, "versions": { "type": "array", "items": { "type": "integer", "minimum": 1, "maximum": 65535 } } }
+        }
+      }
+    },
+    "terminal:opened": {
+      "type": "object", "additionalProperties": false, "required": ["generation", "cols", "rows", "snapshot_version"],
+      "properties": {
+        "generation": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+        "cols": { "type": "integer", "minimum": 1 },
+        "rows": { "type": "integer", "minimum": 1 },
+        "snapshot_version": { "type": ["integer", "null"], "minimum": 1, "maximum": 65535 },
+        "title": { "type": "string", "maxLength": 400 }
+      }
+    },
+    "terminal.viewport": {
+      "type": "object", "additionalProperties": false, "required": ["t", "viewport"],
+      "properties": { "t": { "const": "terminal.viewport" }, "viewport": { "$ref": "../common.schema.json#/$defs/Viewport" } }
+    },
+    "terminal.presence": {
+      "type": "object", "additionalProperties": false, "required": ["t", "visible", "counts"],
+      "properties": { "t": { "const": "terminal.presence" }, "visible": { "type": "boolean" }, "counts": { "type": "boolean" } }
+    },
+    "terminal.snapshot_request": {
+      "type": "object", "additionalProperties": false, "required": ["t", "terminal", "reason", "have", "request_id"],
+      "properties": {
+        "t": { "const": "terminal.snapshot_request" },
+        "terminal": { "$ref": "../common.schema.json#/$defs/TerminalId" },
+        "reason": { "enum": ["digest_mismatch", "gap", "generation_mismatch", "attach"] },
+        "have": {
+          "type": ["object", "null"], "additionalProperties": false, "required": ["generation", "offset", "snapshot_version"],
+          "properties": {
+            "generation": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+            "offset": { "$ref": "../common.schema.json#/$defs/Seq" },
+            "snapshot_version": { "type": "integer", "minimum": 1, "maximum": 65535 }
+          }
+        },
+        "request_id": { "type": "string", "minLength": 1, "maxLength": 128 }
+      }
+    },
+    "terminal.history": {
+      "type": "object", "additionalProperties": false, "required": ["t", "before", "max_bytes"],
+      "properties": { "t": { "const": "terminal.history" }, "before": { "type": "string", "maxLength": 128, "description": "host row marker" }, "max_bytes": { "type": "integer", "minimum": 1, "maximum": 33554432 } }
+    },
+    "terminal.read_range": {
+      "type": "object", "additionalProperties": false, "required": ["t", "request_id", "from", "to"],
+      "properties": { "t": { "const": "terminal.read_range" }, "request_id": { "type": "string", "minLength": 1, "maxLength": 128 }, "from": { "type": "string", "maxLength": 128 }, "to": { "type": "string", "maxLength": 128 } }
+    },
+    "terminal.read_range.result": {
+      "type": "object", "additionalProperties": false, "required": ["t", "request_id", "text", "truncated"],
+      "properties": { "t": { "const": "terminal.read_range.result" }, "request_id": { "type": "string", "minLength": 1, "maxLength": 128 }, "text": { "type": "string" }, "truncated": { "type": "boolean" } }
+    },
+    "terminal.size": {
+      "type": "object", "additionalProperties": false, "required": ["t", "generation", "cols", "rows"],
+      "properties": { "t": { "const": "terminal.size" }, "generation": { "type": "integer", "minimum": 0, "maximum": 4294967295 }, "cols": { "type": "integer", "minimum": 1 }, "rows": { "type": "integer", "minimum": 1 } }
+    },
+    "terminal.title": {
+      "type": "object", "additionalProperties": false, "required": ["t", "title"],
+      "properties": { "t": { "const": "terminal.title" }, "title": { "type": "string", "maxLength": 400 }, "cwd": { "type": "string", "maxLength": 4096 } }
+    },
+    "terminal.exited": {
+      "type": "object", "additionalProperties": false, "required": ["t", "code"],
+      "properties": { "t": { "const": "terminal.exited" }, "code": { "type": ["integer", "null"] }, "signal": { "type": "string", "maxLength": 16 } }
+    },
+    "terminal.kick": {
+      "type": "object", "additionalProperties": false, "required": ["t", "viewer"],
+      "properties": { "t": { "const": "terminal.kick" }, "viewer": { "$ref": "../common.schema.json#/$defs/InstallId" } }
+    },
+    "terminal.kicked": {
+      "type": "object", "additionalProperties": false, "required": ["t", "by", "by_name"],
+      "properties": { "t": { "const": "terminal.kicked" }, "by": { "$ref": "../common.schema.json#/$defs/InstallId" }, "by_name": { "type": "string", "maxLength": 200 } }
+    }
+  }
+}

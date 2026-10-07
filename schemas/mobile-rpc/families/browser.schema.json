@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "families/browser.schema.json",
+  "title": "cmux.mobile/1 browser family (stream; owner the Mac browser host)",
+  "description": "The channel carries one cmux.rd/1 session running the cmux.rb/1 service (plans/cmux-next/remote-tab-protocol.md, schemas/remote-tab/messages.json); record payload = u8 rd stream type + payload.",
+  "$defs": {
+    "browser": {
+      "type": "object", "additionalProperties": false, "required": ["tab", "service", "screen"],
+      "properties": {
+        "tab": { "$ref": "../common.schema.json#/$defs/TabId" },
+        "service": { "const": "rb/1" },
+        "screen": {
+          "type": "object", "additionalProperties": false, "required": ["css_width", "css_height", "scale"],
+          "properties": { "css_width": { "type": "integer", "minimum": 1 }, "css_height": { "type": "integer", "minimum": 1 }, "scale": { "type": "number", "minimum": 0.5, "maximum": 4 }, "refresh_hz": { "type": "integer", "minimum": 1 } }
+        }
+      }
+    },
+    "browser:opened": {
+      "type": "object", "additionalProperties": false, "required": ["media"],
+      "properties": {
+        "media": { "enum": ["rd_datagrams", "webrtc_track"] },
+        "datagram_channel": { "$ref": "../common.schema.json#/$defs/ChannelId" },
+        "media_track": { "type": "string", "maxLength": 128 }
+      }
+    }
+  }
+}

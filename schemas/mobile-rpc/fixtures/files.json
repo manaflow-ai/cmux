@@ -1,0 +1,16 @@
+{
+  "family": "files",
+  "cases": [
+    { "message": "files.upload", "frame": { "t": "channel.open", "channel": 11, "kind": "files.upload", "class": "bulk", "window": 4194304, "params": { "name": "IMG_0001.HEIC", "size": 2483021, "mime": "image/heic", "sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08", "dest": { "kind": "terminal", "terminal": "term_t01" } } } },
+    { "message": "files.upload", "phase": "opened", "frame": { "t": "channel.opened", "channel": 11, "window": 4194304, "params": { "upload": "up_7Hq2", "offset": 1048576 }, "resumed": true } },
+    { "message": "files.download", "frame": { "t": "channel.open", "channel": 13, "kind": "files.download", "class": "bulk", "window": 4194304, "params": { "path": "/Users/me/src/cmux/out.log" } } },
+    { "message": "files.download", "phase": "opened", "frame": { "t": "channel.opened", "channel": 13, "window": 4194304, "params": { "size": 9120, "mime": "text/plain", "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" }, "resumed": false } },
+    { "message": "files.upload.end", "frame": { "t": "files.upload.end", "sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08" } },
+    { "message": "files.upload.done", "frame": { "t": "files.upload.done", "upload": "up_7Hq2", "path": "/Users/me/Downloads/IMG_0001.HEIC", "size": 2483021 } },
+    { "message": "files.list", "frame": { "t": "read", "id": 4, "op": "files.list", "params": { "path": "~/src", "limit": 100 } } },
+    { "message": "files.list", "phase": "result", "frame": { "t": "read.result", "id": 4, "revision": "0", "value": { "entries": [
+      { "name": "cmux", "kind": "dir", "size": 0, "modified_at": 1791331100000 },
+      { "name": "notes.md", "kind": "file", "size": 2048, "modified_at": 1791331000000 }
+    ], "next": "notes.md" } } }
+  ]
+}

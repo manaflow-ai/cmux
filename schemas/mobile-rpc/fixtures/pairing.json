@@ -1,0 +1,13 @@
+{
+  "family": "pairing",
+  "cases": [
+    { "message": "pairing.hosts", "frame": { "t": "read", "id": 5, "op": "pairing.hosts", "params": {} } },
+    { "message": "pairing.hosts", "phase": "result", "frame": { "t": "read.result", "id": 5, "revision": "77", "value": { "hosts": [{ "host": { "id": "h_mac1A2b", "name": "Studio", "platform": "mac", "presence": "online", "caps": [] }, "trust": "untrusted" }] } } },
+    { "message": "pairing.offer", "frame": { "t": "op", "op": "pairing.offer", "params": { "host": "h_mac1A2b", "host_key": { "kty": "EC", "crv": "P-256", "x": "f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU", "y": "x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0" } }, "idempotency_key": "01JB7Q2W8M0000PAIROF01", "origin": "user" } },
+    { "message": "pairing.offer", "phase": "result", "frame": { "t": "result", "tx": "tx_40", "idempotency_key": "01JB7Q2W8M0000PAIROF01", "value": { "code": "K7Q2-9XWD", "expires_at": 1791331500000 }, "revision": "1", "replayed": false } },
+    { "message": "pairing.claim", "frame": { "t": "op", "op": "pairing.claim", "params": { "code": "K7Q2-9XWD", "device": { "install": "in_phone01", "name": "iPhone", "platform": "ios", "key": { "kty": "EC", "crv": "P-256", "x": "WKn-ZIGevcwGIyyrzFoZNBdaq9_TsqzGl96oc0CWuis", "y": "y77t-RvAHRKTsSGdIYUfweuOvwrvDD-Q3Hv5J0fSKbE" }, "wg_public_key": "xTIBA5rboUvnH4htodjb6e697QjLERt1NAB4mZqp8Dg=" } }, "idempotency_key": "01JB7Q2W8M0000PAIRCL01", "origin": "user" } },
+    { "message": "pairing.claim", "phase": "result", "frame": { "t": "result", "tx": "tx_41", "idempotency_key": "01JB7Q2W8M0000PAIRCL01", "value": { "host": "h_mac1A2b", "host_key": { "kty": "EC", "crv": "P-256", "x": "f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU", "y": "x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0" } }, "revision": "2", "replayed": false } },
+    { "message": "pairing.trust.set", "frame": { "t": "event", "stream": "user:u_7f3a", "seq": 89, "tx": "tx_42", "op": "pairing.trust.set", "params": { "host": "h_mac1A2b", "device": "in_phone01", "trust": "trusted", "at": 1791331210000 }, "actor": { "identity": "in_phone01" }, "origin": "user", "at": 1791331210000 } },
+    { "message": "pairing.revoke", "frame": { "t": "op", "op": "pairing.revoke", "params": { "device": "in_phone01", "host": "h_mac1A2b" }, "idempotency_key": "01JB7Q2W8M0000PAIRRV01", "origin": "user" } }
+  ]
+}

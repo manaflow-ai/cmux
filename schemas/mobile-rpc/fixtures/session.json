@@ -1,0 +1,7 @@
+{
+  "family": "session",
+  "cases": [
+    { "message": "rpc", "frame": { "t": "channel.open", "channel": 1, "kind": "rpc", "class": "interactive", "window": 1048576, "params": { "streams": ["workspace:h_mac1A2b", "task:h_mac1A2b"] } } },
+    { "message": "rpc", "phase": "opened", "frame": { "t": "channel.opened", "channel": 1, "window": 1048576, "params": { "owner": "h_mac1A2b" }, "resumed": false } }
+  ]
+}

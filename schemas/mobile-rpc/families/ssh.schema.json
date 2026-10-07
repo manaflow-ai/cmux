@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "families/ssh.schema.json",
+  "title": "cmux.mobile/1 ssh family (control; UserDO; stream ssh:<user>)",
+  "description": "Synced SSH host records. Private keys never leave the device: a record names the public key fingerprint the device holds.",
+  "$defs": {
+    "Fingerprint": { "type": "string", "pattern": "^SHA256:[A-Za-z0-9+/]{43}$" },
+    "SshHost": {
+      "type": "object", "additionalProperties": false, "required": ["id", "name", "hostname", "port", "user"],
+      "properties": {
+        "id": { "$ref": "../common.schema.json#/$defs/SshHostId" },
+        "name": { "$ref": "../common.schema.json#/$defs/Name" },
+        "hostname": { "type": "string", "minLength": 1, "maxLength": 253 },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "user": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "jump": { "$ref": "../common.schema.json#/$defs/SshHostId" },
+        "key": { "$ref": "#/$defs/Fingerprint" }
+      }
+    },
+    "ssh.host.upsert": { "type": "object", "additionalProperties": false, "required": ["host"], "properties": { "host": { "$ref": "#/$defs/SshHost" } } },
+    "ssh.host.remove": { "type": "object", "additionalProperties": false, "required": ["id"], "properties": { "id": { "$ref": "../common.schema.json#/$defs/SshHostId" } } },
+    "ssh.known_host.add": {
+      "type": "object", "additionalProperties": false, "required": ["id", "key_type", "key", "fingerprint"],
+      "properties": {
+        "id": { "$ref": "../common.schema.json#/$defs/SshHostId" },
+        "key_type": { "enum": ["ssh-ed25519", "ecdsa-sha2-nistp256", "ecdsa-sha2-nistp384", "rsa-sha2-256", "rsa-sha2-512"] },
+        "key": { "type": "string", "pattern": "^[A-Za-z0-9+/=]{16,8192}$" },
+        "fingerprint": { "$ref": "#/$defs/Fingerprint" }
+      }
+    }
+  }
+}

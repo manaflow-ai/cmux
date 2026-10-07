@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "families/feed.schema.json",
+  "title": "cmux.mobile/1 feed family (control; FeedDO; existing cloud ops)",
+  "description": "The authoritative params are the cloud catalog's Effect Schemas (backend/packages/protocol/src/feed.ts); these JSON Schemas are the mobile subset. The TS test validates every feed fixture against both.",
+  "$defs": {
+    "FeedItemId": { "type": "string", "pattern": "^fi_[a-z0-9]{20}$" },
+    "feed.list": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "state": { "enum": ["open", "closed", "all"] },
+        "unread": { "type": "boolean" },
+        "archived": { "type": "boolean" },
+        "needs_response": { "type": "boolean" },
+        "workspace": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "order": { "enum": ["urgent", "recent"] },
+        "after": { "$ref": "#/$defs/FeedItemId" },
+        "limit": { "type": "integer", "minimum": 1, "maximum": 500 }
+      }
+    },
+    "feed.list:result": { "type": "object", "required": ["items"], "properties": { "items": { "type": "array", "items": { "type": "object", "required": ["id"] } } } },
+    "feed.answer": {
+      "type": "object", "additionalProperties": false, "required": ["item", "answer"],
+      "properties": { "item": { "$ref": "#/$defs/FeedItemId" }, "answer": {}, "device": { "type": "string", "maxLength": 80 } }
+    },
+    "feed.read": {
+      "type": "object", "additionalProperties": false,
+      "properties": { "items": { "type": "array", "items": { "$ref": "#/$defs/FeedItemId" } }, "all": { "type": "boolean" } }
+    },
+    "feed.archive": {
+      "type": "object", "additionalProperties": false,
+      "properties": { "items": { "type": "array", "items": { "$ref": "#/$defs/FeedItemId" } } }
+    },
+    "feed.post": {
+      "type": "object", "required": ["type", "kind", "title"],
+      "properties": {
+        "type": { "enum": ["notice", "request"] },
+        "kind": { "type": "string" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "body": { "type": "string", "maxLength": 4096 },
+        "priority": { "enum": ["low", "normal", "high", "urgent"] },
+        "context": { "type": "object" },
+        "actions": { "type": "array", "maxItems": 4 }
+      }
+    }
+  }
+}
