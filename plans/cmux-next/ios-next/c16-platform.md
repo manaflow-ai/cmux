@@ -1,6 +1,6 @@
 # C16 `platform`: app-wide services for the iOS shell
 
-Status: in progress, 2026-10-06, branch `feat-cmux-next-ios-c16-platform` off `feat-cmux-next-ios`.
+Status: landed on the lane branch, 2026-10-06, branch `feat-cmux-next-ios-c16-platform` off `feat-cmux-next-ios`.
 Binding: PLAN.md (this directory, rules section 4), a1-shell.md (1.20 gaps 2, 9 to 14 and the A1
 follow-ups in 2.10), ios-rewrite.md, OWNERSHIP-PRINCIPLES.md. Parity reference (read-only):
 `repo/Packages/iOS` CmuxMobileCrashReporting, CmuxMobileDiagnostics, CmuxMobileToast,
@@ -199,3 +199,20 @@ The whole `CmuxiOSApp` target compiles for the iOS simulator with SwiftPM.
   tagged builds), yes for the App Store build only, together with universal links.
 - DECISION: session replay. RECOMMEND: keep off until D3 lists every Metal and video surface class
   to mask, then enable error-only sampling as the shipping app does.
+
+## 12. Verification (2026-10-06)
+
+- `CmuxiOSPlatformTests`: 41 Swift Testing tests pass on macOS through a scratch package that links
+  the same sources (router, deferral, notification payloads, toast queue, flag merge, remote config,
+  diagnostic sink, What's New, Mac verdicts, demo, keep-awake and billing mocks).
+- `CmuxiOSShellTests` (with the new remote-layer tests) and `CmuxiOSPlatformTests` compile for
+  `arm64-apple-ios17.0-simulator`; the whole `CmuxiOSApp` target builds with SwiftPM; the app target's
+  scene delegate typechecks against it. `check-l10n.sh` and `check-concurrency.sh` pass.
+- Tagged build `nxc16` (`ios/scripts/reload-cloud.sh --tag nxc16`): BLOCKED, the same-tag Mac leg
+  times out on the dev backend VM (`cmux-dev-backend-1` SSH). The local fallback needs a fleet
+  manifest (none on this Mac) or 40 GiB free (27 GiB). No install, no screenshots; UI paths
+  (toast overlay, diagnostics share, What's New sheet, Mac gate, keep-awake, plans) are UNVERIFIED
+  on a device.
+- Follow-ups: the `applinks:cmux.com` entitlement and AASA from `web/`; B1 `config.snapshot`; B5
+  capabilities and power assertion; C7 payload keys; C11 moves the consent toggle; D3 replay masks.
+
