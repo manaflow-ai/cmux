@@ -83,6 +83,7 @@ enum HomeConversationStrings {
 
     // MARK: Sidebar previews
 
+    static var yesterday: String { String(localized: "home.sidebar.yesterday", defaultValue: "Yesterday", bundle: .module) }
     static var you: String { String(localized: "home.sidebar.you", defaultValue: "You", bundle: .module) }
 
     /// "Lucas loved “Good luck!”", in the tapback's own words.

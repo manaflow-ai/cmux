@@ -16,12 +16,8 @@ extension Date {
             return formatter.string(from: self)
         }
         let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: self), to: calendar.startOfDay(for: now)).day ?? 0
-        if days == 1 {
-            formatter.dateStyle = .short
-            formatter.timeStyle = .none
-            formatter.doesRelativeDateFormatting = true
-            return formatter.string(from: self)
-        }
+        // Foundation's relative formatting compares with the real clock, not `now`.
+        if days == 1 { return HomeConversationStrings.yesterday }
         if (2...6).contains(days) {
             formatter.setLocalizedDateFormatFromTemplate("EEEE")
             return formatter.string(from: self)
