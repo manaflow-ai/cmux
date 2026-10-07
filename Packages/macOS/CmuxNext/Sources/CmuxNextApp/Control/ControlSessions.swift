@@ -24,8 +24,14 @@ enum ControlSessions {
             return ControlSessionInfo(
                 id: id, qualifier: qualifiers[id] ?? id, machineID: daemon.machineID, machineName: name,
                 sessionName: daemon.identity?.session, isHome: daemon.isLocal, state: state(daemon.store.connectionState),
-                transport: daemon.isLocal ? "local" : machines.sshSession(daemon.machineID) != nil ? "ssh" : "cloud")
+                transport: transport(daemon, machines: machines))
         }
+    }
+
+    static func transport(_ daemon: DaemonService, machines: MachineRegistry) -> String {
+        if daemon.isLocal { return "local" }
+        if machines.sshSession(daemon.machineID) != nil { return "ssh" }
+        return machines.server(daemon.machineID) != nil ? "server" : "cloud"
     }
 
     /// `build-box`, or `build-box-ci` for session `ci` on it: the machine

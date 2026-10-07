@@ -10,7 +10,6 @@ import { DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME, themeIsDark, type GhosttyTheme
 import { agentPaneTheme, diffAppearance, themeTokens, webThemePayload } from "../theme/web";
 import themes from "virtual:cmux-gallery/themes";
 import webThemeBootstrap from "virtual:cmux-gallery/web-theme";
-import metrics from "virtual:cmux-gallery/metrics";
 import type { StageContext } from "./context";
 import { emulateMedia } from "./media";
 
@@ -137,25 +136,9 @@ async function mount(): Promise<void> {
   }
 }
 
-// Window mode: this frame is the window; the entry runs in a nested component frame in its pane,
-// and the window is ready when that frame is.
-const windowed = env.frame === "window" && entry.host !== "native";
-const start = windowed
-  ? import("./windowChrome").then(({ mountWindow }) =>
-      mountWindow({
-        entry,
-        variant: variantName,
-        env,
-        tokens,
-        metrics,
-        onReady: markReady,
-        onPlay: (report) => {
-          window.cmuxGalleryPlayReport = report;
-          parent.postMessage({ type: "cmux-gallery-play", report }, "*");
-        },
-      }),
-    )
-  : mount().then(markReadyWhenStill);
+// The stage is the surface alone, at the size its frame gives it (window mode sizes the frame to
+// the pane the surface has in the app; nothing of the native window is drawn).
+const start = mount().then(markReadyWhenStill);
 start.catch((error: unknown) =>
   fail(
     `${entry.id}#${variantName} failed to mount:\n${error instanceof Error ? (error.stack ?? error.message) : String(error)}`,
