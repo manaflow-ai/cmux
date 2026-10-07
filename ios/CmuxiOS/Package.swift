@@ -23,6 +23,8 @@ let package = Package(
         .package(path: "../../Packages/Shared/CMUXMobileCore"),
         .package(path: "../../Packages/Shared/CmuxAuthRuntime"),
         .package(path: "../../Packages/Shared/CmuxTerminalStream"),
+        .package(path: "../../Packages/Shared/CmuxTerminalRenderCore"),
+        .package(path: "../../Packages/Shared/CmuxTheme"),
         .package(path: "../../Packages/Shared/CmuxGhosttyKit"),
         .package(path: "../../Packages/iOS/CmuxMobileSupport"),
         .package(path: "../../Packages/macOS/CmuxPhonePush"),
@@ -35,6 +37,7 @@ let package = Package(
                 "CmuxiOSAuth",
                 "CmuxHomeUI",
                 "CmuxiOSTerminal",
+                .product(name: "CmuxTerminalRenderCore", package: "CmuxTerminalRenderCore"),
                 "CmuxiOSDesign",
                 "CmuxiOSPush",
                 "CmuxiOSIdentity",
@@ -89,6 +92,8 @@ let package = Package(
             dependencies: [
                 .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit"),
                 .product(name: "CmuxTerminalStream", package: "CmuxTerminalStream"),
+                .product(name: "CmuxTerminalRenderCore", package: "CmuxTerminalRenderCore"),
+                .product(name: "CmuxTheme", package: "CmuxTheme"),
             ],
             resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v6)],
@@ -99,7 +104,11 @@ let package = Package(
         // pin the Mac and iOS apps share (plans/cmux-next/ghostty-next-switch.md).
         .testTarget(
             name: "CmuxiOSTerminalTests",
-            dependencies: ["CmuxiOSTerminal"],
+            dependencies: [
+                "CmuxiOSTerminal",
+                .product(name: "CmuxTerminalRenderCore", package: "CmuxTerminalRenderCore"),
+                .product(name: "CmuxTerminalStream", package: "CmuxTerminalStream"),
+            ],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .target(

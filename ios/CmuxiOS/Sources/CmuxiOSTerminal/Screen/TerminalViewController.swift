@@ -1,36 +1,34 @@
+public import CmuxTerminalRenderCore
+public import CmuxTheme
 public import UIKit
 
-/// One terminal on the phone: a ghostty-next surface fed by a
-/// `TerminalSessionSource` under `terminal-snapshot-v1` (snapshot first, then
-/// live bytes; see `TerminalStreamPipeline`). Typed input goes to the source
-/// as ordered, attributed input (nothing queues offline).
+/// One terminal on the phone: a ghostty-next surface fed by any
+/// `TerminalByteSource` through a `TerminalSession` (the cmux session host
+/// under `terminal-snapshot-v1`, an SSH channel, a fixture). Typed input goes
+/// to the source as ordered, attributed input (nothing queues offline).
 @MainActor
 public final class TerminalViewController: UIViewController {
-    let source: any TerminalSessionSource
-    let terminal: TerminalRef
-    let terminalView = GhosttyTerminalView(frame: .zero)
+    public let session: TerminalSession
+    var terminalView: GhosttyTerminalView { session.view }
     let badge = UILabel()
     /// Invisible; its bottom is the keyboard's top. A view, so a keyboard
     /// move runs `viewDidLayoutSubviews` inside the keyboard's animation.
     private let keyboardTop = UIView()
-    /// Throttle retries sleep on this clock (injected; tests use a manual one).
-    let clock: any Clock<Duration>
-    var stream: Task<Void, Never>?
-    var retry: Task<Void, Never>?
-    /// The pending READY deadline (cancelled by a newer one or detach).
-    var readyDeadline: Task<Void, Never>?
-    var pipeline: TerminalStreamPipeline?
-    var pathText: String?
-    var notice: String?
-    var streamStats = TerminalStreamStats()
 
-    public init(source: any TerminalSessionSource, terminal: TerminalRef,
+    /// A terminal of a cmux session host through the transport seam.
+    public convenience init(source: any TerminalSessionSource, terminal: TerminalRef,
+                            clock: any Clock<Duration> = ContinuousClock()) {
+        self.init(source: SessionTerminalByteSource(source: source, terminal: terminal), title: terminal.title, clock: clock)
+    }
+
+    /// A terminal fed by any byte source.
+    public init(source: any TerminalByteSource, title: String?, theme: ThemeInput? = nil,
                 clock: any Clock<Duration> = ContinuousClock()) {
-        self.source = source
-        self.terminal = terminal
-        self.clock = clock
+        let view = GhosttyTerminalView(authority: source.authority)
+        view.theme = theme
+        session = TerminalSession(source: source, view: view, clock: clock)
         super.init(nibName: nil, bundle: nil)
-        title = terminal.title
+        self.title = title
     }
 
     @available(*, unavailable)
@@ -38,7 +36,7 @@ public final class TerminalViewController: UIViewController {
 
     public override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .black
+        view.backgroundColor = terminalView.backgroundColor
         terminalView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(terminalView)
         badge.font = .preferredFont(forTextStyle: .caption2)
@@ -63,35 +61,27 @@ public final class TerminalViewController: UIViewController {
             keyboardTop.heightAnchor.constraint(equalToConstant: 1),
             keyboardTop.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor),
         ])
-        // A tap shows the keyboard (a user action; nothing else focuses the terminal).
-        terminalView.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(tapped)))
+        // A tap that is not a link shows the keyboard (a user action; nothing else focuses the terminal).
+        terminalView.onTap = { [weak self] in self?.focusInput() }
         terminalView.onDraw = { [weak self] in self?.panToCursor() }
-        let source = self.source
-        let terminal = self.terminal
-        terminalView.onInput = { data in
-            Task { try? await source.send(data, to: terminal) }
-        }
+        session.onStatus = { [weak self] status in self?.show(status) }
     }
 
     public override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        attach()
+        session.start()
     }
 
     public override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
-        detach()
+        session.stop()
     }
 
     /// DEBUG diagnostics of the surface and the stream.
-    public var diagnostics: [String: String] {
-        terminalView.diagnostics.merging(streamStats.diagnostics) { _, stream in stream }
-    }
+    public var diagnostics: [String: String] { session.diagnostics }
 
     /// Shows the keyboard (user action only).
     public func focusInput() { terminalView.becomeFirstResponder() }
-
-    @objc private func tapped() { focusInput() }
 
     public override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
@@ -114,6 +104,19 @@ public final class TerminalViewController: UIViewController {
     }
 
     static let cursorMargin: CGFloat = 4
+
+    private func show(_ status: TerminalSessionStatus) {
+        let notice: String? = switch status.notice {
+        case .kicked(let name):
+            String(format: String(localized: "terminal.kicked", defaultValue: "Disconnected by %@", bundle: .module), name)
+        case .closed: String(localized: "terminal.closed", defaultValue: "Closed", bundle: .module)
+        case .byteReplay: String(localized: "terminal.replay", defaultValue: "Byte replay", bundle: .module)
+        case nil: nil
+        }
+        badge.text = [status.path?.label, notice].compactMap { $0 }.joined(separator: " · ")
+        badge.sizeToFit()
+        if let title = status.title, !title.isEmpty { self.title = title }
+    }
 }
 
 extension TerminalPath {

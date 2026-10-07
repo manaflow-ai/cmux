@@ -123,6 +123,9 @@ final class RootViewController: UIViewController {
             navigation.pushViewController(terminal, animated: false)
             DevTerminal.captureDiagnostics(terminal)
         }
+        if let workload = ProcessInfo.processInfo.environment["CMUX_IOS_TERMINAL_BENCH"] {
+            navigation.pushViewController(DevTerminal.makeBench(workload), animated: false)
+        }
         #endif
     }
 
