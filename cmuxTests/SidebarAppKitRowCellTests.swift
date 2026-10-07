@@ -669,10 +669,8 @@ struct SidebarAppKitRowCellTests {
         Self.layoutCell(cell, model: model)
         let textView = try #require(Self.descriptionTextView(in: cell, showing: url.absoluteString))
 
-        let selectionBackground = sidebarSelectedWorkspaceBackgroundNSColor(
-            for: .dark,
-            sidebarSelectionColorHex: settings.selectionColorHex
-        )
+        let selectionBackground = sidebarSelectedWorkspaceBackgroundNSColor(for: .dark, sidebarSelectionColorHex: settings.selectionColorHex)
+        let surface = cmuxCompositedNSColor(selectionBackground, over: NSColor(white: 0.16, alpha: 1)) // glass tints the dark pane
         let expected = try #require(
             sidebarSelectedWorkspaceForegroundNSColor(on: selectionBackground, opacity: 1.0)
                 .usingColorSpace(.sRGB)
@@ -703,12 +701,12 @@ struct SidebarAppKitRowCellTests {
         #expect(accessibilityLink.accessibilityURL() == url)
         #expect(!accessibilityLink.accessibilityFrameInParentSpace().isEmpty)
 
-        let raster = try Self.raster(of: textView, background: selectionBackground)
+        let raster = try Self.raster(of: textView, background: surface)
         let systemLink = try #require(
             NSColor.linkColor.usingColorSpace(.sRGB),
             "linkColor must resolve in sRGB"
         )
-        let glyphColor = try Self.mostVisibleGlyphColor(in: raster, excluding: selectionBackground)
+        let glyphColor = try Self.mostVisibleGlyphColor(in: raster, excluding: surface)
         #expect(Self.distance(glyphColor, expected) < 0.05)
         #expect(Self.distance(glyphColor, systemLink) > 0.15)
     }
@@ -1456,19 +1454,17 @@ struct SidebarAppKitRowCellTests {
             attributed.attribute(.foregroundColor, at: linkLocation, effectiveRange: nil) as? NSColor
         )
         if isActive {
-            let selectionBackground = sidebarSelectedWorkspaceBackgroundNSColor(
-                for: .dark,
-                sidebarSelectionColorHex: model.settings.selectionColorHex
-            )
+            let selectionBackground = sidebarSelectedWorkspaceBackgroundNSColor(for: .dark, sidebarSelectionColorHex: model.settings.selectionColorHex)
+            let surface = cmuxCompositedNSColor(selectionBackground, over: NSColor(white: 0.16, alpha: 1)) // glass tints the dark pane
             let expected = try #require(
                 sidebarSelectedWorkspaceForegroundNSColor(on: selectionBackground, opacity: 1.0)
                     .usingColorSpace(.sRGB)
             )
             let renderedSRGB = try #require(rendered.usingColorSpace(.sRGB))
             #expect(renderedSRGB == expected)
-            let raster = try Self.raster(of: textView, background: selectionBackground)
+            let raster = try Self.raster(of: textView, background: surface)
             let systemLink = try #require(NSColor.linkColor.usingColorSpace(.sRGB))
-            let glyphColor = try Self.mostVisibleGlyphColor(in: raster, excluding: selectionBackground)
+            let glyphColor = try Self.mostVisibleGlyphColor(in: raster, excluding: surface)
             #expect(Self.distance(glyphColor, expected) < 0.05)
             #expect(Self.distance(glyphColor, systemLink) > 0.15)
         } else {
