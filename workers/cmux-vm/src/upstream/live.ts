@@ -81,6 +81,12 @@ interface SendInit {
 }
 
 /** The provider's display name for a resource: who owns it and which public id it is. */
+/** Logs which provider operation failed and its HTTP status (or "none"); never ids, bodies or the key. */
+const logUpstreamFailure = (error: UpstreamError) =>
+  Effect.logWarning("cmux-vm upstream call failed").pipe(
+    Effect.annotateLogs({ operation: error.operation, status: error.status === null ? "none" : String(error.status) }),
+  );
+
 const upstreamName = (tenantId: string, cmuxId: string) => `cmux ${tenantId} ${cmuxId}`;
 
 export function makeUpstreamClient(config: UpstreamConfig): UpstreamClientService {
@@ -131,6 +137,7 @@ export function makeUpstreamClient(config: UpstreamConfig): UpstreamClientServic
       Effect.flatMap((result) =>
         result.ok ? Effect.succeed(result.response) : Effect.fail(new UpstreamError({ operation, status: result.status })),
       ),
+      Effect.tapError(logUpstreamFailure),
     );
 
   const json = <A, I>(operation: string, schema: Schema.Schema<A, I>) => (response: Response): Effect.Effect<A, UpstreamError> =>
@@ -145,6 +152,9 @@ export function makeUpstreamClient(config: UpstreamConfig): UpstreamClientServic
     }).pipe(
       Effect.flatMap(Schema.decodeUnknown(schema)),
       Effect.mapError((error) => (error instanceof UpstreamError ? error : new UpstreamError({ operation, status: response.status }))),
+      Effect.tapError(() =>
+        Effect.logWarning("cmux-vm upstream response unreadable").pipe(Effect.annotateLogs({ operation, status: String(response.status) })),
+      ),
     );
 
   const drain = (response: Response) => Effect.promise(async () => void (await response.body?.cancel()));

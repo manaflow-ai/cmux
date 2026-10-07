@@ -42,6 +42,23 @@ export const withRequestConnection = <A, E, R>(app: Effect.Effect<A, E, R>): Eff
     (slot) => (slot.sql === null ? Effect.void : disconnect(slot.sql)),
   );
 
+/** The SQLSTATE (or error class) of a failed query: diagnosable, and never a value, id or message. */
+const failureCode = (cause: unknown): string => {
+  if (typeof cause === "object" && cause !== null) {
+    const code = Reflect.get(cause, "code");
+    if (typeof code === "string" && /^[0-9A-Z_]{1,40}$/.test(code)) return code;
+    const name = Reflect.get(cause, "name");
+    if (typeof name === "string" && /^[A-Za-z]{1,40}$/.test(name)) return name;
+  }
+  return "unknown";
+};
+
+/** Logs which query failed and its SQLSTATE; never parameters, ids or the driver's message. */
+const logStoreFailure = (error: StoreError) =>
+  Effect.logWarning("cmux-vm store query failed").pipe(
+    Effect.annotateLogs({ operation: error.operation, code: failureCode(error.cause) }),
+  );
+
 /**
  * Postgres through a Hyperdrive binding. Inside `withRequestConnection` the
  * request's queries share one connection; outside it (tools, tests) each
@@ -54,7 +71,7 @@ export const hyperdriveSqlLayer = (connectionString: string): Layer.Layer<SqlCli
         Effect.tryPromise({
           try: async (): Promise<ReadonlyArray<unknown>> => Array.from(await sql.unsafe(text, [...params])),
           catch: (cause) => new StoreError({ operation, cause }),
-        });
+        }).pipe(Effect.tapError((error) => logStoreFailure(error)));
       return Effect.flatMap(FiberRef.get(CurrentConnection), (slot) => {
         if (slot === null) return Effect.acquireUseRelease(Effect.sync(() => connect(connectionString)), run, disconnect);
         if (slot.sql === null) slot.sql = connect(connectionString);
