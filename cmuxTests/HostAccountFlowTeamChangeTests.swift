@@ -18,6 +18,51 @@ import Testing
 @Suite("Host account flow team changes")
 struct HostAccountFlowTeamChangeTests {
     @Test
+    func upgradeStatusIsUnknownWhileSignInIsInProgress() async throws {
+        let flow = try await makeFlow(client: TeamChangeAuthClient())
+
+        flow.startSignIn()
+
+        #expect(flow.isWorkingOnAuth)
+        #expect(!flow.isProStatusKnownForUpgrade)
+
+        await flow.signOut()
+    }
+
+    @Test
+    func upgradeStatusIsKnownForMatchingAccountAndConfirmedTeam() async throws {
+        let flow = try await makeFlow(client: TeamChangeAuthClient())
+        _ = try await loadConfirmedFreePlan(flow)
+
+        #expect(flow.billingPlanIdentityID == flow.currentIdentity?.id)
+        #expect(flow.billingPlanTeamID == flow.confirmedTeamID)
+        #expect(flow.isProStatusKnownForUpgrade)
+    }
+
+    @Test
+    func pendingTeamSelectionUsesConfirmedScopeUntilRefresh() async throws {
+        let client = TeamChangeAuthClient()
+        let flow = try await makeFlow(client: client)
+        await client.holdNextSelect()
+        let selection = Task { try await flow.selectTeam(id: "team-b") }
+        try await waitUntil { await client.isHoldingSelect }
+
+        #expect(flow.pendingTeamSelection?.teamID == "team-b")
+        #expect(flow.confirmedTeamID == "team-a")
+        #expect(flow.billingPlanTeamID == nil)
+        #expect(!flow.isProStatusKnownForUpgrade)
+
+        await client.releaseSelect()
+        try await selection.value
+        #expect(flow.confirmedTeamID == "team-b")
+        #expect(!flow.isProStatusKnownForUpgrade)
+
+        _ = try await loadConfirmedFreePlan(flow)
+        #expect(flow.billingPlanTeamID == "team-b")
+        #expect(flow.isProStatusKnownForUpgrade)
+    }
+
+    @Test
     func confirmedFreePlanSurvivesTokenFailure() async throws {
         let flow = try await makeFlow(client: TeamChangeAuthClient())
         let confirmed = try await loadConfirmedFreePlan(flow)
@@ -87,6 +132,23 @@ struct HostAccountFlowTeamChangeTests {
 
         #expect(flow.billingPlanState == .unknown)
         #expect(!flow.hasLoadedBillingPlan)
+        #expect(!flow.isProStatusKnownForUpgrade)
+    }
+
+    @Test
+    func billingPlanRequestIncludesConfirmedTeamScope() async throws {
+        let flow = try await makeFlow(client: TeamChangeAuthClient())
+
+        let refreshed = await flow.refreshBillingPlanAndReportSuccess(
+            tokenProvider: { (accessToken: "fixture-access", refreshToken: "fixture-refresh") },
+            planFetcher: { url, _, _ in
+                let components = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false))
+                #expect(components.queryItems?.first(where: { $0.name == "teamId" })?.value == "team-a")
+                return BillingPlanDetails(isPro: false, canManageBilling: false)
+            }
+        )
+
+        #expect(refreshed)
     }
 
     @Test func switchDuringPendingCreateIsRefusedAndTheCreateCompletes() async throws {

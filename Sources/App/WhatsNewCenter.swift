@@ -215,7 +215,12 @@ final class WhatsNewCenter {
         fillTask = nil
         // The launch path never steals focus from another app.
         _ = showWindow(phase: .loaded(releases), activates: source != "launch", sheetParent: sheetParent)
-        markSeen()
+        if Self.hasHighlightsForCurrentRelease(
+            catalog: WhatsNewCatalog(releases: releases),
+            currentVersion: currentVersion
+        ) {
+            markSeen()
+        }
 #if DEBUG
         cmuxDebugLog("whatsNew.present source=\(source) releases=\(releases.map(\.version).joined(separator: ","))")
 #endif

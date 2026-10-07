@@ -293,7 +293,22 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
         }
 
         do {
-            let url = AuthEnvironment.apiBaseURL.appendingPathComponent("api/billing/plan")
+            let endpoint = AuthEnvironment.apiBaseURL.appendingPathComponent("api/billing/plan")
+            let url: URL
+            if let teamID {
+                guard var components = URLComponents(url: endpoint, resolvingAgainstBaseURL: false) else {
+                    throw URLError(.badURL)
+                }
+                components.queryItems = (components.queryItems ?? []) + [
+                    URLQueryItem(name: "teamId", value: teamID)
+                ]
+                guard let scopedURL = components.url else {
+                    throw URLError(.badURL)
+                }
+                url = scopedURL
+            } else {
+                url = endpoint
+            }
             let details: BillingPlanDetails
             if let planFetcher {
                 details = try await planFetcher(url, tokens.accessToken, tokens.refreshToken)
