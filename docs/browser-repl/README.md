@@ -81,7 +81,9 @@ not from what the runtime sends. On the user's profile, `{ all: true }` and
 a tab with no site (`about:blank`) throw; a private or proxy store may be
 cleared whole. The domain policy covers cookies too: `cookies()` leaves out
 the cookies of blocked sites, and reading, setting or clearing cookies of a
-blocked URL, site or tab throws.
+blocked URL, site or tab throws. Cookie calls through a closed page
+(`cookies`, `addCookies`, `clearCookies`, `storageState`, `setStorageState`)
+throw `closed`; they never use the current tab instead.
 
 ## Snapshot
 

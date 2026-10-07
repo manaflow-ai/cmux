@@ -1147,7 +1147,10 @@ native (`BrowserReplBoundary` in the session, and the driver):
   host and not an origin (a pattern's scheme and port do not narrow it).
   `cookies.clear` on a tab that shows a blocked page (its scope is that
   tab's site), and `cookies.get` or `cookies.set` with a blocked URL, fail
-  with `blocked`. The runtime names the page's tab on every cookie call,
+  with `blocked`. The runtime names the page's tab on every cookie call
+  (a page whose tab closed fails with `closed` before any call, and a
+  call naming a tab that closed fails with `closed` in the driver, so
+  neither falls back to the current tab's store or site),
   and `cookies.get` and `cookies.set` use it only to pick the tab's data
   store, so a page showing a blocked site still sets and reads the
   cookies the policy allows. A cookie with a Domain attribute (leading dot)

@@ -3030,18 +3030,22 @@
     }
     // The tab's cookie calls name it: its cookies live in its own data store
     // (a private tab's, or the session's proxy store, is not the user's
-    // profile). A lazy page has no tab yet, and a closed page none any
-    // more (Playwright's context outlives its pages); their store is the
-    // session's default one.
-    _cookieScope() {
-      return this._closed || String(this._targetId).startsWith("lazy:") ? {} : { targetId: this._targetId };
+    // profile), and a clear covers its site. A lazy page has no tab yet:
+    // its reads and writes use the session's default store, and a clear
+    // opens its tab first, so the driver takes the site from that tab. A
+    // closed page has no store or site any more, so its cookie calls fail
+    // with `closed`: a call without its tab would reach the current tab's
+    // store and site instead.
+    _cookieScope(method, { open = false } = {}) {
+      if (this._closed) throw Object.assign(new Error(`${method}: Target page, context or browser has been closed`), { code: "closed" });
+      return !open && String(this._targetId).startsWith("lazy:") ? {} : { targetId: this._targetId };
     }
     context() {
       const session = this._session;
       return {
         pages: () => [...session.pages.values()],
-        cookies: (urls) => session.call("cookies.get", { ...this._cookieScope(), urls: urls === undefined ? undefined : [].concat(urls) }),
-        addCookies: (cookies) => session.call("cookies.set", { ...this._cookieScope(), cookies }),
+        cookies: async (urls) => session.call("cookies.get", { ...this._cookieScope("browserContext.cookies"), urls: urls === undefined ? undefined : [].concat(urls) }),
+        addCookies: async (cookies) => session.call("cookies.set", { ...this._cookieScope("browserContext.addCookies"), cookies }),
         clearCookies: (options) => this._clearCookies(options),
       };
     }
@@ -3062,7 +3066,9 @@
         if (typeof v !== "string" && !isRegExp(v)) throw new Error(`${title}: ${key}: expected a string or a RegExp, got ${JSON.stringify(v)}`);
         filters[key] = v;
       }
-      const scope = this._cookieScope();
+      const scope = this._cookieScope(title, { open: true });
+      // A lazy page's tab opens now, so every call below names that tab.
+      if (scope.targetId.startsWith("lazy:")) scope.targetId = await this._session._materialize(this);
       if (options.all) scope.all = true;
       // The driver refuses a tab with no site, and { all: true }, on the
       // user's profile, and knows which store this is.
@@ -3086,7 +3092,7 @@
         v.lastIndex = 0;
         return v.test(String(cookie[key]));
       };
-      const cookies = await this._session.call("cookies.get", scope.targetId ? { targetId: scope.targetId } : {});
+      const cookies = await this._session.call("cookies.get", { targetId: scope.targetId });
       for (const cookie of cookies) {
         if (!["name", "domain", "path"].every((key) => matches(cookie, key))) continue;
         await clear({ ...scope, name: cookie.name, domain: cookie.domain, path: cookie.path });
