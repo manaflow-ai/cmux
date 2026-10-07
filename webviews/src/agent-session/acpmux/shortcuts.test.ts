@@ -2,8 +2,8 @@ import { expect, test } from "bun:test";
 import { readShortcuts, withShortcut } from "./shortcuts";
 
 test("the host's shortcut payload keeps only keycap strings", () => {
-  expect(readShortcuts({ "agentPane.searchChats": "⌘K", "palette.newAgentChat": "⇧⌘I" })).toEqual({
-    "agentPane.searchChats": "⌘K",
+  expect(readShortcuts({ "agentPane.permission.allowOnce": "⌥⌘1", "palette.newAgentChat": "⇧⌘I" })).toEqual({
+    "agentPane.permission.allowOnce": "⌥⌘1",
     "palette.newAgentChat": "⇧⌘I",
   });
   expect(readShortcuts({ a: "", b: 3, c: null, d: "⌃⌘V" })).toEqual({ d: "⌃⌘V" });
