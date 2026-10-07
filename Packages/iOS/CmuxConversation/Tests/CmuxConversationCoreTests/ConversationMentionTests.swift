@@ -133,6 +133,8 @@ import Testing
 
     @Test func anEditKeepsOnlyMentionsWhoseTextIsUnchanged() async throws {
         let backend = ScriptedBackend(total: 3)
+        // Edits are allowed for 15 minutes after the send, so ack it as now.
+        backend.stampAcksWithServerNow = true
         let store = ConversationStore(backend: backend, pageSize: 30, makeClientMessageID: { "c1" })
         store.apply(.connected(info: backend.info, meID: "me", lagged: false))
         try await waitUntil { store.hasLoadedNewest }
