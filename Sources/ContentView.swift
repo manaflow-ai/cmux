@@ -15514,8 +15514,6 @@ struct SidebarFooterButtons: View {
             }
             if shows(.upgrade),
                SidebarFooterPresentationPolicy.isUpgradeVisible(
-                   featureFlagEnabled: accountFlow?.isProUpgradeAvailable
-                       ?? CmuxFeatureFlags.shared.isProUpgradeUIEnabled,
                    isProActive: accountFlow?.isProActive == true,
                    isProStatusKnown: isProStatusKnownForUpgrade
                ) {
