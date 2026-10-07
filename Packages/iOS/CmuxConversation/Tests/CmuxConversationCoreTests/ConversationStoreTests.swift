@@ -457,3 +457,63 @@ extension ConversationStoreWindowTests {
         #expect(store.messages[store.messages.count - 2].rowID == rowID)
     }
 }
+
+@MainActor
+@Suite struct ConversationStoreTrimTests {
+    private func loadedStore(total: Int, pages: Int) async throws -> (ScriptedBackend, ConversationStore) {
+        let backend = ScriptedBackend(total: total)
+        let store = ConversationStore(backend: backend, pageSize: 30)
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+        for page in 1..<pages {
+            store.loadOlder()
+            try await waitUntil { store.messages.count == 30 * (page + 1) }
+        }
+        return (backend, store)
+    }
+
+    @Test func trimKeepsTheNewestMessagesAndPagesBackIn() async throws {
+        let (_, store) = try await loadedStore(total: 200, pages: 4)
+        var changes: [ConversationStoreChange] = []
+        store.onChange = { changes.append($0) }
+        #expect(store.messages.compactMap(\.seq) == Array(81...200))
+        #expect(store.trimOlder(keepingNewest: 50))
+        #expect(store.messages.compactMap(\.seq) == Array(151...200))
+        #expect(store.message(id: "m100") == nil)
+        #expect(store.message(id: "m151")?.seq == 151)
+        #expect(store.older == .idle)
+        #expect(changes == [.reset])
+        store.loadOlder()
+        try await waitUntil { store.messages.count == 80 }
+        #expect(store.messages.compactMap(\.seq) == Array(121...200))
+    }
+
+    @Test func trimKeepsMessagesThatKeptRepliesQuote() async throws {
+        let (backend, store) = try await loadedStore(total: 120, pages: 4)
+        var reply = backend.makeMessage(seq: 121, sender: "lc")
+        reply.replyToID = "m20"
+        store.apply(.message(reply, eventSeq: 1))
+        #expect(store.trimOlder(keepingNewest: 10))
+        #expect(store.messages.first?.seq == 20)
+        #expect(store.message(id: "m20") != nil)
+    }
+
+    @Test func trimNeverDropsAFailedSendOrRunsWhilePaging() async throws {
+        let (backend, store) = try await loadedStore(total: 100, pages: 2)
+        backend.failNextSend = true
+        store.send(text: "unsent")
+        try await waitUntil { store.messages.contains { $0.delivery?.isFailed == true } }
+        for seq in 101...140 { store.apply(.message(backend.makeMessage(seq: seq, sender: "lc"), eventSeq: seq)) }
+        #expect(store.trimOlder(keepingNewest: 10))
+        #expect(store.messages.contains { $0.text == "unsent" })
+        store.loadOlder()
+        #expect(store.older == .loading)
+        #expect(!store.trimOlder(keepingNewest: 5))
+    }
+
+    @Test func trimIfLargeOnlyAboveThreshold() async throws {
+        let (_, store) = try await loadedStore(total: 100, pages: 2)
+        #expect(!store.trimOlderIfLarge())
+        #expect(store.messages.count == 60)
+    }
+}

@@ -290,12 +290,25 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
     @objc private func liveScrollStarted() { isLiveScrolling = true }
 
     func userDidScroll() {
-        if !isLiveScrolling { isPinnedToBottom = isNearBottom() }
+        if !isLiveScrolling {
+            isPinnedToBottom = isNearBottom()
+            trimHistoryIfResting()
+        }
     }
 
     @objc private func liveScrollEnded() {
         isLiveScrolling = false
         isPinnedToBottom = isNearBottom()
+        trimHistoryIfResting()
+    }
+
+    /// A reader who scrolled back down and rests on the newest message bounds
+    /// the loaded window, so later updates stay cheap (rows far above reload
+    /// as pages if the reader returns to them).
+    private func trimHistoryIfResting() {
+        guard isPinnedToBottom, !isLiveScrolling, !isSubmitting, pendingFlightRowIDs.isEmpty,
+              replyTarget == nil, editingMessageID == nil, replyFocus == nil, threadFocus == nil else { return }
+        store.trimOlderIfLarge()
     }
 
     @objc private func boundsDidChange() {

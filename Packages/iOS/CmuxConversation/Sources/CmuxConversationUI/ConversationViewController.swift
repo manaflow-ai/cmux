@@ -699,11 +699,24 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
     }
 
     public func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
-        if !decelerate { isPinnedToBottom = isNearBottom(tolerance: 44) }
+        if !decelerate {
+            isPinnedToBottom = isNearBottom(tolerance: 44)
+            trimHistoryIfResting()
+        }
     }
 
     public func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
         isPinnedToBottom = isNearBottom(tolerance: 44)
+        trimHistoryIfResting()
+    }
+
+    /// A reader who scrolled back down and rests on the newest message bounds
+    /// the loaded window, so later updates stay cheap (rows far above reload
+    /// as pages if the reader returns to them).
+    func trimHistoryIfResting() {
+        guard isPinnedToBottom, !collectionView.isTracking, !collectionView.isDecelerating,
+              activeFlights.isEmpty, pendingFlight == nil, replyTarget == nil, editingMessageID == nil, !isSelecting else { return }
+        store.trimOlderIfLarge()
     }
 
     public func scrollViewDidScroll(_ scrollView: UIScrollView) {
