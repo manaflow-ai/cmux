@@ -411,6 +411,9 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
 
     // MARK: Store changes
 
+    /// Whose "has notifications silenced" row the transcript shows.
+    private var shownSilencedID: String?
+
     private func storeDidChange(_ change: ConversationStoreChange) {
         if store.hasLoadedNewest, !initialSpinner.isHidden {
             initialSpinner.stopAnimation(nil)
@@ -419,7 +422,10 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         if let info = store.info { onInfoChange?(info, store.meID, store.connection == .connected) }
         if case .connection = change { return }
         if case .readState = change { updateCatchUp(); return }
-        if case .listState = change { return }
+        // List state leaves the transcript alone, except the recipient's
+        // Focus, which adds or removes the "has notifications silenced" row.
+        if case .listState = change, store.info?.silencedRecipient?.id == shownSilencedID { return }
+        shownSilencedID = store.info?.silencedRecipient?.id
         defer { updateCatchUp() }
 
         var newRows = MacConversationRowBuilder.rows(store: store)
@@ -872,6 +878,8 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             return layout.height + topSpacing(at: row, model)
         case .timestamp, .notice: return MacTimestampRowView.height
         case .sendLaterHeader: return MacSendLaterHeaderRowView.height
+        case let .systemEvent(_, text): return MacSystemEventRowView.height(text, width: transcriptWidth)
+        case let .unavailability(_, messageID): return MacUnavailabilityRowView.height(showsNotifyAnyway: messageID != nil)
         case .loadingOlder: return MacSpinnerRowView.height
         case .conversationStart: return MacConversationStartRowView.height
         case .typing: return max(0.01, MacTypingRowView.height * typingProgress)
@@ -884,6 +892,8 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         case .message: identifier = "m"
         case .timestamp, .notice: identifier = "t"
         case .sendLaterHeader: identifier = "sl"
+        case .systemEvent: identifier = "e"
+        case .unavailability: identifier = "u"
         case .loadingOlder: identifier = "l"
         case .conversationStart: identifier = "s"
         case .typing: identifier = "y"
@@ -893,6 +903,8 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             case .message: return MacMessageContainerView()
             case .timestamp, .notice: return MacTimestampRowView()
             case .sendLaterHeader: return MacSendLaterHeaderRowView()
+            case .systemEvent: return MacSystemEventRowView()
+            case .unavailability: return MacUnavailabilityRowView()
             case .loadingOlder: return MacSpinnerRowView()
             case .conversationStart: return MacConversationStartRowView()
             case .typing: return MacTypingRowView()
@@ -935,6 +947,15 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             header.menuProvider = { [weak self, weak header] in
                 guard let self, let header else { return NSMenu() }
                 return self.sendLaterMenu(rowID: rowID, anchor: header)
+            }
+        case let .systemEvent(_, text):
+            (view as? MacSystemEventRowView)?.configure(text)
+        case let .unavailability(name, messageID):
+            guard let view = view as? MacUnavailabilityRowView else { return }
+            view.configure(name: name, showsNotifyAnyway: messageID != nil)
+            view.onNotifyAnyway = { [weak self] in
+                guard let messageID else { return }
+                self?.store.notifyAnyway(messageID: messageID)
             }
         case .loadingOlder:
             (view as? MacSpinnerRowView)?.spinner.startAnimation(nil)
@@ -1539,6 +1560,20 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             let shift = min(max(0, (Double(argument) ?? 0) - 14) * 0.4, timestampRevealDistance)
             setTimestampReveal(shift / timestampRevealDistance)
             return "shift \(shift) of \(timestampRevealDistance)"
+        case "statusrows":
+            // Status rows and the unavailability notice, newest last.
+            return rows.compactMap { row -> String? in
+                switch row {
+                case let .systemEvent(_, text): return "{\(text.text)}"
+                case let .unavailability(name, messageID): return "(silenced \(name)\(messageID == nil ? "" : " notify"))"
+                case let .message(model): return model.footer == .none ? nil : "footer \(model.footer)"
+                default: return nil
+                }
+            }.suffix(Int(argument) ?? 8).joined(separator: " | ")
+        case "notifyanyway":
+            guard let message = store.notifyAnywayMessage else { return "error nothing to notify" }
+            store.notifyAnyway(messageID: message.id)
+            return "ok"
         case "rows":
             let visible = tableView.rows(in: scrollView.contentView.bounds)
             let ids = (visible.location..<min(rows.count, visible.location + visible.length)).compactMap { messageModel(at: $0)?.message.id }

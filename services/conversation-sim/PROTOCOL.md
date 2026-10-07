@@ -12,10 +12,11 @@ Transport: WebSocket at `ws://<host>:<port>/ws?conversation=<id>`, one JSON-RPC
 2.0 object per text frame. Media over plain HTTP on the same port.
 
 Conversations hosted: `group` (title "cmux", 3 other participants, ~20k
-messages), `direct` (1:1, ~5k messages) and `intl` (title "Amigos", Spanish,
+messages), `direct` (1:1, ~5k messages), `intl` (title "Amigos", Spanish,
 Japanese and French speakers, ~300 messages, seeded on its own stream so the
-other two are unchanged). All live for the life of the
-process and keep growing.
+other two are unchanged) and `empty` (1:1 with Kate Bell, no messages: the
+empty-conversation and top-of-history state; no bot traffic until I write).
+All live for the life of the process and keep growing.
 
 ## Requests (client to server)
 
@@ -34,6 +35,7 @@ process and keep growing.
 | `unfurl` | `{url}` | `{linkPreview: LinkPreview}` |
 | `updateConversation` | `{pinned?, pinOrder?, muted?, markedUnread?, deleted?}` | `{conversation}` |
 | `keepAudio` | `{messageId}` | `{message: Message}` |
+| `notifyAnyway` | `{messageId}` | `{message: Message}` (my `deliveredQuietly` message only, else `-32602`; sets `notifiedAnyway`) |
 | `audioPlayed` | `{messageId}` | `{}` |
 | `scheduleSend` | `{clientMessageId, text, replyToId?, attachmentIds?, scheduledAt}` | `{scheduled: Scheduled}` |
 | `scheduled` | `{}` | `{scheduled: [Scheduled]}` |
@@ -135,7 +137,11 @@ Conversation {
   id, title, kind: "group"|"direct", participants: [Participant],
   pinned, pinOrder?, muted, markedUnread, deleted   // list state; pinOrder only when pinned
 }
-Participant  { id, name, initials, colorHex, isMe }
+Participant  {
+  id, name, initials, colorHex, isMe,
+  notificationsSilenced?: true   // Focus on (direct recipient); omitted when off
+  left?: true                    // left or was removed from the group; omitted otherwise
+}
 Contact      { id, name, initials, colorHex, isMe: false, handles: [{value, label, service}] }
 Service      = "iMessage"|"SMS"
 // Conversation.service: present on created conversations ("SMS" when any member is SMS-only)
@@ -149,12 +155,20 @@ Message {
   textRuns?: [TextRun]                           // omitted when plain
   linkPreview?: LinkPreview   // when a URL opens or ends `text`
   effect?: Effect                                // "send with effect"
+  system?: SystemEvent        // a group status row; `text` is "", `senderId` is the actor
+  deliveredQuietly?: true     // mine, delivered while the recipient was silenced
+  notifiedAnyway?: true       // I tapped Notify Anyway for it
   poll?: Poll                                    // text holds the question
 }
 Poll {
   question,
   options: [{id, text, addedBy?}],               // addedBy: added after creation
   votes: [{participantId, optionId, votedAt}]    // multi-select: one per (participant, option)
+}
+SystemEvent {
+  kind: "named"|"removedName"|"added"|"removed"|"left"|"changedPhoto"|"removedPhoto",
+  targetId?,   // added / removed
+  name?        // named: the new conversation name
 }
 LinkPreview {
   url, title?, siteName?, state: "loaded"|"loading"|"tapToLoad",
@@ -230,10 +244,20 @@ edit without `textRuns` clears the formatting.
 - `POST /admin/poll?conversation=<id>&question=<q>&options=<a,b,...>&votes=0|1`:
   a bot posts a poll now (random content without `question`/`options`); bots
   vote on it unless `votes=0`.
+- `POST /admin/system?conversation=group&kind=<kind>&actor=<id>&target=<id>&name=<s>`:
+  a group status row now (actor defaults to a random member). It applies its
+  effect first: `named`/`removedName` change the title, `left`/`removed` mark
+  the member `left` (they stop typing and sending), `added` brings a former
+  member back; each pushes `conversation`. Invalid changes (a member who left
+  acting, adding a current member, removing or leaving as me, a status row
+  in `direct`) return 400.
+- `POST /admin/focus?conversation=direct&on=1|0`: the direct recipient's Focus
+  (pushes `conversation` with `notificationsSilenced`).
 - `POST /admin/disconnect`: drop every socket (reconnect testing).
 - `POST /admin/knobs` JSON `{latencyScale, failRate, historyFailRate,
   duplicateRate, disconnectEverySeconds, botIntervalScale, botLinkRate, effectRate,
-  unsendFailRate, pollVoteFailRate, scheduledFailRate}`. `unsendFailRate` (default 0) makes `unsend` refuse with
+  unsendFailRate, pollVoteFailRate, scheduledFailRate, statusEverySeconds,
+  focusEverySeconds}`. `unsendFailRate` (default 0) makes `unsend` refuse with
   `-32005 "not unsent"`.
 - `POST /admin/scheduled/fire?conversation=<id>&id=<scheduledId>`: make one
   scheduled message due now (honors `scheduledFailRate`).
@@ -296,3 +320,24 @@ message cannot be edited.
   later add or switch a vote, each change a `message.updated` event.
 - Seeded history carries polls (~0.4% of older messages, own rng, never in the
   newest 300) with existing votes.
+
+## Group status rows and Focus
+
+Status rows are messages with `system` (seq, paging, replay and dedupe as
+usual). They never count as unread (`unreadCount`, `/admin/unread`). Group
+history opens with Lawrence naming the conversation "cmux" (seq 1) and holds
+a few more far from the newest pages: my photo change, a rename and rename
+back, Leo leaving and being added again, another photo change. They replace
+existing messages after history is generated, on their own seeded rng, so
+every seq and every other message is unchanged.
+
+Live, on a separate seeded stream (`SEED ^ 0x5747`), roughly every
+`statusEverySeconds` (default 300, jittered 0.5x to 1.5x, scaled by
+`botIntervalScale`; 0 stops it) a group member renames the group (40%),
+changes its photo (20%), or a member leaves and is added back 20 to 90 s
+later (40%).
+
+The direct recipient's Focus flips on or off roughly every
+`focusEverySeconds` (default 180, its own seeded stream `SEED ^ 0xf0c5`; 0
+stops it). While it is on, my messages there become `delivered` with
+`deliveredQuietly: true` and are not read automatically.

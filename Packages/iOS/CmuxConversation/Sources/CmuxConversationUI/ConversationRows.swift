@@ -13,6 +13,12 @@ enum ConversationRow: Hashable {
     case notice(ConversationNotice)
     /// "Send Later <time> Edit" above a scheduled message.
     case sendLaterHeader(rowID: String, date: Date, failed: Bool)
+    /// A group change ("Lawrence Chen named the conversation …"): centered,
+    /// the actor's name emphasized, wrapping when long.
+    case systemEvent(id: String, text: ConversationSystemText)
+    /// "<Name> has notifications silenced" under the newest message, with
+    /// Notify Anyway while my newest message was delivered quietly.
+    case unavailability(name: String, notifyAnywayMessageID: String?)
 
     var id: String {
         switch self {
@@ -23,6 +29,8 @@ enum ConversationRow: Hashable {
         case .typing: return "typing"
         case let .notice(notice): return notice.id
         case let .sendLaterHeader(rowID, _, _): return "sl:\(rowID)"
+        case let .systemEvent(id, _): return id
+        case .unavailability: return "unavailability"
         }
     }
 }
@@ -130,6 +138,10 @@ enum ConversationRowBuilder {
                 rows.append(.notice(unsentNotice(message, meID: meID, info: info)))
                 continue
             }
+            if let status = ConversationStatusStrings.text(for: message, meID: meID, info: info) {
+                rows.append(.systemEvent(id: "system:\(message.rowID)", text: status))
+                continue
+            }
             let groupedWithPrevious = !entry.isFirstInRun
             let nextBreaksGroup = entry.isLastInRun
             let isOutgoing = message.senderID == meID
@@ -163,10 +175,24 @@ enum ConversationRowBuilder {
                 translation: translation?.caption
             ), store: store)))
         }
+        // The Focus notice ends the transcript, above typing and Send Later rows.
+        if let silenced = info.silencedRecipient {
+            let slot = rows.firstIndex { row in
+                switch row {
+                case .typing, .sendLaterHeader: return true
+                default: return false
+                }
+            } ?? rows.count
+            rows.insert(.unavailability(name: firstName(silenced.name), notifyAnywayMessageID: store.notifyAnywayMessage?.id), at: slot)
+        }
         if !typingPlaced {
             rows.append(.typing(participantIDs: typingIDs))
         }
         return rows
+    }
+
+    private static func firstName(_ name: String) -> String {
+        name.split(separator: " ").first.map(String.init) ?? name
     }
 
     static func unsentNotice(_ message: ConversationMessage, meID: String?, info: ConversationInfo) -> ConversationNotice {
@@ -211,6 +237,8 @@ enum ConversationRowBuilder {
             return .notDelivered
         case .delivered:
             return .status(String(localized: "conversation.status.delivered", defaultValue: "Delivered", bundle: .module))
+        case .deliveredQuietly:
+            return .status(ConversationStatusStrings.deliveredQuietly)
         case let .read(date):
             // Group chats never expose read state.
             guard !isGroup else {

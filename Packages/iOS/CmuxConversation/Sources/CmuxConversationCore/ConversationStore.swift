@@ -301,8 +301,10 @@ public final class ConversationStore {
         if incoming.attachments.isEmpty, !existing.attachments.isEmpty, incoming.seq == nil {
             result.attachments = existing.attachments
         }
-        // Unsending is final here: a stale echo of the original (or the
-        // server's copy after a refused unsend) never brings the text back.
+        // Notify Anyway is final too: a stale echo never offers it again.
+        result.notifiedAnyway = existing.notifiedAnyway || incoming.notifiedAnyway
+        // Unsending is final: a stale echo of the original never brings the
+        // text back (a refused unsend restores the original directly).
         if let unsentAt = existing.unsentAt, incoming.unsentAt == nil {
             result.unsentAt = unsentAt
             result.text = ""
@@ -727,6 +729,39 @@ public final class ConversationStore {
         }
     }
 
+    /// The quietly delivered message of mine that still offers Notify
+    /// Anyway: the newest one, while its recipient stays silenced.
+    public var notifyAnywayMessage: ConversationMessage? {
+        guard info?.silencedRecipient != nil,
+              let newest = messages.last(where: { $0.senderID == meID && $0.seq != nil && !$0.isUnsent && !$0.isSystemEvent }),
+              newest.deliveredQuietly, !newest.notifiedAnyway, !(newest.delivery.map(Self.isRead) ?? false) else { return nil }
+        return newest
+    }
+
+    private static func isRead(_ delivery: ConversationDelivery) -> Bool {
+        if case .read = delivery { return true }
+        return false
+    }
+
+    /// Notify Anyway: the button leaves at once; it comes back if the
+    /// backend refuses.
+    public func notifyAnyway(messageID: String) {
+        guard let index = indexByID[messageID], messages[index].deliveredQuietly, !messages[index].notifiedAnyway else { return }
+        messages[index].notifiedAnyway = true
+        notify(.live(insertedRowIDs: [], sentByMe: false))
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let updated = try await self.backend.notifyAnyway(messageID: messageID)
+                self.upsert(updated)
+            } catch {
+                guard let index = self.indexByID[messageID] else { return }
+                self.messages[index].notifiedAnyway = false
+            }
+            self.notify(.live(insertedRowIDs: [], sentByMe: false))
+        }
+    }
+
     /// The reader listened to someone's audio message to the end.
     public func audioPlayed(messageID: String) {
         guard let message = message(id: messageID), message.seq != nil, message.senderID != meID,
@@ -958,7 +993,7 @@ public final class ConversationStore {
         guard let marker = catchUpMarker,
               let oldest = messages.first(where: { $0.seq != nil })?.seq,
               oldest <= marker + 1 || older == .exhausted else { return nil }
-        return messages.first { ($0.seq ?? 0) > marker && $0.senderID != meID }
+        return messages.first { ($0.seq ?? 0) > marker && $0.senderID != meID && !$0.isSystemEvent }
     }
 
     /// Loads older pages until the catch-up target is in the window and
@@ -1028,7 +1063,8 @@ public final class ConversationStore {
         guard let serverRead else { return 0 }
         let oldestLoaded = hasLoadedNewest ? messages.first(where: { $0.seq != nil })?.seq : nil
         func incoming(after seq: Int) -> Int {
-            messages.reduce(0) { $0 + (($1.seq ?? 0) > seq && $1.senderID != meID ? 1 : 0) }
+            // Group status rows ("… named the conversation") are not unread messages.
+            messages.reduce(0) { $0 + (($1.seq ?? 0) > seq && $1.senderID != meID && !$1.isSystemEvent ? 1 : 0) }
         }
         if let oldestLoaded, lastReadSeq >= oldestLoaded - 1 || older == .exhausted {
             return incoming(after: lastReadSeq)

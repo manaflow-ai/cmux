@@ -75,6 +75,8 @@ if arguments.count > 3 {
                             reply = "visible " + MacConversationLab.search(String(line.dropFirst(6)).trimmingCharacters(in: .whitespaces)).joined(separator: ",")
                         } else if let composed = MacConversationLab.composeCommand(line) {
                             reply = composed
+                        } else if line.hasPrefix("filter ") {
+                            reply = MacConversationLab.setFilter(String(line.dropFirst(7))) ? "ok" : "error usage filter all|unread|drafts|sendLater"
                         } else if line == "list" {
                             let snapshot = MacConversationLab.listSnapshot()
                             let data = (try? JSONSerialization.data(withJSONObject: snapshot, options: [.sortedKeys])) ?? Data()

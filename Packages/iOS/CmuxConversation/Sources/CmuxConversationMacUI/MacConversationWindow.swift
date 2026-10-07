@@ -66,6 +66,7 @@ final class MacConversationSplitController: NSSplitViewController, NSToolbarDele
     private(set) var selected: MacConversationEntry?
     /// Conversation > Show Contact Card's popover.
     var contactCard: NSPopover?
+    var showsNoSelection: Bool { content.showsNoSelection }
     /// Total unread across conversations (the Dock badge).
     private(set) lazy var unreadBadge = ConversationUnreadBadge(stores: entries.map(\.store))
     /// The New Message draft while one is open (see MacComposeDraft.swift).
@@ -86,6 +87,7 @@ final class MacConversationSplitController: NSSplitViewController, NSToolbarDele
         // Arrowing through the list keeps focus there; a click moves it to the composer.
         sidebar.onSelect = { [weak self] entry in self?.select(entry, focusComposer: !MacKeyboardNavigation.isActive) }
         sidebar.onQueryChange = { [weak self] in self?.selected?.controller.clearFindHighlight() }
+        sidebar.onSelectNone = { [weak self] in self?.selectNone() }
         // Every conversation stays live so the sidebar previews update.
         for entry in entries { entry.store.start() }
         let sidebarItem = NSSplitViewItem(sidebarWithViewController: sidebar)
@@ -204,6 +206,17 @@ final class MacConversationSplitController: NSSplitViewController, NSToolbarDele
         }
         updateKeyViewLoop()
         if focusComposer { view.window?.makeFirstResponder(controller.composer.textView) }
+    }
+
+    /// The last listed conversation was deleted: the transcript pane shows
+    /// "No Conversation Selected" and the composer and title leave.
+    func selectNone() {
+        selected?.store.endVisit()
+        selected = nil
+        updateViewing()
+        content.showNoSelection()
+        composerHost.subviews.forEach { $0.removeFromSuperview() }
+        titleView.clear()
     }
 
     // MARK: Keyboard navigation
@@ -394,9 +407,14 @@ final class MacConversationSplitController: NSSplitViewController, NSToolbarDele
         // Messages' toolbar controls are Liquid Glass buttons (the macOS 26
         // default bordered toolbar style); only the title cluster is plain.
         case Self.filterItem:
-            item.image = NSImage(systemSymbolName: "line.3.horizontal.decrease", accessibilityDescription: nil)?.withSymbolConfiguration(Self.toolbarSymbol)
-            item.label = String(localized: "conversation.toolbar.filter", defaultValue: "Filter", bundle: .module)
-            item.isBordered = true
+            // Messages' filter button opens the Filter By menu (All Messages, Unread Messages…).
+            let menuItem = NSMenuToolbarItem(itemIdentifier: identifier)
+            menuItem.image = NSImage(systemSymbolName: "line.3.horizontal.decrease", accessibilityDescription: nil)?.withSymbolConfiguration(Self.toolbarSymbol)
+            menuItem.label = String(localized: "conversation.toolbar.filter", defaultValue: "Filter", bundle: .module)
+            menuItem.isBordered = true
+            menuItem.showsIndicator = false
+            menuItem.menu = sidebar.filterMenu
+            return menuItem
         case Self.composeItem:
             item.label = String(localized: "conversation.toolbar.compose", defaultValue: "New Message", bundle: .module)
             item.view = Self.circleButton("square.and.pencil", label: item.label)
@@ -428,8 +446,35 @@ final class MacConversationContainerController: NSViewController {
         view = MacFlippedView(frame: NSRect(x: 0, y: 0, width: 760, height: 700))
     }
 
+    private lazy var noSelection: NSTextField = {
+        let label = makeMacLabel()
+        label.stringValue = ConversationStatusStrings.noConversationSelected
+        label.font = .systemFont(ofSize: 17, weight: .semibold)
+        label.textColor = .tertiaryLabelColor
+        label.alignment = .center
+        label.setAccessibilityIdentifier("conversation.noSelection")
+        label.translatesAutoresizingMaskIntoConstraints = false
+        return label
+    }()
+
+    /// NO_CONVERSATION_SELECTED, centered in the transcript pane.
+    func showNoSelection() {
+        current?.view.removeFromSuperview()
+        current?.removeFromParent()
+        current = nil
+        guard noSelection.superview == nil else { return }
+        view.addSubview(noSelection)
+        NSLayoutConstraint.activate([
+            noSelection.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            noSelection.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+        ])
+    }
+
+    var showsNoSelection: Bool { noSelection.superview != nil }
+
     func show(_ controller: NSViewController) {
         guard controller !== current else { return }
+        noSelection.removeFromSuperview()
         current?.view.removeFromSuperview()
         current?.removeFromParent()
         addChild(controller)
@@ -461,6 +506,15 @@ final class MacToolbarTitleView: MacFlippedView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
+
+    /// No conversation selected: no avatars and no name.
+    func clear() {
+        avatars.forEach { $0.removeFromSuperview() }
+        avatars = []
+        nameLabel.stringValue = ""
+        nameLabel.toolTip = nil
+        needsLayout = true
+    }
 
     func configure(info: ConversationInfo, meID: String?, connected: Bool) {
         let others = info.participants.filter { $0.id != meID }
@@ -546,11 +600,25 @@ final class MacTitleNameAccessoryView: MacFlippedView {
     }
 }
 
-/// View > Filter By in Messages' menu bar.
+/// Filter By, shared by the toolbar's Filter menu and View > Filter By:
+/// Messages' All Messages / Unread Messages (ChatKit ALL_MESSAGES,
+/// UNREAD_MESSAGES) plus the Mac menu bar's Drafts and Send Later.
+/// Known/Unknown Senders and Recently Deleted need contacts and recovery the
+/// conversation service does not model.
 enum MacConversationListFilter: String, CaseIterable {
+    case all
     case unread
     case drafts
     case sendLater
+
+    var title: String {
+        switch self {
+        case .all: return ConversationStatusStrings.allMessages
+        case .unread: return ConversationStatusStrings.unreadMessages
+        case .drafts: return String(localized: "conversation.command.filterDrafts", defaultValue: "Drafts", bundle: .module)
+        case .sendLater: return String(localized: "conversation.command.filterSendLater", defaultValue: "Send Later", bundle: .module)
+        }
+    }
 }
 
 /// Sidebar conversation list, like the left column of Messages: pinned
@@ -575,11 +643,30 @@ final class MacConversationListViewController: NSViewController, NSTableViewData
     var tableView: NSTableView { table }
     private let searchPill = MacFlippedView()
     private let noResults = makeMacLabel()
+    /// Under the empty-state title: what the filter would show.
+    private let emptyDescription = makeMacLabel()
+    /// Filter By (All Messages / Unread Messages).
+    private(set) var filter: MacConversationListFilter = .all
+    /// The conversation opened while Unread Messages was showing.
+    private var openedFromUnreadID: String?
+    private(set) lazy var filterMenu: NSMenu = {
+        let menu = NSMenu()
+        for option in MacConversationListFilter.allCases {
+            let item = NSMenuItem(title: option.title, action: #selector(chooseFilter(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = option.rawValue
+            menu.addItem(item)
+        }
+        updateFilterMenu(menu)
+        return menu
+    }()
     private var lastTableWidth: CGFloat = 0
     var onSelect: ((MacConversationEntry) -> Void)?
     /// New Message's draft row, above the list while composing.
     let draftRow = MacComposeDraftRow()
     private lazy var draftRowHeight = draftRow.heightAnchor.constraint(equalToConstant: 0)
+    /// The selection went away with nothing left to move it to.
+    var onSelectNone: (() -> Void)?
 
     init(entries: [MacConversationEntry]) {
         self.entries = entries
@@ -662,14 +749,27 @@ final class MacConversationListViewController: NSViewController, NSTableViewData
         noResults.isHidden = true
         noResults.translatesAutoresizingMaskIntoConstraints = false
         root.addSubview(noResults)
+        emptyDescription.font = .systemFont(ofSize: 12)
+        emptyDescription.textColor = .secondaryLabelColor
+        emptyDescription.alignment = .center
+        emptyDescription.maximumNumberOfLines = 0
+        emptyDescription.lineBreakMode = .byWordWrapping
+        emptyDescription.isHidden = true
+        emptyDescription.translatesAutoresizingMaskIntoConstraints = false
+        noResults.setAccessibilityIdentifier("conversation.sidebar.empty")
+        root.addSubview(emptyDescription)
         NSLayoutConstraint.activate([
             noResults.centerXAnchor.constraint(equalTo: root.centerXAnchor),
             noResults.topAnchor.constraint(equalTo: searchPill.bottomAnchor, constant: 40),
+            emptyDescription.topAnchor.constraint(equalTo: noResults.bottomAnchor, constant: 4),
+            emptyDescription.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
+            emptyDescription.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -24),
         ])
         view = root
         updateColors()
         (pinned, visible) = arrangement()
         pinsRowShown = !pinned.isEmpty
+        updateEmptyState()
         for entry in entries {
             entry.store.addObserver { [weak self] change in
                 guard let self, change != .typing else { return }
@@ -688,17 +788,15 @@ final class MacConversationListViewController: NSViewController, NSTableViewData
 
     var query: String { search.stringValue.trimmingCharacters(in: .whitespaces) }
 
-    /// View > Filter By (nil lists every conversation).
-    var filter: MacConversationListFilter? {
-        didSet { if filter != oldValue { refresh() } }
-    }
-
     private func passes(_ filter: MacConversationListFilter, _ entry: MacConversationEntry) -> Bool {
+        if filter == .all { return true }
         // The open conversation stays listed, so reading it under Unread
-        // does not pull it out from under the reader.
+        // does not pull it out from under the reader; Unread Messages also
+        // keeps the one opened from it until another is chosen.
         if entry.id == selectedID { return true }
         switch filter {
-        case .unread: return isUnread(entry)
+        case .all: return true
+        case .unread: return isUnread(entry) || entry.id == openedFromUnreadID
         case .drafts: return entry.hasDraft
         // Conversations holding a Send Later message.
         case .sendLater: return !entry.store.scheduledMessages.isEmpty
@@ -714,14 +812,14 @@ final class MacConversationListViewController: NSViewController, NSTableViewData
             if store.info?.participants.contains(where: { !$0.isMe && $0.name.localizedCaseInsensitiveContains(query) }) == true { return true }
             return store.messages.contains { $0.text.localizedCaseInsensitiveContains(query) }
         }
-        let matching = filter.map { filter in searched.filter { passes(filter, $0) } } ?? searched
+        let matching = searched.filter { passes(filter, $0) }
         let arranged = ConversationListArrangement.arrange(matching.map {
             ConversationListArrangement.Item(id: $0.id, state: $0.store.listState, lastActivity: lastActivity($0))
         })
         let byID = Dictionary(uniqueKeysWithValues: matching.map { ($0.id, $0) })
         let pins = arranged.pinned.compactMap { byID[$0] }
         let others = arranged.others.compactMap { byID[$0] }
-        guard query.isEmpty, filter == nil else {
+        guard query.isEmpty, filter == .all else {
             return ([], (pins + others).sorted { lastActivity($0) > lastActivity($1) })
         }
         return (pins, others)
@@ -758,7 +856,7 @@ final class MacConversationListViewController: NSViewController, NSTableViewData
 
     private func refresh(changed entry: MacConversationEntry? = nil) {
         let next = arrangement()
-        let showsPins = !next.pinned.isEmpty || (isDraggingRow && query.isEmpty && filter == nil)
+        let showsPins = !next.pinned.isEmpty || (isDraggingRow && query.isEmpty && filter == .all)
         let sameShape = next.pinned.map(\.id) == pinned.map(\.id) && next.others.map(\.id) == visible.map(\.id) && showsPins == pinsRowShown
         if sameShape, let entry {
             if let row = row(of: entry.id) {
@@ -771,7 +869,7 @@ final class MacConversationListViewController: NSViewController, NSTableViewData
         pinned = next.pinned
         visible = next.others
         pinsRowShown = showsPins
-        noResults.isHidden = !(visible.isEmpty && (!query.isEmpty || filter != nil))
+        updateEmptyState()
         table.reloadData()
         syncTableSelection()
     }
@@ -794,6 +892,52 @@ final class MacConversationListViewController: NSViewController, NSTableViewData
     func controlTextDidChange(_ notification: Notification) {
         refresh()
         onQueryChange?()
+    }
+
+    /// Nothing listed: "No Results" while searching, the filter's empty
+    /// state (NO_MESSAGES plus its description) for Unread Messages, and
+    /// "No Conversations" when the list itself is empty.
+    private func updateEmptyState() {
+        let isEmpty = pinned.isEmpty && visible.isEmpty
+        let description: String?
+        if !query.isEmpty {
+            noResults.stringValue = String(localized: "conversation.sidebar.noResults", defaultValue: "No Results", bundle: .module)
+            description = nil
+        } else if filter != .all {
+            noResults.stringValue = ConversationStatusStrings.noMessages
+            description = filter == .unread ? ConversationStatusStrings.noUnreadDescription : nil
+        } else {
+            noResults.stringValue = ConversationStatusStrings.noConversations
+            description = nil
+        }
+        noResults.isHidden = !isEmpty
+        emptyDescription.stringValue = description ?? ""
+        emptyDescription.isHidden = !isEmpty || description == nil
+    }
+
+    /// The empty state as shown, for the lab: nil while anything is listed.
+    var emptyStateText: String? {
+        guard !noResults.isHidden else { return nil }
+        return emptyDescription.isHidden ? noResults.stringValue : "\(noResults.stringValue) | \(emptyDescription.stringValue)"
+    }
+
+    func setFilter(_ next: MacConversationListFilter) {
+        guard next != filter else { return }
+        filter = next
+        openedFromUnreadID = nil
+        updateFilterMenu(filterMenu)
+        refresh()
+    }
+
+    @objc private func chooseFilter(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let option = MacConversationListFilter(rawValue: raw) else { return }
+        setFilter(option)
+    }
+
+    private func updateFilterMenu(_ menu: NSMenu) {
+        for item in menu.items {
+            item.state = (item.representedObject as? String) == filter.rawValue ? .on : .off
+        }
     }
 
     /// Lab hook: types into the search field as a person would.
@@ -869,8 +1013,9 @@ final class MacConversationListViewController: NSViewController, NSTableViewData
 
     func markSelected(_ id: String) {
         selectedID = id
-        // A filtered list keeps only the open conversation outside the filter.
-        if filter != nil { refresh() }
+        if filter == .unread { openedFromUnreadID = id }
+        // A filtered list keeps the open conversation outside the filter.
+        if filter != .all { refresh() }
         if let entry = entry(id), entry.store.listState.markedUnread {
             // Opening a conversation clears Mark as Unread.
             entry.store.updateListState(.init(markedUnread: false))
@@ -1021,7 +1166,12 @@ final class MacConversationListViewController: NSViewController, NSTableViewData
         entry.store.updateListState(.init(deleted: true))
         guard entry.id == selectedID, let index = order.firstIndex(of: entry.id) else { return }
         let remaining = order.filter { $0 != entry.id }
-        guard !remaining.isEmpty, let next = self.entry(remaining[min(index, remaining.count - 1)]) else { return }
+        guard !remaining.isEmpty, let next = self.entry(remaining[min(index, remaining.count - 1)]) else {
+            selectedID = nil
+            syncTableSelection()
+            onSelectNone?()
+            return
+        }
         selectedID = next.id
         syncTableSelection()
         onSelect?(next)
@@ -1291,6 +1441,8 @@ final class MacConversationListRow: MacFlippedView {
         if let last = store.messages.last(where: { $0.seq != nil }) {
             if last.isUnsent, let info {
                 preview.stringValue = MacConversationRowBuilder.unsentPreview(last, meID: store.meID, info: info)
+            } else if let info, let status = ConversationStatusStrings.text(for: last, meID: store.meID, info: info) {
+                preview.stringValue = status.text
             } else {
                 preview.stringValue = last.text.isEmpty
                     ? (last.audioAttachment != nil ? MacAudioStrings.audioMessage : String(localized: "conversation.quote.photo", defaultValue: "Photo", bundle: .module))
@@ -1409,9 +1561,8 @@ public enum MacConversationLab {
     public static func open(endpoint: URL) -> MacConversationViewController {
         let initial = URLComponents(url: endpoint, resolvingAgainstBaseURL: false)?
             .queryItems?.first { $0.name == "conversation" }?.value ?? "group"
-        // `intl` (the sim's multilingual conversation) joins only when asked
-        // for, so older sims without it never show a dead entry.
-        let ids = (["group", "direct"] + (initial == "intl" ? ["intl"] : [])).sorted { lhs, _ in lhs == initial }
+        // `intl` (Translate) and `empty` (empty states) join the two standing ones when asked for.
+        let ids = (["group", "direct"] + (["group", "direct"].contains(initial) ? [] : [initial])).sorted { lhs, _ in lhs == initial }
         let entries = ids.map { id -> MacConversationEntry in
             var components = URLComponents(url: endpoint, resolvingAgainstBaseURL: false)!
             components.queryItems = [URLQueryItem(name: "conversation", value: id)]
@@ -1553,6 +1704,14 @@ public enum MacConversationLab {
         sidebar?.perform(action, id: id, confirm: confirm)
     }
 
+    /// Filter By, as the toolbar menu sets it (`all` / `unread`).
+    @discardableResult
+    public static func setFilter(_ raw: String) -> Bool {
+        guard let filter = MacConversationListFilter(rawValue: raw), let sidebar else { return false }
+        sidebar.setFilter(filter)
+        return true
+    }
+
     /// Pins `id` (or moves its pin) to `index`, as a drop on the pins does.
     public static func movePin(_ id: String, to index: Int) {
         sidebar?.movePin(id, to: index)
@@ -1572,7 +1731,11 @@ public enum MacConversationLab {
                 "menu": sidebar.menuTitles(for: id), "swipeLeading": swipes.leading, "swipeTrailing": swipes.trailing,
             ]
         }
-        return ["pinned": sidebar.pinnedIDs, "listed": sidebar.visibleIDs, "conversations": conversations]
+        return [
+            "pinned": sidebar.pinnedIDs, "listed": sidebar.visibleIDs, "conversations": conversations,
+            "filter": sidebar.filter.rawValue, "empty": sidebar.emptyStateText as Any,
+            "noSelection": (windows.last?.window?.contentViewController as? MacConversationSplitController)?.showsNoSelection ?? false,
+        ]
     }
 
     /// The sheet on the lab window (an alert): its texts and buttons.

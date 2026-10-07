@@ -145,6 +145,8 @@ public final class ConversationViewController: UIViewController {
         collectionView.register(TypingCell.self, forCellWithReuseIdentifier: TypingCell.reuseID)
         collectionView.register(SendLaterHeaderCell.self, forCellWithReuseIdentifier: SendLaterHeaderCell.reuseID)
         store.onScheduledActionFailed = { [weak self] in self?.presentScheduledActionFailure($0) }
+        collectionView.register(SystemEventCell.self, forCellWithReuseIdentifier: SystemEventCell.reuseID)
+        collectionView.register(UnavailabilityCell.self, forCellWithReuseIdentifier: UnavailabilityCell.reuseID)
         collectionView.accessibilityIdentifier = "conversation.transcript"
         collectionView.accessibilityLabel = ConversationAccessibilityText.transcript
         collectionView.translatesAutoresizingMaskIntoConstraints = false
@@ -248,6 +250,7 @@ public final class ConversationViewController: UIViewController {
         super.viewDidAppear(animated)
         isOnScreen = true
         updateViewing()
+        focusComposerIfEmpty()
     }
 
     public override func viewWillDisappear(_ animated: Bool) {
@@ -408,12 +411,29 @@ public final class ConversationViewController: UIViewController {
         updateCatchUp()
         if let info = store.info, header.window != nil, !hasConfiguredHeader {
             hasConfiguredHeader = true
+            configuredHeaderTitle = info.title
+            header.configure(info: info, meID: store.meID, unreadCount: headerUnreadCount)
+        } else if let info = store.info, hasConfiguredHeader, info.title != configuredHeaderTitle {
+            // "… named the conversation": the header takes the new name.
+            configuredHeaderTitle = info.title
             header.configure(info: info, meID: store.meID, unreadCount: headerUnreadCount)
         }
         maybeLoadOlder()
+        focusComposerIfEmpty()
     }
 
     private var hasConfiguredHeader = false
+    private var configuredHeaderTitle: String?
+    private var didFocusEmptyConversation = false
+
+    /// A conversation with no messages yet opens with the keyboard up, as a
+    /// new message does in Messages.
+    func focusComposerIfEmpty() {
+        guard !didFocusEmptyConversation, store.hasLoadedNewest, store.older == .exhausted,
+              store.messages.isEmpty, view.window != nil else { return }
+        didFocusEmptyConversation = true
+        composer.textView.becomeFirstResponder()
+    }
 
     private struct Anchor {
         var rowID: String
@@ -521,7 +541,7 @@ public final class ConversationViewController: UIViewController {
                 if !queueArrivalEffect(model) { arrivingRowIDs.append(model.rowID) }
             case let .message(model) where !model.isOutgoing && animateLive: arrivingRowIDs.append(model.rowID)
             case .typing: arrivingRowIDs.append(id)
-            case .loadingOlder, .notice: appearances[id] = .fade
+            case .loadingOlder, .notice, .systemEvent, .unavailability: appearances[id] = .fade
             default: break
             }
         }
@@ -845,6 +865,18 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
             let cell = collectionView.dequeueReusableCell(withReuseIdentifier: SendLaterHeaderCell.reuseID, for: indexPath) as! SendLaterHeaderCell
             cell.configure(date: date, failed: failed, menu: sendLaterMenu(for: rowID))
             return cell
+        case let .systemEvent(_, text):
+            let cell = collectionView.dequeueReusableCell(withReuseIdentifier: SystemEventCell.reuseID, for: indexPath) as! SystemEventCell
+            cell.configure(text)
+            return cell
+        case let .unavailability(name, messageID):
+            let cell = collectionView.dequeueReusableCell(withReuseIdentifier: UnavailabilityCell.reuseID, for: indexPath) as! UnavailabilityCell
+            cell.configure(name: name, showsNotifyAnyway: messageID != nil)
+            cell.onNotifyAnyway = { [weak self] in
+                guard let messageID else { return }
+                self?.store.notifyAnyway(messageID: messageID)
+            }
+            return cell
         case .loadingOlder:
             let cell = collectionView.dequeueReusableCell(withReuseIdentifier: LoadingCell.reuseID, for: indexPath) as! LoadingCell
             cell.configure(active: true)
@@ -930,6 +962,8 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
             return layoutCache.layout(for: model, width: width, margin: layoutMargin).height
         case .timestamp, .notice: return TimestampCell.height
         case .sendLaterHeader: return SendLaterHeaderCell.height
+        case let .systemEvent(_, text): return SystemEventCell.height(text, width: width)
+        case let .unavailability(_, messageID): return UnavailabilityCell.height(showsNotifyAnyway: messageID != nil)
         case .loadingOlder: return LoadingCell.height
         case .conversationStart: return ConversationStartCell.height
         case .typing: return TypingCell.height(isGroup: store.info?.kind == .group)

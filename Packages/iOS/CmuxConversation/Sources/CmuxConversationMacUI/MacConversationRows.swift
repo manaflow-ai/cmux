@@ -14,6 +14,12 @@ enum MacConversationRow: Hashable {
     case notice(ConversationNotice)
     /// "Send Later <time> Edit" above a scheduled message.
     case sendLaterHeader(rowID: String, date: Date, failed: Bool)
+    /// A group change ("Lawrence Chen named the conversation …"): centered,
+    /// the actor's name emphasized, wrapping when long.
+    case systemEvent(id: String, text: ConversationSystemText)
+    /// "<Name> has notifications silenced" under the newest message, with
+    /// Notify Anyway while my newest message was delivered quietly.
+    case unavailability(name: String, notifyAnywayMessageID: String?)
 
     var id: String {
         switch self {
@@ -24,6 +30,8 @@ enum MacConversationRow: Hashable {
         case .typing: return "typing"
         case let .notice(notice): return notice.id
         case let .sendLaterHeader(rowID, _, _): return "sl:\(rowID)"
+        case let .systemEvent(id, _): return id
+        case .unavailability: return "unavailability"
         }
     }
 
@@ -97,6 +105,11 @@ enum MacConversationRowBuilder {
             store.messages, info: info, meID: store.meID, typingParticipantIDs: store.typingParticipantIDs,
             quote: { store.message(id: $0) }, translations: store.translations
         ).map { MacPollRowModel.attach(to: $0, store: store) }
+        // The Focus notice ends the transcript, above typing and Send Later rows.
+        if let silenced = info.silencedRecipient {
+            let name = silenced.name.split(separator: " ").first.map(String.init) ?? silenced.name
+            rows.insert(.unavailability(name: name, notifyAnywayMessageID: store.notifyAnywayMessage?.id), at: typingSlot(in: rows))
+        }
         if !store.typingParticipantIDs.isEmpty {
             // Scheduled (Send Later) messages trail everything, typing included.
             rows.insert(.typing(participantIDs: store.typingParticipantIDs), at: typingSlot(in: rows))
@@ -157,6 +170,10 @@ enum MacConversationRowBuilder {
             if message.isUnsent {
                 // Its own id, so the bubble row leaves and the notice arrives.
                 rows.append(.notice(unsentNotice(message, meID: meID, info: info)))
+                continue
+            }
+            if let status = ConversationStatusStrings.text(for: message, meID: meID, info: info) {
+                rows.append(.systemEvent(id: "system:\(message.rowID)", text: status))
                 continue
             }
             if message.isScheduled, let scheduledAt = message.scheduledAt {
@@ -239,6 +256,7 @@ enum MacConversationRowBuilder {
         switch status {
         case .none: return .none
         case .notDelivered: return .notDelivered
+        case .deliveredQuietly: return .status(ConversationStatusStrings.deliveredQuietly)
         case .delivered:
             return .status(String(localized: "conversation.status.delivered", defaultValue: "Delivered", bundle: .module))
         case let .read(date):

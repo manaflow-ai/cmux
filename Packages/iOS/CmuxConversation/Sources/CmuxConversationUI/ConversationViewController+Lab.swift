@@ -81,6 +81,11 @@ extension ConversationViewController {
             }).first else { return "error no failed notice" }
             presentNotUnsent(messageID: notice.messageID)
             return "ok"
+        case "notifyanyway":
+            // The Notify Anyway button under a quietly delivered message.
+            guard let message = store.notifyAnywayMessage else { return "error nothing to notify" }
+            store.notifyAnyway(messageID: message.id)
+            return "ok"
         case "edittext":
             guard let overlay = editOverlay else { return "error not editing" }
             overlay.textView.text = argument
@@ -123,6 +128,8 @@ extension ConversationViewController {
                 case let .message(model):
                     return "\(model.isOutgoing ? ">" : "<")\(model.message.text.prefix(24))\(model.showsTail ? "~" : "")\(model.footer == .notDelivered ? "!" : "")"
                 case let .notice(notice): return "[\(notice.text)]"
+                case let .systemEvent(_, text): return "{\(text.text)}"
+                case let .unavailability(name, messageID): return "(silenced \(name)\(messageID == nil ? "" : " notify"))"
                 case .timestamp: return "[ts]"
                 default: return "[\(row.id)]"
                 }

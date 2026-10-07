@@ -98,7 +98,7 @@ extension MacConversationSplitController: MacConversationCommandValidating, NSMe
 
     private func toggleFilter(_ filter: MacConversationListFilter) {
         if let item = splitViewItems.first, item.isCollapsed { item.animator().isCollapsed = false }
-        sidebar.filter = sidebar.filter == filter ? nil : filter
+        sidebar.setFilter(sidebar.filter == filter ? .all : filter)
     }
 
     // MARK: Conversation
