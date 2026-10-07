@@ -46,7 +46,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     var dynamicResources: (any PageDynamicResourceSource)?
     /// True when this view came from ``PageHostPool`` and may be rebound to another bundled page.
     public let isPooled: Bool
-    private var pooledOwner: PagePooledOwner?
+    var pooledOwner: PagePooledOwner?
     /// Whether a pooled host has received user input or a page operation since its claim.
     public internal(set) var touched = false
     /// Prepared page activity does not count as user activity while the view is parked.
