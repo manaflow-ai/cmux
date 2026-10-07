@@ -7,7 +7,7 @@ import { layoutGrid, moveActive, type GridLayout, type GridMove, type GridSectio
 import { iconKey, type IconKind, type IconValue } from "./iconValue";
 import { EMPTY_PREFS, rankedKeys, recordUse, searchBoost, type PickerPrefs, type PickerPrefsStore } from "./recents";
 import { search, type Searchable } from "./search";
-import { symbolItems, type SymbolItem } from "./symbols";
+import { symbolItems, type SymbolCatalog, type SymbolItem } from "./symbols";
 
 export type PickerTab = IconKind;
 export const GRID_TABS: readonly PickerTab[] = ["emoji", "symbol"];
@@ -21,6 +21,8 @@ export interface PickerCell {
   readonly detail?: string;
   readonly emoji?: string;
   readonly symbol?: string;
+  /** The symbol has a multicolor variant (the system's multicolor category). */
+  readonly multicolor?: boolean;
 }
 
 export interface PickerSnapshot {
@@ -76,8 +78,8 @@ export class PickerStore {
   readonly getSnapshot = () => this.snapshot;
 
   /** The host's catalog: SF Symbol names and the newest Emoji version the system font draws. */
-  configure(symbols: readonly string[], maxEmojiVersion?: number) {
-    this.load(symbols, maxEmojiVersion);
+  configure(symbols: SymbolCatalog | readonly string[], maxEmojiVersion?: number) {
+    this.load("names" in symbols ? symbols.names : symbols, maxEmojiVersion);
     this.cache = undefined;
     this.update({});
   }
