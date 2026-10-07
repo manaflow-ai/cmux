@@ -493,6 +493,27 @@ extension ConversationStoreWindowTests {
         #expect(store.messages.last?.id == "m4")
         #expect(store.messages[store.messages.count - 2].rowID == rowID)
     }
+
+    @Test func tryAgainMovesTheSendToTheBottomAtOnce() async throws {
+        let backend = ScriptedBackend(total: 3)
+        let store = ConversationStore(backend: backend, pageSize: 30, makeClientMessageID: { "client-r" })
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+        backend.failNextSend = true
+        let rowID = try #require(store.send(text: "again"))
+        try await waitUntil { store.message(rowID: rowID)?.delivery?.isFailed == true }
+        var later = backend.makeMessage(seq: 4, sender: "lc")
+        later.sentAt = Date().addingTimeInterval(5)
+        store.apply(.message(later, eventSeq: 1))
+        #expect(store.messages.last?.id == "m4")
+        // Try Again sends it now: it leaves its failed place for the bottom
+        // while it is in flight, not only when the server acknowledges it.
+        backend.holdSend = true
+        store.retry(rowID: rowID)
+        #expect(store.messages.last?.rowID == rowID)
+        #expect(store.messages.last?.delivery == .sending)
+        backend.releaseSend()
+    }
 }
 
 @MainActor
