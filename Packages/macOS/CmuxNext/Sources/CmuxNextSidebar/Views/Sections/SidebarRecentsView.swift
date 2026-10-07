@@ -9,9 +9,9 @@ public final class SidebarRecentsView: NSView {
     /// The contribution of the Recents section in the layout.
     public nonisolated static var contribution: String { SidebarLayoutDocument.recentsContribution }
     /// The section's header.
-    public static var title: String { String(localized: "sidebar.recents.title", defaultValue: "Recents", bundle: .module) }
+    public static var title: String { String(localized: "sidebar.chats.title", defaultValue: "Chats", bundle: .module) }
     /// A chat with no prompt yet.
-    public static var newChatTitle: String { String(localized: "sidebar.recents.newChat", defaultValue: "New chat", bundle: .module) }
+    public static var newChatTitle: String { String(localized: "sidebar.chats.newChat", defaultValue: "New chat", bundle: .module) }
 
     public struct Row: Hashable, Sendable {
         public var id: String

@@ -25,15 +25,15 @@ final class SidebarAppSections: SidebarAppSectionProvider {
     }
 
     func title(for contribution: String) -> String? {
-        contribution == SidebarRecentsView.contribution ? SidebarRecentsView.title : provider.title(for: contribution)
+        contribution == SidebarChatsView.contribution ? SidebarChatsView.title : provider.title(for: contribution)
     }
 
     func makeView(for contribution: String) -> NSView? {
-        contribution == SidebarRecentsView.contribution ? recents?.contentView : provider.makeView(for: contribution)
+        contribution == SidebarChatsView.contribution ? recents?.contentView : provider.makeView(for: contribution)
     }
 
     func preferredHeight(for contribution: String, width: CGFloat) -> CGFloat {
-        guard contribution != SidebarRecentsView.contribution else { return recents?.height ?? 0 }
+        guard contribution != SidebarChatsView.contribution else { return recents?.height ?? 0 }
         return provider.preferredHeight(for: contribution, width: width)
     }
 }

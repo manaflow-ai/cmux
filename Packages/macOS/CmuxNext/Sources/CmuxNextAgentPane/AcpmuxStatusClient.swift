@@ -26,6 +26,16 @@ nonisolated enum AcpmuxStatusClient {
         return AcpmuxStatus(result)
     }
 
+    /// `_acpmux/chat_open`: the daemon's open plan for one device-wide chat
+    /// (nil when the answer is not a plan this build reads).
+    @concurrent static func chatOpen(socketPath: String, key: String, cwd: String? = nil,
+                                     deadline: Duration = .seconds(2)) async throws -> AcpmuxChatOpenPlan? {
+        var params: [String: any Sendable] = ["key": key]
+        if let cwd { params["cwd"] = cwd }
+        let result = try await call(socketPath: socketPath, method: "_acpmux/chat_open", params: params, deadline: deadline)
+        return AcpmuxChatOpenPlan(result: result)
+    }
+
     /// `_acpmux/shutdown`: the daemon stops; agents under agent hosts keep
     /// running for the next daemon. With `endAgents` (Quit Everything) they
     /// end, except the agents of `keepSessions`.
