@@ -1147,3 +1147,7 @@ mod drag;
 // Incognito tabs (private data P1).
 #[path = "chromium/incognito.rs"]
 mod incognito;
+
+// frame.observe's field scan within the page-read budget.
+#[path = "chromium/observe.rs"]
+mod observe;
