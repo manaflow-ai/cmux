@@ -19696,7 +19696,11 @@ struct CMUXCLI {
             return """
             Usage: cmux welcome
 
-            Show a welcome screen with the cmux logo and the default shortcuts.
+            \(String(
+                localized: "cli.welcome.help.description",
+                defaultValue: "Show a welcome screen with the cmux logo and the default shortcuts.",
+                bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
+            ))
             Auto-runs once on first launch.
             """
         case "shortcuts":
@@ -43199,21 +43203,36 @@ export default {
             .toggleUnread,
         ]
         let keyColumnWidth = 20
-        var shortcutLines = ["  \(bold)Default shortcuts\(reset)", ""]
+        let shortcutHeading = String(
+            localized: "cli.welcome.shortcuts.heading",
+            defaultValue: "Default shortcuts",
+            bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
+        )
+        var shortcutLines = ["  \(bold)\(shortcutHeading)\(reset)", ""]
         for action in welcomeActions {
             let keys = defaultKeys(action)
             let padding = String(repeating: " ", count: max(1, keyColumnWidth - keys.count))
             shortcutLines.append("  \(bold)\(keys)\(reset)\(padding)\(subdued)\(action.displayName)\(reset)")
         }
         shortcutLines.append("")
-        shortcutLines.append(
-            "  \(subdued)Rebound something? Run \(reset)\(bold)cmux shortcuts\(reset)\(subdued) to see or change your keys"
-                + " (Settings > Keyboard Shortcuts).\(reset)"
+        let reboundGuidance = String(
+            format: String(
+                localized: "cli.welcome.shortcuts.reboundGuidance",
+                defaultValue: "Rebound something? Run %@ to see or change your keys (Settings > Keyboard Shortcuts).",
+                bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
+            ),
+            "\(reset)\(bold)cmux shortcuts\(reset)\(subdued)"
         )
-        shortcutLines.append(
-            "  \(subdued)Press \(reset)\(bold)\(defaultKeys(.commandPalette))\(reset)\(subdued)"
-                + " or use File > Command Palette… for everything else.\(reset)"
+        shortcutLines.append("  \(subdued)\(reboundGuidance)\(reset)")
+        let paletteGuidance = String(
+            format: String(
+                localized: "cli.welcome.shortcuts.paletteGuidance",
+                defaultValue: "Press %@ or use File > Command Palette… for everything else.",
+                bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
+            ),
+            "\(reset)\(bold)\(defaultKeys(.commandPalette))\(reset)\(subdued)"
         )
+        shortcutLines.append("  \(subdued)\(paletteGuidance)\(reset)")
 
         print()
         print(logo)

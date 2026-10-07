@@ -641539,6 +641539,242 @@
           }
         }
       }
+    },
+    "cli.welcome.help.description": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show a welcome screen with the cmux logo and the default shortcuts."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عرض شاشة ترحيب تتضمن شعار cmux والاختصارات الافتراضية."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeigt einen Willkommensbildschirm mit dem cmux-Logo und den Standard-Tastenkürzeln."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muestra una pantalla de bienvenida con el logotipo de cmux y los atajos predeterminados."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Affiche un écran d’accueil avec le logo cmux et les raccourcis par défaut."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ロゴとデフォルトのショートカットを含むウェルカム画面を表示します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 로고와 기본 단축키가 표시된 환영 화면을 보여 줍니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示包含 cmux 标志和默认快捷键的欢迎屏幕。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示包含 cmux 標誌和預設快捷鍵的歡迎畫面。"
+          }
+        }
+      }
+    },
+    "cli.welcome.shortcuts.heading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default shortcuts"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاختصارات الافتراضية"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard-Tastenkürzel"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atajos predeterminados"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Raccourcis par défaut"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デフォルトのショートカット"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기본 단축키"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "默认快捷键"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "預設快捷鍵"
+          }
+        }
+      }
+    },
+    "cli.welcome.shortcuts.paletteGuidance": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Press %@ or use File > Command Palette… for everything else."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اضغط على %@ أو استخدم ملف > لوحة الأوامر… لكل ما تبقى."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drücke %@ oder verwende Ablage > Befehlspalette… für alles Weitere."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pulsa %@ o usa Archivo > Paleta de comandos… para todo lo demás."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appuyez sur %@ ou utilisez Fichier > Palette de commandes… pour tout le reste."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ を押すか、「ファイル」>「コマンドパレット…」を使ってその他の操作を行います。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@를 누르거나 파일 > 명령어 팔레트를 사용해 나머지 기능을 이용하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按 %@，或使用“文件”>“命令面板…”处理其他操作。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按下 %@，或使用「檔案」>「指令面板…」處理其他操作。"
+          }
+        }
+      }
+    },
+    "cli.welcome.shortcuts.reboundGuidance": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rebound something? Run %@ to see or change your keys (Settings > Keyboard Shortcuts)."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هل أعدت تعيين شيء؟ شغّل %@ لعرض مفاتيحك أو تغييرها (الإعدادات > اختصارات لوحة المفاتيح)."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Etwas neu belegt? Führe %@ aus, um deine Tasten anzuzeigen oder zu ändern (Einstellungen > Tastaturkurzbefehle)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Has reasignado algo? Ejecuta %@ para ver o cambiar tus teclas (Ajustes > Atajos de teclado)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vous avez remappé une touche ? Exécutez %@ pour afficher ou modifier vos raccourcis (Réglages > Raccourcis clavier)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ショートカットを変更しましたか？%@ を実行するとキーを確認または変更できます（設定 > キーボードショートカット）。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "무언가를 다시 지정했나요? %@를 실행해 키를 확인하거나 변경하세요(설정 > 키보드 단축키)."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新绑定了某项快捷键？运行 %@ 可查看或更改按键（“设置”>“键盘快捷键”）。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新設定了某個項目？執行 %@ 即可檢視或變更按鍵（「設定」>「鍵盤快速鍵」）。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
