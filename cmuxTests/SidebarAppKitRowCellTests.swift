@@ -868,6 +868,53 @@ struct SidebarAppKitRowCellTests {
     }
 
     @Test
+    func statusPresentationKeepsReadableExplicitColorAndUsesSelectedFallback() throws {
+        let selectedBackground = try #require(NSColor(hex: "#005FCC"))
+        let readableExplicit = try #require(NSColor(hex: "#FFFFFF"))
+        let lowContrastExplicit = try #require(NSColor(hex: "#0066CC"))
+        let inactiveFallback = NSColor.secondaryLabelColor
+        let selectedFallback = try #require(NSColor(hex: "#FF00FF")).withAlphaComponent(0.37)
+
+        let inactive = sidebarStatusPresentationNSColor(
+            explicit: readableExplicit,
+            isActive: false,
+            selectedBackground: selectedBackground,
+            fallback: inactiveFallback
+        )
+        let activeReadable = sidebarStatusPresentationNSColor(
+            explicit: readableExplicit,
+            isActive: true,
+            selectedBackground: selectedBackground,
+            fallback: selectedFallback
+        )
+        let activeFloored = sidebarStatusPresentationNSColor(
+            explicit: lowContrastExplicit,
+            isActive: true,
+            selectedBackground: selectedBackground,
+            fallback: selectedFallback
+        )
+
+        #expect(Self.distance(inactive, readableExplicit) < 0.001)
+        #expect(Self.distance(activeReadable, readableExplicit) < 0.001)
+        #expect(Self.distance(activeFloored, selectedFallback) < 0.001)
+    }
+
+    @Test
+    func statusPresentationUsesInactiveFallbackWithoutExplicitColor() throws {
+        let selectedBackground = try #require(NSColor(hex: "#005FCC"))
+        let fallback = try #require(NSColor(hex: "#E0E0E0"))
+
+        let presented = sidebarStatusPresentationNSColor(
+            explicit: nil,
+            isActive: false,
+            selectedBackground: selectedBackground,
+            fallback: fallback
+        )
+
+        #expect(Self.distance(presented, fallback) < 0.001)
+    }
+
+    @Test
     func accessibilityLinkIdentitySurvivesSelectedRowReconfigurationWithoutResizing() throws {
         let workspaceID = UUID()
         let url = try #require(URL(string: "https://cmux.com"))
