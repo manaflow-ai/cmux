@@ -68,7 +68,9 @@ const resolveProPrice = mock(async (interval: unknown) =>
 const resolveTeamPrice = mock(async (interval: unknown) =>
   interval === "month" ? "price_team_month" : "price_team_year",
 );
-const resolveMaxPrice = mock(async () => "price_max_month");
+const resolveMaxPrice = mock(async (interval: unknown) =>
+  interval === "month" ? "price_max_month" : "price_max_year",
+);
 const resolveGoPrice = mock(async () => "price_go_month");
 const stripeLimit = mock(async () => []);
 let useStubDb = false;
@@ -172,9 +174,9 @@ afterAll(() => {
 });
 
 describe("billing checkout route", () => {
-  test.each(["go", "max"])("refuses a new annual %s checkout without creating Stripe state", async (plan) => {
+  test("refuses a new annual Go checkout without creating Stripe state", async () => {
     stripeConfigured = true;
-    const response = await GET(new NextRequest(`https://cmux.test/api/billing/checkout?plan=${plan}&interval=year`));
+    const response = await GET(new NextRequest("https://cmux.test/api/billing/checkout?plan=go&interval=year"));
     expect(response.headers.get("location")).toBe("https://cmux.test/pricing?billing=annual_unavailable");
     expect(createStripeSession).not.toHaveBeenCalled();
     expect(createStripeCustomer).not.toHaveBeenCalled();
@@ -207,6 +209,21 @@ describe("billing checkout route", () => {
       line_items: [{ price: "price_team_year", quantity: 2 }],
       metadata: { plan: "team", billingInterval: "year" },
       subscription_data: { metadata: { plan: "team", billingInterval: "year" } },
+      cancel_url: "https://cmux.test/pricing?billing=cancelled&interval=year",
+    });
+  });
+
+  test("creates an annual Max checkout with the annual Stripe price", async () => {
+    stripeConfigured = true;
+    userResponses = [signedInUser];
+
+    await GET(new NextRequest("https://cmux.test/api/billing/checkout?plan=max&interval=year"));
+
+    expect(resolveMaxPrice).toHaveBeenCalledWith("year");
+    expect(createdStripeSessions[0]).toMatchObject({
+      line_items: [{ price: "price_max_year", quantity: 1 }],
+      metadata: { plan: "max", billingInterval: "year" },
+      subscription_data: { metadata: { plan: "max", billingInterval: "year" } },
       cancel_url: "https://cmux.test/pricing?billing=cancelled&interval=year",
     });
   });
