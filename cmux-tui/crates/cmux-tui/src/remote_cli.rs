@@ -52,6 +52,8 @@ use crate::remote_runtime::{
     load_shutdown_outcome, start_client_runtime, start_daemon_runtime,
 };
 use crate::session::{RemoteSession, Session};
+mod remote_link_mux;
+use remote_link_mux::mux_owner_args;
 
 const DEFAULT_STARTUP_TIMEOUT: Duration = Duration::from_secs(90);
 const WIREGUARD_HUB_START_TIMEOUT: Duration = Duration::from_secs(10);
@@ -136,6 +138,7 @@ fn remote_help_requested(args: &[String]) -> bool {
         "--ssh-binary",
         "--remote-binary",
         "--remote-state-dir",
+        "--remote-mux-socket",
         "--agent-hooks",
         "--wireguard-config",
         "--wireguard-hub",
@@ -231,6 +234,7 @@ struct ConnectFlags {
     ssh_binary: String,
     remote_binary: String,
     remote_state_dir: Option<String>,
+    remote_mux_socket: Option<String>,
     ssh_args: Vec<String>,
     /// Coding-agent providers whose hooks the SSH host installs on attach.
     agent_hooks: Vec<String>,
@@ -472,6 +476,9 @@ fn parse_connect_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
             "--remote-state-dir" => {
                 flags.remote_state_dir = Some(value("--remote-state-dir")?);
             }
+            "--remote-mux-socket" => {
+                flags.remote_mux_socket = Some(value("--remote-mux-socket")?);
+            }
             "--ssh-arg" => flags.ssh_args.push(value("--ssh-arg")?),
             "--agent-hooks" => {
                 flags.agent_hooks.extend(agent_hook_providers(&value("--agent-hooks")?));
@@ -682,6 +689,7 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
         remote_binary: flags.remote_binary.clone(),
         remote_session: flags.ssh_session.clone(),
         remote_state_dir: flags.remote_state_dir.clone(),
+        remote_mux_socket: flags.remote_mux_socket.clone(),
         extra_args: flags.ssh_args.clone(),
         maximum_frame_bytes: crate::remote_runtime::MAX_CARRIER_FRAME_BYTES,
         agent_hooks: flags.agent_hooks.clone(),
@@ -1255,6 +1263,7 @@ pub(crate) fn validate_managed_ssh_options(options: &ManagedSshOptions) -> anyho
         remote_binary: options.remote_binary.clone(),
         remote_session: options.session.clone(),
         remote_state_dir: None,
+        remote_mux_socket: None,
         extra_args: options.ssh_args.clone(),
         maximum_frame_bytes: crate::remote_runtime::MAX_CARRIER_FRAME_BYTES,
         agent_hooks: Vec::new(),
@@ -2456,19 +2465,6 @@ fn ensure_daemon(
     wait_for_detached_socket(&mut child, link, Duration::from_secs(20), "remote daemon", &log_path)
 }
 
-/// Arguments for the headless mux owner `ensure_daemon` starts. A derived
-/// socket path is left for the owner to derive again from the same session,
-/// so it keeps the owner checks it applies to its own runtime directory.
-fn mux_owner_args(session: &str, mux_socket: &Path, mux_socket_is_derived: bool) -> Vec<OsString> {
-    let mut args: Vec<OsString> =
-        ["--headless", "--session", session].into_iter().map(OsString::from).collect();
-    if !mux_socket_is_derived {
-        args.push("--socket".into());
-        args.push(mux_socket.into());
-    }
-    args
-}
-
 /// Connect to a socket this daemon's own user serves. The daemon only starts
 /// and talks to listeners it or an earlier run of it created.
 fn connect_same_user_socket(path: &Path) -> io::Result<UnixStream> {
@@ -2858,20 +2854,6 @@ mod tests {
             .is_err()
         );
         assert_eq!(load_count.get(), 0);
-    }
-
-    #[test]
-    fn private_socket_remote_mux_owner_derives_its_own_socket() {
-        let socket = Path::new("/tmp/cmux-tui-501/work.sock");
-        assert_eq!(
-            mux_owner_args("work", socket, true),
-            ["--headless", "--session", "work"].map(OsString::from)
-        );
-        assert_eq!(
-            mux_owner_args("work", socket, false),
-            ["--headless", "--session", "work", "--socket", "/tmp/cmux-tui-501/work.sock"]
-                .map(OsString::from)
-        );
     }
 
     #[test]
@@ -3323,6 +3305,17 @@ mod tests {
             .await
             .is_err()
         );
+    }
+
+    #[test]
+    fn remote_mux_socket_flag_reaches_the_ssh_provider() {
+        let flags = parse_connect_flags(&[
+            "ssh://server.example".into(),
+            "--remote-mux-socket".into(),
+            "~/.cmux/brains/chief/daemon/cmux.sock".into(),
+        ])
+        .unwrap();
+        assert_eq!(flags.remote_mux_socket.as_deref(), Some("~/.cmux/brains/chief/daemon/cmux.sock"));
     }
 
     #[test]
