@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "families/tunnel.schema.json",
+  "title": "cmux.mobile/1 tunnel family (stream; owner the Mac)",
+  "description": "A tcp.forward channel carries one TCP byte stream to 127.0.0.1:<port> on the Mac (ios-next/c14-web.md section 3). Records are raw bytes (tcp.data); the fin flag half-closes that direction. The Mac admits only ports it advertises now (detected workspace listeners or ports the user allowed), never below 1024.",
+  "$defs": {
+    "Port": { "type": "integer", "minimum": 1024, "maximum": 65535 },
+    "Source": { "enum": ["detected", "allowed"] },
+    "tcp.forward": {
+      "type": "object", "additionalProperties": false, "required": ["port"],
+      "properties": { "port": { "$ref": "#/$defs/Port" } }
+    },
+    "tcp.forward:opened": {
+      "type": "object", "additionalProperties": false, "required": ["port", "source"],
+      "properties": { "port": { "$ref": "#/$defs/Port" }, "source": { "$ref": "#/$defs/Source" } }
+    },
+    "tunnel.ports": { "type": "object", "additionalProperties": false, "properties": {} },
+    "tunnel.ports:result": {
+      "type": "object", "additionalProperties": false, "required": ["ports"],
+      "properties": {
+        "ports": {
+          "type": "array", "maxItems": 256,
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["port", "source"],
+            "properties": {
+              "port": { "$ref": "#/$defs/Port" },
+              "source": { "$ref": "#/$defs/Source" },
+              "workspace": { "$ref": "../common.schema.json#/$defs/WorkspaceId" },
+              "process": { "type": "string", "maxLength": 255 }
+            }
+          }
+        }
+      }
+    }
+  }
+}

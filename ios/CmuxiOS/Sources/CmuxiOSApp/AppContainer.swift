@@ -3,6 +3,7 @@ import CmuxHomeCore
 import CmuxHomeUI
 import CMUXMobileCore
 import CmuxiOSAuth
+import CmuxiOSBrowserCore
 import CmuxiOSComposerCore
 import CmuxiOSCrashReporting
 import CmuxiOSFeatureKit
@@ -94,6 +95,11 @@ final class AppContainer {
     /// DEV switches of the link layer (V2 carrier, echo prediction).
     let linkDev = LinkDevOptions()
     var linkDirectory: any MobileLinkDirectory { accountLinks }
+    /// C14: the same per-Mac clients for the tunnel browser and simulator
+    /// streams; nil without pairing (as for the browser stream).
+    var webClients: (any MobileLinkClientProvider)? {
+        pairing == nil ? nil : LinkClientProvider(directory: accountLinks)
+    }
     /// Workspace terminals of real Macs over each Mac's `cmux.mobile/1`
     /// session. Mock workspaces keep A2's mock host (ShellComposition).
     private(set) lazy var linkTerminalSources = LinkWorkspaceTerminalSourceFactory(

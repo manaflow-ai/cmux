@@ -1,0 +1,12 @@
+{
+  "family": "tunnel",
+  "cases": [
+    { "message": "tcp.forward", "frame": { "t": "channel.open", "channel": 15, "kind": "tcp.forward", "class": "bulk", "window": 1048576, "params": { "port": 5173 } } },
+    { "message": "tcp.forward", "phase": "opened", "frame": { "t": "channel.opened", "channel": 15, "window": 1048576, "params": { "port": 5173, "source": "detected" }, "resumed": false } },
+    { "message": "tunnel.ports", "frame": { "t": "read", "id": 6, "op": "tunnel.ports", "params": {} } },
+    { "message": "tunnel.ports", "phase": "result", "frame": { "t": "read.result", "id": 6, "revision": "0", "value": { "ports": [
+      { "port": 5173, "source": "detected", "workspace": "ws_a1", "process": "node" },
+      { "port": 8080, "source": "allowed" }
+    ] } } }
+  ]
+}

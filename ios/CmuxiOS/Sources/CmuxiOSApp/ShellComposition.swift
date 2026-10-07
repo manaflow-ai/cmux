@@ -47,6 +47,8 @@ enum ShellComposition {
         // the device's terminal settings (C11).
         let ssh = SSHFeature(hosts: sources.hosts, device: container.sshDevice,
                              appearance: container.terminalPreferences)
+        // Lane C14: a host's localhost in the in-app browser (Hosts swipe action).
+        ssh.browsers = WebComposition.screens(WebComposition.feature(clients: container.webClients))
         // Lane C6: the Feed tab over the account's feed seam.
         let feedSource = sources.feed
         let feedIsMock = sources.resolved[.feed] != .real

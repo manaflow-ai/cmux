@@ -11,6 +11,7 @@ public final class BrowserStreamViewController: UIViewController, UITextFieldDel
     private let source: any BrowserStreamSource
     private let host: HostID
     private let isMock: Bool
+    private let chrome: BrowserStreamChrome
     private var currentTab: BrowserTabInfo
     private var session: (any BrowserStreamSession)?
     private var tasks: [Task<Void, Never>] = []
@@ -34,7 +35,9 @@ public final class BrowserStreamViewController: UIViewController, UITextFieldDel
     private lazy var pasteItem = item("doc.on.clipboard", BrowserText.paste) { [weak self] in self?.pasteToMac() }
     private lazy var tabsItem = item("square.on.square", BrowserText.tabs) { [weak self] in self?.showTabs() }
 
-    public init(source: any BrowserStreamSource, tab: BrowserTabInfo, host: HostID, isMock: Bool) {
+    public init(source: any BrowserStreamSource, tab: BrowserTabInfo, host: HostID, isMock: Bool,
+                chrome: BrowserStreamChrome = .page) {
+        self.chrome = chrome
         self.source = source
         self.currentTab = tab
         self.host = host
@@ -51,10 +54,16 @@ public final class BrowserStreamViewController: UIViewController, UITextFieldDel
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
         view.accessibilityIdentifier = "browser.stream"
-        configureAddressField()
         configureCanvas()
         configureStatus()
-        toolbarItems = [backItem, forwardItem, reloadItem, .flexibleSpace(), keyboardItem, pasteItem, tabsItem]
+        switch chrome {
+        case .page:
+            configureAddressField()
+            toolbarItems = [backItem, forwardItem, reloadItem, .flexibleSpace(), keyboardItem, pasteItem, tabsItem]
+        case .device:
+            canvas.directTouch = true
+            toolbarItems = [.flexibleSpace(), keyboardItem, pasteItem]
+        }
     }
 
     override public func viewWillAppear(_ animated: Bool) {
