@@ -109,14 +109,10 @@ public nonisolated struct AgentPaneShellCompletion: Sendable {
                 .appending(path: "cmux-next", directoryHint: .isDirectory)
             if let caches { try? FileManager.default.createDirectory(at: caches, withIntermediateDirectories: true) }
             let dump = caches?.appending(path: "zcompdump-shell-mode").path ?? "\(home)/.zcompdump-cmux-shell-mode"
-            // Completion is an async result; login startup must not select or delay the test shell.
-            return ([shell, "-d", "-c", Self.zshDriver, "zsh", line, shell],
-                    ["CMUX_COMPLETE_SETUP": Self.zshSetup, "CMUX_COMPLETE_DUMP": dump,
-                     "ZDOTDIR": home, "HOME": home, "HISTFILE": "\(home)/history"])
+            return ([shell, "-l", "-c", Self.zshDriver, "zsh", line, shell],
+                    ["CMUX_COMPLETE_SETUP": Self.zshSetup, "CMUX_COMPLETE_DUMP": dump])
         case .bash:
-            return ([shell, "--noprofile", "--rcfile", "\(home)/.bashrc", "-i", "-c", Self.bashScript,
-                     "bash", Self.unquoted(word.text), word.commandPosition ? "1" : "0"],
-                    ["HOME": home, "HISTFILE": "\(home)/history"])
+            return ([shell, "-l", "-c", Self.bashScript, "bash", Self.unquoted(word.text), word.commandPosition ? "1" : "0"], [:])
         case .fish:
             return ([shell, "-l", "-c", Self.fishScript, line], [:])
         }

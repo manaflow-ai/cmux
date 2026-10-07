@@ -21,6 +21,24 @@ struct ShellCompletionFixture {
             for name in files + [".bashrc", ".bash_profile", ".profile", ".zshrc", ".zprofile", ".zshenv"] {
                 try Data().write(to: directory.appending(path: name))
             }
+            // Exercise the production scripts and process continuation with real shells, but
+            // replace their login startup with test-owned rc files and completion cache.
+            let invocation: String
+            switch shell {
+            case "bash": invocation = #"exec /bin/bash --noprofile --norc --rcfile "$HOME/.bashrc" "$@""#
+            case "zsh": invocation = #"exec /bin/zsh -d -f "$@""#
+            default: preconditionFailure("Unsupported completion test shell: \(shell)")
+            }
+            let script = """
+            #!/bin/sh
+            if [ "$1" = "-l" ]; then shift; fi
+            export CMUX_COMPLETE_DUMP="$HOME/.zcompdump"
+            \(invocation)
+
+            """
+            let executable = directory.appending(path: shell)
+            try Data(script.utf8).write(to: executable)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
         } catch {
             remove()
             throw error
@@ -36,7 +54,7 @@ struct ShellCompletionFixture {
 
     var completion: AgentPaneShellCompletion {
         AgentPaneShellCompletion(
-            shell: "/bin/\(shell)",
+            shell: directory.appending(path: shell).path,
             environment: environment,
             home: cwd,
             timeout: .seconds(60)
