@@ -5212,6 +5212,7 @@ fn prepare_terminal_host_root_for_reset(
         .filter(|(_, record)| record.record_version >= 2)
         .map(|(record_path, record)| terminal_host_live_marker_path(record_path, record))
         .collect::<HashSet<_>>();
+    crate::terminal_host_runtime::sweep_released_pty_locks(root);
     for entry in fs::read_dir(root)
         .with_context(|| format!("read terminal host state {}", root.display()))?
     {

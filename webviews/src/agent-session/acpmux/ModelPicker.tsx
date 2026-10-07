@@ -76,7 +76,9 @@ function choicesFor(entry: HarnessChoice | undefined): ModelChoice[] {
 
 function uniqueHarnesses(catalog: ModelPickerProps["catalog"]): HarnessChoice[] {
   // Terminal and unknown harnesses are routing entries, not installed choices.
-  const entries: HarnessChoice[] = catalog.filter((entry) => entry.pickable !== false).map((entry) => ({
+  const entries: HarnessChoice[] = catalog
+    .filter((entry) => entry.pickable !== false)
+    .map((entry) => ({
       id: entry.id,
       ids: [entry.id],
       name: entry.name,
@@ -312,7 +314,12 @@ export function ModelPicker(props: ModelPickerProps) {
       event.preventDefault();
       const model = visible[active];
       if (model) selectModel(model);
-    } else if (/^[1-9]$/.test(event.key) && !event.ctrlKey && !event.altKey && (!event.metaKey || Number(event.key) <= 4)) {
+    } else if (
+      /^[1-9]$/.test(event.key) &&
+      !event.ctrlKey &&
+      !event.altKey &&
+      (!event.metaKey || Number(event.key) <= 4)
+    ) {
       const model = visible[Number(event.key) - 1];
       if (model) {
         event.preventDefault();
@@ -400,44 +407,49 @@ export function ModelPicker(props: ModelPickerProps) {
               >
                 <span aria-hidden="true">★</span>
               </button>
+              {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- rich harness rows need icons and prewarm states. */}
               <div className="acpmux-mp-harness-list" role="listbox" aria-label={harnessText}>
-                {harnesses.map((entry, index) => (
-                  <button
-                    type="button"
-                    // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a rich button row is the selectable option.
-                    role="option"
-                    key={entry.name}
-                    aria-selected={entry.ids.includes(selectedHarness ?? "")}
-                    disabled={!entry.pickable}
-                    className="acpmux-mp-harness"
-                    tabIndex={index === activeHarness ? 0 : -1}
-                    onKeyDown={(event) => {
-                    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-                      event.preventDefault();
-                      const step = event.key === "ArrowDown" ? 1 : -1;
-                      const next = (index + step + harnesses.length) % harnesses.length;
-                      setActiveHarness(next);
-                      setSelectedHarness(harnesses[next]?.id);
-                      setQuery("");
-                      event.currentTarget.parentElement?.querySelectorAll<HTMLElement>(".acpmux-mp-harness")[next]?.focus();
-                    } else if (event.key === "ArrowRight" || event.key === "Enter") {
-                      event.preventDefault();
-                      search.current?.focus();
-                    }
-                    }}
-                    onPointerEnter={() => onHarnessHint?.(entry.acpmuxHarness ?? entry.id)}
-                    onClick={() => {
-                      setSelectedHarness(entry.id);
-                      setActiveHarness(index);
-                      setQuery("");
-                      setActive(0);
-                    }}
-                  >
-                    <AgentMark agent={entry.id} size={16} />
-                    <span>{entry.name}</span>
-                    {entry.ids.includes(harness ?? "") && <CheckIcon />}
-                  </button>
-                ))}
+                <div className="acpmux-mp-harness-list-inner">
+                  {harnesses.map((entry, index) => (
+                    <button
+                      type="button"
+                      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a rich button row is the selectable option.
+                      role="option"
+                      key={entry.name}
+                      aria-selected={entry.ids.includes(selectedHarness ?? "")}
+                      disabled={!entry.pickable}
+                      className="acpmux-mp-harness"
+                      tabIndex={index === activeHarness ? 0 : -1}
+                      onKeyDown={(event) => {
+                        if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                          event.preventDefault();
+                          const step = event.key === "ArrowDown" ? 1 : -1;
+                          const next = (index + step + harnesses.length) % harnesses.length;
+                          setActiveHarness(next);
+                          setSelectedHarness(harnesses[next]?.id);
+                          setQuery("");
+                          event.currentTarget.parentElement
+                            ?.querySelectorAll<HTMLElement>(".acpmux-mp-harness")
+                            [next]?.focus();
+                        } else if (event.key === "ArrowRight" || event.key === "Enter") {
+                          event.preventDefault();
+                          search.current?.focus();
+                        }
+                      }}
+                      onPointerEnter={() => onHarnessHint?.(entry.acpmuxHarness ?? entry.id)}
+                      onClick={() => {
+                        setSelectedHarness(entry.id);
+                        setActiveHarness(index);
+                        setQuery("");
+                        setActive(0);
+                      }}
+                    >
+                      <AgentMark agent={entry.id} size={16} />
+                      <span>{entry.name}</span>
+                      {entry.ids.includes(harness ?? "") && <CheckIcon />}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
             <div
@@ -465,16 +477,16 @@ export function ModelPicker(props: ModelPickerProps) {
                       disabled={Boolean(model.unavailable)}
                       onClick={() => selectModel(model)}
                     >
-                    <span className="acpmux-mp-row-main">
-                      <span className="acpmux-menu-label">{model.name}</span>
-                      <span className="acpmux-mp-row-subtitle">
-                        <AgentMark agent={selected?.id} size={12} />
-                        {selected?.name}
+                      <span className="acpmux-mp-row-main">
+                        <span className="acpmux-menu-label">{model.name}</span>
+                        <span className="acpmux-mp-row-subtitle">
+                          <AgentMark agent={selected?.id} size={12} />
+                          {selected?.name}
+                        </span>
                       </span>
-                    </span>
-                    {index < 4 && <span className="acpmux-mp-hotkey">⌘{index + 1}</span>}
-                    {model.unavailable && <span className="acpmux-menu-description">{unavailableText}</span>}
-                    {model.id === props.model && <CheckIcon />}
+                      {index < 4 && <span className="acpmux-mp-hotkey">⌘{index + 1}</span>}
+                      {model.unavailable && <span className="acpmux-menu-description">{unavailableText}</span>}
+                      {model.id === props.model && <CheckIcon />}
                     </button>
                     <button
                       type="button"

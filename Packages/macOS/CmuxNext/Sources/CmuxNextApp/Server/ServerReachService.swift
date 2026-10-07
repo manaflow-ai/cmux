@@ -31,6 +31,8 @@ final class ServerReachService {
     private let signedInUser: @MainActor () -> String?
     private let paths: SSHPaths
     private let binary: URL?
+    /// The app's own bundled `cmux` (overlay bridge and link reads).
+    private let cli: URL?
     private let local: @MainActor () -> ServerReachPlan.LocalServer?
     /// This Mac's running link and its paired installs, or nil (no link).
     private let linkPeers: @MainActor () async -> ServerReachPlan.LinkPeers?
@@ -47,7 +49,8 @@ final class ServerReachService {
 
     init(machines: MachineRegistry, call: @escaping Call, signedInUser: @escaping @MainActor () -> String?, paths: SSHPaths,
          binary: URL?, local: @escaping @MainActor () -> ServerReachPlan.LocalServer? = { nil },
-         linkPeers: @escaping @MainActor () async -> ServerReachPlan.LinkPeers? = { nil }) {
+         linkPeers: @escaping @MainActor () async -> ServerReachPlan.LinkPeers? = { nil }, cli: URL? = nil) {
+        self.cli = cli
         self.machines = machines
         self.call = call
         self.signedInUser = signedInUser
@@ -200,7 +203,7 @@ final class ServerReachService {
     private func add(_ reach: ServerReach, connect: Bool) {
         guard machines.server(reach.machineID) == nil else { return }
         let session = ServerMachineSession(reach: reach, binary: binary, paths: paths, environment: SSHService.environment,
-                                           localIdentity: { [machines] in machines.local.identity })
+                                           localIdentity: { [machines] in machines.local.identity }, cli: cli)
         session.daemon.workTracker = machines.local.workTracker
         machines.add(session)
         logger.info("server \(reach.name, privacy: .public) (\(reach.hostID, privacy: .public)) added")

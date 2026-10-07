@@ -1,8 +1,11 @@
 name: cmux-next CEF shim C++ tests
 
 # The CEF shim's download and popup bookkeeping (CEFShim/src/download_state.h)
-# needs no CEF: scripts/cmux-next/test-shim-downloads-cpp.sh compiles its cases
-# with one clang++ call and runs them. The shim itself is built only by the
+# and the password reveal relay (CEFShim/src/password_reveal_relay.h, which must
+# zero its copy of a revealed password) need no CEF:
+# scripts/cmux-next/test-shim-downloads-cpp.sh and
+# scripts/cmux-next/test-password-reveal-relay-cpp.sh compile their cases with
+# one clang++ call each and run them. The shim itself is built only by the
 # app build, so this is the one check that runs these cases on every change.
 # Pushes run only on feat-cmux-next and main (plus pull requests); a side
 # branch runs it with `gh workflow run cmux-next-shim-cpp.yml --ref <branch>`.
@@ -12,6 +15,7 @@ on:
     paths:
       - Packages/macOS/CmuxNext/CEFShim/**
       - scripts/cmux-next/test-shim-downloads-cpp.sh
+      - scripts/cmux-next/test-password-reveal-relay-cpp.sh
       - .github/workflows/cmux-next-shim-cpp.yml
   push:
     branches:
@@ -20,6 +24,7 @@ on:
     paths:
       - Packages/macOS/CmuxNext/CEFShim/**
       - scripts/cmux-next/test-shim-downloads-cpp.sh
+      - scripts/cmux-next/test-password-reveal-relay-cpp.sh
       - .github/workflows/cmux-next-shim-cpp.yml
   workflow_dispatch:
 
@@ -43,3 +48,5 @@ jobs:
         run: ./scripts/select-ci-xcode.sh
       - name: Download tokens, URL schemes and pending popups
         run: ./scripts/cmux-next/test-shim-downloads-cpp.sh
+      - name: Password reveal relay zeroes its copy
+        run: ./scripts/cmux-next/test-password-reveal-relay-cpp.sh

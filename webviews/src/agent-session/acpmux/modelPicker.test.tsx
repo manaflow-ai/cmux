@@ -161,7 +161,10 @@ describe("T3 model picker", () => {
       (row) => row.textContent === "Codex",
     )!;
     await act(async () => codex.click());
-    expect(modelRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toEqual(["o3", "GPT-6-Astra"]);
+    expect(modelRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toEqual([
+      "o3",
+      "GPT-6-Astra",
+    ]);
     await act(async () => modelRows()[0]!.click());
     expect(calls).toEqual(["harness codex"]);
     expect(menu()).toBeNull();
