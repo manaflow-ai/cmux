@@ -863,6 +863,7 @@ impl Hub {
             last_turn: None,
             // A fork of a remote-origin session stays remote-origin.
             remote_origin: parent_meta.remote_origin,
+            harness_roots: vec![],
         };
         let new = self.make_session(meta);
         if is_claude {

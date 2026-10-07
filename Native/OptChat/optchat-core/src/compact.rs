@@ -156,6 +156,24 @@ fn flatten(text: &str) -> String {
     text.replace('\n', " ")
 }
 
+/// A node the call needs is built but its text is not in the store: the
+/// request would show the model an empty or shortened line, and the node it
+/// writes would be wrong for good. The host must not call the model.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MissingNode(pub NodeId);
+
+impl std::fmt::Display for MissingNode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "node {} is built but its text is missing from the store",
+            self.0.name()
+        )
+    }
+}
+
+impl std::error::Error for MissingNode {}
+
 /// The call that builds `node`. No ids anywhere: the model copies them
 /// into its output when it sees them (section 4.2).
 pub fn compact_request(
@@ -163,18 +181,19 @@ pub fn compact_request(
     store: &dyn Store,
     node: NodeId,
     system: String,
-) -> CompactRequest {
+) -> Result<CompactRequest, MissingNode> {
     let upto = if node.l == 0 {
         node.start()
     } else {
         node.end()
     };
     let mut context = String::from("<chat>\n");
+    // Rule 3: every view line before the node is built, so each must read;
+    // a missing one is lost data, never a shorter context.
     for part in memory.view().iter().filter(|p| p.start() < upto) {
-        if let Some(text) = store.node(*part) {
-            context.push_str(&flatten(&text));
-            context.push('\n');
-        }
+        let text = store.node(*part).ok_or(MissingNode(*part))?;
+        context.push_str(&flatten(&text));
+        context.push('\n');
     }
     context.push_str("</chat>");
     let scale = format!("For scale, this line is exactly {NODE} bytes:\n{SCALE}\n\n");
@@ -208,17 +227,17 @@ pub fn compact_request(
         }
         Some((a, b)) => format!(
             "{scale}Merge these two lines into one, in at most {NODE} bytes:\n{}\n{}",
-            flatten(&store.node(a).unwrap_or_default()),
-            flatten(&store.node(b).unwrap_or_default())
+            flatten(&store.node(a).ok_or(MissingNode(a))?),
+            flatten(&store.node(b).ok_or(MissingNode(b))?)
         ),
     };
-    CompactRequest {
+    Ok(CompactRequest {
         node,
         system,
         context,
         step,
         cut,
-    }
+    })
 }
 
 /// The first and last `keep / 2` characters of `text` around a mark.

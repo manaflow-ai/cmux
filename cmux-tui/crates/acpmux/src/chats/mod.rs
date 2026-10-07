@@ -9,6 +9,7 @@
 //! Titles and folders are user data: the cache file is 0600 and nothing
 //! here logs them. Transcripts are read by the adapters only for metadata.
 
+mod open;
 mod query;
 mod sources;
 mod watch;
@@ -24,6 +25,7 @@ use cmux_chat_index::{
 use serde_json::{Value, json};
 use tokio::sync::broadcast;
 
+pub use open::{StoreProfile, plan_open, store_profiles};
 pub use query::ChatQuery;
 pub use sources::{ChatSources, EnvLookup, launch_roots, login_var, lookup, refusal};
 
@@ -139,6 +141,24 @@ impl ChatService {
             self.refresh_roots();
         }
         Ok(new)
+    }
+
+    /// Records the store roots a spawn's env named (launch roots, C3); new
+    /// ones are scanned and watched. Blocking.
+    pub fn record_launch_roots(self: &Arc<Self>, specs: &[RootSpec]) {
+        let mut new = false;
+        {
+            let mut state = lock(&self.state);
+            for spec in specs.iter().filter(|s| self.sources.refusal(&s.path).is_none()) {
+                match state.recorded.record(spec.clone()) {
+                    Ok(fresh) => new |= fresh,
+                    Err(e) => tracing::warn!("record a launch root: {e}"),
+                }
+            }
+        }
+        if new {
+            self.refresh_roots();
+        }
     }
 
     /// Discovers the roots again; new roots are scanned and watched.
