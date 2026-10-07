@@ -17,6 +17,7 @@
 //! - [`metadata`]: the single-reader metadata client.
 //! - [`daemon_spec`]: the session host's exact argv and environment (pure).
 //! - [`announce`]: the private network announce filter (pure).
+//! - [`remote_entry`]: the session host's --remote-ws bind and auth mode (pure).
 //! - [`agent`]: the event loop over the [`agent::Platform`] trait.
 //! - [`roles`]: role supervision (order, deadlines, last errors).
 //! - [`status`]: `cmux host status`.
@@ -41,6 +42,7 @@ pub mod daemon_spec;
 pub mod linux;
 pub mod machine;
 pub mod metadata;
+pub mod remote_entry;
 pub mod retry;
 pub mod roles;
 pub mod status;

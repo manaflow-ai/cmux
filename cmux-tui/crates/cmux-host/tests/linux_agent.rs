@@ -77,6 +77,17 @@ impl Harness {
         Self { root, home, bin, daemon_log, metadata, id, _dir: dir }
     }
 
+    /// A Cloud machine's host config: the Freestyle edge carrier on 0.0.0.0.
+    fn with_cloud_edge(self) -> Self {
+        fs::create_dir_all(self.at("/etc/cmux")).unwrap();
+        fs::write(
+            self.at("/etc/cmux/host.json"),
+            r#"{"remoteWs": {"bind": "0.0.0.0:1337", "carrier": "freestyle-edge"}}"#,
+        )
+        .unwrap();
+        self
+    }
+
     fn start(&self, log: &Path) -> Child {
         let out = fs::OpenOptions::new()
             .create(true)
@@ -105,7 +116,9 @@ impl Harness {
             .arg(log)
             // Service-manager variables must not reach the session host.
             .env("INVOCATION_ID", "test-invocation")
-            .env_remove("CMUX_TUI_REMOTE_WS_BIND")
+            // Must not reach the session host: the entry comes from host.json.
+            .env("CMUX_TUI_REMOTE_WS_BIND", "0.0.0.0:9")
+            .env("CMUX_TUI_REMOTE_WS_TRUSTED_CARRIER", "1")
             // System layout: server.json is /etc/cmux/server.json (under the root).
             .env("CMUX_SERVER_MODE", "system")
             .env_remove("NOTIFY_SOCKET")
@@ -237,7 +250,7 @@ fn terminate(agent: &mut AgentProc) {
 
 #[test]
 fn agent_binds_parks_adopts_and_restarts() {
-    let h = Harness::new();
+    let h = Harness::new().with_cloud_edge();
     let log = h.root.parent().unwrap().join("actions.log");
     let mut agent = AgentProc(h.start(&log));
 
@@ -269,6 +282,9 @@ fn agent_binds_parks_adopts_and_restarts() {
     assert!(env.lines().any(|l| l == "TERM_PROGRAM=ghostty"), "{env}");
     assert!(!env.contains("INVOCATION_ID"), "{env}");
     assert!(!env.contains("CMUX_SERVER_MODE"), "{env}");
+    assert!(!env.contains("CMUX_TUI_REMOTE_WS"), "{env}");
+    let out = fs::read_to_string(h.root.parent().unwrap().join("agent.out")).unwrap();
+    assert!(out.contains("trusted-carrier") && out.contains("cx-wx2"), "{out}");
     // /run/cmux belongs to the session host's user (it writes `bound`).
     {
         use std::os::unix::fs::MetadataExt;
@@ -339,5 +355,43 @@ fn agent_binds_parks_adopts_and_restarts() {
     // Crash: the adopted host dies (with its `sleep`); the agent restarts it.
     kill_group(pid);
     wait_until("restart", || h.status().is_some_and(|s| s.daemon_pid.is_some_and(|p| p != pid)));
+    terminate(&mut agent);
+}
+
+/// Without host.json the session host binds loopback with enrolled auth,
+/// even when the agent's environment asks for the trusted carrier.
+#[test]
+fn without_a_host_config_the_session_host_is_loopback_and_enrolled() {
+    let h = Harness::new();
+    let log = h.root.parent().unwrap().join("actions.log");
+    let mut agent = AgentProc(h.start(&log));
+    wait_until("daemon argv", || {
+        fs::read_to_string(&h.daemon_log).unwrap_or_default().contains("server start")
+    });
+    let argv = fs::read_to_string(&h.daemon_log).unwrap();
+    assert!(argv.contains("server start --session cloud --remote-ws 127.0.0.1:1337"), "{argv}");
+    assert!(!argv.contains("trusted-carrier") && !argv.contains("insecure-bind"), "{argv}");
+    let env = fs::read_to_string(h.daemon_log.with_file_name("daemon.env")).unwrap();
+    assert!(!env.contains("CMUX_TUI_REMOTE_WS"), "{env}");
+    terminate(&mut agent);
+}
+
+/// A host.json that asks for the trusted carrier without the edge carrier
+/// field is refused: the session host falls back to loopback, enrolled.
+#[test]
+fn a_refused_host_config_falls_back_to_loopback() {
+    let h = Harness::new();
+    fs::create_dir_all(h.at("/etc/cmux")).unwrap();
+    fs::write(h.at("/etc/cmux/host.json"), r#"{"remoteWs": {"bind": "0.0.0.0:1337"}}"#).unwrap();
+    let log = h.root.parent().unwrap().join("actions.log");
+    let mut agent = AgentProc(h.start(&log));
+    wait_until("daemon argv", || {
+        fs::read_to_string(&h.daemon_log).unwrap_or_default().contains("server start")
+    });
+    let argv = fs::read_to_string(&h.daemon_log).unwrap();
+    assert!(argv.contains("--remote-ws 127.0.0.1:1337"), "{argv}");
+    assert!(!argv.contains("0.0.0.0"), "{argv}");
+    let out = fs::read_to_string(h.root.parent().unwrap().join("agent.out")).unwrap();
+    assert!(out.contains("host.json refused"), "{out}");
     terminate(&mut agent);
 }

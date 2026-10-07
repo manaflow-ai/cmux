@@ -187,6 +187,7 @@ pub fn record_host_pid(json: &str) -> Option<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::remote_entry::{Carrier, RemoteEntry};
 
     fn layout(kind: LayoutKind) -> DaemonLayout {
         let (user, home) = match kind {
@@ -204,12 +205,19 @@ mod tests {
         }
     }
 
+    fn cloud_edge(bind: &str) -> RemoteEntry {
+        RemoteEntry::TrustedCarrier { bind: bind.parse().unwrap(), carrier: Carrier::FreestyleEdge }
+    }
+
+    /// Parity with cmuxTuiDaemon.ts and cmux-devbox-boot: a Cloud machine
+    /// whose host config selects the Freestyle edge carrier gets exactly
+    /// the Cloud command line.
     #[test]
     fn user_layout_matches_the_shell_command() {
         let spec = daemon_spec(
             &layout(LayoutKind::User),
             "1.2.3",
-            "[::]:1337",
+            &cloud_edge("[::]:1337"),
             Path::new("/run/cmux/bound"),
         );
         assert_eq!(spec.program, PathBuf::from("/home/cmux/.cmux/bin/cmux-tui"));
@@ -245,12 +253,26 @@ mod tests {
         );
     }
 
+    /// Without a host config the session host listens on loopback with
+    /// enrolled auth: no insecure bind, no trusted carrier.
+    #[test]
+    fn the_default_entry_is_loopback_without_the_trusted_carrier() {
+        let entry = crate::remote_entry::parse(None, crate::remote_entry::Facts {
+            linux: true,
+            bound_instance: true,
+        })
+        .unwrap();
+        let spec = daemon_spec(&layout(LayoutKind::User), "", &entry, Path::new("/run/cmux/bound"));
+        assert_eq!(spec.args, ["server", "start", "--session", "cloud", "--remote-ws", "127.0.0.1:1337"]);
+        assert!(spec.set_env.iter().all(|(k, _)| !k.starts_with("CMUX_TUI_REMOTE_WS")));
+    }
+
     #[test]
     fn root_layout_sets_no_user_names() {
         let spec = daemon_spec(
             &layout(LayoutKind::Root),
             "",
-            DEFAULT_REMOTE_WS_BIND,
+            &cloud_edge("0.0.0.0:1337"),
             Path::new("/run/cmux/bound"),
         );
         assert!(spec.set_env.iter().all(|(k, _)| k != "USER" && k != "SHELL"));
@@ -298,6 +320,8 @@ mod tests {
             ("LC_ALL", "C"),
             ("TZ", "UTC"),
             ("CMUX_TUI_REMOTE_WS_BIND", "[::]:1337"),
+            ("CMUX_TUI_REMOTE_WS_TRUSTED_CARRIER", "1"),
+            ("CMUX_TUI_STATE_DIR", "/s"),
             ("INVOCATION_ID", "x"),
             ("JOURNAL_STREAM", "1:2"),
             ("NOTIFY_SOCKET", "/run/systemd/notify"),
@@ -306,7 +330,10 @@ mod tests {
         ]
         .map(|(k, v)| (k.to_owned(), v.to_owned()));
         let kept: Vec<String> = inherited_env(vars).into_iter().map(|(k, _)| k).collect();
-        assert_eq!(kept, ["PATH", "LANG", "LC_ALL", "TZ", "CMUX_TUI_REMOTE_WS_BIND"]);
+        // The remote entry comes only from the host config: inherited
+        // CMUX_TUI_REMOTE_WS_* variables could otherwise turn on the
+        // trusted carrier behind the loader's back.
+        assert_eq!(kept, ["PATH", "LANG", "LC_ALL", "TZ", "CMUX_TUI_STATE_DIR"]);
         let no_path = inherited_env(Vec::new());
         assert_eq!(no_path, [("PATH".to_owned(), DEFAULT_PATH.to_owned())]);
     }
