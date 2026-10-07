@@ -4,6 +4,19 @@ import Testing
 
 @Suite("Remote paste file transfer policy")
 struct RemotePasteFileTransferPolicyTests {
+    @Test("maintenance reports the remote home used for absolute paste paths")
+    func maintenanceReportsRemoteHome() {
+        let policy = RemotePasteFileTransferPolicy(
+            sessionID: UUID(uuidString: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")!
+        )
+
+        #expect(
+            policy.maintenanceScript().contains(
+                "printf '__CMUX_REMOTE_PASTE_HOME__%s\\n' \"$HOME\""
+            )
+        )
+    }
+
     @Test("remote paths use a private random directory and sanitized extension")
     func remotePathUsesPrivateRandomName() {
         let policy = RemotePasteFileTransferPolicy(
