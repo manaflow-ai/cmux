@@ -62,11 +62,13 @@ struct ComputerUseHelperTrustTests {
         try FileManager.default.copyItem(at: fixture.files.bundle, to: release)
         let releaseExecutable = release.appendingPathComponent("Contents/MacOS/cmux-cua")
         try Data("release helper".utf8).write(to: releaseExecutable)
-        let releasePath = release.standardizedFileURL.path
+        // Every helper is signed except this dev build's own nested one
+        // (the staged copy of the release helper is re-checked too).
+        let nestedPath = fixture.nestedHelper.standardizedFileURL.path
         let runtime = ComputerUseRuntimeService(
             bundle: fixture.bundle, paths: fixture.paths, isDisabledByPolicy: { false },
             helperTrust: ComputerUseHelperTrust(
-                isSigned: { $0.standardizedFileURL.path == releasePath },
+                isSigned: { $0.standardizedFileURL.path != nestedPath },
                 installedCandidates: { [release] }
             )
         )
@@ -96,13 +98,58 @@ struct ComputerUseHelperTrustTests {
         #expect(!FileManager.default.fileExists(atPath: destination.path))
     }
 
-    @Test func releaseCandidatesPreferNightlyAndListEachPathOnce() {
+    @Test func releaseCandidatesPreferNightlyAndListOnlyInstalledApps() {
         let home = URL(fileURLWithPath: "/Users/someone")
-        let registered = URL(fileURLWithPath: "/Applications/cmux.app/Contents/Library/cmux Computer Use.app")
-        let candidates = ComputerUseHelperTrust.releaseCandidates(home: home, registered: [registered])
+        let candidates = ComputerUseHelperTrust.releaseCandidates(home: home)
         #expect(candidates.first?.path == "/Applications/cmux NIGHTLY.app/Contents/Library/cmux Computer Use.app")
         #expect(candidates.contains { $0.path == "/Users/someone/Applications/cmux RC.app/Contents/Library/cmux Computer Use.app" })
+        #expect(candidates.allSatisfy { $0.path.hasPrefix("/Applications/") || $0.path.hasPrefix("/Users/someone/Applications/") })
         #expect(Set(candidates.map(\.path)).count == candidates.count)
+    }
+
+    /// Release builds are unchanged: a signed nested helper is installed even
+    /// when an installed release helper is also trusted.
+    @Test func aSignedNestedHelperWinsOverInstalledHelpers() async throws {
+        let fixture = try HelperRuntimeFixture()
+        defer { fixture.files.remove() }
+        let other = fixture.files.root.appendingPathComponent("Release/cmux Computer Use.app")
+        try FileManager.default.createDirectory(at: other.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: fixture.files.bundle, to: other)
+        try Data("release helper".utf8).write(to: other.appendingPathComponent("Contents/MacOS/cmux-cua"))
+        let runtime = ComputerUseRuntimeService(
+            bundle: fixture.bundle, paths: fixture.paths, isDisabledByPolicy: { false },
+            helperTrust: ComputerUseHelperTrust(isSigned: { _ in true }, installedCandidates: { [other] })
+        )
+        defer { runtime.stopForTermination() }
+
+        let installed = try #require(await runtime.ensureStandaloneHelperInstalled())
+        let copied = try Data(contentsOf: installed.appendingPathComponent("Contents/MacOS/cmux-cua"))
+        #expect(copied == Data("helper".utf8))
+    }
+
+    /// A Developer ID copy already at the helper path stays and is used when
+    /// no source is available any more (the release app was removed).
+    @Test func aTrustedInstalledCopyIsKeptWithoutASource() async throws {
+        let fixture = try HelperRuntimeFixture()
+        defer { fixture.files.remove() }
+        let destination = fixture.paths.installedHelperAppURL
+        try FileManager.default.createDirectory(
+            at: destination.deletingLastPathComponent(), withIntermediateDirectories: true
+        )
+        try FileManager.default.copyItem(at: fixture.files.bundle, to: destination)
+        let destinationPath = destination.standardizedFileURL.path
+        let runtime = ComputerUseRuntimeService(
+            bundle: fixture.bundle, paths: fixture.paths, isDisabledByPolicy: { false },
+            helperTrust: ComputerUseHelperTrust(
+                isSigned: { $0.standardizedFileURL.path == destinationPath },
+                installedCandidates: { [] }
+            )
+        )
+        defer { runtime.stopForTermination() }
+
+        #expect(await runtime.ensureStandaloneHelperInstalled()?.standardizedFileURL.path == destinationPath)
+        #expect(!runtime.helperUnavailableInThisBuild)
+        #expect(FileManager.default.fileExists(atPath: destination.path))
     }
 
     /// A helper with the real bundle identifier, signed ad hoc the way a

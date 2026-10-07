@@ -920,8 +920,16 @@ public final class ComputerUseRuntimeService {
         }
         guard acceptsNewLaunches, !Task.isCancelled else { return nil }
         guard let source = resolvedSource else {
+            // A Developer ID copy already installed here stays usable; an
+            // ad-hoc one is stopped and deleted.
+            if await keepTrustedOrRemoveInstalledHelper(at: destination) {
+                helperUnavailableInThisBuild = false
+                installed = true
+                installedHelperURL = destination
+                Self.registerHelperBundle(at: destination)
+                return destination
+            }
             helperUnavailableInThisBuild = true
-            await removeUntrustedInstalledHelper(at: destination)
             return nil
         }
         helperUnavailableInThisBuild = false
@@ -958,7 +966,8 @@ public final class ComputerUseRuntimeService {
             ComputerUseHelperStaging().install(
                 nested: source,
                 destination: destination,
-                directory: directory
+                directory: directory,
+                acceptsCopy: trust.isTrusted
             )
         }
         let result = await withTaskCancellationHandler {
@@ -981,16 +990,19 @@ public final class ComputerUseRuntimeService {
         return result
     }
 
-    /// Stops and deletes an ad-hoc helper an earlier dev build installed at
-    /// this build's helper path, so it is neither launched nor offered in
-    /// Privacy & Security. A Developer ID copy stays.
-    private func removeUntrustedInstalledHelper(at destination: URL) async {
+    /// With no install source: returns true when a Developer ID copy is
+    /// already at this build's helper path. Otherwise stops and deletes an
+    /// ad-hoc copy an earlier dev build installed there, so it is neither
+    /// launched nor offered in Privacy & Security, and returns false.
+    private func keepTrustedOrRemoveInstalledHelper(at destination: URL) async -> Bool {
         installedHelperURL = nil
-        guard FileManager.default.fileExists(atPath: destination.path) else { return }
+        guard FileManager.default.fileExists(atPath: destination.path) else { return false }
         let trust = helperTrust
         let trustTask = Task.detached(priority: .userInitiated) { trust.isTrusted(destination) }
-        guard !(await trustTask.value), acceptsNewLaunches, !Task.isCancelled else { return }
-        guard await stopDaemon(), acceptsNewLaunches, !Task.isCancelled else { return }
+        let trusted = await trustTask.value
+        guard acceptsNewLaunches, !Task.isCancelled else { return false }
+        if trusted { return true }
+        guard await stopDaemon(), acceptsNewLaunches, !Task.isCancelled else { return false }
         let directory = paths.installedHelperDirectoryURL
         let removal = Task.detached(priority: .userInitiated) {
             ComputerUseHelperStaging().removeInstalled(destination: destination, directory: directory)
@@ -998,6 +1010,7 @@ public final class ComputerUseRuntimeService {
         if await removal.value {
             NSWorkspace.shared.noteFileSystemChanged(destination.path)
         }
+        return false
     }
 
     func startIfNeededWithinLifecycle() async {

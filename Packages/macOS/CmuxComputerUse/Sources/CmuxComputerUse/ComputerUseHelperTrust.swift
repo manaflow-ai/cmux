@@ -1,4 +1,3 @@
-import AppKit
 import Foundation
 import Security
 
@@ -18,8 +17,13 @@ public struct ComputerUseHelperTrust: Sendable {
     public static let bundleIdentifier = "com.cmuxterm.cua"
     /// The Developer ID team that signs release helpers.
     public static let teamIdentifier = "7WLXT3NR37"
-    /// The code requirement every usable helper satisfies.
+    /// The code requirement every usable helper satisfies: the release
+    /// helper's designated requirement. The two certificate fields are the
+    /// Developer ID intermediate and leaf markers, so an Apple Development or
+    /// Distribution signature of the same team does not pass either.
     static let requirementText = "identifier \"\(bundleIdentifier)\" and anchor apple generic"
+        + " and certificate 1[field.1.2.840.113635.100.6.2.6]"
+        + " and certificate leaf[field.1.2.840.113635.100.6.1.13]"
         + " and certificate leaf[subject.OU] = \"\(teamIdentifier)\""
 
     private let isSigned: @Sendable (URL) -> Bool
@@ -30,12 +34,7 @@ public struct ComputerUseHelperTrust: Sendable {
         self.init(
             isSigned: Self.satisfiesRequirement,
             installedCandidates: {
-                Self.releaseCandidates(
-                    home: FileManager.default.homeDirectoryForCurrentUser,
-                    registered: NSWorkspace.shared.urlsForApplications(
-                        withBundleIdentifier: Self.bundleIdentifier
-                    )
-                )
+                Self.releaseCandidates(home: FileManager.default.homeDirectoryForCurrentUser)
             }
         )
     }
@@ -81,10 +80,10 @@ public struct ComputerUseHelperTrust: Sendable {
 
     /// Where an installed release helper can be, most preferred first: the
     /// nested helpers of cmux NIGHTLY (closest to main), RC and release in
-    /// `/Applications` and `~/Applications`, then every copy LaunchServices
-    /// knows by bundle identifier. Unsigned copies stay in the list; the
-    /// signature check filters them.
-    static func releaseCandidates(home: URL, registered: [URL]) -> [URL] {
+    /// `/Applications` and `~/Applications`. Only installed apps count, not
+    /// every copy LaunchServices knows (old downloads, DMGs, DerivedData).
+    /// Unsigned copies stay in the list; the signature check filters them.
+    static func releaseCandidates(home: URL) -> [URL] {
         let helper = "Contents/Library/cmux Computer Use.app"
         var candidates: [URL] = []
         for root in [URL(fileURLWithPath: "/Applications"), home.appendingPathComponent("Applications")] {
@@ -92,7 +91,6 @@ public struct ComputerUseHelperTrust: Sendable {
                 candidates.append(root.appendingPathComponent(app).appendingPathComponent(helper))
             }
         }
-        candidates += registered
         var seen = Set<String>()
         return candidates.filter { seen.insert($0.standardizedFileURL.path).inserted }
     }
