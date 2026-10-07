@@ -160,3 +160,26 @@ Presence announce of the viewed workspace (B1's `presence.set` has no workspace 
 A0 field), new workspace and group editing from the phone (ops exist for create only), drag
 reorder of workspaces (needs a store `workspace.move` op), SSH session workspaces (seam only),
 Cloud machines in the list (C12).
+
+## 10. Status (2026-10-06)
+
+Done: wire additions (catalog, schemas, fixtures, Swift and TS catalogs; `CmuxMobileWire` tests 16
+green, TS vitest not run here: no `node_modules`), FeatureKit types, `CmuxiOSWorkspacesCore` and
+`CmuxiOSWorkspaces` as above, wired into the shell (`ShellContent(screens:)` `.workspaces`;
+`AppContainer.realFactories.workspaces` is `ControlPlaneWorkspaceSource` over the resolved device
+registry with `UnavailableWorkspaceChannelFactory`; DEBUG defaults to the mock, so use
+`CMUX_IOS_SOURCE_WORKSPACES=real` or the DEV switch). 42 Swift Testing tests in
+`CmuxiOSWorkspacesCoreTests` pass with `swift test` on macOS through a scratch package (plus the 13
+FeatureKit tests); `CmuxiOSApp`, `CmuxiOSWorkspacesCoreTests`, `CmuxiOSShellTests` and
+`CmuxiOSFeatureKitTests` compile for `arm64-apple-ios17.0-simulator` with SwiftPM.
+
+Seams for other lanes: B1 swaps `UnavailableWorkspaceChannelFactory` in `AppContainer` for a
+`WorkspaceChannelFactory` over `ControlPlaneClient`; C1 sets `AppContainer.terminalSources`; C8
+calls `WorkspacesFeature.makePicker(request:completion:)` (passed from `ShellComposition`); C7/C16
+call `WorkspacesFeature.open(hostID:workspaceID:)`.
+
+Unverified: everything visual (no simulator run), VoiceOver and Dynamic Type at large sizes, the
+per-frame coalescing under a real event burst, the B1 adapter (written against B1's uncommitted
+`ControlPlaneClient` shape), and the Mac side of the new ops (B5 must implement `workspace.close`,
+`workspace.read`, `workspace.preview.set` and advertise the caps). Tagged build not attempted
+(known blocked: no fleet manifest, dev backend VM unreachable).
