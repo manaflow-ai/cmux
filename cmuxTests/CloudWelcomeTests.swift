@@ -24,12 +24,14 @@ struct CloudWelcomeTests {
         #expect(cmuxWindowShouldOwnCloseShortcut(window))
     }
 
-    @Test("shows once, only while Cloud is offered and still off")
+    @Test("shows once for the 0.65.1 campaign while Cloud is offered and still off")
     func presentsOnlyWhenUnseenAvailableAndOff() {
-        #expect(CloudWelcomeWindowController.shouldPresentAutomatically(seen: false, cloudAvailable: true, cloudEnabled: false))
-        #expect(!CloudWelcomeWindowController.shouldPresentAutomatically(seen: true, cloudAvailable: true, cloudEnabled: false))
-        #expect(!CloudWelcomeWindowController.shouldPresentAutomatically(seen: false, cloudAvailable: false, cloudEnabled: false))
-        #expect(!CloudWelcomeWindowController.shouldPresentAutomatically(seen: false, cloudAvailable: true, cloudEnabled: true))
+        #expect(CloudWelcomeWindowController.shouldPresentAutomatically(seenVersion: nil, appVersion: "0.65.1", cloudAvailable: true, cloudEnabled: false))
+        #expect(!CloudWelcomeWindowController.shouldPresentAutomatically(seenVersion: "0.65.1", appVersion: "0.65.1", cloudAvailable: true, cloudEnabled: false))
+        #expect(CloudWelcomeWindowController.shouldPresentAutomatically(seenVersion: "0.65.0", appVersion: "0.65.1", cloudAvailable: true, cloudEnabled: false))
+        #expect(!CloudWelcomeWindowController.shouldPresentAutomatically(seenVersion: nil, appVersion: "0.65.0", cloudAvailable: true, cloudEnabled: false))
+        #expect(!CloudWelcomeWindowController.shouldPresentAutomatically(seenVersion: nil, appVersion: "0.65.1", cloudAvailable: false, cloudEnabled: false))
+        #expect(!CloudWelcomeWindowController.shouldPresentAutomatically(seenVersion: nil, appVersion: "0.65.1", cloudAvailable: true, cloudEnabled: true))
     }
 
     @Test("the one prominent button is the next step for this account")

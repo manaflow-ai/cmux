@@ -2,12 +2,15 @@ import AppKit
 import CmuxCloud
 import SwiftUI
 
-/// Shows "Introducing cmux Cloud" once: on first launch, and for existing users
-/// on the first launch after the update that ships it (they have no seen key
-/// yet either). Debug builds can reopen it from Help.
+/// Shows the 0.65.1 Cloud welcome once for users who have Cloud available and
+/// have not enabled it yet. Debug builds can reopen it from Help.
 @MainActor
 final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
-    static let seenDefaultsKey = "cmux.cloud.welcome.seen"
+    /// The welcome is a release announcement, rather than a permanent prompt.
+    /// Versioning the marker lets a later announcement be shown once without
+    /// bringing back an older welcome that a user already dismissed.
+    nonisolated static let campaignVersion = "0.65.1"
+    static let seenVersionDefaultsKey = "cmux.cloud.welcome.seenVersion"
 
     private var window: NSWindow?
     /// Launch presentation is considered once, at the first main window. A
@@ -15,13 +18,18 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
     /// because remote flags arrived since; an unseen welcome waits for next launch.
     private var didConsiderLaunchPresentation = false
 
-    /// Cloud has to be offered on this Mac and still be off; `seen` makes it once.
+    /// Cloud has to be offered on this Mac and still be off. The campaign only
+    /// runs in its target release, and its version marker makes it one-time.
     nonisolated static func shouldPresentAutomatically(
-        seen: Bool,
+        seenVersion: String?,
+        appVersion: String,
         cloudAvailable: Bool,
         cloudEnabled: Bool
     ) -> Bool {
-        !seen && cloudAvailable && !cloudEnabled
+        appVersion == campaignVersion
+            && seenVersion != campaignVersion
+            && cloudAvailable
+            && !cloudEnabled
     }
 
     /// Presents at launch when it applies, and marks it seen on the way so a
@@ -29,12 +37,14 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
     func presentIfNeeded(over parent: NSWindow?, defaults: UserDefaults = .standard) {
         guard !didConsiderLaunchPresentation else { return }
         didConsiderLaunchPresentation = true
+        let appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
         guard Self.shouldPresentAutomatically(
-            seen: defaults.bool(forKey: Self.seenDefaultsKey),
+            seenVersion: defaults.string(forKey: Self.seenVersionDefaultsKey),
+            appVersion: appVersion,
             cloudAvailable: CloudMachinesFeature.isAvailable,
             cloudEnabled: CloudMachinesFeature.isEnabled
         ) else { return }
-        defaults.set(true, forKey: Self.seenDefaultsKey)
+        defaults.set(Self.campaignVersion, forKey: Self.seenVersionDefaultsKey)
         present(over: parent)
     }
 
@@ -70,7 +80,7 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
             defer: false
         )
         window.identifier = NSUserInterfaceItemIdentifier("cmux.cloud.welcome")
-        window.title = String(localized: "cloud.welcome.title", defaultValue: "Introducing cmux cloud")
+        window.title = String(localized: "cloud.welcome.title", defaultValue: "Your work, wherever you go")
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = true

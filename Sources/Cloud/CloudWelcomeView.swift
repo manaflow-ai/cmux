@@ -18,10 +18,9 @@ enum CloudWelcomeNextStep: Equatable {
     }
 }
 
-/// "Introducing cmux cloud": shown once on launch (new users, and existing
-/// users after the update that ships it). A glass window with the title, a
-/// Cloud tree built from the sidebar's own rows, and a solid panel with the
-/// reasons and the next step.
+/// "Your work, wherever you go": shown once on the 0.65.1 launch for users who
+/// can use Cloud. A glass window with a clear headline, a Cloud tree built from
+/// the sidebar's own rows, and a solid panel with the reasons and next step.
 ///
 /// Takes plain values (no app objects) so the same view renders in the app and
 /// in a standalone lab; ``CloudWelcomeWindowController`` feeds it the account.
@@ -126,14 +125,29 @@ struct CloudWelcomeView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// The product name sits below the short introductory eyebrow.
+    /// The product badge establishes context before the benefit-led headline.
     private var title: some View {
-        VStack(spacing: 2) {
-            Text(String(localized: "cloud.welcome.title.eyebrow", defaultValue: "Introducing"))
-                .cmuxFont(size: 13, weight: .medium)
-                .foregroundStyle(.secondary)
-            Text(verbatim: "cmux cloud")
+        VStack(spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "cloud.fill")
+                    .cmuxFont(size: 11, weight: .semibold)
+                Text(String(localized: "cloud.welcome.title.eyebrow", defaultValue: "cmux cloud"))
+                    .cmuxFont(size: 12, weight: .semibold)
+            }
+            .foregroundStyle(Color.accentColor)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(Color.accentColor.opacity(0.12))
+            )
+            .overlay {
+                Capsule(style: .continuous)
+                    .strokeBorder(Color.accentColor.opacity(0.18), lineWidth: 0.5)
+            }
+            Text(String(localized: "cloud.welcome.title", defaultValue: "Your work, wherever you go"))
                 .cmuxFont(size: 30, weight: .bold)
+                .tracking(-0.35)
         }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isHeader)
