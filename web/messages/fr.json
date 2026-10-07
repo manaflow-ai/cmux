@@ -5456,5 +5456,35 @@
     "invalidTitle": "Cette invitation n’est plus valide",
     "invalidBody": "Elle a expiré, a été révoquée ou a déjà été utilisée. Demandez-en une nouvelle à un admin de l’équipe.",
     "goToTeams": "Accéder à vos équipes"
+  },
+  "whatsNew": {
+    "title": "Nouveautés",
+    "metaTitle": "Nouveautés de cmux",
+    "metaDescription": "Les points forts de chaque version de cmux : nouvelles fonctionnalités, améliorations et corrections, avec captures d’écran et liens pour les essayer.",
+    "intro": "Les points forts de chaque version de cmux, de la plus récente à la plus ancienne. L’app affiche la même page après une mise à jour.",
+    "empty": "Aucune version pour l’instant.",
+    "versionTitle": "cmux {version} · Nouveautés",
+    "allReleases": "Toutes les versions",
+    "releaseNavLabel": "Versions proches de cmux {version}",
+    "openInCmux": "Ouvrir dans cmux",
+    "learnMore": "En savoir plus",
+    "categories": {
+      "new": "Nouveautés",
+      "improved": "Améliorations",
+      "fixed": "Corrections",
+      "security": "Sécurité"
+    },
+    "channels": {
+      "stable": "Stable",
+      "rc": "Version candidate",
+      "nightly": "Nightly"
+    },
+    "audiences": {
+      "teams": "Pour les équipes",
+      "enterprise": "Pour les entreprises"
+    },
+    "platforms": {
+      "web": "Web"
+    }
   }
 }

@@ -1,0 +1,102 @@
+{
+  "schemaVersion": 1,
+  "version": "0.66.0-nightly.20261007",
+  "channel": "nightly",
+  "date": "2026-10-07",
+  "headline": {
+    "en": "Link previews in browser panes, yearly Pro and fewer crashes"
+  },
+  "entries": [
+    {
+      "id": "link-hover-url",
+      "category": "new",
+      "title": {
+        "en": "See where a link goes before you click"
+      },
+      "summary": {
+        "en": "Browser panes show a link's address at the bottom left when you hover it. Turn it off with browser.showLinkHoverURL in cmux.json."
+      },
+      "docs": "https://cmux.com/docs/configuration",
+      "platforms": ["macos"],
+      "audience": "all"
+    },
+    {
+      "id": "workspace-colors-dark-mode",
+      "category": "new",
+      "title": {
+        "en": "Keep workspace colors as you chose them in dark mode"
+      },
+      "summary": {
+        "en": "Set workspaceColors.brightenInDarkMode to false in cmux.json, and dark mode shows your workspace colors exactly as you picked them."
+      },
+      "docs": "https://cmux.com/docs/configuration",
+      "platforms": ["macos"],
+      "audience": "all"
+    },
+    {
+      "id": "pro-yearly",
+      "category": "new",
+      "title": {
+        "en": "Pay for Pro yearly"
+      },
+      "summary": {
+        "en": "Pro can be billed yearly for $480, which is $40 a month and 20% less than monthly billing."
+      },
+      "docs": "https://cmux.com/pricing",
+      "platforms": ["web"],
+      "audience": "all"
+    },
+    {
+      "id": "settings-search",
+      "category": "improved",
+      "title": {
+        "en": "Faster search in Settings and Keyboard Shortcuts"
+      },
+      "summary": {
+        "en": "Results in Settings and Keyboard Shortcuts now keep up while you type, even with long lists."
+      },
+      "docs": "https://cmux.com/docs/keyboard-shortcuts",
+      "platforms": ["macos"],
+      "audience": "all"
+    },
+    {
+      "id": "cli-version-mismatch",
+      "category": "improved",
+      "title": {
+        "en": "A clear message when the CLI and the app differ"
+      },
+      "summary": {
+        "en": "When the running app does not support a cmux command, the CLI now explains the version mismatch and how to fix it."
+      },
+      "docs": "https://cmux.com/docs/getting-started",
+      "platforms": ["cli"],
+      "audience": "all"
+    },
+    {
+      "id": "terminal-close-crash",
+      "category": "fixed",
+      "title": {
+        "en": "No crash when you close a terminal"
+      },
+      "summary": {
+        "en": "cmux no longer crashes when you close a terminal while it redraws, and restored scrollback no longer starts with raw escape codes."
+      },
+      "docs": "https://cmux.com/docs/session-restore",
+      "platforms": ["macos"],
+      "audience": "all"
+    },
+    {
+      "id": "new-machine-crash",
+      "category": "fixed",
+      "title": {
+        "en": "New Machine opens without crashing"
+      },
+      "summary": {
+        "en": "Cmd-Y opens New Machine without crashing, and its Base, Size and Network menus line up again."
+      },
+      "docs": "https://cmux.com/docs/cloud",
+      "platforms": ["macos"],
+      "audience": "all"
+    }
+  ]
+}

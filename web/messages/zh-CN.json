@@ -5454,5 +5454,35 @@
     "invalidTitle": "此邀请已失效",
     "invalidBody": "邀请已过期、被撤销或已被使用。请向团队管理员索取新的邀请。",
     "goToTeams": "前往你的团队"
+  },
+  "whatsNew": {
+    "title": "新功能",
+    "metaTitle": "cmux 新功能",
+    "metaDescription": "每个 cmux 版本的亮点：新功能、改进和修复，附带截图和试用链接。",
+    "intro": "每个 cmux 版本的亮点，最新的在前。应用更新后也会显示同样的页面。",
+    "empty": "暂无版本。",
+    "versionTitle": "cmux {version} · 新功能",
+    "allReleases": "所有版本",
+    "releaseNavLabel": "cmux {version} 前后的版本",
+    "openInCmux": "在 cmux 中打开",
+    "learnMore": "了解更多",
+    "categories": {
+      "new": "新增",
+      "improved": "改进",
+      "fixed": "修复",
+      "security": "安全性"
+    },
+    "channels": {
+      "stable": "稳定版",
+      "rc": "候选版",
+      "nightly": "每夜版"
+    },
+    "audiences": {
+      "teams": "团队版",
+      "enterprise": "企业版"
+    },
+    "platforms": {
+      "web": "网页"
+    }
   }
 }

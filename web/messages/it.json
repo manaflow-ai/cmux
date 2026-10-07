@@ -5454,5 +5454,35 @@
     "invalidTitle": "Questo invito non è più valido",
     "invalidBody": "È scaduto, è stato revocato o è già stato usato. Chiedine uno nuovo a un admin del team.",
     "goToTeams": "Vai ai tuoi team"
+  },
+  "whatsNew": {
+    "title": "Novità",
+    "metaTitle": "Novità di cmux",
+    "metaDescription": "I punti salienti di ogni versione di cmux: nuove funzioni, miglioramenti e correzioni, con screenshot e link per provarle.",
+    "intro": "I punti salienti di ogni versione di cmux, dalla più recente. L’app mostra la stessa pagina dopo l’aggiornamento.",
+    "empty": "Nessuna versione per ora.",
+    "versionTitle": "cmux {version} · Novità",
+    "allReleases": "Tutte le versioni",
+    "releaseNavLabel": "Versioni vicine a cmux {version}",
+    "openInCmux": "Apri in cmux",
+    "learnMore": "Scopri di più",
+    "categories": {
+      "new": "Novità",
+      "improved": "Miglioramenti",
+      "fixed": "Correzioni",
+      "security": "Sicurezza"
+    },
+    "channels": {
+      "stable": "Stabile",
+      "rc": "Release candidate",
+      "nightly": "Nightly"
+    },
+    "audiences": {
+      "teams": "Per i team",
+      "enterprise": "Per le aziende"
+    },
+    "platforms": {
+      "web": "Web"
+    }
   }
 }

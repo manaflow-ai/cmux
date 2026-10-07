@@ -7182,5 +7182,35 @@
     "errorSignUpNotAllowed": "現在、新しいアカウントは作成できません。",
     "errorPasskey": "パスキーでのサインインが完了しませんでした。もう一度試すか、別の方法を使用してください。",
     "errorGeneric": "問題が発生しました。もう一度お試しください。"
+  },
+  "whatsNew": {
+    "title": "新機能",
+    "metaTitle": "cmux の新機能",
+    "metaDescription": "cmux の各リリースの主な新機能、改善点、修正を、スクリーンショットと試せるリンク付きで紹介します。",
+    "intro": "cmux の各リリースの主な変更点を新しい順に掲載しています。アプリもアップデート後に同じページを表示します。",
+    "empty": "リリースはまだありません。",
+    "versionTitle": "cmux {version} · 新機能",
+    "allReleases": "すべてのリリース",
+    "releaseNavLabel": "cmux {version} 前後のリリース",
+    "openInCmux": "cmux で開く",
+    "learnMore": "詳細",
+    "categories": {
+      "new": "新機能",
+      "improved": "改善",
+      "fixed": "修正",
+      "security": "セキュリティ"
+    },
+    "channels": {
+      "stable": "安定版",
+      "rc": "リリース候補",
+      "nightly": "ナイトリー"
+    },
+    "audiences": {
+      "teams": "チーム向け",
+      "enterprise": "エンタープライズ向け"
+    },
+    "platforms": {
+      "web": "Web"
+    }
   }
 }

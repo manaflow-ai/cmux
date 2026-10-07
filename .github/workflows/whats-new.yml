@@ -1,0 +1,50 @@
+name: What's New documents
+
+# The release gate's validator and every whats-new/<version>.json
+# (decision WHATS-NEW-AFTER-UPDATE). The app bundles these files and
+# cmux.com/whats-new renders them, so a bad file never reaches either.
+on:
+  pull_request:
+    paths:
+      - "whats-new/**"
+      - "scripts/whats-new/**"
+      - "schemas/whats-new/**"
+      - ".github/workflows/whats-new.yml"
+  push:
+    branches: [main]
+    paths:
+      - "whats-new/**"
+      - "scripts/whats-new/**"
+      - "schemas/whats-new/**"
+      - ".github/workflows/whats-new.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: whats-new-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Validator tests
+        run: python3 scripts/whats-new/test_validate.py
+
+      - name: Nightly digest tests
+        run: python3 scripts/whats-new/test_digest.py
+
+      - name: Validate every document
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          files=(whats-new/*.json)
+          if [ ${#files[@]} -eq 0 ]; then echo "no documents"; exit 0; fi
+          python3 scripts/whats-new/validate.py --root whats-new "${files[@]}"

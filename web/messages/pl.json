@@ -5454,5 +5454,35 @@
     "invalidTitle": "To zaproszenie jest już nieważne",
     "invalidBody": "Wygasło, zostało unieważnione lub już użyte. Poproś administratora zespołu o nowe.",
     "goToTeams": "Przejdź do swoich zespołów"
+  },
+  "whatsNew": {
+    "title": "Co nowego",
+    "metaTitle": "Co nowego w cmux",
+    "metaDescription": "Najważniejsze zmiany w każdej wersji cmux: nowe funkcje, ulepszenia i poprawki, ze zrzutami ekranu i linkami do wypróbowania.",
+    "intro": "Najważniejsze zmiany w każdej wersji cmux, od najnowszej. Aplikacja pokazuje tę samą stronę po aktualizacji.",
+    "empty": "Brak wersji.",
+    "versionTitle": "cmux {version} · Co nowego",
+    "allReleases": "Wszystkie wersje",
+    "releaseNavLabel": "Wersje w pobliżu cmux {version}",
+    "openInCmux": "Otwórz w cmux",
+    "learnMore": "Więcej informacji",
+    "categories": {
+      "new": "Nowości",
+      "improved": "Ulepszenia",
+      "fixed": "Poprawki",
+      "security": "Bezpieczeństwo"
+    },
+    "channels": {
+      "stable": "Stabilna",
+      "rc": "Kandydat do wydania",
+      "nightly": "Nightly"
+    },
+    "audiences": {
+      "teams": "Dla zespołów",
+      "enterprise": "Dla firm"
+    },
+    "platforms": {
+      "web": "Web"
+    }
   }
 }

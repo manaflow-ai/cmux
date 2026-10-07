@@ -5451,5 +5451,35 @@
     "invalidTitle": "هذه الدعوة لم تعد صالحة",
     "invalidBody": "انتهت صلاحيتها أو أُلغيت أو استُخدمت بالفعل. اطلب دعوة جديدة من أحد مسؤولي الفريق.",
     "goToTeams": "الانتقال إلى فرقك"
+  },
+  "whatsNew": {
+    "title": "ما الجديد",
+    "metaTitle": "ما الجديد في cmux",
+    "metaDescription": "أبرز ما في كل إصدار من cmux: ميزات جديدة وتحسينات وإصلاحات، مع لقطات شاشة وروابط لتجربتها.",
+    "intro": "أبرز ما في كل إصدار من cmux، الأحدث أولًا. يعرض التطبيق الصفحة نفسها بعد التحديث.",
+    "empty": "لا توجد إصدارات بعد.",
+    "versionTitle": "cmux {version} · ما الجديد",
+    "allReleases": "كل الإصدارات",
+    "releaseNavLabel": "إصدارات قريبة من cmux {version}",
+    "openInCmux": "افتح في cmux",
+    "learnMore": "اعرف المزيد",
+    "categories": {
+      "new": "جديد",
+      "improved": "تحسينات",
+      "fixed": "إصلاحات",
+      "security": "الأمان"
+    },
+    "channels": {
+      "stable": "مستقر",
+      "rc": "إصدار مرشح",
+      "nightly": "ليلي"
+    },
+    "audiences": {
+      "teams": "للفرق",
+      "enterprise": "للمؤسسات"
+    },
+    "platforms": {
+      "web": "الويب"
+    }
   }
 }
