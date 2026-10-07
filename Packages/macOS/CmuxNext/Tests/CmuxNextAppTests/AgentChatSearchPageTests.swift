@@ -25,7 +25,8 @@ import Testing
         #expect(!SidebarLayoutDocument.defaults.sections.flatMap(\.items).contains { $0.ref == .builtIn(.searchChats) })
         let add = try #require(ActionCatalog.all.first { $0.id == "sidebar.item.add" })
         let item = try #require(add.arguments.first { $0.name == "item" })
-        guard case .enumeration(let cases) = item.kind else { Issue.record("item is not an enumeration"); return }
-        #expect(cases.map(\.value).contains("search_chats"))
+        // The item is free text (`workspace:` / `app:` refs, PINNED-ITEMS-END-TO-END P1) with the built-ins offered.
+        let offered = item.suggestions?.pinned.map(\.value) ?? []
+        #expect(offered.contains("search_chats"))
     }
 }
