@@ -189,7 +189,7 @@ const folderRows = () =>
 const menuItems = () =>
   [...doc.querySelectorAll('.acpmux-location-menu [role="menuitem"]')].map((item) => item.textContent);
 
-test("the fresh-chat folder menu lists the recent folders, the current one checked, then Choose folder…", async () => {
+test("the fresh-chat folder menu lists the recent folders, the current one checked, then Add project", async () => {
   await render({}, false, freshFolders);
   const button = folderButton();
   expect(button.textContent).toBe("cmux");
@@ -199,8 +199,8 @@ test("the fresh-chat folder menu lists the recent folders, the current one check
     ["cmux", "/Users/me/code/cmux", "true"],
     ["relay", "/Users/me/Projects/relay", "false"],
   ]);
-  expect(menuItems()).toEqual(["Choose folder…"]);
-  // The folder list comes first and Choose folder… last, under a separator.
+  expect(menuItems()).toEqual(["Add project"]);
+  // The folder list comes first and Add project last, under a separator.
   const menu = doc.querySelector(".acpmux-location-menu")!;
   const order = [...menu.querySelectorAll('[role="menuitemradio"], [role="separator"], [role="menuitem"]')].map(
     (node) => node.getAttribute("role"),
@@ -210,13 +210,16 @@ test("the fresh-chat folder menu lists the recent folders, the current one check
   expect(picked).toEqual([["/Users/me/Projects/relay", undefined]]);
 });
 
-test("Choose folder… asks the host for its folder panel from the click", async () => {
+test("Add project opens the keyboard-first panel and falls back to the host chooser", async () => {
   await render({}, false, freshFolders);
   await act(async () => folderButton().click());
   await act(async () => doc.querySelector<HTMLElement>('.acpmux-location-menu [role="menuitem"]')!.click());
+  expect(doc.querySelector('[data-add-project-step="environment"]')).not.toBeNull();
+  await act(async () => doc.querySelector<HTMLElement>(".acpmux-add-project-item")!.click());
+  expect(doc.querySelector('[data-add-project-step="source"]')).not.toBeNull();
+  await act(async () => doc.querySelector<HTMLElement>(".acpmux-add-project-item")!.click());
   expect(browsed).toBe(1);
   expect(picked).toEqual([]);
-  expect(doc.querySelector(".acpmux-location-menu")).toBeNull();
 });
 
 test("picking the current folder only closes the menu", async () => {
@@ -226,7 +229,7 @@ test("picking the current folder only closes the menu", async () => {
   expect(picked).toEqual([]);
 });
 
-test("with no folder the button reads Choose folder in the same face, and its menu offers only Choose folder…", async () => {
+test("with no folder the button reads Choose folder in the same face, and its menu offers only Add project", async () => {
   await render({ cwd: undefined }, false, [], []);
   const button = folderButton();
   expect(button.textContent).toBe("Choose folder");
@@ -236,7 +239,7 @@ test("with no folder the button reads Choose folder in the same face, and its me
   await act(async () => button.click());
   expect(folderRows()).toEqual([]);
   expect(doc.querySelectorAll('.acpmux-location-menu [role="separator"]')).toHaveLength(0);
-  expect(menuItems()).toEqual(["Choose folder…"]);
+  expect(menuItems()).toEqual(["Add project"]);
 });
 
 test("a long folder name is cut with an ellipsis on one line, and the tooltip keeps the full path", async () => {
@@ -269,9 +272,9 @@ test("the keyboard opens the folder menu, moves through it and picks with Enter"
   await key("ArrowDown");
   await key("ArrowDown");
   await key("ArrowDown");
-  expect((doc.activeElement as HTMLElement | null)?.textContent).toBe("Choose folder…");
+  expect((doc.activeElement as HTMLElement | null)?.textContent).toBe("Add project");
   await key("Enter");
-  expect(browsed).toBe(1);
+  expect(doc.querySelector('[data-add-project-step="environment"]')).not.toBeNull();
 });
 
 test("keeps the root project selectable", async () => {
