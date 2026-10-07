@@ -15,6 +15,8 @@ import { apnsHomePushSender, decideHomePush, drainHomePush, feedHomePushQuiet } 
 import { CLOSE_RETRY_MS, flushInstallCloses, markAgentClosing, markInstallClosing, nextCloseAt, registerSocketOwner } from "./socket-registry.ts"
 import { OwnerDO, type Attachment, type ReadResult, type SubmitResult } from "./owner-do.ts"
 import { SecondaryStream } from "./secondary-stream.ts"
+import { sshDomain, type SshState } from "./domains/user-ssh.ts"
+const earliestOf = (a: number | null, b: number | null) => (a === null ? b : b === null ? a : Math.min(a, b))
 import { readInboxOp } from "./user-inbox.ts"
 import { checkPresenceKey, type PresenceKeyBody } from "./user-presence-key.ts"
 import { homeRateTakeSql, type HomeRateGate, type HomeRateOp } from "./home-rate.ts"
@@ -36,6 +38,8 @@ export class UserDO extends OwnerDO<UserState> {
   protected override checksInstallRevocation = false
   /** Second stream `inbox:<user>` (lane 15 E2): Home inbox entries, pins, mutes, archive. */
   private readonly inbox: SecondaryStream<homeInbox.InboxHead>
+  /** Third stream `ssh:<user>` (b1-control-do.md 8): synced SSH host records, never a secret. */
+  private readonly ssh: SecondaryStream<SshState>
   /** Home push queue (home-push.ts): one row per conversation, the dedupe for redelivered and coalesced bumps. */
   private readonly homePush: HomePushQueue
 
@@ -55,8 +59,14 @@ export class UserDO extends OwnerDO<UserState> {
       // The list order index is derived owner data: its writes never reach subscribers.
       engine: { rowMode: { snapshotTable: homeInbox.TABLE_ENTRY, snapshotTail: 0 }, redact: { privateTables: homeInbox.INBOX_PRIVATE_TABLES } },
       owns: (op) => op.startsWith("inbox."),
-      maySubscribe: (_head, principal, entity) => principal.user === entity && principal.install_kind !== "vm" && !(principal.install !== undefined && this.existing()?.currentState.installs[principal.install]?.kind === "vm")
+      maySubscribe: (_head, principal, entity) => this.ownStream(principal, entity)
     }, (ws, a) => this.socketLive(ws, a))
+    this.ssh = new SecondaryStream(ctx, this.sqlStore, { prefix: "ssh", tablePrefix: "ssh_", domain: sshDomain, owns: (op) => op.startsWith("ssh."), maySubscribe: (_s, p, entity) => this.ownStream(p, entity) }, (ws, a) => this.socketLive(ws, a))
+  }
+
+  /** Inbox and ssh streams: the user only, never through a VM install. */
+  private ownStream(principal: Principal, entity: string): boolean {
+    return principal.user === entity && principal.install_kind !== "vm" && !(principal.install !== undefined && this.existing()?.currentState.installs[principal.install]?.kind === "vm")
   }
 
   /** The inbox engine of the bound user, opened on first use (also after hibernation). */
@@ -80,10 +90,10 @@ export class UserDO extends OwnerDO<UserState> {
       } catch {}
       return true
     }
-    if (!this.inbox.handles(frame)) return false
-    const engine = this.existing()
-    if (!engine) return false
-    this.inbox.onFrame(ws, a, engine.stream.slice("user:".length), frame)
+    const stream = [this.inbox, this.ssh].find((x) => x.handles(frame))
+    const engine = stream ? this.existing() : undefined
+    if (!stream || !engine) return false
+    stream.onFrame(ws, a, engine.stream.slice("user:".length), frame)
     this.scheduleAlarm()
     return true
   }
@@ -101,8 +111,9 @@ export class UserDO extends OwnerDO<UserState> {
   }
 
   protected override nextWakeAt(): number | null {
-    this.boundInbox()
-    const inbox = this.inbox.nextWakeAt()
+    const entity = this.boundInbox() ? this.existing()!.stream.slice("user:".length) : undefined
+    if (entity) this.ssh.open(entity)
+    const inbox = earliestOf(this.inbox.nextWakeAt(), this.ssh.nextWakeAt())
     const pending = krlDueAt(this.boundEngine?.currentState, this.krlRetry, Date.now())
     const closes = nextCloseAt(this.ctx.storage.sql, this.closeRetryAt)
     const times = [inbox, pending, closes, this.homePush.nextDueAt()].filter((t): t is number => t !== null)
@@ -207,8 +218,8 @@ export class UserDO extends OwnerDO<UserState> {
   }
 
   protected override onPrune(): void {
-    this.boundInbox()
-    this.inbox.prune(Date.now())
+    if (this.boundInbox()) this.ssh.open(this.existing()!.stream.slice("user:".length))
+    for (const s of [this.inbox, this.ssh]) s.prune(Date.now())
   }
 
   /** RPC: an inbox op (pin, mute, archive, mark unread) from the user's session or install. */
@@ -399,21 +410,10 @@ export class UserDO extends OwnerDO<UserState> {
   }
 
   /** Home attachment quota (home-attachment-quota.ts): every upload slot is charged; refunds and stored bytes by key. */
-  async takeAttachmentQuota(entity: string, key: string, bytes: number): Promise<quota.TakeResult> {
-    return this.attachmentSql(entity) ? quota.take(this.ctx.storage.sql, key, bytes, Date.now()) : quota.FORBIDDEN
-  }
-
-  async refundAttachmentQuota(entity: string, key: string): Promise<void> {
-    if (this.attachmentSql(entity)) quota.refund(this.ctx.storage.sql, key)
-  }
-
-  async recordAttachmentStorage(entity: string, objectKey: string, bytes: number): Promise<void> {
-    if (this.attachmentSql(entity)) quota.recordStored(this.ctx.storage.sql, objectKey, bytes)
-  }
-
-  async releaseAttachmentStorage(entity: string, objectKey: string): Promise<void> {
-    if (this.attachmentSql(entity)) quota.releaseStored(this.ctx.storage.sql, objectKey)
-  }
+  async takeAttachmentQuota(entity: string, key: string, bytes: number): Promise<quota.TakeResult> { return this.attachmentSql(entity) ? quota.take(this.ctx.storage.sql, key, bytes, Date.now()) : quota.FORBIDDEN }
+  async refundAttachmentQuota(entity: string, key: string): Promise<void> { if (this.attachmentSql(entity)) quota.refund(this.ctx.storage.sql, key) }
+  async recordAttachmentStorage(entity: string, objectKey: string, bytes: number): Promise<void> { if (this.attachmentSql(entity)) quota.recordStored(this.ctx.storage.sql, objectKey, bytes) }
+  async releaseAttachmentStorage(entity: string, objectKey: string): Promise<void> { if (this.attachmentSql(entity)) quota.releaseStored(this.ctx.storage.sql, objectKey) }
 
   /** Attachment counter tables of a bound user; false (no write) for an id this object never served. */
   private attachmentSql(entity: string): boolean {
