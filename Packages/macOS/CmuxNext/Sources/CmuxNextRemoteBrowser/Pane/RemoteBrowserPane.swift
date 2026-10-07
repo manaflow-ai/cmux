@@ -13,9 +13,14 @@ public final class RemoteBrowserPane {
     private var pipelineTask: Task<Void, Never>?
     private var sizeContinuations: [AsyncStream<CGSize>.Continuation] = []
 
-    public init(source: any RemoteViewStreamSource, presenter: RemotePresenterKind = .layerContents) {
+    public convenience init(source: any RemoteViewStreamSource, presenter: RemotePresenterKind = .layerContents) {
+        self.init(source: source, presenter: RemoteFramePresenters().make(presenter))
+    }
+
+    /// `presenter` receives every decoded frame (tests pass a recorder).
+    package init(source: any RemoteViewStreamSource, presenter: any RemoteFramePresenter) {
         self.source = source
-        self.presenter = RemoteFramePresenters().make(presenter)
+        self.presenter = presenter
         view.video.install(self.presenter)
         self.presenter.onFrameSize = { [weak self] size in self?.frameSizeChanged(size) }
     }
