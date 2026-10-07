@@ -35,7 +35,7 @@ struct AgentChatsPalettePage {
         if let socket = QuitAgents.environment(services)?.socketPath {
             let shown = Set(recents.compactMap(\.agentSessionID))
             providers.append(AsyncPaletteProvider(id: "deviceChats") { [services] in
-                let chats = await AcpmuxDeviceChats.newest(socketPath: socket, limit: Self.deviceLimit) ?? []
+                let chats = await AcpmuxDeviceChat.newest(socketPath: socket, limit: Self.deviceLimit) ?? []
                 return Self.resumable(chats, shown: shown).map { deviceItem($0, services: services, formatter: formatter) }
             })
         }

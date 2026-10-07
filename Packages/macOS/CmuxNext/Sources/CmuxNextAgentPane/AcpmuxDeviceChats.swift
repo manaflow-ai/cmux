@@ -49,9 +49,8 @@ public nonisolated struct AcpmuxDeviceChat: Hashable, Sendable, Identifiable {
     }
 }
 
-/// The daemon's device-wide chat index over the unix socket.
-public nonisolated enum AcpmuxDeviceChats {
-    /// `_acpmux/chats {limit}`: the newest chats on this device. Nil when the daemon cannot
+extension AcpmuxDeviceChat {
+    /// `_acpmux/chats {limit}` over the daemon's unix socket: the newest chats on this device. Nil when the daemon cannot
     /// answer (no socket, an older daemon, the index still scanning or turned off).
     @concurrent public static func newest(socketPath: String, limit: Int,
                                           deadline: Duration = .seconds(2)) async -> [AcpmuxDeviceChat]? {
