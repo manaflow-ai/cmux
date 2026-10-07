@@ -55,6 +55,17 @@ class SlowWorker extends EventTarget {
   terminate() {
     this.terminated = true;
   }
+
+  finishDiffs() {
+    for (const message of this.messages) {
+      if (message.type !== "diff") continue;
+      this.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "success", id: message.id, requestType: "diff", result: {}, options: {} },
+        }),
+      );
+    }
+  }
 }
 
 Object.assign(globals, {
@@ -167,5 +178,7 @@ describe("agent diff worker rendering", () => {
       ),
     ).toBe(true);
     await act(async () => root.unmount());
+    for (const worker of SlowWorker.all) worker.finishDiffs();
+    await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
   });
 });

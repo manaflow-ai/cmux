@@ -54,7 +54,33 @@ export class PaymentRequired extends Schema.TaggedError<PaymentRequired>()(
 /** A tenant quota or rate limit was reached. */
 export class QuotaExceeded extends Schema.TaggedError<QuotaExceeded>()(
   "QuotaExceeded",
-  { message: Schema.String, retryAfterSeconds: Schema.optional(Schema.Int) },
+  {
+    message: Schema.String,
+    retryAfterSeconds: Schema.optional(Schema.Int),
+    /**
+     * Which budget ran out: the team's live snapshots or live VMs, its
+     * per-minute request rate, or the platform's VM capacity (not the team's);
+     * for the mesh experiment, which mesh budget (meshes per team, devices per
+     * mesh, firewall rules per mesh or per named resource, ACL applies per
+     * mesh per minute) or the platform account's firewall rule limit.
+     */
+    budget: Schema.optional(
+      Schema.Literal(
+        "snapshots",
+        "vms",
+        "rate",
+        "capacity",
+        // Mesh experiment (cx-0op, DESIGN.md 7.1).
+        "mesh.perTenant",
+        "device.perMesh",
+        "firewallRule.perMesh",
+        "firewallRule.perResource",
+        "firewallRule.account",
+        "aclApply.perMeshPerMinute",
+        "enrollmentCode.perMeshPerHour",
+      ),
+    ),
+  },
   HttpApiSchema.annotations({ status: 429 }),
 ) {}
 

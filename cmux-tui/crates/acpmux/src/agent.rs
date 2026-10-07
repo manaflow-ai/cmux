@@ -152,6 +152,12 @@ pub(crate) fn harness_command(
     command_line: Option<(String, Vec<String>)>,
     session: Option<(&str, &str)>,
 ) -> Result<Command> {
+    // A session's Claude Code (a planned command line) gets cmux's browser
+    // and computer use tools and skills (agent_tools.rs); a remote chain's
+    // sandboxed plan carries --strict-mcp-config and gets none.
+    let claude_session = profile.kind == crate::config::HarnessKind::ClaudeStdio
+        && command_line.is_some()
+        && session.is_some();
     let owned: (String, Vec<String>) = match command_line {
         Some(c) => c,
         None => {
@@ -167,6 +173,12 @@ pub(crate) fn harness_command(
             "{name} is a terminal harness without ACP; open it with `cmux harness run {name}`"
         ));
     }
+    let owned = if let (true, Some((session_id, _))) = (claude_session, session) {
+        let extra = crate::agent_tools::claude_args_for(false, &profile.env, &owned.1, session_id);
+        (owned.0, owned.1.into_iter().chain(extra).collect())
+    } else {
+        owned
+    };
     let env = resolved_profile_env(profile)?;
     let (program, args) = (&owned.0, &owned.1);
     let mut cmd = Command::new(program);
@@ -178,6 +190,8 @@ pub(crate) fn harness_command(
             cmd.env_remove(&k);
         }
     }
+    // Helper tokens reach the cmux-cua MCP server through its own env only.
+    crate::cua_socket::scrub_agent_env(&mut cmd);
     // A nested launch must not be taken for its parent's thread.
     cmd.env_remove("CODEX_THREAD_ID").env_remove("OMPCODE");
     if let Some((id, sname)) = session {

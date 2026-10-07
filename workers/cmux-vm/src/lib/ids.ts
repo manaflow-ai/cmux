@@ -15,9 +15,12 @@ const BODY_LENGTH = 26;
 export const RESOURCE_PREFIXES = {
   vm: "vm_",
   snapshot: "snap_",
+  mesh: "mesh_",
+  device: "dev_",
+  tunnel: "tun_",
 } as const;
 
-export const ResourceKind = Schema.Literal("vm", "snapshot");
+export const ResourceKind = Schema.Literal("vm", "snapshot", "mesh", "device", "tunnel");
 export type ResourceKind = typeof ResourceKind.Type;
 
 const opaque = (prefix: string) => new RegExp(`^${prefix}[${BASE32}]{${BODY_LENGTH}}$`);
@@ -28,8 +31,20 @@ export type VmId = typeof VmId.Type;
 export const SnapshotId = Schema.String.pipe(Schema.pattern(opaque(RESOURCE_PREFIXES.snapshot)), Schema.brand("SnapshotId"));
 export type SnapshotId = typeof SnapshotId.Type;
 
+/** A mesh (experiment, cx-0op): one private network per tenant. */
+export const MeshId = Schema.String.pipe(Schema.pattern(opaque(RESOURCE_PREFIXES.mesh)), Schema.brand("MeshId"));
+export type MeshId = typeof MeshId.Type;
+
+/** A device enrolled in a mesh with its own WireGuard key. */
+export const DeviceId = Schema.String.pipe(Schema.pattern(opaque(RESOURCE_PREFIXES.device)), Schema.brand("DeviceId"));
+export type DeviceId = typeof DeviceId.Type;
+
+/** A device's tunnel into its mesh; exactly one per device. */
+export const TunnelId = Schema.String.pipe(Schema.pattern(opaque(RESOURCE_PREFIXES.tunnel)), Schema.brand("TunnelId"));
+export type TunnelId = typeof TunnelId.Type;
+
 /** Any public resource id. */
-export type ResourceId = VmId | SnapshotId;
+export type ResourceId = VmId | SnapshotId | MeshId | DeviceId | TunnelId;
 
 /** API key ids are public (shown in key listings and audit logs); the secret is not. */
 export const ApiKeyId = Schema.String.pipe(Schema.pattern(opaque("vmk_")), Schema.brand("ApiKeyId"));
@@ -78,6 +93,9 @@ export function randomIdBody(random: (bytes: Uint8Array) => Uint8Array = (bytes)
 
 export const newVmId = (): VmId => VmId.make(RESOURCE_PREFIXES.vm + randomIdBody());
 export const newSnapshotId = (): SnapshotId => SnapshotId.make(RESOURCE_PREFIXES.snapshot + randomIdBody());
+export const newMeshId = (): MeshId => MeshId.make(RESOURCE_PREFIXES.mesh + randomIdBody());
+export const newDeviceId = (): DeviceId => DeviceId.make(RESOURCE_PREFIXES.device + randomIdBody());
+export const newTunnelId = (): TunnelId => TunnelId.make(RESOURCE_PREFIXES.tunnel + randomIdBody());
 export const newApiKeyId = (): ApiKeyId => ApiKeyId.make("vmk_" + randomIdBody());
 
 /** Decodes a public VM id; any malformed input is simply "no such VM". */
@@ -85,3 +103,8 @@ export const parseVmId = Schema.decodeUnknownOption(VmId);
 
 /** Decodes a public snapshot id; any malformed input is simply "no such snapshot". */
 export const parseSnapshotId = Schema.decodeUnknownOption(SnapshotId);
+
+/** Decodes public mesh, device and tunnel ids; malformed input is "not found". */
+export const parseMeshId = Schema.decodeUnknownOption(MeshId);
+export const parseDeviceId = Schema.decodeUnknownOption(DeviceId);
+export const parseTunnelId = Schema.decodeUnknownOption(TunnelId);

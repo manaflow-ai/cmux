@@ -130,6 +130,8 @@ final class RowRecycler: UIScrollView, TranscriptList {
         for (c, i) in fresh { configure(c, i) }
         // Long text rows: tiles follow the viewport inside the row (TiledBubble.swift).
         for c in next.values where c.tiled?.isActive == true { c.tiled?.update(c) }
+        // Hosted rows follow their cells (CustomRows.swift).
+        CustomRows.host?.didLayout(self)
         // Media: bitmaps and thumbnails ahead in the scroll direction (MediaCache.swift).
         prefetcher.update(self)
     }

@@ -6,6 +6,7 @@ import CmuxNextControl
 import CmuxNextDesign
 import CmuxNextDaemon
 import CmuxNextPalette
+import CmuxNextPages
 import CmuxNextBrowserImport
 import CmuxNextSettings
 import CmuxNextTerminal
@@ -117,6 +118,8 @@ final class AppServices {
     let newTabTypeAhead = NewTabTypeAhead()
     /// One prewarmed new tab page per window (instant open).
     private(set) lazy var newTabSpares = NewTabSparePool(services: self)
+    /// The spare React page hosts for Settings, History and Cloud.
+    private(set) lazy var pageHostPool = PageHostPool()
     /// The one icon picker (R94): Set Icon of workspaces, screens, spaces, browser profiles.
     private(set) lazy var iconPicker = IconPickerService(services: self)
     /// cmux.json command `actions`, registered as `cmuxConfig.<name>`.
@@ -318,9 +321,7 @@ final class AppServices {
             self?.keyRouter.cancelChord()
         }
     }
-
     // MARK: Lookup
-
     /// The tab with durable id `id` and the pane that holds it.
     func locateTab(_ id: String) -> (TabModel, PaneModel)? {
         for (workspace, _) in machines.allWorkspaces {
@@ -336,7 +337,6 @@ final class AppServices {
         }
         return nil
     }
-
     /// The tab on `surface` (the local daemon's surfaces).
     func locateTab(surface: SurfaceID) -> TabModel? {
         daemon.store.workspaces.lazy.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first { $0.surface == surface }
@@ -345,7 +345,6 @@ final class AppServices {
     func workspace(id: String) -> WorkspaceModel? {
         machines.workspace(id: id)?.0
     }
-
     /// The daemon that owns `pane`.
     func daemon(for pane: PaneModel) -> DaemonService {
         machines.daemon(forPane: pane)

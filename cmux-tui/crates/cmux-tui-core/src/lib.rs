@@ -70,6 +70,8 @@ mod surface;
 #[cfg(unix)]
 mod terminal_backend;
 mod terminal_end;
+#[cfg(unix)]
+mod terminal_loss_log;
 mod terminal_metadata;
 mod workspace_registry;
 

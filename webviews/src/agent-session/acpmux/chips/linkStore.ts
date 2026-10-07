@@ -21,6 +21,8 @@ const MAX_KEPT = 2000;
 
 const paths = new Map<string, PathInfo | null>();
 const sites = new Map<string, SiteInfo | null>();
+/// Paths sent to the host and not answered yet.
+const asking = new Set<string>();
 let policy: ReplyPolicy = { outsideRoots: "confirm", remoteImages: "click" };
 let queuedPaths: string[] = [];
 let queuedUrls: string[] = [];
@@ -45,7 +47,10 @@ function flush() {
     const batchUrls = queuedUrls.splice(0, MAX_BATCH);
     void callChipHost("link.inspect", { paths: batchPaths, urls: batchUrls }).then((reply) => {
       const value = (reply ?? {}) as Inspect;
-      for (const path of batchPaths) paths.set(path, value.paths?.[path] ?? null);
+      for (const path of batchPaths) {
+        paths.set(path, value.paths?.[path] ?? null);
+        asking.delete(path);
+      }
       for (const url of batchUrls) sites.set(url, value.sites?.[url] ?? null);
       if (value.policy) policy = { ...policy, ...value.policy };
       changed();
@@ -56,10 +61,12 @@ function flush() {
 function ask(path?: string, url?: string) {
   if (paths.size + sites.size > MAX_KEPT) {
     paths.clear();
+    asking.clear();
     sites.clear();
   }
   if (path !== undefined && !paths.has(path)) {
     paths.set(path, null);
+    asking.add(path);
     queuedPaths.push(path);
   }
   if (url !== undefined && !sites.has(url)) {
@@ -79,11 +86,12 @@ function subscribe(listener: () => void) {
   return () => listeners.delete(listener);
 }
 
-/// The host's answer for `path` (undefined while it is asked), and the policy.
-export function usePathInfo(path: string): { info: PathInfo | undefined; policy: ReplyPolicy } {
+/// The host's answer for `path` (undefined while it is asked, or when the host had none), whether
+/// the host has answered, and the policy.
+export function usePathInfo(path: string): { info: PathInfo | undefined; answered: boolean; policy: ReplyPolicy } {
   useSyncExternalStore(subscribe, snapshot, snapshot);
   ask(path);
-  return { info: paths.get(path) ?? undefined, policy };
+  return { info: paths.get(path) ?? undefined, answered: !asking.has(path), policy };
 }
 
 /// What cmux already has for `url` (nothing while it is asked, or when it has nothing).
@@ -103,10 +111,24 @@ export function useReplyPolicy(): ReplyPolicy {
 /// Tests start from nothing.
 export function resetLinkStore(): void {
   paths.clear();
+  asking.clear();
   sites.clear();
   queuedPaths = [];
   queuedUrls = [];
   policy = { outsideRoots: "confirm", remoteImages: "click" };
   policyAsked = false;
+  changed();
+}
+
+/** Gallery host fixtures can prime the same cache the native inspect call would fill. */
+export function seedLinkStore(seed: {
+  paths?: Record<string, PathInfo>;
+  sites?: Record<string, SiteInfo>;
+  policy?: Partial<ReplyPolicy>;
+}): void {
+  for (const [path, info] of Object.entries(seed.paths ?? {})) paths.set(path, info);
+  for (const [url, info] of Object.entries(seed.sites ?? {})) sites.set(url, info);
+  if (seed.policy) policy = { ...policy, ...seed.policy };
+  policyAsked = true;
   changed();
 }

@@ -261,7 +261,7 @@ impl Hub {
             turn_seq: 0,
             control,
         });
-        session.last_turn_web.store(control == Control::Web, Ordering::SeqCst);
+        session.floor.last_turn_web.store(control == Control::Web, Ordering::SeqCst);
         self.reset_stream(session);
         self.append(
             session,
@@ -837,6 +837,8 @@ impl Hub {
         }
         *session.turn.lock().unwrap() = None;
         self.set_status(session, SessionStatus::Closed);
+        // The session's Claude Code MCP config holds the helper token.
+        crate::agent_tools::remove_mcp_config(&crate::config::home(), &session.id);
         if purge {
             session.purged.store(true, Ordering::SeqCst);
             self.sessions.lock().unwrap().remove(&session.id);
