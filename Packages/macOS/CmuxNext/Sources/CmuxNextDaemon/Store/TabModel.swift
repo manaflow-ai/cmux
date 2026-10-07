@@ -51,6 +51,8 @@ public final class TabModel: Identifiable {
     /// The terminal's OSC 9;4 progress as the daemon parses it, mounted or
     /// not (`TerminalSnapshot.extra.progress`).
     public internal(set) var progress: TerminalProgressReport?
+    /// The terminal's OSC 7501 program status records (`extra.program_status`).
+    public internal(set) var programStatus: [ProgramStatusRecord] = []
     /// The terminal a remote-terminal tab references (on another session).
     public internal(set) var remote: RemoteTerminalRef?
     /// Last snapshot, for fields the record does not surface. Views should
@@ -139,12 +141,13 @@ public final class TabModel: Identifiable {
     }
 
     /// Lays the daemon's tab record and terminal progress over the record.
-    func applyState(_ record: SessionStateMirror.TabRecord?, progress: TerminalProgressReport?) {
+    func applyState(_ record: SessionStateMirror.TabRecord?, progress: TerminalProgressReport?, programStatus: [ProgramStatusRecord] = []) {
         let record = record ?? SessionStateMirror.TabRecord()
         if zoom != record.zoom { zoom = record.zoom }
         if backURLs != record.back { backURLs = record.back }
         if forwardURLs != record.forward { forwardURLs = record.forward }
         if self.progress != progress { self.progress = progress }
+        if self.programStatus != programStatus { self.programStatus = programStatus }
     }
 
     /// Point updates from surface events (no full snapshot).

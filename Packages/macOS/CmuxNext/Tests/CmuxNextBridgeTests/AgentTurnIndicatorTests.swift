@@ -107,6 +107,26 @@ struct AgentTurnIndicatorTests {
         #expect(StatusMapping.shared.summary(tab).state == .working)
     }
 
+    /// OSC 7501 from any terminal program: working draws the working mark
+    /// (a determinate accent ring with progress), blocked is needs input.
+    @Test func programStatusDrivesTheSameIndicators() throws {
+        let store = try BridgeFixture.store()
+        let workspace = try #require(store.sidebarSections.flatMap(\.workspaces).first { $0.displayName == "beta" })
+        let tab = try #require(workspace.screens.flatMap(\.panes).flatMap(\.tabs).first)
+        tab.programStatus = [ProgramStatusRecord(state: .working, progress: 40, app: "cargo", title: "Build", updatedSeq: 1)]
+        let working = StatusMapping.shared.loading(tab)
+        #expect(working.state == .working(progress: 0.4))
+        #expect(working.primary?.source == .program)
+        #expect(working.primary?.label == "Build")
+        #expect(SidebarMapping.shared.row(workspace, machine: .local).activity == .working(progress: 0.4))
+        tab.programStatus.append(ProgramStatusRecord(id: "deploy", state: .blocked, kind: .permission, updatedSeq: 2))
+        #expect(StatusMapping.shared.summary(tab).state == .waiting)
+        #expect(TabItemMapping.shared.item(tab, fallbackTitle: "t").status == .needsInput)
+        #expect(SidebarMapping.shared.row(workspace, machine: .local).activity == .waiting)
+        tab.programStatus = [ProgramStatusRecord(state: .idle, updatedSeq: 3)]
+        #expect(StatusMapping.shared.summary(tab) == .idle)
+    }
+
     @Test func theRowShowsWorkingWhenAnyTabWorks() throws {
         let store = try BridgeFixture.store()
         let workspace = try #require(store.sidebarSections.flatMap(\.workspaces).first { $0.displayName == "beta" })

@@ -24,6 +24,10 @@ public struct StatusMapping {
             reports.append(StatusReport(id: "agent:\(tab.id)", source: .agent, state: state,
                                         label: agent.agent, updatedAtMs: agent.updatedAtMs))
         }
+        if let record = ProgramStatusRecord.strongest(tab.programStatus), let state = state(record) {
+            // The title only: `app` is a machine name, never the only label.
+            reports.append(StatusReport(id: "program:\(tab.id)", source: .program, state: state, label: record.title))
+        }
         if let ref = tab.agentSession, let turn = turns.state(for: ref) {
             reports.append(StatusReport(id: "acp:\(ref.session ?? tab.id)", source: .agent, state: state(turn), label: ref.harness))
         }
@@ -33,6 +37,12 @@ public struct StatusMapping {
     /// The acpmux turn state of an agent chat tab, nil for every other tab.
     public func turn(_ tab: TabModel) -> AgentTurnState? {
         tab.agentSession.flatMap(turns.state(for:))
+    }
+
+    /// An acpmux turn or an OSC 7501 program waits for the user (the tab's
+    /// still attention badge).
+    public func needsInput(_ tab: TabModel) -> Bool {
+        turn(tab) == .needsInput
     }
 
     /// One tab's merged status.
@@ -65,6 +75,16 @@ public struct StatusMapping {
         case .working: .working
         case .blocked: .waiting
         case .idle, .done, .unknown: nil
+        }
+    }
+
+    /// An OSC 7501 record as an indicator state. Done and error wait for a
+    /// per-client "seen" set (contract: until seen) and show nothing yet.
+    func state(_ record: ProgramStatusRecord) -> StatusIndicatorState? {
+        switch record.state {
+        case .working: .working(progress: record.progress.map { Double($0) / 100 })
+        case .blocked: .waiting
+        case .done, .error, .idle: nil
         }
     }
 
