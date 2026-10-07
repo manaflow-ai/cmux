@@ -47,13 +47,32 @@ pub(super) fn daemon_entry(session_socket: &Path) -> PathBuf {
 /// source `peer_addr`, then splice it into the daemon's remote entry, or
 /// (owner session, the server's owner only) into the brain daemon's
 /// trusted socket that `owner` names.
+#[cfg(test)]
 pub(super) async fn serve_inbound<S>(
+    stream: S,
+    peer_key: [u8; 32],
+    peer_addr: SocketAddr,
+    pairings: &Pairings,
+    session_socket: &Path,
+    owner: Option<&OwnerSession>,
+) -> Result<(), InboundRefused>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    serve_inbound_watched(stream, peer_key, peer_addr, pairings, session_socket, owner, None).await
+}
+
+/// [`serve_inbound`], where `revocations` carries every new pairing view: an
+/// open owner session closes as soon as a view no longer pairs its key to
+/// the same owner (`server.revoke`, `cmux link peer remove`).
+pub(super) async fn serve_inbound_watched<S>(
     mut stream: S,
     peer_key: [u8; 32],
     peer_addr: SocketAddr,
     pairings: &Pairings,
     session_socket: &Path,
     owner: Option<&OwnerSession>,
+    revocations: Option<tokio::sync::watch::Receiver<std::sync::Arc<Pairings>>>,
 ) -> Result<(), InboundRefused>
 where
     S: AsyncRead + AsyncWrite + Unpin,
@@ -72,7 +91,7 @@ where
             hand_to_entry(stream, &record.peer(), None, session_socket).await
         }
         Some(ServiceHello { service: Service::OwnerSession, link_token: None, epoch: None }) => {
-            serve_owner_session(stream, &record.peer(), owner).await
+            serve_owner_session(stream, peer_key, &record.peer(), owner, revocations).await
         }
         _ => Err(InboundRefused::BadHello),
     }
@@ -84,8 +103,10 @@ where
 /// gets no stamp: it is the owner's trusted local session.
 async fn serve_owner_session<S>(
     mut stream: S,
+    peer_key: [u8; 32],
     peer: &cmux_link::stamp::LinkPeer,
     owner: Option<&OwnerSession>,
+    revocations: Option<tokio::sync::watch::Receiver<std::sync::Arc<Pairings>>>,
 ) -> Result<(), InboundRefused>
 where
     S: AsyncRead + AsyncWrite + Unpin,
@@ -107,8 +128,33 @@ where
     }
     drop(probe);
     let mut daemon = connect_same_uid(&socket, uid).await?;
-    let _ = tokio::io::copy_bidirectional(&mut stream, &mut daemon).await;
-    Ok(())
+    let splice = tokio::io::copy_bidirectional(&mut stream, &mut daemon);
+    let Some(mut revocations) = revocations.filter(|_| false) else { // RED: revocations ignored
+        let _ = splice.await;
+        return Ok(());
+    };
+    // The owner stays the owner only while the current pairing view still
+    // maps this key to the same peer and that peer is still authorized.
+    let still_owner = |pairings: &Pairings| {
+        pairings
+            .by_key(&peer_key)
+            .is_some_and(|record| record.peer() == *peer && owner.authorize(&record.peer()).is_ok())
+    };
+    let revoked = async {
+        loop {
+            if revocations.changed().await.is_err() {
+                // The link is shutting down its pairing view: keep serving.
+                std::future::pending::<()>().await;
+            }
+            if !still_owner(&revocations.borrow_and_update()) {
+                return;
+            }
+        }
+    };
+    tokio::select! {
+        _ = splice => Ok(()),
+        () = revoked => Err(InboundRefused::Owner(OwnerRefused::NotOwner)),
+    }
 }
 
 /// Connect to `socket` and require that its listener runs as `uid`.

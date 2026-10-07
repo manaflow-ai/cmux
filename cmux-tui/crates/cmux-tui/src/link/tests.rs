@@ -12,7 +12,7 @@ use cmux_link::pairing::{PairingRecord, Pairings};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, DuplexStream};
 
 use super::dial::{Overlay, serve_dial};
-use super::inbound::{InboundRefused, serve_inbound};
+use super::inbound::{InboundRefused, serve_inbound, serve_inbound_watched};
 use cmux_link::owner_session::{OwnerRefused, OwnerSession};
 
 fn pairings() -> Pairings {
@@ -374,4 +374,60 @@ async fn a_non_owner_or_a_non_brain_socket_gets_no_owner_session() {
     )
     .await;
     assert_eq!(refused, Err(InboundRefused::Owner(OwnerRefused::NotABrain)));
+}
+
+/// RED (security): revoking the owner's pairing while its owner session is
+/// open closes that session at once (event-driven, no heartbeat wait), and
+/// a redial with the revoked key is refused.
+#[tokio::test]
+async fn a_revoked_pairing_closes_an_open_owner_session_and_refuses_a_redial() {
+    let directory = cmux_unix_socket::short_test_dir("ownrev");
+    let home = directory.path().join("brain");
+    std::fs::create_dir_all(home.join("daemon")).unwrap();
+    let socket = home.join("daemon/s.sock");
+    let listener = tokio::net::UnixListener::bind(&socket).unwrap();
+    // A brain that answers the probe, then holds the session open.
+    let brain = tokio::spawn(async move {
+        let (probe, _) = listener.accept().await.unwrap();
+        let mut probe = BufReader::new(probe);
+        let mut line = String::new();
+        probe.read_line(&mut line).await.unwrap();
+        probe.get_mut().write_all(BRAIN_IDENTIFY.as_bytes()).await.unwrap();
+        drop(probe);
+        let (session, _) = listener.accept().await.unwrap();
+        let mut session = BufReader::new(session);
+        let mut first = String::new();
+        session.read_line(&mut first).await.unwrap();
+        session.get_mut().write_all(first.as_bytes()).await.unwrap();
+        let mut rest = String::new();
+        let _ = session.read_line(&mut rest).await;
+    });
+    let config = owner(&socket, &home, "42");
+    let session_socket = directory.path().join("s.sock");
+    let (sender, receiver) = tokio::sync::watch::channel(std::sync::Arc::new(pairings()));
+    let (mut peer, link_side) = tokio::io::duplex(64 * 1024);
+    let task = {
+        let (config, session_socket) = (config.clone(), session_socket.clone());
+        tokio::spawn(async move {
+            serve_inbound_watched(link_side, [2; 32], peer_addr("inst_b"), &pairings(), &session_socket, Some(&config), Some(receiver)).await
+        })
+    };
+    peer.write_all(b"{\"service\":\"owner_session\"}\nhello\n").await.unwrap();
+    let mut peer = BufReader::new(peer);
+    let mut echoed = String::new();
+    tokio::time::timeout(super::lines::HANDSHAKE_TIMEOUT, peer.read_line(&mut echoed)).await.unwrap().unwrap();
+    assert_eq!(echoed, "hello\n", "the owner session is open");
+    // Revoke: the new view no longer pairs inst_b.
+    sender.send_replace(std::sync::Arc::new(Pairings::default()));
+    let served = tokio::time::timeout(std::time::Duration::from_secs(1), task).await.expect("the session did not close").unwrap();
+    assert_eq!(served, Err(InboundRefused::Owner(OwnerRefused::NotOwner)));
+    let mut tail = String::new();
+    let eof = tokio::time::timeout(std::time::Duration::from_secs(1), peer.read_line(&mut tail)).await.unwrap().unwrap();
+    assert_eq!(eof, 0, "the peer's stream is closed");
+    brain.abort();
+    // A redial with the revoked key reaches nothing.
+    let (mut again, link_side) = tokio::io::duplex(1024);
+    again.write_all(b"{\"service\":\"owner_session\"}\n").await.unwrap();
+    let refused = serve_inbound(link_side, [2; 32], peer_addr("inst_b"), &Pairings::default(), &session_socket, Some(&config)).await;
+    assert_eq!(refused, Err(InboundRefused::UnknownPeer));
 }
