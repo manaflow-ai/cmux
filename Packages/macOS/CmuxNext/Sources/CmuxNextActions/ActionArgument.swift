@@ -89,15 +89,3 @@ public nonisolated struct ActionArgument: Sendable, Hashable {
         }
     }
 }
-
-/// The pickable objects of a target-kind argument in a choices submenu
-/// (``ActionRegistry/targetChoices``) and the current one, if any.
-public nonisolated struct ActionTargetChoices: Sendable, Hashable {
-    public var cases: [ActionEnumCase]
-    public var current: String?
-
-    public init(cases: [ActionEnumCase], current: String? = nil) {
-        self.cases = cases
-        self.current = current
-    }
-}
