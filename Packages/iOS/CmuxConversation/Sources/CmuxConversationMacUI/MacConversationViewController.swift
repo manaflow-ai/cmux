@@ -40,6 +40,8 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
 
     private(set) var rows: [MacConversationRow] = []
     private var rowIndex: [String: Int] = [:]
+    /// `rows.map(\.id)`, kept so each update does not walk the old row models.
+    private var rowIDs: [String] = []
     private var hasPositioned = false
     private var isPinnedToBottom = true
     private var arrivingRowIDs: Set<String> = []
@@ -373,13 +375,14 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         }
         #endif
         let oldRows = rows
-        let oldIDs = Set(rowIndex.keys)
+        // Row ids before this change (a dictionary lookup, not a fresh set per update).
+        let oldIDs = rowIndex
         let wasAtBottom = isPinnedToBottom || isNearBottom()
         let anchor = captureAnchor()
         var sentByMe = false
         if case let .live(inserted, mine) = change { sentByMe = mine && !inserted.isEmpty }
         if case .live = change {
-            for row in newRows where !oldIDs.contains(row.id) {
+            for row in newRows where oldIDs[row.id] == nil {
                 if case let .message(model) = row, !model.isOutgoing { arrivingRowIDs.insert(model.rowID) }
             }
         }
@@ -387,7 +390,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         // the rows above glide down instead of jumping.
         let typingLeft = oldRows.last.map { if case .typing = $0 { return true } else { return false } } ?? false
         let typingNow = newRows.last.map { if case .typing = $0 { return true } else { return false } } ?? false
-        let lastIsNew = newRows.last.map { !oldIDs.contains($0.id) } ?? false
+        let lastIsNew = newRows.last.map { oldIDs[$0.id] == nil } ?? false
         if typingLeft, !typingNow, !lastIsNew, hasPositioned, typingProgress > 0, let typing = oldRows.last {
             newRows.append(typing)
             animateTyping(to: 0)
@@ -437,31 +440,45 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
     /// and in-place reconfiguration keyed by stable row identity. A pending
     /// send keeps its row (and view) when the server acknowledges it.
     private func apply(_ newRows: [MacConversationRow], from oldRows: [MacConversationRow]) {
+        let oldIndex = rowIndex
+        let oldIDs = rowIDs
+        let newIDs = newRows.map(\.id)
         rows = newRows
-        rowIndex = Dictionary(uniqueKeysWithValues: rows.enumerated().map { ($1.id, $0) })
-        guard !oldRows.isEmpty, tableView.numberOfRows == oldRows.count else {
+        rowIDs = newIDs
+        var newIndex: [String: Int] = [:]
+        newIndex.reserveCapacity(newIDs.count)
+        for (index, id) in newIDs.enumerated() { newIndex[id] = index }
+        rowIndex = newIndex
+        guard !oldRows.isEmpty, tableView.numberOfRows == oldRows.count, oldIDs.count == oldRows.count else {
             tableView.reloadData()
             tableView.layoutSubtreeIfNeeded()
             return
         }
-        let oldIDs = oldRows.map(\.id)
-        let newIDs = newRows.map(\.id)
+        // Ids are unique, so when the rows both sides keep stay in order the
+        // edit script is just "gone" and "new" (linear); a general diff is
+        // quadratic in the edit count and a trimmed window removes thousands.
         var removals = IndexSet()
         var insertions = IndexSet()
-        for step in newIDs.difference(from: oldIDs) {
-            switch step {
-            case let .remove(offset, _, _): removals.insert(offset)
-            case let .insert(offset, _, _): insertions.insert(offset)
+        for (index, id) in oldIDs.enumerated() where newIndex[id] == nil { removals.insert(index) }
+        for (index, id) in newIDs.enumerated() where oldIndex[id] == nil { insertions.insert(index) }
+        if oldIDs.filter({ newIndex[$0] != nil }) != newIDs.filter({ oldIndex[$0] != nil }) {
+            removals = IndexSet()
+            insertions = IndexSet()
+            for step in newIDs.difference(from: oldIDs) {
+                switch step {
+                case let .remove(offset, _, _): removals.insert(offset)
+                case let .insert(offset, _, _): insertions.insert(offset)
+                }
             }
         }
-        var oldByID: [String: (index: Int, row: MacConversationRow)] = [:]
-        for (index, row) in oldRows.enumerated() { oldByID[row.id] = (index, row) }
+        // Compared in place by index: copying every old row into a lookup
+        // table dominated updates on long transcripts.
         var changed = IndexSet()
-        for (index, row) in newRows.enumerated() where !insertions.contains(index) {
-            guard let old = oldByID[row.id] else { continue }
-            let previousOld = old.index > 0 ? oldRows[old.index - 1].isMessage : false
+        for (index, id) in newIDs.enumerated() where !insertions.contains(index) {
+            guard let old = oldIndex[id], old < oldRows.count else { continue }
+            let previousOld = old > 0 ? oldRows[old - 1].isMessage : false
             let previousNew = index > 0 ? newRows[index - 1].isMessage : false
-            if old.row != row || previousOld != previousNew { changed.insert(index) }
+            if previousOld != previousNew || oldRows[old] != newRows[index] { changed.insert(index) }
         }
         layoutCache.forget(rowIDs: removals.lazy.map { oldIDs[$0] })
         withoutAnimation {
