@@ -102,3 +102,23 @@ public nonisolated struct AgentPaneHarnessEnablePrompt: Equatable, Sendable {
         return out
     }
 }
+
+extension AgentPaneTransport {
+    /// The native Enable harness step of a `_acpmux/harness_enable` frame that passed the folder
+    /// check and the gesture rule: acpmux's prompt for the frame's (canonical) folder and id, the
+    /// sheet, and on Enable the prompt's sha256 in the frame. False on Cancel, without a sheet,
+    /// while another confirmation is open (app-wide, one at a time), or without a prompt.
+    func confirmHarnessEnable(_ box: FrameBox) async -> Bool {
+        guard let folder = box.param("folder"), let id = box.param("id"), let requestHarnessEnable else { return false }
+        let gate = confirmationGate
+        guard gate.open() else { return false }
+        defer { gate.close() }
+        guard let prompt = await harnessEnablePrompt(folder, id), prompt.id == id else { return false }
+        let confirmed = await withCheckedContinuation { continuation in
+            requestHarnessEnable(prompt) { continuation.resume(returning: $0) }
+        }
+        guard confirmed else { return false }
+        box.setParam("sha256", prompt.sha256)
+        return true
+    }
+}

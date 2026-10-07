@@ -32,6 +32,9 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/permission_groups", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
         // Fork (operations.ts FORK_OP) and folder trust (direct.ts trustGet/trustSet).
         "acp.session.fork", "acp.trust.get", "acp.trust.set",
+        // Enable a folder harness (direct.ts harnessEnable): the relay asks the user on its own
+        // native sheet and adds the confirmed sha256 itself (``AgentPaneHarnessEnablePrompt``).
+        "_acpmux/harness_enable",
     ]
 
     /// The shape of a reply the relay filters itself, without relying on the daemon's redaction.
@@ -205,6 +208,8 @@ nonisolated enum AcpmuxPaneMethods {
         "session/set_mode": .always,
         "session/set_config_option": .always,
         "acp.trust.set": .whenTrusting,
+        // The page's click opens the native sheet; the sheet's Enable is the second gesture.
+        "_acpmux/harness_enable": .always,
         "_acpmux/permission_respond": .whenOptionAllows,
         "_acpmux/permission_group_respond": .whenDecisionAllows,
         // _acpmux/permission_chat_revoke revokes: no gesture.
@@ -315,7 +320,8 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/warm": (["sessionIds", "limit"], []),
         "_acpmux/kill": (["sessionId", "purge"], []),
         "_acpmux/prewarm": (["harness", "cwd"], []),
-        "_acpmux/harnesses": ([], []),
+        // `cwd`: the chat folder whose folder harness profiles to list (checked like every cwd).
+        "_acpmux/harnesses": (["cwd"], []),
         "_acpmux/models": ([], []),
         "_acpmux/status": ([], []),
         "_acpmux/permission_respond": (["sessionId", "permissionId", "optionId"], []),
@@ -330,6 +336,8 @@ nonisolated enum AcpmuxPaneMethods {
         "acp.session.fork": (["sessionId", "throughSeq"], []),
         "acp.trust.get": (["cwd"], []),
         "acp.trust.set": (["cwd", "level"], []),
+        // Never `sha256`: only the relay adds it, after the native sheet's Enable.
+        "_acpmux/harness_enable": (["folder", "id"], []),
         // They meet the gesture rule and the sheet; their mode field is their purpose.
         "session/set_mode": (["sessionId", "modeId", "_meta"], []),
         "session/set_config_option": (["sessionId", "configId", "value", "_meta"], []),
