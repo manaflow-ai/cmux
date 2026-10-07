@@ -22,9 +22,11 @@ import Testing
         #expect(stored.layoutMigration.sections == SidebarLayoutDocument.migrationTarget.sections)
         // Each op is a change the owner commits, so the revision moves on.
         #expect(migrated.revision > stored.revision)
-        // Moves keep item ids: the account is the same item, at the bottom
-        // (after Recents); Settings left with amendment 2 (it is in the profile menu).
-        #expect(migrated.locate(LayoutItemID("itm_account"))?.section == 3)
+        // Moves keep item ids: the account is the same item, in the bottom
+        // section (found by id: SIDEBAR-NO-RECENTS changed the section count);
+        // Settings left with amendment 2 (it is in the profile menu).
+        let bottom = migrated.sections.firstIndex { $0.id == SidebarLayoutDocument.bottomSectionID }
+        #expect(migrated.locate(LayoutItemID("itm_account"))?.section == bottom)
         #expect(migrated.locate(LayoutItemID("itm_settings")) == nil)
     }
 
@@ -73,6 +75,16 @@ import Testing
 /// then R53's grid row with the Settings label) move to the minimal footer
 /// (the avatar, then the gear) through ordinary ops; a customized one is kept.
 @Suite struct SidebarGridBottomMigrationTests {
+    /// The defaults with R53's grid bottom row in place of the footer, found
+    /// by id: the defaults' section count changes (SIDEBAR-NO-RECENTS dropped
+    /// Recents), and a fixed index past the end traps the whole test process.
+    private func defaultsWithGridBottom() throws -> SidebarLayoutDocument {
+        var stored = SidebarLayoutDocument.defaults
+        let bottom = try #require(stored.sections.firstIndex { $0.id == SidebarLayoutDocument.bottomSectionID })
+        stored.sections[bottom] = SidebarLayoutDocument.gridBottomSection
+        return stored
+    }
+
     @Test func theInlineBottomDefaultBecomesTheMinimalFooter() {
         let stored = SidebarLayoutDocument(revision: 4, sections: SidebarLayoutDocument.inlineBottomDefaults.sections)
         #expect(stored.layoutMigration.sections == SidebarLayoutDocument.migrationTarget.sections)
@@ -88,9 +100,8 @@ import Testing
     /// R53's grid bottom row, stored untouched, becomes the minimal footer
     /// whatever the top holds; the item ids stay.
     @Test func theGridBottomRowBecomesTheMinimalFooter() throws {
-        var stored = SidebarLayoutDocument.defaults
+        var stored = try defaultsWithGridBottom()
         stored.revision = 9
-        stored.sections[3] = SidebarLayoutDocument.gridBottomSection
         stored.sections[0].items.append(LayoutItem(id: LayoutItemID("itm_app_coderouter"), ref: .app("cmux/coderouter")))
         let migrated = stored.layoutMigration
         #expect(migrated.section(SidebarLayoutDocument.bottomSectionID) == SidebarLayoutDocument.defaults.section(SidebarLayoutDocument.bottomSectionID))
@@ -100,8 +111,7 @@ import Testing
     }
 
     @Test func aCustomizedGridBottomIsKept() throws {
-        var stored = SidebarLayoutDocument.defaults
-        stored.sections[3] = SidebarLayoutDocument.gridBottomSection
+        let stored = try defaultsWithGridBottom()
         let custom = try SidebarLayoutReducer.reduce(stored, .itemUpdate(LayoutItemID("itm_account"), showsLabel: true)).get()
         #expect(custom.sectionsMigrationOps.isEmpty)
     }

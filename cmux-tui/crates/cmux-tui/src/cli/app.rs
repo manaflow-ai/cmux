@@ -362,7 +362,7 @@ fn default_focus_for_user_open(
 }
 
 /// `cli` when a person runs the command at a terminal, else `script`.
-fn action_origin() -> &'static str {
+pub(super) fn action_origin() -> &'static str {
     use std::io::IsTerminal;
     if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() { "cli" } else { "script" }
 }
