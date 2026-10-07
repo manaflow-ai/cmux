@@ -630,3 +630,21 @@ extension ConversationStoreWindowTests {
         #expect(lastUnsent.entries[1].status == .none)
     }
 }
+
+@Suite struct ConversationNoticeTests {
+    @Test func messagesStatusTemplatesSplitAroundTheEmphasizedRun() {
+        let mine = ConversationNotice(id: "n", messageID: "m", template: "#You# unsent a message")
+        #expect(mine.leading.isEmpty && mine.emphasis == "You" && mine.trailing == " unsent a message")
+        #expect(mine.text == "You unsent a message")
+
+        let ja = ConversationNotice(id: "n", messageID: "m", template: "#%@#さんはメッセージの送信を取り消しました", argument: "Lawrence")
+        #expect(ja.emphasis == "Lawrence" && ja.trailing == "さんはメッセージの送信を取り消しました")
+
+        let failed = ConversationNotice(id: "n", messageID: "m", template: "#You# unsent a message. %@", failure: "(!) Not Unsent")
+        #expect(failed.text == "You unsent a message. (!) Not Unsent")
+        #expect(failed.trailingParts.before == " unsent a message. " && failed.trailingParts.after.isEmpty)
+
+        let plain = ConversationNotice(id: "n", messageID: "m", template: "%@ unsent a message", argument: "Aziz")
+        #expect(plain.emphasis.isEmpty && plain.text == "Aziz unsent a message")
+    }
+}

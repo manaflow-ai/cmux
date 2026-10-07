@@ -674,13 +674,42 @@ final class MacTimestampRowView: MacFlippedView {
         needsLayout = true
     }
 
-    /// A system line ("You unsent a message") in the timestamp's regular weight.
-    func configure(notice: String) {
+    /// A system line ("**You** unsent a message") in the timestamp's weights;
+    /// a failure ("(!) Not Unsent") is red and clickable.
+    func configure(notice: ConversationNotice) {
         let centered = NSMutableParagraphStyle()
         centered.alignment = .center
-        label.attributedStringValue = NSAttributedString(string: notice, attributes: [
+        let regular: [NSAttributedString.Key: Any] = [
             .font: MacConversationTheme.timestampFont, .foregroundColor: MacConversationTheme.secondaryText, .paragraphStyle: centered,
-        ])
+        ]
+        let text = NSMutableAttributedString(string: notice.leading, attributes: regular)
+        text.append(NSAttributedString(string: notice.emphasis, attributes: [
+            .font: MacConversationTheme.timestampBoldFont, .foregroundColor: MacConversationTheme.secondaryText, .paragraphStyle: centered,
+        ]))
+        let parts = notice.trailingParts
+        text.append(NSAttributedString(string: parts.before, attributes: regular))
+        if let failure = notice.failure {
+            let red: [NSAttributedString.Key: Any] = [
+                .font: MacConversationTheme.timestampFont, .foregroundColor: NSColor.systemRed, .paragraphStyle: centered,
+            ]
+            if let range = failure.range(of: "(!)"),
+               let symbol = NSImage(systemSymbolName: "exclamationmark.circle.fill", accessibilityDescription: nil)?
+                   .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: MacConversationTheme.timestampFont.pointSize, weight: .regular)
+                       .applying(NSImage.SymbolConfiguration(paletteColors: [.systemRed]))) {
+                text.append(NSAttributedString(string: String(failure[..<range.lowerBound]), attributes: red))
+                let attachment = NSTextAttachment()
+                attachment.image = symbol
+                let icon = NSMutableAttributedString(attachment: attachment)
+                icon.addAttributes(red, range: NSRange(location: 0, length: icon.length))
+                text.append(icon)
+                text.append(NSAttributedString(string: String(failure[range.upperBound...]), attributes: red))
+            } else {
+                text.append(NSAttributedString(string: failure, attributes: red))
+            }
+        }
+        text.append(NSAttributedString(string: parts.after, attributes: regular))
+        label.attributedStringValue = text
+        setAccessibilityLabel(notice.text)
         needsLayout = true
     }
 

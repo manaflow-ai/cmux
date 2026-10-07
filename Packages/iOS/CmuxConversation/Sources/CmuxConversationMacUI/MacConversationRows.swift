@@ -10,7 +10,7 @@ enum MacConversationRow: Hashable {
     case message(MacMessageRowModel)
     case typing(participantIDs: [String])
     /// A centered system line in a message's place ("You unsent a message").
-    case notice(id: String, text: String)
+    case notice(ConversationNotice)
 
     var id: String {
         switch self {
@@ -19,7 +19,7 @@ enum MacConversationRow: Hashable {
         case let .timestamp(id, _): return id
         case let .message(model): return model.rowID
         case .typing: return "typing"
-        case let .notice(id, _): return id
+        case let .notice(notice): return notice.id
         }
     }
 
@@ -119,7 +119,7 @@ enum MacConversationRowBuilder {
             }
             if message.isUnsent {
                 // Its own id, so the bubble row leaves and the notice arrives.
-                rows.append(.notice(id: "unsent:\(message.rowID)", text: unsentNotice(message, meID: meID, info: info)))
+                rows.append(.notice(unsentNotice(message, meID: meID, info: info)))
                 continue
             }
             let isOutgoing = message.senderID == meID
@@ -158,12 +158,38 @@ enum MacConversationRowBuilder {
         return rows
     }
 
-    static func unsentNotice(_ message: ConversationMessage, meID: String?, info: ConversationInfo) -> String {
+    static func unsentNotice(_ message: ConversationMessage, meID: String?, info: ConversationInfo) -> ConversationNotice {
+        let id = "unsent:\(message.rowID)"
+        if message.senderID == meID {
+            if message.unsendFailed {
+                return ConversationNotice(
+                    id: id, messageID: message.id,
+                    template: String(localized: "conversation.unsent.status.failed", defaultValue: "#You# unsent a message. %@", bundle: .module),
+                    failure: String(localized: "conversation.unsent.notUnsent", defaultValue: "(!) Not Unsent", bundle: .module)
+                )
+            }
+            return ConversationNotice(
+                id: id, messageID: message.id,
+                template: String(localized: "conversation.unsent.status.mine", defaultValue: "#You# unsent a message", bundle: .module)
+            )
+        }
+        return ConversationNotice(
+            id: id, messageID: message.id,
+            template: String(localized: "conversation.unsent.status.other", defaultValue: "#%@# unsent a message", bundle: .module),
+            argument: firstName(message.senderID, info: info)
+        )
+    }
+
+    /// The conversation list's preview line for an unsent last message.
+    static func unsentPreview(_ message: ConversationMessage, meID: String?, info: ConversationInfo) -> String {
         if message.senderID == meID {
             return String(localized: "conversation.unsent.mine", defaultValue: "You unsent a message", bundle: .module)
         }
-        let name = info.participant(message.senderID)?.name.split(separator: " ").first.map(String.init) ?? ""
-        return String(format: String(localized: "conversation.unsent.other", defaultValue: "%@ unsent a message", bundle: .module), name)
+        return String(format: String(localized: "conversation.unsent.other", defaultValue: "%@ unsent a message", bundle: .module), firstName(message.senderID, info: info))
+    }
+
+    private static func firstName(_ participantID: String, info: ConversationInfo) -> String {
+        info.participant(participantID)?.name.split(separator: " ").first.map(String.init) ?? ""
     }
 
     private static func footer(_ status: ConversationRunPlan.Status, isGroup: Bool) -> MacMessageFooter {

@@ -29,6 +29,13 @@ extension ConversationViewController {
             default: store.discardFailed(rowID: message.rowID)
             }
             return "ok"
+        case "notunsent":
+            // Taps the newest "(!) Not Unsent" notice.
+            guard let notice = rows.reversed().lazy.compactMap({ row -> ConversationNotice? in
+                if case let .notice(notice) = row, notice.failure != nil { return notice } else { return nil }
+            }).first else { return "error no failed notice" }
+            presentNotUnsent(messageID: notice.messageID)
+            return "ok"
         case "edittext":
             guard let overlay = editOverlay else { return "error not editing" }
             overlay.textView.text = argument
@@ -50,7 +57,7 @@ extension ConversationViewController {
                 switch row {
                 case let .message(model):
                     return "\(model.isOutgoing ? ">" : "<")\(model.message.text.prefix(24))\(model.showsTail ? "~" : "")\(model.footer == .notDelivered ? "!" : "")"
-                case let .notice(_, text): return "[\(text)]"
+                case let .notice(notice): return "[\(notice.text)]"
                 case .timestamp: return "[ts]"
                 default: return "[\(row.id)]"
                 }

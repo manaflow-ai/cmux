@@ -609,7 +609,7 @@ final class MacConversationListRow: MacFlippedView {
         }
         if let last = store.messages.last(where: { $0.seq != nil }) {
             if last.isUnsent, let info {
-                preview.stringValue = MacConversationRowBuilder.unsentNotice(last, meID: store.meID, info: info)
+                preview.stringValue = MacConversationRowBuilder.unsentPreview(last, meID: store.meID, info: info)
             } else {
                 preview.stringValue = last.text.isEmpty ? String(localized: "conversation.quote.photo", defaultValue: "Photo", bundle: .module) : last.text
             }

@@ -437,13 +437,36 @@ final class TimestampCell: UICollectionViewCell {
         setNeedsLayout()
     }
 
-    /// A system line in the transcript ("You unsent a message"): the
-    /// timestamp's regular weight and color.
-    func configure(notice: String) {
-        label.attributedText = NSAttributedString(string: notice, attributes: [
-            .font: ConversationTheme.timestampFont,
-            .foregroundColor: ConversationTheme.secondaryText,
-        ])
+    /// A system line in the transcript ("**You** unsent a message"): the
+    /// timestamp's weights and color; a failure ("(!) Not Unsent") is red.
+    func configure(notice: ConversationNotice) {
+        let text = NSMutableAttributedString()
+        let regular: [NSAttributedString.Key: Any] = [.font: ConversationTheme.timestampFont, .foregroundColor: ConversationTheme.secondaryText]
+        text.append(NSAttributedString(string: notice.leading, attributes: regular))
+        text.append(NSAttributedString(string: notice.emphasis, attributes: [
+            .font: ConversationTheme.timestampBoldFont, .foregroundColor: ConversationTheme.secondaryText,
+        ]))
+        let parts = notice.trailingParts
+        text.append(NSAttributedString(string: parts.before, attributes: regular))
+        if let failure = notice.failure {
+            let red: [NSAttributedString.Key: Any] = [.font: ConversationTheme.timestampFont, .foregroundColor: ConversationTheme.notDelivered]
+            if let range = failure.range(of: "(!)"),
+               let symbol = UIImage(systemName: "exclamationmark.circle.fill", withConfiguration: UIImage.SymbolConfiguration(font: ConversationTheme.timestampFont)) {
+                text.append(NSAttributedString(string: String(failure[..<range.lowerBound]), attributes: red))
+                let attachment = NSTextAttachment(image: symbol.withTintColor(ConversationTheme.notDelivered, renderingMode: .alwaysOriginal))
+                text.append(NSAttributedString(attachment: attachment))
+                text.append(NSAttributedString(string: String(failure[range.upperBound...]), attributes: red))
+            } else {
+                text.append(NSAttributedString(string: failure, attributes: red))
+            }
+        }
+        text.append(NSAttributedString(string: parts.after, attributes: regular))
+        let centered = NSMutableParagraphStyle()
+        centered.alignment = .center
+        text.addAttribute(.paragraphStyle, value: centered, range: NSRange(location: 0, length: text.length))
+        label.attributedText = text
+        accessibilityLabel = notice.text
+        accessibilityTraits = notice.failure == nil ? .staticText : [.staticText, .button]
         setNeedsLayout()
     }
 

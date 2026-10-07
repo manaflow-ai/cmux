@@ -1,6 +1,7 @@
 #if os(macOS)
 import AppKit
 import CmuxConversationCore
+import CmuxConversationGeometry
 
 /// Transcript table that routes trackpad horizontal swipes and clicks on
 /// row accessories (badges, footers) back to the controller.
@@ -480,38 +481,30 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         tableView.layoutSubtreeIfNeeded()
     }
 
-    /// Undo Send: a snapshot of the bubble swells slightly and fades where it
-    /// stood while the row turns into its notice underneath.
+    /// Undo Send: Messages' pop (the bubble swells, then breaks into debris)
+    /// over a snapshot while the row turns into its notice underneath.
+    /// Reduce Motion fades it instead.
     private func dissolve(_ rowView: MacMessageRowView) {
         let frame = rowView.contentFrame
         guard frame.width > 0, frame.height > 0,
               let rep = rowView.bitmapImageRepForCachingDisplay(in: frame) else { return }
         rowView.cacheDisplay(in: frame, to: rep)
-        let image = NSImage(size: frame.size)
-        image.addRepresentation(rep)
-        let ghost = NSImageView(frame: rowView.convert(frame, to: tableView))
-        ghost.image = image
-        ghost.imageScaling = .scaleAxesIndependently
-        ghost.wantsLayer = true
-        tableView.addSubview(ghost)
-        guard let layer = ghost.layer else { ghost.removeFromSuperview(); return }
-        layer.anchorPoint = CGPoint(x: 0.5, y: 0.5)
-        layer.position = CGPoint(x: ghost.frame.midX, y: ghost.frame.midY)
-        CATransaction.begin()
-        CATransaction.setCompletionBlock { ghost.removeFromSuperview() }
-        let scale = CABasicAnimation(keyPath: "transform.scale")
-        scale.fromValue = 1
-        scale.toValue = 1.12
-        let fade = CABasicAnimation(keyPath: "opacity")
-        fade.fromValue = 1
-        fade.toValue = 0
-        let group = CAAnimationGroup()
-        group.animations = [scale, fade]
-        group.duration = 0.35
-        group.timingFunction = CAMediaTimingFunction(name: .easeOut)
-        layer.opacity = 0
-        layer.add(group, forKey: "dissolve")
-        CATransaction.commit()
+        guard let image = rep.cgImage else { return }
+        let inTable = rowView.convert(frame, to: tableView)
+        let outset = ConversationPopEffect.clipOutset
+        let overlay = PopOverlayView(frame: inTable.insetBy(dx: -outset, dy: -outset))
+        tableView.addSubview(overlay)
+        guard let host = overlay.layer else { overlay.removeFromSuperview(); return }
+        ConversationPopEffect.play(
+            image: image,
+            frame: overlay.convert(inTable, from: tableView),
+            in: host,
+            contentsScale: view.window?.backingScaleFactor ?? 2,
+            yUp: true,
+            reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        ) {
+            overlay.removeFromSuperview()
+        }
     }
 
     /// Delete for me: the rows fade and collapse (neighbors close the gap on
@@ -537,6 +530,84 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
                     self.tableView.view(atColumn: 0, row: index, makeIfNecessary: false)?.alphaValue = 1
                 }
             }
+        }
+    }
+
+    /// Clicking "(!) Not Unsent": Try Again while the two-minute window is
+    /// open, otherwise just the explanation (ChatKit's two alerts).
+    func presentNotUnsent(messageID: String) {
+        guard let message = store.message(id: messageID), message.unsendFailed else { return }
+        let alert = NSAlert()
+        alert.messageText = String(localized: "conversation.notUnsent.title", defaultValue: "Message Not Unsent", bundle: .module)
+        let canRetry = store.canRetryUnsend(message)
+        if canRetry {
+            alert.informativeText = String(localized: "conversation.notUnsent.retryBody", defaultValue: "The original message will still be visible.", bundle: .module)
+            alert.addButton(withTitle: String(localized: "conversation.retry.tryAgain", defaultValue: "Try Again", bundle: .module))
+            alert.addButton(withTitle: String(localized: "conversation.retry.cancel", defaultValue: "Cancel", bundle: .module))
+        } else {
+            alert.informativeText = String(localized: "conversation.notUnsent.expiredBody", defaultValue: "Your message was not unsent. The original message will still be visible.", bundle: .module)
+            alert.addButton(withTitle: String(localized: "conversation.notUnsent.ok", defaultValue: "OK", bundle: .module))
+        }
+        let handle: (NSApplication.ModalResponse) -> Void = { [weak self] response in
+            guard canRetry, response == .alertFirstButtonReturn else { return }
+            self?.store.retryUnsend(messageID: messageID)
+        }
+        if let window = view.window {
+            alert.beginSheetModal(for: window, completionHandler: handle)
+        } else {
+            handle(alert.runModal())
+        }
+    }
+
+    /// Edit > Undo (Cmd-Z) with nothing to undo in the composer offers to
+    /// take back my last message, as Messages does: "Undo Send?" within two
+    /// minutes, "Undo Send Not Available" (edit only) within fifteen.
+    @objc func undo(_ sender: Any?) {
+        if let manager = view.window?.undoManager, manager.canUndo {
+            manager.undo()
+            return
+        }
+        guard let message = store.lastSentByMe else { return }
+        presentUndoSend(for: message)
+    }
+
+    func presentUndoSend(for message: ConversationMessage) {
+        let canUnsend = store.canUnsend(message)
+        let canEdit = store.canEdit(message)
+        guard canUnsend || canEdit else { return }
+        let alert = NSAlert()
+        if canUnsend {
+            alert.messageText = String(localized: "conversation.undoSend.title", defaultValue: "Undo Send?", bundle: .module)
+            alert.informativeText = String(localized: "conversation.undoSend.body", defaultValue: "You can unsend messages for up to 2 minutes.", bundle: .module)
+        } else {
+            alert.messageText = String(localized: "conversation.undoSend.expiredTitle", defaultValue: "Undo Send Not Available", bundle: .module)
+            alert.informativeText = String(localized: "conversation.undoSend.expiredBody", defaultValue: "This message was sent more than 2 minutes ago. You can edit it for up to 15 minutes.", bundle: .module)
+        }
+        // Buttons as in Messages: Edit Message (when editable), Undo Send
+        // (inside two minutes), Cancel.
+        var actions: [() -> Void] = []
+        let messageID = message.id
+        if canEdit {
+            alert.addButton(withTitle: String(localized: "conversation.undoSend.edit", defaultValue: "Edit Message", bundle: .module))
+            actions.append { [weak self] in
+                guard let self, let current = self.store.message(id: messageID), self.store.canEdit(current) else { return }
+                self.enterEdit(current)
+            }
+        }
+        if canUnsend {
+            alert.addButton(withTitle: String(localized: "conversation.undoSend.undo", defaultValue: "Undo Send", bundle: .module))
+            actions.append { [weak self] in self?.store.unsend(messageID: messageID) }
+        }
+        alert.addButton(withTitle: String(localized: "conversation.retry.cancel", defaultValue: "Cancel", bundle: .module))
+        let handle: (NSApplication.ModalResponse) -> Void = { response in
+            let index = response.rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
+            guard index >= 0, index < actions.count else { return }
+            actions[index]()
+        }
+        if let window = view.window {
+            alert.beginSheetModal(for: window, completionHandler: handle)
+        } else {
+            handle(alert.runModal())
         }
     }
 
@@ -741,8 +812,8 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             view.timestampReveal = timestampsRevealed
         case let .timestamp(_, date):
             (view as? MacTimestampRowView)?.configure(date: date)
-        case let .notice(_, text):
-            (view as? MacTimestampRowView)?.configure(notice: text)
+        case let .notice(notice):
+            (view as? MacTimestampRowView)?.configure(notice: notice)
         case .loadingOlder:
             (view as? MacSpinnerRowView)?.spinner.startAnimation(nil)
         case .conversationStart:
@@ -995,6 +1066,11 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
     }
 
     func handleClick(_ event: NSEvent, in table: NSTableView) -> Bool {
+        if event.clickCount == 1, let (index, _) = row(at: event, in: table), index < rows.count,
+           case let .notice(notice) = rows[index], notice.failure != nil {
+            presentNotUnsent(messageID: notice.messageID)
+            return true
+        }
         guard event.clickCount == 1, let (index, point) = row(at: event, in: table),
               let model = messageModel(at: index), let rowView = rowView(at: index) else { return false }
         let local = rowView.convert(point, from: table)
@@ -1254,6 +1330,17 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
                     return "menu " + titles
                 }
             }
+            return "ok"
+        case "undo":
+            // Edit > Undo: the "Undo Send?" alert for my last message.
+            undo(nil)
+            return "ok"
+        case "notunsent":
+            // Clicks the newest "(!) Not Unsent" notice.
+            guard let notice = rows.reversed().lazy.compactMap({ row -> ConversationNotice? in
+                if case let .notice(notice) = row, notice.failure != nil { return notice } else { return nil }
+            }).first else { return "error no failed notice" }
+            presentNotUnsent(messageID: notice.messageID)
             return "ok"
         case "unsend", "delete", "retry":
             // The same paths the context menu runs (delete skips its confirmation).
@@ -1970,5 +2057,19 @@ final class MacMenuBubbleHighlight: NSObject, NSMenuDelegate {
     nonisolated func menuDidClose(_ menu: NSMenu) {
         MainActor.assumeIsolated { end() }
     }
+}
+
+/// Hosts the Undo Send pop above the transcript. Unflipped, so its layer's
+/// origin is bottom-left; it never takes clicks.
+private final class PopOverlayView: NSView {
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 #endif
