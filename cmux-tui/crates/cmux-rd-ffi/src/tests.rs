@@ -387,6 +387,8 @@ fn header_declares_exactly_the_exported_functions_and_codes() {
     assert!(header.contains(&format!("#define CMUX_RD_MESSAGE_DATAGRAM {STREAM_DATAGRAM}u")));
     assert!(header.contains(&format!("#define CMUX_RD_FLAG_KEYFRAME 0x0{}u", flags::KEYFRAME)));
     assert!(header.contains(&format!("#define CMUX_RD_FLAG_RECOVERY 0x0{}u", flags::RECOVERY)));
+    assert!(header.contains(&format!("#define CMUX_RD_FLAG_TILE 0x0{}u", flags::TILE)));
+    assert_eq!(CMUX_RD_FLAG_TILE, u32::from(flags::TILE));
     // Layouts on 64-bit targets (the Swift tests check the imported layouts).
     assert_eq!(size_of::<CmuxRdFrame>(), 40);
     assert_eq!(size_of::<CmuxRdMessage>(), 24);
