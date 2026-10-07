@@ -1,4 +1,4 @@
-public import CmuxMobileWire
+import CmuxMobileWire
 import Foundation
 
 /// The frames of `cloud:<team>` the phone acts on.

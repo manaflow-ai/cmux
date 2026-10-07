@@ -1,5 +1,5 @@
 public import CmuxiOSFeatureKit
-public import CmuxMobileWire
+import CmuxMobileWire
 public import Foundation
 
 /// `CloudMachineSource` over `CloudDO` (plans/cmux-next/ios-next/c12-cloud.md

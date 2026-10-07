@@ -143,3 +143,18 @@ change, so no vitest.
 ## 7. Status
 
 See the coordination line in `coordination/ios-next.md` and section 8 when the lane lands.
+
+## 8. Status (2026-10-07)
+
+Done: sections 2 (control plane), 3, 5 and 6. Tests: 22 in `CmuxiOSCloudCoreTests`, 2 in
+`CmuxiOSWorkspacesCoreTests` (`CloudHostDirectoryTests`), 1 in `CmuxiOSOnboardingCoreTests`; they pass with
+`swift test` on macOS through a scratch package with the existing WorkspacesCore and OnboardingCore
+suites (97 tests). `CmuxiOSApp` compiles for `arm64-apple-ios17.0-simulator` with SwiftPM.
+
+Real now: the Cloud tab against the live CloudDO ops (`cloud.machine.list/create/start/pause/delete`,
+`cloud.plan.get`, `/v1/wire/cloud` events). Needs the phase-2 Rust host (section 4): VM terminals,
+workspaces and files on the phone; the `cloudWorkspaces` flag stays off until then.
+
+Unverified: everything visual (no simulator run, no tagged build: the known blocked fleet), live
+calls against a dev backend (Stack session principal on `/v1/ops` from the phone), VoiceOver and
+Dynamic Type at large sizes. `vm_hours_used` is 0 until UsageMeterDO metering lands (backend).
