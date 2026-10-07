@@ -34,6 +34,7 @@ use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use cmux_link::LINK_PORT;
 use cmux_link::overlay_addr::overlay_address;
+use cmux_link::owner_session::OwnerSession;
 use cmux_link::pairing::{PairingRecord, Pairings};
 use cmux_link::registration::{self, Registration};
 use cmux_wg::{InterfaceAddress, WgMesh, WgMeshConfig};
@@ -121,7 +122,9 @@ fn run_link(args: &[String]) -> anyhow::Result<()> {
         "init" => run_init(&flags(rest, &["--state-dir", "--install", "--port"])?),
         "show" => run_show(&flags(rest, &["--state-dir"])?),
         "peer" => run_peer(rest),
-        "serve" => run_serve(&flags(rest, &["--state-dir", "--session-socket"])?),
+        "serve" => {
+            run_serve(&flags(rest, &["--state-dir", "--session-socket", "--server-config"])?)
+        }
         #[cfg(target_os = "macos")]
         "install-agent" => run_install_agent(&flags(rest, &["--state-dir", "--session-socket"])?),
         #[cfg(target_os = "macos")]
@@ -276,10 +279,34 @@ async fn reload(socket: &Path) -> bool {
 fn run_serve(flags: &Flags) -> anyhow::Result<()> {
     let state = state(flags)?;
     let session_socket = flags.get("--session-socket").map(PathBuf::from);
-    tokio_runtime()?.block_on(serve(state, session_socket))
+    let owner = owner_session(flags)?;
+    tokio_runtime()?.block_on(serve(state, session_socket, owner))
 }
 
-async fn serve(state: LinkState, session_socket: Option<PathBuf>) -> anyhow::Result<()> {
+/// The owner session block of `server.json` (`--server-config PATH`, else
+/// the user-mode `~/.config/cmux/server.json`); none when absent. An
+/// invalid block stops the link instead of serving with a guess.
+fn owner_session(flags: &Flags) -> anyhow::Result<Option<Arc<OwnerSession>>> {
+    let path = match flags.get("--server-config") {
+        Some(path) => PathBuf::from(path),
+        // Shortcut: duplicates the user-mode layout of cmux-server-core; use
+        // its layout code when the next Cargo WINDOW allows the dependency
+        // (bead cx-uu3).
+        None => match std::env::var_os("HOME") {
+            Some(home) => PathBuf::from(home).join(".config/cmux/server.json"),
+            None => return Ok(None),
+        },
+    };
+    let owner = OwnerSession::load(&path)
+        .with_context(|| format!("read owner_session in {}", path.display()))?;
+    Ok(owner.map(Arc::new))
+}
+
+async fn serve(
+    state: LinkState,
+    session_socket: Option<PathBuf>,
+    owner: Option<Arc<OwnerSession>>,
+) -> anyhow::Result<()> {
     let config = state.config().context("run `cmux link init --install ID` first")?;
     let socket =
         tokio::net::UdpSocket::bind(SocketAddr::from((Ipv6Addr::UNSPECIFIED, config.port)))
@@ -315,7 +342,7 @@ async fn serve(state: LinkState, session_socket: Option<PathBuf>) -> anyhow::Res
     }));
     let result = tokio::select! {
         served = serve_local(local, overlay.clone(), peers.clone(), resolver) => served.map_err(anyhow::Error::from),
-        () = serve_overlay(listener, peers.clone(), session_socket) => Ok(()),
+        () = serve_overlay(listener, peers.clone(), session_socket, owner) => Ok(()),
         signal = shutdown_signal() => signal,
     };
     registration::remove_if_owned(&state.registration_dir(), pid);

@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import time
 from urllib.parse import quote
 from xml.dom import minidom
 
@@ -16,9 +17,22 @@ SPARKLE = "http://www.andymatuschak.org/xml-namespaces/sparkle"
 REPAIR = "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/REPAIR.md"
 # Pages of 100 associated PRs read for one commit before giving up.
 ASSOCIATION_PAGES = 20
+# Association queries read only these membership fields; titles, labels and
+# files are read afterwards for the kept PRs only. Reading them for every PR a
+# main commit is associated with timed out (HTTP 504, run 37593192286).
+MEMBERSHIP_FIELDS = "number mergedAt baseRefName mergeCommit { oid }"
 PR_FIELDS = """number title url mergedAt baseRefName mergeCommit { oid }
                 labels(first: 100) { nodes { name } }
                 files(first: 100) { totalCount nodes { path } }"""
+
+
+class TransientGitHubError(RuntimeError):
+    """A GitHub 5xx or timeout that persisted through the request retries."""
+
+
+# A 4xx is a real access or request error. Anything else (a 5xx, a timeout,
+# an empty or cut-off body: "unexpected end of JSON input") is retried.
+CLIENT_ERROR = re.compile(r"HTTP 4\d\d")
 
 
 class GitHub:
@@ -27,9 +41,20 @@ class GitHub:
 
     @staticmethod
     def request(args: list[str]) -> dict:
-        result = subprocess.run(["gh", "api", *args], capture_output=True, text=True, timeout=90)
-        if result.returncode:
-            raise RuntimeError("GitHub metadata request failed; check Actions token contents/pull-requests read access and API availability")
+        for attempt in range(3):
+            try:
+                result = subprocess.run(["gh", "api", *args], capture_output=True, text=True, timeout=90)
+            except subprocess.TimeoutExpired:
+                result = None
+            if result is not None and not result.returncode:
+                break
+            transient = result is None or not CLIENT_ERROR.search(result.stderr or "")
+            if not transient:
+                raise RuntimeError("GitHub metadata request failed; check Actions token contents/pull-requests read access and API availability")
+            if attempt < 2:
+                time.sleep(5 * (attempt + 1))
+        else:
+            raise TransientGitHubError("GitHub metadata request kept failing with a server error or timeout; retry later")
         value = json.loads(result.stdout)
         if isinstance(value, dict) and value.get("errors"):
             raise RuntimeError("GitHub GraphQL metadata query returned errors; retry after checking API access")
@@ -75,13 +100,22 @@ def collect_prs(github: GitHub, base: str, head: str, branch: str) -> list[dict]
                 prs[pr["number"]] = pr
 
     overflow = []
-    for offset in range(0, len(commits), 25):
-        batch = commits[offset:offset + 25]
+
+    def associations(batch: list[str]) -> list[tuple[str, dict | None]]:
+        """Query a batch; a persistent 5xx (an expensive batch timing out) splits it."""
         objects = [f'c{index}: object(oid: "{sha}") {{ ... on Commit {{ associatedPullRequests(first: 10) {{ '
-                   f'pageInfo {{ hasNextPage }} nodes {{ {PR_FIELDS} }} }} }} }}' for index, sha in enumerate(batch)]
-        result = github.graphql("query { " + repository + " { " + " ".join(objects) + " } }")
-        for index, sha in enumerate(batch):
-            obj = result.get(f"c{index}")
+                   f'pageInfo {{ hasNextPage }} nodes {{ {MEMBERSHIP_FIELDS} }} }} }} }}' for index, sha in enumerate(batch)]
+        try:
+            result = github.graphql("query { " + repository + " { " + " ".join(objects) + " } }")
+        except TransientGitHubError:
+            if len(batch) == 1:
+                raise RuntimeError("GitHub kept timing out on one commit's associated PRs; retry the publish job") from None
+            middle = len(batch) // 2
+            return associations(batch[:middle]) + associations(batch[middle:])
+        return [(sha, result.get(f"c{index}")) for index, sha in enumerate(batch)]
+
+    for offset in range(0, len(commits), 25):
+        for sha, obj in associations(commits[offset:offset + 25]):
             if obj is None:
                 raise RuntimeError("GitHub could not resolve a compared commit; retry metadata generation")
             associated = obj["associatedPullRequests"]
@@ -98,7 +132,7 @@ def collect_prs(github: GitHub, base: str, head: str, branch: str) -> list[dict]
             result = github.graphql(
                 "query { " + repository + f' {{ c0: object(oid: "{sha}") {{ ... on Commit {{ '
                 f"associatedPullRequests(first: 100{after}) {{ pageInfo {{ hasNextPage endCursor }} "
-                f"nodes {{ {PR_FIELDS} }} }} }} }} }} }}")
+                f"nodes {{ {MEMBERSHIP_FIELDS} }} }} }} }} }} }}")
             obj = result.get("c0")
             if obj is None:
                 raise RuntimeError("GitHub could not resolve a compared commit; retry metadata generation")
@@ -111,7 +145,18 @@ def collect_prs(github: GitHub, base: str, head: str, branch: str) -> list[dict]
                 raise RuntimeError("GitHub associated PRs pagination returned no cursor; retry metadata generation")
         else:
             raise RuntimeError(f"A commit has more than {ASSOCIATION_PAGES * 100} associated PRs; inspect its associations before retrying")
-    return list(prs.values())
+    numbers = sorted(prs)
+    details = {}
+    for offset in range(0, len(numbers), 25):
+        batch = numbers[offset:offset + 25]
+        objects = [f"p{index}: pullRequest(number: {number}) {{ {PR_FIELDS} }}" for index, number in enumerate(batch)]
+        result = github.graphql("query { " + repository + " { " + " ".join(objects) + " } }")
+        for index, number in enumerate(batch):
+            pr = result.get(f"p{index}")
+            if pr is None or pr.get("number") != number:
+                raise RuntimeError("GitHub could not resolve a merged PR; retry metadata generation")
+            details[number] = pr
+    return [details[number] for number in numbers]
 
 
 def infrastructure(pr: dict) -> bool:
@@ -177,6 +222,17 @@ def summarize(prs: list[dict], repo: str, base: str | None, head: str, limit: in
     return "\n".join(lines), plain
 
 
+def metadata_fallback(repo: str, base: str | None, head: str) -> tuple[str, str]:
+    """Notes for a build whose PR metadata GitHub would not serve."""
+    if base:
+        link = f"https://github.com/{repo}/compare/{base}...{head}"
+        plain = f"Change list unavailable; see {link}"
+    else:
+        link = f"https://github.com/{repo}/commit/{head}"
+        plain = "Change list unavailable; see the release page for build details."
+    return f"## Changes\n\nThe change list could not be read from GitHub for this build. [Compare the changes]({link}).\n", plain
+
+
 def update_appcasts(directory: Path, build: str, summary: str) -> None:
     expected = {"appcast-arm64.xml", "appcast-x86_64.xml", "appcast-universal.xml", "appcast.xml"}
     feeds = sorted(directory.glob("appcast*.xml"))
@@ -220,12 +276,20 @@ def main() -> int:
     if not re.fullmatch(r"[\w.-]+/[\w.-]+", args.repo) or not re.fullmatch(r"[0-9a-f]{40}", args.head):
         raise ValueError("Expected owner/repo and a full built SHA")
     github = GitHub(args.repo)
-    release = github.rest(f"releases/tags/{quote(args.tag, safe='')}")
-    base = published_sha(release.get("body") or "")
-    if base is None:
-        print(f"::warning::No previous publication marker; restore cmux-published-sha in the release body to recover the change range. Repair: {REPAIR}")
-    prs = collect_prs(github, base, args.head, args.branch) if base else []
-    markdown, plain = summarize(prs, args.repo, base, args.head)
+    base = None
+    try:
+        release = github.rest(f"releases/tags/{quote(args.tag, safe='')}")
+        base = published_sha(release.get("body") or "")
+        if base is None:
+            print(f"::warning::No previous publication marker; restore cmux-published-sha in the release body to recover the change range. Repair: {REPAIR}")
+        prs = collect_prs(github, base, args.head, args.branch) if base else []
+        markdown, plain = summarize(prs, args.repo, base, args.head)
+    except (RuntimeError, subprocess.TimeoutExpired, KeyError, ValueError) as error:
+        # The change list is cosmetic: a nightly is never lost to GitHub metadata. The marker below
+        # and the appcast descriptions still name this build, and the compare link covers the range.
+        print(f"::warning::Publishing without a change list: {error}")
+        markdown, plain = metadata_fallback(args.repo, base, args.head)
+        prs = []
     body = markdown + "\n## Downloads\n\n" + args.details.read_text()
     args.out.write_text(body)
     args.out.with_suffix(".published.md").write_text(f"<!-- cmux-published-sha: {args.head} -->\n" + body)

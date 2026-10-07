@@ -28,6 +28,8 @@ public final class MockOnboardingServices: OnboardingServices {
         .appending(path: "cmux-first-task-\(UUID().uuidString)", directoryHint: .isDirectory))
     /// Whether the classic cmux session import is offered.
     public var canImportClassicSessions = false
+    /// What the classic cmux session scan finds.
+    public var classicWorkspaces: [ClassicSessionWorkspace] = []
     /// The computer use step's grants; nil leaves the step out.
     public var computerUseSource: MockComputerUsePermissionSource?
     /// Picked screen variants, by step.
@@ -75,6 +77,7 @@ public final class MockOnboardingServices: OnboardingServices {
     public func openProjects(_ folders: [URL]) { openedProjects.append(folders) }
     public func scanAgentChats() async -> [AgentChat] { agentChats }
     public func resumeChats(_ chats: [AgentChat]) { resumedChats.append(chats) }
+    public func scanClassicSessions() async -> [ClassicSessionWorkspace] { classicWorkspaces }
 
     public func runImport(_ plan: ImportPlan, progress: @escaping @MainActor (ImportProgress) -> Void) async throws -> ImportSummary {
         plans.append(plan)
@@ -129,6 +132,9 @@ public final class MockOnboardingServices: OnboardingServices {
 
 
     public func onboardingDidEnd(completed: Bool) { ended = completed }
+    /// Each first-run step the model reported, in order.
+    public private(set) var reached: [OnboardingModel.Step] = []
+    public func onboardingDidReach(_ step: OnboardingModel.Step) { reached.append(step) }
 
     /// Sample data for the gallery: four browsers, the given themes and accounts view.
     public static func gallerySample(themes: [ThemeChoice], accountsView: NSView?) -> MockOnboardingServices {
@@ -158,6 +164,11 @@ public final class MockOnboardingServices: OnboardingServices {
             chat("c5", .claudeCode, "Documents/thesis", "Tighten chapter 3 and check every citation", 33, 4 * day),
             chat("c6", .codex, "code/dotfiles", "Why does my prompt take two seconds to draw?", 3, 12 * day),
         ]
+        func workspace(_ name: String, _ folder: String) -> ClassicSessionWorkspace {
+            let tab = ClassicSessionTab(workingDirectory: "/Users/demo/\(folder)", title: nil)
+            return ClassicSessionWorkspace(name: name, workingDirectory: "/Users/demo/\(folder)", layout: .pane(ClassicSessionPane(tabs: [tab])))
+        }
+        services.classicWorkspaces = [workspace("cmux", "code/cmux"), workspace("website", "code/website"), workspace("thesis", "Documents/thesis")]
         services.computerUseSource = MockComputerUsePermissionSource(current: ComputerUsePermissions(accessibility: true, screenRecording: false))
         services.passwordStore = true
         func profile(_ browser: ImportBrowser, _ directory: String, _ name: String) -> BrowserSourceProfile {

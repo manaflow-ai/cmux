@@ -1079,3 +1079,27 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_verify_app_libintl.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_macho_parity.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_route_replay.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_macos_cross_shadow_jobs.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_generated_catch_up.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_next_batch.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_app_ffi_release_workflow.py"
+lane = "linux-guard"

@@ -1,0 +1,138 @@
+[
+  {
+    "tenantId": "team_mesh_m3_m3muxuntiw",
+    "actor": "key:vmk_7mtjna8qdcscsj8h14vdhtmgp4",
+    "action": "mesh.create",
+    "cmuxId": "mesh_b21p6hzs7r99q3gqj7yz86hj7m",
+    "outcome": "ok",
+    "at": "2026-10-07T08:32:43.924Z"
+  },
+  {
+    "tenantId": "team_mesh_m3_m3muxuntiw",
+    "actor": "key:vmk_7mtjna8qdcscsj8h14vdhtmgp4",
+    "action": "vm.create",
+    "cmuxId": "vm_6vfd9dvytmnn45m6097ephe35r",
+    "outcome": "ok",
+    "at": "2026-10-07T08:32:56.351Z"
+  },
+  {
+    "tenantId": "team_mesh_m3_m3muxuntiw",
+    "actor": "key:vmk_7mtjna8qdcscsj8h14vdhtmgp4",
+    "action": "mesh.vm.attach",
+    "cmuxId": "mesh_b21p6hzs7r99q3gqj7yz86hj7m",
+    "outcome": "ok",
+    "at": "2026-10-07T08:32:56.535Z"
+  },
+  {
+    "tenantId": "team_mesh_m3_m3muxuntiw",
+    "actor": "key:vmk_7mtjna8qdcscsj8h14vdhtmgp4",
+    "action": "acl.apply",
+    "cmuxId": "mesh_b21p6hzs7r99q3gqj7yz86hj7m",
+    "outcome": "ok",
+    "at": "2026-10-07T08:32:56.538Z"
+  },
+  {
+    "tenantId": "team_mesh_m3_m3muxuntiw",
+    "actor": "key:vmk_5eq6t1ddc9wzazfvscfyxep18m",
+    "action": "enrollment_code.create",
+    "cmuxId": "mesh_b21p6hzs7r99q3gqj7yz86hj7m",
+    "outcome": "ok",
+    "at": "2026-10-07T08:32:56.540Z"
+  },
+  {
+    "tenantId": "team_mesh_m3_m3muxuntiw",
+    "actor": "key:vmk_5eq6t1ddc9wzazfvscfyxep18m",
+    "action": "device.create",
+    "cmuxId": "dev_mwbkxqq7s17x2dakp8d263xh64",
+    "outcome": "ok",
+    "at": "2026-10-07T08:32:56.999Z"
+  },
+  {
+    "tenantId": "team_mesh_m3_m3muxuntiw",
+    "actor": "key:vmk_5eq6t1ddc9wzazfvscfyxep18m",
+    "action": "device.rotate_key",
+    "cmuxId": "dev_mwbkxqq7s17x2dakp8d263xh64",
+    "outcome": "ok",
+    "at": "2026-10-07T08:32:59.497Z"
+  },
+  {
+    "tenantId": "team_mesh_m3_m3muxuntiw",
+    "actor": "key:vmk_5eq6t1ddc9wzazfvscfyxep18m",
+    "action": "enrollment_code.create",
+    "cmuxId": "mesh_b21p6hzs7r99q3gqj7yz86hj7m",
+    "outcome": "ok",
+    "at": "2026-10-07T08:33:01.801Z"
+  },
+  {
+    "tenantId": "team_mesh_m3_m3muxuntiw",
+    "actor": "key:vmk_5eq6t1ddc9wzazfvscfyxep18m",
+    "action": "device.create",
+    "cmuxId": "dev_577eg52j85bdq03m4fc2ka9ejc",
+    "outcome": "ok",
+    "at": "2026-10-07T08:33:02.050Z"
+  },
+  {
+    "tenantId": "team_mesh_m3_m3muxuntiw",
+    "actor": "key:vmk_5eq6t1ddc9wzazfvscfyxep18m",
+    "action": "enrollment_code.create",
+    "cmuxId": "mesh_b21p6hzs7r99q3gqj7yz86hj7m",
+    "outcome": "ok",
+    "at": "2026-10-07T08:33:02.070Z"
+  },
+  {
+    "tenantId": "team_mesh_m3_m3muxuntiw",
+    "actor": "key:vmk_5eq6t1ddc9wzazfvscfyxep18m",
+    "action": "device.create",
+    "cmuxId": "mesh_b21p6hzs7r99q3gqj7yz86hj7m",
+    "outcome": "Forbidden",
+    "at": "2026-10-07T08:33:02.071Z"
+  },
+  {
+    "tenantId": "team_mesh_m3_m3muxuntiw",
+    "actor": "key:vmk_5eq6t1ddc9wzazfvscfyxep18m",
+    "action": "enrollment_code.create",
+    "cmuxId": "mesh_b21p6hzs7r99q3gqj7yz86hj7m",
+    "outcome": "ok",
+    "at": "2026-10-07T08:33:02.074Z"
+  },
+  {
+    "tenantId": "team_mesh_m3_m3muxuntiw",
+    "actor": "key:vmk_7mtjna8qdcscsj8h14vdhtmgp4",
+    "action": "device.delete",
+    "cmuxId": "dev_mwbkxqq7s17x2dakp8d263xh64",
+    "outcome": "ok",
+    "at": "2026-10-07T08:33:02.196Z"
+  },
+  {
+    "tenantId": "team_mesh_m3_m3muxuntiw",
+    "actor": "key:vmk_7mtjna8qdcscsj8h14vdhtmgp4",
+    "action": "device.delete",
+    "cmuxId": "dev_577eg52j85bdq03m4fc2ka9ejc",
+    "outcome": "ok",
+    "at": "2026-10-07T08:33:02.284Z"
+  },
+  {
+    "tenantId": "team_mesh_m3_m3muxuntiw",
+    "actor": "key:vmk_7mtjna8qdcscsj8h14vdhtmgp4",
+    "action": "mesh.vm.detach",
+    "cmuxId": "mesh_b21p6hzs7r99q3gqj7yz86hj7m",
+    "outcome": "ok",
+    "at": "2026-10-07T08:33:02.406Z"
+  },
+  {
+    "tenantId": "team_mesh_m3_m3muxuntiw",
+    "actor": "key:vmk_7mtjna8qdcscsj8h14vdhtmgp4",
+    "action": "vm.delete",
+    "cmuxId": "vm_6vfd9dvytmnn45m6097ephe35r",
+    "outcome": "ok",
+    "at": "2026-10-07T08:33:02.491Z"
+  },
+  {
+    "tenantId": "team_mesh_m3_m3muxuntiw",
+    "actor": "key:vmk_7mtjna8qdcscsj8h14vdhtmgp4",
+    "action": "mesh.delete",
+    "cmuxId": "mesh_b21p6hzs7r99q3gqj7yz86hj7m",
+    "outcome": "ok",
+    "at": "2026-10-07T08:33:02.541Z"
+  }
+]
