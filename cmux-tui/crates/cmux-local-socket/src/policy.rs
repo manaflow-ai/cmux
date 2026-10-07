@@ -42,15 +42,26 @@ impl std::fmt::Display for Refusal {
 /// A peer may connect when it runs as our user, at Medium integrity or
 /// above, outside any AppContainer.
 pub fn peer_allowed(peer: &PeerIdentity, our_user_sid: &str) -> Result<(), Refusal> {
-    let _ = (peer, our_user_sid);
+    owner_allowed(&peer.user_sid, our_user_sid)?;
+    if peer.app_container {
+        return Err(Refusal::AppContainer);
+    }
+    if peer.integrity_rid < MEDIUM_INTEGRITY_RID {
+        return Err(Refusal::LowIntegrity(peer.integrity_rid));
+    }
     Ok(())
 }
 
 /// A socket file (or its directory) is ours when its owner is our token
 /// user, exactly (not a group such as BUILTIN\Administrators).
 pub fn owner_allowed(owner_sid: &str, our_user_sid: &str) -> Result<(), Refusal> {
-    let _ = (owner_sid, our_user_sid);
-    Ok(())
+    // String SIDs are case-insensitive only in their "S" prefix; the
+    // numbers are decimal, so an ASCII case-insensitive comparison is exact.
+    if owner_sid.eq_ignore_ascii_case(our_user_sid) {
+        Ok(())
+    } else {
+        Err(Refusal::OtherUser(owner_sid.to_string()))
+    }
 }
 
 #[cfg(test)]
