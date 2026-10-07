@@ -477,38 +477,7 @@ async fn dispatch_request(
             hub.remove_peer(name).await?;
             Ok(json!({"peers": hub.peers()}))
         }
-        method::MUX_HARNESSES => {
-            let cfg = hub.config.read().await;
-            let mut agents = serde_json::Map::new();
-            for (name, p) in &cfg.harnesses {
-                let mut v = serde_json::to_value(p).unwrap_or(Value::Null);
-                if let Some(o) = v.as_object_mut() {
-                    o.insert("family".into(), json!(crate::config::derive_family(name, p)));
-                    if let Some(r) = cfg.unavailable.get(name) {
-                        o.insert("unavailable".into(), json!(r));
-                    }
-                    if let Some(r) = hub.probe_errors.lock().unwrap().get(name) {
-                        o.insert("probeError".into(), json!(r));
-                    }
-                    let d = cfg.defaults_for(name);
-                    if !d.is_empty() {
-                        o.insert("defaults".into(), json!(d));
-                    }
-                    // A profile file's display, capability, auth and sessions data.
-                    if let Some(Value::Object(meta)) =
-                        cfg.profile_meta.get(name).and_then(|m| serde_json::to_value(m).ok())
-                    {
-                        for (k, x) in meta {
-                            o.insert(k, x);
-                        }
-                    }
-                }
-                agents.insert(name.clone(), v);
-            }
-            Ok(
-                json!({"harnesses": agents, "defaultHarness": cfg.default_harness, "families": cfg.families(), "defaults": cfg.defaults, "presets": cfg.presets, "diagnostics": cfg.profile_diagnostics}),
-            )
-        }
+        method::MUX_HARNESSES => Ok(hub.harnesses_view().await),
         method::MUX_RELOAD_CONFIG => hub.reload_catalog().await,
         // Read or change family defaults: {family?, set?: {...}, clear?: bool}.
         method::MUX_DEFAULTS => {

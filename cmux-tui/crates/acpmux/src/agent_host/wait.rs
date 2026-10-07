@@ -100,6 +100,8 @@ enum Watch {
 struct DeathWatch {
     state: StdMutex<Watch>,
     changed: Condvar,
+    /// The same end for async waiters ([`dead`]).
+    ended: tokio::sync::watch::Sender<Watch>,
 }
 
 fn watches() -> &'static StdMutex<HashMap<PathBuf, Arc<DeathWatch>>> {
@@ -122,7 +124,11 @@ fn watch(path: &Path) -> Option<Arc<DeathWatch>> {
         return Some(w.clone());
     }
     let file = std::fs::OpenOptions::new().read(true).write(true).open(path).ok()?;
-    let w = Arc::new(DeathWatch { state: StdMutex::new(Watch::Waiting), changed: Condvar::new() });
+    let w = Arc::new(DeathWatch {
+        state: StdMutex::new(Watch::Waiting),
+        changed: Condvar::new(),
+        ended: tokio::sync::watch::channel(Watch::Waiting).0,
+    });
     map.insert(path.to_owned(), w.clone());
     let (key, watch) = (path.to_owned(), w.clone());
     std::thread::spawn(move || {
@@ -140,6 +146,7 @@ fn watch(path: &Path) -> Option<Arc<DeathWatch>> {
         watches().lock().unwrap().remove(&key);
         *watch.state.lock().unwrap() = end;
         watch.changed.notify_all();
+        watch.ended.send_replace(end);
     });
     Some(w)
 }
@@ -151,6 +158,19 @@ pub fn wait_dead_within(dir: &Path, session_id: &str, start_nonce: &str, budget:
     let state = w.state.lock().unwrap();
     let (state, _) = w.changed.wait_timeout_while(state, budget, |s| *s == Watch::Waiting).unwrap();
     *state == Watch::Dead
+}
+
+/// Resolves once this incarnation's host is dead (true) or its watch failed
+/// (false). It has no deadline and holds no runtime thread: race it with one
+/// ([`within_on`]). The shared watch thread ends only with the host.
+pub async fn dead(dir: &Path, session_id: &str, start_nonce: &str) -> bool {
+    let Some(w) = watch(&live_path(dir, session_id, start_nonce)) else { return true };
+    let mut ended = w.ended.subscribe();
+    let end = match ended.wait_for(|s| *s != Watch::Waiting).await {
+        Ok(end) => *end,
+        Err(_) => Watch::Failed,
+    };
+    end == Watch::Dead
 }
 
 /// [`wait_dead_within`] off the async runtime.
