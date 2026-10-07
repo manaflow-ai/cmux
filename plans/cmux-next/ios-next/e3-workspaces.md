@@ -82,7 +82,7 @@ daemon serves `profiles-v1` (shared `Tree.groups` otherwise), and performs: move
 
 - `CmuxiOSSSHCore`: `SSHSessionTarget` (`tmux` session or window, `screen`, `cmuxTUI`) with ids
   validated against `[A-Za-z0-9_.:-]+` (screen `<pid>.<name>`, tmux window index digits), and
-  binary paths validated as absolute plain paths; `SSHSessionDiscovery` (one exec: locate tmux,
+  binary paths validated as absolute plain paths; `SSHSessionDiscovery` (one exec of `/bin/sh -s` with the script on stdin: locate tmux,
   `tmux list-sessions -F`, `tmux list-windows -a -F`, `screen -ls`, locate `cmux-tui` and list its
   session sockets) with a pure parser; `SSHChainDialer` shared by the shell connector, the new
   `SSHAttachConnector` (PTY + `exec <tmux> attach-session -t <id>`, `screen -x <id>`,
@@ -112,3 +112,23 @@ Creating and deleting groups and group colors from the phone, moving a workspace
 SSH session create/kill/rename, tmux control mode (one terminal per window through `attach`),
 discovery for hidden machines being skipped, live verification on a device (tagged builds are
 blocked on this Mac).
+
+## 9. Status (2026-10-07)
+
+Done: wire (catalog, schemas, fixtures, Swift, TS; CmuxMobileWire 24 tests, workspace fixtures
+validated with the TS subset validator run directly, vitest not run: no `node_modules`);
+CmuxMobileHost policy, daemon ops, groups in state and diff (152 tests); the CmuxNext adapter
+(projection tests pass in a scratch package that compiles CmuxNextDaemon in Swift 5 mode, because
+this toolchain rejects an existing `DaemonStore+Driver` sendability check); FeatureKit,
+WorkspacesCore, SSHCore discovery and the new CmuxiOSSSHWorkspacesCore with Swift Testing (137 tests
+across FeatureKit, WorkspacesCore, SSHCore and SSH workspaces pass on macOS through a scratch
+package); the Workspaces UI and composition. CmuxiOSApp compiles for
+`arm64-apple-ios17.0-simulator` with SwiftPM.
+
+Unverified: everything visual (no simulator run: reorder drag feel, header taps, the customize
+sheet, VoiceOver), live SSH discovery and attach against real tmux/screen/cmux-tui hosts, the Mac
+adapter against a live home daemon (`workspace.place` index conversion, personal groups), and the
+`list-personal` cost per tree change. A review subagent's findings (Home in the placement index,
+the move-workspace fallback index, cross-section drop detection, overlapping discovery runs, csh
+login shells) are fixed. Tagged build not attempted (lane rules: no tagged builds on
+this Mac).

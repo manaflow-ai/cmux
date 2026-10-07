@@ -100,7 +100,10 @@ Relay authorization (skills/cmux-socket-policy): the phone is treated like a rel
   (C5) `workspace.close` and `workspace.read` (`MobileDaemonOp.closeWorkspace` / `.markWorkspaceRead`,
   same id scoping, caps `workspace.close`, `workspace.read`; `workspace.preview` for preview lines,
   which `WorkspaceStreamOwner` sanitizes with `MobilePreview` and sends at most once per second per
-  tab with one trailing flush on the injected clock)
+  tab with one trailing flush on the injected clock), and (E3) `workspace.move`,
+  `workspace.group.rename`, `workspace.customize` (`.moveWorkspace` / `.renameGroup` /
+  `.customizeWorkspace`; group ids resolved in the tree's groups, color a palette token or `#RRGGBB`,
+  icon an SF Symbol name, index an integer from 0; e3-workspaces.md section 4)
   (user-owned objects, ids scoped to this host's current tree, unknown or ref-form ids refused with
   `workspace.not_found` / `workspace.tab_not_found`). Every op rejects params outside its schema,
   and command-bearing params (`command`, `initial_command`, `argv`, `env`, `cwd`, `shell`,

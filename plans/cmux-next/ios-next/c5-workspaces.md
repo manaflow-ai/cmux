@@ -157,9 +157,9 @@ and compile for the simulator.
 ## 9. Not here
 
 Presence announce of the viewed workspace (B1's `presence.set` has no workspace field; needs an
-A0 field), new workspace and group editing from the phone (ops exist for create only), drag
-reorder of workspaces (needs a store `workspace.move` op), SSH session workspaces (seam only),
-Cloud machines in the list (C12).
+A0 field), new workspace from the phone (ops exist for create only), Cloud machines in the list
+(C12). Group collapse and rename, drag reorder, the customize sheet and SSH session workspaces
+landed in E3 (e3-workspaces.md).
 
 ## 10. Status (2026-10-06)
 

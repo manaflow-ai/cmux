@@ -56,10 +56,10 @@ seam with no real owner yet), **seam only** (protocol or hook, no UI or no owner
 | 1.7 | Disconnected / no-Mac shell | C5, C10 | done |
 | 1.8 | Previews, unread, machine colors, filters, sorts, view options | C5 | done |
 | 1.8 | New workspace | C8, C5 | done (composer workspace picker) |
-| 1.8 | Groups: collapse, rename, drag reorder across groups | C5 | missing (groups render as read-only sections) |
+| 1.8 | Groups: collapse, rename, drag reorder across groups | C5, E3 | done (E3; collapse is phone view state) |
 | 1.8 | Row actions read, rename, close | C5 | done |
-| 1.8 | Customize sheet (color, icon) | C5 | missing |
-| 1.8 | SSH computers and their workspaces in the list | C9, C5 | missing (SSH hosts live in Hosts; tmux/screen/cmux-tui listing not built) |
+| 1.8 | Customize sheet (color, icon) | E3 | done (name, nine palette colors, SF Symbol icon) |
+| 1.8 | SSH computers and their workspaces in the list | C9, C5, E3 | done (E3: tmux sessions and windows, screen, cmux-tui sessions; attach only; no create/kill) |
 | 1.8 | Cloud machines in the list | C12 | seam only (`cloudWorkspaces` flag off until the VM Rust host, c12 4) |
 | 1.8 | Presence announce of the viewed workspace | C5 | done |
 | 1.9 | Detail container, title menu, terminal picker | C5, D1 | done |
