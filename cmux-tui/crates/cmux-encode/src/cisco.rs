@@ -5,7 +5,8 @@
 //! downloads from Cisco, so the library is never bundled in an app, an image
 //! or a release artifact, and never built from source for the product path.
 //!
-//! Integrity: the download goes over HTTPS with certificate verification,
+//! Integrity: the download goes over HTTPS (the workspace rustls, webpki
+//! roots, certificate verification on),
 //! and the decompressed library must have the SHA-256 pinned in
 //! [`CiscoBinary`]. Nothing is written when the hash differs.
 //!
@@ -146,26 +147,103 @@ pub fn install_with(
     Ok(path)
 }
 
-/// GETs `url` from Cisco's server over HTTPS (rustls, webpki roots,
-/// certificate verification on), at most [`MAX_COMPRESSED_BYTES`]. The
-/// pinned hash stays the integrity check.
+/// GETs `url` from Cisco's server over HTTPS, at most
+/// [`MAX_COMPRESSED_BYTES`]. TLS is the cmux-tui workspace's rustls (ring
+/// provider, TLS 1.2 and 1.3) with the webpki roots and certificate
+/// verification on, so the download adds no TLS stack to any lockfile. The
+/// request is one `GET` with `Connection: close` to Cisco's fixed host; the
+/// response must be `200` with an identity body (no redirect, no chunked
+/// encoding). The pinned SHA-256 stays the integrity check.
 fn download(url: &str) -> Result<Vec<u8>, InstallError> {
-    let response = minreq::get(url)
-        .with_timeout(DOWNLOAD_TIMEOUT_S)
-        .send_lazy()
-        .map_err(|e| InstallError::Download(e.to_string()))?;
-    if response.status_code != 200 {
-        return Err(InstallError::Download(format!("HTTP {}", response.status_code)));
+    use std::net::{TcpStream, ToSocketAddrs};
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    let fail =
+        |what: &str, e: &dyn std::fmt::Display| InstallError::Download(format!("{what}: {e}"));
+    let (host, path) =
+        split_url(url).ok_or_else(|| InstallError::Download(format!("not an https URL: {url}")))?;
+    let timeout = Duration::from_secs(DOWNLOAD_TIMEOUT_S);
+    let addr = (host, 443)
+        .to_socket_addrs()
+        .map_err(|e| fail("resolve", &e))?
+        .next()
+        .ok_or_else(|| InstallError::Download(format!("{host} has no address")))?;
+    let tcp = TcpStream::connect_timeout(&addr, timeout).map_err(|e| fail("connect", &e))?;
+    tcp.set_read_timeout(Some(timeout)).map_err(|e| fail("socket", &e))?;
+    tcp.set_write_timeout(Some(timeout)).map_err(|e| fail("socket", &e))?;
+    let roots = rustls::RootCertStore { roots: webpki_roots::TLS_SERVER_ROOTS.to_vec() };
+    let config = rustls::ClientConfig::builder_with_provider(Arc::new(
+        rustls::crypto::ring::default_provider(),
+    ))
+    .with_safe_default_protocol_versions()
+    .map_err(|e| fail("tls", &e))?
+    .with_root_certificates(roots)
+    .with_no_client_auth();
+    let name = rustls::pki_types::ServerName::try_from(host.to_owned())
+        .map_err(|e| fail("server name", &e))?;
+    let conn =
+        rustls::ClientConnection::new(Arc::new(config), name).map_err(|e| fail("tls", &e))?;
+    let mut tls = rustls::StreamOwned::new(conn, tcp);
+    let request = format!(
+        "GET {path} HTTP/1.1\r\nHost: {host}\r\nUser-Agent: cmux-rd\r\nAccept-Encoding: identity\r\nConnection: close\r\n\r\n"
+    );
+    tls.write_all(request.as_bytes()).map_err(|e| fail("request", &e))?;
+    let mut raw = Vec::new();
+    let limit = MAX_COMPRESSED_BYTES as u64 + 64 * 1024;
+    match (&mut tls).take(limit + 1).read_to_end(&mut raw) {
+        Ok(_) => {}
+        // A server that closes without close_notify: the Content-Length
+        // check in parse_response decides whether the body is complete.
+        Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {}
+        Err(e) => return Err(fail("response", &e)),
     }
-    let mut body = Vec::new();
-    response
-        .take(MAX_COMPRESSED_BYTES as u64 + 1)
-        .read_to_end(&mut body)
-        .map_err(|e| InstallError::Download(e.to_string()))?;
+    if raw.len() as u64 > limit {
+        return Err(InstallError::TooLarge);
+    }
+    let body = parse_response(&raw)?;
     if body.len() > MAX_COMPRESSED_BYTES {
         return Err(InstallError::TooLarge);
     }
     Ok(body)
+}
+
+/// Host and path of an `https://host/path` URL.
+fn split_url(url: &str) -> Option<(&str, &str)> {
+    let rest = url.strip_prefix("https://")?;
+    let slash = rest.find('/')?;
+    let (host, path) = rest.split_at(slash);
+    (!host.is_empty()).then_some((host, path))
+}
+
+/// The body of a complete HTTP/1.1 response: status 200, no
+/// `Transfer-Encoding`, and exactly `Content-Length` bytes when given.
+fn parse_response(raw: &[u8]) -> Result<Vec<u8>, InstallError> {
+    let bad = |why: &str| InstallError::Download(why.to_owned());
+    let end = raw.windows(4).position(|w| w == b"\r\n\r\n").ok_or_else(|| bad("no HTTP header"))?;
+    let head = std::str::from_utf8(&raw[..end]).map_err(|_| bad("header is not text"))?;
+    let body = &raw[end + 4..];
+    let mut lines = head.split("\r\n");
+    let status = lines.next().unwrap_or_default();
+    let code = status.strip_prefix("HTTP/1.").and_then(|s| s.get(2..5));
+    if code != Some("200") {
+        return Err(InstallError::Download(format!("Cisco answered {status:?}")));
+    }
+    let mut length = None;
+    for line in lines {
+        let Some((key, value)) = line.split_once(':') else { continue };
+        let (key, value) = (key.trim().to_ascii_lowercase(), value.trim());
+        if key == "transfer-encoding" {
+            return Err(bad("chunked or encoded body"));
+        }
+        if key == "content-length" {
+            length = Some(value.parse::<usize>().map_err(|_| bad("bad Content-Length"))?);
+        }
+    }
+    if length.is_some_and(|n| n != body.len()) {
+        return Err(bad("body shorter or longer than Content-Length"));
+    }
+    Ok(body.to_vec())
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
