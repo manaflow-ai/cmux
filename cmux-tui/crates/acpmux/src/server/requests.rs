@@ -448,6 +448,7 @@ async fn dispatch_request(
                 wait: params.get("wait").and_then(Value::as_bool) == Some(true),
                 // LocalApp = same-user secret, equal to the unix socket for STARTING presets; writes stay unix-socket only.
                 remote: conn.origin.web_class(),
+                trust_gate: super::trust_gate::gated(conn.origin, &params),
             })
             .await
         }

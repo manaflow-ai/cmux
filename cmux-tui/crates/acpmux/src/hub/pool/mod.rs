@@ -148,6 +148,8 @@ pub struct PrewarmRequest {
     pub wait: bool,
     /// Asked over a remote-origin connection: refused.
     pub remote: bool,
+    /// Whether the request came from a gated LocalApp/Web path.
+    pub trust_gate: bool,
 }
 
 /// A pool lock. A panic while one was held leaves plain data behind, so a
@@ -307,7 +309,7 @@ impl Hub {
         let generation = self.pool.hint_gen.fetch_add(1, Ordering::SeqCst) + 1;
         let debounce = Duration::from_millis(self.config.read().await.pool.debounce_ms);
         let hub = self.clone();
-        let PrewarmRequest { harness, preset, wait, .. } = req;
+        let PrewarmRequest { harness, preset, wait, trust_gate, .. } = req;
         let task = tokio::spawn(async move {
             if !debounce.is_zero() {
                 let clock = lock(&hub.clock).clone();
@@ -319,15 +321,17 @@ impl Hub {
             }
             hub.wait_startup().await;
             let spec = hub.pool_spec(harness, preset, cwd).await?;
-            if let Some(paths) = hub.trust_gate() {
-                let folder = spec.draft.cwd.to_string_lossy().into_owned();
-                let family =
-                    spec.draft.family.clone().unwrap_or_else(|| spec.draft.harness.clone());
-                if !hub.folder_trusted_cwd(paths, folder, family).await {
-                    return Err(RpcError::invalid_params(
-                        "trust.pending: answer the trust question for the folder first",
-                    )
-                    .with_data(json!({"reason": "trust.pending"})));
+            if trust_gate {
+                if let Some(paths) = hub.trust_gate() {
+                    let folder = spec.draft.cwd.to_string_lossy().into_owned();
+                    let family =
+                        spec.draft.family.clone().unwrap_or_else(|| spec.draft.harness.clone());
+                    if !hub.folder_trusted_cwd(paths, folder, family).await {
+                        return Err(RpcError::invalid_params(
+                            "trust.pending: answer the trust question for the folder first",
+                        )
+                        .with_data(json!({"reason": "trust.pending"})));
+                    }
                 }
             }
             let key = spec.key.clone();
