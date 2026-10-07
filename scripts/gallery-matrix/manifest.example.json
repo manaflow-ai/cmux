@@ -1,0 +1,31 @@
+[
+  {
+    "id": "settings-default-en",
+    "path_or_url": "index.html",
+    "params": {
+      "component": "settings",
+      "state": "default",
+      "locale": "en-US",
+      "theme": "system",
+      "colorScheme": "light",
+      "fontSize": 13,
+      "density": "comfortable",
+      "scale": 1,
+      "width": 900,
+      "height": 700
+    }
+  },
+  {
+    "id": "settings-dark-fr",
+    "path_or_url": "index.html",
+    "params": {
+      "component": "settings",
+      "state": "default",
+      "locale": "fr-FR",
+      "theme": "dark",
+      "colorScheme": "dark",
+      "width": 900,
+      "height": 700
+    }
+  }
+]
