@@ -334,10 +334,14 @@ RUN_CLASSES = ("std", "light")
 # `glaeda-side-...` are its side runners, the other runners: the light side-lane workflows take it
 # (vars.CI_SIDE_LANE_RUNNER, owned_pool_rescue.SIDE_WORKFLOW_PATHS), and so do
 # this picker's side lanes (side_runner()). Its jobs hold its pool's machines.
-OWNED_LABEL = re.compile(r"glaeda-(?:root-|side-|gui-)?(?:xl|std|light)-xcode-[0-9]+(?:\.[0-9]+)*")
+XCODE_VERSION = r"[0-9]+(?:\.[0-9]+)*"
+# Optional namespaces keep explicitly configured fleets (such as AWS) out of
+# the ordinary mini family while retaining the role labels' semantics.
+OWNED_LABEL = re.compile(rf"glaeda-(?:aws-)?(?:root-|side-|gui-)?(?:xl|std|light)-xcode-{XCODE_VERSION}")
 ROOT_PREFIX = "glaeda-root-"
 SIDE_PREFIX = "glaeda-side-"
 GUI_PREFIX = "glaeda-gui-"
+ROLE_NAMES = ("root", "side", "gui")
 # Capability labels glaeda puts on some runners of an owned pool, requested
 # beside the pool label, never alone. `glaeda-ios-sim`: a mini with an iOS
 # simulator role and an iOS 26.x runtime (ios_runner_pool.py). They are not
@@ -496,25 +500,43 @@ def persistent(label: str) -> bool:
     return bool(OWNED_LABEL.fullmatch(label or ""))
 
 
+def _role_name(label: str) -> str:
+    """Return an owned label's role, including an optional fleet namespace."""
+    parts = (label or "").split("-")
+    return next((role for role in ROLE_NAMES if role in parts[1:3]), "")
+
+
 def root_label(label: str) -> str:
     """The root runners' label for an owned pool label, or "" for any other label."""
-    if not persistent(label) or label.startswith((ROOT_PREFIX, SIDE_PREFIX, GUI_PREFIX)):
+    if not persistent(label) or _role_name(label):
         return ""
-    return ROOT_PREFIX + label.removeprefix("glaeda-")
+    return _role_label(label, "root")
 
 
 def side_label(label: str) -> str:
     """The side runners' label for an owned pool label, or "" for any other label."""
-    if not persistent(label) or label.startswith((ROOT_PREFIX, SIDE_PREFIX, GUI_PREFIX)):
+    if not persistent(label) or _role_name(label):
         return ""
-    return SIDE_PREFIX + label.removeprefix("glaeda-")
+    return _role_label(label, "side")
 
 
 def gui_label(label: str) -> str:
     """The gui runners' label for an owned pool label, or "" for any other label."""
-    if not persistent(label) or label.startswith((ROOT_PREFIX, SIDE_PREFIX, GUI_PREFIX)):
+    if not persistent(label) or _role_name(label):
         return ""
-    return GUI_PREFIX + label.removeprefix("glaeda-")
+    return _role_label(label, "gui")
+
+
+def _role_label(label: str, role: str) -> str:
+    """Insert a role after an optional namespace and before class metadata."""
+    parts = label.split("-")
+    try:
+        class_index = next(index for index, part in enumerate(parts) if part in RUN_CLASSES or part == "xl")
+    except StopIteration:
+        return ""
+    insert_at = 1 if class_index > 1 and parts[1] == "trusted" else min(2, class_index)
+    parts.insert(insert_at, role)
+    return "-".join(parts)
 
 
 def gui_runner(choice: "Choice", owned_slots: Mapping[str, int]) -> str:
@@ -538,7 +560,7 @@ def gui_runner(choice: "Choice", owned_slots: Mapping[str, int]) -> str:
 
 
 def side_runner(choice: "Choice", owned_slots: Mapping[str, int]) -> str:
-    """The label a pick's side lanes take: the pool's side label, or "" to keep the pool label.
+    """The label a pick's side lanes take: the pool's side label, or the pool when it is absent live.
 
     Only on a pool with a root count (the root and side runners are split),
     and only while the pool has machines beyond its root runners (routing_slots(): its
@@ -549,7 +571,14 @@ def side_runner(choice: "Choice", owned_slots: Mapping[str, int]) -> str:
         return ""
     if owned_slots.get(choice.runner, 0) <= owned_slots.get(choice.root_runner, 0):
         return ""
-    return side_label(choice.runner)
+    side = side_label(choice.runner)
+    # A live runner listing includes a zero for a side label that no online
+    # runner carries. Keep the jobs moving on the pool label until a side
+    # runner returns; a snapshot does not include zero-valued side labels and
+    # retains the configured side-label behavior above.
+    if side in owned_slots and owned_slots[side] <= 0:
+        return choice.runner
+    return side
 
 
 def light_side_lanes(plan: "RunJobs", runners: Sequence[Mapping[str, Any]], owned_slots: Mapping[str, int],
@@ -572,9 +601,13 @@ def light_side_lanes(plan: "RunJobs", runners: Sequence[Mapping[str, Any]], owne
 
 def pool_label(label: str) -> str:
     """The owned pool a root, side or gui label's runners belong to; any other label unchanged."""
-    for prefix in (ROOT_PREFIX, SIDE_PREFIX, GUI_PREFIX):
-        if persistent(label) and label.startswith(prefix):
-            return "glaeda-" + label.removeprefix(prefix)
+    if not persistent(label):
+        return label
+    parts = label.split("-")
+    for role in ("root", "side", "gui"):
+        if role in parts[1:3]:
+            parts.remove(role)
+            return "-".join(parts)
     return label
 
 
@@ -922,8 +955,12 @@ def routing_slots(raw: str | None, pr_xcode_app: str | None,
     if runners is None:
         return slots(raw, pr_xcode_app)
     labels = [label for pool_name in owned_pools(pr_xcode_app)
-              for label in (pool_name, root_label(pool_name), gui_label(pool_name))]
-    return {label: count for label, count in live_online(runners, labels).items() if count > 0}
+              for label in (pool_name, root_label(pool_name), side_label(pool_name), gui_label(pool_name))]
+    online = live_online(runners, labels)
+    # Keep zero-valued side labels so side_runner() can distinguish a live
+    # listing with no side capacity from the snapshot fallback.
+    return {label: count for label, count in online.items()
+            if count > 0 or label.startswith(SIDE_PREFIX)}
 
 
 def capability_slots(raw: str | None) -> dict[str, int]:
@@ -977,7 +1014,7 @@ def _slots(raw: str | None, pr_xcode_app: str | None = None) -> tuple[dict[str, 
         label = str(label)
         if not isinstance(count, int) or isinstance(count, bool) or count <= 0:
             problems.append(f"{SLOTS_VARIABLE} entry {label!r} has {count!r} machines, not a positive whole number")
-        elif label.startswith(("side-", SIDE_PREFIX)):
+        elif label.startswith("side-") or _role_name(label) == "side":
             # Side runners are a pool's machines less its root runners (side_runner()), so a count is a mistake.
             problems.append(f"{SLOTS_VARIABLE} entry {label!r} names side runners, which are counted "
                             "as the pool's machines less its root runners")
@@ -1001,8 +1038,9 @@ def _slots(raw: str | None, pr_xcode_app: str | None = None) -> tuple[dict[str, 
     for label, count in list(counted.items()):
         # Each root or gui runner is one of its pool's machines, so a larger count is a typo.
         machines = counted.get(pool_label(label), 0)
-        if label.startswith((ROOT_PREFIX, GUI_PREFIX)) and count > machines:
-            kind = "root" if label.startswith(ROOT_PREFIX) else "gui"
+        role = _role_name(label)
+        if role in ("root", "gui") and count > machines:
+            kind = role
             problems.append(f"{SLOTS_VARIABLE} gives {label} {count} {kind} runners, more than the "
                             f"{machines} machines of {pool_label(label)}")
             del counted[label]
