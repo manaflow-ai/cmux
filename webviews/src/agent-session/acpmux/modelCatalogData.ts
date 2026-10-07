@@ -126,13 +126,15 @@ export function readModelCatalog(value: unknown): ModelCatalog | undefined {
 
 /** Applies cmux.json `agentPane.models` to a catalog. Bad entries are skipped and reported. */
 export function applyUserLayer(catalog: ModelCatalog, user: unknown): ModelCatalog {
-  if (catalog) return catalog; // red: not implemented
   if (!isRecord(user)) return catalog;
   const diagnostics: { path: string; message: string }[] = [...(catalog.diagnostics ?? [])];
   const harnessConfig = isRecord(user.harnesses) ? user.harnesses : {};
   const overrides = isRecord(user.overrides) ? user.overrides : {};
   const harnesses = catalog.harnesses
-    .filter((harness) => !(isRecord(harnessConfig[harness.id]) && harnessConfig[harness.id].hidden === true))
+    .filter((harness) => {
+      const config = harnessConfig[harness.id];
+      return !(isRecord(config) && config.hidden === true);
+    })
     .map((harness, index) => ({
       harness: withHarnessConfig(harness, harnessConfig[harness.id]),
       order: orderOf(harnessConfig[harness.id], index),
@@ -208,7 +210,6 @@ export type PickerInputs = {
 
 /** Joins the catalog with what acpmux reports (CONTRACT section 3, join rules 1-6). */
 export function buildPickerCatalog({ catalog, user, acpmux, session, provisional = false }: PickerInputs): PickerCatalog {
-  if (catalog) return { harnesses: [], provisional }; // red: not implemented
   const layered = applyUserLayer(catalog, user);
   const join: Join = { catalog: layered, session, overrides: userOverrides(user) };
   const hidden = hiddenHarnesses(user);
