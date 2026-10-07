@@ -84,9 +84,9 @@
 .acpmux-context-compact:disabled{opacity:.5}
 .acpmux-context-compact:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
 /* Send is the row's height, not taller: a 28px circle with a 16px arrow. */
-.acpmux-send{flex:none;display:grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:50%;background:var(--agent-highlight,var(--agent-text));color:var(--agent-highlight-text,var(--acpmux-base))}
+.acpmux-send{flex:none;display:grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:50%;background:var(--agent-text);color:var(--acpmux-base)}
 .acpmux-send .acpmux-icon{width:16px;height:16px}
-.acpmux-send:not(.acpmux-send-ready):not(.acpmux-cancel):not(:hover){background:color-mix(in srgb,var(--agent-highlight,var(--agent-text)) 72%,var(--acpmux-base))}
+.acpmux-send:not(.acpmux-send-ready):not(.acpmux-cancel):not(:hover){background:color-mix(in srgb,var(--agent-text) 34%,var(--acpmux-base))}
 /* The picker menus open above the field at their chip (useUiAnchor). The chip is their containing block, so the width comes from the rows and the viewport, never the chip. */
 .acpmux-menu{font:13px/18px -apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;font-size:14px;position:absolute;bottom:calc(100% + 6px);z-index:3;width:max-content;min-width:min(220px,calc(100vw - 16px));max-width:min(420px,calc(100vw - 16px));height:auto;max-height:min(360px,50vh);overflow-x:hidden;overflow-y:auto;padding:6px;box-sizing:border-box;border-radius:12px;background:var(--acpmux-menu-bg);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge),0 10px 30px var(--agent-shadow,rgb(0 0 0/.35));color:var(--agent-text);line-height:18px}
 /* The picker menus open above the field, aligned with its edges. */
@@ -266,6 +266,8 @@
 .acpmux-diff-back:focus-visible,.acpmux-diff-tool:focus-visible,.acpmux-fh-name:focus-visible,.acpmux-fh-btn:focus-visible,.acpmux-review-changes:focus-visible,.acpmux-edited-file:focus-visible,.acpmux-edited-more:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:1px}
 .acpmux-diff-tree{flex:0 0 250px;min-width:0;display:flex;flex-direction:column;border-left:1px solid var(--agent-border);overflow:hidden}
 .acpmux-diff-tree-host{display:block;flex:1;min-height:0}
+/* changes/ChangedFilesTree.tsx: the motion layer's element around the tree host; no box of its own. */
+.acpmux-diff-tree-motion{display:contents}
 .acpmux-diff-filter{display:flex;align-items:center;gap:6px;flex:none;margin:8px 8px 4px;height:28px;box-sizing:border-box;padding:0 9px;border:1px solid var(--agent-border);border-radius:8px;background:var(--agent-input-bg,transparent);color:var(--agent-muted)}
 .acpmux-diff-filter input{all:unset;flex:1;min-width:0;font:13px system-ui,-apple-system,"Helvetica Neue",sans-serif;color:var(--agent-text)}
 .acpmux-diff-filter input::placeholder{color:var(--agent-muted)}
