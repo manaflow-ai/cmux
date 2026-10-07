@@ -17,6 +17,7 @@ use std::path::Path;
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
+use cmux_rd_core::service::caps::INPUT_SERVICE;
 use cmux_rd_ffi::{Carrier, InputChannel, Session};
 use cmux_rd_proto::control::Control;
 use cmux_rd_proto::{
@@ -279,8 +280,9 @@ fn rb_message<'a>(controls: &'a [serde_json::Value], t: &str) -> Option<&'a serd
     controls.iter().map(|c| &c["body"]).find(|b| b["t"] == t)
 }
 
-fn hello() -> Vec<u8> {
-    let control = Control::Hello {
+/// The probe's hello: service `rb/1`, as the Mac client sends it.
+pub fn hello_control() -> Control {
+    Control::Hello {
         user: "probe".into(),
         install: "probe".into(),
         class: "viewer".into(),
@@ -289,8 +291,21 @@ fn hello() -> Vec<u8> {
         max_datagram: 1332,
         token: None,
         service: SERVICE_REMOTE_BROWSER.into(),
-        caps: vec![],
-    };
+        caps: vec![INPUT_SERVICE.into()],
+    }
+}
+
+/// True when the host's welcome in `controls` grants service input (the
+/// Mac client sends no input otherwise).
+pub fn input_granted(controls: &[serde_json::Value]) -> bool {
+    controls.iter().any(|c| {
+        c["t"] == "welcome"
+            && c["caps"].as_array().is_some_and(|caps| caps.iter().any(|cap| cap == INPUT_SERVICE))
+    })
+}
+
+fn hello() -> Vec<u8> {
+    let control = hello_control();
     let mut out = Vec::new();
     let json = serde_json::to_vec(&control).unwrap_or_default();
     let _ = encode_stream_frame(STREAM_CONTROL, &json, &mut out);
@@ -393,6 +408,10 @@ fn probe(addr: SocketAddr, out: &Path, plan: Plan, r: &mut Report) -> Result<(),
             },
             Phase::Idle { until, start_frames } if at >= until => {
                 r.idle_frames = Some(r.frames - start_frames);
+                // The Mac client sends no input unless the welcome grants it.
+                if !input_granted(&r.controls) {
+                    return Err(format!("the welcome does not grant {INPUT_SERVICE}"));
+                }
                 Phase::Keys { next: at }
             }
             Phase::Keys { next } if at >= next => {

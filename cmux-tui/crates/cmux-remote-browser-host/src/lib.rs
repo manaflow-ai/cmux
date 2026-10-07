@@ -9,7 +9,9 @@
 //! only; encoding and transport plug in through lane 17's `cmux-encode` and
 //! `cmux-rd-engine` (remote-tab-r2.md section 5).
 
+pub mod handshake;
 pub mod launch;
+pub mod page;
 pub mod probe;
 pub mod pump;
 pub mod shim_ui;
