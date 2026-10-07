@@ -1,8 +1,9 @@
 //! `cmux-remote-browser-host`: serves remote browser tabs (remote-tab-r2.md).
 //!
 //! Modes (browser process; CEF helpers carry `--type=`):
-//! - `--serve [--listen 127.0.0.1:4103] [--url URL | --ui-page | --picker-page] [--once]`: one tab over
-//!   cmux.rd/1 (service rb/1, stream carrier). macOS.
+//! - `--serve [--listen 127.0.0.1:4103] [--url URL | --ui-page | --picker-page] [--once] [--lifeline]`:
+//!   one tab over cmux.rd/1 (service rb/1, stream carrier). macOS. Port 0 binds a free port;
+//!   stdout gets one `{"listening":"ADDR"}` line. `--lifeline` quits at stdin end of file.
 //! - `--probe ADDR OUT_DIR [--keys N] [--idle-ms N] [--ui] [--pickers] [--stuck-key]`: the loopback viewer
 //!   that measures a serving host (any platform).
 //! - `--smoke OUT_DIR`: the shim's own capture proof. macOS.
@@ -76,6 +77,7 @@ fn main() -> std::process::ExitCode {
                 }
             }),
             once: all.iter().any(|a| a == "--once"),
+            lifeline: all.iter().any(|a| a == "--lifeline"),
         };
         let code = cmux_remote_browser_host::serve::run(&mut argv, opts);
         return std::process::ExitCode::from(u8::try_from(code).unwrap_or(1));

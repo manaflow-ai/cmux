@@ -53,6 +53,9 @@ pub struct Options {
     pub url: String,
     /// Exit after the first viewer leaves.
     pub once: bool,
+    /// Quit when stdin reaches end of file (`--lifeline`, the app's launch
+    /// contract in `launch.rs`).
+    pub lifeline: bool,
 }
 
 /// One capture lease; dropping it gives the frame back to Viz (UI thread).
@@ -374,10 +377,26 @@ unsafe extern "C" fn on_timer(_: *mut c_void) {
     });
 }
 
+unsafe extern "C" fn on_quit(_: *mut c_void) {
+    // SAFETY: UI thread (posted through `rb_shim_post`).
+    unsafe { rb_shim_quit() }
+}
+
 unsafe extern "C" fn on_ready(_: *mut c_void) {
-    let Some(addr) = HOST.lock().ok().and_then(|g| g.as_ref().map(|h| h.opts.listen)) else {
+    let Some((addr, lifeline)) =
+        HOST.lock().ok().and_then(|g| g.as_ref().map(|h| (h.opts.listen, h.opts.lifeline)))
+    else {
         return;
     };
+    if lifeline {
+        std::thread::spawn(|| {
+            crate::launch::watch_lifeline(std::io::stdin().lock(), || {
+                eprintln!("serve: lifeline closed, quitting");
+                // SAFETY: `on_quit` runs on the UI thread and takes no context.
+                unsafe { rb_shim_post(on_quit, std::ptr::null_mut()) }
+            });
+        });
+    }
     std::thread::spawn(move || {
         if let Err(e) = listen(addr) {
             eprintln!("serve: {e}");
@@ -606,7 +625,13 @@ fn frame_damage(f: &RbFrame, width: u32, height: u32) -> Rect {
 
 fn listen(addr: SocketAddr) -> std::io::Result<()> {
     let listener = TcpListener::bind(addr)?;
-    eprintln!("serve: listening on {addr} (service {SERVICE_REMOTE_BROWSER})");
+    let bound = listener.local_addr()?;
+    eprintln!("serve: listening on {bound} (service {SERVICE_REMOTE_BROWSER})");
+    // The readiness line the app waits for (launch.rs): one flushed stdout line.
+    let mut stdout = std::io::stdout().lock();
+    writeln!(stdout, "{}", crate::launch::listening_line(bound))?;
+    stdout.flush()?;
+    drop(stdout);
     for conn in listener.incoming() {
         let conn = conn?;
         conn.set_nodelay(true)?;
