@@ -6,6 +6,18 @@ import type { Env } from "./env.ts"
 const STACK_API = "https://api.stack-auth.com"
 export const ACCESS_TOKEN_TTL_SECONDS = 600
 
+/**
+ * Give each Stack session its own ledger/socket identity without handing the raw
+ * refresh-token id to Durable Objects.  Older tokens (and local test tokens) do
+ * not carry refresh_token_id, so they retain the historical per-user identity.
+ */
+const sessionIdentity = async (env: Env, user: string, stackSession: string | undefined): Promise<string> => {
+  if (!stackSession) return `session:${user}`
+  const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${env.STACK_PROJECT_ID}\u0000${user}\u0000${stackSession}`))
+  const suffix = Array.from(new Uint8Array(bytes), (b) => b.toString(16).padStart(2, "0")).join("").slice(0, 32)
+  return `session:${user}:${suffix}`
+}
+
 const stackKeySets = new Map<string, JWTVerifyGetKey>()
 const stackKeys = (env: Env): JWTVerifyGetKey => {
   if (env.ENVIRONMENT === "test" && env.STACK_TEST_JWKS) return createLocalJWKSet(JSON.parse(env.STACK_TEST_JWKS) as { keys: Array<JWK> })
@@ -53,9 +65,10 @@ const sessionPrincipal = async (env: Env, token: string): Promise<Principal | un
     // Only an explicit `true` counts: absent, false or any other value means unverified.
     const emailVerified = email !== null && payload.email_verified === true
     const name = typeof payload.name === "string" && payload.name ? payload.name : undefined
+    const stackSession = typeof payload.refresh_token_id === "string" && payload.refresh_token_id ? payload.refresh_token_id : undefined
     return {
       kind: "session",
-      identity: `session:${user}`,
+      identity: await sessionIdentity(env, user, stackSession),
       user,
       team: personalTeamIdFor(user),
       stack_user_id: payload.sub,
@@ -65,7 +78,7 @@ const sessionPrincipal = async (env: Env, token: string): Promise<Principal | un
       ...(name ? { display_name: name } : {}),
       // SSO is never read from the token (Stack tokens carry no custom claims); policy-gate.ts
       // resolves it from TeamDO's record of the sessions our OIDC callback created.
-      ...(typeof payload.refresh_token_id === "string" && payload.refresh_token_id ? { stack_session: payload.refresh_token_id } : {})
+      ...(stackSession ? { stack_session: stackSession } : {})
     }
   } catch {
     return undefined

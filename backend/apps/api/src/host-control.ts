@@ -145,7 +145,10 @@ export class HostControl {
     const principal = JSON.parse(principalJson) as Principal
     if (role === "host" && principal.install !== hostInstall) return new Response("forbidden", { status: 403 })
     const known = this.ids()
-    if (known && known.host !== host) return new Response("forbidden", { status: 403 })
+    // HostDO placement is part of the TeamDO enrollment.  A warm or hibernated
+    // object must never accept a different enrollment for the same name: doing so
+    // would silently move the durable mirror and relay state to another install.
+    if (known && (known.host !== host || known.hostInstall !== hostInstall)) return new Response("forbidden", { status: 403 })
     this.ctx.storage.sql.exec(`INSERT INTO host_ctl (id, host, host_install) VALUES (1, ?, ?) ON CONFLICT(id) DO UPDATE SET host_install = excluded.host_install`, host, hostInstall)
     const tag = role === "host" ? HOST_TAG : devTag(identityOf(principal))
     const devices = new Set(this.sockets().filter((s) => s.a.role === "device").map((s) => identityOf(s.a.principal)))
@@ -292,6 +295,11 @@ export class HostControl {
       case "read": {
         const r = readFields(frame)
         if (!r.ok) return sendJson(ws, r.error)
+        const requestedHost = typeof r.params === "object" && r.params !== null ? (r.params as { host?: unknown }).host : undefined
+        // HostDO is already scoped to one host.  Do not let a device smuggle a
+        // different host selector through the Mac forward path; the HTTP read
+        // path applies the same selector ownership before reaching an owner.
+        if (requestedHost !== undefined && requestedHost !== ids.host) return sendJson(ws, errorFrame({ code: "validation.invalid", message: "read params.host names another host", retryable: false }, r.id))
         if (r.op === "signal.turn_credentials") {
           if (!(await takeMobileRate(this.env.MOBILE_TURN_LIMIT, mobileRateKey("turn", me), true))) return sendJson(ws, readReply(r.id, { ok: false, code: MOBILE_RATE_LIMITED, message: "too many TURN credential requests; retry shortly", retryable: true, details: { retry_after_s: MOBILE_RATE_RETRY_SECONDS } }))
           return sendJson(ws, readReply(r.id, turnAsRead(await mintTurnCredentials(this.env, me))))
@@ -340,6 +348,8 @@ export class HostControl {
         // The Mac's WebRTC acceptor needs ICE servers too (b2-webrtc.md 5); it is the only read the host role asks.
         const r = readFields(frame)
         if (!r.ok) return sendJson(ws, r.error)
+        const requestedHost = typeof r.params === "object" && r.params !== null ? (r.params as { host?: unknown }).host : undefined
+        if (requestedHost !== undefined && requestedHost !== ids.host) return sendJson(ws, errorFrame({ code: "validation.invalid", message: "read params.host names another host", retryable: false }, r.id))
         if (r.op !== "signal.turn_credentials") return sendJson(ws, errorFrame({ code: "validation.invalid", message: `unknown read ${r.op}`, retryable: false }, r.id))
         const identity = identityOf(a.principal)
         if (!(await takeMobileRate(this.env.MOBILE_TURN_LIMIT, mobileRateKey("turn", identity), true))) return sendJson(ws, readReply(r.id, { ok: false, code: MOBILE_RATE_LIMITED, message: "too many TURN credential requests; retry shortly", retryable: true, details: { retry_after_s: MOBILE_RATE_RETRY_SECONDS } }))
@@ -364,6 +374,11 @@ export class HostControl {
         const head = this.streams.head(stream)
         this.compacting.delete(stream)
         const epoch = typeof frame.epoch === "string" && frame.epoch.length > 0 && frame.epoch.length <= 128 ? frame.epoch : null
+        // Once a stream has entered the epoch protocol, a snapshot without an epoch
+        // is ambiguous: it could be a delayed response from the previous Mac process.
+        // Refuse it before touching the durable mirror (including targeted pending-key
+        // answers), so a stale producer cannot clear the persisted epoch.
+        if (head?.epoch !== null && head?.epoch !== undefined && epoch === null) return sendJson(ws, errorFrame({ code: "validation.invalid", message: "snapshot epoch is required for an epoch-scoped stream", retryable: false }))
         // A new epoch replaces the mirror and its tail even at a lower seq (the Mac's store restarted).
         const moved = !head || head.head !== seq || head.epoch !== epoch
         if (moved || typeof frame.to !== "string") this.streams.replaceSnapshot(stream, seq, frame.state, epoch)

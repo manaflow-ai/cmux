@@ -157,6 +157,29 @@ describe("HostDO control sockets", { timeout: 60_000 }, () => {
     expect(again.frames.slice(later).some((f) => f.t === "snapshot")).toBe(false)
   })
 
+  it("does not let an epoch-scoped mirror fall back to unscoped snapshots or events", async () => {
+    const u = await hostUser("ctl-epoch-strict")
+    const mac = await openHost(u.host, u.mac.token)
+    await mac.hello("mac")
+    const stream = ws(u.host)
+    mac.send({ t: "snapshot", stream, seq: 10, state: workspaceState(u.host, "ten"), decided: [], epoch: "ep_strict" })
+    await roundTrip(mac)
+
+    const at = mac.frames.length
+    mac.send({ t: "snapshot", stream, seq: 11, state: workspaceState(u.host, "unscoped"), decided: [] })
+    expect(await mac.next((f) => f.t === "error" && f.code === "validation.invalid", at)).toMatchObject({ message: expect.stringContaining("epoch") })
+
+    const event = { t: "event", stream, seq: 11, tx: "tx_unscoped", op: "workspace.upsert", params: { workspace: { id: "ws_main01", name: "unscoped", order: 0, panes: [] } }, actor: {}, origin: "user", at: 11 }
+    const before = mac.frames.length
+    mac.send(event)
+    // A missing epoch is a gap once the stream is epoch-scoped; the event is not persisted.
+    expect(await mac.next((f) => f.t === "snapshot.request" && f.stream === stream, before)).toBeTruthy()
+    const phone = await openHost(u.host, u.phone.token)
+    await phone.hello()
+    phone.send({ t: "subscribe", stream, after_seq: 10 })
+    expect(await phone.next((f) => f.t === "snapshot" && f.stream === stream)).toMatchObject({ seq: 10, epoch: "ep_strict", state: { workspaces: [{ name: "ten" }] } })
+  })
+
   it("asks the Mac for a compacting snapshot once the tail passes its bound", async () => {
     const u = await hostUser("ctl-compact")
     const mac = await openHost(u.host, u.mac.token)
@@ -205,6 +228,10 @@ describe("HostDO control sockets", { timeout: 60_000 }, () => {
     expect(read.from).toBe(u.phone.install)
     mac.send({ t: "read.result", id: read.id, value: { tasks: [] }, revision: "3" })
     expect(await phone.next((f) => f.t === "read.result")).toEqual({ t: "read.result", id: 7, value: { tasks: [] }, revision: "3" })
+
+    phone.send({ t: "read", id: 8, op: "task.list", params: { host: "host_someoneelse" } })
+    expect(await phone.next((f) => f.t === "error" && f.id === 8)).toMatchObject({ code: "validation.invalid" })
+    expect(mac.frames.some((f) => f.t === "read" && f.id !== read.id && f.params?.host === "host_someoneelse")).toBe(false)
 
     // An op in flight when the Mac goes away: outcome unknown, the device keeps the intent.
     phone.send({ t: "op", op: "workspace.tab.close", params: { tab: "tab_t01" }, idempotency_key: "close-0001" })
@@ -329,5 +356,26 @@ describe("HostDO control sockets", { timeout: 60_000 }, () => {
     const laptop = await installToken(u.session, u.user, "cli", "macos")
     const s = await openHost(u.host, laptop.token)
     expect(await s.next((f) => f.t === "welcome")).toMatchObject({ role: "device" })
+  })
+
+  it("keeps the enrolled install bound to a HostDO placement", async () => {
+    const u = await hostUser("ctl-placement")
+    const phone = await openHost(u.host, u.phone.token)
+    await phone.hello()
+    const stub = testEnv.HOST_DO.get(testEnv.HOST_DO.idFromName(u.host))
+    const forgedHostInstall = "inst_replaced_00000000000000000001"
+    const forged = await stub.fetch("https://api.test/v1/wire/host/" + u.host, {
+      method: "GET",
+      headers: {
+        Upgrade: "websocket",
+        "x-cmux-entity": u.host,
+        "x-cmux-host-install": forgedHostInstall,
+        "x-cmux-ctl-role": "host",
+        "x-cmux-team": "team_forged",
+        "x-cmux-principal": JSON.stringify({ identity: forgedHostInstall, kind: "install", user: u.user, team: "team_forged", install: forgedHostInstall })
+      }
+    })
+    expect(forged.status).toBe(403)
+    expect(phone.ws.readyState).toBe(WebSocket.OPEN)
   })
 })

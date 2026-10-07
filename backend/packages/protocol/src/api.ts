@@ -5,7 +5,7 @@ import { GrantId, IdempotencyKey, InstallId, Origin, Revision, TeamId, UserId } 
 /** The authenticated principal of a request. Never read from a request body. */
 export interface CurrentPrincipalShape {
   readonly kind: "session" | "install"
-  /** Ledger and single-writer identity: the install id, or `session:<user>`. */
+  /** Ledger and single-writer identity: the install id, or a server-scoped `session:<user>:<digest>` when Stack supplies a session id. */
   readonly identity: string
   readonly user: string
   readonly team: string

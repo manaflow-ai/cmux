@@ -74,7 +74,12 @@ export class HostStreams {
     if (!h) return "gap"
     // Another instance of the owner's stream: its seqs say nothing about ours.
     const epoch = typeof event.epoch === "string" ? event.epoch : null
-    if (epoch !== null && epoch !== h.epoch) return "gap"
+    // Once a mirror has an epoch, every event must carry that same epoch.  Treating
+    // a missing epoch as a match would let a legacy/stale producer append events to
+    // a newer Mac instance after a restart (the sequence number alone is not scoped
+    // globally).  A stream without an epoch remains compatible with pre-B5 data until
+    // the Mac publishes its next epoch-bearing snapshot.
+    if (h.epoch !== null && epoch !== h.epoch) return "gap"
     if (event.seq <= h.head) return "stale"
     if (event.seq !== h.head + 1) return "gap"
     if (this.tailInfo(stream).count >= MAX_EVENTS) return "full"
@@ -119,7 +124,11 @@ export class HostStreams {
     const h = this.head(stream)
     if (!h) return undefined
     // A cursor of another epoch cannot be replayed: snapshot.
-    const sameEpoch = epoch === undefined || epoch === h.epoch
+    // A cursor without an epoch cannot prove that its sequence belongs to this Mac
+    // instance.  Once epochs are persisted, force a snapshot so an old client never
+    // replays a sequence from a prior process generation.  Legacy streams without an
+    // epoch keep the original sequence-only resume behavior.
+    const sameEpoch = h.epoch === null ? epoch === undefined || epoch === null : epoch === h.epoch
     if (afterSeq !== undefined && afterSeq <= h.head && sameEpoch) {
       const min = this.tailInfo(stream).min
       if (afterSeq === h.head) return { events: [] }

@@ -183,8 +183,10 @@ in-memory server in the Swift Testing suite).
 
 ## 11. Open
 
-- Session principals (no install) share one identity per user, so two signed-in web clients replace
-  each other; per-session identity needs the Stack session id on the principal.
+- Session principals with a Stack `refresh_token_id` now receive a deterministic, server-scoped
+  digest identity (`session:<user>:<digest>`); two signed-in clients therefore keep separate socket
+  tags and idempotency ledgers without exposing the raw Stack session id to owners. Tokens without
+  that claim retain the legacy per-user identity and still replace one another.
 - `HostDO`'s own `host:` ops (Mac presence and caps, `host.wake`) have no idempotency ledger; they
   are last-writer state, so a replay reapplies the same value. A ledger lands if they gain effects.
 - Pending-key snapshot forwards are limited per authenticated identity by the `MOBILE_PENDING_LIMIT`
@@ -195,8 +197,9 @@ in-memory server in the Swift Testing suite).
   principal kinds. No read leaks today; the two paths should share admission.
 
 - The datagram relay will pick its object name per host (`host:<id>:<n>`, transport.md section 6);
-  control sockets use `idFromName(<host id>)` today. When placement lands, TeamDO records the chosen
-  name and both planes use it.
+  control sockets use `idFromName(<host id>)` today. The persisted `host_ctl` row now treats the
+  enrolled install as immutable, so a warm object cannot silently accept a different placement;
+  when sharded placement lands, TeamDO must record the chosen name and both planes use it.
 - `host.list` (TeamDO read) is not served over a socket yet; the phone lists hosts with
   `team.directory` or B6's `pairing.hosts`.
 - B6 may narrow device admission from "team member" to "paired device" (trust store in `UserDO`);
