@@ -545,6 +545,9 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          # The merge commit and its first parent: the god-file checks compare a
+          # pull request against its base.
+          fetch-depth: 2
 
       # Every check runs even when an earlier one fails; the last step fails the
       # job once, naming each red check. Checkout stays fatal: with no tree,
@@ -552,12 +555,28 @@ jobs:
       - name: God files and types (Swift)
         id: godfiles-swift
         continue-on-error: true
-        run: scripts/cmux-next/check-no-godfiles.sh --only swift "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        # A pull request fails only on what it grew (its merge commit's first
+        # parent is the base), so a god file already on the base never blocks
+        # it. A push checks every file.
+        run: |
+          base=()
+          [[ "$EVENT_NAME" == pull_request ]] && base=(--base HEAD^1)
+          scripts/cmux-next/check-no-godfiles.sh --only swift ${base[@]+"${base[@]}"} "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
 
       - name: God files (cmux-tui Rust)
         id: godfiles-rust
         continue-on-error: true
-        run: scripts/cmux-next/check-no-godfiles.sh --only rust "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        # A pull request fails only on what it grew (its merge commit's first
+        # parent is the base), so a god file already on the base never blocks
+        # it. A push checks every file.
+        run: |
+          base=()
+          [[ "$EVENT_NAME" == pull_request ]] && base=(--base HEAD^1)
+          scripts/cmux-next/check-no-godfiles.sh --only rust ${base[@]+"${base[@]}"} "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
 
       - name: No Swift CLI (the cmux CLI is Rust, plans/cmux-next/cli.md)
         id: no-swift-cli

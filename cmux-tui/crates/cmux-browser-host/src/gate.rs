@@ -19,6 +19,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 mod fetch;
 mod guards;
+mod private_data;
 mod proxy;
 pub use proxy::NameResolver;
 mod redirects;
@@ -74,6 +75,8 @@ pub struct Gate {
     resolver: NameResolver,
     /// The session's new tabs use a proxy (its last session.configure).
     proxied: std::sync::atomic::AtomicBool,
+    /// The host's log of private-data operations (private_data.rs).
+    private_data: Arc<crate::private_data_log::PrivateDataLog>,
 }
 
 /// Finds the URL of the frame that holds keyboard focus. Same-origin child
@@ -100,6 +103,7 @@ impl Gate {
             inputs: None,
             resolver: proxy::system_resolver(),
             proxied: std::sync::atomic::AtomicBool::new(false),
+            private_data: Arc::default(),
         }
     }
 
@@ -467,6 +471,9 @@ impl VmHost for Gate {
             && let Ok(Reply::Value(answer)) = &result
         {
             self.note_configured(answer);
+        }
+        if let Ok(Reply::Value(answer)) = &result {
+            self.note_private_data(method, &params, answer);
         }
         if method == "tabs.close"
             && result.is_ok()
