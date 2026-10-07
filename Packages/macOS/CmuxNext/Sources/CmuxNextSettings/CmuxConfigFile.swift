@@ -78,6 +78,12 @@ public actor CmuxConfigFile {
 
     /// The raw source text, or "" when the file does not exist.
     public func source() throws -> String {
+        try Self.source(at: url)
+    }
+
+    /// The file's text at `url` on the calling thread (the launch's first
+    /// load); a missing file is empty.
+    public nonisolated static func source(at url: URL) throws -> String {
         do {
             return try String(contentsOf: url, encoding: .utf8)
         } catch CocoaError.fileReadNoSuchFile {

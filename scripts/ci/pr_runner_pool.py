@@ -529,7 +529,7 @@ def gui_runner(choice: "Choice", owned_slots: Mapping[str, int]) -> str:
 
 
 def side_runner(choice: "Choice", owned_slots: Mapping[str, int]) -> str:
-    """The label a pick's side lanes take: the pool's side label, or "" to keep the pool label.
+    """The label a pick's side lanes take: the pool's side label, or the pool when it is absent live.
 
     Only on a pool with a root count (the root and side runners are split),
     and only while the pool has machines beyond its root runners (routing_slots(): its
@@ -540,7 +540,14 @@ def side_runner(choice: "Choice", owned_slots: Mapping[str, int]) -> str:
         return ""
     if owned_slots.get(choice.runner, 0) <= owned_slots.get(choice.root_runner, 0):
         return ""
-    return side_label(choice.runner)
+    side = side_label(choice.runner)
+    # A live runner listing includes a zero for a side label that no online
+    # runner carries. Keep the jobs moving on the pool label until a side
+    # runner returns; a snapshot does not include zero-valued side labels and
+    # retains the configured side-label behavior above.
+    if side in owned_slots and owned_slots[side] <= 0:
+        return choice.runner
+    return side
 
 
 def light_side_lanes(plan: "RunJobs", runners: Sequence[Mapping[str, Any]], owned_slots: Mapping[str, int],
@@ -878,8 +885,12 @@ def routing_slots(raw: str | None, pr_xcode_app: str | None,
     if runners is None:
         return slots(raw, pr_xcode_app)
     labels = [label for pool_name in owned_pools(pr_xcode_app)
-              for label in (pool_name, root_label(pool_name), gui_label(pool_name))]
-    return {label: count for label, count in live_online(runners, labels).items() if count > 0}
+              for label in (pool_name, root_label(pool_name), side_label(pool_name), gui_label(pool_name))]
+    online = live_online(runners, labels)
+    # Keep zero-valued side labels so side_runner() can distinguish a live
+    # listing with no side capacity from the snapshot fallback.
+    return {label: count for label, count in online.items()
+            if count > 0 or label.startswith(SIDE_PREFIX)}
 
 
 def capability_slots(raw: str | None) -> dict[str, int]:
