@@ -44,6 +44,10 @@ nonisolated enum RefusalStrings {
     }
     /// A tab action (Cmd-W) while a top page shows: pages have no tabs and do not close.
     static var topPageHasNoTabs: String { text("handlers.refusal.topPageHasNoTabs", "This page has no tabs.") }
+    /// Close Workspace with no target while a top page shows (HomeRules).
+    static var topPageIsNotAWorkspace: String { text("handlers.refusal.topPageIsNotAWorkspace", "This page is not a workspace.") }
+    /// A close of the store's home workspace (`home_not_closable`).
+    static var homeNotClosable: String { text("handlers.refusal.homeNotClosable", "Home can't be closed.") }
     static var homeAttachNoHome: String {
         text("handlers.refusal.homeAttachNoHome", "Open a Home conversation to attach files.")
     }

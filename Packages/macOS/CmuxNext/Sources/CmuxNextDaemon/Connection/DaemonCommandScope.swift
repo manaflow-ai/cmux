@@ -214,3 +214,12 @@ extension DaemonCreatingRequest {
         (response as? Response).map(createdObjects(in:)) ?? []
     }
 }
+
+extension DaemonCommandScope {
+    /// Reports what `request` created, when it is a creating request, to
+    /// the ``current`` scope.
+    static func noteCreated(by request: some DaemonRequest, response: Any) {
+        guard let scope = current, let creating = request as? any DaemonCreatingRequest else { return }
+        scope.noteCreated(creating.createdObjects(inAny: response))
+    }
+}

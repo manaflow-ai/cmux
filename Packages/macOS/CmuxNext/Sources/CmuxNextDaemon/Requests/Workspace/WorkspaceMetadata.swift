@@ -27,6 +27,7 @@ public struct WorkspaceMetadataResult: Decodable, Sendable, Equatable {
 public struct SetWorkspaceMetadataRequest: DaemonRequest {
     public typealias Response = WorkspaceMetadataResult
     public static let command = "set-workspace-metadata"
+    public static let requiredCapability: String? = DaemonCapabilities.shared.workspaceMetadata
     public var workspace: WorkspaceRef
     /// Palette token `[a-z][a-z0-9-]{0,31}` or `#RRGGBB[AA]`.
     public var color: FieldUpdate<String>
