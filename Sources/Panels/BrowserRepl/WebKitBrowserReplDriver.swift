@@ -2621,7 +2621,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         let code = params["code"] as? String ?? ""
         let text = params["text"] as? String
         let modifiers = params["modifiers"] as? [String] ?? []
-        guard let stroke = BrowserReplKeyStroke.resolve(key: keyName, code: code, text: text, modifiers: modifiers) else {
+        guard let stroke = try BrowserReplKeyStroke.resolve(key: keyName, code: code, text: text, modifiers: modifiers) else {
             if type == "down", let text, !text.isEmpty {
                 return try await insertText(["targetId": panel.id.uuidString, "text": text])
             }

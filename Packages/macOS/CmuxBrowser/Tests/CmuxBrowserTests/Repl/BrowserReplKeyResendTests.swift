@@ -40,7 +40,7 @@ struct BrowserReplKeyResendTests {
 
     @Test func keysTheReplTypesAreMarkedAsAutomation() throws {
         let webView = RecordingWebView(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
-        let stroke = try #require(BrowserReplKeyStroke.resolve(key: "q", code: "KeyQ", text: "q", modifiers: []))
+        let stroke = try #require(try BrowserReplKeyStroke.resolve(key: "q", code: "KeyQ", text: "q", modifiers: []))
         #expect(webView.replayBrowserReplKeyStroke(stroke, keyDown: true) == .delivered)
         let delivered = try #require(webView.keyDowns.first)
         #expect(delivered.isBrowserAutomationKeyEvent)
@@ -192,7 +192,7 @@ struct BrowserReplKeyResendTests {
 
     @Test func aMarkedKeyOutsideTheWebViewsDeliveryIsAResendToDrop() throws {
         let webView = RecordingWebView(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
-        let stroke = try #require(BrowserReplKeyStroke.resolve(key: "q", code: "KeyQ", text: "q", modifiers: []))
+        let stroke = try #require(try BrowserReplKeyStroke.resolve(key: "q", code: "KeyQ", text: "q", modifiers: []))
         _ = webView.replayBrowserReplKeyStroke(stroke, keyDown: true)
         let delivered = try #require(webView.keyDowns.first)
         // WebKit's resend arrives on a later turn, outside any delivery.
@@ -214,7 +214,7 @@ struct BrowserReplKeyResendTests {
     @Test func anotherWebViewsDeliveryDoesNotLetAResendThrough() throws {
         let webView = RecordingWebView(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
         let other = RecordingWebView(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
-        let stroke = try #require(BrowserReplKeyStroke.resolve(key: "q", code: "KeyQ", text: "q", modifiers: []))
+        let stroke = try #require(try BrowserReplKeyStroke.resolve(key: "q", code: "KeyQ", text: "q", modifiers: []))
         _ = webView.replayBrowserReplKeyStroke(stroke, keyDown: true)
         let delivered = try #require(webView.keyDowns.first)
         other.withBrowserWebKitKeyDownDispatch {
