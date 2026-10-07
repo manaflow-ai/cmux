@@ -104,6 +104,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         FeaturePolicyEnforcer(services: services).start()
         cloudContext = services.startCloud()
         services.ssh.start()
+        services.serverReach.start()
         services.updater.start()
         // Before the first window opens (restoreWhenLoaded opens one at once).
         services.windows.onPresent = { [weak services] controller in
@@ -302,6 +303,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services?.cloud.stop()
         for session in services?.machines.cloud ?? [] { session.disconnect() }
         services?.ssh.stop()
+        services?.serverReach.stop()
         control.stop()
         services?.configActions.stop()
         services?.globalHotKeys.stop()
