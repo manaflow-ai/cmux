@@ -10,7 +10,7 @@ extension DebugHome {
         let home = services.home
         let store = home.homeStore
         let view = services.windows.active?.topPages.views[.home] as? TopHomePageView
-        let lines: [CmuxNextSettings.JSONValue] = (view?.list.lines ?? []).map { line in
+        let lines: [CmuxNextSettings.JSONValue] = (view?.lines ?? []).map { line in
             switch line {
             case .header(let kind): return .object(["header": .string(String(describing: kind))])
             case .row(let row):
@@ -32,6 +32,15 @@ extension DebugHome {
             // The open sheet (New Message, Invite, New Chief): its window number for debug.window_snapshot.
             "sheet": view?.window?.attachedSheet.map { JSONValue($0.windowNumber) } ?? .null,
             "lines": .array(lines),
+            // The Messages-style sidebar as drawn: pinned grid, rows, its width.
+            "sidebar": view.map { page in
+                .object([
+                    "pinned": .array(page.list.model.pinned.map { .string($0.id.rawValue) }),
+                    "rows": .array(page.list.model.rows.map { .string($0.id.rawValue) }),
+                    "selected": page.list.selection.map { .string($0.rawValue) } ?? .null,
+                    "width": .number(Double(page.split.sidebarWidth)),
+                ])
+            } ?? .null,
             "chiefs": .array(home.directory.chiefs.map { chief in
                 .object(["id": .string(chief.id), "name": .string(chief.name), "default": .bool(chief.isDefault),
                          "main_conversation": chief.mainConversation.map { .string($0) } ?? .null])

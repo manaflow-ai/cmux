@@ -4877,5 +4877,56 @@
     "identityLocales": {
       "fr": "Question has the same spelling in this locale; the placeholder is invariant."
     }
+  },
+  "diffViewer.commit": {
+    "source": "Commit",
+    "identityLocales": {
+      "de": {
+        "reason": "Commit is the established Git term in this locale.",
+        "values": [
+          "Commit"
+        ]
+      },
+      "fr": {
+        "reason": "Commit is the established Git term in this locale.",
+        "values": [
+          "Commit"
+        ]
+      },
+      "es": {
+        "reason": "Commit is the established Git term in this locale.",
+        "values": [
+          "Commit"
+        ]
+      }
+    }
+  },
+  "diffViewer.sourceBranch": {
+    "source": "Branch",
+    "identityLocales": {
+      "de": {
+        "reason": "Branch is the established Git term in this locale.",
+        "values": [
+          "Branch"
+        ]
+      }
+    }
+  },
+  "gallery.experimental": {
+    "source": "Experimental",
+    "identityLocales": {
+      "es": {
+        "reason": "Experimental is the standard adjective in this language and shares its spelling with English.",
+        "values": [
+          "Experimental"
+        ]
+      },
+      "pt-BR": {
+        "reason": "Experimental is the standard adjective in this language and shares its spelling with English.",
+        "values": [
+          "Experimental"
+        ]
+      }
+    }
   }
 }

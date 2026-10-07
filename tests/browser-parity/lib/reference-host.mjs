@@ -596,7 +596,8 @@ export function createReferenceHost(ns, { host, driver }) {
     const result = maskValue(await driver.call("frame.observe", params));
     if (!REDACTED.has(params.method)) return result;
     const values = await hostEval(params.targetId, params.frameId, HOST_SENSITIVE_VALUES, []).catch(() => []);
-    if (values && values.cut) return { __cmuxReplyCut: values.cut };
+    // This reference scans the whole frame for every read (no scoped part).
+    if (values && values.cut) return { __cmuxReplyCut: { ...values.cut, scope: "frame" } };
     if (!values.length) return result;
     const redact = (text) => {
       for (const v of values) {

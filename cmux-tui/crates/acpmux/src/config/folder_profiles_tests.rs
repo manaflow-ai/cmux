@@ -292,3 +292,75 @@ fn the_confirmation_never_prints_raw_control_characters() {
     assert!(text.contains("\\u{202e}gnp"), "{text}");
     assert!(text.contains("\\x1b[2K\\rsafe"), "{text}");
 }
+
+/// A profile that runs `command` with `args` (TOML array text) and `env`.
+fn runner(command: &str, args: &str, env: &str) -> String {
+    format!("schema = 1\nid = \"acme\"\ncommand = {command:?}\nargs = {args}\n\n[env]\n{env}\n")
+}
+
+#[test]
+fn a_change_to_a_program_or_argument_file_inside_the_folder_needs_a_new_confirmation() {
+    let f = fx("files");
+    for dir in ["bin", "scripts", "conf"] {
+        std::fs::create_dir_all(f.folder.join(dir)).unwrap();
+    }
+    let program = f.folder.join("bin").join("agent");
+    write(&program, "#!/bin/sh\necho one\n", 0o700);
+    write(&f.folder.join("scripts").join("run.js"), "console.log(1)\n", 0o600);
+    write(&f.folder.join("conf").join("x.json"), "{}\n", 0o600);
+    let args = r#"["scripts/run.js", "--config=conf/x.json", "--model", "${model}"]"#;
+    f.profile("acme", &runner(&program.to_string_lossy(), args, ""));
+    f.trust("trusted");
+    let fp = load_one(&f.cfg, &f.gate, &f.folder, "acme").unwrap();
+    let checked: Vec<&str> = fp.checked_files.iter().map(String::as_str).collect();
+    assert_eq!(checked.len(), 3, "{checked:?}");
+    for (file, text) in [
+        (program.clone(), "#!/bin/sh\necho two\n"),
+        (f.folder.join("scripts").join("run.js"), "console.log(2)\n"),
+        (f.folder.join("conf").join("x.json"), "{\"x\":1}\n"),
+    ] {
+        f.enable("acme").unwrap();
+        assert_eq!(f.state("acme"), FolderState::Enabled);
+        write(&file, text, 0o600);
+        assert_eq!(f.state("acme"), FolderState::NeedsEnable, "{}", file.display());
+        assert!(f.resolve("acme", &f.inside(), false).unwrap().is_err());
+    }
+}
+
+#[test]
+fn a_program_found_on_the_profile_path_inside_the_folder_is_checked() {
+    let f = fx("pathfile");
+    std::fs::create_dir_all(f.folder.join("tools")).unwrap();
+    let program = f.folder.join("tools").join("acme-agent");
+    write(&program, "#!/bin/sh\necho one\n", 0o700);
+    let env = format!("PATH = \"{}:/usr/bin:/bin\"", f.folder.join("tools").display());
+    f.profile("acme", &runner("acme-agent", "[]", &env));
+    f.trust("trusted");
+    f.enable("acme").unwrap();
+    write(&program, "#!/bin/sh\necho two\n", 0o700);
+    assert_eq!(f.state("acme"), FolderState::NeedsEnable);
+    // Retargeting a link inside the folder also asks again.
+    let link_target = f.root.join("outside-agent");
+    write(&link_target, "#!/bin/sh\n", 0o700);
+    std::fs::remove_file(&program).unwrap();
+    std::os::unix::fs::symlink(&link_target, &program).unwrap();
+    assert_eq!(f.state("acme"), FolderState::NeedsEnable);
+}
+
+#[test]
+fn the_confirmation_names_checked_files_and_warns_about_download_launchers() {
+    let f = fx("launcher");
+    std::fs::create_dir_all(f.folder.join("bin")).unwrap();
+    let program = f.folder.join("bin").join("agent");
+    write(&program, "#!/bin/sh\n", 0o700);
+    f.profile("acme", &runner(&program.to_string_lossy(), "[]", ""));
+    f.trust("trusted");
+    let fp = load_one(&f.cfg, &f.gate, &f.folder, "acme").unwrap();
+    let text = confirmation_text(&fp, Some(&program));
+    assert!(text.contains(&format!("checked: {}", program.display())), "{text}");
+    assert!(!text.contains("is not checked again"), "{text}");
+    f.profile("acme", &runner("npx", r#"["-y", "acme-agent@latest", "acp"]"#, ""));
+    let fp = load_one(&f.cfg, &f.gate, &f.folder, "acme").unwrap();
+    let text = confirmation_text(&fp, Some(Path::new("/usr/local/bin/npx")));
+    assert!(text.contains("downloads"), "{text}");
+}

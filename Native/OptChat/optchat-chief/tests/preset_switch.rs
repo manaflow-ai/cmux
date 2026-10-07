@@ -139,6 +139,7 @@ fn a_codex_host_installs_the_compactor_preset_a_claude_host_saved() {
         effort: None,
         preset: Some("optchat-compact-1a2b3c4d-slot-0".into()),
         tags: Default::default(),
+        env: Default::default(),
     };
     let started = codex.new_session(&spec);
     assert_eq!(

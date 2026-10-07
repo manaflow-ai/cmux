@@ -241,6 +241,8 @@ fn cmux_accepts_what_its_own_processes_send_through_the_parser() {
         vec!["agent", "hook", "emit", "--source", "claude", "--event", "Stop"],
         // `cmux acp open` (acp.rs).
         vec!["pane", "current", "run", "--", "/bin/cmux", "acp", "attach", "review"],
+        // `cmux harness run ID --tab` (acp.rs).
+        vec!["pane", "current", "run", "--", "/bin/cmux", "harness", "run", "aider", "--cwd", "/r"],
         // The app's daemon launcher and iOS remotes.
         vec!["--session", "cmux-app", "--json", "server", "ensure"],
         vec!["--session", "cmux-app", "--json", "server", "status"],
