@@ -564,6 +564,7 @@ pub async fn serve_connection_with(
         let conn = conn.clone();
         let mut rx = hub.subscribe();
         let mut harnesses = hub.subscribe_harness_changes();
+        let mut catalog = hub.catalog.subscribe();
         tokio::spawn(async move {
             loop {
                 let ev = tokio::select! {
@@ -575,6 +576,18 @@ pub async fn serve_connection_with(
                             ),
                             // Lagged: a newer change follows with the full list.
                             Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => {}
+                            Err(broadcast::error::RecvError::Closed) => break,
+                        }
+                        continue;
+                    }
+                    // Every connection hears a catalog change: no watch or attach is needed.
+                    changed = catalog.recv() => {
+                        match changed {
+                            Ok(summary) => conn.send(&Message::notification(crate::catalog::EVENT_CHANGED, summary)),
+                            Err(broadcast::error::RecvError::Lagged(_)) => conn.send(&Message::notification(
+                                crate::catalog::EVENT_CHANGED,
+                                hub.catalog.summary(),
+                            )),
                             Err(broadcast::error::RecvError::Closed) => break,
                         }
                         continue;
