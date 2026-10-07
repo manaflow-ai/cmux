@@ -9,7 +9,7 @@ bin_dir=$(dirname "$0")
 runtime=${XDG_RUNTIME_DIR:?XDG_RUNTIME_DIR is not set}
 case "${1:-start}" in
   start)
-    out=$("$bin_dir/cmux" server ensure --session server --json) || {
+    out=$("$bin_dir/cmux" daemon ensure --session server --json) || {
       printf '%s\n' "$out" >&2
       exit 1
     }

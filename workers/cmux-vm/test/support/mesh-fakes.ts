@@ -21,6 +21,8 @@ export interface FakeTunnel {
   readonly routes: ReadonlyArray<string>;
   readonly vpc: string;
   readonly ipv4: string;
+  /** Changes on every key rotation, as the provider's does. */
+  readonly serverPublicKey?: string;
 }
 
 export interface FakeRule {
@@ -45,7 +47,13 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
   const rules = new Map<string, FakeRule>();
   /** VM provider id -> network id. */
   const vmNetworks = new Map<string, string>();
-  const state: { mintKey: boolean; ruleCreateStatus: number | null; ruleCreates: number } = { mintKey: false, ruleCreateStatus: null, ruleCreates: 0 };
+  const state: { mintKey: boolean; tunnelCreateStatus: number | null; ruleCreateStatus: number | null; ruleCreates: number; rotations: number } = {
+    mintKey: false,
+    tunnelCreateStatus: null,
+    ruleCreateStatus: null,
+    ruleCreates: 0,
+    rotations: 0,
+  };
   let hostCounter = 10;
 
   const tunnelBody = (tunnel: FakeTunnel, privateKey: string) => ({
@@ -53,7 +61,7 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
     tunnelId: tunnel.id,
     endpointHost: `tun-${tunnel.id}.beta-vpn.example`,
     endpointPort: 51820,
-    serverPublicKey: "c2VydmVyLXB1YmxpYy1rZXktMzItYnl0ZXMtbG9uZyE=",
+    serverPublicKey: tunnel.serverPublicKey ?? "c2VydmVyLXB1YmxpYy1rZXktMzItYnl0ZXMtbG9uZyE=",
     clientPublicKey: tunnel.clientPublicKey ?? "bWludGVkLXB1YmxpYy1rZXktMzItYnl0ZXMtbG9uZyE=",
     clientAddressV4: "100.64.0.1/32",
     clientAddressV6: "fd00::1/128",
@@ -109,6 +117,7 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
       return new Response(null, { status: 204 });
     }
     if (path === "/v5/tunnels" && method === "POST") {
+      if (state.tunnelCreateStatus !== null) return json({ message: "injected failure" }, state.tunnelCreateStatus);
       const attach = Array.isArray(fields["vpcs"]) ? fields["vpcs"][0] : undefined;
       const vpc = typeof attach === "object" && attach !== null && "vpc" in attach && typeof attach.vpc === "string" ? attach.vpc : "";
       if (!vpcs.has(vpc)) return json({ message: "no such network" }, 404);
@@ -126,6 +135,18 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
       // The provider mints a key when none is supplied; the test switch makes it mint one anyway.
       const minted = tunnel.clientPublicKey === null || state.mintKey ? "bWludGVkLXByaXZhdGUta2V5LTMyLWJ5dGVzLWxvbmch" : "";
       return json(tunnelBody(tunnel, minted));
+    }
+    const rotateMatch = /^\/v5\/tunnels\/([^/]+)\/rotate-key$/u.exec(path);
+    if (rotateMatch !== null && method === "POST") {
+      const id = decodeURIComponent(rotateMatch[1] ?? "");
+      const tunnel = tunnels.get(id);
+      if (tunnel === undefined) return json({ message: "not found" }, 404);
+      const clientPublicKey = typeof fields["clientPublicKey"] === "string" ? fields["clientPublicKey"] : null;
+      state.rotations += 1;
+      const rotated: FakeTunnel = { ...tunnel, clientPublicKey, serverPublicKey: btoa(`rotated-server-key-${String(state.rotations).padStart(13, "0")}`) };
+      tunnels.set(id, rotated);
+      const minted = clientPublicKey === null || state.mintKey ? "bWludGVkLXByaXZhdGUta2V5LTMyLWJ5dGVzLWxvbmch" : "";
+      return json(tunnelBody(rotated, minted));
     }
     const tunnelMatch = /^\/v5\/tunnels\/([^/]+)$/u.exec(path);
     if (tunnelMatch !== null) {
@@ -205,6 +226,10 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
     /** The provider mints a private key on the next tunnel creates, even with a client key. */
     mintKeys(on: boolean) {
       state.mintKey = on;
+    },
+    /** Tunnel creates answer `status` (null: normal). */
+    failTunnelCreates(status: number | null) {
+      state.tunnelCreateStatus = status;
     },
     /** Rule creates answer `status` (null: normal). */
     failRuleCreates(status: number | null) {
