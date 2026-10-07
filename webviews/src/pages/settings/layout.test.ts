@@ -34,7 +34,14 @@ function rules(css: string): Rule[] {
         const declarations = new Map<string, string>();
         for (const part of text.slice(open + 1, close).split(";")) {
           const colon = part.indexOf(":");
-          if (colon > 0) declarations.set(part.slice(0, colon).trim(), part.slice(colon + 1).trim().replace(/\s+/g, " "));
+          if (colon > 0)
+            declarations.set(
+              part.slice(0, colon).trim(),
+              part
+                .slice(colon + 1)
+                .trim()
+                .replace(/\s+/g, " "),
+            );
         }
         out.push({ selectors: prelude.split(",").map((selector) => selector.trim()), media, declarations });
       }

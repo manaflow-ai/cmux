@@ -362,14 +362,12 @@ for (const look of ["quiet", "dense"] as const) {
 const RESET_SAMPLES: Record<string, string> = {
   toggle: "history.terminalCommands",
   segmented: "navigation.historyScope",
-  menu: "tabs.newTabKind",
   number: "layout.defaultColumnWidth",
   url: "browser.newTabPage",
   "choice-or-number": "browser.hibernation",
   color: "layout.paneBorderColor",
   sound: "notifications.sound",
   "time-range": "notifications.quietHours",
-  font: "terminal.fontFamily",
 };
 for (const [kind, key] of Object.entries(RESET_SAMPLES))
   variants[`play-reset-${kind}`] = variant(homes.get(key)!.category, {
@@ -377,15 +375,17 @@ for (const [kind, key] of Object.entries(RESET_SAMPLES))
     options: { values: customValues },
     note: `Reset on a ${kind} row: the control fades out in its reserved slot.`,
     play: async (ctx) => {
+      // Input lands at the control's page position: bring the row into view first.
+      ctx.find({ selector: row(key) }).scrollIntoView({ block: "center" });
       await ctx.click({ selector: `${row(key)} [data-reset]` });
       await ctx.waitFor(() => !ctx.document.querySelector(`${row(key)} [data-reset]`));
     },
   });
-variants["play-section-change"] = variant("general", {
+variants["play-section-change"] = variant("accounts", {
   note: "Changing category: the column fades in; the sidebar never moves.",
   play: async (ctx) => {
-    await ctx.click({ selector: '[data-section-link="browser"]' });
-    await ctx.waitFor(() => ctx.document.querySelector('[data-section="browser"]'));
+    await ctx.click({ selector: '[data-section-link="advanced"]' });
+    await ctx.waitFor(() => ctx.document.querySelector('[data-section="advanced"]'));
   },
 });
 

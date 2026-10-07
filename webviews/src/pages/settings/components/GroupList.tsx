@@ -11,11 +11,14 @@ export function GroupList({
   query,
   focus,
   shown,
+  mounted,
 }: {
   groups: CategoryGroup[];
   query?: string;
   focus?: string | null;
   shown?: ReadonlySet<string>;
+  /** With a filter: the rows that draw their editors (the rest are empty collapsed slots). */
+  mounted?: ReadonlySet<string>;
 }) {
   return groups.map((group) => {
     const open = !shown || group.rows.some((row) => shown.has(row.key));
@@ -33,7 +36,9 @@ export function GroupList({
               shown ? (
                 <div className="collapse" key={row.key} data-open={shown.has(row.key) ? "" : undefined}>
                   <div className="collapse-body">
-                    <SettingRow row={row} query={query} filtered={!shown.has(row.key)} />
+                    {(mounted?.has(row.key) ?? true) && (
+                      <SettingRow row={row} query={query} filtered={!shown.has(row.key)} />
+                    )}
                   </div>
                 </div>
               ) : (

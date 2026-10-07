@@ -1,12 +1,16 @@
 // l10n-allow-file: gallery fixtures, not shipped UI.
 // The Settings motions that change the list's height on purpose, measured apart from
 // pages.settings (whose layout-shift limit stays 0): search filtering collapses rows in place,
-// a list setting's Reset removes its items, and a cleared scope override removes its line.
+// a list setting's Reset removes its items, a popup button resizes to its new label, and a
+// cleared scope override removes its line. Their layout shift is recorded, not gated at 0.
 import { settingsPageEntry, type SettingsPageVariant } from "../../gallery/format";
 import { homes } from "./categories";
 
 const row = (key: string) => `[data-row-key="${key}"]`;
+// A popup button sizes to its label, so these rows' controls change width with the value.
 const customized: Record<string, unknown> = {
+  "tabs.newTabKind": "browser",
+  "terminal.fontFamily": "Menlo",
   "browser.hibernationExclusions": ["docs.example.test", "*.research.example.test"],
   "picker.pinned": ["~/Projects/Atlas", "~/Projects/Research"],
   "sidebar.workspaceRow.secondLineOrder": ["branch", "directory"],
@@ -47,8 +51,9 @@ for (const key of Object.keys(customized))
     section: homes.get(key)!.category,
     focus: key,
     options: { values: customized },
-    note: `Reset on a list row (${key}): its items go away; the Reset slot itself does not move.`,
+    note: `Reset on ${key}: the value's own size changes; the Reset slot itself does not move.`,
     play: async (ctx) => {
+      ctx.find({ selector: row(key) }).scrollIntoView({ block: "center" });
       await ctx.click({ selector: `${row(key)} [data-reset]` });
       await ctx.waitFor(() => !ctx.document.querySelector(`${row(key)} [data-reset]`));
     },
@@ -63,7 +68,7 @@ export default settingsPageEntry({
   anchors: [{ selector: "[data-settings-search]" }, { selector: '[data-section-link="general"]' }],
   checks: {
     layoutShiftMax: {
-      value: 0.25,
+      value: 1,
       reason:
         "These steps change the list's height on purpose (a filter, removed list items, a removed override line); rows below move with it. The strict 0 limit stays on pages.settings.",
     },

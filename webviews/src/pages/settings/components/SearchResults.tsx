@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { categories } from "../categories";
 import { useSettingsState } from "../context";
 import { filterRows } from "../search";
@@ -20,6 +21,11 @@ export function SearchResults({ query, changedOnly = false }: { query: string; c
   });
   const shown = new Set(matches.flatMap((match) => match.rows.map((row) => row.key)));
   const empty = shown.size === 0;
+  // Only rows that matched at some point in this search mount their editors (a row that stops
+  // matching keeps its content to collapse smoothly); the rest stay empty, collapsed slots, so
+  // opening search costs the matches, not every setting.
+  const [mounted, setMounted] = useState<ReadonlySet<string>>(shown);
+  if ([...shown].some((key) => !mounted.has(key))) setMounted(new Set([...mounted, ...shown]));
   return (
     <div className="search-results" data-search-results="">
       <p className="empty collapse" data-open={empty ? "" : undefined}>
@@ -40,7 +46,7 @@ export function SearchResults({ query, changedOnly = false }: { query: string; c
           >
             <div className="collapse-body">
               <h2 className="result-section-title">{text(category.title)}</h2>
-              <GroupList groups={category.groups} query={query} shown={shown} />
+              <GroupList groups={category.groups} query={query} shown={shown} mounted={mounted} />
             </div>
           </section>
         );
