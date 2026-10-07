@@ -4,9 +4,9 @@ import CmuxNextDesign
 import CmuxNextHome
 import Observation
 
-/// The Home top page, two columns: the Messages-style sidebar
-/// (`HomeMessagesSidebarView` over `HomeSidebarSource`: search, the pinned
-/// grid with the Chiefs, then conversations newest first) on the left, and the chosen conversation's native transcript
+/// The Home top page, two columns: MessagesLab's conversation list
+/// (`HomeSidebarView` over `HomeSidebarSource`: search, the pinned grid with
+/// the Chiefs, then conversations newest first) on the left, and the chosen conversation's native transcript
 /// (`HomeHostView`, MessagesLab's code) on the right. The page opens on the
 /// Chief conversation when there is one, else on the newest conversation.
 /// The store's home workspace and its chief tab stay as they are (other
@@ -14,9 +14,7 @@ import Observation
 @MainActor
 final class TopHomePageView: NSView {
     private weak var services: AppServices?
-    /// Interim view of the sidebar; the vendored MessagesLab sidebar replaces
-    /// it and reads the same `sidebar` source.
-    let list = HomeMessagesSidebarView()
+    let list = HomeSidebarView()
     /// The sidebar's data (pins, search, the Messages-style model).
     let sidebar: HomeSidebarSource
     let transcriptColumn = NSView()
@@ -60,15 +58,9 @@ final class TopHomePageView: NSView {
     private func wireList(_ services: AppServices) {
         let sidebar = sidebar
         list.onSelect = { [weak self] id in self?.show(id) }
-        list.onQueryChange = { query in sidebar.query = query }
-        list.onStartPerson = { person in sidebar.start(with: person) }
+        list.onSetPinned = { on, id in sidebar.setPinned(on, id) }
         list.onNewMessage = { [weak self] in self?.presentNewMessage() }
-        list.contextMenu = { [weak self, weak services] id in
-            guard let self, let services, let row = rows.first(where: { $0.id == id }) else { return nil }
-            let chief = services.home.chief(of: row).flatMap { $0.isDefault ? nil : $0.id }
-            return HomePageMenus.rowMenu(row, sidebar: sidebar, archivableChief: chief, registry: services.registry)
-        }
-        list.backgroundMenu = { [weak services] in services.map { HomePageMenus.backgroundMenu(registry: $0.registry) } }
+        list.composeMenu = { [weak services] in services.map { HomePageMenus.backgroundMenu(registry: $0.registry) } }
     }
 
     /// Follows the inbox rows (Observation) and the conversation an action
