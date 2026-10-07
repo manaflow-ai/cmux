@@ -9,11 +9,13 @@ enum DebugPageHostPool {
         guard let services else { return .null }
         let pool = services.pageHostPool
         if params["action"]?.stringValue == "drop" { pool.dropSpare() }
-        let claims = pool.claims.map { claim in
-            ["page": .string(claim.page), "cross_window": .bool(claim.crossWindow),
-             "spare": .bool(claim.spare), "ms": .number(claim.milliseconds)]
+        let claims: [JSONValue] = pool.claims.map { claim in
+            .object(["page": .string(claim.page), "cross_window": .bool(claim.crossWindow),
+                     "spare": .bool(claim.spare), "ms": .number(claim.milliseconds)])
         }
-        let spans = pool.spans.map { ["name": .string($0.name), "ms": .number($0.milliseconds)] }
+        let spans: [JSONValue] = pool.spans.map {
+            .object(["name": .string($0.name), "ms": .number($0.milliseconds)])
+        }
         return [
             "likely": .bool(pool.isLikely),
             "building": .bool(pool.isBuilding),
