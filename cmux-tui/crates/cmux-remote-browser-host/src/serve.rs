@@ -479,6 +479,9 @@ unsafe extern "C" fn on_open_tab(
     let url = text(url).unwrap_or_default();
     dispatch(move |h| {
         let out = h.tab.popup_requested(&url, disposition, user_gesture != 0);
+        if out.is_none() {
+            eprintln!("serve: page open with disposition {disposition} opens no tab");
+        }
         h.send_rb(out.into_iter().collect());
     });
 }

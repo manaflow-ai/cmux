@@ -127,7 +127,8 @@ pub fn cursor_message(kind: &str) -> Control {
 }
 
 /// The `rb.open_tab` disposition of a `cef_window_open_disposition_t`
-/// value; `None` for one that opens no tab (save to disk, ignore).
+/// value; `None` for one that opens no tab (save to disk, off the record,
+/// ignore).
 pub fn disposition(cef_disposition: i32) -> Option<Disposition> {
     match cef_disposition {
         // CEF_WOD_NEW_BACKGROUND_TAB
@@ -136,10 +137,12 @@ pub fn disposition(cef_disposition: i32) -> Option<Disposition> {
         5 => Some(Disposition::Popup),
         // CEF_WOD_NEW_WINDOW
         6 => Some(Disposition::NewWindow),
-        // CEF_WOD_SAVE_TO_DISK, CEF_WOD_IGNORE_ACTION
-        7 | 9 => None,
-        // Unknown, current, singleton, foreground, off the record, switch to
-        // tab, picture in picture, split view: a foreground tab in the App.
+        // CEF_WOD_SAVE_TO_DISK, CEF_WOD_OFF_THE_RECORD, CEF_WOD_IGNORE_ACTION.
+        // An off-the-record open must never land in a normal (recorded) tab;
+        // remote tabs have no off-the-record profile yet, so it opens nothing.
+        7..=9 => None,
+        // Unknown, current, singleton, foreground, switch to tab, picture in
+        // picture, split view: a foreground tab in the App.
         _ => Some(Disposition::ForegroundTab),
     }
 }
