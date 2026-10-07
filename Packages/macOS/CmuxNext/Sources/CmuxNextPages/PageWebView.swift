@@ -33,14 +33,14 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public var webKitView: WKWebView { webView }
     /// Whether the document can take typing yet (the dispatcher's type-ahead).
     public let inputReadiness: PageInputReadiness
-    private let bridge: any PageHostBridge
+    let bridge: any PageHostBridge
     var loaded = false
     var loadWaiters: [CheckedContinuation<Void, Never>] = []
     var shouldFocusOnAttach = false
     /// The last theme payload sent, so a redraw that changes nothing sends nothing.
     private var appliedTheme: String?
     private var uiScaleObservation: Task<Void, Never>?
-    private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "page")
+    let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "page")
     /// Answers the page's dynamic prefixes (``PageDescriptor/dynamicPrefixes``); the scheme
     /// handler holds it weakly, so the view keeps it alive.
     var dynamicResources: (any PageDynamicResourceSource)?
@@ -79,7 +79,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public var lastUserEventUptime: TimeInterval? { (webView as? PageWKWebView)?.lastUserEventUptime }
     /// The crash clock (tests set it).
     var now: () -> Date = { Date() }
-    private var crashReloads = PageCrashReloads()
+    var crashReloads = PageCrashReloads()
 
     public var pageID: String { descriptor.id }
 
@@ -295,28 +295,6 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         window?.makeFirstResponder(webView)
     }
 
-    /// The tab closed: cancels subscriptions and stops the bridge.
-    public func close() {
-        router.close()
-        bridge.uninstall()
-        webView.configuration.userContentController.removeScriptMessageHandler(forName: PagePaintProbe.handlerName, contentWorld: .page)
-        resumeLoadWaiters()
-    }
-
-    /// Waits for the current document to finish loading or fail.
-    public func waitUntilLoaded() async {
-        guard !loaded else { return }
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            loadWaiters.append(continuation)
-        }
-    }
-
-    func resumeLoadWaiters() {
-        let waiters = loadWaiters
-        loadWaiters.removeAll()
-        for waiter in waiters { waiter.resume() }
-    }
-
     /// When the current document painted its first frame (``PagePaintProbe``), in
     /// `ProcessInfo.systemUptime` seconds; nil until it has.
     public private(set) var paintedUptime: TimeInterval?
@@ -408,32 +386,4 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         resumeLoadWaiters()
     }
 
-    // crash-allow: WebKit delegate signature uses nullable navigation handles.
-    public func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) {
-        resumeLoadWaiters()
-    }
-
-    // crash-allow: WebKit delegate signature uses nullable navigation handles.
-    public func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: any Error) {
-        resumeLoadWaiters()
-    }
-
-    public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
-        loaded = false
-        router.reset()
-        let reloading = crashReloads.shouldReload(at: now())
-        if reloading {
-            webView.reload()
-        } else {
-            logger.error("page \(self.descriptor.id, privacy: .public) keeps crashing; not reloaded")
-        }
-        onCrash?(self, reloading)
-    }
-
-    /// Reloads a page that stopped reloading after crashes, and forgets those crashes (the crash
-    /// notice's Reload button).
-    public func reloadAfterCrashes() {
-        crashReloads = PageCrashReloads()
-        webView.reload()
-    }
 }
