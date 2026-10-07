@@ -13,12 +13,12 @@ struct BackdropLegibilityTests {
     func theGlassKeepsEveryTextRoleLegibleOverAnyArt(_ name: String) throws {
         let tokens = try Self.tokens(name)
         for requested in stride(from: 0.0, through: 1.0, by: 0.1) {
-            let opacity = BackdropLegibility.tintOpacity(tokens, requested: requested)
+            let opacity = tokens.legibleTintOpacity(requested: requested)
             #expect(opacity >= requested - 1e-9)
-            let texts = BackdropLegibility.texts(of: tokens), scrim = tokens.surfaceBackground.withAlpha(1)
+            let texts = tokens.backdropTexts, scrim = tokens.surfaceBackground.withAlpha(1)
             // A theme whose own text fails even on its opaque surface gets opaque glass: no art.
-            let reachable = BackdropLegibility.isLegible(texts: texts, scrim: scrim, opacity: 1)
-            #expect(reachable ? BackdropLegibility.isLegible(texts: texts, scrim: scrim, opacity: opacity) : opacity == 1,
+            let reachable = BackdropArtRange.any.isLegible(texts: texts, scrim: scrim, opacity: 1)
+            #expect(reachable ? BackdropArtRange.any.isLegible(texts: texts, scrim: scrim, opacity: opacity) : opacity == 1,
                     "\(name) at \(requested)")
         }
     }
@@ -31,7 +31,7 @@ struct BackdropLegibilityTests {
         input.backgroundOpacity = 0.05
         let tokens = ThemeTokens.derive(from: input)
         let backdrop = WindowBackdrop(tokens, selection: Self.art)
-        #expect(backdrop.tintOpacity >= BackdropLegibility.tintOpacity(tokens, requested: 0) - 1e-9)
+        #expect(backdrop.tintOpacity >= tokens.legibleTintOpacity(requested: 0) - 1e-9)
         // Without art the user's opacity stands: the desktop is behind the glass, not art.
         #expect(WindowBackdrop(tokens).tintOpacity == 0.05)
     }
@@ -44,7 +44,7 @@ struct BackdropLegibilityTests {
         backdrop.tuning = AppearanceTuning(glassTransparency: 1, hue: 0.5, saturation: 1)
         view.apply(backdrop, tint: tokens.surfaceBackground.nsColor)
         let alpha = try #require(view.subviews.last?.layer?.backgroundColor?.alpha)
-        #expect(Double(alpha) >= BackdropLegibility.tintOpacity(tokens, requested: 0) - 0.005)
+        #expect(Double(alpha) >= tokens.legibleTintOpacity(requested: 0) - 0.005)
     }
 
     /// Over art the panes are glass: they paint nothing of their own, so the art reads through the

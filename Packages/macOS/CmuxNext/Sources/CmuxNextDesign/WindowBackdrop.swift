@@ -28,7 +28,7 @@ public nonisolated struct WindowBackdrop: Equatable, Sendable {
     /// Optional bundled or system image beneath the material.
     public var selection: BackdropSelection? = nil
     /// The least tint over art at which every text role stays legible
-    /// (``BackdropLegibility``); 0 without art. Neither the opacity setting
+    /// (``ThemeTokens/legibleTintOpacity(over:requested:)``); 0 without art. Neither the opacity setting
     /// nor the tuner thins the glass below it.
     public var legibleTintOpacity: Double = 0
     /// Live experimental adjustments applied to the tint.
@@ -94,7 +94,7 @@ public nonisolated struct WindowBackdrop: Equatable, Sendable {
         self.init(backgroundOpacity: opacity, backgroundBlur: tokens.backgroundBlur,
                   reduceTransparency: reduceTransparency)
         if resolvedSelection != nil, !isOpaque {
-            legibleTintOpacity = BackdropLegibility.tintOpacity(tokens, requested: 0)
+            legibleTintOpacity = tokens.legibleTintOpacity(requested: 0)
             tintOpacity = max(tintOpacity, legibleTintOpacity)
         }
         self.art = art

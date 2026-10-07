@@ -68,8 +68,9 @@ struct WindowMaterialTests {
         let darkBackdrop = WindowBackdrop(dark, selection: .art(.wheatField))
         let lightBackdrop = WindowBackdrop(light, selection: .art(.wheatField))
 
-        #expect(darkBackdrop.tintOpacity == dark.wallpaperTintOpacity)
-        #expect(lightBackdrop.tintOpacity == light.wallpaperTintOpacity)
+        // The theme's wallpaper tint, raised to the glass that keeps its text legible over any art.
+        #expect(darkBackdrop.tintOpacity == max(dark.wallpaperTintOpacity, dark.legibleTintOpacity(requested: 0)))
+        #expect(lightBackdrop.tintOpacity == max(light.wallpaperTintOpacity, light.legibleTintOpacity(requested: 0)))
         #expect(darkBackdrop.tintOpacity < 1)
         #expect(lightBackdrop.tintOpacity < 1)
         #expect(darkBackdrop.tintOpacity != lightBackdrop.tintOpacity)
