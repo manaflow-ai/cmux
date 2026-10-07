@@ -248,7 +248,10 @@ function shellQuote(value: string): string { return `'${value.replaceAll("'", "'
 
 /** Finish VM allocation before its caller cleans up the recorded IDs. */
 export async function createAllVms<T>(count: number, create: (shard: number) => Promise<T>): Promise<T[]> {
-  return Promise.all(Array.from({ length: count }, (_, shard) => create(shard)));
+  const results = await Promise.allSettled(Array.from({ length: count }, (_, shard) => create(shard)));
+  const failed = results.filter((result): result is PromiseRejectedResult => result.status === "rejected");
+  if (failed.length) throw new AggregateError(failed.map((result) => result.reason), "Gallery VM allocation failed");
+  return results.map((result) => (result as PromiseFulfilledResult<T>).value);
 }
 
 async function runFreestyle(args: { manifest: string; galleryDir: string; outputDir: string; threshold: number; engines: Engine[]; vmCount: number; snapshot: string; keyFile: string; apiUrl?: string }): Promise<void> {
