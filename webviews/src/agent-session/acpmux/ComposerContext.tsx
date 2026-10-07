@@ -5,6 +5,7 @@ import { Popover } from "../../ui/Popover";
 import type { AcpmuxSnapshot } from "./model";
 import { ChevronIcon } from "./ComposerPickers";
 import type { Project } from "./ProjectChooser";
+import { ProjectBadge } from "./ProjectBadge";
 import { projectLabel } from "./sessionList";
 import { translate as t } from "./i18n";
 import { registerPicker } from "./pickerOpeners";
@@ -324,6 +325,7 @@ function FolderMenu({
                 >
                   {folders.map((folder) => (
                     <MenuRadioItem key={folder.id} value={folder.id} className="acpmux-menu-item">
+                      <ProjectBadge project={{ cwd: folder.id, label: folder.label }} />
                       <span className="acpmux-menu-text" title={folder.id}>
                         <span className="acpmux-menu-label">{folder.label}</span>
                         <span className="acpmux-menu-description">{folder.detail ?? folder.id}</span>
