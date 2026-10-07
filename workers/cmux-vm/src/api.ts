@@ -23,7 +23,7 @@ import { SnapshotId, VmId } from "./lib/ids.ts";
 import { SnapshotsGroupDefinition } from "./api/snapshots.ts";
 import { TerminalsGroupDefinition } from "./api/terminals.ts";
 import { ApiKeysGroupDefinition } from "./api/api-keys.ts";
-import { MeshGroupDefinition } from "./api/mesh.ts";
+import { MeshEnrollGroupDefinition, MeshGroupDefinition } from "./api/mesh.ts";
 
 /**
  * Bearer authentication: a Stack Auth session token (with `X-Cmux-Team-Id`
@@ -440,6 +440,8 @@ export class CmuxVmApi extends HttpApi.make("cmux-vm")
   .add(TerminalsGroupDefinition.middleware(Authentication))
   .add(ApiKeysGroupDefinition.middleware(Authentication))
   .add(MeshGroupDefinition.middleware(Authentication))
+  // No credential: a one-time enrollment code authorizes the call (mesh M2, cx-0op.4).
+  .add(MeshEnrollGroupDefinition)
   .annotateContext(
     OpenApi.annotations({
       title: "cmux VM API",

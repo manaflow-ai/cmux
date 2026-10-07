@@ -40,12 +40,13 @@ extension AgentPaneView {
     }
 
     /// What the old host pushed again after each load and handshake: the theme, shortcuts, preview
-    /// features, and a non-empty customization.
+    /// features, the edited-files card's settings, and a non-empty customization.
     func currentPageEvents() -> [AgentPageEvent] {
         var events: [AgentPageEvent] = []
         if let theme = AgentPageEvent.theme(themeTokens, surface: surfaceKind) { events.append(theme) }
         events.append(.shortcuts(shortcuts))
         events.append(.preview(previewFeatures))
+        events.append(.editedFiles(editedFiles))
         if !customization.isEmpty { events += AgentPageEvent.customization(customization) }
         return events
     }
