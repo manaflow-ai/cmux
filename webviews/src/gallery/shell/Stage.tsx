@@ -1,7 +1,7 @@
 // The gallery's stage and controls: a stage is an iframe of frame.html under the controls (in
 // window mode the real-size window, scaled down by one transform); the controls edit the URL
 // contract (env.ts). A developer tool: its own labels are English, like the native gallery's.
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   DEFAULT_ENV,
   DENSITIES,
@@ -129,16 +129,9 @@ export function Stage({
   // Replay mounts the stage again, so its play steps run from the start.
   const [run, setRun] = useState(0);
   const [report, setReport] = useState<PlayReport | undefined>();
+  const [display, setDisplay] = useState({ query, frame: { width: 0, height: 0 }, scale: 1 });
+  const [pending, setPending] = useState<{ query: string; frame: { width: number; height: number }; scale: number }>();
   const hasPlay = Boolean(entry.variants[state]?.play);
-  const frameRef = useCallback((iframe: HTMLIFrameElement | null) => {
-    if (!iframe) return;
-    const receive = (event: MessageEvent) => {
-      const data = event.data as { type?: string; report?: PlayReport } | null;
-      if (event.source === iframe.contentWindow && data?.type === "cmux-gallery-play") setReport(data.report);
-    };
-    addEventListener("message", receive);
-    return () => removeEventListener("message", receive);
-  }, []);
   const note = entry.variants[state]?.note;
   // Component entries have their own natural bounds. Keep the window frame for page entries,
   // but never make a component preview inherit the 16:9 window's scale.
@@ -158,6 +151,45 @@ export function Stage({
     };
     scale = env.zoom === "fit" ? fitScale(frame, available) : env.zoom;
   }
+  useEffect(() => {
+    if (display.query === query) return;
+    setPending({ query, frame, scale });
+  }, [display.query, frame.height, frame.width, query, scale]);
+  const frameRef = useCallback((iframe: HTMLIFrameElement | null) => {
+    if (!iframe) return;
+    const receive = (event: MessageEvent) => {
+      const data = event.data as { type?: string; report?: PlayReport; status?: string } | null;
+      if (event.source !== iframe.contentWindow || iframe.dataset.galleryQuery !== query) return;
+      if (data?.type === "cmux-gallery-play") setReport(data.report);
+      if (data?.type === "cmux-gallery-stage" && data.status === "ready") {
+        requestAnimationFrame(() => {
+          setDisplay({ query, frame, scale });
+          setPending(undefined);
+        });
+      }
+    };
+    addEventListener("message", receive);
+    return () => removeEventListener("message", receive);
+  }, [frame.height, frame.width, query, scale]);
+  const shown = display.frame.width === 0 ? { query, frame, scale } : display;
+  const next = pending?.query === query ? pending : undefined;
+  const iframe = (content: typeof shown, hidden: boolean) => (
+    <iframe
+      key={`${run}:${content.query}`}
+      ref={frameRef}
+      data-gallery-query={content.query}
+      title={`${entry.id} ${state}`}
+      src={`frame.html?${content.query}`}
+      style={{
+        width: content.frame.width,
+        height: content.frame.height,
+        transform: `scale(${content.scale})`,
+        background: "var(--g-bg)",
+        ...(hidden ? { position: "absolute", inset: 0, opacity: 0, pointerEvents: "none" } : {}),
+      }}
+      loading="lazy"
+    />
+  );
   return (
     <figure className="gallery-stage">
       <figcaption>
@@ -192,15 +224,12 @@ export function Stage({
           </span>
         )}
       </figcaption>
-      <div className="gallery-window" style={{ width: frame.width * scale, height: frame.height * scale }}>
-        <iframe
-          key={run}
-          ref={frameRef}
-          title={`${entry.id} ${state}`}
-          src={`frame.html?${query}`}
-          style={{ width: frame.width, height: frame.height, transform: `scale(${scale})` }}
-          loading="lazy"
-        />
+      <div
+        className="gallery-window"
+        style={{ width: shown.frame.width * shown.scale, height: shown.frame.height * shown.scale }}
+      >
+        {iframe(shown, false)}
+        {next && iframe(next, true)}
       </div>
     </figure>
   );
