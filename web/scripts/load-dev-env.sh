@@ -1,0 +1,158 @@
+#!/usr/bin/env bash
+
+# Source this file from direnv or dev scripts. It intentionally keeps local dev
+# database URLs derived from CMUX_PORT so parallel worktrees cannot hit the same
+# Postgres instance by accident.
+
+cmux_web_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+cmux_existing_cmux_port_set="${CMUX_PORT+x}"
+cmux_existing_cmux_port="${CMUX_PORT-}"
+cmux_existing_port_set="${PORT+x}"
+cmux_existing_port="${PORT-}"
+cmux_existing_db_port_offset_set="${CMUX_DB_PORT_OFFSET+x}"
+cmux_existing_db_port_offset="${CMUX_DB_PORT_OFFSET-}"
+cmux_existing_db_port_set="${CMUX_DB_PORT+x}"
+cmux_existing_db_port="${CMUX_DB_PORT-}"
+cmux_existing_db_user_set="${CMUX_DB_USER+x}"
+cmux_existing_db_user="${CMUX_DB_USER-}"
+cmux_existing_db_password_set="${CMUX_DB_PASSWORD+x}"
+cmux_existing_db_password="${CMUX_DB_PASSWORD-}"
+cmux_existing_db_name_set="${CMUX_DB_NAME+x}"
+cmux_existing_db_name="${CMUX_DB_NAME-}"
+
+cmux_extra_secret_file="${CMUXTERM_EXTRA_ENV_FILE:-${CMUX_WEB_EXTRA_ENV_FILE:-}}"
+if [[ -z "$cmux_extra_secret_file" && -f "$HOME/.secrets/cmux.env" ]]; then
+  cmux_extra_secret_file="$HOME/.secrets/cmux.env"
+fi
+
+cmux_secret_file="${CMUXTERM_ENV_FILE:-${CMUX_WEB_ENV_FILE:-}}"
+if [[ -z "$cmux_secret_file" ]]; then
+  if [[ -f "$HOME/.secrets/cmuxterm-dev.env" ]]; then
+    cmux_secret_file="$HOME/.secrets/cmuxterm-dev.env"
+  elif [[ -f "$HOME/.secret/cmuxterm.env" ]]; then
+    cmux_secret_file="$HOME/.secret/cmuxterm.env"
+  elif [[ -f "$HOME/.secrets/cmuxterm.env" ]]; then
+    cmux_secret_file="$HOME/.secrets/cmuxterm.env"
+  else
+    echo "Missing cmux web secrets. Expected ~/.secrets/cmuxterm-dev.env." >&2
+    return 1 2>/dev/null || exit 1
+  fi
+fi
+
+cmux_nounset_was_enabled=0
+case "$-" in
+  *u*) cmux_nounset_was_enabled=1 ;;
+esac
+set +u
+set -a
+if [[ -n "$cmux_extra_secret_file" ]]; then
+  # shellcheck disable=SC1090
+  source "$cmux_extra_secret_file"
+fi
+# shellcheck disable=SC1090
+source "$cmux_secret_file"
+set +a
+if ! grep -q '^STACK_SUPER_SECRET_ADMIN_KEY=' "$cmux_secret_file"; then
+  unset STACK_SUPER_SECRET_ADMIN_KEY
+fi
+
+# Vercel intentionally redacts sensitive values when an environment is pulled.
+# Recover the staging relay signer from a chmod-600 local file so downloaded
+# environments cannot silently start a web server that never publishes Iroh.
+cmux_relay_policy_key_file="${CMUX_RELAY_POLICY_PRIVATE_KEY_FILE:-$HOME/.secrets/cmux-staging-relay-policy-2026-08.pem}"
+if [[ -z "${CMUX_RELAY_POLICY_PRIVATE_KEY_PEM:-}" && -f "$cmux_relay_policy_key_file" ]]; then
+  # The key id and private key are one cryptographic identity. A Vercel pull can
+  # leave the old, non-secret key id populated while redacting the private key;
+  # retaining that id would advertise a signer different from the local PEM.
+  export CMUX_RELAY_POLICY_KEY_ID="${CMUX_RELAY_POLICY_LOCAL_KEY_ID:-cmux-staging-relay-policy-2026-08}"
+  export CMUX_RELAY_POLICY_PRIVATE_KEY_PEM="$(< "$cmux_relay_policy_key_file")"
+fi
+
+if [[ "$cmux_nounset_was_enabled" == "1" ]]; then
+  set -u
+fi
+
+if [[ -n "$cmux_existing_cmux_port_set" ]]; then export CMUX_PORT="$cmux_existing_cmux_port"; fi
+if [[ -n "$cmux_existing_port_set" ]]; then export PORT="$cmux_existing_port"; fi
+if [[ -n "$cmux_existing_db_port_offset_set" ]]; then export CMUX_DB_PORT_OFFSET="$cmux_existing_db_port_offset"; fi
+if [[ -n "$cmux_existing_db_port_set" ]]; then export CMUX_DB_PORT="$cmux_existing_db_port"; fi
+if [[ -n "$cmux_existing_db_user_set" ]]; then export CMUX_DB_USER="$cmux_existing_db_user"; fi
+if [[ -n "$cmux_existing_db_password_set" ]]; then export CMUX_DB_PASSWORD="$cmux_existing_db_password"; fi
+if [[ -n "$cmux_existing_db_name_set" ]]; then export CMUX_DB_NAME="$cmux_existing_db_name"; fi
+
+cmux_port="${CMUX_PORT:-${PORT:-3777}}"
+if [[ ! "$cmux_port" =~ ^[0-9]+$ ]]; then
+  echo "CMUX_PORT must be numeric, got: $cmux_port" >&2
+  return 2 2>/dev/null || exit 2
+fi
+export CMUX_PORT="$cmux_port"
+
+cmux_db_offset="${CMUX_DB_PORT_OFFSET:-10000}"
+if [[ ! "$cmux_db_offset" =~ ^[0-9]+$ ]]; then
+  echo "CMUX_DB_PORT_OFFSET must be numeric, got: $cmux_db_offset" >&2
+  return 2 2>/dev/null || exit 2
+fi
+export CMUX_DB_PORT_OFFSET="$cmux_db_offset"
+
+export CMUX_DB_USER="${CMUX_DB_USER:-cmux}"
+export CMUX_DB_PASSWORD="${CMUX_DB_PASSWORD:-cmux}"
+export CMUX_DB_NAME="${CMUX_DB_NAME:-cmux}"
+export CMUX_DB_PORT="${CMUX_DB_PORT:-$((cmux_port + cmux_db_offset))}"
+
+cmux_external_database_url="${PLANETSCALE_DATABASE_URL:-${DATABASE_URL:-}}"
+if [[ "${CMUX_DEV_USE_PLANETSCALE:-0}" == "1" || "${CMUX_DEV_USE_EXTERNAL_DATABASE_URL:-0}" == "1" ]]; then
+  if [[ -z "$cmux_external_database_url" ]]; then
+    echo "CMUX_DEV_USE_PLANETSCALE=1 requires PLANETSCALE_DATABASE_URL or DATABASE_URL" >&2
+    return 1 2>/dev/null || exit 1
+  fi
+  export DATABASE_URL="$cmux_external_database_url"
+  export DIRECT_DATABASE_URL="$cmux_external_database_url"
+elif [[ "${CMUX_DEV_USE_EXTERNAL_DATABASE_URL:-0}" != "1" ]]; then
+  export DATABASE_URL="postgres://${CMUX_DB_USER}:${CMUX_DB_PASSWORD}@localhost:${CMUX_DB_PORT}/${CMUX_DB_NAME}"
+  export DIRECT_DATABASE_URL="$DATABASE_URL"
+elif [[ -z "${DIRECT_DATABASE_URL:-}" && -n "${DATABASE_URL:-}" ]]; then
+  export DIRECT_DATABASE_URL="$DATABASE_URL"
+fi
+
+# Cloud private networks and tunnels are named from the Stack user id, and
+# production, staging, and every dev database share one Freestyle account.
+# Without a namespace a dev stack enrolls its tunnels into the user's
+# production network and nothing ever removes them. Name the namespace after
+# the database this server uses: a shared PlanetScale branch shares one, and
+# every local or dev-backend Postgres (its own port and password) gets its own.
+# An explicit value, even empty (production), wins.
+if [[ -z "${CMUX_VM_NETWORK_NAMESPACE+x}" ]]; then
+  if [[ "${CMUX_DEV_USE_PLANETSCALE:-0}" == "1" ]]; then
+    cmux_network_identity="$DATABASE_URL"
+  else
+    cmux_network_identity="${CMUX_DB_USER}:${CMUX_DB_PASSWORD}@${CMUX_DB_PORT}/${CMUX_DB_NAME}#${CMUX_PORT}"
+  fi
+  if command -v sha256sum >/dev/null 2>&1; then
+    cmux_network_hash="$(printf '%s' "$cmux_network_identity" | sha256sum)"
+  else
+    cmux_network_hash="$(printf '%s' "$cmux_network_identity" | shasum -a 256)"
+  fi
+  export CMUX_VM_NETWORK_NAMESPACE="dev-${cmux_network_hash:0:10}"
+  unset cmux_network_identity cmux_network_hash
+fi
+
+if [[ "${CMUX_DEV_USE_EXTERNAL_VM_API_BASE_URL:-0}" != "1" ]]; then
+  export CMUX_VM_API_BASE_URL="http://localhost:${CMUX_PORT}"
+fi
+
+# Local Cloud VM dogfood uses Freestyle (the public platform) by default. A
+# caller can still opt into another provider explicitly with
+# CMUX_VM_DEFAULT_PROVIDER.
+export CMUX_VM_DEFAULT_PROVIDER="${CMUX_VM_DEFAULT_PROVIDER:-freestyle}"
+
+# Local dev should not require a checked-in or per-worktree .env.local just to pass
+# startup validation for routes the developer is not exercising.
+export RESEND_API_KEY="${RESEND_API_KEY:-cmux-local-dev}"
+export CMUX_FEEDBACK_FROM_EMAIL="${CMUX_FEEDBACK_FROM_EMAIL:-dev@example.invalid}"
+export CMUX_FEEDBACK_RATE_LIMIT_ID="${CMUX_FEEDBACK_RATE_LIMIT_ID:-cmux-feedback-local}"
+export CMUX_CLIENT_CONFIG_RATE_LIMIT_ID="${CMUX_CLIENT_CONFIG_RATE_LIMIT_ID:-cmux-client-config-local}"
+
+export CMUX_WEB_SECRET_ENV_FILE="$cmux_secret_file"
+export CMUX_WEB_EXTRA_SECRET_ENV_FILE="$cmux_extra_secret_file"
+export PATH="$cmux_web_dir/node_modules/.bin:$PATH"

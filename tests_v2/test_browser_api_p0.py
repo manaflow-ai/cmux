@@ -8,10 +8,10 @@ import urllib.parse
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from cmux import cmux, cmuxError
+from cmux import BROWSER_SCREENSHOT_RESPONSE_TIMEOUT_S, cmux, cmuxError
 
 
-SOCKET_PATH = os.environ.get("CMUX_SOCKET", "/tmp/cmux-debug.sock")
+SOCKET_PATH = os.environ.get("CMUX_SOCKET_PATH", "/tmp/cmux-debug.sock")
 
 
 def _must(cond: bool, msg: str) -> None:
@@ -105,7 +105,11 @@ def main() -> int:
             time.sleep(0.05)
         _must(focused_ok, "Expected browser.is_webview_focused=true after browser.focus_webview")
 
-        shot = c._call("browser.screenshot", {"surface_id": target}) or {}
+        shot = c._call(
+            "browser.screenshot",
+            {"surface_id": target},
+            timeout_s=BROWSER_SCREENSHOT_RESPONSE_TIMEOUT_S,
+        ) or {}
         b64 = str(shot.get("png_base64") or "")
         _must(len(b64) > 100, f"Expected non-trivial screenshot payload: len={len(b64)}")
 

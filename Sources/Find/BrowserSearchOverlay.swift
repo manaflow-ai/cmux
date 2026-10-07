@@ -1,8 +1,14 @@
+import CmuxFoundation
 import AppKit
 import Bonsplit
 import SwiftUI
 
+/// Hosting root for the browser find bar: the overlay plus the cmux accent
+/// environment, since it mounts outside any window root.
+typealias BrowserSearchOverlayRoot = ModifiedContent<BrowserSearchOverlay, CmuxAccentColorEnvironmentModifier>
+
 struct BrowserSearchOverlay: View {
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
     let panelId: UUID
     @ObservedObject var searchState: BrowserSearchState
     let focusRequestGeneration: UInt64
@@ -15,6 +21,7 @@ struct BrowserSearchOverlay: View {
     @State private var dragOffset: CGSize = .zero
     @State private var barSize: CGSize = .zero
     @State private var isSearchFieldFocused: Bool = true
+    @State private var isSearchFieldEditing: Bool = false
 
     private let padding: CGFloat = 8
 
@@ -26,8 +33,10 @@ struct BrowserSearchOverlay: View {
                     isFocused: $isSearchFieldFocused,
                     panelId: panelId,
                     focusRequestGeneration: focusRequestGeneration,
+                    selectionOwner: searchState,
                     canApplyFocusRequest: canApplyFocusRequest,
                     onFieldDidFocus: onFieldDidFocus,
+                    onEditingChanged: { isSearchFieldEditing = $0 },
                     onEscape: onClose,
                     onReturn: { isShift in
                         if isShift {
@@ -43,17 +52,21 @@ struct BrowserSearchOverlay: View {
                     .padding(.vertical, 6)
                     .background(Color.primary.opacity(0.1))
                     .cornerRadius(6)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(isSearchFieldEditing ? cmuxAccent.color : Color.clear, lineWidth: 1)
+                    )
                     .overlay(alignment: .trailing) {
                     if let selected = searchState.selected {
                         let totalText = searchState.total.map { String($0) } ?? "?"
                         Text("\(selected + 1)/\(totalText)")
-                            .font(.caption)
+                            .cmuxFont(.caption)
                             .foregroundColor(.secondary)
                             .monospacedDigit()
                             .padding(.trailing, 8)
                     } else if let total = searchState.total {
                         Text(total == 0 ? "0/0" : "-/\(total)")
-                            .font(.caption)
+                            .cmuxFont(.caption)
                             .foregroundColor(.secondary)
                             .monospacedDigit()
                             .padding(.trailing, 8)
@@ -61,7 +74,7 @@ struct BrowserSearchOverlay: View {
                 }
                 Button(action: {
                     #if DEBUG
-                    dlog("browser.findbar.next panel=\(panelId.uuidString.prefix(5))")
+                    cmuxDebugLog("browser.findbar.next panel=\(panelId.uuidString.prefix(5))")
                     #endif
                     onNext()
                 }) {
@@ -72,7 +85,7 @@ struct BrowserSearchOverlay: View {
 
                 Button(action: {
                     #if DEBUG
-                    dlog("browser.findbar.prev panel=\(panelId.uuidString.prefix(5))")
+                    cmuxDebugLog("browser.findbar.prev panel=\(panelId.uuidString.prefix(5))")
                     #endif
                     onPrevious()
                 }) {
@@ -83,7 +96,7 @@ struct BrowserSearchOverlay: View {
 
                 Button(action: {
                     #if DEBUG
-                    dlog("browser.findbar.close panel=\(panelId.uuidString.prefix(5))")
+                    cmuxDebugLog("browser.findbar.close panel=\(panelId.uuidString.prefix(5))")
                     #endif
                     onClose()
                 }) {
@@ -98,7 +111,7 @@ struct BrowserSearchOverlay: View {
             .shadow(radius: 4)
             .onAppear {
 #if DEBUG
-                dlog("browser.findbar.appear panel=\(panelId.uuidString.prefix(5))")
+                cmuxDebugLog("browser.findbar.appear panel=\(panelId.uuidString.prefix(5))")
 #endif
                 isSearchFieldFocused = true
             }
@@ -180,7 +193,7 @@ struct BrowserSearchOverlay: View {
     }
 }
 
-private final class BrowserSearchNativeTextField: NSTextField {
+private final class BrowserSearchNativeTextField: FindSelectionTrackingTextField {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         isBordered = false
@@ -200,10 +213,15 @@ private struct BrowserSearchTextFieldRepresentable: NSViewRepresentable {
     @Binding var isFocused: Bool
     let panelId: UUID
     let focusRequestGeneration: UInt64
+    let selectionOwner: AnyObject
     let canApplyFocusRequest: (UInt64) -> Bool
     let onFieldDidFocus: () -> Void
+    /// Actual editing state, reported by the field itself. `isFocused` is only
+    /// the focus request and can stay true when focus never lands.
+    let onEditingChanged: (Bool) -> Void
     let onEscape: () -> Void
     let onReturn: (_ isShift: Bool) -> Void
+    @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
 
     final class Coordinator: NSObject, NSTextFieldDelegate {
         var parent: BrowserSearchTextFieldRepresentable
@@ -211,6 +229,7 @@ private struct BrowserSearchTextFieldRepresentable: NSViewRepresentable {
         weak var parentField: BrowserSearchNativeTextField?
         var pendingFocusRequest: Bool?
         var searchFocusObserver: NSObjectProtocol?
+        var lastSelectedRange: NSRange?
 
         init(parent: BrowserSearchTextFieldRepresentable) {
             self.parent = parent
@@ -222,13 +241,15 @@ private struct BrowserSearchTextFieldRepresentable: NSViewRepresentable {
             }
         }
 
-        func focusField(_ field: BrowserSearchNativeTextField, in window: NSWindow) {
-            guard window.makeFirstResponder(field) else { return }
-            DispatchQueue.main.async { [weak field] in
-                guard let field,
-                      let editor = field.currentEditor() as? NSTextView else { return }
-                let end = field.stringValue.utf16.count
-                editor.setSelectedRange(NSRange(location: end, length: 0))
+        func focusField(_ field: BrowserSearchNativeTextField, in window: NSWindow, selectAll: Bool) {
+            let alreadyFocused = cmuxTextFieldIsFirstResponder(field, in: window)
+            guard alreadyFocused || window.makeFirstResponder(field) else { return }
+            let rememberedRange = field.cmuxLastSelectedRange ?? cmuxStoredFindSelection(for: self.parent.selectionOwner) ?? self.lastSelectedRange
+            if let selection = cmuxApplyFindFocusSelection(field: field, selectAll: selectAll, alreadyFocused: alreadyFocused, rememberedRange: rememberedRange) { self.lastSelectedRange = selection; return }
+            DispatchQueue.main.async { [weak field, weak self] in
+                guard let field, let self,
+                      let selection = cmuxApplyFindFocusSelection(field: field, selectAll: selectAll, alreadyFocused: alreadyFocused, rememberedRange: rememberedRange) else { return }
+                self.lastSelectedRange = selection
             }
         }
 
@@ -236,6 +257,7 @@ private struct BrowserSearchTextFieldRepresentable: NSViewRepresentable {
             guard !isProgrammaticMutation else { return }
             guard let field = obj.object as? NSTextField else { return }
             parent.text = field.stringValue
+            rememberSelection(from: field)
         }
 
         func controlTextDidBeginEditing(_ obj: Notification) {
@@ -248,6 +270,9 @@ private struct BrowserSearchTextFieldRepresentable: NSViewRepresentable {
         }
 
         func controlTextDidEndEditing(_ obj: Notification) {
+            if let field = obj.object as? NSTextField {
+                rememberSelection(from: field)
+            }
             if parent.isFocused {
                 DispatchQueue.main.async {
                     self.parent.isFocused = false
@@ -258,17 +283,46 @@ private struct BrowserSearchTextFieldRepresentable: NSViewRepresentable {
         func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
             switch commandSelector {
             case #selector(NSResponder.cancelOperation(_:)):
-                if textView.hasMarkedText() { return false }
-                parent.onEscape()
-                return true
+                return handleEscape(from: textView)
             case #selector(NSResponder.insertNewline(_:)):
                 if textView.hasMarkedText() { return false }
+                rememberSelection(from: textView)
                 let isShift = NSApp.currentEvent?.modifierFlags.contains(.shift) ?? false
                 parent.onReturn(isShift)
                 return true
             default:
+                if cmuxFindCommandMayChangeSelection(commandSelector) {
+                    DispatchQueue.main.async { [weak self, weak textView] in
+                        guard let textView else { return }
+                        self?.rememberSelection(from: textView)
+                    }
+                }
                 return false
             }
+        }
+
+        func handleEscape(from textView: NSTextView) -> Bool {
+            if textView.hasMarkedText() { return false }
+            rememberSelection(from: textView)
+            parent.onEscape()
+            return true
+        }
+
+        private func rememberSelection(from field: NSTextField) {
+            if let field = field as? BrowserSearchNativeTextField,
+               let selection = field.cmuxRememberSelectionFromCurrentEditor() {
+                lastSelectedRange = selection
+                return
+            }
+            guard let editor = field.currentEditor() as? NSTextView else { return }
+            rememberSelection(from: editor)
+        }
+
+        private func rememberSelection(from textView: NSTextView) {
+            let selection = cmuxClampedFindSelection(textView.selectedRange(), in: textView.string)
+            lastSelectedRange = selection
+            parentField?.cmuxLastSelectedRange = selection
+            cmuxStoreFindSelection(selection, for: parent.selectionOwner)
         }
     }
 
@@ -278,10 +332,19 @@ private struct BrowserSearchTextFieldRepresentable: NSViewRepresentable {
 
     func makeNSView(context: Context) -> BrowserSearchNativeTextField {
         let field = BrowserSearchNativeTextField(frame: .zero)
-        field.font = .systemFont(ofSize: NSFont.systemFontSize)
+        field.font = GlobalFontMagnification.systemFont(ofSize: NSFont.systemFontSize)
         field.placeholderString = String(localized: "search.placeholder", defaultValue: "Search")
         field.setAccessibilityIdentifier("BrowserFindSearchTextField")
+        field.cmuxOnEditingChanged = { [weak coordinator = context.coordinator] isEditing in
+            // Deferred like the isFocused writes: AppKit can report this while
+            // SwiftUI is updating the view.
+            DispatchQueue.main.async {
+                coordinator?.parent.onEditingChanged(isEditing)
+            }
+        }
         field.delegate = context.coordinator
+        field.cmuxSelectionOwner = selectionOwner
+        field.cmuxOnEscape = { [weak coordinator = context.coordinator] textView in coordinator?.handleEscape(from: textView) ?? false }
         field.target = nil
         field.action = nil
         field.isEditable = true
@@ -299,12 +362,10 @@ private struct BrowserSearchTextFieldRepresentable: NSViewRepresentable {
                   notifiedPanelId == coordinator.parent.panelId else { return }
             guard coordinator.parent.canApplyFocusRequest(coordinator.parent.focusRequestGeneration) else { return }
             guard let window = field.window else { return }
-            let fr = window.firstResponder
-            let alreadyFocused = fr === field ||
-                field.currentEditor() != nil ||
-                ((fr as? NSTextView)?.delegate as? NSTextField) === field
+            let selectAll = notification.userInfo?[FindFocusNotificationKey.selectAll] as? Bool == true
+            let alreadyFocused = cmuxTextFieldIsFirstResponder(field, in: window)
             guard !alreadyFocused else { return }
-            coordinator.focusField(field, in: window)
+            coordinator.focusField(field, in: window, selectAll: selectAll)
         }
         return field
     }
@@ -312,12 +373,20 @@ private struct BrowserSearchTextFieldRepresentable: NSViewRepresentable {
     func updateNSView(_ nsView: BrowserSearchNativeTextField, context: Context) {
         context.coordinator.parent = self
         context.coordinator.parentField = nsView
+        nsView.delegate = context.coordinator
+        nsView.cmuxSelectionOwner = selectionOwner
+        nsView.cmuxOnEscape = { [weak coordinator = context.coordinator] textView in coordinator?.handleEscape(from: textView) ?? false }
+        nsView.font = GlobalFontMagnification.systemFont(ofSize: NSFont.systemFontSize)
 
         if let editor = nsView.currentEditor() as? NSTextView {
             if editor.string != text, !editor.hasMarkedText() {
+                let selectedRange = nsView.cmuxRememberSelection(editor.selectedRange(), in: text)
                 context.coordinator.isProgrammaticMutation = true
                 editor.string = text
                 nsView.stringValue = text
+                editor.setSelectedRange(selectedRange)
+                context.coordinator.lastSelectedRange = selectedRange
+                cmuxStoreFindSelection(selectedRange, for: selectionOwner)
                 context.coordinator.isProgrammaticMutation = false
             }
         } else if nsView.stringValue != text {
@@ -325,11 +394,7 @@ private struct BrowserSearchTextFieldRepresentable: NSViewRepresentable {
         }
 
         if let window = nsView.window {
-            let fr = window.firstResponder
-            let isFirstResponder =
-                fr === nsView ||
-                nsView.currentEditor() != nil ||
-                ((fr as? NSTextView)?.delegate as? NSTextField) === nsView
+            let isFirstResponder = cmuxTextFieldIsFirstResponder(nsView, in: window)
 
             if isFocused,
                canApplyFocusRequest(focusRequestGeneration),
@@ -342,12 +407,9 @@ private struct BrowserSearchTextFieldRepresentable: NSViewRepresentable {
                           coordinator.parent.isFocused,
                           coordinator.parent.canApplyFocusRequest(coordinator.parent.focusRequestGeneration) else { return }
                     guard let nsView, let window = nsView.window else { return }
-                    let fr = window.firstResponder
-                    let alreadyFocused = fr === nsView ||
-                        nsView.currentEditor() != nil ||
-                        ((fr as? NSTextView)?.delegate as? NSTextField) === nsView
+                    let alreadyFocused = cmuxTextFieldIsFirstResponder(nsView, in: window)
                     guard !alreadyFocused else { return }
-                    coordinator.focusField(nsView, in: window)
+                    coordinator.focusField(nsView, in: window, selectAll: false)
                 }
             }
         }
@@ -359,6 +421,8 @@ private struct BrowserSearchTextFieldRepresentable: NSViewRepresentable {
             coordinator.searchFocusObserver = nil
         }
         nsView.delegate = nil
+        nsView.cmuxSelectionOwner = nil
+        nsView.cmuxOnEscape = nil
         coordinator.parentField = nil
     }
 }

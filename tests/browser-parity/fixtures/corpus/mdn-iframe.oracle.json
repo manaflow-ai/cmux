@@ -1,0 +1,2268 @@
+{
+ "url": "https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe",
+ "interactive": [
+  {
+   "role": "link",
+   "name": "Skip to main content",
+   "path": "1.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Skip to search",
+   "path": "1.0.1.0"
+  },
+  {
+   "role": "link",
+   "name": "MDN",
+   "path": "1.2.0.0.0"
+  },
+  {
+   "role": "button",
+   "name": "HTML",
+   "path": "1.2.0.3.0.0.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Elements",
+   "path": "1.2.0.3.0.0.0.0.1.1.0.1.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Global attributes",
+   "path": "1.2.0.3.0.0.0.0.1.1.0.1.0.1.0"
+  },
+  {
+   "role": "link",
+   "name": "Attributes",
+   "path": "1.2.0.3.0.0.0.0.1.1.0.1.0.2.0"
+  },
+  {
+   "role": "link",
+   "name": "See all HTML references",
+   "path": "1.2.0.3.0.0.0.0.1.1.0.1.0.3.0"
+  },
+  {
+   "role": "link",
+   "name": "Responsive images",
+   "path": "1.2.0.3.0.0.0.0.1.1.1.1.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "HTML cheatsheet",
+   "path": "1.2.0.3.0.0.0.0.1.1.1.1.0.1.0"
+  },
+  {
+   "role": "link",
+   "name": "Date & time formats",
+   "path": "1.2.0.3.0.0.0.0.1.1.1.1.0.2.0"
+  },
+  {
+   "role": "link",
+   "name": "See all HTML guides",
+   "path": "1.2.0.3.0.0.0.0.1.1.1.1.0.3.0"
+  },
+  {
+   "role": "link",
+   "name": "SVG",
+   "path": "1.2.0.3.0.0.0.0.1.1.2.1.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "MathML",
+   "path": "1.2.0.3.0.0.0.0.1.1.2.1.0.1.0"
+  },
+  {
+   "role": "link",
+   "name": "XML",
+   "path": "1.2.0.3.0.0.0.0.1.1.2.1.0.2.0"
+  },
+  {
+   "role": "button",
+   "name": "CSS",
+   "path": "1.2.0.3.0.0.1.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Properties",
+   "path": "1.2.0.3.0.0.1.0.1.1.0.1.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Selectors",
+   "path": "1.2.0.3.0.0.1.0.1.1.0.1.0.1.0"
+  },
+  {
+   "role": "link",
+   "name": "At-rules",
+   "path": "1.2.0.3.0.0.1.0.1.1.0.1.0.2.0"
+  },
+  {
+   "role": "link",
+   "name": "Values",
+   "path": "1.2.0.3.0.0.1.0.1.1.0.1.0.3.0"
+  },
+  {
+   "role": "link",
+   "name": "See all CSS references",
+   "path": "1.2.0.3.0.0.1.0.1.1.0.1.0.4.0"
+  },
+  {
+   "role": "link",
+   "name": "Box model",
+   "path": "1.2.0.3.0.0.1.0.1.1.1.1.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Animations",
+   "path": "1.2.0.3.0.0.1.0.1.1.1.1.0.1.0"
+  },
+  {
+   "role": "link",
+   "name": "Flexbox",
+   "path": "1.2.0.3.0.0.1.0.1.1.1.1.0.2.0"
+  },
+  {
+   "role": "link",
+   "name": "Colors",
+   "path": "1.2.0.3.0.0.1.0.1.1.1.1.0.3.0"
+  },
+  {
+   "role": "link",
+   "name": "See all CSS guides",
+   "path": "1.2.0.3.0.0.1.0.1.1.1.1.0.4.0"
+  },
+  {
+   "role": "link",
+   "name": "Column layouts",
+   "path": "1.2.0.3.0.0.1.0.1.1.2.1.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Centering an element",
+   "path": "1.2.0.3.0.0.1.0.1.1.2.1.0.1.0"
+  },
+  {
+   "role": "link",
+   "name": "Card component",
+   "path": "1.2.0.3.0.0.1.0.1.1.2.1.0.2.0"
+  },
+  {
+   "role": "link",
+   "name": "See all…",
+   "path": "1.2.0.3.0.0.1.0.1.1.2.1.0.3.0"
+  },
+  {
+   "role": "button",
+   "name": "JavaScript",
+   "path": "1.2.0.3.0.0.2.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Standard built-in objects",
+   "path": "1.2.0.3.0.0.2.0.1.1.0.1.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Expressions & operators",
+   "path": "1.2.0.3.0.0.2.0.1.1.0.1.0.1.0"
+  },
+  {
+   "role": "link",
+   "name": "Statements & declarations",
+   "path": "1.2.0.3.0.0.2.0.1.1.0.1.0.2.0"
+  },
+  {
+   "role": "link",
+   "name": "Functions",
+   "path": "1.2.0.3.0.0.2.0.1.1.0.1.0.3.0"
+  },
+  {
+   "role": "link",
+   "name": "See all JavaScript references",
+   "path": "1.2.0.3.0.0.2.0.1.1.0.1.0.4.0"
+  },
+  {
+   "role": "link",
+   "name": "Control flow & error handling",
+   "path": "1.2.0.3.0.0.2.0.1.1.1.1.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Loops and iteration",
+   "path": "1.2.0.3.0.0.2.0.1.1.1.1.0.1.0"
+  },
+  {
+   "role": "link",
+   "name": "Working with objects",
+   "path": "1.2.0.3.0.0.2.0.1.1.1.1.0.2.0"
+  },
+  {
+   "role": "link",
+   "name": "Using classes",
+   "path": "1.2.0.3.0.0.2.0.1.1.1.1.0.3.0"
+  },
+  {
+   "role": "link",
+   "name": "See all JavaScript guides",
+   "path": "1.2.0.3.0.0.2.0.1.1.1.1.0.4.0"
+  },
+  {
+   "role": "button",
+   "name": "Web APIs",
+   "path": "1.2.0.3.0.0.3.0.0"
+  },
+  {
+   "role": "link",
+   "name": "File system API",
+   "path": "1.2.0.3.0.0.3.0.1.1.0.1.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Fetch API",
+   "path": "1.2.0.3.0.0.3.0.1.1.0.1.0.1.0"
+  },
+  {
+   "role": "link",
+   "name": "Geolocation API",
+   "path": "1.2.0.3.0.0.3.0.1.1.0.1.0.2.0"
+  },
+  {
+   "role": "link",
+   "name": "HTML DOM API",
+   "path": "1.2.0.3.0.0.3.0.1.1.0.1.0.3.0"
+  },
+  {
+   "role": "link",
+   "name": "Push API",
+   "path": "1.2.0.3.0.0.3.0.1.1.0.1.0.4.0"
+  },
+  {
+   "role": "link",
+   "name": "Service worker API",
+   "path": "1.2.0.3.0.0.3.0.1.1.0.1.0.5.0"
+  },
+  {
+   "role": "link",
+   "name": "See all Web API guides",
+   "path": "1.2.0.3.0.0.3.0.1.1.0.1.0.6.0"
+  },
+  {
+   "role": "link",
+   "name": "Using the Web animation API",
+   "path": "1.2.0.3.0.0.3.0.1.1.1.1.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Using the Fetch API",
+   "path": "1.2.0.3.0.0.3.0.1.1.1.1.0.1.0"
+  },
+  {
+   "role": "link",
+   "name": "Working with the History API",
+   "path": "1.2.0.3.0.0.3.0.1.1.1.1.0.2.0"
+  },
+  {
+   "role": "link",
+   "name": "Using the Web speech API",
+   "path": "1.2.0.3.0.0.3.0.1.1.1.1.0.3.0"
+  },
+  {
+   "role": "link",
+   "name": "Using web workers",
+   "path": "1.2.0.3.0.0.3.0.1.1.1.1.0.4.0"
+  },
+  {
+   "role": "button",
+   "name": "All",
+   "path": "1.2.0.3.0.0.4.0.0"
+  },
+  {
+   "role": "link",
+   "name": "All web technology",
+   "path": "1.2.0.3.0.0.4.0.1.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Accessibility",
+   "path": "1.2.0.3.0.0.4.0.1.1.0.1.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "HTTP",
+   "path": "1.2.0.3.0.0.4.0.1.1.0.1.0.1.0"
+  },
+  {
+   "role": "link",
+   "name": "URI",
+   "path": "1.2.0.3.0.0.4.0.1.1.0.1.0.2.0"
+  },
+  {
+   "role": "link",
+   "name": "Web extensions",
+   "path": "1.2.0.3.0.0.4.0.1.1.0.1.0.3.0"
+  },
+  {
+   "role": "link",
+   "name": "WebAssembly",
+   "path": "1.2.0.3.0.0.4.0.1.1.0.1.0.4.0"
+  },
+  {
+   "role": "link",
+   "name": "WebDriver",
+   "path": "1.2.0.3.0.0.4.0.1.1.0.1.0.5.0"
+  },
+  {
+   "role": "link",
+   "name": "See all web technology references",
+   "path": "1.2.0.3.0.0.4.0.1.1.0.1.0.6.0"
+  },
+  {
+   "role": "link",
+   "name": "Media",
+   "path": "1.2.0.3.0.0.4.0.1.1.1.1.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Performance",
+   "path": "1.2.0.3.0.0.4.0.1.1.1.1.0.1.0"
+  },
+  {
+   "role": "link",
+   "name": "Privacy",
+   "path": "1.2.0.3.0.0.4.0.1.1.1.1.0.2.0"
+  },
+  {
+   "role": "link",
+   "name": "Security",
+   "path": "1.2.0.3.0.0.4.0.1.1.1.1.0.3.0"
+  },
+  {
+   "role": "link",
+   "name": "Progressive web apps",
+   "path": "1.2.0.3.0.0.4.0.1.1.1.1.0.4.0"
+  },
+  {
+   "role": "button",
+   "name": "Learn",
+   "path": "1.2.0.3.0.0.5.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Learn web development",
+   "path": "1.2.0.3.0.0.5.0.1.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Getting started modules",
+   "path": "1.2.0.3.0.0.5.0.1.1.0.1.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Core modules",
+   "path": "1.2.0.3.0.0.5.0.1.1.0.1.0.1.0"
+  },
+  {
+   "role": "link",
+   "name": "MDN Curriculum",
+   "path": "1.2.0.3.0.0.5.0.1.1.0.1.0.2.0"
+  },
+  {
+   "role": "link",
+   "name": "Check out the video course from Scrimba, our partner (external)",
+   "path": "1.2.0.3.0.0.5.0.1.1.0.1.0.3.0"
+  },
+  {
+   "role": "link",
+   "name": "Structuring content with HTML module",
+   "path": "1.2.0.3.0.0.5.0.1.1.1.1.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "CSS styling basics module",
+   "path": "1.2.0.3.0.0.5.0.1.1.2.1.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "CSS layout module",
+   "path": "1.2.0.3.0.0.5.0.1.1.2.1.0.1.0"
+  },
+  {
+   "role": "link",
+   "name": "Dynamic scripting with JavaScript module",
+   "path": "1.2.0.3.0.0.5.0.1.1.3.1.0.0.0"
+  },
+  {
+   "role": "button",
+   "name": "Tools",
+   "path": "1.2.0.3.0.0.6.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Playground",
+   "path": "1.2.0.3.0.0.6.0.1.1.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "HTTP Observatory",
+   "path": "1.2.0.3.0.0.6.0.1.1.0.1.0"
+  },
+  {
+   "role": "link",
+   "name": "Border-image generator",
+   "path": "1.2.0.3.0.0.6.0.1.1.1.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Border-radius generator",
+   "path": "1.2.0.3.0.0.6.0.1.1.1.1.0"
+  },
+  {
+   "role": "link",
+   "name": "Box-shadow generator",
+   "path": "1.2.0.3.0.0.6.0.1.1.1.2.0"
+  },
+  {
+   "role": "link",
+   "name": "Color format converter",
+   "path": "1.2.0.3.0.0.6.0.1.1.1.3.0"
+  },
+  {
+   "role": "link",
+   "name": "Color mixer",
+   "path": "1.2.0.3.0.0.6.0.1.1.1.4.0"
+  },
+  {
+   "role": "link",
+   "name": "Shape generator",
+   "path": "1.2.0.3.0.0.6.0.1.1.1.5.0"
+  },
+  {
+   "role": "button",
+   "name": "About",
+   "path": "1.2.0.3.0.0.7.0.0"
+  },
+  {
+   "role": "link",
+   "name": "About MDN",
+   "path": "1.2.0.3.0.0.7.0.1.1.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Advertise with us",
+   "path": "1.2.0.3.0.0.7.0.1.1.0.1.0"
+  },
+  {
+   "role": "link",
+   "name": "Community",
+   "path": "1.2.0.3.0.0.7.0.1.1.1.0.0"
+  },
+  {
+   "role": "link",
+   "name": "MDN on GitHub (external)",
+   "path": "1.2.0.3.0.0.7.0.1.1.1.1.0"
+  },
+  {
+   "role": "link",
+   "name": "Blog",
+   "path": "1.2.0.3.0.0.8.0"
+  },
+  {
+   "role": "link",
+   "name": "Web",
+   "path": "1.2.2.1.0.0"
+  },
+  {
+   "role": "link",
+   "name": "HTML",
+   "path": "1.2.2.1.1.0"
+  },
+  {
+   "role": "link",
+   "name": "Reference",
+   "path": "1.2.2.1.2.0"
+  },
+  {
+   "role": "link",
+   "name": "Elements",
+   "path": "1.2.2.1.3.0"
+  },
+  {
+   "role": "link",
+   "name": "<iframe>",
+   "path": "1.2.2.1.4.0"
+  },
+  {
+   "role": "link",
+   "name": "HTML",
+   "path": "1.3.0.0.0.3.0.1"
+  },
+  {
+   "role": "link",
+   "name": "browsing context",
+   "path": "1.3.0.0.0.3.0.2"
+  },
+  {
+   "role": "link",
+   "name": "Try it",
+   "path": "1.3.0.0.1.0.1.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Attributes",
+   "path": "1.3.0.0.1.0.1.1.0"
+  },
+  {
+   "role": "link",
+   "name": "Usage notes",
+   "path": "1.3.0.0.1.0.1.2.0"
+  },
+  {
+   "role": "link",
+   "name": "Accessibility",
+   "path": "1.3.0.0.1.0.1.3.0"
+  },
+  {
+   "role": "link",
+   "name": "Examples",
+   "path": "1.3.0.0.1.0.1.4.0"
+  },
+  {
+   "role": "link",
+   "name": "Technical summary",
+   "path": "1.3.0.0.1.0.1.5.0"
+  },
+  {
+   "role": "link",
+   "name": "Specifications",
+   "path": "1.3.0.0.1.0.1.6.0"
+  },
+  {
+   "role": "link",
+   "name": "Browser compatibility",
+   "path": "1.3.0.0.1.0.1.7.0"
+  },
+  {
+   "role": "link",
+   "name": "See also",
+   "path": "1.3.0.0.1.0.1.8.0"
+  },
+  {
+   "role": "link",
+   "name": "Try it",
+   "path": "1.3.0.0.2.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "document",
+   "path": "1.3.0.0.2.0.4.0"
+  },
+  {
+   "role": "link",
+   "name": "session history",
+   "path": "1.3.0.0.2.0.4.1"
+  },
+  {
+   "role": "link",
+   "name": "Window",
+   "path": "1.3.0.0.2.0.4.5"
+  },
+  {
+   "role": "link",
+   "name": "Attributes",
+   "path": "1.3.0.0.2.1.0.0"
+  },
+  {
+   "role": "link",
+   "name": "global attributes",
+   "path": "1.3.0.0.2.1.1.0"
+  },
+  {
+   "role": "link",
+   "name": "allow",
+   "path": "1.3.0.0.2.1.2.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Permissions Policy",
+   "path": "1.3.0.0.2.1.2.1.0.0"
+  },
+  {
+   "role": "link",
+   "name": "iframes",
+   "path": "1.3.0.0.2.1.2.1.1.0"
+  },
+  {
+   "role": "link",
+   "name": "Permissions-Policy",
+   "path": "1.3.0.0.2.1.2.1.2.0.2"
+  },
+  {
+   "role": "link",
+   "name": "allowfullscreen",
+   "path": "1.3.0.0.2.1.2.2.0"
+  },
+  {
+   "role": "link",
+   "name": "requestFullscreen()",
+   "path": "1.3.0.0.2.1.2.3.0.2"
+  },
+  {
+   "role": "link",
+   "name": "allowpaymentrequest Deprecated",
+   "path": "1.3.0.0.2.1.2.4.0"
+  },
+  {
+   "role": "link",
+   "name": "Payment Request API",
+   "path": "1.3.0.0.2.1.2.5.0.2"
+  },
+  {
+   "role": "link",
+   "name": "browsingtopics Non-standard Deprecated",
+   "path": "1.3.0.0.2.1.2.6.0"
+  },
+  {
+   "role": "link",
+   "name": "credentialless Experimental",
+   "path": "1.3.0.0.2.1.2.8.0"
+  },
+  {
+   "role": "link",
+   "name": "Cross-Origin-Embedder-Policy",
+   "path": "1.3.0.0.2.1.2.9.0.2"
+  },
+  {
+   "role": "link",
+   "name": "IFrame credentialless",
+   "path": "1.3.0.0.2.1.2.9.0.3"
+  },
+  {
+   "role": "link",
+   "name": "csp Experimental",
+   "path": "1.3.0.0.2.1.2.10.0"
+  },
+  {
+   "role": "link",
+   "name": "Content Security Policy",
+   "path": "1.3.0.0.2.1.2.11.0.0"
+  },
+  {
+   "role": "link",
+   "name": "HTMLIFrameElement.csp",
+   "path": "1.3.0.0.2.1.2.11.0.1"
+  },
+  {
+   "role": "link",
+   "name": "height",
+   "path": "1.3.0.0.2.1.2.12.0"
+  },
+  {
+   "role": "link",
+   "name": "loading",
+   "path": "1.3.0.0.2.1.2.14.0"
+  },
+  {
+   "role": "link",
+   "name": "eager",
+   "path": "1.3.0.0.2.1.2.15.1.0.0"
+  },
+  {
+   "role": "link",
+   "name": "lazy",
+   "path": "1.3.0.0.2.1.2.15.1.2.0"
+  },
+  {
+   "role": "link",
+   "name": "visual viewport",
+   "path": "1.3.0.0.2.1.2.15.1.3.0.0"
+  },
+  {
+   "role": "link",
+   "name": "name",
+   "path": "1.3.0.0.2.1.2.16.0"
+  },
+  {
+   "role": "link",
+   "name": "<a>",
+   "path": "1.3.0.0.2.1.2.17.0.1"
+  },
+  {
+   "role": "link",
+   "name": "<form>",
+   "path": "1.3.0.0.2.1.2.17.0.2"
+  },
+  {
+   "role": "link",
+   "name": "<base>",
+   "path": "1.3.0.0.2.1.2.17.0.3"
+  },
+  {
+   "role": "link",
+   "name": "<input>",
+   "path": "1.3.0.0.2.1.2.17.0.5"
+  },
+  {
+   "role": "link",
+   "name": "<button>",
+   "path": "1.3.0.0.2.1.2.17.0.6"
+  },
+  {
+   "role": "link",
+   "name": "window.open()",
+   "path": "1.3.0.0.2.1.2.17.0.8"
+  },
+  {
+   "role": "link",
+   "name": "Window",
+   "path": "1.3.0.0.2.1.2.17.0.9"
+  },
+  {
+   "role": "link",
+   "name": "Document",
+   "path": "1.3.0.0.2.1.2.17.0.10"
+  },
+  {
+   "role": "link",
+   "name": "privateToken Experimental",
+   "path": "1.3.0.0.2.1.2.18.0"
+  },
+  {
+   "role": "link",
+   "name": "private state token",
+   "path": "1.3.0.0.2.1.2.19.0.0"
+  },
+  {
+   "role": "link",
+   "name": "privateToken",
+   "path": "1.3.0.0.2.1.2.19.0.2"
+  },
+  {
+   "role": "link",
+   "name": "referrerpolicy",
+   "path": "1.3.0.0.2.1.2.20.0"
+  },
+  {
+   "role": "link",
+   "name": "referrer",
+   "path": "1.3.0.0.2.1.2.21.0.0"
+  },
+  {
+   "role": "link",
+   "name": "no-referrer",
+   "path": "1.3.0.0.2.1.2.21.1.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Referer",
+   "path": "1.3.0.0.2.1.2.21.1.1.0.0"
+  },
+  {
+   "role": "link",
+   "name": "no-referrer-when-downgrade",
+   "path": "1.3.0.0.2.1.2.21.1.2.0"
+  },
+  {
+   "role": "link",
+   "name": "Referer",
+   "path": "1.3.0.0.2.1.2.21.1.3.0.0"
+  },
+  {
+   "role": "link",
+   "name": "origin",
+   "path": "1.3.0.0.2.1.2.21.1.3.0.1"
+  },
+  {
+   "role": "link",
+   "name": "TLS",
+   "path": "1.3.0.0.2.1.2.21.1.3.0.2"
+  },
+  {
+   "role": "link",
+   "name": "HTTPS",
+   "path": "1.3.0.0.2.1.2.21.1.3.0.3"
+  },
+  {
+   "role": "link",
+   "name": "origin",
+   "path": "1.3.0.0.2.1.2.21.1.4.0"
+  },
+  {
+   "role": "link",
+   "name": "scheme",
+   "path": "1.3.0.0.2.1.2.21.1.5.0.0"
+  },
+  {
+   "role": "link",
+   "name": "host",
+   "path": "1.3.0.0.2.1.2.21.1.5.0.1"
+  },
+  {
+   "role": "link",
+   "name": "port",
+   "path": "1.3.0.0.2.1.2.21.1.5.0.2"
+  },
+  {
+   "role": "link",
+   "name": "origin-when-cross-origin",
+   "path": "1.3.0.0.2.1.2.21.1.6.0"
+  },
+  {
+   "role": "link",
+   "name": "same-origin",
+   "path": "1.3.0.0.2.1.2.21.1.8.0"
+  },
+  {
+   "role": "link",
+   "name": "same origin",
+   "path": "1.3.0.0.2.1.2.21.1.9.0.0"
+  },
+  {
+   "role": "link",
+   "name": "strict-origin",
+   "path": "1.3.0.0.2.1.2.21.1.10.0"
+  },
+  {
+   "role": "link",
+   "name": "strict-origin-when-cross-origin (default)",
+   "path": "1.3.0.0.2.1.2.21.1.12.0"
+  },
+  {
+   "role": "link",
+   "name": "unsafe-url",
+   "path": "1.3.0.0.2.1.2.21.1.14.0"
+  },
+  {
+   "role": "link",
+   "name": "fragment",
+   "path": "1.3.0.0.2.1.2.21.1.15.0.1"
+  },
+  {
+   "role": "link",
+   "name": "password",
+   "path": "1.3.0.0.2.1.2.21.1.15.0.2"
+  },
+  {
+   "role": "link",
+   "name": "username",
+   "path": "1.3.0.0.2.1.2.21.1.15.0.3"
+  },
+  {
+   "role": "link",
+   "name": "sandbox",
+   "path": "1.3.0.0.2.1.2.22.0"
+  },
+  {
+   "role": "link",
+   "name": "allow-downloads",
+   "path": "1.3.0.0.2.1.2.23.1.0.0"
+  },
+  {
+   "role": "link",
+   "name": "<a>",
+   "path": "1.3.0.0.2.1.2.23.1.1.0.0"
+  },
+  {
+   "role": "link",
+   "name": "<area>",
+   "path": "1.3.0.0.2.1.2.23.1.1.0.1"
+  },
+  {
+   "role": "link",
+   "name": "download",
+   "path": "1.3.0.0.2.1.2.23.1.1.0.2"
+  },
+  {
+   "role": "link",
+   "name": "allow-forms",
+   "path": "1.3.0.0.2.1.2.23.1.2.0"
+  },
+  {
+   "role": "link",
+   "name": "allow-modals",
+   "path": "1.3.0.0.2.1.2.23.1.4.0"
+  },
+  {
+   "role": "link",
+   "name": "Window.alert()",
+   "path": "1.3.0.0.2.1.2.23.1.5.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Window.confirm()",
+   "path": "1.3.0.0.2.1.2.23.1.5.0.1"
+  },
+  {
+   "role": "link",
+   "name": "Window.print()",
+   "path": "1.3.0.0.2.1.2.23.1.5.0.2"
+  },
+  {
+   "role": "link",
+   "name": "Window.prompt()",
+   "path": "1.3.0.0.2.1.2.23.1.5.0.3"
+  },
+  {
+   "role": "link",
+   "name": "<dialog>",
+   "path": "1.3.0.0.2.1.2.23.1.5.0.4"
+  },
+  {
+   "role": "link",
+   "name": "BeforeUnloadEvent",
+   "path": "1.3.0.0.2.1.2.23.1.5.0.5"
+  },
+  {
+   "role": "link",
+   "name": "allow-orientation-lock",
+   "path": "1.3.0.0.2.1.2.23.1.6.0"
+  },
+  {
+   "role": "link",
+   "name": "lock the screen orientation",
+   "path": "1.3.0.0.2.1.2.23.1.7.0.0"
+  },
+  {
+   "role": "link",
+   "name": "allow-pointer-lock",
+   "path": "1.3.0.0.2.1.2.23.1.8.0"
+  },
+  {
+   "role": "link",
+   "name": "Pointer Lock API",
+   "path": "1.3.0.0.2.1.2.23.1.9.0.0"
+  },
+  {
+   "role": "link",
+   "name": "allow-popups",
+   "path": "1.3.0.0.2.1.2.23.1.10.0"
+  },
+  {
+   "role": "link",
+   "name": "Window.open()",
+   "path": "1.3.0.0.2.1.2.23.1.11.0.0"
+  },
+  {
+   "role": "link",
+   "name": "allow-popups-to-escape-sandbox",
+   "path": "1.3.0.0.2.1.2.23.1.12.0"
+  },
+  {
+   "role": "link",
+   "name": "allow-presentation",
+   "path": "1.3.0.0.2.1.2.23.1.14.0"
+  },
+  {
+   "role": "link",
+   "name": "presentation session",
+   "path": "1.3.0.0.2.1.2.23.1.15.0.0"
+  },
+  {
+   "role": "link",
+   "name": "allow-same-origin",
+   "path": "1.3.0.0.2.1.2.23.1.16.0"
+  },
+  {
+   "role": "link",
+   "name": "same-origin policy",
+   "path": "1.3.0.0.2.1.2.23.1.17.0.0"
+  },
+  {
+   "role": "link",
+   "name": "data storage/cookies",
+   "path": "1.3.0.0.2.1.2.23.1.17.0.1"
+  },
+  {
+   "role": "link",
+   "name": "allow-scripts",
+   "path": "1.3.0.0.2.1.2.23.1.18.0"
+  },
+  {
+   "role": "link",
+   "name": "allow-storage-access-by-user-activation Experimental",
+   "path": "1.3.0.0.2.1.2.23.1.20.0"
+  },
+  {
+   "role": "link",
+   "name": "Storage Access API",
+   "path": "1.3.0.0.2.1.2.23.1.21.0.1"
+  },
+  {
+   "role": "link",
+   "name": "allow-top-navigation",
+   "path": "1.3.0.0.2.1.2.23.1.22.0"
+  },
+  {
+   "role": "link",
+   "name": "allow-top-navigation-by-user-activation",
+   "path": "1.3.0.0.2.1.2.23.1.24.0"
+  },
+  {
+   "role": "link",
+   "name": "allow-top-navigation-to-custom-protocols",
+   "path": "1.3.0.0.2.1.2.23.1.26.0"
+  },
+  {
+   "role": "link",
+   "name": "registered by a website",
+   "path": "1.3.0.0.2.1.2.23.1.27.0.1"
+  },
+  {
+   "role": "link",
+   "name": "Embedding PDFs",
+   "path": "1.3.0.0.2.1.2.23.2.1.0.1"
+  },
+  {
+   "role": "link",
+   "name": "src",
+   "path": "1.3.0.0.2.1.2.24.0"
+  },
+  {
+   "role": "link",
+   "name": "same-origin policy",
+   "path": "1.3.0.0.2.1.2.25.0.1"
+  },
+  {
+   "role": "link",
+   "name": "Element.removeAttribute()",
+   "path": "1.3.0.0.2.1.2.25.0.3"
+  },
+  {
+   "role": "link",
+   "name": "srcdoc",
+   "path": "1.3.0.0.2.1.2.26.0"
+  },
+  {
+   "role": "link",
+   "name": "width",
+   "path": "1.3.0.0.2.1.2.28.0"
+  },
+  {
+   "role": "link",
+   "name": "Deprecated attributes",
+   "path": "1.3.0.0.2.2.0.0"
+  },
+  {
+   "role": "link",
+   "name": "align Deprecated",
+   "path": "1.3.0.0.2.2.2.0.0"
+  },
+  {
+   "role": "link",
+   "name": "frameborder Deprecated",
+   "path": "1.3.0.0.2.2.2.2.0"
+  },
+  {
+   "role": "link",
+   "name": "border",
+   "path": "1.3.0.0.2.2.2.3.0.2"
+  },
+  {
+   "role": "link",
+   "name": "longdesc Deprecated",
+   "path": "1.3.0.0.2.2.2.4.0"
+  },
+  {
+   "role": "link",
+   "name": "marginheight Deprecated",
+   "path": "1.3.0.0.2.2.2.6.0"
+  },
+  {
+   "role": "link",
+   "name": "marginwidth Deprecated",
+   "path": "1.3.0.0.2.2.2.8.0"
+  },
+  {
+   "role": "link",
+   "name": "scrolling Deprecated",
+   "path": "1.3.0.0.2.2.2.10.0"
+  },
+  {
+   "role": "link",
+   "name": "auto",
+   "path": "1.3.0.0.2.2.2.11.1.0.0"
+  },
+  {
+   "role": "link",
+   "name": "yes",
+   "path": "1.3.0.0.2.2.2.11.1.2.0"
+  },
+  {
+   "role": "link",
+   "name": "no",
+   "path": "1.3.0.0.2.2.2.11.1.4.0"
+  },
+  {
+   "role": "link",
+   "name": "Usage notes",
+   "path": "1.3.0.0.2.3.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Scripting",
+   "path": "1.3.0.0.2.4.0.0"
+  },
+  {
+   "role": "link",
+   "name": "<frame>",
+   "path": "1.3.0.0.2.4.1.0"
+  },
+  {
+   "role": "link",
+   "name": "window.frames",
+   "path": "1.3.0.0.2.4.1.1"
+  },
+  {
+   "role": "link",
+   "name": "HTMLIFrameElement",
+   "path": "1.3.0.0.2.4.2.0"
+  },
+  {
+   "role": "link",
+   "name": "window",
+   "path": "1.3.0.0.2.4.2.1"
+  },
+  {
+   "role": "link",
+   "name": "contentWindow",
+   "path": "1.3.0.0.2.4.2.2"
+  },
+  {
+   "role": "link",
+   "name": "contentDocument",
+   "path": "1.3.0.0.2.4.2.3"
+  },
+  {
+   "role": "link",
+   "name": "window.parent",
+   "path": "1.3.0.0.2.4.3.0"
+  },
+  {
+   "role": "link",
+   "name": "same-origin policy",
+   "path": "1.3.0.0.2.4.4.0"
+  },
+  {
+   "role": "link",
+   "name": "Window.postMessage()",
+   "path": "1.3.0.0.2.4.4.2"
+  },
+  {
+   "role": "link",
+   "name": "Window.top",
+   "path": "1.3.0.0.2.4.6.0"
+  },
+  {
+   "role": "link",
+   "name": "window.top.location",
+   "path": "1.3.0.0.2.4.6.1"
+  },
+  {
+   "role": "link",
+   "name": "sticky activation",
+   "path": "1.3.0.0.2.4.7.1"
+  },
+  {
+   "role": "link",
+   "name": "allow-top-navigation",
+   "path": "1.3.0.0.2.4.8.1"
+  },
+  {
+   "role": "link",
+   "name": "allow-top-navigation-by-user-activation",
+   "path": "1.3.0.0.2.4.8.2"
+  },
+  {
+   "role": "link",
+   "name": "Embedding PDFs",
+   "path": "1.3.0.0.2.5.0.0"
+  },
+  {
+   "role": "link",
+   "name": "<object>",
+   "path": "1.3.0.0.2.5.1.1"
+  },
+  {
+   "role": "link",
+   "name": "sandbox",
+   "path": "1.3.0.0.2.5.2.0"
+  },
+  {
+   "role": "link",
+   "name": "Positioning and scaling",
+   "path": "1.3.0.0.2.6.0.0"
+  },
+  {
+   "role": "link",
+   "name": "replaced element",
+   "path": "1.3.0.0.2.6.1.0"
+  },
+  {
+   "role": "link",
+   "name": "object-position",
+   "path": "1.3.0.0.2.6.1.2"
+  },
+  {
+   "role": "link",
+   "name": "object-fit",
+   "path": "1.3.0.0.2.6.2.0.1"
+  },
+  {
+   "role": "link",
+   "name": "error and load event behavior",
+   "path": "1.3.0.0.2.7.0.0"
+  },
+  {
+   "role": "link",
+   "name": "error",
+   "path": "1.3.0.0.2.7.1.3"
+  },
+  {
+   "role": "link",
+   "name": "load",
+   "path": "1.3.0.0.2.7.1.5"
+  },
+  {
+   "role": "link",
+   "name": "Responsive <iframe> sizing",
+   "path": "1.3.0.0.2.8.0.0"
+  },
+  {
+   "role": "link",
+   "name": "<meta name=\"responsive-embedded-sizing\">",
+   "path": "1.3.0.0.2.8.2.1"
+  },
+  {
+   "role": "link",
+   "name": "frame-sizing",
+   "path": "1.3.0.0.2.8.2.2"
+  },
+  {
+   "role": "link",
+   "name": "Window.requestResize()",
+   "path": "1.3.0.0.2.8.3.1"
+  },
+  {
+   "role": "link",
+   "name": "Accessibility",
+   "path": "1.3.0.0.2.9.0.0"
+  },
+  {
+   "role": "link",
+   "name": "title attribute",
+   "path": "1.3.0.0.2.9.1.0"
+  },
+  {
+   "role": "link",
+   "name": "Examples",
+   "path": "1.3.0.0.2.10.0.0"
+  },
+  {
+   "role": "link",
+   "name": "A basic <iframe>",
+   "path": "1.3.0.0.2.11.0.0"
+  },
+  {
+   "role": "link",
+   "name": "https://example.org (external)",
+   "path": "1.3.0.0.2.11.1.0"
+  },
+  {
+   "role": "link",
+   "name": "try it",
+   "path": "1.3.0.0.2.11.1.1"
+  },
+  {
+   "role": "link",
+   "name": "Embedding source code in an <iframe>",
+   "path": "1.3.0.0.2.12.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Technical summary",
+   "path": "1.3.0.0.2.13.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Content categories",
+   "path": "1.3.0.0.2.13.1.0.0.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Flow content",
+   "path": "1.3.0.0.2.13.1.0.0.0.1.0"
+  },
+  {
+   "role": "link",
+   "name": "phrasing content",
+   "path": "1.3.0.0.2.13.1.0.0.0.1.1"
+  },
+  {
+   "role": "link",
+   "name": "No corresponding role (external)",
+   "path": "1.3.0.0.2.13.1.0.0.4.1.0"
+  },
+  {
+   "role": "link",
+   "name": "application",
+   "path": "1.3.0.0.2.13.1.0.0.5.1.0"
+  },
+  {
+   "role": "link",
+   "name": "document",
+   "path": "1.3.0.0.2.13.1.0.0.5.1.1"
+  },
+  {
+   "role": "link",
+   "name": "img",
+   "path": "1.3.0.0.2.13.1.0.0.5.1.2"
+  },
+  {
+   "role": "link",
+   "name": "none",
+   "path": "1.3.0.0.2.13.1.0.0.5.1.3"
+  },
+  {
+   "role": "link",
+   "name": "presentation",
+   "path": "1.3.0.0.2.13.1.0.0.5.1.4"
+  },
+  {
+   "role": "link",
+   "name": "HTMLIFrameElement",
+   "path": "1.3.0.0.2.13.1.0.0.6.1.0"
+  },
+  {
+   "role": "link",
+   "name": "Specifications",
+   "path": "1.3.0.0.2.14.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Browser compatibility",
+   "path": "1.3.0.0.2.15.0.0"
+  },
+  {
+   "role": "link",
+   "name": "See also",
+   "path": "1.3.0.0.2.16.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Privacy, permissions, and information security",
+   "path": "1.3.0.0.2.16.1.1.0"
+  },
+  {
+   "role": "link",
+   "name": "Local network access",
+   "path": "1.3.0.0.2.16.1.2.0"
+  },
+  {
+   "role": "link",
+   "name": "Learn how to contribute",
+   "path": "1.3.0.0.2.17.0.3"
+  },
+  {
+   "role": "link",
+   "name": "MDN contributors",
+   "path": "1.3.0.0.2.17.0.4.1"
+  },
+  {
+   "role": "link",
+   "name": "View this page on GitHub (external)",
+   "path": "1.3.0.0.2.17.0.5.0"
+  },
+  {
+   "role": "link",
+   "name": "Report a problem with this content (external)",
+   "path": "1.3.0.0.2.17.0.5.1"
+  },
+  {
+   "role": "link",
+   "name": "HTML",
+   "path": "1.3.0.1.0.1.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Guides",
+   "path": "1.3.0.1.0.1.0.1.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "How to",
+   "path": "1.3.0.1.0.1.0.2.0"
+  },
+  {
+   "role": "link",
+   "name": "Define terms with HTML",
+   "path": "1.3.0.1.0.1.0.3.0"
+  },
+  {
+   "role": "link",
+   "name": "Use data attributes",
+   "path": "1.3.0.1.0.1.0.4.0"
+  },
+  {
+   "role": "link",
+   "name": "Use cross-origin images",
+   "path": "1.3.0.1.0.1.0.5.0"
+  },
+  {
+   "role": "link",
+   "name": "Add a hitmap on top of an image",
+   "path": "1.3.0.1.0.1.0.6.0"
+  },
+  {
+   "role": "link",
+   "name": "Author fast-loading HTML pages",
+   "path": "1.3.0.1.0.1.0.7.0"
+  },
+  {
+   "role": "link",
+   "name": "Add JavaScript",
+   "path": "1.3.0.1.0.1.0.8.0"
+  },
+  {
+   "role": "link",
+   "name": "Reference",
+   "path": "1.3.0.1.0.1.0.9.0"
+  },
+  {
+   "role": "link",
+   "name": "Elements",
+   "path": "1.3.0.1.0.1.0.10.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "<a>",
+   "path": "1.3.0.1.0.1.0.10.0.1.0.0"
+  },
+  {
+   "role": "link",
+   "name": "<abbr>",
+   "path": "1.3.0.1.0.1.0.10.0.1.1.0"
+  },
+  {
+   "role": "link",
+   "name": "<acronym> Deprecated",
+   "path": "1.3.0.1.0.1.0.10.0.1.2.0"
+  },
+  {
+   "role": "link",
+   "name": "<address>",
+   "path": "1.3.0.1.0.1.0.10.0.1.3.0"
+  },
+  {
+   "role": "link",
+   "name": "<area>",
+   "path": "1.3.0.1.0.1.0.10.0.1.4.0"
+  },
+  {
+   "role": "link",
+   "name": "<article>",
+   "path": "1.3.0.1.0.1.0.10.0.1.5.0"
+  },
+  {
+   "role": "link",
+   "name": "<aside>",
+   "path": "1.3.0.1.0.1.0.10.0.1.6.0"
+  },
+  {
+   "role": "link",
+   "name": "<audio>",
+   "path": "1.3.0.1.0.1.0.10.0.1.7.0"
+  },
+  {
+   "role": "link",
+   "name": "<b>",
+   "path": "1.3.0.1.0.1.0.10.0.1.8.0"
+  },
+  {
+   "role": "link",
+   "name": "<base>",
+   "path": "1.3.0.1.0.1.0.10.0.1.9.0"
+  },
+  {
+   "role": "link",
+   "name": "<bdi>",
+   "path": "1.3.0.1.0.1.0.10.0.1.10.0"
+  },
+  {
+   "role": "link",
+   "name": "<bdo>",
+   "path": "1.3.0.1.0.1.0.10.0.1.11.0"
+  },
+  {
+   "role": "link",
+   "name": "<big> Deprecated",
+   "path": "1.3.0.1.0.1.0.10.0.1.12.0"
+  },
+  {
+   "role": "link",
+   "name": "<blockquote>",
+   "path": "1.3.0.1.0.1.0.10.0.1.13.0"
+  },
+  {
+   "role": "link",
+   "name": "<body>",
+   "path": "1.3.0.1.0.1.0.10.0.1.14.0"
+  },
+  {
+   "role": "link",
+   "name": "<br>",
+   "path": "1.3.0.1.0.1.0.10.0.1.15.0"
+  },
+  {
+   "role": "link",
+   "name": "<button>",
+   "path": "1.3.0.1.0.1.0.10.0.1.16.0"
+  },
+  {
+   "role": "link",
+   "name": "<canvas>",
+   "path": "1.3.0.1.0.1.0.10.0.1.17.0"
+  },
+  {
+   "role": "link",
+   "name": "<caption>",
+   "path": "1.3.0.1.0.1.0.10.0.1.18.0"
+  },
+  {
+   "role": "link",
+   "name": "<center> Deprecated",
+   "path": "1.3.0.1.0.1.0.10.0.1.19.0"
+  },
+  {
+   "role": "link",
+   "name": "<cite>",
+   "path": "1.3.0.1.0.1.0.10.0.1.20.0"
+  },
+  {
+   "role": "link",
+   "name": "<code>",
+   "path": "1.3.0.1.0.1.0.10.0.1.21.0"
+  },
+  {
+   "role": "link",
+   "name": "<col>",
+   "path": "1.3.0.1.0.1.0.10.0.1.22.0"
+  },
+  {
+   "role": "link",
+   "name": "<colgroup>",
+   "path": "1.3.0.1.0.1.0.10.0.1.23.0"
+  },
+  {
+   "role": "link",
+   "name": "<data>",
+   "path": "1.3.0.1.0.1.0.10.0.1.24.0"
+  },
+  {
+   "role": "link",
+   "name": "<datalist>",
+   "path": "1.3.0.1.0.1.0.10.0.1.25.0"
+  },
+  {
+   "role": "link",
+   "name": "<dd>",
+   "path": "1.3.0.1.0.1.0.10.0.1.26.0"
+  },
+  {
+   "role": "link",
+   "name": "<del>",
+   "path": "1.3.0.1.0.1.0.10.0.1.27.0"
+  },
+  {
+   "role": "link",
+   "name": "<details>",
+   "path": "1.3.0.1.0.1.0.10.0.1.28.0"
+  },
+  {
+   "role": "link",
+   "name": "<dfn>",
+   "path": "1.3.0.1.0.1.0.10.0.1.29.0"
+  },
+  {
+   "role": "link",
+   "name": "<dialog>",
+   "path": "1.3.0.1.0.1.0.10.0.1.30.0"
+  },
+  {
+   "role": "link",
+   "name": "<dir> Deprecated",
+   "path": "1.3.0.1.0.1.0.10.0.1.31.0"
+  },
+  {
+   "role": "link",
+   "name": "<div>",
+   "path": "1.3.0.1.0.1.0.10.0.1.32.0"
+  },
+  {
+   "role": "link",
+   "name": "<dl>",
+   "path": "1.3.0.1.0.1.0.10.0.1.33.0"
+  },
+  {
+   "role": "link",
+   "name": "<dt>",
+   "path": "1.3.0.1.0.1.0.10.0.1.34.0"
+  },
+  {
+   "role": "link",
+   "name": "<em>",
+   "path": "1.3.0.1.0.1.0.10.0.1.35.0"
+  },
+  {
+   "role": "link",
+   "name": "<embed>",
+   "path": "1.3.0.1.0.1.0.10.0.1.36.0"
+  },
+  {
+   "role": "link",
+   "name": "<fencedframe> Deprecated, pending removal",
+   "path": "1.3.0.1.0.1.0.10.0.1.37.0"
+  },
+  {
+   "role": "link",
+   "name": "<fieldset>",
+   "path": "1.3.0.1.0.1.0.10.0.1.38.0"
+  },
+  {
+   "role": "link",
+   "name": "<figcaption>",
+   "path": "1.3.0.1.0.1.0.10.0.1.39.0"
+  },
+  {
+   "role": "link",
+   "name": "<figure>",
+   "path": "1.3.0.1.0.1.0.10.0.1.40.0"
+  },
+  {
+   "role": "link",
+   "name": "<font> Deprecated",
+   "path": "1.3.0.1.0.1.0.10.0.1.41.0"
+  },
+  {
+   "role": "link",
+   "name": "<footer>",
+   "path": "1.3.0.1.0.1.0.10.0.1.42.0"
+  },
+  {
+   "role": "link",
+   "name": "<form>",
+   "path": "1.3.0.1.0.1.0.10.0.1.43.0"
+  },
+  {
+   "role": "link",
+   "name": "<frame> Deprecated",
+   "path": "1.3.0.1.0.1.0.10.0.1.44.0"
+  },
+  {
+   "role": "link",
+   "name": "<frameset> Deprecated",
+   "path": "1.3.0.1.0.1.0.10.0.1.45.0"
+  },
+  {
+   "role": "link",
+   "name": "<geolocation> Experimental",
+   "path": "1.3.0.1.0.1.0.10.0.1.46.0"
+  },
+  {
+   "role": "link",
+   "name": "<h1>–<h6>",
+   "path": "1.3.0.1.0.1.0.10.0.1.47.0"
+  },
+  {
+   "role": "link",
+   "name": "<head>",
+   "path": "1.3.0.1.0.1.0.10.0.1.48.0"
+  },
+  {
+   "role": "link",
+   "name": "<header>",
+   "path": "1.3.0.1.0.1.0.10.0.1.49.0"
+  },
+  {
+   "role": "link",
+   "name": "<hgroup>",
+   "path": "1.3.0.1.0.1.0.10.0.1.50.0"
+  },
+  {
+   "role": "link",
+   "name": "<hr>",
+   "path": "1.3.0.1.0.1.0.10.0.1.51.0"
+  },
+  {
+   "role": "link",
+   "name": "<html>",
+   "path": "1.3.0.1.0.1.0.10.0.1.52.0"
+  },
+  {
+   "role": "link",
+   "name": "<i>",
+   "path": "1.3.0.1.0.1.0.10.0.1.53.0"
+  },
+  {
+   "role": "link",
+   "name": "<iframe>",
+   "path": "1.3.0.1.0.1.0.10.0.1.54.0.0"
+  },
+  {
+   "role": "link",
+   "name": "<img>",
+   "path": "1.3.0.1.0.1.0.10.0.1.55.0"
+  },
+  {
+   "role": "link",
+   "name": "<input>",
+   "path": "1.3.0.1.0.1.0.10.0.1.56.0"
+  },
+  {
+   "role": "link",
+   "name": "<ins>",
+   "path": "1.3.0.1.0.1.0.10.0.1.57.0"
+  },
+  {
+   "role": "link",
+   "name": "<kbd>",
+   "path": "1.3.0.1.0.1.0.10.0.1.58.0"
+  },
+  {
+   "role": "link",
+   "name": "<label>",
+   "path": "1.3.0.1.0.1.0.10.0.1.59.0"
+  },
+  {
+   "role": "link",
+   "name": "<legend>",
+   "path": "1.3.0.1.0.1.0.10.0.1.60.0"
+  },
+  {
+   "role": "link",
+   "name": "<li>",
+   "path": "1.3.0.1.0.1.0.10.0.1.61.0"
+  },
+  {
+   "role": "link",
+   "name": "<link>",
+   "path": "1.3.0.1.0.1.0.10.0.1.62.0"
+  },
+  {
+   "role": "link",
+   "name": "<main>",
+   "path": "1.3.0.1.0.1.0.10.0.1.63.0"
+  },
+  {
+   "role": "link",
+   "name": "<map>",
+   "path": "1.3.0.1.0.1.0.10.0.1.64.0"
+  },
+  {
+   "role": "link",
+   "name": "<mark>",
+   "path": "1.3.0.1.0.1.0.10.0.1.65.0"
+  },
+  {
+   "role": "link",
+   "name": "<marquee> Deprecated",
+   "path": "1.3.0.1.0.1.0.10.0.1.66.0"
+  },
+  {
+   "role": "link",
+   "name": "<menu>",
+   "path": "1.3.0.1.0.1.0.10.0.1.67.0"
+  },
+  {
+   "role": "link",
+   "name": "<meta>",
+   "path": "1.3.0.1.0.1.0.10.0.1.68.0"
+  },
+  {
+   "role": "link",
+   "name": "<meter>",
+   "path": "1.3.0.1.0.1.0.10.0.1.69.0"
+  },
+  {
+   "role": "link",
+   "name": "<nav>",
+   "path": "1.3.0.1.0.1.0.10.0.1.70.0"
+  },
+  {
+   "role": "link",
+   "name": "<nobr> Deprecated",
+   "path": "1.3.0.1.0.1.0.10.0.1.71.0"
+  },
+  {
+   "role": "link",
+   "name": "<noembed> Deprecated",
+   "path": "1.3.0.1.0.1.0.10.0.1.72.0"
+  },
+  {
+   "role": "link",
+   "name": "<noframes> Deprecated",
+   "path": "1.3.0.1.0.1.0.10.0.1.73.0"
+  },
+  {
+   "role": "link",
+   "name": "<noscript>",
+   "path": "1.3.0.1.0.1.0.10.0.1.74.0"
+  },
+  {
+   "role": "link",
+   "name": "<object>",
+   "path": "1.3.0.1.0.1.0.10.0.1.75.0"
+  },
+  {
+   "role": "link",
+   "name": "<ol>",
+   "path": "1.3.0.1.0.1.0.10.0.1.76.0"
+  },
+  {
+   "role": "link",
+   "name": "<optgroup>",
+   "path": "1.3.0.1.0.1.0.10.0.1.77.0"
+  },
+  {
+   "role": "link",
+   "name": "<option>",
+   "path": "1.3.0.1.0.1.0.10.0.1.78.0"
+  },
+  {
+   "role": "link",
+   "name": "<output>",
+   "path": "1.3.0.1.0.1.0.10.0.1.79.0"
+  },
+  {
+   "role": "link",
+   "name": "<p>",
+   "path": "1.3.0.1.0.1.0.10.0.1.80.0"
+  },
+  {
+   "role": "link",
+   "name": "<param> Deprecated",
+   "path": "1.3.0.1.0.1.0.10.0.1.81.0"
+  },
+  {
+   "role": "link",
+   "name": "<picture>",
+   "path": "1.3.0.1.0.1.0.10.0.1.82.0"
+  },
+  {
+   "role": "link",
+   "name": "<plaintext> Deprecated",
+   "path": "1.3.0.1.0.1.0.10.0.1.83.0"
+  },
+  {
+   "role": "link",
+   "name": "<pre>",
+   "path": "1.3.0.1.0.1.0.10.0.1.84.0"
+  },
+  {
+   "role": "link",
+   "name": "<progress>",
+   "path": "1.3.0.1.0.1.0.10.0.1.85.0"
+  },
+  {
+   "role": "link",
+   "name": "<q>",
+   "path": "1.3.0.1.0.1.0.10.0.1.86.0"
+  },
+  {
+   "role": "link",
+   "name": "<rb> Deprecated",
+   "path": "1.3.0.1.0.1.0.10.0.1.87.0"
+  },
+  {
+   "role": "link",
+   "name": "<rp>",
+   "path": "1.3.0.1.0.1.0.10.0.1.88.0"
+  },
+  {
+   "role": "link",
+   "name": "<rt>",
+   "path": "1.3.0.1.0.1.0.10.0.1.89.0"
+  },
+  {
+   "role": "link",
+   "name": "<rtc> Deprecated",
+   "path": "1.3.0.1.0.1.0.10.0.1.90.0"
+  },
+  {
+   "role": "link",
+   "name": "<ruby>",
+   "path": "1.3.0.1.0.1.0.10.0.1.91.0"
+  },
+  {
+   "role": "link",
+   "name": "<s>",
+   "path": "1.3.0.1.0.1.0.10.0.1.92.0"
+  },
+  {
+   "role": "link",
+   "name": "<samp>",
+   "path": "1.3.0.1.0.1.0.10.0.1.93.0"
+  },
+  {
+   "role": "link",
+   "name": "<script>",
+   "path": "1.3.0.1.0.1.0.10.0.1.94.0"
+  },
+  {
+   "role": "link",
+   "name": "<search>",
+   "path": "1.3.0.1.0.1.0.10.0.1.95.0"
+  },
+  {
+   "role": "link",
+   "name": "<section>",
+   "path": "1.3.0.1.0.1.0.10.0.1.96.0"
+  },
+  {
+   "role": "link",
+   "name": "<select>",
+   "path": "1.3.0.1.0.1.0.10.0.1.97.0"
+  },
+  {
+   "role": "link",
+   "name": "<selectedcontent>",
+   "path": "1.3.0.1.0.1.0.10.0.1.98.0"
+  },
+  {
+   "role": "link",
+   "name": "<slot>",
+   "path": "1.3.0.1.0.1.0.10.0.1.99.0"
+  },
+  {
+   "role": "link",
+   "name": "<small>",
+   "path": "1.3.0.1.0.1.0.10.0.1.100.0"
+  },
+  {
+   "role": "link",
+   "name": "<source>",
+   "path": "1.3.0.1.0.1.0.10.0.1.101.0"
+  },
+  {
+   "role": "link",
+   "name": "<span>",
+   "path": "1.3.0.1.0.1.0.10.0.1.102.0"
+  },
+  {
+   "role": "link",
+   "name": "<strike> Deprecated",
+   "path": "1.3.0.1.0.1.0.10.0.1.103.0"
+  },
+  {
+   "role": "link",
+   "name": "<strong>",
+   "path": "1.3.0.1.0.1.0.10.0.1.104.0"
+  },
+  {
+   "role": "link",
+   "name": "<style>",
+   "path": "1.3.0.1.0.1.0.10.0.1.105.0"
+  },
+  {
+   "role": "link",
+   "name": "<sub>",
+   "path": "1.3.0.1.0.1.0.10.0.1.106.0"
+  },
+  {
+   "role": "link",
+   "name": "<summary>",
+   "path": "1.3.0.1.0.1.0.10.0.1.107.0"
+  },
+  {
+   "role": "link",
+   "name": "<sup>",
+   "path": "1.3.0.1.0.1.0.10.0.1.108.0"
+  },
+  {
+   "role": "link",
+   "name": "<table>",
+   "path": "1.3.0.1.0.1.0.10.0.1.109.0"
+  },
+  {
+   "role": "link",
+   "name": "<tbody>",
+   "path": "1.3.0.1.0.1.0.10.0.1.110.0"
+  },
+  {
+   "role": "link",
+   "name": "<td>",
+   "path": "1.3.0.1.0.1.0.10.0.1.111.0"
+  },
+  {
+   "role": "link",
+   "name": "<template>",
+   "path": "1.3.0.1.0.1.0.10.0.1.112.0"
+  },
+  {
+   "role": "link",
+   "name": "<textarea>",
+   "path": "1.3.0.1.0.1.0.10.0.1.113.0"
+  },
+  {
+   "role": "link",
+   "name": "<tfoot>",
+   "path": "1.3.0.1.0.1.0.10.0.1.114.0"
+  },
+  {
+   "role": "link",
+   "name": "<th>",
+   "path": "1.3.0.1.0.1.0.10.0.1.115.0"
+  },
+  {
+   "role": "link",
+   "name": "<thead>",
+   "path": "1.3.0.1.0.1.0.10.0.1.116.0"
+  },
+  {
+   "role": "link",
+   "name": "<time>",
+   "path": "1.3.0.1.0.1.0.10.0.1.117.0"
+  },
+  {
+   "role": "link",
+   "name": "<title>",
+   "path": "1.3.0.1.0.1.0.10.0.1.118.0"
+  },
+  {
+   "role": "link",
+   "name": "<tr>",
+   "path": "1.3.0.1.0.1.0.10.0.1.119.0"
+  },
+  {
+   "role": "link",
+   "name": "<track>",
+   "path": "1.3.0.1.0.1.0.10.0.1.120.0"
+  },
+  {
+   "role": "link",
+   "name": "<tt> Deprecated",
+   "path": "1.3.0.1.0.1.0.10.0.1.121.0"
+  },
+  {
+   "role": "link",
+   "name": "<u>",
+   "path": "1.3.0.1.0.1.0.10.0.1.122.0"
+  },
+  {
+   "role": "link",
+   "name": "<ul>",
+   "path": "1.3.0.1.0.1.0.10.0.1.123.0"
+  },
+  {
+   "role": "link",
+   "name": "<var>",
+   "path": "1.3.0.1.0.1.0.10.0.1.124.0"
+  },
+  {
+   "role": "link",
+   "name": "<video>",
+   "path": "1.3.0.1.0.1.0.10.0.1.125.0"
+  },
+  {
+   "role": "link",
+   "name": "<wbr>",
+   "path": "1.3.0.1.0.1.0.10.0.1.126.0"
+  },
+  {
+   "role": "link",
+   "name": "<xmp> Deprecated",
+   "path": "1.3.0.1.0.1.0.10.0.1.127.0"
+  },
+  {
+   "role": "link",
+   "name": "Attributes",
+   "path": "1.3.0.1.0.1.0.11.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Global attributes",
+   "path": "1.3.0.1.0.1.0.12.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "MDN logo",
+   "path": "1.4.1.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "MDN on GitHub",
+   "path": "1.4.1.0.1.0.0"
+  },
+  {
+   "role": "link",
+   "name": "MDN on Bluesky",
+   "path": "1.4.1.0.1.1.0"
+  },
+  {
+   "role": "link",
+   "name": "MDN on X",
+   "path": "1.4.1.0.1.2.0"
+  },
+  {
+   "role": "link",
+   "name": "MDN on Mastodon",
+   "path": "1.4.1.0.1.3.0"
+  },
+  {
+   "role": "link",
+   "name": "MDN blog RSS feed",
+   "path": "1.4.1.0.1.4.0"
+  },
+  {
+   "role": "link",
+   "name": "About",
+   "path": "1.4.1.0.2.1.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Blog",
+   "path": "1.4.1.0.2.1.0.1.0"
+  },
+  {
+   "role": "link",
+   "name": "Mozilla careers (external)",
+   "path": "1.4.1.0.2.1.0.2.0"
+  },
+  {
+   "role": "link",
+   "name": "Advertise with us",
+   "path": "1.4.1.0.2.1.0.3.0"
+  },
+  {
+   "role": "link",
+   "name": "MDN Plus",
+   "path": "1.4.1.0.2.1.0.4.0"
+  },
+  {
+   "role": "link",
+   "name": "Product help (external)",
+   "path": "1.4.1.0.2.1.0.5.0"
+  },
+  {
+   "role": "link",
+   "name": "MDN Community",
+   "path": "1.4.1.0.3.1.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Community resources",
+   "path": "1.4.1.0.3.1.0.1.0"
+  },
+  {
+   "role": "link",
+   "name": "Writing guidelines",
+   "path": "1.4.1.0.3.1.0.2.0"
+  },
+  {
+   "role": "link",
+   "name": "MDN Discord (external)",
+   "path": "1.4.1.0.3.1.0.3.0"
+  },
+  {
+   "role": "link",
+   "name": "MDN on GitHub (external)",
+   "path": "1.4.1.0.3.1.0.4.0"
+  },
+  {
+   "role": "link",
+   "name": "Web technologies",
+   "path": "1.4.1.0.4.1.0.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Learn web development",
+   "path": "1.4.1.0.4.1.0.1.0"
+  },
+  {
+   "role": "link",
+   "name": "Guides",
+   "path": "1.4.1.0.4.1.0.2.0"
+  },
+  {
+   "role": "link",
+   "name": "Tutorials",
+   "path": "1.4.1.0.4.1.0.3.0"
+  },
+  {
+   "role": "link",
+   "name": "Glossary",
+   "path": "1.4.1.0.4.1.0.4.0"
+  },
+  {
+   "role": "link",
+   "name": "Hacks blog (external)",
+   "path": "1.4.1.0.4.1.0.5.0"
+  },
+  {
+   "role": "link",
+   "name": "Mozilla logo",
+   "path": "1.4.1.1.0"
+  },
+  {
+   "role": "link",
+   "name": "Website Privacy Notice (external)",
+   "path": "1.4.1.1.1.0.0"
+  },
+  {
+   "role": "link",
+   "name": "Telemetry Settings (external)",
+   "path": "1.4.1.1.1.1.0"
+  },
+  {
+   "role": "link",
+   "name": "Legal (external)",
+   "path": "1.4.1.1.1.2.0"
+  },
+  {
+   "role": "link",
+   "name": "Community Participation Guidelines (external)",
+   "path": "1.4.1.1.1.3.0"
+  },
+  {
+   "role": "link",
+   "name": "a Creative Commons license",
+   "path": "1.4.1.1.2.0"
+  }
+ ],
+ "hiddenInChrome": 0,
+ "hidden": [
+  "This feature is well established and works across many devices and browser versions. It’s been available across browsers since July 2015.",
+  "* Some parts of this feature may have varying levels of support.",
+  "See full compatibility",
+  "Constraint validation",
+  "Date and time formats",
+  "Quirks and standards modes",
+  "virtualkeyboardpolicy",
+  "writingsuggestions",
+  "<input type=\"button\">",
+  "<input type=\"checkbox\">",
+  "<input type=\"color\">",
+  "<input type=\"date\">",
+  "<input type=\"datetime-local\">",
+  "<input type=\"email\">",
+  "<input type=\"file\">",
+  "<input type=\"hidden\">",
+  "<input type=\"image\">",
+  "<input type=\"month\">",
+  "<input type=\"number\">",
+  "<input type=\"password\">",
+  "<input type=\"radio\">",
+  "<input type=\"range\">",
+  "<input type=\"reset\">",
+  "<input type=\"search\">",
+  "<input type=\"submit\">",
+  "<input type=\"tel\">",
+  "<input type=\"text\">",
+  "<input type=\"time\">",
+  "<input type=\"url\">",
+  "<input type=\"week\">",
+  "speculationrules",
+  "<meta http-equiv>",
+  "alternate stylesheet",
+  "compression-dictionary"
+ ],
+ "chromeAiSnapshotBytes": 134323
+}

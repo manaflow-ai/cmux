@@ -31,6 +31,11 @@ whitelist_raw=""
 whitelist_patterns=()
 
 system_open() {
+    if [[ -n "$ORIGINAL_LC_ALL_IS_SET" ]]; then
+        export LC_ALL="$ORIGINAL_LC_ALL_VALUE"
+    else
+        unset LC_ALL
+    fi
     exec "$SYSTEM_OPEN_BIN" "$@"
 }
 
@@ -55,6 +60,17 @@ is_false_setting() {
     normalized="$(normalize_boolean "$1")"
     case "$normalized" in
         0|false|no|off)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+is_true_setting() {
+    local normalized
+    normalized="$(normalize_boolean "$1")"
+    case "$normalized" in
+        1|true|yes|on)
             return 0
             ;;
     esac
@@ -364,6 +380,28 @@ load_whitelist_patterns() {
     done <<< "$raw"
 }
 
+# Preserve the caller's original locale before forcing C below, so it can be
+# restored for child processes (system_open, the cmux CLI) -- forcing C is
+# only needed for this script's own bash pattern matching, not for what it
+# dispatches to. ${LC_ALL+is_set} distinguishes "unset" from "set to empty".
+if [[ -n "${LC_ALL+is_set}" ]]; then
+    ORIGINAL_LC_ALL_IS_SET=1
+    ORIGINAL_LC_ALL_VALUE="$LC_ALL"
+else
+    ORIGINAL_LC_ALL_IS_SET=
+fi
+
+# Force byte-wise (C-locale) glob/pattern matching for the rest of this
+# script. Every case statement and ${var%pattern}/${var#pattern} expansion
+# below matches only ASCII structure (flags, URL schemes, extensions,
+# whitespace, "://" separators, etc.), so forcing C locale never changes what
+# they match. It does avoid a real crash: some bash builds (observed with
+# MacPorts bash 5.3.9 on macOS 15 under a UTF-8 locale) SIGSEGV in their
+# multibyte-aware glob matcher when *any* case/pattern match runs against a
+# non-ASCII argument, such as a Japanese filename passed to `open`, even for
+# purely literal patterns with no wildcards.
+export LC_ALL=C
+
 # Pass through immediately if not in a cmux terminal.
 if [[ -z "$CMUX_SOCKET_PATH" ]]; then
     system_open "$@"
@@ -420,10 +458,17 @@ done
 
 if [[ "$passthrough" == true ]] || [[ ${#cmux_targets[@]} -eq 0 ]]; then
     system_open "$@"
+    exit $?
 fi
 
 # Respect the same settings used for terminal link clicks.
 if [[ -n "$settings_domain" ]]; then
+    browser_disabled="$("$DEFAULTS_BIN" read "$settings_domain" browserDisabledOverride 2>/dev/null || true)"
+    if is_true_setting "$browser_disabled"; then
+        system_open "$@"
+        exit $?
+    fi
+
     open_in_cmux="$("$DEFAULTS_BIN" read "$settings_domain" browserInterceptTerminalOpenCommandInCmuxBrowser 2>/dev/null || true)"
     if [[ -z "$open_in_cmux" ]]; then
         # Backward compatibility for installs that predate the dedicated open-wrapper toggle.
@@ -431,6 +476,7 @@ if [[ -n "$settings_domain" ]]; then
     fi
     if is_false_setting "$open_in_cmux"; then
         system_open "$@"
+        exit $?
     fi
 
     whitelist_raw="$("$DEFAULTS_BIN" read "$settings_domain" browserHostWhitelist 2>/dev/null || true)"
@@ -446,6 +492,7 @@ CMUX_CLI="$SELF_DIR/cmux"
 
 if [[ ! -x "$CMUX_CLI" ]]; then
     system_open "$@"
+    exit $?
 fi
 
 # Open each URL in cmux's in-app browser; track failures individually.
@@ -457,10 +504,19 @@ for url in "${cmux_targets[@]}"; do
         failed_urls+=("$url")
         continue
     fi
-    CMUX_RESPECT_EXTERNAL_OPEN_RULES=1 "$CMUX_CLI" browser open "$url" 2>/dev/null || failed_urls+=("$url")
+    (
+        if [[ -n "$ORIGINAL_LC_ALL_IS_SET" ]]; then
+            export LC_ALL="$ORIGINAL_LC_ALL_VALUE"
+        else
+            unset LC_ALL
+        fi
+        export CMUX_RESPECT_EXTERNAL_OPEN_RULES=1
+        exec "$CMUX_CLI" browser open "$url"
+    ) 2>/dev/null || failed_urls+=("$url")
 done
 
 # Fall back to system open for unmatched args and URLs that failed.
 if [[ ${#passthrough_args[@]} -gt 0 ]] || [[ ${#failed_urls[@]} -gt 0 ]]; then
     system_open "${passthrough_args[@]}" "${failed_urls[@]}"
+    exit $?
 fi

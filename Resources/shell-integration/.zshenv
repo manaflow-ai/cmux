@@ -13,20 +13,46 @@
 # - CMUX_ZSH_ZDOTDIR (set by cmux when it overwrote a user-provided ZDOTDIR)
 # - unset (zsh treats unset ZDOTDIR as $HOME)
 
+# Move the one-shot welcome-banner token path out of the environment before
+# user startup files run, so children they exec (tmux, another shell) do not
+# inherit it. cmux-zsh-integration.zsh consumes the shell-local copy.
+if [[ -n "${CMUX_SHOW_WELCOME_FILE:-}" ]]; then
+    builtin typeset -g _CMUX_BOOTSTRAP_WELCOME_FILE="$CMUX_SHOW_WELCOME_FILE"
+    builtin unset CMUX_SHOW_WELCOME_FILE
+fi
+
 if [[ -n "${GHOSTTY_ZSH_ZDOTDIR+X}" ]]; then
     builtin export ZDOTDIR="$GHOSTTY_ZSH_ZDOTDIR"
     builtin unset GHOSTTY_ZSH_ZDOTDIR
-elif [[ -n "${CMUX_ZSH_ZDOTDIR+X}" ]]; then
+elif [[ -n "${CMUX_ZSH_ZDOTDIR+X}" \
+   && "$CMUX_ZSH_ZDOTDIR" != "${CMUX_SHELL_INTEGRATION_DIR:-}" \
+   && "$CMUX_ZSH_ZDOTDIR" != */Contents/Resources/shell-integration ]]; then
     builtin export ZDOTDIR="$CMUX_ZSH_ZDOTDIR"
     builtin unset CMUX_ZSH_ZDOTDIR
 else
     builtin unset ZDOTDIR
+    builtin unset CMUX_ZSH_ZDOTDIR
 fi
 
 {
     # zsh treats unset ZDOTDIR as if it were HOME. We do the same.
     builtin typeset _cmux_file="${ZDOTDIR-$HOME}/.zshenv"
     [[ ! -r "$_cmux_file" ]] || builtin source -- "$_cmux_file"
+
+    if [[ -o interactive \
+       && -z "${ZSH_EXECUTION_STRING:-}" \
+       && "${CMUX_SHELL_INTEGRATION:-1}" != "0" \
+       && -n "${CMUX_SHELL_INTEGRATION_DIR:-}" \
+       && -r "${CMUX_SHELL_INTEGRATION_DIR}/cmux-zsh-integration.zsh" \
+       && "${TERM:-}" == "xterm-256color" \
+       && -z "${CMUX_ZSH_RESTORE_TERM:-}" ]]; then
+        # Keep startup TERM-compatible prompt/theme selection during shell init,
+        # then restore the managed xterm-256color identity before the first
+        # interactive command executes.
+        builtin export CMUX_ZSH_RESTORE_TERM="$TERM"
+        builtin export TERM="xterm-ghostty"
+        builtin typeset -g _CMUX_DELAY_TERM_RESTORE_UNTIL_FIRST_PROMPT=1
+    fi
 } always {
     if [[ -o interactive ]]; then
         # We overwrote GhosttyKit's injected ZDOTDIR, so manually load Ghostty's
@@ -51,5 +77,5 @@ fi
         fi
     fi
 
-    builtin unset _cmux_file _cmux_ghostty _cmux_integ
+    builtin unset _cmux_file _cmux_ghostty _cmux_integ _CMUX_BOOTSTRAP_WELCOME_FILE
 }

@@ -108,7 +108,7 @@ def main() -> int:
     parser.add_argument("--keep-workspace", action="store_true")
     parser.add_argument(
         "--socket",
-        default=os.environ.get("CMUX_SOCKET") or os.environ.get("CMUX_SOCKET_PATH") or "/tmp/cmux-debug.sock",
+        default=os.environ.get("CMUX_SOCKET_PATH") or "/tmp/cmux-debug.sock",
     )
     args = parser.parse_args()
 
