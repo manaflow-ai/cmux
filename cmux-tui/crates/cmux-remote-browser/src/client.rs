@@ -120,6 +120,10 @@ pub enum ClientReject {
     WrongDirection,
     /// `rb.screen_applied` for a seq this viewer never sent.
     UnknownScreenSeq,
+    /// A menu answer the open menu did not offer (an id it did not show,
+    /// a separator or submenu, an index out of range or repeated, several
+    /// indices for a single select, or the other menu kind's choice).
+    InvalidChoice,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
