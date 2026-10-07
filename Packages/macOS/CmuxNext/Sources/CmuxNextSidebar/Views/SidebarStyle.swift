@@ -47,6 +47,9 @@ enum SidebarStyle {
     /// default icon (WORKSPACE-ROWS-NO-DEFAULT-ICON). Group headers start
     /// their name here too.
     static var titleLeading: CGFloat { horizontalInset }
+    /// How far a group member's content moves in: past the header's caret
+    /// and its band (option B, Lawrence 2026-10-07).
+    static var groupMemberIndent: CGFloat { Metrics.smallIconSize + Metrics.space1 }
     static var headerFont: NSFont { Typography.header }
     static var badgeFont: NSFont { Typography.shortcut }
     /// A user-chosen SF Symbol at the title's point size, where symbols match the text beside them.
