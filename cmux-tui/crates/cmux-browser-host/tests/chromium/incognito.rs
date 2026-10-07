@@ -20,12 +20,14 @@ fn open(
     session: &cmux_browser_host::headless_source::HeadlessSession,
     params: Value,
 ) -> Result<String, cmux_browser_host::protocol::DriverError> {
-    session
-        .call("tabs.open", &params)
-        .map(|opened| opened["targetId"].as_str().unwrap().to_owned())
+    session.call("tabs.open", &params).map(|opened| opened["targetId"].as_str().unwrap().to_owned())
 }
 
-fn page(session: &cmux_browser_host::headless_source::HeadlessSession, target: &str, source: &str) -> Value {
+fn page(
+    session: &cmux_browser_host::headless_source::HeadlessSession,
+    target: &str,
+    source: &str,
+) -> Value {
     session
         .call("frame.evaluate", &json!({"targetId": target, "world": "page", "source": source}))
         .unwrap()
@@ -37,8 +39,11 @@ fn listed(session: &cmux_browser_host::headless_source::HeadlessSession, suffix:
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         let tabs = session.call("tabs.list", &json!({})).unwrap();
-        if let Some(tab) =
-            tabs.as_array().unwrap().iter().find(|t| t["url"].as_str().unwrap_or("").ends_with(suffix))
+        if let Some(tab) = tabs
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["url"].as_str().unwrap_or("").ends_with(suffix))
         {
             return tab.clone();
         }
@@ -66,7 +71,7 @@ fn an_incognito_tab_keeps_nothing_and_closes_with_its_session() {
     page(&s, &private, "() => { document.cookie = 'brepl_incognito=1; path=/'; return 1; }");
     assert_eq!(page(&s, &plain, "() => document.cookie"), "brepl_profile=1", "written back");
     let kept = s.call("tab.keep", &json!({"targetId": private})).unwrap_err();
-    assert_eq!(kept.code, cmux_browser_host::protocol::ErrorCode::Forbidden, "{kept}");
+    assert_eq!(kept.code, ErrorCode::Forbidden, "{kept}");
     s.end_session();
     drop(s);
     let t = headless_session(&source, &browsers, "t");
@@ -92,23 +97,26 @@ fn an_incognito_session_opens_every_tab_incognito() {
     let tab = open(&s, json!({"url": format!("{origin}/second?inherit")})).unwrap();
     assert_eq!(listed(&s, "?inherit")["incognito"], true);
     let off = s.call("session.configure", &json!({"incognito": false})).unwrap_err();
-    assert_eq!(off.code, cmux_browser_host::protocol::ErrorCode::Forbidden, "{off}");
-    let refused = open(&s, json!({"url": format!("{origin}/second?persistent"), "incognito": false}))
-        .unwrap_err();
-    assert_eq!(refused.code, cmux_browser_host::protocol::ErrorCode::Forbidden, "{refused}");
+    assert_eq!(off.code, ErrorCode::Forbidden, "{off}");
+    let refused =
+        open(&s, json!({"url": format!("{origin}/second?persistent"), "incognito": false}))
+            .unwrap_err();
+    assert_eq!(refused.code, ErrorCode::Forbidden, "{refused}");
     page(
         &s,
         &tab,
-        &format!("() => {{ document.cookie = 'brepl_session=1; path=/'; window.open('{origin}/second?popup'); return 1; }}"),
+        &format!(
+            "() => {{ document.cookie = 'brepl_session=1; path=/'; window.open('{origin}/second?popup'); return 1; }}"
+        ),
     );
     assert_eq!(listed(&s, "?popup")["incognito"], true, "the popup left the incognito store");
     // The session's tab-less cookies.* use its incognito store.
-    let cookies = s.call("cookies.get", &json!({"urls": [origin.clone()]})).unwrap();
+    let cookies = s.call("cookies.get", &json!({"urls": [origin]})).unwrap();
     assert!(cookies.to_string().contains("brepl_session"), "{cookies}");
     // A tab-less fetch runs in a hidden shell of the profile's store, which
     // would send and keep the profile's cookies: refused in this session.
     let fetch = s.call("net.fetch", &json!({"url": format!("{origin}/second")})).unwrap_err();
-    assert_eq!(fetch.code, cmux_browser_host::protocol::ErrorCode::Unsupported, "{fetch}");
+    assert_eq!(fetch.code, ErrorCode::Unsupported, "{fetch}");
     let other = headless_session(&source, &browsers, "other");
     let profile = other.call("cookies.get", &json!({"urls": [origin]})).unwrap();
     assert!(!profile.to_string().contains("brepl_session"), "{profile}");

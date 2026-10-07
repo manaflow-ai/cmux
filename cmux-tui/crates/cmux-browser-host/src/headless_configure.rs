@@ -168,9 +168,10 @@ impl HeadlessSource {
         let mut configs = self.configs();
         configs.next_store += 1;
         let name = format!("{}/incognito-{}", self.profile, configs.next_store);
-        configs
-            .stores
-            .insert(context.clone(), ProxyStore { owner: session, name, kept: false, incognito: true });
+        configs.stores.insert(
+            context.clone(),
+            ProxyStore { owner: session, name, kept: false, incognito: true },
+        );
         configs.sessions.entry(session).or_default().incognito_store = Some(context.clone());
         Ok(context)
     }
@@ -196,7 +197,9 @@ impl HeadlessSource {
             Some(Value::Null) => Some(false),
             Some(Value::Bool(on)) => Some(*on),
             Some(_) => {
-                return Err(DriverError::invalid("session.configure: incognito: expected a boolean"));
+                return Err(DriverError::invalid(
+                    "session.configure: incognito: expected a boolean",
+                ));
             }
         };
         // Checked before anything changes: incognito stores take no proxy
@@ -247,9 +250,10 @@ impl HeadlessSource {
             if let Some(Some(context)) = &proxy {
                 configs.next_store += 1;
                 let name = format!("{}/proxy-{}", self.profile, configs.next_store);
-                configs
-                    .stores
-                    .insert(context.clone(), ProxyStore { owner: session, name, kept: false, incognito: false });
+                configs.stores.insert(
+                    context.clone(),
+                    ProxyStore { owner: session, name, kept: false, incognito: false },
+                );
             }
             let config = configs.sessions.entry(session).or_default();
             if let Some(ua) = params.get("userAgent") {
@@ -311,9 +315,10 @@ impl HeadlessSource {
                 let mut configs = self.configs();
                 configs.next_store += 1;
                 let name = format!("{}/private-{}", self.profile, configs.next_store);
-                configs
-                    .stores
-                    .insert(context.clone(), ProxyStore { owner: session, name, kept: false, incognito: false });
+                configs.stores.insert(
+                    context.clone(),
+                    ProxyStore { owner: session, name, kept: false, incognito: false },
+                );
                 if let Some(config) = configs.sessions.get_mut(&session) {
                     config.store = Some(context.clone());
                 }
@@ -332,7 +337,9 @@ impl HeadlessSource {
         let asked = match params.get("incognito") {
             None | Some(Value::Null) => None,
             Some(Value::Bool(on)) => Some(*on),
-            Some(_) => return Err(DriverError::invalid("tabs.open: incognito: expected a boolean")),
+            Some(_) => {
+                return Err(DriverError::invalid("tabs.open: incognito: expected a boolean"));
+            }
         };
         let (context, overrides, incognito_session) = {
             let configs = self.configs();

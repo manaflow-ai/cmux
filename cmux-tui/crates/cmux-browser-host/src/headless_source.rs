@@ -601,7 +601,10 @@ impl TabSource for SharedHeadless {
     }
 
     fn capabilities(&self, _engine: &str) -> Vec<&'static str> {
-        self.0.driver.capabilities()
+        let mut capabilities = self.0.driver.capabilities();
+        // Incognito tabs (private data P1, headless_configure.rs).
+        capabilities.push("incognito");
+        capabilities
     }
 }
 

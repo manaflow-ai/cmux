@@ -166,19 +166,33 @@ impl ProviderEngine {
             // the URL and background pass; profile, workspace and focus are
             // never the agent's to pick (D12).
             "tabs.open" => {
-                // An incognito tab needs a store that keeps nothing; the
-                // app has none yet, so the call is refused, never opened in
-                // the person's persistent profile (private data P1).
-                if params.get("incognito").and_then(Value::as_bool) == Some(true) {
-                    return Err(DriverError::new(
-                        crate::protocol::ErrorCode::Unsupported,
-                        format!("tabs.open: incognito tabs are not supported on {} tabs yet; nothing was opened", self.engine),
-                    ));
-                }
                 let mut open = serde_json::Map::new();
                 for key in ["url", "background", "timeoutMs"] {
                     if let Some(value) = params.get(key) {
                         open.insert(key.into(), value.clone());
+                    }
+                }
+                // An incognito tab needs a store that keeps nothing: a source
+                // without one (the app has none yet) refuses the call, never
+                // opening it in the person's persistent profile (private
+                // data P1). A source with one gets the flag either way.
+                match params.get("incognito") {
+                    None | Some(Value::Null) => {}
+                    Some(Value::Bool(incognito)) => {
+                        if self.provider.capabilities(&self.engine).contains(&"incognito") {
+                            open.insert("incognito".into(), Value::Bool(*incognito));
+                        } else if *incognito {
+                            return Err(DriverError::new(
+                                crate::protocol::ErrorCode::Unsupported,
+                                format!(
+                                    "tabs.open: incognito tabs are not supported on {} tabs yet; nothing was opened",
+                                    self.engine
+                                ),
+                            ));
+                        }
+                    }
+                    Some(_) => {
+                        return Err(DriverError::invalid("tabs.open: incognito must be a boolean"));
                     }
                 }
                 open.insert("engine".into(), Value::String(self.engine.clone()));
