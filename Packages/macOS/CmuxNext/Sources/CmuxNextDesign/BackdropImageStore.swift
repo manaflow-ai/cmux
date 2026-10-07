@@ -15,6 +15,7 @@ public final class BackdropImageStore {
     private var loads: [String: Task<Decoded?, Never>] = [:]
 
     /// A decoded bitmap handed from the decoding task to the main actor.
+    // crash-allow: immutable CGImage is transferred from the detached decoder to the main actor.
     private struct Decoded: @unchecked Sendable {
         let image: CGImage
     }
