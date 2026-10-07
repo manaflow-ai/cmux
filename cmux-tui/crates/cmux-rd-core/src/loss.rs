@@ -1,5 +1,5 @@
 //! Packet loss from transport-wide feedback: a sent datagram counts as lost once the
-//! viewer reports a datagram sent after it and never reports this one. Independent of
+//! receiver reports a datagram sent after it and never reports this one. Independent of
 //! how many arrivals fit in one feedback message.
 
 use std::collections::{HashSet, VecDeque};

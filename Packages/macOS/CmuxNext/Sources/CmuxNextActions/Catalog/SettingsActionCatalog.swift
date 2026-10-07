@@ -119,8 +119,8 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "updates.whatsNew",
                 title: String(localized: "action.updates.whatsNew", defaultValue: "What's New in cmux", bundle: .module),
-                keywords: ["changelog", "release notes", "update", "new"], category: .settings, symbol: "sparkles",
-                surfaces: [.palette, .menu], cliName: "settings whats-new", mainMenu: .app
+                keywords: ["changelog", "release notes", "update", "new", "whats new"], category: .settings, symbol: "sparkles",
+                surfaces: [.palette, .menu], cliName: "settings whats-new", mainMenu: .help
             ),
             ActionDescriptor(
                 id: "announcements.show",
