@@ -162,6 +162,10 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/kill", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
     ]
 
+    /// The folder trust question may name its chat (`sessionId`, so acpmux asks the chat's peer):
+    /// a named session must be in the pane's scope (``sessionScoped``'s rule); none is fine.
+    public static let optionallySessionScoped: Set<String> = ["acp.trust.get", "acp.trust.set"]
+
     /// The methods that copy a session's content into a new session the pane then controls: a
     /// fork, and the handoff steps (prepare captures the source and makes the target, draft edits
     /// what it carries, start sends it, discard closes the target). From a session in the pane's
@@ -328,8 +332,8 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/permission_group_respond": (["sessionId", "groupId", "revision", "decisionKey", "decision"], []),
         "_acpmux/permission_chat_revoke": (["sessionId"], []),
         "acp.session.fork": (["sessionId", "throughSeq"], []),
-        "acp.trust.get": (["cwd"], []),
-        "acp.trust.set": (["cwd", "level"], []),
+        "acp.trust.get": (["cwd", "sessionId"], []),
+        "acp.trust.set": (["cwd", "level", "sessionId"], []),
         // They meet the gesture rule and the sheet; their mode field is their purpose.
         "session/set_mode": (["sessionId", "modeId", "_meta"], []),
         "session/set_config_option": (["sessionId", "configId", "value", "_meta"], []),
