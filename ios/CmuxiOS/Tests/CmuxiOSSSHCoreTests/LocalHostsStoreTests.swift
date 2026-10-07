@@ -94,7 +94,7 @@ actor RecordingSync: HostsSyncChannel {
         let keyA = IntentKey(rawValue: "a")
         _ = try await store.add(ssh("a", "a.lan"), key: keyA)
         _ = try await store.add(ssh("b", "b.lan", jump: .added(by: keyA)), key: IntentKey())
-        _ = try await store.update(.added(by: keyA), with: HostDraft(name: "a", kind: .direct(endpoint: HostEndpoint(address: "a.lan"))), key: IntentKey())
+        _ = try await store.update(.added(by: keyA), with: HostDraft(name: "a", kind: .direct(endpoint: HostEndpoint(address: "a.lan"), hostKey: DirectHostKey(rawValue: String(repeating: "A", count: 43) + "=")!)), key: IntentKey())
         let records = await store.current()
         #expect(records[1].kind == .ssh(endpoint: HostEndpoint(address: "b.lan", port: 22, user: "me"), jumpHost: nil))
     }

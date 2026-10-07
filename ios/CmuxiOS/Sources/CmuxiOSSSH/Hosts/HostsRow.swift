@@ -21,7 +21,7 @@ struct HostsRow: Hashable, Sendable {
             if let jump, let jumpHost = records.first(where: { $0.id == jump }) {
                 parts.append(String(format: SSHText.viaJump, jumpHost.name))
             }
-        case .direct(let endpoint):
+        case .direct(let endpoint, _):
             symbolName = "network"
             parts.append(Self.describe(endpoint))
         }
