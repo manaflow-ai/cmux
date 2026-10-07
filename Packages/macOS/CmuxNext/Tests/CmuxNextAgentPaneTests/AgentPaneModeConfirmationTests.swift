@@ -197,10 +197,14 @@ import Testing
         try await rig.start()
         defer { rig.server.stop() }
         let sheets = Sheets(on: rig.transport, reply: nil)
+        // Two options in different slots: a second ticket for the same slot replaces the first.
+        let effort: [String: Any] = ["method": "session/set_config_option", "params": ["configId": "effort", "value": "high"]]
         let firstTicket = await rig.ticket(Self.fastIntent)
-        let secondTicket = await rig.ticket(Self.fastIntent)
+        let secondTicket = await rig.ticket(effort)
         let first = Task { await rig.send("session/set_config_option", Self.fastParams, ticket: firstTicket) }
-        let second = Task { await rig.send("session/set_config_option", Self.fastParams, ticket: secondTicket) }
+        let second = Task {
+            await rig.send("session/set_config_option", ["sessionId": "s", "configId": "effort", "value": "high"], ticket: secondTicket)
+        }
         #expect(await eventually { sheets.asked.count == 1 })
         sheets.answer(true)
         #expect(await eventually { sheets.asked.count == 2 })

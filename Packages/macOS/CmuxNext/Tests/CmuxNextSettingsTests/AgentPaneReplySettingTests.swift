@@ -34,7 +34,7 @@ import Testing
 
     @Test func badValuesKeepTheirDefaultWithADiagnostic() {
         let snapshot = parse(["agentPane": ["links": ["outsideRoots": "always"], "images": ["remote": "never"]]])
-        #expect(snapshot.agentPaneReplies.outsideRoots == .confirm)
+        #expect(snapshot.agentPaneReplies.outsideRoots == .open)
         #expect(snapshot.agentPaneReplies.remoteImages == .never)
         #expect(snapshot.diagnostics.map(\.path) == ["agentPane.links.outsideRoots"])
         #expect(parse(["agentPane": "open"]).diagnostics.map(\.path) == ["agentPane"])

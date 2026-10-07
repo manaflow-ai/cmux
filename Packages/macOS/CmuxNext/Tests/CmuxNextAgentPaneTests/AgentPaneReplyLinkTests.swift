@@ -153,8 +153,8 @@ import Testing
         #expect(Self.code(await model.respond(to: request)) == "link.path_outside_roots")
         #expect(box.opened.isEmpty)
 
-        // confirm (default): the host's sheet asks; Cancel opens nothing, Open opens it.
-        (model, box) = fixture.model()
+        // confirm (an opt-in): the host's sheet asks; Cancel opens nothing, Open opens it.
+        (model, box) = fixture.model(AgentPaneReplySetting(outsideRoots: .confirm, remoteImages: .click))
         var answer = false
         model.replyLinks.confirmOutside = { path, reply in
             box.asked.append(path)
