@@ -12,6 +12,11 @@ import { durableObjectLimitsLayer } from "./limits/service.ts";
 import { parseEnvironment, parseTenantList, parseVmQuotas, tenantPolicyLayer } from "./policy.ts";
 import { entitlementsFromPolicyLayer } from "./proofs/tenant-may-create.ts";
 import { upstreamLayer } from "./upstream/live.ts";
+import { sqlSnapshotStoreLayer } from "./db/snapshots.ts";
+import { sqlApiKeyAdminStoreLayer } from "./db/api-keys.ts";
+import { stackTeamAdminLayer } from "./auth/team-admin.ts";
+import { upstreamSnapshotsLayer } from "./upstream/live-snapshots.ts";
+import { upstreamTerminalsLayer } from "./upstream/live-terminals.ts";
 
 /** The per-tenant counters Durable Object; wrangler binds it as TENANT_LIMITS. */
 export { TenantLimitsObject } from "./limits/durable-object.ts";
@@ -39,7 +44,10 @@ const liveServices = (env: Env) => {
     vmQuotas: parseVmQuotas(env.TENANT_VM_QUOTAS),
   });
   return Layer.mergeAll(
-    sqlStoresLayer.pipe(Layer.provide(hyperdriveSqlLayer(env.HYPERDRIVE.connectionString))),
+    // Snapshot rows and API key management (slice S3a) share the request's connection with the other stores.
+    Layer.mergeAll(sqlStoresLayer, sqlSnapshotStoreLayer, sqlApiKeyAdminStoreLayer).pipe(
+      Layer.provide(hyperdriveSqlLayer(env.HYPERDRIVE.connectionString)),
+    ),
     policy,
     // TODO(cx-b4h, owner: Lawrence Chen): the real billing source; see Entitlements.
     entitlementsFromPolicyLayer.pipe(Layer.provide(policy)),
@@ -50,7 +58,19 @@ const liveServices = (env: Env) => {
       projectId: env.STACK_PROJECT_ID,
       serverKey: Redacted.make(env.STACK_SECRET_SERVER_KEY),
     }),
+    s3aServices(env),
+    stackTeamAdminLayer({
+      apiUrl: env.STACK_API_URL,
+      projectId: env.STACK_PROJECT_ID,
+      serverKey: Redacted.make(env.STACK_SECRET_SERVER_KEY),
+    }),
   );
+};
+
+/** The provider snapshot and terminal clients (slice S3a). */
+const s3aServices = (env: Env) => {
+  const upstream = { baseUrl: env.UPSTREAM_API_URL, apiKey: env.UPSTREAM_API_KEY };
+  return Layer.mergeAll(upstreamSnapshotsLayer(upstream), upstreamTerminalsLayer(upstream));
 };
 
 let cached: { readonly env: Env; readonly handler: (request: Request) => Promise<Response> } | undefined;
