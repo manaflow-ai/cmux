@@ -56,7 +56,6 @@ import Testing
 
     @Test func conversationSectionHeadersHaveNoNativeBackgroundOrDivider() throws {
         let row = HomeConversationTableRowView(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
-        row.isGroupRow = true
         let rep = try #require(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 240, pixelsHigh: 24,
                                                 bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
                                                 isPlanar: false, colorSpaceName: .deviceRGB,
