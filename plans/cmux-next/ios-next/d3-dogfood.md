@@ -1,12 +1,13 @@
 # D3 `dogfood`: parity, device checklist, UI tests, runbook
 
 Status: first pass 2026-10-07 on `feat-cmux-next-ios-d3-dogfood` (base `feat-cmux-next-ios` at
-`b3cffeafeda`, which includes B2's large-frame fix). Plan: [PLAN.md](PLAN.md) D3. No build or device
+`afbc8c69b3b`, which includes B2's large-frame fix and C12 `cloud`). Plan: [PLAN.md](PLAN.md) D3. No build or device
 was available (no fleet manifest, dev backend VM unreachable, GitHub auth broken, 9 to 16 GiB free),
 so this pass covers everything that needs neither, and leaves the rest one command away (section 6).
 
-Lanes still open on their own branches and not audited here: C3 `rd` (5 commits ahead), C12 `cloud`
-(2 ahead), C14 `web` (5 ahead), D1b `mac-integration` (no commits yet). B2's fix is merged.
+Lanes still open on their own branches and not audited here: C3 `rd` (7 commits ahead), C14 `web`
+(10 ahead), D1b `mac-integration` (3 ahead). B2's fix and C12 landed during this pass and are in
+the matrix; C12 got a light audit (l10n clean, one VoiceOver fix) and a UI test class.
 
 ## 1. Parity matrix
 
@@ -20,7 +21,7 @@ seam with no real owner yet), **seam only** (protocol or hook, no UI or no owner
 | 1.1 | Composition root, scene, lifecycle diagnostics | A1, C16 | done |
 | 1.1 | Root auth gate and restore screen | kept | done |
 | 1.1 | NotificationService extension | C7 | done (extension target typechecked, not compiled by Xcode) |
-| 1.1 | CloudVPN packet-tunnel extension | C12 | dropped (VM attach rides `CmuxLink`; C12 pending) |
+| 1.1 | CloudVPN packet-tunnel extension | C12 | dropped (c12-cloud.md 3: VM attach rides `CmuxLink`) |
 | 1.1 | Remote feature flags | C16 | seam only (flag merge built; B1 `config.snapshot` not served) |
 | 1.1 | App Review demo mode | C16 | done (DEBUG `CMUX_IOS_DEMO`; remote trigger waits on B1) |
 | 1.1 | Multiple scenes | - | dropped (out of scope) |
@@ -36,7 +37,7 @@ seam with no real owner yet), **seam only** (protocol or hook, no UI or no owner
 | 1.4 | Deferred sign-in (SSH without an account) | C16 | missing (design note only) |
 | 1.5 | Onboarding stages, push opt-in, pairing, connect, replay | C10, B6 | done |
 | 1.5 | Keep-awake onboarding card | C10, C16 | missing |
-| 1.5 | Cloud onboarding | C12 | missing (C12 pending) |
+| 1.5 | Cloud onboarding | C12 | done (`cloudOnboarding` step) |
 | 1.5 | One-time migration sheets | - | dropped (no iroh) |
 | 1.6 | QR scanner, manual add, setup help | B6, B4 | done |
 | 1.6 | Same-account zero-touch connect, registry, presence | B6, B1 | done |
@@ -50,7 +51,7 @@ seam with no real owner yet), **seam only** (protocol or hook, no UI or no owner
 | 1.6 | Keep Mac Awake per Mac | C16 | mocked (no Mac power assertion, B5/D1b) |
 | 1.7 | Tabs (Home, Feed, Workspaces, Compose, Hosts, Settings), floating compose | A1, C8 | done |
 | 1.7 | Legacy Notifications tab | - | dropped (Feed) |
-| 1.7 | Cloud tab | C12 | missing (C12 pending) |
+| 1.7 | Cloud tab | C12 | done (live CloudDO ops) |
 | 1.7 | Search tab | C15 | done |
 | 1.7 | Disconnected / no-Mac shell | C5, C10 | done |
 | 1.8 | Previews, unread, machine colors, filters, sorts, view options | C5 | done |
@@ -59,7 +60,7 @@ seam with no real owner yet), **seam only** (protocol or hook, no UI or no owner
 | 1.8 | Row actions read, rename, close | C5 | done |
 | 1.8 | Customize sheet (color, icon) | C5 | missing |
 | 1.8 | SSH computers and their workspaces in the list | C9, C5 | missing (SSH hosts live in Hosts; tmux/screen/cmux-tui listing not built) |
-| 1.8 | Cloud machines in the list | C12 | missing (C12 pending) |
+| 1.8 | Cloud machines in the list | C12 | seam only (`cloudWorkspaces` flag off until the VM Rust host, c12 4) |
 | 1.8 | Presence announce of the viewed workspace | C5 | done |
 | 1.9 | Detail container, title menu, terminal picker | C5, D1 | done |
 | 1.9 | Terminal surface | A2, C1, D1 | done (real Macs blocked on D1b, see 2.1) |
@@ -93,7 +94,8 @@ seam with no real owner yet), **seam only** (protocol or hook, no UI or no owner
 | 1.15 | Workspaces over SSH (tmux control mode, screen, cmux-tui) | C9 | missing (plain PTY only) |
 | 1.15 | SFTP browser | C4, C9 | missing (scoped in c4-files.md 8) |
 | 1.15 | SOCKS proxy and local port forward | C14 | missing (C14 pending) |
-| 1.16 | Cloud tab, VM lifecycle, quota, terminal attach | C12 | missing (C12 pending) |
+| 1.16 | Cloud VM lifecycle and quota (create, start, pause, delete, plan) | C12 | done (`vm_hours_used` 0 until metering) |
+| 1.16 | Cloud VM terminal and files attach | C12 | seam only (needs the phase-2 Rust host on the VM) |
 | 1.16 | StoreKit plans, purchase, restore | C16 | mocked (`MockBillingStore`, `PlansView` stub) |
 | 1.17 | Account, sign out, delete account, team | C11 | done |
 | 1.17 | What's New archive and post-update sheet | C16 | done |
@@ -115,12 +117,11 @@ seam with no real owner yet), **seam only** (protocol or hook, no UI or no owner
 | 1.19 | Localization (en, ja translated) | all | done (section 4) |
 | 1.19 | Background modes, protected data | kept, C7, A2 | done |
 
-Counts (97 rows): done 68, mocked 3, seam only 3, missing 19, dropped 4. (Rows with partial notes
+Counts (98 rows): done 71, mocked 3, seam only 5, missing 15, dropped 4. (Rows with partial notes
 count under their main status.)
 
 Missing, grouped by owner:
-- Pending lanes: Cloud tab, VMs in the list, Cloud onboarding (C12); in-app browser, simulator
-  stream, SOCKS and port forward (C14).
+- Pending lane C14: in-app browser, simulator stream, SOCKS and port forward.
 - C5 follow-up: group collapse, rename and drag reorder; customize sheet.
 - C9/C4 follow-up: SSH workspaces (tmux, screen, cmux-tui) in the list; SFTP.
 - C8/C4/D1 follow-up: terminal composer with image paste; drafts per terminal; composer uploader
@@ -214,7 +215,7 @@ comes from. Steps run on the tagged pair `nxd3` (section 6).
 
 New classes in `ios/cmuxUITests` (target `cmuxUITests`, scheme `cmux-ios`, registered in
 `project.pbxproj`). `NextUITestSupport.launchShell(tab:)` sets `CMUX_IOS_HOME_PREVIEW=1`,
-`CMUX_IOS_SOURCES=mock`, `CMUX_IOS_ONBOARDING=0`, `CMUX_IOS_FLAG_{FEED,WORKSPACES,COMPOSE,HOSTS,SEARCH}_TAB=1`
+`CMUX_IOS_SOURCES=mock`, `CMUX_IOS_ONBOARDING=0`, `CMUX_IOS_FLAG_{FEED,WORKSPACES,COMPOSE,HOSTS,SEARCH,CLOUD}_TAB=1`
 and `CMUX_IOS_SHELL_TAB=<tab>`; `launchOnboarding(step:)` sets `CMUX_IOS_ONBOARDING=1` (and
 `CMUX_IOS_ONBOARDING_STEP`) signed out. English locale, predicate waits, no sleeps.
 
@@ -229,13 +230,15 @@ and `CMUX_IOS_SHELL_TAB=<tab>`; `launchOnboarding(step:)` sets `CMUX_IOS_ONBOARD
 | `NextSettingsUITests` | account and version, device detail, Terminal, Notifications, Privacy, What's New, Developer sources, Demo page, Replay tour | tab `settings`, `CMUX_IOS_DEMO=1` |
 | `NextSearchUITests` | Cmd-K opens search, query -> results -> open a hit | tabs `settings`, `search` |
 | `NextDiagnosticsUITests` | Diagnostics rows, Copy Support Info, Clear Log confirms, terminal bench reports | tab `settings`, `CMUX_IOS_TERMINAL_BENCH=flood` |
+| `NextCloudUITests` | mock machines listed, New Machine creates one | tab `cloud`, `CMUX_IOS_FLAG_CLOUD_TAB=1` |
 
 Identifiers added (no behavior change): `home.screen`, `terminal.screen`, `terminal.view`,
 `onboarding.signIn.title`, `feed.action.{allow,deny,allowOptions,reply}`, `feed.suggestion.<text>`,
 `feed.resolution`, `feed.composer.send`, `platform.diagnostics.lines`.
 
 Verification: `xcrun --sdk iphonesimulator swiftc -typecheck -target arm64-apple-ios17.0-simulator
--swift-version 6 ios/cmuxUITests/*.swift` is clean; the package-side identifier lines were not compiled
+-F $P/Library/Frameworks -I $P/usr/lib -swift-version 6 ios/cmuxUITests/*.swift` (`P` = the simulator
+platform's `Developer` dir) is clean; the package-side identifier lines were not compiled
 (single modifier or property set each). Not run: no simulator here (section 6.4 runs them).
 
 Known risks for the first run: feed inline buttons in list cells are VoiceOver custom actions that
@@ -246,7 +249,8 @@ tests need a fresh simulator keychain (a restored session skips to the signed-in
 
 ## 4. Static audits
 
-Commits on this branch: `e007e274b45` (l10n), `4a8a7408bcf`, `c06733cd04d`, `ae07aef5b51` (a11y).
+Commits on this branch: `e007e274b45` (l10n), `4a8a7408bcf`, `c06733cd04d`, `ae07aef5b51`,
+`566f244d094` (a11y).
 
 1. Localization. `scripts/cmux-next/check-l10n.sh` scans only `Packages/macOS/CmuxNext`; a copy
    pointed at `ios/CmuxiOS/Sources` and `Packages/Shared` found no key missing en or ja and no bare UI
@@ -267,7 +271,8 @@ Commits on this branch: `e007e274b45` (l10n), `4a8a7408bcf`, `c06733cd04d`, `ae0
 5. VoiceOver and Dynamic Type, fixed: unread badge and chip font did not follow live Dynamic Type
    (`ShellTypography` chip font through `UIFontMetrics`); workspace detail's ellipsis menu had no label
    ("Workspace Actions"); transfer rows did not say Upload or Download and formatted percent by hand;
-   the SSH import selection glyph was read twice; the composer mock chip had a fixed font.
+   the SSH import selection glyph was read twice; the composer mock chip had a fixed font; Cloud
+   size rows read "Checkmark" and "Lock" on top of the selected and disabled states.
 
 Left for owners, most severe first:
 - Medium (A3/B2/B3/B1): unbounded buffers on network ingress with no back-pressure:
@@ -369,7 +374,7 @@ scripts/verify-remote.sh capacity
 # on the leased Mac, in a checkout of this branch, with NX_SIM_UDID = its per-lease simulator:
 for c in NextShellTabsUITests NextOnboardingUITests NextFeedUITests NextWorkspacesUITests \
          NextComposerUITests NextHostsUITests NextSettingsUITests NextSearchUITests \
-         NextDiagnosticsUITests KeyboardAuditUITests; do
+         NextDiagnosticsUITests NextCloudUITests KeyboardAuditUITests; do
   KBD_CLASS=$c NX_ARTIFACTS=artifacts/d3-uitests/$c ios/scripts/keyboard-uitests.sh
 done
 ```
