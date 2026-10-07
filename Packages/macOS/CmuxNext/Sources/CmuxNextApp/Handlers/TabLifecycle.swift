@@ -31,6 +31,9 @@ enum TabLifecycle {
             })
             return
         }
+        // From an agent chat's column, a person's terminal opens beside the chat (two columns like the Codex app).
+        if invocation.origin == .user, let controller,
+           ChatColumnPlacement.openTerminal(from: controller, cwd: cwd, keep: keep, services: ctx.services) { return }
         if let controller { return controller.newTerminalTab(cwd: cwd, keep: keep, fromSelectedTab: true) }
         let handle = pane.handle
         let start = cwd ?? pane.tabs.first?.cwd
