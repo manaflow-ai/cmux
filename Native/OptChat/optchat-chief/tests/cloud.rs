@@ -685,4 +685,40 @@ fn the_cloud_link_subscribes_the_wake_queue_with_the_chief_lease() {
         DaemonEvent::MuxWake(wakes) => assert_eq!(wakes, vec![wake("conv_other", 1)]),
         _ => panic!("expected the new wake"),
     }
+    // A new lease (the daemon asks for one): the queue is subscribed again
+    // on it.
+    writeln!(
+        sub,
+        "{}",
+        json!({"event": "cloud-session-needed", "reason": "expiring", "expires_at": 1})
+    )
+    .unwrap();
+    let subscribed_after = |token: &str| {
+        let requests = requests.lock().unwrap();
+        requests
+            .iter()
+            .position(|r| r["cmd"] == "cloud-session-set" && r["access_token"] == token)
+            .is_some_and(|lease| {
+                requests[lease..]
+                    .iter()
+                    .any(|r| r["cmd"] == "cloud-mux-subscribe")
+            })
+    };
+    let deadline = std::time::Instant::now() + wait;
+    while !subscribed_after("jwt-2") {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "no queue subscribe on the new lease: {:?}",
+            requests.lock().unwrap()
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    // A reconnect: a new lease and a new queue subscribe.
+    writeln!(sub, "{}", json!({"event": "cloud-subscription-state", "scope": "conversation", "conversation": CONV, "state": "disconnected", "reason": "unavailable"})).unwrap();
+    assert!(matches!(rx.recv_timeout(wait).unwrap(), DaemonEvent::Down));
+    assert!(matches!(
+        rx.recv_timeout(wait).unwrap(),
+        DaemonEvent::Up { .. }
+    ));
+    assert!(subscribed_after("jwt-3"), "{:?}", requests.lock().unwrap());
 }
