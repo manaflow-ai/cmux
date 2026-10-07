@@ -239,6 +239,23 @@
         }
       }
     },
+    "conversation.link.removePreview": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove link preview"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンクプレビューを削除"
+          }
+        }
+      }
+    },
     "conversation.link.tapToLoad": {
       "extractionState": "manual",
       "localizations": {

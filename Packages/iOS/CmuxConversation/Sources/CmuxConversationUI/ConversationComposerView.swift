@@ -34,6 +34,8 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
     private let attachmentSeparator = UIView()
     private var attachmentViews: [UIView] = []
     private(set) var attachments: [ComposerAttachment] = []
+    /// Pending rich link card for a URL that opens or ends the draft.
+    let linkPreview = ComposerLinkPreview()
 
     /// Set by the controller: the field may grow until it reaches the header.
     var maximumFieldHeight: CGFloat = 600 { didSet { if oldValue != maximumFieldHeight { updateHeight() } } }
@@ -92,6 +94,11 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         fieldGlass.layer.borderColor = UIColor.separator.cgColor
         fieldGlass.contentView.addSubview(attachmentStrip)
         fieldGlass.contentView.addSubview(attachmentSeparator)
+        fieldGlass.contentView.addSubview(linkPreview.container)
+        linkPreview.onChange = { [weak self] in
+            self?.setNeedsLayout()
+            self?.updateHeight()
+        }
         attachmentSeparator.backgroundColor = .separator
         attachmentStrip.showsHorizontalScrollIndicator = false
         attachmentStrip.isHidden = true
@@ -159,6 +166,11 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
             textTop = attachmentHeight + 16
             layoutAttachments()
         }
+        if linkPreview.preview != nil {
+            linkPreview.layout(fieldWidth: field.width)
+            linkPreview.container.frame.origin.y = textTop
+            textTop += linkPreview.container.frame.height
+        }
         let trailing = sendSize.width + 10
         textView.frame = CGRect(x: fieldTextInset, y: textTop, width: field.width - fieldTextInset - trailing, height: field.height - textTop)
         placeholder.frame = CGRect(x: fieldTextInset, y: textTop + verticalPadding, width: textView.bounds.width, height: ConversationTheme.lineHeight)
@@ -183,6 +195,7 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         updatePlaceholder()
         updateSendButton(animated: true)
         updateHeight()
+        linkPreview.textChanged(text)
         delegate?.composerDidChangeText(self)
     }
 
@@ -211,6 +224,7 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         let lines = max(1, round((textSize.height - 2 * verticalPadding) / ConversationTheme.lineHeight))
         var natural = ConversationTheme.composerMinHeight + (lines - 1) * ConversationTheme.lineHeight
         if !attachments.isEmpty { natural += attachmentHeight + 16 }
+        natural += linkPreview.height(forFieldWidth: fieldGlass.bounds.width > 0 ? fieldGlass.bounds.width : bounds.width - 120)
         let height = min(natural, maximumFieldHeight)
         textView.isScrollEnabled = natural > maximumFieldHeight
         guard height != fieldHeight else { return }
@@ -286,6 +300,7 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         attachmentStrip.isHidden = true
         attachmentSeparator.isHidden = true
         textView.text = ""
+        linkPreview.reset()
         updatePlaceholder()
         updateSendButton(animated: true)
         let previous = fieldHeight

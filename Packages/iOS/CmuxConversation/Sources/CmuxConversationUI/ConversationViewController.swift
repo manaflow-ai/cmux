@@ -117,6 +117,7 @@ public final class ConversationViewController: UIViewController {
         view.addSubview(composerContainer)
         composer.translatesAutoresizingMaskIntoConstraints = false
         composer.delegate = self
+        composer.linkPreview.fetch = { [weak store] url in await store?.fetchLinkPreview(for: url) }
         if let placeholder = options.placeholder { composer.placeholderText = placeholder }
         composerContainer.addSubview(composer)
 
