@@ -180,7 +180,8 @@ describe("conversation core (ports of the Rust crate tests)", () => {
     expect(json.message.parts).toEqual([{ type: "text", text: "hi" }])
     expect(json.message.reactions).toEqual([])
     expect("edited_at" in json.message).toBe(false)
-    expect(LOCAL_REJECT_CODES).toHaveLength(20)
+    expect(LOCAL_REJECT_CODES).toHaveLength(23)
+    expect(LOCAL_REJECT_CODES.slice(20)).toEqual(["human_only", "question_closed", "invalid_answer"])
     expect(LOCAL_REJECT_CODES.slice(0, 7)).toEqual([
       "not_participant",
       "not_author",
