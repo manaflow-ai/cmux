@@ -210,4 +210,23 @@ public struct SSHTuiConnection: Sendable {
                       "--allowed-host", "::1"]
         return arguments
     }
+
+    /// Opens one authenticated, loopback-only TCP route through the SSH carrier.
+    /// The app pre-binds and retains the browser-visible loopback socket. The
+    /// child inherits it on stdin so its exit cannot expose the URL to a local
+    /// service that later reuses the port.
+    public func forwardArguments(stateDirectory: String, target: CloudPortForwardTarget) -> [String] {
+        var arguments = ["remote", "forward", "ssh://" + configuration.destination,
+                         "--workspace-root", "/", "--host", target.host,
+                         "--port", String(target.port), "--listen-fd", "0", "--scheme", "http",
+                         "--exit-with-parent", "--lanes", "single", "--carrier",
+                         "--session", session, "--state-dir", stateDirectory,
+                         "--device-name", CloudTuiClientPaths.deviceName()]
+        var sshArguments = ["-o", "BatchMode=yes", "-o", "RequestTTY=no", "-o", "RemoteCommand=none"]
+        if let port = configuration.port { sshArguments += ["-p", String(port)] }
+        if let identity = configuration.identityFile { sshArguments += ["-i", identity] }
+        for option in sshOptions { sshArguments += ["-o", option] }
+        for argument in sshArguments { arguments += ["--ssh-arg", argument] }
+        return arguments
+    }
 }

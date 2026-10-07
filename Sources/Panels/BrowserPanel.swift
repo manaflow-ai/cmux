@@ -2146,6 +2146,11 @@ final class BrowserPanel: Panel, ObservableObject {
     var cloudBrowserStoreIdentity: UUID?
     var cloudBrowserProxyEndpoint: CloudBrowserProxyEndpoint?
     var cloudBrowserProxyAddress: String?
+    var cloudLoopbackContentRuleList: WKContentRuleList?
+    var cloudLoopbackRuntimeBridgeScript: WKUserScript?
+    var cloudLoopbackProtectionGeneration = UUID()
+    var cloudLoopbackScriptGeneration = 0
+    var cloudLoopbackScriptConfigurationKey: String?
     /// Saved Cloud path waiting for a provider/resource to become available.
     /// It is consumed after the first successful authenticated configuration.
     var pendingCloudRestoreURL: URL?
@@ -5734,6 +5739,18 @@ final class BrowserPanel: Panel, ObservableObject {
             onNavigationStarted?(nil)
             navigationDelegate?.blockURLAllowlistNavigation(url, in: webView)
             return nil
+        }
+        if let model = cloudAccess.model, model.route == .loopback,
+           cloudAccess.owns(url), let forwardedURL = model.url(for: url), forwardedURL != url {
+            var forwardedRequest = request
+            forwardedRequest.url = forwardedURL
+            return navigateWithoutInsecureHTTPPrompt(
+                request: forwardedRequest,
+                recordTypedNavigation: recordTypedNavigation,
+                preserveRestoredSessionHistory: preserveRestoredSessionHistory,
+                trustedInternalNavigation: trustedInternalNavigation,
+                onNavigationStarted: onNavigationStarted
+            )
         }
         if trustedInternalNavigation {
             if url.isFileURL {

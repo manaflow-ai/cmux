@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, VecDeque};
 use std::fmt;
-use std::net::SocketAddr;
+use std::net::{SocketAddr, TcpListener as StdTcpListener};
 use std::sync::Arc;
 
 use bytes::Bytes;
@@ -63,13 +63,41 @@ impl LocalPortForward {
         address: SocketAddr,
         maximum_connections: usize,
     ) -> Result<Self, BridgeError> {
+        let listener = tokio::net::TcpListener::bind(address).await?;
+        Self::from_listener_with_limit(multiplexer, route, listener, maximum_connections).await
+    }
+
+    /// Serves a pre-bound loopback listener. The caller may retain another
+    /// descriptor for the socket so the browser-visible endpoint stays
+    /// reserved if the remote transport exits.
+    pub async fn from_listener(
+        multiplexer: Arc<ServiceMultiplexer>,
+        route: RouteId,
+        listener: StdTcpListener,
+    ) -> Result<Self, BridgeError> {
+        listener.set_nonblocking(true)?;
+        Self::from_listener_with_limit(
+            multiplexer,
+            route,
+            tokio::net::TcpListener::from_std(listener)?,
+            DEFAULT_MAX_FORWARD_CONNECTIONS,
+        )
+        .await
+    }
+
+    async fn from_listener_with_limit(
+        multiplexer: Arc<ServiceMultiplexer>,
+        route: RouteId,
+        listener: tokio::net::TcpListener,
+        maximum_connections: usize,
+    ) -> Result<Self, BridgeError> {
+        let address = listener.local_addr()?;
         if !address.ip().is_loopback() {
             return Err(BridgeError::UnsafeBind(address));
         }
         if maximum_connections == 0 {
             return Err(BridgeError::InvalidConnectionLimit);
         }
-        let listener = tokio::net::TcpListener::bind(address).await?;
         let local_addr = listener.local_addr()?;
         let permits = Arc::new(Semaphore::new(maximum_connections));
         let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
@@ -999,6 +1027,28 @@ mod tests {
 
         drop(first_socket);
         drop(second_socket);
+        forward.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn inherited_forward_listener_keeps_its_prebound_port() {
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+        let daemon = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let reserved_port = listener.local_addr().unwrap().port();
+        let forward = LocalPortForward::from_listener(client, RouteId(11), listener).await.unwrap();
+        assert_eq!(forward.local_addr().port(), reserved_port);
+
+        let socket = tokio::net::TcpStream::connect(forward.local_addr()).await.unwrap();
+        let stream = tokio::time::timeout(std::time::Duration::from_secs(1), daemon.accept())
+            .await
+            .expect("inherited listener did not carry an accepted connection")
+            .unwrap()
+            .unwrap();
+        assert_eq!(stream.service, Service::TcpTunnel);
+        stream.stream.reject("test".into(), "done".into()).await.unwrap();
+        drop(socket);
         forward.shutdown().await;
     }
 

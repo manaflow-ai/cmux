@@ -15,8 +15,11 @@ final class CloudPortAccessStore {
     }
     private(set) var models: [CloudPortAccessKey: CloudPortAccessModel] = [:]
 
-    func model(machineID: String, target: CloudPortForwardTarget, scheme: String = "http", make: () -> CloudPortAccessModel) -> CloudPortAccessModel {
-        let key = CloudPortAccessKey(machineID: machineID, port: target.port, scheme: scheme.lowercased())
+    func model(machineID: String, target: CloudPortForwardTarget, scheme: String = "http", loopbackHost: String? = nil,
+               make: () -> CloudPortAccessModel) -> CloudPortAccessModel {
+        let key = CloudPortAccessKey(
+            machineID: machineID, port: target.port, scheme: scheme.lowercased(), loopbackHost: loopbackHost
+        )
         if let existing = models[key], existing.phase != .closed {
             existing.updateTarget(target)
             return existing

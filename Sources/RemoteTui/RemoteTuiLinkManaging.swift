@@ -10,6 +10,16 @@ protocol RemoteTuiLinkManaging: Sendable {
     func privateAddresses(for machineID: String) async -> [String]
     func setPrivateAddresses(_ addresses: [String], for machineID: String) async
     func browserProxy(machineID: String) async throws -> CloudBrowserProxyEndpoint
+    func loopbackForward(machineID: String, target: CloudPortForwardTarget) async throws -> UInt16
+    func closeLoopbackForward(machineID: String, target: CloudPortForwardTarget) async
 }
 
 extension CloudMachineLinkManager: RemoteTuiLinkManaging {}
+
+extension RemoteTuiLinkManaging {
+    func loopbackForward(machineID: String, target: CloudPortForwardTarget) async throws -> UInt16 {
+        throw CancellationError()
+    }
+
+    func closeLoopbackForward(machineID: String, target: CloudPortForwardTarget) async {}
+}
