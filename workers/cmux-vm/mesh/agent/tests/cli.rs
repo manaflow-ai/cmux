@@ -737,7 +737,10 @@ fn peers_without_an_api_key_signs_with_the_install_key() {
     assert_signed(&sent, "peers", "dev_1", "", &install_public, "");
     let printed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(printed["peers"][0]["id"], "vm_a");
-    assert_no_private_key(&install_file, &[&output.stdout, &output.stderr, request.body.as_bytes()]);
+    assert_no_private_key(
+        &install_file,
+        &[&output.stdout, &output.stderr, request.body.as_bytes()],
+    );
 }
 
 #[test]
