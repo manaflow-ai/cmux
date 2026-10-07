@@ -1,5 +1,5 @@
 public import CmuxiOSFeatureKit
-public import CmuxiOSSFTPCore
+import CmuxiOSSFTPCore
 public import CmuxiOSSSHCore
 import CmuxMobileSSH
 public import CmuxTerminalRenderCore

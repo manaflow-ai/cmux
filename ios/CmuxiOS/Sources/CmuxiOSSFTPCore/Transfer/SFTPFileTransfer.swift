@@ -1,6 +1,6 @@
 public import CmuxiOSFeatureKit
 import CmuxMobileSSH
-public import Foundation
+import Foundation
 
 /// C4's `FileTransfer` for SSH hosts (lane E5): uploads and downloads over
 /// the host's SFTP session from `SFTPHostDirectory`. Progress per

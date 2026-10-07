@@ -1,4 +1,4 @@
-public import Foundation
+import Foundation
 
 /// The typed confirmation before Erase All Data: the localized word,
 /// ignoring surrounding spaces, case and character width.

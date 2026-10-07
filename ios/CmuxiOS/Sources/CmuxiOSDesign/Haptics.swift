@@ -1,5 +1,5 @@
 public import CmuxiOSFeatureKit
-public import UIKit
+import UIKit
 
 /// The only place cmux creates feedback generators (lane E5). Every call
 /// site plays through `play(_:)`, which checks `HapticsPreference` first, so

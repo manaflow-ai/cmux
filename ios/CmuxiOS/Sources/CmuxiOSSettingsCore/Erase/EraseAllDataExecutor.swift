@@ -1,4 +1,4 @@
-public import Foundation
+import Foundation
 
 /// Runs an `EraseAllDataPlan`: each item independently, so one failure
 /// never stops the rest; failures are collected for the final screen.
