@@ -13,6 +13,11 @@
 // without a DOM (test/gallery-coverage.test.ts). A component host loads its component lazily.
 import type { ComponentType } from "react";
 import type { AcpmuxSnapshot } from "../agent-session/acpmux/model";
+import type { AppDetail, Grants, InstalledApp } from "../pages/apps/types";
+import type { CloudMachine, CloudSnapshot } from "../pages/cloud/ops";
+import type { ProviderRow } from "../pages/coderouter/types";
+import type { ReleaseNotes } from "../pages/changelog/types";
+import type { PickerSession } from "../pages/icon-picker/host";
 import type { WidthName } from "./env";
 
 /** Common to every variant. */
@@ -59,6 +64,54 @@ export type DiffPageVariant = VariantBase & {
   baseRef?: string;
 };
 
+/** The App Store page on an in-page cmuxPage host serving its supervisor projection. */
+export type AppsPageVariant = VariantBase & {
+  hash?: string;
+  mode?: "normal" | "loading" | "error";
+  action?: "install";
+  error?: { code: string; message: string };
+  data: {
+    details: Record<string, AppDetail>;
+    installed: Record<string, InstalledApp>;
+    grants: Record<string, Grants>;
+  };
+};
+
+/** The Cloud page on an in-page cmuxPage host serving the Cloud app server's projection. */
+export type CloudPageVariant = VariantBase & {
+  mode?: "normal" | "loading" | "error";
+  action?: "select-machine" | "create";
+  error?: { code: string; message: string };
+  signedIn?: boolean;
+  layout?: "rows" | "cards";
+  machines: CloudMachine[];
+  snapshots: CloudSnapshot[];
+};
+
+/** The CodeRouter page on an in-page cmuxPage host serving account and provider rows. */
+export type CodeRouterPageVariant = VariantBase & {
+  mode?: "normal" | "loading" | "error";
+  error?: { code: string; message: string };
+  signedIn?: boolean;
+  providers: ProviderRow[];
+};
+
+/** The changelog page on an in-page cmuxPage host serving verified release notes. */
+export type ChangelogPageVariant = VariantBase & {
+  mode?: "normal" | "loading" | "error";
+  error?: { code: string; message: string };
+  current?: string;
+  notes: ReleaseNotes[];
+};
+
+/** The icon picker page on an in-page cmuxPage host serving a picker session. */
+export type IconPickerPageVariant = VariantBase & {
+  session: PickerSession;
+  query?: string;
+  active?: number;
+  mode?: "normal" | "empty";
+};
+
 /** A React component with props, for components no page host draws on its own. */
 export type ComponentVariant<P> = VariantBase & { props: P };
 
@@ -91,6 +144,11 @@ type EntryBase<V> = {
 export type AgentPaneEntry = EntryBase<AgentPaneVariant> & { host: "agent-pane" };
 export type MarkdownPageEntry = EntryBase<MarkdownPageVariant> & { host: "markdown-page" };
 export type DiffPageEntry = EntryBase<DiffPageVariant> & { host: "diff-page" };
+export type AppsPageEntry = EntryBase<AppsPageVariant> & { host: "apps-page" };
+export type CloudPageEntry = EntryBase<CloudPageVariant> & { host: "cloud-page" };
+export type CodeRouterPageEntry = EntryBase<CodeRouterPageVariant> & { host: "coderouter-page" };
+export type ChangelogPageEntry = EntryBase<ChangelogPageVariant> & { host: "changelog-page" };
+export type IconPickerPageEntry = EntryBase<IconPickerPageVariant> & { host: "icon-picker-page" };
 export type ComponentEntry<P = Record<string, unknown>> = EntryBase<ComponentVariant<P>> & {
   host: "component";
   /** The component; loaded only in a stage frame. */
@@ -101,7 +159,17 @@ export type ComponentEntry<P = Record<string, unknown>> = EntryBase<ComponentVar
 /** Drawn only by the native gallery; the web gallery lists it and shows its native snapshots. */
 export type NativeEntry = EntryBase<NativeVariant> & { host: "native" };
 
-export type GalleryEntry = AgentPaneEntry | MarkdownPageEntry | DiffPageEntry | ComponentEntry<any> | NativeEntry;
+export type GalleryEntry =
+  | AgentPaneEntry
+  | MarkdownPageEntry
+  | DiffPageEntry
+  | AppsPageEntry
+  | CloudPageEntry
+  | CodeRouterPageEntry
+  | ChangelogPageEntry
+  | IconPickerPageEntry
+  | ComponentEntry<any>
+  | NativeEntry;
 export type HostKind = GalleryEntry["host"];
 
 /** Identity helpers that check an entry against its host's variant type. */
@@ -114,6 +182,23 @@ export const markdownPageEntry = (entry: Omit<MarkdownPageEntry, "host">): Markd
   host: "markdown-page",
 });
 export const diffPageEntry = (entry: Omit<DiffPageEntry, "host">): DiffPageEntry => ({ ...entry, host: "diff-page" });
+export const appsPageEntry = (entry: Omit<AppsPageEntry, "host">): AppsPageEntry => ({ ...entry, host: "apps-page" });
+export const cloudPageEntry = (entry: Omit<CloudPageEntry, "host">): CloudPageEntry => ({
+  ...entry,
+  host: "cloud-page",
+});
+export const codeRouterPageEntry = (entry: Omit<CodeRouterPageEntry, "host">): CodeRouterPageEntry => ({
+  ...entry,
+  host: "coderouter-page",
+});
+export const changelogPageEntry = (entry: Omit<ChangelogPageEntry, "host">): ChangelogPageEntry => ({
+  ...entry,
+  host: "changelog-page",
+});
+export const iconPickerPageEntry = (entry: Omit<IconPickerPageEntry, "host">): IconPickerPageEntry => ({
+  ...entry,
+  host: "icon-picker-page",
+});
 export function componentEntry<P>(entry: Omit<ComponentEntry<P>, "host">): ComponentEntry<P> {
   return { ...entry, host: "component" };
 }

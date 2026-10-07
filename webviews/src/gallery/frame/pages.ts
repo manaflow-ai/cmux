@@ -2,9 +2,29 @@
 // in-page cmuxPage host (test/latency/mock-host.ts, the latency harness's) that answers the page's
 // ops from the state's data. The config carries the look the app sends: the Ghostty theme pair
 // and the code font (`appearance`), and for markdown the `markdown` settings (font family, size).
-import { HostError, installMockHost } from "../../../test/latency/mock-host";
+import { HostError, installMockHost, type HostOp } from "../../../test/latency/mock-host";
+import type { PageClient } from "../../pages/shared/pageClient";
+import { AppsOps } from "../../pages/apps/types";
+import { sampleApps, MockAppsProvider } from "../../pages/apps/mockProvider";
+import { CloudOps, ACTION_RUN as CLOUD_ACTION_RUN, PAGE_COMMAND as CLOUD_PAGE_COMMAND } from "../../pages/cloud/ops";
+import { MockCloudProvider } from "../../pages/cloud/mockProvider";
+import { CodeRouterOps } from "../../pages/coderouter/types";
+import { MockCodeRouterProvider } from "../../pages/coderouter/mockProvider";
+import { ACTION_RUN as CHANGELOG_ACTION_RUN, ChangelogOps } from "../../pages/changelog/types";
+import { MockChangelogProvider } from "../../pages/changelog/mockProvider";
+import { IconPickerOps } from "../../pages/icon-picker/host";
+import { MockIconPickerHost } from "../../pages/icon-picker/mockHost";
 import { diffViewerLabelsFor, diffViewerLanguage } from "../../labels";
-import type { DiffFixtureFile, DiffPageVariant, MarkdownPageVariant } from "../format";
+import type {
+  AppsPageVariant,
+  ChangelogPageVariant,
+  CloudPageVariant,
+  CodeRouterPageVariant,
+  DiffFixtureFile,
+  DiffPageVariant,
+  IconPickerPageVariant,
+  MarkdownPageVariant,
+} from "../format";
 import { addPseudoLocales, isPseudo, pseudoText } from "../pseudo";
 import type { StageContext } from "./context";
 
@@ -204,4 +224,131 @@ export async function mountDiffPage(state: DiffPageVariant, context: StageContex
   root.dataset.cmuxPage = "diff";
   root.dataset.cmuxWebviewKind = "diff";
   await import("../../pages/diff/main");
+}
+
+function pageOps(
+  provider: PageClient,
+  operations: readonly string[],
+  state: {
+    mode?: "loading" | "error";
+    firstOperation: string;
+    error?: { code: string; message: string };
+  },
+): Record<string, HostOp> {
+  return Object.fromEntries(
+    operations.map((operation) => [
+      operation,
+      async (params: unknown) => {
+        if (state.mode === "loading" && operation === state.firstOperation) return await new Promise<never>(() => {});
+        if (state.mode === "error" && operation === state.firstOperation) {
+          throw new HostError(
+            state.error?.code ?? "cmux.page.failed",
+            state.error?.message ?? "The sample host failed.",
+          );
+        }
+        return provider.call(operation, params);
+      },
+    ]),
+  );
+}
+
+function clickLater(selector: string): void {
+  setTimeout(() => document.querySelector<HTMLElement>(selector)?.click(), 80);
+}
+
+export async function mountAppsPage(state: AppsPageVariant, _context: StageContext): Promise<void> {
+  const provider = new MockAppsProvider(JSON.parse(JSON.stringify(state.data)) as ReturnType<typeof sampleApps>);
+  const host = installMockHost(
+    pageOps(provider, [...Object.values(AppsOps), "cmux.page.connection", "cmux.page.command"], {
+      mode: state.mode === "normal" ? undefined : state.mode,
+      firstOperation: AppsOps.catalogList,
+      error: state.error,
+    }),
+    [AppsOps.watch, AppsOps.logs, "cmux.page.connection", "cmux.page.command"],
+  );
+  host.delayMs = 0;
+  if (state.hash) location.hash = state.hash;
+  document.documentElement.dataset.cmuxPage = "apps";
+  document.documentElement.dataset.cmuxWebviewKind = "apps";
+  await import("../../pages/apps/main");
+  if (state.action === "install") clickLater(".apps-button.primary");
+}
+
+export async function mountCloudPage(state: CloudPageVariant, _context: StageContext): Promise<void> {
+  const provider = new MockCloudProvider({ signedIn: state.signedIn ?? true, unsupported: [] });
+  provider.machines = JSON.parse(JSON.stringify(state.machines));
+  provider.snapshots = JSON.parse(JSON.stringify(state.snapshots));
+  const host = installMockHost(
+    pageOps(provider, [...Object.values(CloudOps), CLOUD_ACTION_RUN, CLOUD_PAGE_COMMAND], {
+      mode: state.mode === "normal" ? undefined : state.mode,
+      firstOperation: CloudOps.authStatus,
+      error: state.error,
+    }),
+    [CloudOps.machineWatch, CloudOps.fileTransferChanged, "cmux.page.connection", CLOUD_PAGE_COMMAND],
+  );
+  host.delayMs = 0;
+  document.documentElement.dataset.cmuxPage = "cloud";
+  document.documentElement.dataset.cmuxWebviewKind = "cloud";
+  document.documentElement.dataset.cloudMachinesLayout = state.layout ?? "rows";
+  await import("../../pages/cloud/main");
+  if (state.action === "select-machine") clickLater(".cloud-machine");
+  if (state.action === "create") clickLater(".cloud-create-button");
+}
+
+export async function mountCodeRouterPage(state: CodeRouterPageVariant, _context: StageContext): Promise<void> {
+  const provider = new MockCodeRouterProvider({ signedIn: state.signedIn ?? true });
+  provider.providers = JSON.parse(JSON.stringify(state.providers));
+  const host = installMockHost(
+    pageOps(provider, [...Object.values(CodeRouterOps), "cmux.page.connection", "cmux.page.command"], {
+      mode: state.mode === "normal" ? undefined : state.mode,
+      firstOperation: CodeRouterOps.status,
+      error: state.error,
+    }),
+    ["cmux.page.connection", "cmux.page.command"],
+  );
+  host.delayMs = 0;
+  document.documentElement.dataset.cmuxPage = "coderouter";
+  document.documentElement.dataset.cmuxWebviewKind = "coderouter";
+  await import("../../pages/coderouter/main");
+}
+
+export async function mountChangelogPage(state: ChangelogPageVariant, _context: StageContext): Promise<void> {
+  const provider = new MockChangelogProvider(JSON.parse(JSON.stringify(state.notes)), state.current);
+  const host = installMockHost(
+    pageOps(provider, [ChangelogOps.list, ChangelogOps.get, CHANGELOG_ACTION_RUN], {
+      mode: state.mode === "normal" ? undefined : state.mode,
+      firstOperation: ChangelogOps.list,
+      error: state.error,
+    }),
+    [],
+  );
+  host.delayMs = 0;
+  document.documentElement.dataset.cmuxPage = "changelog";
+  document.documentElement.dataset.cmuxWebviewKind = "changelog";
+  await import("../../pages/changelog/main");
+}
+
+export async function mountIconPickerPage(state: IconPickerPageVariant, _context: StageContext): Promise<void> {
+  const provider = new MockIconPickerHost();
+  const host = installMockHost(
+    pageOps(provider, Object.values(IconPickerOps), { firstOperation: IconPickerOps.prefsLoad }),
+    [IconPickerOps.session],
+  );
+  host.delayMs = 0;
+  document.documentElement.dataset.cmuxPage = "icon-picker";
+  document.documentElement.dataset.cmuxWebviewKind = "icon-picker";
+  await import("../../pages/icon-picker/main");
+  const picker = (
+    globalThis as {
+      cmuxIconPicker?: {
+        open(session: unknown): void;
+        store: { setQuery(query: string): void; setActive(index: number): void };
+      };
+    }
+  ).cmuxIconPicker;
+  if (!picker) return;
+  picker.open(state.session);
+  if (state.mode === "empty") picker.store.setQuery(state.query ?? "no matching icon");
+  else if (state.query) picker.store.setQuery(state.query);
+  if (state.active !== undefined) picker.store.setActive(state.active);
 }
