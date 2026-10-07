@@ -41,6 +41,8 @@ mod personal_terminals;
 pub(crate) mod presentation_store;
 mod public_fold;
 mod public_projection_store;
+mod receipt_env;
+pub(crate) mod relaunch_store;
 mod resource_effect_commit;
 pub(crate) mod resource_store;
 pub(crate) mod screen_store;
@@ -2412,6 +2414,7 @@ impl WorkspaceRegistry {
              PRAGMA synchronous=FULL;
              PRAGMA fullfsync=ON;
              PRAGMA wal_autocheckpoint=1000;
+             PRAGMA secure_delete=ON;
              CREATE TABLE IF NOT EXISTS meta (
                key TEXT PRIMARY KEY NOT NULL,
                value TEXT NOT NULL
@@ -2726,17 +2729,24 @@ impl WorkspaceRegistry {
             )?;
             tx.commit()?;
         }
+        let scrubbed;
         {
             let tx = connection.unchecked_transaction()?;
             create_session_journal_schema(&tx)?;
             create_resource_effect_schema(&tx)?;
             create_journal_extensions_schema(&tx)?;
             recover_resource_effects(&tx)?;
+            // cx-1a6: no terminal env value rests in the exactly-once receipts.
+            scrubbed = receipt_env::scrub_stored_receipts(&tx, &resource_effect_pepper)?;
             initialize_resource_input_receipt_retention(&tx)?;
             initialize_resource_mutation_retention(&tx)?;
             repair_resources_at_open(&tx)?;
             terminal_keep_store::classify_legacy_terminals(&tx)?;
             tx.commit()?;
+        }
+        if scrubbed {
+            // Old page images must not keep the scrubbed values (WAL, main file).
+            checkpoint_and_truncate_wal(&connection)?;
         }
         let stored_name = required_meta(&connection, "session_name")?;
         if stored_name != session_name {
@@ -4002,6 +4012,7 @@ fn create_terminal_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     )?;
     idle_policy_store::create_terminal_idle_policy_schema(transaction)?;
     terminal_keep_store::create_terminal_keep_schema(transaction)?;
+    relaunch_store::create_schema(transaction)?;
     Ok(())
 }
 
@@ -5201,6 +5212,7 @@ fn prepare_terminal_host_root_for_reset(
         .filter(|(_, record)| record.record_version >= 2)
         .map(|(record_path, record)| terminal_host_live_marker_path(record_path, record))
         .collect::<HashSet<_>>();
+    crate::terminal_host_runtime::sweep_released_pty_locks(root);
     for entry in fs::read_dir(root)
         .with_context(|| format!("read terminal host state {}", root.display()))?
     {
@@ -6051,6 +6063,9 @@ impl Drop for SessionLease {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod receipt_env_tests;
 
 #[cfg(test)]
 mod personal_tests;

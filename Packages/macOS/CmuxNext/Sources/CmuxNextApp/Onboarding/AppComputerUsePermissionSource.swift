@@ -31,8 +31,8 @@ final class AppComputerUsePermissionSource: ComputerUsePermissionSource {
     /// A source over the default socket, or nil when no cmux-cua daemon
     /// listens there (onboarding then leaves the step out). A socket file
     /// left by a daemon that exited does not count.
-    static func local() -> AppComputerUsePermissionSource? {
-        let configuration = AgentActivitySocketSource.Configuration.standard(machineName: "")
+    static func local(_ configuration: AgentActivitySocketSource.Configuration
+                      = .standard(machineName: "")) -> AppComputerUsePermissionSource? {
         guard isListening(configuration.socketPath) else { return nil }
         return AppComputerUsePermissionSource(configuration: configuration)
     }

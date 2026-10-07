@@ -195,3 +195,163 @@ test("the session's own agent answers when acpmux has no decision", async () => 
   expect(doc.querySelector(".acpmux-trust-ask")).not.toBeNull();
   expect(send()!.disabled).toBe(true);
 });
+
+/// Enter does not clear the composer until the host takes the prompt: a refusal keeps it, and
+/// what was typed meanwhile stays after the host takes it.
+test("Enter keeps the prompt until the host takes it, and a refusal keeps it", async () => {
+  let settleSend: { take(): void; refuse(): void } | undefined;
+  const sent: string[] = [];
+  function Held() {
+    return createElement(Composer, {
+      snapshot,
+      chips: () => null,
+      onSend: (text: string) => {
+        sent.push(text);
+        return new Promise<void>((take, refuse) => {
+          settleSend = { take: () => take(), refuse: () => refuse(new Error("refused")) };
+        });
+      },
+      onStop: () => {},
+    });
+  }
+  await act(async () => root.render(createElement(Held)));
+  await settled();
+  await act(async () => typeInto(field(), "first"));
+  await enter();
+  expect(sent).toEqual(["first"]);
+  expect(field().value).toBe("first");
+  // A second Enter while the host decides sends no copy.
+  await enter();
+  expect(sent).toEqual(["first"]);
+  await act(async () => settleSend!.refuse());
+  await settled();
+  expect(field().value).toBe("first");
+
+  await enter();
+  expect(sent).toEqual(["first", "first"]);
+  await act(async () => settleSend!.take());
+  await settled();
+  expect(field().value).toBe("");
+});
+
+/// The pane wired as App wires a refused first send: the composer holds the prompt, acpmux's
+/// refusal names the folder (a new chat's folder the host filled in, unknown to the page).
+function RefusedPane({
+  replies,
+  sent,
+  refusal,
+  accepts,
+}: {
+  replies: Map<string, Record<string, unknown>>;
+  sent: string[];
+  refusal: { reason: string; cwd: string };
+  /// Each send the host takes waits here until the test accepts it.
+  accepts?: (() => void)[];
+}) {
+  const composer = React.useRef<import("./Composer").ComposerHandle | null>(null);
+  const source = React.useMemo(
+    () => ({
+      get: async (cwd: string) => ({ cwd, level: "unknown", ...replies.get(cwd) }),
+      set: async (cwd: string, level: TrustLevel) => {
+        replies.set(cwd, { level, decided: true });
+        return { cwd, level };
+      },
+    }),
+    [replies],
+  );
+  const trust = useFolderTrustAsk(source, { prompts: 0 });
+  return createElement(
+    React.Fragment,
+    null,
+    trust.ask
+      ? createElement(TrustAsk, {
+          ask: trust.ask,
+          agent: "Claude Code",
+          onTrust: trust.trust,
+          onDistrust: trust.distrust,
+          onUndo: trust.undo,
+        })
+      : null,
+    createElement(Composer, {
+      snapshot,
+      chips: () => null,
+      blocked: trust.blocked,
+      handle: composer,
+      onSend: (text: string) => {
+        sent.push(text);
+        const level = replies.get(refusal.cwd)?.level;
+        if (level === "trusted")
+          return accepts ? new Promise<void>((resolve) => accepts.push(() => resolve())) : Promise.resolve();
+        const error = Object.assign(new Error(refusal.reason), refusal);
+        trust.refused(error, () => composer.current?.send());
+        return Promise.reject(error);
+      },
+      onStop: () => {},
+    }),
+  );
+}
+
+test("a trust.pending refusal on the first send keeps the prompt, asks, and Trust sends it", async () => {
+  const sent: string[] = [];
+  const replies = new Map<string, Record<string, unknown>>();
+  const refusal = { reason: "trust.pending", cwd: "/agent-home/w1" };
+  await act(async () => root.render(createElement(RefusedPane, { replies, sent, refusal })));
+  await settled();
+  // The page does not know the folder: no question yet.
+  expect(doc.querySelector(".acpmux-trust-ask")).toBeNull();
+  await act(async () => typeInto(field(), "hello agent"));
+  await enter();
+  await settled();
+  expect(sent).toEqual(["hello agent"]);
+  // The prompt is still in the composer, and the question names acpmux's folder.
+  expect(field().value).toBe("hello agent");
+  expect(doc.querySelector(".acpmux-trust-ask")!.textContent).toContain("can edit and run code in w1");
+  expect(note()).toBe("Answer the trust question first");
+
+  // One gesture: Trust sends the prompt the composer held.
+  await press("Trust");
+  await settled();
+  expect(sent).toEqual(["hello agent", "hello agent"]);
+  expect(field().value).toBe("");
+});
+
+test("Don't trust after a refused first send keeps the prompt with the reason", async () => {
+  const sent: string[] = [];
+  const replies = new Map<string, Record<string, unknown>>();
+  const refusal = { reason: "trust.pending", cwd: "/agent-home/w2" };
+  await act(async () => root.render(createElement(RefusedPane, { replies, sent, refusal })));
+  await settled();
+  await act(async () => typeInto(field(), "keep me"));
+  await enter();
+  await settled();
+  await press("Don't trust");
+  await settled();
+  expect(sent).toEqual(["keep me"]);
+  expect(field().value).toBe("keep me");
+  expect(note()).toBe("You chose Don't trust, so the agent runs no prompts in this folder. Press Undo to change it.");
+});
+
+test("send, trust.pending, Trust: the prompt is delivered exactly once, cleared only after accept", async () => {
+  const sent: string[] = [];
+  const accepts: (() => void)[] = [];
+  const replies = new Map<string, Record<string, unknown>>();
+  const refusal = { reason: "trust.pending", cwd: "/agent-home/w3" };
+  await act(async () => root.render(createElement(RefusedPane, { replies, sent, refusal, accepts })));
+  await settled();
+  await act(async () => typeInto(field(), "once only"));
+  await enter();
+  await settled();
+  await press("Trust");
+  await settled();
+  // Sent again once after Trust; the host has not taken it yet, so the composer keeps it.
+  expect(sent).toEqual(["once only", "once only"]);
+  expect(accepts).toHaveLength(1);
+  expect(field().value).toBe("once only");
+  // Enter while the host decides sends no copy.
+  await enter();
+  expect(sent).toEqual(["once only", "once only"]);
+  await act(async () => accepts[0]!());
+  await settled();
+  expect(field().value).toBe("");
+  expect(sent).toEqual(["once only", "once only"]);
+});

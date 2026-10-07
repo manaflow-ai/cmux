@@ -50,12 +50,9 @@ final class SidebarListView: NSView {
     var springLoadDelay: Duration = .milliseconds(500)
     /// Clock for the spring-load delay; tests inject a manual clock.
     var springLoadClock: any Clock<Duration> = ContinuousClock()
-    /// A title click's collapse toggle waiting out the double-click interval.
-    var pendingGroupToggle: PendingGroupToggle?
-    /// How long a group title click waits for a second click.
-    var groupToggleDelay: Duration = .milliseconds(Int(NSEvent.doubleClickInterval * 1000))
-    /// Clock for the group toggle delay; tests inject a manual clock.
-    var clickClock: any Clock<Duration> = ContinuousClock()
+    /// The group header that holds keyboard focus (arrow keys stop on
+    /// headers; focus is not selection). Nil when a workspace has it.
+    var focusedGroup: GroupID?
     /// Builds the right-click menu for a target (filled by the App from the
     /// action registry). Nil means no context menu.
     var contextMenuProvider: ((SidebarContextTarget) -> NSMenu?)?
@@ -76,7 +73,6 @@ final class SidebarListView: NSView {
     isolated deinit {
         // The frame client deactivates in its own deinit (touching the lazy
         // property here would create one that weakly captures a dying self).
-        pendingGroupToggle?.task.cancel()
         NotificationCenter.default.removeObserver(self)
     }
     // MARK: - Window occlusion
@@ -187,7 +183,9 @@ final class SidebarListView: NSView {
                 if animate, let previous = old.row(for: row.key) {
                     view.frame = frame(for: previous)
                 } else if animate {
-                    view.frame = target.offsetBy(dx: 0, dy: -Metrics.space3)
+                    // An expanded row comes out from under its header.
+                    let y = SidebarRowTransition.appearY(row, from: old, to: layout, dropIn: Metrics.space3)
+                    view.frame = NSRect(x: target.minX, y: y, width: target.width, height: target.height)
                     view.alphaValue = 0
                 } else {
                     view.frame = target
@@ -210,7 +208,7 @@ final class SidebarListView: NSView {
             guard case let .emptySection(section) = row.key, old.row(for: row.key) == nil else { return nil }
             return section
         })
-        var leaving: [SidebarRowView] = []
+        var leaving: [(SidebarRowView, CGFloat)] = []
         for (key, view) in rowViews where !keep.contains(key) {
             rowViews[key] = nil
             let placeholder = if case .emptySection = key { true } else { false }
@@ -221,7 +219,9 @@ final class SidebarListView: NSView {
                 // A leaving row fades out without the selection fill: the
                 // fill is already on the new selected item (no second one).
                 view.isSelected = false
-                leaving.append(view)
+                // A collapsed row slides up under its header; another leaving row nudges up.
+                let folded = old.row(for: key).flatMap { SidebarRowTransition.foldedY($0, from: old, to: layout) }
+                leaving.append((view, folded ?? view.frame.minY - Metrics.space3))
             }
         }
         // Only an external drop's new-workspace slot has an underlay (R77: a row drag reorders in place).
@@ -236,7 +236,7 @@ final class SidebarListView: NSView {
         }
         guard animate else {
             Motion.withoutAnimation(moves)
-            leaving.forEach(recycle)
+            leaving.forEach { recycle($0.0) }
             return
         }
         // Existing rows move, new rows (group expand, insert) appear, and
@@ -249,13 +249,13 @@ final class SidebarListView: NSView {
             }
         }
         Motion.animate(.disappear, in: self, {
-            for view in leaving {
+            for (view, endY) in leaving {
                 view.animator().alphaValue = 0
-                view.animator().frame = view.frame.offsetBy(dx: 0, dy: -Metrics.space3)
+                view.animator().frame.origin.y = endY
             }
         }, completion: { [weak self] in
             guard let self else { return }
-            for view in leaving where !self.rowViews.values.contains(where: { $0 === view }) { self.recycle(view) }
+            for (view, _) in leaving where !self.rowViews.values.contains(where: { $0 === view }) { self.recycle(view) }
             self.pruneOffscreen()
         })
     }

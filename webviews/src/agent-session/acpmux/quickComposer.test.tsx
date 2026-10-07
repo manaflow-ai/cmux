@@ -62,6 +62,7 @@ afterAll(() => {
 const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { AcpmuxApp } = await import("./App");
+const { webKitPress } = await import("./popoverTriggerTesting");
 
 type Host = {
   cmuxAcpmuxActions?: Record<string, (params: Record<string, unknown>) => Promise<unknown>>;
@@ -192,7 +193,7 @@ test("⌘Return sends the prompt, then asks to open the chat in a window", async
   await type("summarize the diff");
   await key("Enter", { metaKey: true });
   expect(calls).toEqual([
-    ["chat.send", { text: "summarize the diff", attachments: [] }],
+    ["chat.send", { text: "summarize the diff", attachments: [], accepted: expect.any(Function) }],
     ["quick.openInWindow", { sessionId: "s1" }],
   ]);
   expect(prompt().value).toBe("");
@@ -209,7 +210,7 @@ test("⌘Return on a first prompt opens the window once its session has started"
     ),
   );
   expect(calls).toEqual([
-    ["chat.send", { text: "start something", attachments: [] }],
+    ["chat.send", { text: "start something", attachments: [], accepted: expect.any(Function) }],
     ["quick.openInWindow", { sessionId: "s2" }],
   ]);
 });
@@ -421,7 +422,7 @@ test("the first prompt starts the chat in the inline project's folder", async ()
   await key("Enter");
   expect(calls).toEqual([
     ["chat.new", { cwd: "/src/app" }],
-    ["chat.send", { text: "hello", attachments: [] }],
+    ["chat.send", { text: "hello", attachments: [], accepted: expect.any(Function) }],
   ]);
 });
 
@@ -444,6 +445,15 @@ const pickFolder = async (label: string) => {
   expect(item).toBeDefined();
   await act(async () => item!.click());
 };
+
+test("pressing the open folder chip closes its popover, as WebKit delivers the press", async () => {
+  await mount(undefined, startedChat(), false, { machineName: "Studio" });
+  const folder = () => container().querySelector<HTMLButtonElement>('button[aria-label="Folder"]')!;
+  await webKitPress(dom.window as never, act as never, folder());
+  expect(folder().getAttribute("aria-expanded")).toBe("true");
+  await webKitPress(dom.window as never, act as never, folder());
+  expect(folder().getAttribute("aria-expanded")).toBe("false");
+});
 
 test("the location row names this Mac; in a started chat the machine is a plain label", async () => {
   await mount(undefined, startedChat(), false, { machineName: "Studio" });

@@ -11,7 +11,9 @@ TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 git_q() { git -c user.name=t -c user.email=t@example.com -c init.defaultBranch=main "$@" >/dev/null 2>&1; }
 fail() { printf '%s\n' "$@" >&2; exit 1; }
 sha() { shasum -a 256 "$1" | awk '{print $1}'; }
-names=(cmux-tui-aarch64-apple-darwin cmux-tui-app-host-aarch64-apple-darwin cmux-tui-cloud-server-aarch64-apple-darwin)
+# Every companion the publisher requires (macOS and Linux), from its own list.
+# shellcheck disable=SC2207 # one name per line, no spaces
+names=($(python3 "$ROOT/scripts/ci/publish-cmux-tui-tree.py" --list-companions))
 
 python3 - "$ROOT/.github/workflows/cmux-tui-artifacts.yml" "$TMP/publish.sh" <<'PY'
 import sys, yaml

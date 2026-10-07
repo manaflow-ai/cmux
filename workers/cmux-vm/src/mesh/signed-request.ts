@@ -1,18 +1,24 @@
 /**
- * Install-key signatures (mesh M2, cx-0op.4, DESIGN.md section 3).
+ * Install-key signatures (mesh M2, cx-0op.4; device-signed requests M3,
+ * cx-0op.5; DESIGN.md sections 3 and 5).
  *
- * A device holds an ECDSA P-256 install key that never leaves it. Enroll and
- * key rotation carry a signature by that key over this message (UTF-8, lines
- * joined by "\n", no trailing newline):
+ * A device holds an ECDSA P-256 install key that never leaves it. Enroll, key
+ * rotation and the device's own reads carry a signature by that key over this
+ * message (UTF-8, lines joined by "\n", no trailing newline):
  *
  *   cmux-mesh-v1
- *   <purpose: enroll | rotate-key>
- *   <target: the mesh id for enroll, the device id for rotate-key>
- *   <the WireGuard public key being registered: the device key, or the new key>
+ *   <purpose: enroll | rotate-key | peers | tunnel>
+ *   <target: the mesh id for enroll, the device id for the others>
+ *   <the WireGuard public key being registered: the device key on enroll, the
+ *    new key on rotate-key, empty for peers and tunnel>
  *   <installPublicKey>
- *   <the device name for enroll, empty for rotate-key>
+ *   <the device name for enroll, empty for the others>
  *   <signedAt: unix milliseconds>
  *   <nonce: 16 random bytes, base64url without padding>
+ *
+ * For a device without a credential (enrolled with a one-time code) the
+ * signature IS the credential on the routes under /v1/devices/{id}/signed/:
+ * peers, tunnel and rotate-key of that one device, nothing else.
  *
  * The Worker rebuilds the message from the request, so a changed field fails
  * the signature. signedAt must be within SIGNATURE_SKEW_MS of the Worker's
@@ -28,7 +34,7 @@ export const SIGNATURE_SKEW_MS = 120_000;
 
 export const SIGNED_MESSAGE_VERSION = "cmux-mesh-v1";
 
-export type SignedPurpose = "enroll" | "rotate-key";
+export type SignedPurpose = "enroll" | "rotate-key" | "peers" | "tunnel";
 
 /** The 65-byte uncompressed P-256 point, base64 (starts with 0x04, so with "B"). */
 export const InstallPublicKey = Schema.String.pipe(Schema.pattern(/^B[A-Za-z0-9+/]{86}=$/u)).annotations({
@@ -75,13 +81,14 @@ export type SignatureCheck =
   | { readonly ok: false; readonly reason: "stale" | "invalid" };
 
 /**
- * Checks freshness and the signature. Never fails: a malformed key or
- * signature is "invalid". The caller still has to claim `messageSha256`
- * (replay) before it acts.
+ * Checks the signature, then freshness. Never fails: a malformed key or
+ * signature is "invalid". The signature is checked first so that "stale" is
+ * only ever said to the holder of the install key: on the credential-free
+ * device routes a forged request learns nothing. The caller still has to
+ * claim `messageSha256` (replay) before it acts.
  */
 export const checkSignature = (fields: SignedFields, signature: string, nowMs: number): Effect.Effect<SignatureCheck> =>
   Effect.promise(async (): Promise<SignatureCheck> => {
-    if (Math.abs(nowMs - fields.signedAt) > SIGNATURE_SKEW_MS) return { ok: false, reason: "stale" };
     const point = fromBase64(fields.installPublicKey);
     const raw = fromBase64(signature);
     if (point === null || point.length !== 65 || point[0] !== 4 || raw === null || raw.length !== 64) return { ok: false, reason: "invalid" };
@@ -93,6 +100,7 @@ export const checkSignature = (fields: SignedFields, signature: string, nowMs: n
     } catch {
       return { ok: false, reason: "invalid" };
     }
+    if (Math.abs(nowMs - fields.signedAt) > SIGNATURE_SKEW_MS) return { ok: false, reason: "stale" };
     return {
       ok: true,
       messageSha256: hex(await crypto.subtle.digest("SHA-256", message)),

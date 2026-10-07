@@ -81,10 +81,15 @@ export function feedSummary(outcomes: Outcome[], meta: ReportMeta) {
 
 // Outcomes may come from an artifact the PR's own code wrote (the publisher reads outcomes.json), so
 // a key becomes a URL only when it is a plain file name, and labels are escaped for a table cell.
-const SAFE_KEY = /^[A-Za-z0-9._-]+$/;
+const SAFE_KEY = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+// The publisher uploads <thumbBase file prefix><key> through scripts/pr-media.py, whose sanitize()
+// collapses each run of dashes (an `entry--variant` key keeps its double dash), so the link names
+// the file pr-media.py stores.
+const storedName = (key: string) => key.replace(/-{2,}/g, "-");
 
 export const thumbUrl = (o: Outcome, meta: ReportMeta) =>
-  o.thumb && meta.links.thumbBase && SAFE_KEY.test(o.key) ? `${meta.links.thumbBase}${o.key}` : undefined;
+  o.thumb && meta.links.thumbBase && SAFE_KEY.test(o.key) ? `${meta.links.thumbBase}${storedName(o.key)}` : undefined;
 
 /** The changed states whose thumbnails the comment shows; the publisher uploads exactly these. */
 export const commentThumbs = (outcomes: Outcome[], meta: ReportMeta) =>

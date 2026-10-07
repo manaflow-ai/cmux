@@ -32,8 +32,11 @@ export interface SignOptions {
   readonly signWith?: InstallKey;
 }
 
+/** Every purpose a device signs: enroll and rotate-key (M2), and its own peer map and tunnel config (M3). */
+export type SignedPurpose = "enroll" | "rotate-key" | "peers" | "tunnel";
+
 export function signedMessage(fields: {
-  readonly purpose: "enroll" | "rotate-key";
+  readonly purpose: SignedPurpose;
   readonly target: string;
   readonly wgPublicKey: string;
   readonly installPublicKey: string;
@@ -78,6 +81,19 @@ export async function rotateBody(install: InstallKey, deviceId: string, newPubli
   const nonce = options.nonce ?? freshNonce();
   const message = signedMessage({ purpose: "rotate-key", target: deviceId, wgPublicKey: newPublicKey, installPublicKey: install.publicKey, name: "", signedAt, nonce });
   return { newPublicKey, signedAt, nonce, signature: await sign(options.signWith ?? install, message) };
+}
+
+/**
+ * The body of a device-signed read (mesh M3): `POST /v1/devices/{deviceId}/signed/peers`
+ * or `/signed/tunnel`. The message has an empty WireGuard key and name; the
+ * install public key is the device's own (the server fills it from the device
+ * record), so it is not in the body.
+ */
+export async function deviceRequestBody(install: InstallKey, deviceId: string, purpose: "peers" | "tunnel", options: SignOptions = {}) {
+  const signedAt = options.signedAt ?? Date.now();
+  const nonce = options.nonce ?? freshNonce();
+  const message = signedMessage({ purpose, target: deviceId, wgPublicKey: "", installPublicKey: install.publicKey, name: "", signedAt, nonce });
+  return { signedAt, nonce, signature: await sign(options.signWith ?? install, message) };
 }
 
 /** SHA-256 hex, as the Worker stores an enrollment code. */

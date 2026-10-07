@@ -11,7 +11,7 @@ use serde_json::json;
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
-use cmux_mesh_agent::api::{self, ApiError, EnrollAuth, Enrollment};
+use cmux_mesh_agent::api::{self, ApiError, EnrollAuth, Enrollment, SignedRead};
 use cmux_mesh_agent::config::{self, AgentConfig};
 use cmux_mesh_agent::install::{self, Purpose};
 use cmux_mesh_agent::key;
@@ -75,10 +75,27 @@ enum Command {
         #[arg(long)]
         api: Option<String>,
     },
-    /// Print this device's peer map.
+    /// Print this device's peer map. With $CMUX_VM_API_KEY it uses the key;
+    /// without one it signs the request with --install-key.
     Peers {
         #[arg(long)]
         config: PathBuf,
+        /// The install key the device enrolled with; signs the request when
+        /// no API key is set.
+        #[arg(long)]
+        install_key: Option<PathBuf>,
+        #[arg(long)]
+        api: Option<String>,
+    },
+    /// Print this device's tunnel config (never a private key). With
+    /// $CMUX_VM_API_KEY it uses the key; without one it signs with --install-key.
+    Tunnel {
+        #[arg(long)]
+        config: PathBuf,
+        /// The install key the device enrolled with; signs the request when
+        /// no API key is set.
+        #[arg(long)]
+        install_key: Option<PathBuf>,
         #[arg(long)]
         api: Option<String>,
     },
@@ -136,6 +153,9 @@ struct SessionArgs {
     /// API base URL for resolving vm_ ids; default $CMUX_VM_API_URL.
     #[arg(long)]
     api: Option<String>,
+    /// The install key; signs the peer-map read for vm_ ids when no API key is set.
+    #[arg(long)]
+    install_key: Option<PathBuf>,
     /// How long to wait for the first WireGuard handshake.
     #[arg(long, default_value_t = 25_000)]
     handshake_timeout_ms: u64,
@@ -285,7 +305,8 @@ fn run(command: Command) -> Result<bool, Fail> {
             }
             let install = read_install_key(&install_key)?;
             let base = api::api_base(api.as_deref())?;
-            let token = api::api_key()?;
+            // Without an API key the install-key signature is the credential (M3).
+            let token = api::optional_api_key();
             // The new key is on disk before the request: if the server
             // switches and the response is lost, the key is not.
             let new_key = key::PrivateKey::generate()?;
@@ -298,7 +319,8 @@ fn run(command: Command) -> Result<bool, Fail> {
                 install::prove(&install, Purpose::RotateKey, &saved.device_id, &new_public, "")?;
             drop(install);
             let sent_at = ops::wall_ms();
-            let body = api::rotate_key(&base, &token, &saved.device_id, &new_public, &proof)?;
+            let body =
+                api::rotate_key(&base, token.as_deref(), &saved.device_id, &new_public, &proof)?;
             let responded_at = ops::wall_ms();
             let updated = config::rotated_config(&saved_text, &body, &new_public)?;
             replace_private_file(&config_path, updated.as_bytes())?;
@@ -316,11 +338,33 @@ fn run(command: Command) -> Result<bool, Fail> {
             )?;
             Ok(true)
         }
-        Command::Peers { config: config_path, api } => {
+        Command::Peers { config: config_path, install_key, api } => {
             let saved = config::load(&config_path)?;
-            let body = fetch_peers(&saved, api.as_deref())?;
+            let body = fetch_peers(&saved, api.as_deref(), install_key.as_deref())?;
             let map = api::parse_peers(&body)?;
             writeln!(out, "{}", serde_json::to_string(&map).map_err(|e| Fail::new("Json", e))?)?;
+            Ok(true)
+        }
+        Command::Tunnel { config: config_path, install_key, api } => {
+            let saved = config::load(&config_path)?;
+            let body = match credential(install_key.as_deref())? {
+                Credential::ApiKey(token) => {
+                    let base = api::api_base(api.as_deref())?;
+                    api::fetch_tunnel(&base, &token, &saved.tunnel.id)?
+                }
+                Credential::Install(path) => {
+                    signed_read(&saved, api.as_deref(), path, SignedRead::Tunnel)?
+                }
+            };
+            // Parse before printing: the answer must be a tunnel config.
+            let tunnel = config::parse_tunnel(&body)?;
+            if tunnel.device_id != saved.device_id {
+                return Err(Fail::new(
+                    "InvalidResponse",
+                    "the tunnel config is for another device",
+                ));
+            }
+            writeln!(out, "{}", body.trim())?;
             Ok(true)
         }
         Command::Up { session, hold_s } => {
@@ -331,7 +375,8 @@ fn run(command: Command) -> Result<bool, Fail> {
         }
         Command::Ping { session, peer, count, timeout_ms, interval_ms } => {
             let (mut tunnel, saved) = open_session(&session)?;
-            let destination = resolve(&peer, &saved, session.api.as_deref())?;
+            let destination =
+                resolve(&peer, &saved, session.api.as_deref(), session.install_key.as_deref())?;
             let options = PingOptions {
                 count,
                 timeout: Duration::from_millis(timeout_ms),
@@ -341,14 +386,16 @@ fn run(command: Command) -> Result<bool, Fail> {
         }
         Command::Tcp { session, peer, port, send, timeout_ms } => {
             let (mut tunnel, saved) = open_session(&session)?;
-            let destination = resolve(&peer, &saved, session.api.as_deref())?;
+            let destination =
+                resolve(&peer, &saved, session.api.as_deref(), session.install_key.as_deref())?;
             let remote = SocketAddrV4::new(destination, port);
             let timeout = Duration::from_millis(timeout_ms);
             Ok(ops::tcp(&mut tunnel, remote, send.as_deref(), timeout, &mut out)?)
         }
         Command::Probe { session, peer, port, interval_ms, duration_s, attempt_timeout_ms } => {
             let (mut tunnel, saved) = open_session(&session)?;
-            let destination = resolve(&peer, &saved, session.api.as_deref())?;
+            let destination =
+                resolve(&peer, &saved, session.api.as_deref(), session.install_key.as_deref())?;
             let options = ProbeOptions {
                 interval: Duration::from_millis(interval_ms.max(1)),
                 duration: Duration::from_secs(duration_s),
@@ -410,21 +457,69 @@ fn write_new_private_file(path: &Path, contents: &[u8]) -> Result<(), Fail> {
     Ok(())
 }
 
-fn fetch_peers(saved: &AgentConfig, api_flag: Option<&str>) -> Result<String, Fail> {
+/// How a device authenticates a request about itself: `$CMUX_VM_API_KEY`
+/// when set, else its install-key signature (M3).
+enum Credential<'a> {
+    ApiKey(String),
+    Install(&'a Path),
+}
+
+fn credential(install_key: Option<&Path>) -> Result<Credential<'_>, Fail> {
+    if let Some(token) = api::optional_api_key() {
+        return Ok(Credential::ApiKey(token));
+    }
+    install_key.map(Credential::Install).ok_or_else(|| {
+        Fail::new(
+            "MissingCredential",
+            "set CMUX_VM_API_KEY, or pass --install-key to sign the request with the device's install key",
+        )
+    })
+}
+
+/// A device-signed read: sign `read` for this device with the install key
+/// and post it with no Authorization header.
+fn signed_read(
+    saved: &AgentConfig,
+    api_flag: Option<&str>,
+    install_key: &Path,
+    read: SignedRead,
+) -> Result<String, Fail> {
+    api::check_id(&saved.device_id, "dev_")?;
+    let install = read_install_key(install_key)?;
     let base = api::api_base(api_flag)?;
-    let token = api::api_key()?;
-    Ok(api::fetch_peers(&base, &token, &saved.device_id)?)
+    let purpose = match read {
+        SignedRead::Peers => Purpose::Peers,
+        SignedRead::Tunnel => Purpose::Tunnel,
+    };
+    let proof = install::prove(&install, purpose, &saved.device_id, "", "")?;
+    drop(install);
+    Ok(api::signed_read(&base, read, &saved.device_id, &proof)?)
+}
+
+fn fetch_peers(
+    saved: &AgentConfig,
+    api_flag: Option<&str>,
+    install_key: Option<&Path>,
+) -> Result<String, Fail> {
+    match credential(install_key)? {
+        Credential::ApiKey(token) => {
+            let base = api::api_base(api_flag)?;
+            Ok(api::fetch_peers(&base, &token, &saved.device_id)?)
+        }
+        Credential::Install(path) => signed_read(saved, api_flag, path, SignedRead::Peers),
+    }
 }
 
 fn resolve(
     peer: &str,
     saved: &AgentConfig,
     api_flag: Option<&str>,
+    install_key: Option<&Path>,
 ) -> Result<std::net::Ipv4Addr, Fail> {
     if let Ok(address) = peer.parse() {
         return Ok(address);
     }
-    let map = api::parse_peers(&fetch_peers(saved, api_flag)?)?;
+    let map = api::parse_peers(&fetch_peers(saved, api_flag, install_key)?)?;
     Ok(api::resolve_peer(peer, Some(&map))?)
 }
 

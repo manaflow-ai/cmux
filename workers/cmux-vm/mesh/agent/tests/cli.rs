@@ -692,3 +692,156 @@ fn rotate_refuses_a_key_file_that_is_not_the_enrolled_key() {
     assert_eq!(error["error"], "KeyMismatch");
     assert!(!files.new_key_file.exists());
 }
+
+// --- M3 (cx-0op.5): device-signed requests, no credential ---
+
+const PEERS: &str = r#"{"deviceId":"dev_1","meshId":"mesh_abc","aclVersion":2,"peers":[{"kind":"vm","id":"vm_a","address":"10.128.16.5","allow":[{"protocol":"icmp"}]}]}"#;
+
+/// A saved enrollment plus an install key, as a code-enrolled device has.
+fn signed_files(dir: &TempDir) -> (PathBuf, PathBuf, String) {
+    let config_file = dir.path("config.json");
+    let install_file = dir.path("install.key");
+    std::fs::write(&config_file, ENROLLED).unwrap();
+    let install_public = install::install_keygen(&install_file).unwrap();
+    (config_file, install_file, install_public)
+}
+
+/// The body carries only the signature fields: no key, no code, no name.
+fn assert_only_signature_fields(sent: &serde_json::Value) {
+    let mut keys: Vec<&str> = sent.as_object().unwrap().keys().map(String::as_str).collect();
+    keys.sort_unstable();
+    assert_eq!(keys, ["nonce", "signature", "signedAt"]);
+}
+
+#[test]
+fn peers_without_an_api_key_signs_with_the_install_key() {
+    let dir = TempDir::new();
+    let (config_file, install_file, install_public) = signed_files(&dir);
+    let (base, server) = stub(200, PEERS);
+    let output = agent(
+        &[
+            "peers",
+            "--config",
+            config_file.to_str().unwrap(),
+            "--install-key",
+            install_file.to_str().unwrap(),
+        ],
+        &[("CMUX_VM_API_URL", &base)],
+    );
+    let request = server.join().unwrap();
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(request.line, "POST /v1/devices/dev_1/signed/peers HTTP/1.1");
+    assert_eq!(request.header("authorization"), None);
+    let sent: serde_json::Value = serde_json::from_str(&request.body).unwrap();
+    assert_only_signature_fields(&sent);
+    assert_signed(&sent, "peers", "dev_1", "", &install_public, "");
+    let printed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(printed["peers"][0]["id"], "vm_a");
+    assert_no_private_key(
+        &install_file,
+        &[&output.stdout, &output.stderr, request.body.as_bytes()],
+    );
+}
+
+#[test]
+fn peers_with_an_api_key_still_uses_the_key() {
+    let dir = TempDir::new();
+    let (config_file, install_file, _) = signed_files(&dir);
+    let (base, server) = stub(200, PEERS);
+    let output = agent(
+        &[
+            "peers",
+            "--config",
+            config_file.to_str().unwrap(),
+            "--install-key",
+            install_file.to_str().unwrap(),
+        ],
+        &[("CMUX_VM_API_URL", &base), ("CMUX_VM_API_KEY", "cmux_test_key")],
+    );
+    let request = server.join().unwrap();
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(request.line, "GET /v1/devices/dev_1/peers HTTP/1.1");
+    assert_eq!(request.header("authorization"), Some("Bearer cmux_test_key"));
+}
+
+#[test]
+fn peers_without_any_credential_fails_before_any_request() {
+    let dir = TempDir::new();
+    let (config_file, _, _) = signed_files(&dir);
+    // Nothing listens on port 1: a request would fail as Transport.
+    let output = agent(
+        &["peers", "--config", config_file.to_str().unwrap(), "--api", "http://127.0.0.1:1"],
+        &[],
+    );
+    assert!(!output.status.success());
+    let error: serde_json::Value = serde_json::from_slice(&output.stderr).unwrap();
+    assert_eq!(error["error"], "MissingCredential");
+}
+
+#[test]
+fn tunnel_without_an_api_key_signs_and_prints_the_config() {
+    let dir = TempDir::new();
+    let (config_file, install_file, install_public) = signed_files(&dir);
+    let tunnel = rotated_tunnel();
+    let (base, server) = stub(200, Box::leak(tunnel.into_boxed_str()));
+    let output = agent(
+        &[
+            "tunnel",
+            "--config",
+            config_file.to_str().unwrap(),
+            "--install-key",
+            install_file.to_str().unwrap(),
+            "--api",
+            &base,
+        ],
+        &[],
+    );
+    let request = server.join().unwrap();
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(request.line, "POST /v1/devices/dev_1/signed/tunnel HTTP/1.1");
+    assert_eq!(request.header("authorization"), None);
+    let sent: serde_json::Value = serde_json::from_str(&request.body).unwrap();
+    assert_only_signature_fields(&sent);
+    assert_signed(&sent, "tunnel", "dev_1", "", &install_public, "");
+    let printed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(printed["id"], "tun_1");
+    assert_eq!(printed["serverPublicKey"], NEW_SERVER_KEY);
+    // A read changes nothing on disk.
+    assert_eq!(std::fs::read_to_string(&config_file).unwrap(), ENROLLED);
+}
+
+#[test]
+fn tunnel_with_an_api_key_gets_the_tunnel_by_id() {
+    let dir = TempDir::new();
+    let (config_file, _, _) = signed_files(&dir);
+    let tunnel = rotated_tunnel();
+    let (base, server) = stub(200, Box::leak(tunnel.into_boxed_str()));
+    let output = agent(
+        &["tunnel", "--config", config_file.to_str().unwrap(), "--api", &base],
+        &[("CMUX_VM_API_KEY", "cmux_test_key")],
+    );
+    let request = server.join().unwrap();
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(request.line, "GET /v1/tunnels/tun_1 HTTP/1.1");
+    assert_eq!(request.header("authorization"), Some("Bearer cmux_test_key"));
+}
+
+#[test]
+fn rotate_without_an_api_key_posts_the_signed_route() {
+    let dir = TempDir::new();
+    let files = rotate_files(&dir);
+    let tunnel = rotated_tunnel();
+    let (base, server) = stub(200, Box::leak(tunnel.into_boxed_str()));
+    let output = run_rotate(&files, &base, &[]);
+    let request = server.join().unwrap();
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(request.line, "POST /v1/devices/dev_1/signed/rotate-key HTTP/1.1");
+    assert_eq!(request.header("authorization"), None);
+    let new_public = key::read_key_file(&files.new_key_file).unwrap().public_key_base64();
+    let sent: serde_json::Value = serde_json::from_str(&request.body).unwrap();
+    assert_eq!(sent["newPublicKey"], new_public);
+    assert_signed(&sent, "rotate-key", "dev_1", &new_public, &files.install_public, "");
+    let saved = cmux_mesh_agent::config::load(&files.config_file).unwrap();
+    assert_eq!(STANDARD.encode(saved.tunnel.server_public_key), NEW_SERVER_KEY);
+    assert_eq!(saved.wg_public_key.as_deref(), Some(new_public.as_str()));
+}

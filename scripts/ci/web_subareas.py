@@ -185,6 +185,8 @@ REACT_EXACT = {
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity/index.html",
     "scripts/cmux-next/build-agent-activity-web.sh",
     "scripts/cmux-next/regenerate-web-bundles.sh",
+    "scripts/cmux-next/build-web-bundles.sh",
+    "scripts/cmux-next/web-bundle-key.py",
     ".gitattributes",
     "scripts/install-git-hooks.sh",
     "tests/test_install_git_hooks.py",

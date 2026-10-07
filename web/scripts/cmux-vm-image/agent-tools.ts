@@ -41,6 +41,14 @@ export const AGENT_XAUTHORITY = `${AGENT_DISPLAY_DIR}/Xauthority`;
 export const CUA_SOCKET = `${DEVBOX_WORK_HOME}/.cache/cmux-cua/cmux-cua.sock`;
 export const WORK_USER_CMUX_JSON = `${DEVBOX_WORK_HOME}/.config/cmux/cmux.json`;
 export const AGENT_TOOLS_PROFILE = "/etc/profile.d/cmux-agent-tools.sh";
+/**
+ * First on the computer-use driver's PATH: `sudo`, `apt` and `apt-get` that refuse. cmux-cua's
+ * install_ffmpeg tool runs `sudo -n apt-get install -y ffmpeg` from the driver; role cua-video
+ * (ffmpeg, which pulls libx264) stays off on every machine until Lawrence decides (coordinator
+ * legal rule, 2026-10-07). The unit also sets NoNewPrivileges, so no setuid program works there.
+ */
+export const CUA_REFUSE_DIR = `${AGENT_TOOLS_DIR}/cua-refuse`;
+const CUA_REFUSED = ["sudo", "apt", "apt-get"] as const;
 
 const BROWSER_ROLE = "browser";
 
@@ -111,6 +119,17 @@ export function displayUnit(): string {
   ].join("\n");
 }
 
+/** A refusing stand-in for `name` on the driver's PATH (see CUA_REFUSE_DIR). */
+export function cuaRefuseScript(name: string): string {
+  return [
+    "#!/bin/sh",
+    "# cmux VM agent tools (images/cmux-vm, managed, do not edit).",
+    `echo "cmux: '${name} $*' is refused for the computer-use driver on this machine. Role cua-video (ffmpeg, libx264) is off on cmux machines, so install_ffmpeg and video recording are not available; screenshots still work." >&2`,
+    "exit 1",
+    "",
+  ].join("\n");
+}
+
 /** `cmux-cua serve` on the agent display, as the work user, on its default socket. */
 export function cuaUnit(): string {
   return [
@@ -126,6 +145,8 @@ export function cuaUnit(): string {
     `Environment=HOME=${DEVBOX_WORK_HOME}`,
     `Environment=DISPLAY=${AGENT_DISPLAY}`,
     `Environment=XAUTHORITY=${AGENT_XAUTHORITY}`,
+    `Environment=PATH=${CUA_REFUSE_DIR}:${CURRENT_BIN}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`,
+    "NoNewPrivileges=yes",
     "Environment=CMUX_CUA_TELEMETRY_ENABLED=false",
     "Environment=CMUX_CUA_UPDATE_CHECK=false",
     `ExecStart=${CURRENT_BIN}/cmux-cua serve`,
@@ -167,6 +188,7 @@ export function agentToolsFiles(): Array<{ path: string; text: string; mode: num
     { path: `/etc/systemd/system/${DISPLAY_UNIT}`, text: displayUnit(), mode: 0o644 },
     { path: `/etc/systemd/system/${CUA_UNIT}`, text: cuaUnit(), mode: 0o644 },
     { path: AGENT_TOOLS_PROFILE, text: agentToolsProfileScript(), mode: 0o644 },
+    ...CUA_REFUSED.map((name) => ({ path: `${CUA_REFUSE_DIR}/${name}`, text: cuaRefuseScript(name), mode: 0o755 })),
   ];
 }
 

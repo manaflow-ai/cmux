@@ -68,7 +68,7 @@ describe("createVm", () => {
     const key = await t.addKey(TENANT_A, ["vm:write"]);
     const vm = await json(await createVm(t, key));
     expect(t.audit).toEqual([
-      { tenantId: TENANT_A, actor: expect.stringMatching(/^key:vmk_/), action: "vm.create", cmuxId: vm.id, outcome: "ok" },
+      { tenantId: TENANT_A, actor: expect.stringMatching(/^key:vmk_/), action: "vm.create", cmuxId: vm.id, outcome: "ok", ownerActor: null },
     ]);
   });
 

@@ -2,10 +2,13 @@ import { describe, expect, test } from "bun:test";
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { claudeToken, staticCheckCommand, toolListProblems } from "../scripts/cmux-vm-image/agent-tools-probe";
+import { agentStepPlan, parseRecordedLaunch, probeOptionsFromArgv, recorderScript, staticCheckCommand, toolListProblems } from "../scripts/cmux-vm-image/agent-tools-probe";
+import { readFileSync as readSource } from "node:fs";
 import {
   AGENT_TOOLS_BIN,
   agentToolsDaemonEnv,
+  CUA_REFUSE_DIR,
+  cuaRefuseScript,
   agentToolsFiles,
   agentToolsLinkCommand,
   agentToolsProfileScript,
@@ -130,9 +133,73 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
     expect(toolListProblems(full.replace("mcp__cmux__browser_repl_eval", ""))).toEqual(["the agent does not list mcp__cmux__browser_repl_eval"]);
   });
 
-  test("probe: the Claude Code token comes from either variable name", () => {
-    expect(claudeToken("CLAUDE_CODE_OAUTH_TOKEN=a\n")).toBe("a");
-    expect(claudeToken("export ANTHROPIC_OAUTH_TOKEN='b'\n")).toBe("b");
-    expect(() => claudeToken("OTHER=c\n")).toThrow();
+  test("probe: no personal credential can reach a VM; the flag is gone and any token-file flag is refused", () => {
+    const source = readSource(new URL("../scripts/cmux-vm-image/agent-tools-probe.ts", import.meta.url), "utf8");
+    for (const word of ["claude-token-file", "CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_OAUTH_TOKEN", "anthropic-oauth"]) expect(source).not.toContain(word);
+    const base = ["bun", "probe.ts", "--snapshot", "sh-1", "--tag", "t"];
+    expect(probeOptionsFromArgv(base)).toEqual({ snapshotId: "sh-1", tag: "t", vmId: undefined, modelRoute: "none", outDir: expect.any(String) });
+    for (const flag of ["--claude-token-file", "--token-file", "--credentials", "--anthropic-key-file"]) expect(() => probeOptionsFromArgv([...base, flag, "/x"])).toThrow();
+  });
+
+  test("probe: without a model route the agent step is UNVERIFIED, never a credential copy; the edge route runs only on a backend machine", () => {
+    expect(agentStepPlan({ modelRoute: "none", vmId: undefined })).toEqual({ run: false, status: "UNVERIFIED", reason: expect.stringContaining("no model route") });
+    expect(() => probeOptionsFromArgv(["bun", "probe.ts", "--snapshot", "sh-1", "--tag", "t", "--model-route", "edge"])).toThrow(/--vm/);
+    const edge = probeOptionsFromArgv(["bun", "probe.ts", "--vm", "vm-1", "--tag", "t", "--model-route", "edge"]);
+    expect(agentStepPlan(edge)).toEqual({ run: true, status: "RUN", reason: expect.stringContaining("edge") });
+  });
+
+  test("probe: the recorder stands in for claude and captures exactly the launch acpmux makes", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "cmux-agent-tools-rec-"));
+    try {
+      const out = path.join(dir, "launches.txt");
+      writeFileSync(path.join(dir, "claude"), recorderScript(out));
+      chmodSync(path.join(dir, "claude"), 0o755);
+      const config = JSON.stringify({ mcpServers: { "cmux-cua": { type: "stdio", command: `${AGENT_TOOLS_BIN}/cmux-cua`, args: ["mcp"], env: { CMUX_CUA_MCP_FORCE_PROXY: "1" } }, cmux: { type: "stdio", command: `${AGENT_TOOLS_BIN}/cmux`, args: ["mcp", "serve"], env: {} } } });
+      await runChild(path.join(dir, "claude"), ["--version"], { timeout: 20_000 });
+      const r = await runChild(path.join(dir, "claude"), ["--print", "--mcp-config", config, "--plugin-dir", "/p/x"], { timeout: 20_000 });
+      expect(r.status).not.toBe(0);
+      const launch = parseRecordedLaunch(readFileSync(out, "utf8"));
+      expect(launch.servers.map((s) => [s.name, s.command, s.args])).toEqual([
+        ["cmux-cua", `${AGENT_TOOLS_BIN}/cmux-cua`, ["mcp"]],
+        ["cmux", `${AGENT_TOOLS_BIN}/cmux`, ["mcp", "serve"]],
+      ]);
+      expect(launch.servers[0].env).toEqual({ CMUX_CUA_MCP_FORCE_PROXY: "1" });
+      expect(launch.pluginDir).toBe("/p/x");
+      expect(parseRecordedLaunch("--version\n").servers).toEqual([]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("cua-video stays off: the computer-use driver cannot install ffmpeg (install_ffmpeg runs `sudo -n apt-get install -y ffmpeg`)", async () => {
+    const cua = cuaUnit();
+    expect(cua).toContain("NoNewPrivileges=yes");
+    expect(cua).toMatch(new RegExp(`Environment=PATH=${CUA_REFUSE_DIR}:`));
+    const files = agentToolsFiles().filter((f) => f.path.startsWith(`${CUA_REFUSE_DIR}/`));
+    expect(files.map((f) => path.basename(f.path)).sort()).toEqual(["apt", "apt-get", "sudo"]);
+    const dir = mkdtempSync(path.join(os.tmpdir(), "cmux-cua-refuse-"));
+    try {
+      for (const name of ["sudo", "apt-get"]) {
+        writeFileSync(path.join(dir, name), cuaRefuseScript(name));
+        chmodSync(path.join(dir, name), 0o755);
+      }
+      const env = { ...process.env, PATH: `${dir}:${process.env.PATH ?? ""}` };
+      const found = await runChild("sh", ["-c", "command -v apt-get"], { env, timeout: 20_000 });
+      expect(found.stdout.trim()).toBe(path.join(dir, "apt-get"));
+      for (const argv of [["sudo", "-n", "apt-get", "install", "-y", "ffmpeg"], ["apt-get", "install", "-y", "ffmpeg"]]) {
+        const r = await runChild(argv[0], argv.slice(1), { env, timeout: 20_000 });
+        expect(r.status).not.toBe(0);
+        expect(r.stderr).toContain("cua-video");
+        expect(r.stderr).toContain("ffmpeg");
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("the agent tools bake installs only the browser role, never cua-video", () => {
+    const phases = browserRoleBakePhases(lock).map((p) => p.command).join("\n");
+    expect(phases).not.toContain("ffmpeg");
+    expect(phases).not.toContain("x264");
   });
 });

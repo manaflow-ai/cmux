@@ -152,7 +152,7 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   box-sizing: border-box;
   width: 100%;
   min-height: 45px;
-  max-height: 40vh;
+  max-height: calc(22px * 8 + 23px);
   margin: 0;
   padding: 15px 16px 8px 32px;
   border: 0;

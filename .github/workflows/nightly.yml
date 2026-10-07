@@ -1416,6 +1416,27 @@ jobs:
           scripts/cmux-next/ensure-cef.sh --optional
           scripts/cmux-next/ensure-cef.sh --optional --arch x86_64
 
+      # The cmux-next web bundles (agent pane, pages, Activity, palette ranker,
+      # webviews app) are built from this commit's sources, never taken from a
+      # committed copy (cx-vn5). --force: a published build never trusts a stamp.
+      - name: Set up Bun (cmux-next web bundles)
+        if: needs.decide.outputs.track == 'nightly-next'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+
+      # The webviews app's `vp build` must run on node: on bun it emits
+      # different bytes (build-web-bundles.sh).
+      - name: Setup Node (cmux-next web bundles)
+        if: needs.decide.outputs.track == 'nightly-next'
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.11.1"
+
+      - name: Build the web bundles (cmux-next)
+        if: needs.decide.outputs.track == 'nightly-next'
+        run: scripts/cmux-next/build-web-bundles.sh --force
+
       # cmux-next ships THIRD_PARTY_LICENSES.md for exactly what this nightly
       # bundles: the daemon, app host and Cloud server come from this tree
       # (pin-cmux-tui.sh tree mode), so the notices do too, with exact closures
@@ -1633,6 +1654,9 @@ jobs:
 
       - name: Upload dSYMs to Sentry
         if: needs.decide.outputs.build_only != 'true'
+        # A missing or broken uploader never blocks a publish either: run 37568319518 ran this
+        # workflow over an older build_sha checkout without the script.
+        continue-on-error: true
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           SENTRY_ORG: manaflow
@@ -2487,7 +2511,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           NOTES_HEAD: ${{ needs.decide.outputs.head_sha }}
-          NOTES_BRANCH: ${{ github.ref_name }}
+          # nightly-next runs are pushes to nightly-next; their PRs merge into feat-cmux-next.
+          NOTES_BRANCH: ${{ needs.decide.outputs.track == 'nightly-next' && 'feat-cmux-next' || github.ref_name }}
           NOTES_APP_NAME: ${{ needs.decide.outputs.app_name }}
           NOTES_BUNDLE_ID: ${{ needs.decide.outputs.bundle_id }}
         run: |

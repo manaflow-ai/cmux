@@ -31,7 +31,14 @@ final class ServerReachService {
     private let signedInUser: @MainActor () -> String?
     private let paths: SSHPaths
     private let binary: URL?
+    /// The app's own bundled `cmux` (overlay bridge and link reads).
+    private let cli: URL?
     private let local: @MainActor () -> ServerReachPlan.LocalServer?
+    /// This Mac's running link and its paired installs, or nil (no link).
+    private let linkPeers: @MainActor () async -> ServerReachPlan.LinkPeers?
+    private let makeWatcher: LocalServerSource.MakeWatcher
+    private var peersWatcher: (any ServerFileWatching)?
+    private var watchedPeersFile: String?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.server-reach")
     private var observers: [Task<Void, Never>] = []
     private var reading: Task<Void, Never>?
@@ -44,13 +51,18 @@ final class ServerReachService {
     private(set) var policyDisabled = false
 
     init(machines: MachineRegistry, call: @escaping Call, signedInUser: @escaping @MainActor () -> String?, paths: SSHPaths,
-         binary: URL?, local: @escaping @MainActor () -> ServerReachPlan.LocalServer? = { nil }) {
+         binary: URL?, local: @escaping @MainActor () -> ServerReachPlan.LocalServer? = { nil },
+         linkPeers: @escaping @MainActor () async -> ServerReachPlan.LinkPeers? = { nil }, cli: URL? = nil,
+         makeWatcher: @escaping LocalServerSource.MakeWatcher = LocalServerSource.fileWatcher) {
+        self.makeWatcher = makeWatcher
+        self.cli = cli
         self.machines = machines
         self.call = call
         self.signedInUser = signedInUser
         self.paths = paths
         self.binary = binary
         self.local = local
+        self.linkPeers = linkPeers
     }
 
     func start() {
@@ -110,6 +122,9 @@ final class ServerReachService {
     }
 
     func stop() {
+        peersWatcher?.stop()
+        peersWatcher = nil
+        watchedPeersFile = nil
         for observer in observers { observer.cancel() }
         observers.removeAll()
         reading?.cancel()
@@ -144,7 +159,10 @@ final class ServerReachService {
             let hosts = try await readHosts()
             // A read that a sign-out or an account switch overtook applies nothing.
             guard !Task.isCancelled, signedInUser() == user else { return }
-            let plan = ServerReachPlan.make(chiefs: chiefs, hosts: hosts, local: local())
+            let link = await linkPeers()
+            watchPeers(link?.peersFile)
+            guard !Task.isCancelled, signedInUser() == user else { return }
+            let plan = ServerReachPlan.make(chiefs: chiefs, hosts: hosts, local: local(), link: link)
             lastPlan = plan
             for name in plan.unroutable { logger.error("server \(name, privacy: .public): no route to its chief session") }
             await apply(plan.desired)
@@ -177,6 +195,34 @@ final class ServerReachService {
             add(reach, connect: true)
         }
         for machineID in change.remove { await remove(machineID) }
+        for reach in change.reroute { reroute(reach) }
+    }
+
+    /// Replaces a shown server's session with one on its new route; the
+    /// registry record (same session) stays.
+    private func reroute(_ reach: ServerReach) {
+        guard let old = machines.removeServer(reach.machineID) else { return }
+        let connect = old.autoConnect
+        old.close()
+        logger.info("server \(reach.name, privacy: .public) re-routed")
+        add(reach, connect: connect)
+    }
+
+    /// Watches the link's pairing file (kernel vnode events, no polling): a
+    /// peer added or removed re-reads, so a server gets the overlay route
+    /// (or loses it) without a relaunch.
+    private func watchPeers(_ file: String?) {
+        guard file != watchedPeersFile else { return }
+        peersWatcher?.stop()
+        peersWatcher = nil
+        watchedPeersFile = file
+        guard let file else { return }
+        let watcher = makeWatcher(URL(fileURLWithPath: file)) { [weak self] in
+            // task-owner: one main-actor hop per file event; refresh coalesces reads
+            Task { @MainActor in self?.refresh() }
+        }
+        watcher.start()
+        peersWatcher = watcher
     }
 
     /// Restores servers the registry holds that this run has not seen.
@@ -194,7 +240,7 @@ final class ServerReachService {
     private func add(_ reach: ServerReach, connect: Bool) {
         guard machines.server(reach.machineID) == nil else { return }
         let session = ServerMachineSession(reach: reach, binary: binary, paths: paths, environment: SSHService.environment,
-                                           localIdentity: { [machines] in machines.local.identity })
+                                           localIdentity: { [machines] in machines.local.identity }, cli: cli)
         session.daemon.workTracker = machines.local.workTracker
         machines.add(session)
         logger.info("server \(reach.name, privacy: .public) (\(reach.hostID, privacy: .public)) added")
@@ -257,6 +303,23 @@ final class ServerReachService {
         if let computer = SCDynamicStoreCopyComputerName(nil, nil) as String? { names.append(computer) }
         let short = names.compactMap { $0.split(separator: ".").first.map(String.init) }.filter { !$0.isEmpty }
         return short.isEmpty ? nil : ServerReachPlan.LocalServer(hostNames: short, brainSocket: socket)
+    }
+
+    /// This Mac's link through the bundled CLI (`cmux link show`, `cmux link
+    /// peer list`): nil when the CLI is missing, the link is not running,
+    /// or a read fails.
+    nonisolated static func readLinkPeers(binary: URL?) async -> ServerReachPlan.LinkPeers? {
+        guard let binary else { return nil }
+        func run(_ arguments: [String]) async -> Data? {
+            guard let result = try? await ProcessRunner.run(executable: binary, arguments: arguments, environment: nil,
+                                                            timeout: .seconds(10), clock: ContinuousClock()),
+                  result.status == 0 else { return nil }
+            return result.stdout
+        }
+        guard let show = await run(["link", "show"]), let socket = ServerReachPlan.parseLinkShow(show),
+              let peers = await run(["link", "peer", "list"]) else { return nil }
+        return ServerReachPlan.LinkPeers(socket: socket, installs: ServerReachPlan.parsePeerList(peers),
+                                         peersFile: ServerReachPlan.parseLinkPeersFile(show))
     }
 
     /// The registry transport for `session`: the reach plus whether it connects at launch.

@@ -1,9 +1,9 @@
 # cmux-mesh-agent
 
-Device agent for the cmux mesh experiment (M1b, M2). It enrolls a device's
+Device agent for the cmux mesh experiment (M1b, M2, M3). It enrolls a device's
 WireGuard public key with a mesh, rotates that key, and tests one userspace
 WireGuard tunnel to the provider gateway: `keygen`, `install-keygen`, `enroll`,
-`rotate`, `peers`, `up`, `ping`, `tcp`, `probe`. No root, no utun, no Network
+`rotate`, `peers`, `tunnel`, `up`, `ping`, `tcp`, `probe`. No root, no utun, no Network
 Extension, no host route change.
 
 ```sh
@@ -18,6 +18,8 @@ CMUX_VM_API_URL=https://… CMUX_MESH_ENROLL_CODE=mec_… \
 CMUX_VM_API_URL=https://… CMUX_VM_API_KEY=… \
   cmux-mesh-agent rotate --config mesh.json --key-file device.key \
     --install-key install.key --new-key-file device.next.key
+CMUX_VM_API_URL=https://… cmux-mesh-agent peers  --config mesh.json --install-key install.key   # no API key: signed
+CMUX_VM_API_URL=https://… cmux-mesh-agent tunnel --config mesh.json --install-key install.key   # no API key: signed
 cmux-mesh-agent ping  --config mesh.json --key-file device.key vm_… -c 5
 cmux-mesh-agent tcp   --config mesh.json --key-file device.key 10.128.16.5 8080 --send hello
 cmux-mesh-agent probe --config mesh.json --key-file device.key vm_… 8080 --interval-ms 50 --duration-s 30
@@ -51,6 +53,21 @@ config atomically with the new tunnel (new `serverPublicKey`) and the new
 device key. It never deletes the old key file; delete it after switching. It
 prints `{"deviceId","sentAtMs","respondedAtMs","serverPublicKey","wgPublicKey"}`.
 If the request fails the new key file stays; remove it before retrying.
+
+## Device-signed requests (M3)
+
+A device enrolled with a one-time code has no API key afterwards. Without
+`$CMUX_VM_API_KEY`, `peers`, `tunnel` and `rotate` (and `ping`/`tcp`/`probe`
+when they resolve a `vm_` id, with `--install-key`) sign the request with the
+install key and post it with no Authorization header to
+`/v1/devices/{device}/signed/peers`, `/signed/tunnel` or `/signed/rotate-key`.
+The reads sign purpose `peers` or `tunnel` with the device id as target and
+empty WireGuard-key and name lines; the body is only `signedAt`, `nonce`,
+`signature`. The signature works only for this device, only once, and only
+within 120 s; the server also refuses it once the API key or user that enrolled
+the device (or made its code) is revoked or left the team. With
+`$CMUX_VM_API_KEY` set the agent uses the key and the bearer routes, as before.
+With neither, the command fails with `MissingCredential` before any request.
 
 ## Transport
 

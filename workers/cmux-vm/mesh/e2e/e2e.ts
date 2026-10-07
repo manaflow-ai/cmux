@@ -19,6 +19,8 @@ import { generateApiKey, hashApiKey, SessionVerifier, TeamMembership } from "../
 import { TeamAdmin } from "../../src/auth/team-admin.ts";
 import { ApiKeyAdminStore } from "../../src/db/api-keys.ts";
 import { makeMemoryMeshStore } from "../../src/db/mesh-memory.ts";
+import { makeMemoryMembershipCache } from "../../src/auth/membership-cache.ts";
+import { makeMemoryWebhookDeliveryStore } from "../../src/db/identity.ts";
 import { SnapshotStore } from "../../src/db/snapshots.ts";
 import { ApiKeyStore, AuditStore, OwnershipStore, type OwnedResource } from "../../src/db/stores.ts";
 import { SCOPES } from "../../src/domain/scopes.ts";
@@ -136,6 +138,17 @@ const services = Layer.mergeAll(
             ? Option.some({ id: memberKeyId, tenantId, scopes: ["mesh:read", "mesh:join"], resourceAllowlist: null, expiresAt: null })
             : Option.none(),
       ),
+    // M3: codes and device-signed requests check that the creating key is still live.
+    findActiveById: (tenant, id) =>
+      Effect.succeed(
+        tenant !== tenantId
+          ? Option.none()
+          : id === ownerKeyId
+            ? Option.some({ id: ownerKeyId, tenantId, scopes: SCOPES.filter((s) => s !== "admin"), resourceAllowlist: null, expiresAt: null })
+            : id === memberKeyId
+              ? Option.some({ id: memberKeyId, tenantId, scopes: ["mesh:read", "mesh:join"], resourceAllowlist: null, expiresAt: null })
+              : Option.none(),
+      ),
   }),
   tenantPolicyLayer({ environment: "local" }),
   Layer.succeed(Entitlements, { mayCreate: (t) => Effect.succeed(t === tenantId) }),
@@ -149,6 +162,9 @@ const services = Layer.mergeAll(
   Layer.succeed(UpstreamSnapshots, makeUpstreamSnapshots(upstreamConfig)),
   Layer.succeed(UpstreamTerminals, makeUpstreamTerminals(upstreamConfig)),
   makeMemoryMeshStore().layer,
+  // Mesh M4 services (unused by this run).
+  makeMemoryMembershipCache().layer,
+  makeMemoryWebhookDeliveryStore().layer,
   Layer.succeed(UpstreamMesh, makeUpstreamMesh(upstreamConfig)),
   meshConfigLayer({ experiment: true, tenantIds: [TENANT] }),
 );

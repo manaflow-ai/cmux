@@ -354,8 +354,14 @@ pub enum HarnessCmd {
     },
     /// Start the harness in a temp folder, run the ACP handshake and one
     /// prompt, and print each step with an exact fix. Never prints env values.
+    /// An id that is no catalog harness is looked up as a folder profile
+    /// (DIR/.cmux/harnesses/ID.toml in --folder or the current folder, or
+    /// their nearest parent); an enabled one starts inside its folder.
     Doctor {
         id: String,
+        /// Where to look for a folder profile (default: the current folder).
+        #[arg(long)]
+        folder: Option<PathBuf>,
         /// Stop after session/new: send no prompt (no model call).
         #[arg(long)]
         no_prompt: bool,

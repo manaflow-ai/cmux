@@ -1,5 +1,7 @@
 //! The cmux VM API calls the agent makes: device enrollment (with an API key
-//! or a one-time code), key rotation, and the peer map.
+//! or a one-time code), key rotation, the peer map and the tunnel config.
+//! Without an API key a device authenticates its own requests with its
+//! install-key signature (M3).
 
 use std::fmt;
 use std::net::Ipv4Addr;
@@ -202,26 +204,31 @@ pub fn enroll_device(
     finish(request.send_json(body), 201)
 }
 
-/// `POST {base}/v1/devices/{deviceId}/rotate-key`; returns the 200 body (a
-/// tunnel config with the new server key).
+/// `POST {base}/v1/devices/{deviceId}/rotate-key` with an API key, or with no
+/// key `POST {base}/v1/devices/{deviceId}/signed/rotate-key`, where the
+/// install-key signature in the body is the only credential (M3). Returns the
+/// 200 body (a tunnel config with the new server key).
 pub fn rotate_key(
     base: &str,
-    key: &str,
+    key: Option<&str>,
     device_id: &str,
     new_public_key: &str,
     proof: &Proof,
 ) -> Result<String, ApiError> {
     check_id(device_id, "dev_")?;
-    let url = format!("{base}/v1/devices/{device_id}/rotate-key");
-    let result = agent().post(&url).set("authorization", &format!("Bearer {key}")).send_json(
-        serde_json::json!({
-            "newPublicKey": new_public_key,
-            "signedAt": proof.signed_at,
-            "nonce": proof.nonce,
-            "signature": proof.signature,
-        }),
-    );
-    finish(result, 200)
+    let body = serde_json::json!({
+        "newPublicKey": new_public_key,
+        "signedAt": proof.signed_at,
+        "nonce": proof.nonce,
+        "signature": proof.signature,
+    });
+    let request = match key {
+        Some(key) => agent()
+            .post(&format!("{base}/v1/devices/{device_id}/rotate-key"))
+            .set("authorization", &format!("Bearer {key}")),
+        None => agent().post(&format!("{base}/v1/devices/{device_id}/signed/rotate-key")),
+    };
+    finish(request.send_json(body), 200)
 }
 
 /// `GET {base}/v1/devices/{deviceId}/peers`; returns the 200 body.
@@ -230,6 +237,52 @@ pub fn fetch_peers(base: &str, key: &str, device_id: &str) -> Result<String, Api
     let url = format!("{base}/v1/devices/{device_id}/peers");
     let result = agent().get(&url).set("authorization", &format!("Bearer {key}")).call();
     finish(result, 200)
+}
+
+/// `GET {base}/v1/tunnels/{tunnelId}`; returns the 200 body (a tunnel config).
+pub fn fetch_tunnel(base: &str, key: &str, tunnel_id: &str) -> Result<String, ApiError> {
+    check_id(tunnel_id, "tun_")?;
+    let url = format!("{base}/v1/tunnels/{tunnel_id}");
+    let result = agent().get(&url).set("authorization", &format!("Bearer {key}")).call();
+    finish(result, 200)
+}
+
+/// A device's own read without a credential (M3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SignedRead {
+    /// `POST /v1/devices/{deviceId}/signed/peers`, signed with purpose `peers`.
+    Peers,
+    /// `POST /v1/devices/{deviceId}/signed/tunnel`, signed with purpose `tunnel`.
+    Tunnel,
+}
+
+/// `POST {base}/v1/devices/{deviceId}/signed/{peers|tunnel}` with only the
+/// install-key proof in the body and no Authorization header; returns the
+/// 200 body. The proof must be for the matching purpose, this device as
+/// target, an empty WireGuard key and an empty name.
+pub fn signed_read(
+    base: &str,
+    read: SignedRead,
+    device_id: &str,
+    proof: &Proof,
+) -> Result<String, ApiError> {
+    check_id(device_id, "dev_")?;
+    let path = match read {
+        SignedRead::Peers => "peers",
+        SignedRead::Tunnel => "tunnel",
+    };
+    let url = format!("{base}/v1/devices/{device_id}/signed/{path}");
+    let result = agent().post(&url).send_json(serde_json::json!({
+        "signedAt": proof.signed_at,
+        "nonce": proof.nonce,
+        "signature": proof.signature,
+    }));
+    finish(result, 200)
+}
+
+/// The bearer token from `CMUX_VM_API_KEY`, or none (then the device signs).
+pub fn optional_api_key() -> Option<String> {
+    api_key().ok()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
