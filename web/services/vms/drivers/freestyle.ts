@@ -1676,9 +1676,11 @@ export class FreestyleProvider implements VMProvider {
   /**
    * A fork or restore resumes a live guest's memory image. Its boot
    * supervisor rebinds the daemon to this machine but leaves the copied
-   * session stranded (remoteState.ts), so the daemon never listens. Wait for
-   * the rebind, repair that one state, and wait for this machine's listener
-   * so the machine is never reported ready while attach would be refused.
+   * session stranded (remoteState.ts), so the daemon never listens. A user
+   * snapshot can also carry a stopped supervisor, which nothing restarts in a
+   * resumed memory image. Start a stopped supervisor, wait for the rebind,
+   * repair that one state, and wait for this machine's listener so the
+   * machine is never reported ready while attach would be refused.
    */
   private async awaitForkDaemon(vm: Vm, vmId: string): Promise<void> {
     const ready = await this.execResult(
