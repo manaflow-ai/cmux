@@ -580,8 +580,11 @@ let package = Package(
                 .product(name: "CmuxUpdater", package: "CmuxUpdater"),
                 .product(name: "Sparkle", package: "Sparkle"),
             ],
+            // WhatsNew: the bundled What's New documents and media
+            // (scripts/whats-new/sync-app-bundle.sh copies them from whats-new/).
             resources: [
-                .process("Resources"),
+                .process("Resources/Localizable.xcstrings"),
+                .copy("Resources/WhatsNew"),
             ],
             swiftSettings: uiSwiftSettings
         ),
