@@ -19,8 +19,8 @@ use cmux_rd_core::flow::{FlowAction, FrameGate, Rect};
 use cmux_rd_core::input::InputApplier;
 use cmux_rd_core::packetize::{PacketizeError, Packetizer, parity_for};
 use cmux_rd_proto::{
-    DatagramHeader, DatagramKind, FRAME_PREFIX_LEN, Feedback, FrameBody, HEADER_LEN, InputEvent,
-    InputPacket, MAX_DATAGRAM_VPC, REF_NONE, flags,
+    ClockEstimate, ClockPing, ClockPong, DatagramHeader, DatagramKind, FRAME_PREFIX_LEN, Feedback,
+    FrameBody, HEADER_LEN, InputEvent, InputPacket, MAX_DATAGRAM_VPC, REF_NONE, flags,
 };
 
 pub use loss::LossMeter;
@@ -181,6 +181,7 @@ pub struct MediaEngine {
     last_feedback_us: u64,
     frames: u64,
     keyframes: u64,
+    clock: Option<ClockEstimate>,
 }
 
 impl MediaEngine {
@@ -199,6 +200,7 @@ impl MediaEngine {
             last_feedback_us: now_us,
             frames: 0,
             keyframes: 0,
+            clock: None,
             cfg,
         }
     }
@@ -361,6 +363,13 @@ impl MediaEngine {
                 let Ok(fb) = Feedback::decode(payload) else { return out };
                 self.on_feedback(header.stream, &fb, now_us, &mut out);
             }
+            DatagramKind::ClockPing => {
+                let Ok(ping) = ClockPing::decode(payload) else { return out };
+                if ping.estimate.is_some() {
+                    self.clock = ping.estimate;
+                }
+                out.datagrams.push(self.clock_pong(&ping, now_us));
+            }
             _ => {}
         }
         out
@@ -420,6 +429,12 @@ impl MediaEngine {
         self.applier.reset();
     }
 
+    /// The viewer's latest clock estimate (host = viewer + offset), from its
+    /// pings (rd change C8); `None` until the viewer has one.
+    pub fn clock(&self) -> Option<ClockEstimate> {
+        self.clock
+    }
+
     /// How long the viewer has sent no feedback.
     pub fn silent_for_us(&self, now_us: u64) -> u64 {
         now_us.saturating_sub(self.last_feedback_us)
@@ -432,6 +447,30 @@ impl MediaEngine {
             loss: self.loss,
             target_bps: self.cc.target_bps(),
         }
+    }
+
+    /// Answers a clock ping at once (receive and send time are the same call).
+    fn clock_pong(&mut self, ping: &ClockPing, now_us: u64) -> Vec<u8> {
+        let pong = ClockPong {
+            seq: ping.seq,
+            t_viewer_us: ping.t_viewer_us,
+            t_host_rx_us: now_us,
+            t_host_tx_us: now_us,
+        };
+        let header = DatagramHeader {
+            flags: 0,
+            kind: DatagramKind::ClockPong,
+            stream: 0,
+            frame: 0,
+            index: 0,
+            count: 0,
+            fec_count: 0,
+            transport_seq: 0,
+        };
+        let mut d = Vec::with_capacity(HEADER_LEN + 28);
+        header.encode_into(&mut d);
+        d.extend_from_slice(&pong.encode());
+        d
     }
 
     fn input_ack(&mut self) -> Vec<u8> {

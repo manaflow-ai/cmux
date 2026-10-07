@@ -44,6 +44,10 @@ pub enum DatagramKind {
     Feedback = 7,
     /// Bandwidth probe padding (host to viewer).
     Probe = 8,
+    /// A clock probe with the viewer's current estimate (viewer to host; cap `clock`).
+    ClockPing = 9,
+    /// The host's answer to a clock probe (host to viewer; cap `clock`).
+    ClockPong = 10,
 }
 
 impl DatagramKind {
@@ -58,6 +62,8 @@ impl DatagramKind {
             6 => Self::CursorPos,
             7 => Self::Feedback,
             8 => Self::Probe,
+            9 => Self::ClockPing,
+            10 => Self::ClockPong,
             other => return Err(DecodeError::Kind(other)),
         })
     }
