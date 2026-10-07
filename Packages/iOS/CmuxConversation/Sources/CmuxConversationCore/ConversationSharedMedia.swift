@@ -24,7 +24,7 @@ public struct ConversationSharedLink: Sendable, Hashable, Identifiable {
 public enum ConversationSharedMedia {
     public static func photos(in messages: [ConversationMessage]) -> [ConversationSharedPhoto] {
         var result: [ConversationSharedPhoto] = []
-        for message in messages.reversed() where !message.isUnsent {
+        for message in messages.reversed() where !message.isUnsent && !message.isScheduled {
             for attachment in message.attachments.reversed() where attachment.kind == .image && (attachment.url != nil || attachment.localData != nil) {
                 result.append(ConversationSharedPhoto(messageID: message.id, attachment: attachment, sentAt: message.sentAt))
             }
@@ -36,7 +36,7 @@ public enum ConversationSharedMedia {
     public static func links(in messages: [ConversationMessage]) -> [ConversationSharedLink] {
         var seen = Set<URL>()
         var result: [ConversationSharedLink] = []
-        for message in messages.reversed() where !message.isUnsent {
+        for message in messages.reversed() where !message.isUnsent && !message.isScheduled {
             guard let preview = message.linkPreview, seen.insert(preview.url).inserted else { continue }
             result.append(ConversationSharedLink(messageID: message.id, preview: preview, sentAt: message.sentAt))
         }
