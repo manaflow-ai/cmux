@@ -25,16 +25,7 @@ export function scrubSentryEvent<T extends Event>(event: T): T {
 }
 
 export function shouldSendCoderouterSentryEvent(event: Event): boolean {
-  if (event.tags?.subsystem === "coderouter") return true;
-  const cmux = event.contexts?.cmux as Record<string, unknown> | undefined;
-  if (cmux?.service === "coderouter") return true;
-  // Cloud VM operator-fault errors and their Slack-alert failures report
-  // through the same shared project (services/vms/observability.ts,
-  // services/observability/alerts.ts). Before this branch, beforeSend
-  // silently dropped them, which is how a two-day provisioning outage
-  // produced zero Sentry events.
-  if (typeof cmux?.subsystem === "string" && cmux.subsystem.startsWith("cloud_vm")) return true;
-  if (cmux?.subsystem === "rate_limit") return true;
+  if (hasReportedSubsystem(event)) return true;
   const message =
     event.message ??
     event.exception?.values?.map((value) => value.value ?? "").join(" ") ??
@@ -47,6 +38,23 @@ export function shouldSendCoderouterSentryEvent(event: Event): boolean {
   } catch {
     return false;
   }
+}
+
+function hasReportedSubsystem(event: Event): boolean {
+  if (event.tags?.subsystem === "coderouter") return true;
+  const cmux = event.contexts?.cmux as Record<string, unknown> | undefined;
+  if (cmux?.service === "coderouter") return true;
+  // Cloud VM operator-fault errors and their Slack-alert failures report
+  // through the same shared project (services/vms/observability.ts,
+  // services/observability/alerts.ts). Before this branch, beforeSend
+  // silently dropped them, which is how a two-day provisioning outage
+  // produced zero Sentry events.
+  if (typeof cmux?.subsystem === "string" && cmux.subsystem.startsWith("cloud_vm")) return true;
+  if (cmux?.subsystem === "rate_limit") return true;
+  // Billing failures can leave a paid customer without an entitlement. Until
+  // 2026-10-06 this filter dropped every captureBillingError event, so Stripe
+  // webhook failures reached only the Slack alert.
+  return event.tags?.subsystem === "billing";
 }
 
 function scrubValue(value: unknown): void {
