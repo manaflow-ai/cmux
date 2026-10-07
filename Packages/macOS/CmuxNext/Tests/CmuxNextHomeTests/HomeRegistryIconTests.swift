@@ -90,5 +90,7 @@ import Testing
         #expect(cell.avatar.isHidden)
         #expect(cell.highlightFrame.height == Metrics.sidebarRowHeight)
         #expect(cell.time.lineBreakMode == NSLineBreakMode.byClipping)
+        #expect(cell.time.contentCompressionResistancePriority(for: .horizontal) == .required)
+        #expect(cell.title.contentCompressionResistancePriority(for: .horizontal) < .required)
     }
 }
