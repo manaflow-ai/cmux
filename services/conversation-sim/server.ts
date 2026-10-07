@@ -8,6 +8,14 @@ import { editedText, imageSize, messageText, pick, randInt, replyText, type Rng 
 
 type Reaction = "heart" | "thumbsup" | "thumbsdown" | "haha" | "exclamation" | "question";
 const REACTIONS: Reaction[] = ["heart", "thumbsup", "thumbsdown", "haha", "exclamation", "question"];
+/** Messages "send with effect": four bubble effects, then eight full-screen effects. */
+type Effect =
+  | "slam" | "loud" | "gentle" | "invisibleInk"
+  | "echo" | "spotlight" | "balloons" | "confetti" | "love" | "lasers" | "fireworks" | "celebration";
+const EFFECTS: Effect[] = [
+  "slam", "loud", "gentle", "invisibleInk",
+  "echo", "spotlight", "balloons", "confetti", "love", "lasers", "fireworks", "celebration",
+];
 
 interface Participant {
   id: string;
@@ -42,6 +50,7 @@ interface Message {
   attachments: AttachmentRef[];
   status?: "sent" | "delivered" | "read";
   readAt?: number;
+  effect?: Effect;
 }
 interface LoggedEvent {
   eventSeq: number;
@@ -74,6 +83,8 @@ const knobs = {
   duplicateRate: 0.02,
   disconnectEverySeconds: 240,
   botIntervalScale: 1,
+  /** Share of bot text messages sent with a Messages effect. */
+  effectRate: 0.03,
 };
 type Knobs = typeof knobs;
 
@@ -259,6 +270,8 @@ function generateHistory(store: Store, total: number, meShare: number, seed: num
   for (let i = 1; i < drafts.length; i++) if (drafts[i].sentAt <= drafts[i - 1].sentAt) drafts[i].sentAt = drafts[i - 1].sentAt + 1;
 
   let dayFirstIndex = 0;
+  // Separate stream: adding effects must not shift the rest of the seeded corpus.
+  const effectRng = mulberry32(seed ^ 0x5eed);
   for (let i = 0; i < drafts.length; i++) {
     const m = drafts[i];
     if (i === 0 || drafts[i - 1].day !== m.day) dayFirstIndex = i;
@@ -281,6 +294,7 @@ function generateHistory(store: Store, total: number, meShare: number, seed: num
       const chosen = [...reactors].sort(() => rng() - 0.5).slice(0, n);
       m.reactions = chosen.map((p) => ({ participantId: p.id, reaction: pick(rng, REACTIONS) }));
     }
+    if (effectRng() < 0.015 && m.text && !m.attachments.length) m.effect = pick(effectRng, EFFECTS);
     if (m.senderId === ME.id) {
       if (conv.kind === "direct") {
         m.status = "read";
@@ -397,6 +411,7 @@ function wireMessage(m: Message, base: string) {
   if (m.editedAt) out.editedAt = m.editedAt;
   if (m.status) out.status = m.status;
   if (m.readAt) out.readAt = m.readAt;
+  if (m.effect) out.effect = m.effect;
   return out;
 }
 
@@ -507,6 +522,8 @@ async function handleSend(conn: Conn, p: any): Promise<Message> {
   for (const a of attachmentIds) if (!media.has(a)) throw invalid(`unknown attachment ${a}`);
   if (!text && !attachmentIds.length) throw invalid("empty message");
   if (p?.replyToId && !store.byId.get(p.replyToId)) throw invalid("unknown replyToId");
+  const effect = p?.effect ?? undefined;
+  if (effect !== undefined && effect !== null && !EFFECTS.includes(effect)) throw invalid("effect");
 
   await sleep(lat(120, 900));
   const existing = store.byClientId.get(cmid);
@@ -522,7 +539,12 @@ async function handleSend(conn: Conn, p: any): Promise<Message> {
     const e = media.get(id)!;
     return { id, kind: "image", width: e.width, height: e.height };
   });
-  const m = store.create(ME.id, text, { clientMessageId: cmid, replyToId: p?.replyToId || undefined, attachments });
+  const m = store.create(ME.id, text, {
+    clientMessageId: cmid,
+    replyToId: p?.replyToId || undefined,
+    attachments,
+    ...(effect ? { effect } : {}),
+  });
   afterMySend(store, m);
   if (fail) throw new RpcError(-32002, "not delivered");
   return m;
@@ -597,6 +619,7 @@ function randomBotMessage(store: Store): { text: string; opts: Partial<Message> 
     const parent = store.messages[store.headSeq - 1 - Math.floor(R() * Math.min(30, store.headSeq))];
     opts.replyToId = parent.id;
   }
+  if (text && R() < knobs.effectRate) opts.effect = pick(R, EFFECTS);
   return { text, opts };
 }
 
@@ -654,7 +677,7 @@ function json(body: unknown, status = 200) {
 }
 
 function applyKnobs(input: Record<string, unknown>): Knobs {
-  const unitRange = ["failRate", "historyFailRate", "duplicateRate"];
+  const unitRange = ["failRate", "historyFailRate", "duplicateRate", "effectRate"];
   for (const [k, v] of Object.entries(input)) {
     if (!(k in knobs)) throw new Error(`unknown knob ${k}`);
     const n = Number(v);
@@ -744,6 +767,26 @@ async function handleHttp(req: Request, server: ReturnType<typeof Bun.serve>): P
     if (intervalMs === 0) await burst(store, count, 0);
     else void burst(store, count, intervalMs);
     return json({ ok: true, conversation: conv, count, headSeq: store.headSeq, headEventSeq: store.headEventSeq });
+  }
+  if (path === "/admin/say" && req.method === "POST") {
+    // A participant sends one message now (after a short typing burst).
+    // Optional: sender=<id>, text=<string>, effect=<Effect>.
+    const conv = url.searchParams.get("conversation") ?? "group";
+    const store = stores.get(conv);
+    if (!store) return json({ error: `unknown conversation ${conv}` }, 404);
+    const senderId = url.searchParams.get("sender");
+    const bot = senderId ? store.bots().find((b) => b.id === senderId) : pick(R, store.bots());
+    if (!bot) return json({ error: `unknown sender ${senderId}` }, 400);
+    const effect = url.searchParams.get("effect");
+    if (effect !== null && !EFFECTS.includes(effect as Effect)) return json({ error: `unknown effect ${effect}` }, 400);
+    const text = url.searchParams.get("text") || messageText(R);
+    // Real-time typing (not botSleep): bots may be paused via botIntervalScale.
+    store.broadcastTyping(bot.id, true);
+    await sleep(lat(400, 900));
+    store.broadcastTyping(bot.id, false);
+    const m = store.create(bot.id, text, effect ? { effect: effect as Effect } : {});
+    log(`admin say conv=${conv} sender=${bot.id} effect=${effect ?? "-"}`);
+    return json({ ok: true, message: wireMessage(m, base) });
   }
   if (path === "/admin/disconnect" && req.method === "POST") {
     return json({ ok: true, dropped: dropAll("admin disconnect") });

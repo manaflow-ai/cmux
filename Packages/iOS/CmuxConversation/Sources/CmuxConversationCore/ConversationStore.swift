@@ -204,6 +204,7 @@ public final class ConversationStore {
     private func merged(existing: ConversationMessage, incoming: ConversationMessage) -> ConversationMessage {
         var result = incoming
         result.delivery = Self.maxDelivery(existing.delivery, incoming.delivery)
+        if result.effect == nil, incoming.seq == nil || existing.seq == nil { result.effect = existing.effect }
         // Keep local bytes so the sender's image never flashes while the remote copy loads.
         result.attachments = incoming.attachments.enumerated().map { offset, attachment in
             var attachment = attachment
@@ -403,7 +404,12 @@ public final class ConversationStore {
 
     /// Appends the optimistic row at once, then uploads and sends.
     @discardableResult
-    public func send(text: String, images: [(data: Data, width: Int, height: Int, mimeType: String)] = [], replyToID: String? = nil) -> String? {
+    public func send(
+        text: String,
+        images: [(data: Data, width: Int, height: Int, mimeType: String)] = [],
+        replyToID: String? = nil,
+        effect: ConversationMessageEffect? = nil
+    ) -> String? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard (!trimmed.isEmpty || !images.isEmpty), let meID else { return nil }
         let clientID = makeClientMessageID()
@@ -426,7 +432,8 @@ public final class ConversationStore {
             text: trimmed,
             replyToID: replyToID,
             attachments: attachments,
-            delivery: .sending
+            delivery: .sending,
+            effect: effect
         )
         upsert(pending)
         sortAndReindex()
@@ -483,7 +490,8 @@ public final class ConversationStore {
                     clientMessageID: clientID,
                     text: current.text,
                     replyToID: current.replyToID,
-                    attachmentIDs: attachmentIDs
+                    attachmentIDs: attachmentIDs,
+                    effect: current.effect
                 )
                 var acked = try await self.backend.send(draft)
                 if acked.delivery == nil { acked.delivery = .sent }

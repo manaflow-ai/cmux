@@ -90,6 +90,41 @@ public struct ConversationAttachment: Sendable, Hashable, Identifiable {
     }
 }
 
+/// Messages "send with effect". Bubble effects animate the message's own
+/// bubble; screen effects play a full-screen animation over the transcript.
+public enum ConversationMessageEffect: String, Sendable, Hashable, CaseIterable {
+    case slam
+    case loud
+    case gentle
+    case invisibleInk
+    case echo
+    case spotlight
+    case balloons
+    case confetti
+    case love
+    case lasers
+    case fireworks
+    case celebration
+
+    public enum Kind: Sendable, Hashable {
+        case bubble
+        case screen
+    }
+
+    public var kind: Kind {
+        switch self {
+        case .slam, .loud, .gentle, .invisibleInk: return .bubble
+        default: return .screen
+        }
+    }
+
+    /// Picker order, as Messages lists them.
+    public static let bubbleEffects: [ConversationMessageEffect] = [.slam, .loud, .gentle, .invisibleInk]
+    public static let screenEffects: [ConversationMessageEffect] = [
+        .echo, .spotlight, .balloons, .confetti, .love, .lasers, .fireworks, .celebration,
+    ]
+}
+
 /// Delivery of a message I sent. Messages from others carry no delivery.
 public enum ConversationDelivery: Sendable, Hashable {
     case sending
@@ -119,6 +154,8 @@ public struct ConversationMessage: Sendable, Hashable, Identifiable {
     public var reactions: [ConversationReactionMark]
     public var attachments: [ConversationAttachment]
     public var delivery: ConversationDelivery?
+    /// "Send with effect"; nil for a plain message.
+    public var effect: ConversationMessageEffect?
 
     public init(
         id: String,
@@ -132,7 +169,8 @@ public struct ConversationMessage: Sendable, Hashable, Identifiable {
         editedAt: Date? = nil,
         reactions: [ConversationReactionMark] = [],
         attachments: [ConversationAttachment] = [],
-        delivery: ConversationDelivery? = nil
+        delivery: ConversationDelivery? = nil,
+        effect: ConversationMessageEffect? = nil
     ) {
         self.id = id
         self.seq = seq
@@ -146,6 +184,7 @@ public struct ConversationMessage: Sendable, Hashable, Identifiable {
         self.reactions = reactions
         self.attachments = attachments
         self.delivery = delivery
+        self.effect = effect
     }
 
     /// Identity that survives the pending to acknowledged transition, so the
@@ -168,11 +207,13 @@ public struct ConversationOutgoingDraft: Sendable {
     public var text: String
     public var replyToID: String?
     public var attachmentIDs: [String]
+    public var effect: ConversationMessageEffect?
 
-    public init(clientMessageID: String, text: String, replyToID: String?, attachmentIDs: [String]) {
+    public init(clientMessageID: String, text: String, replyToID: String?, attachmentIDs: [String], effect: ConversationMessageEffect? = nil) {
         self.clientMessageID = clientMessageID
         self.text = text
         self.replyToID = replyToID
         self.attachmentIDs = attachmentIDs
+        self.effect = effect
     }
 }

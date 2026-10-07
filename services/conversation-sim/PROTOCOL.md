@@ -21,7 +21,7 @@ process and keep growing.
 | --- | --- | --- |
 | `hello` | `{clientId, resumeAfterEventSeq?}` | `{conversation, me: Participant, headSeq, headEventSeq, serverTime, lagged}` |
 | `history` | `{beforeSeq: Int?, limit: Int}` | `{messages: [Message], hasMore: Bool}` |
-| `send` | `{clientMessageId, text, replyToId?, attachmentIds?}` | `{message: Message}` |
+| `send` | `{clientMessageId, text, replyToId?, attachmentIds?, effect?: Effect}` | `{message: Message}` |
 | `react` | `{messageId, reaction: Reaction?}` | `{message: Message}` |
 | `edit` | `{messageId, text}` | `{message: Message}` |
 | `typing` | `{isTyping: Bool}` | `{}` |
@@ -60,8 +60,12 @@ Message {
   reactions: [{participantId, reaction}],
   attachments: [{id, kind: "image", width, height, url}],
   status?: "sent"|"delivered"|"read", readAt?    // only on my messages
+  effect?: Effect                                 // "send with effect"
 }
 Reaction = "heart"|"thumbsup"|"thumbsdown"|"haha"|"exclamation"|"question"
+Effect   = "slam"|"loud"|"gentle"|"invisibleInk"                       // bubble
+         | "echo"|"spotlight"|"balloons"|"confetti"|"love"|"lasers"
+         | "fireworks"|"celebration"                                   // screen
 ```
 
 ## HTTP
@@ -73,9 +77,12 @@ Reaction = "heart"|"thumbsup"|"thumbsdown"|"haha"|"exclamation"|"question"
 - `GET /healthz`: `ok`.
 - `POST /admin/burst?conversation=<id>&count=<n>`: make participants send `n`
   messages rapidly (pressure testing).
+- `POST /admin/say?conversation=<id>&sender=<id>&text=<s>&effect=<Effect>`: a
+  participant types briefly, then sends one message (all params optional).
+  Receiver-side effect testing.
 - `POST /admin/disconnect`: drop every socket (reconnect testing).
 - `POST /admin/knobs` JSON `{latencyScale, failRate, historyFailRate,
-  duplicateRate, disconnectEverySeconds, botIntervalScale}`.
+  duplicateRate, disconnectEverySeconds, botIntervalScale, effectRate}`.
 
 ## Simulated traffic
 
@@ -93,4 +100,5 @@ Reaction = "heart"|"thumbsup"|"thumbsdown"|"haha"|"exclamation"|"question"
   message length (sometimes stops without sending), then sends. Occasional
   bursts of 3 to 6 quick messages. Replies to my messages within 3 to 12 s
   most of the time, tapbacks my messages ~30% of the time, edits its own last
-  message ~5% of the time.
+  message ~5% of the time. `effectRate` (default 0.03) of bot text messages
+  carry a random effect; ~1.5% of generated history text messages do too.
