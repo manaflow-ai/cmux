@@ -1,7 +1,7 @@
 import Foundation
 
 /// The root destinations, in tab order. Home is always first and Settings
-/// always last; the four feature tabs are behind feature flags until their
+/// always last; the feature tabs are behind feature flags until their
 /// lanes ship.
 public enum ShellTab: String, CaseIterable, Hashable, Sendable {
     case home
@@ -9,6 +9,7 @@ public enum ShellTab: String, CaseIterable, Hashable, Sendable {
     case workspaces
     case compose
     case hosts
+    case search
     case settings
 
     /// The flag that shows this tab; nil for tabs that always show.
@@ -19,6 +20,7 @@ public enum ShellTab: String, CaseIterable, Hashable, Sendable {
         case .workspaces: .workspacesTab
         case .compose: .composeTab
         case .hosts: .hostsTab
+        case .search: .searchTab
         }
     }
 
@@ -30,6 +32,7 @@ public enum ShellTab: String, CaseIterable, Hashable, Sendable {
         case .workspaces: "square.stack.3d.up"
         case .compose: "square.and.pencil"
         case .hosts: "desktopcomputer"
+        case .search: "magnifyingglass"
         case .settings: "gearshape"
         }
     }
@@ -41,6 +44,7 @@ public enum ShellTab: String, CaseIterable, Hashable, Sendable {
         case .workspaces: String(localized: "shell.tab.workspaces", defaultValue: "Workspaces", bundle: .module)
         case .compose: String(localized: "shell.tab.compose", defaultValue: "Compose", bundle: .module)
         case .hosts: String(localized: "shell.tab.hosts", defaultValue: "Hosts", bundle: .module)
+        case .search: String(localized: "shell.tab.search", defaultValue: "Search", bundle: .module)
         case .settings: String(localized: "shell.tab.settings", defaultValue: "Settings", bundle: .module)
         }
     }

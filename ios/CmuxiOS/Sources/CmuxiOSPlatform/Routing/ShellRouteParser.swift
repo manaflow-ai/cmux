@@ -9,6 +9,8 @@ public import Foundation
 public struct ShellRouteParser: Sendable {
     public static let universalHosts: Set<String> = ["cmux.com", "www.cmux.com"]
     public static let universalPrefix = "app"
+    /// A link's search text is cut to this many characters.
+    public static let maxSearchQueryLength = 200
     private let schemes: Set<String>
 
     /// - Parameter bundleScheme: the exact-bundle scheme from Info.plist.
@@ -47,6 +49,10 @@ public struct ShellRouteParser: Sendable {
         case "settings": return rest.isEmpty ? .settings : nil
         case "diagnostics": return rest.isEmpty ? .diagnostics : nil
         case "whats-new": return rest.isEmpty ? .whatsNew : nil
+        case "search":
+            guard rest.isEmpty else { return nil }
+            let text = query["q"].map { String($0.prefix(Self.maxSearchQueryLength)) }
+            return .search(query: text?.isEmpty == false ? text : nil)
         case "pair", "attach": return .pairing(url)
         default: return nil
         }

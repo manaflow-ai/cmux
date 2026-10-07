@@ -40,6 +40,14 @@ public struct ShellContent {
         case .hosts:
             return placeholder(tab, seam: .hosts, summary: ShellText.hostsSummary,
                                HostsPlaceholder.stream(sources.hosts, isMock: isMock(.hosts)))
+        case .search:
+            // Lane C15 injects the search screen; without it the tab says so.
+            let screen = UIViewController()
+            var empty = UIContentUnavailableConfiguration.search()
+            empty.text = ShellTab.search.title
+            screen.contentUnavailableConfiguration = empty
+            screen.title = ShellTab.search.title
+            return UINavigationController(rootViewController: screen)
         case .settings:
             let root = NavigationStack { ShellSettingsView(model: settings) }
             let hosting = UIHostingController(rootView: root)

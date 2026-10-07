@@ -29,11 +29,28 @@ struct ShellSettingsView: View {
             }
         }
         .navigationTitle(ShellTab.settings.title)
+        .navigationDestination(item: $model.openedPage) { page in
+            destination(page)
+        }
         .task { await model.observe() }
         .confirmationDialog(SettingsText.signOutConfirm, isPresented: $confirmingSignOut, titleVisibility: .visible) {
             Button(SettingsText.signOut, role: .destructive) {
                 Task { await model.signOut() }
             }
+        }
+    }
+
+    /// The page `openedPage` pushes; a page this build lacks shows nothing.
+    @ViewBuilder private func destination(_ page: ShellSettingsPage) -> some View {
+        switch page {
+        case .terminal:
+            if let terminal = model.terminal { TerminalSettingsView(store: terminal) }
+        case .notifications:
+            if let notifications = model.notifications {
+                NotificationSettingsView(store: notifications, authorization: model.notificationAuthorization)
+            }
+        case .privacy:
+            if let privacy = model.privacy { PrivacySettingsView(privacy: privacy) }
         }
     }
 
