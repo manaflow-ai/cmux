@@ -32,8 +32,8 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/permission_group_respond": (["sessionId", "groupId", "revision", "decisionKey", "decision"], []),
         "_acpmux/permission_chat_revoke": (["sessionId"], []),
         "acp.session.fork": (["sessionId", "throughSeq"], []),
-        "acp.trust.get": (["cwd"], []),
-        "acp.trust.set": (["cwd", "level"], []),
+        "acp.trust.get": (["cwd", "sessionId"], []),
+        "acp.trust.set": (["cwd", "level", "sessionId"], []),
         // Never `sha256`: only the relay adds it, after the native sheet's Enable.
         "_acpmux/harness_enable": (["folder", "id"], []),
         // They meet the gesture rule and the sheet; their mode field is their purpose.
@@ -59,7 +59,8 @@ nonisolated extension AcpmuxPaneMethods {
         guard let meta = rawMeta as? [String: Any] else { return true }
         // A redeeming frame: R1 first (nothing but the ticket in _meta), then the gesture rule.
         if setting, meta["cmuxGesture"] != nil { return meta.keys.contains { $0 != "cmuxGesture" } }
-        if meta.keys.contains(where: { $0 != "acpmux" }) { return true }
+        // A prompt held for the folder trust answer redeems its ticket beside its acpmux.promptId.
+        if meta.keys.contains(where: { $0 != "acpmux" && !(method == "session/prompt" && $0 == gestureTicketKey) }) { return true }
         guard let rawAcpmux = meta["acpmux"] else { return false }
         guard let acpmux = rawAcpmux as? [String: Any] else { return true }
         return acpmux.keys.contains(where: { !known.acpmux.contains($0) || denied.contains($0) })
