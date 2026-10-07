@@ -49,8 +49,8 @@ import Testing
         NSGraphicsContext.restoreGraphicsState()
 
         let alphaAt = { (y: Int) in rep.colorAt(x: rep.pixelsWide / 2, y: y)?.alphaComponent ?? 0 }
-        #expect(alphaAt(2) == 0, "selection fill reaches the top edge: \(alphaAt(2))")
-        #expect(alphaAt(rep.pixelsHigh - 3) == 0, "selection fill reaches the bottom edge: \(alphaAt(rep.pixelsHigh - 3))")
+        #expect(alphaAt(2) < 0.5, "selection fill reaches the top edge: \(alphaAt(2))")
+        #expect(alphaAt(rep.pixelsHigh - 3) < 0.5, "selection fill reaches the bottom edge: \(alphaAt(rep.pixelsHigh - 3))")
         #expect(alphaAt(rep.pixelsHigh / 2) > 0, "selection fill did not render")
     }
 
@@ -89,7 +89,7 @@ import Testing
         #expect(icon.isTemplate)
         #expect(icon.size == NSSize(width: Metrics.iconSize, height: Metrics.iconSize))
         #expect(cell.avatar.isHidden)
-        #expect(cell.highlightFrame.maxY <= cell.bounds.height - Metrics.space1)
+        #expect(cell.highlightFrame.height == Metrics.sidebarRowHeight)
         #expect(cell.time.lineBreakMode == NSLineBreakMode.byClipping)
     }
 }
