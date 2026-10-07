@@ -1,6 +1,274 @@
+import CmuxCloud
 import AppKit
+import CmuxFoundation
+import CmuxSettings
 import Bonsplit
 import Foundation
+import UniformTypeIdentifiers
+
+extension Notification.Name {
+    static let defaultTerminalRegistrationDidChange = Notification.Name("DefaultTerminalRegistration.didChange")
+}
+
+struct DefaultTerminalRegistrationStatus: Equatable {
+    let matchedTargetCount: Int
+    let targetCount: Int
+
+    var isDefault: Bool {
+        matchedTargetCount == targetCount
+    }
+}
+
+enum DefaultTerminalRegistrationError: Error, LocalizedError {
+    case launchServicesRegistrationFailed(OSStatus)
+
+    var errorDescription: String? {
+        switch self {
+        case .launchServicesRegistrationFailed:
+            return String(
+                localized: "error.defaultTerminal.registrationFailed",
+                defaultValue: "cmux could not register as the default terminal app."
+            )
+        }
+    }
+}
+
+enum DefaultTerminalRegistration {
+    static let urlSchemes = ["ssh"]
+    static let contentTypeIdentifiers = [
+        "com.apple.terminal.shell-script",
+        "public.unix-executable"
+    ]
+
+    static func contentType(forIdentifier identifier: String) -> UTType {
+        UTType(identifier) ?? UTType(importedAs: identifier)
+    }
+
+    static var targetCount: Int {
+        urlSchemes.count + contentTypeIdentifiers.count
+    }
+
+    static func currentStatus(
+        bundleURL: URL = Bundle.main.bundleURL,
+        workspace: NSWorkspace = .shared
+    ) -> DefaultTerminalRegistrationStatus {
+        let normalizedBundleURL = normalizedApplicationURL(bundleURL)
+        let matchedURLSchemes = urlSchemes.filter { scheme in
+            guard let url = URL(string: "\(scheme)://cmux-default-terminal-check") else {
+                return false
+            }
+            return normalizedApplicationURL(workspace.urlForApplication(toOpen: url)) == normalizedBundleURL
+        }.count
+
+        let matchedContentTypes = contentTypeIdentifiers.filter { identifier in
+            let contentType = contentType(forIdentifier: identifier)
+            return normalizedApplicationURL(workspace.urlForApplication(toOpen: contentType)) == normalizedBundleURL
+        }.count
+
+        return DefaultTerminalRegistrationStatus(
+            matchedTargetCount: matchedURLSchemes + matchedContentTypes,
+            targetCount: targetCount
+        )
+    }
+
+    static func setAsDefault(bundleURL: URL = Bundle.main.bundleURL) async throws {
+        let normalizedBundleURL = normalizedApplicationURL(bundleURL) ?? bundleURL.standardizedFileURL.resolvingSymlinksInPath()
+        var didAttemptHandlerUpdate = false
+        defer {
+            if didAttemptHandlerUpdate {
+                Task { @MainActor in
+                    NotificationCenter.default.post(name: .defaultTerminalRegistrationDidChange, object: nil)
+                }
+            }
+        }
+
+        let registerStatus = LSRegisterURL(normalizedBundleURL as CFURL, true)
+        guard registerStatus == noErr else {
+            throw DefaultTerminalRegistrationError.launchServicesRegistrationFailed(registerStatus)
+        }
+        didAttemptHandlerUpdate = true
+
+        for scheme in urlSchemes {
+            try await NSWorkspace.shared.setDefaultApplication(
+                at: normalizedBundleURL,
+                toOpenURLsWithScheme: scheme
+            )
+        }
+
+        for identifier in contentTypeIdentifiers {
+            let contentType = contentType(forIdentifier: identifier)
+            try await NSWorkspace.shared.setDefaultApplication(
+                at: normalizedBundleURL,
+                toOpen: contentType
+            )
+        }
+    }
+
+    private static func normalizedApplicationURL(_ url: URL?) -> URL? {
+        url?.standardizedFileURL.resolvingSymlinksInPath()
+    }
+}
+
+@MainActor
+enum DefaultTerminalUserAction {
+    private struct RegistrationOperation {
+        let id: UUID
+        let task: Task<Void, Error>
+    }
+
+    private static var inFlightRegistration: RegistrationOperation?
+
+    @discardableResult
+    static func registerAsDefault() async throws -> Bool {
+        if let operation = inFlightRegistration {
+            do {
+                try await operation.task.value
+            } catch {
+                return false
+            }
+            return false
+        }
+
+        let operation = RegistrationOperation(
+            id: UUID(),
+            task: Task {
+                try await DefaultTerminalRegistration.setAsDefault()
+            }
+        )
+        inFlightRegistration = operation
+
+        do {
+            try await operation.task.value
+            if inFlightRegistration?.id == operation.id {
+                inFlightRegistration = nil
+            }
+            return true
+        } catch {
+            if inFlightRegistration?.id == operation.id {
+                inFlightRegistration = nil
+            }
+            throw error
+        }
+    }
+
+    static func setAsDefault(debugSource: String) {
+#if DEBUG
+        cmuxDebugLog("defaultTerminal.setAsDefault source=\(debugSource)")
+#endif
+        Task {
+            do {
+                try await registerAsDefault()
+            } catch {
+#if DEBUG
+                cmuxDebugLog("defaultTerminal.setAsDefault.failed source=\(debugSource) error=\(error)")
+#endif
+                presentSetAsDefaultError(error)
+            }
+        }
+    }
+
+    private static func presentSetAsDefaultError(_ error: Error) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = String(
+            localized: "dialog.defaultTerminal.setFailed.title",
+            defaultValue: "Could Not Set Default Terminal"
+        )
+        alert.informativeText = (error as? DefaultTerminalRegistrationError)?.errorDescription ?? String(
+            localized: "defaultTerminal.updateFailed.message",
+            defaultValue: "macOS could not update every default terminal handler."
+        )
+        alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
+        alert.window.identifier = NSUserInterfaceItemIdentifier("cmux.defaultTerminalRegistrationError")
+        alert.runModal()
+    }
+}
+
+struct TerminalDefaultFileOpenRequest: Equatable {
+    let fileURL: URL
+    let workingDirectory: String
+    let initialInput: String
+
+    init?(fileURL: URL, contentType: UTType? = nil, isExecutable: Bool? = nil) {
+        guard fileURL.isFileURL else { return nil }
+        let standardizedURL = fileURL.standardizedFileURL
+        let directoryCheckURL = standardizedURL.resolvingSymlinksInPath()
+        guard !SessionPersistencePolicy.isCmuxCrashStorageURL(standardizedURL) else { return nil }
+        guard !SessionPersistencePolicy.isCmuxCrashStorageURL(directoryCheckURL) else { return nil }
+        let resourceValues = try? directoryCheckURL.resourceValues(forKeys: [.isDirectoryKey])
+        guard resourceValues?.isDirectory != true else { return nil }
+        let resolvedContentType = contentType ?? Self.contentType(for: standardizedURL)
+        let resolvedIsExecutable = isExecutable ?? Self.isExecutableFile(directoryCheckURL)
+        guard Self.shouldRunInTerminal(
+            fileURL: standardizedURL,
+            contentType: resolvedContentType,
+            isExecutable: resolvedIsExecutable
+        ) else {
+            return nil
+        }
+
+        self.fileURL = standardizedURL
+        // `path(percentEncoded:)` keeps a directory URL's trailing slash, so the parent of
+        // "/tmp/scripts/run.command" came back as "/tmp/scripts/". That string becomes the
+        // workspace's working directory, which the window title renders via {activeDirectory}
+        // and which directory comparisons match on, so the stray slash is user visible. `path`
+        // reports the same decoded path without it and still reports "/" for a file at the root.
+        self.workingDirectory = standardizedURL.deletingLastPathComponent().path
+        self.initialInput = "\(Self.shellSingleQuoted(standardizedURL.path(percentEncoded: false)))\n"
+    }
+
+    static func requests(from urls: [URL]) -> [TerminalDefaultFileOpenRequest] {
+        var seen: Set<String> = []
+        var requests: [TerminalDefaultFileOpenRequest] = []
+        for url in urls {
+            guard let request = TerminalDefaultFileOpenRequest(fileURL: url) else { continue }
+            let path = request.fileURL.path(percentEncoded: false)
+            guard seen.insert(path).inserted else { continue }
+            requests.append(request)
+        }
+        return requests
+    }
+
+    private static func contentType(for fileURL: URL) -> UTType? {
+        try? fileURL.resourceValues(forKeys: [.contentTypeKey]).contentType
+    }
+
+    private static func isExecutableFile(_ fileURL: URL) -> Bool {
+        if (try? fileURL.resourceValues(forKeys: [.isExecutableKey]).isExecutable) == true {
+            return true
+        }
+        return FileManager.default.isExecutableFile(atPath: fileURL.path(percentEncoded: false))
+    }
+
+    private static func shouldRunInTerminal(fileURL: URL, contentType: UTType?, isExecutable: Bool) -> Bool {
+        if isTerminalShellScript(fileURL: fileURL, contentType: contentType) {
+            return true
+        }
+        if contentType?.conforms(to: .unixExecutable) == true {
+            return true
+        }
+        // cmux is also an Open With viewer for text and source files, so the executable bit
+        // alone must not run a typed text file such as a chmod +x script.py or notes.md.
+        // Extensionless scripts and binaries are typed as executables or plain data and still run.
+        return isExecutable && contentType?.conforms(to: .text) != true
+    }
+
+    private static func isTerminalShellScript(fileURL: URL, contentType: UTType?) -> Bool {
+        if contentType?.identifier == "com.apple.terminal.shell-script" {
+            return true
+        }
+        switch fileURL.pathExtension.lowercased() {
+        case "command", "tool":
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func shellSingleQuoted(_ value: String) -> String {
+        "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
+    }
+}
 
 @MainActor
 final class CmuxSSHURLProcessLauncher {
@@ -42,6 +310,9 @@ final class CmuxSSHURLProcessLauncher {
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_BUNDLED_CLI_PATH"] = cliURL.path
+        // Opening an ssh:// link is the person's own action: the workspace takes focus
+        // like an interactive `cmux ssh` unless the request carries `--no-focus`.
+        environment["CMUX_FOCUS_NEW"] = "1"
         environment.removeValue(forKey: "CMUX_SOCKET")
         process.environment = environment
 
@@ -266,78 +537,6 @@ extension AppDelegate {
     }
 
     @discardableResult
-    private func handleCmuxNavigationURLRequest(_ request: CmuxNavigationURLRequest) -> Bool {
-        let workspaceId: UUID
-        switch request.target {
-        case .workspace(let id), .pane(let id, _), .surface(let id, _):
-            workspaceId = id
-        }
-
-        guard let context = mainWindowContexts.values.first(where: { context in
-            context.tabManager.tabs.contains(where: { $0.id == workspaceId })
-        }),
-              let workspace = context.tabManager.tabs.first(where: { $0.id == workspaceId }),
-              let window = context.window ?? windowForMainWindowId(context.windowId) else {
-#if DEBUG
-            cmuxDebugLog("navigationURL.notFound workspace=\(workspaceId.uuidString.prefix(8))")
-#endif
-            return false
-        }
-
-        let targetPanelId: UUID?
-        switch request.target {
-        case .workspace:
-            targetPanelId = nil
-        case .pane(_, let paneId):
-            guard let pane = workspace.bonsplitController.allPaneIds.first(where: { $0.id == paneId }) else {
-#if DEBUG
-                cmuxDebugLog(
-                    "navigationURL.notFound workspace=\(workspaceId.uuidString.prefix(8)) " +
-                    "pane=\(paneId.uuidString.prefix(8))"
-                )
-#endif
-                return false
-            }
-            let selectedTab = workspace.bonsplitController.selectedTab(inPane: pane)
-                ?? workspace.bonsplitController.tabs(inPane: pane).first
-            targetPanelId = selectedTab.flatMap { workspace.panelIdFromSurfaceId($0.id) }
-            if targetPanelId == nil {
-                workspace.bonsplitController.focusPane(pane)
-            }
-        case .surface(_, let surfaceId):
-            guard workspace.panels[surfaceId] != nil,
-                  workspace.surfaceIdFromPanelId(surfaceId) != nil else {
-#if DEBUG
-                cmuxDebugLog(
-                    "navigationURL.notFound workspace=\(workspaceId.uuidString.prefix(8)) " +
-                    "surface=\(surfaceId.uuidString.prefix(8))"
-                )
-#endif
-                return false
-            }
-            targetPanelId = surfaceId
-        }
-
-        prepareForExplicitOpenIntentAtStartup()
-        setActiveMainWindow(window)
-        _ = focusMainWindow(windowId: context.windowId)
-        context.tabManager.focusTab(
-            workspaceId,
-            surfaceId: targetPanelId,
-            suppressFlash: true
-        )
-
-#if DEBUG
-        let surface = targetPanelId.map { String($0.uuidString.prefix(8)) } ?? "nil"
-        cmuxDebugLog(
-            "navigationURL.focus workspace=\(workspaceId.uuidString.prefix(8)) " +
-            "surface=\(surface) window=\(context.windowId.uuidString.prefix(8))"
-        )
-#endif
-        return true
-    }
-
-    @discardableResult
     func handleCmuxSSHURLs(from urls: [URL]) -> Bool {
         var sshURLRequests: [CmuxSSHURLRequest] = []
         var sshURLParseErrors: [CmuxSSHURLParseError] = []
@@ -402,6 +601,23 @@ extension AppDelegate {
         let target = request.originalURL.host ?? request.originalURL.path
         cmuxDebugLog("sshURL.prompt target=\(target) destinationLength=\(request.destination.count) hasPort=\(request.port != nil)")
 #endif
+        // `DisableRemoteConnections` (MDM): refuse before the trust dialog and
+        // the window bootstrap. The CLI would fail closed downstream, but only
+        // with a generic exit-status alert.
+        guard ManagedRemoteConnectionsPolicy.isEnabled else {
+#if DEBUG
+            cmuxDebugLog("sshURL.blocked_managed_policy")
+#endif
+            let alert = NSAlert()
+            alert.messageText = ManagedRemoteConnectionsPolicy.disabledMessage
+            alert.informativeText = String(
+                localized: "managedPolicy.remoteConnections.sshURLRefused",
+                defaultValue: "cmux cannot open SSH links while remote connections are disabled by your organization's device policy."
+            )
+            alert.alertStyle = .informational
+            alert.runModal()
+            return
+        }
 
         deferInitialMainWindowBootstrapForExternalConfirmation()
         guard confirmCmuxSSHURLRequest(request) else {
@@ -554,7 +770,7 @@ extension AppDelegate {
             localized: "dialog.sshURL.commandLabel",
             defaultValue: "Command preview:"
         ))
-        commandLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .semibold)
+        commandLabel.font = GlobalFontMagnification.systemFont(ofSize: NSFont.smallSystemFontSize, weight: .semibold)
 
         let socketPath = CmuxSSHURLProcessLauncher.shared.resolvedSocketPath()
         let commandScrollView = cmuxSSHURLTextPreview(request.cliPreview(socketPath: socketPath), height: 80)
@@ -620,7 +836,7 @@ extension AppDelegate {
             localized: "dialog.textURL.previewLabel",
             defaultValue: "Text preview:"
         ))
-        previewLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .semibold)
+        previewLabel.font = GlobalFontMagnification.systemFont(ofSize: NSFont.smallSystemFontSize, weight: .semibold)
 
         let preview = cmuxSSHURLTextPreview(request.pasteText, height: 180)
 
@@ -656,7 +872,7 @@ extension AppDelegate {
         textView.drawsBackground = true
         textView.backgroundColor = NSColor.textBackgroundColor
         textView.textColor = NSColor.labelColor
-        textView.font = NSFont.monospacedSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
+        textView.font = GlobalFontMagnification.monospacedSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
         textView.textContainerInset = NSSize(width: 8, height: 8)
         textView.isHorizontallyResizable = false
         textView.isVerticallyResizable = true

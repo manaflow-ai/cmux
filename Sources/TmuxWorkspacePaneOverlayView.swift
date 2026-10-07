@@ -1,31 +1,37 @@
+import AppKit
+import CmuxFoundation
 import SwiftUI
 
 struct TmuxWorkspacePaneOverlayView: View {
     let unreadRects: [CGRect]
     let flashRect: CGRect?
+    let activePaneBorderRect: CGRect?
+    let activePaneBorderColorHex: String?
     let flashStartedAt: Date?
     let flashReason: WorkspaceAttentionFlashReason?
+    let workspaceAttentionColor: WorkspaceAttentionColor
     @State private var completedFlashStartedAt: Date?
 
     var body: some View {
-        overlayContent
+        let attentionColor = Color(nsColor: workspaceAttentionColor.nsColor)
+        overlayContent(attentionColor: attentionColor)
             .allowsHitTesting(false)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     @ViewBuilder
-    private var overlayContent: some View {
+    private func overlayContent(attentionColor: Color) -> some View {
         if shouldAnimateFlash, let flashStartedAt {
             TimelineView(TmuxWorkspacePaneFlashTimelineSchedule(startDate: flashStartedAt)) { timeline in
-                overlayCanvas(timelineDate: timeline.date)
+                overlayCanvas(timelineDate: timeline.date, attentionColor: attentionColor)
                     .onChange(of: timeline.date) { _, date in
-                        if date.timeIntervalSince(flashStartedAt) >= FocusFlashPattern.duration {
+                        if date.timeIntervalSince(flashStartedAt) >= FocusFlashPattern.current.duration {
                             completedFlashStartedAt = flashStartedAt
                         }
                     }
             }
-        } else if !unreadRects.isEmpty {
-            overlayCanvas(timelineDate: nil)
+        } else if !unreadRects.isEmpty || activePaneBorderRect != nil {
+            overlayCanvas(timelineDate: nil, attentionColor: attentionColor)
         } else {
             Color.clear
         }
@@ -36,45 +42,73 @@ struct TmuxWorkspacePaneOverlayView: View {
               let flashStartedAt else { return false }
         guard completedFlashStartedAt != flashStartedAt,
               ringPath(for: flashRect) != nil else { return false }
-        return Date() <= flashStartedAt.addingTimeInterval(FocusFlashPattern.duration)
+        return Date() <= flashStartedAt.addingTimeInterval(FocusFlashPattern.current.duration)
     }
 
-    private func overlayCanvas(timelineDate: Date?) -> some View {
-        Canvas { context, _ in
+    /// Clips the active border to the drawable canvas so its bottom and right
+    /// strokes remain visible when the zoom container reaches a window edge.
+    private func overlayCanvas(timelineDate: Date?, attentionColor: Color) -> some View {
+        Canvas { context, size in
+            if let activePaneBorderRect,
+               let activePaneBorderColorHex {
+                drawActivePaneBorder(
+                    in: &context,
+                    rect: activePaneBorderRect.intersection(CGRect(origin: .zero, size: size)),
+                    colorHex: activePaneBorderColorHex
+                )
+            }
+
             for rect in unreadRects {
-                drawUnreadRing(in: &context, rect: rect)
+                drawUnreadRing(in: &context, rect: rect, color: attentionColor)
             }
 
             guard let flashRect,
                   let flashStartedAt,
                   let timelineDate else { return }
             let elapsed = timelineDate.timeIntervalSince(flashStartedAt)
-            let opacity = FocusFlashPattern.opacity(at: elapsed)
+            let opacity = FocusFlashPattern.current.opacity(at: elapsed)
             guard opacity > 0.001 else { return }
             drawFlashRing(
                 in: &context,
                 rect: flashRect,
                 opacity: opacity,
-                reason: flashReason ?? .notificationArrival
+                reason: flashReason ?? .notificationArrival,
+                color: Color(nsColor: workspaceAttentionColor.flashNSColor)
             )
         }
     }
 
-    private func drawUnreadRing(in context: inout GraphicsContext, rect: CGRect) {
+    private func drawActivePaneBorder(
+        in context: inout GraphicsContext,
+        rect: CGRect,
+        colorHex: String
+    ) {
+        guard let path = ringPath(for: rect),
+              let color = NSColor(hex: colorHex) else { return }
+        context.stroke(
+            path,
+            with: .color(Color(nsColor: color)),
+            style: StrokeStyle(
+                lineWidth: PanelOverlayRingMetrics.lineWidth,
+                lineJoin: .round
+            )
+        )
+    }
+
+    private func drawUnreadRing(in context: inout GraphicsContext, rect: CGRect, color: Color) {
         guard let path = ringPath(for: rect) else { return }
         let presentation = WorkspaceAttentionCoordinator.notificationRingStyle
-        let strokeColor = Color(nsColor: presentation.accent.strokeColor)
 
         var glowContext = context
         glowContext.addFilter(
             .shadow(
-                color: strokeColor.opacity(presentation.glowOpacity),
+                color: color.opacity(presentation.glowOpacity),
                 radius: presentation.glowRadius
             )
         )
         glowContext.stroke(
             path,
-            with: .color(strokeColor),
+            with: .color(color),
             style: StrokeStyle(lineWidth: PanelOverlayRingMetrics.lineWidth, lineJoin: .round)
         )
     }
@@ -83,22 +117,22 @@ struct TmuxWorkspacePaneOverlayView: View {
         in context: inout GraphicsContext,
         rect: CGRect,
         opacity: Double,
-        reason: WorkspaceAttentionFlashReason
+        reason: WorkspaceAttentionFlashReason,
+        color: Color
     ) {
         guard let path = ringPath(for: rect) else { return }
         let presentation = WorkspaceAttentionCoordinator.flashStyle(for: reason)
-        let strokeColor = Color(nsColor: presentation.accent.strokeColor)
 
         var glowContext = context
         glowContext.addFilter(
             .shadow(
-                color: strokeColor.opacity(opacity * presentation.glowOpacity),
+                color: color.opacity(opacity * presentation.glowOpacity),
                 radius: presentation.glowRadius
             )
         )
         glowContext.stroke(
             path,
-            with: .color(strokeColor.opacity(opacity)),
+            with: .color(color.opacity(opacity)),
             style: StrokeStyle(lineWidth: PanelOverlayRingMetrics.lineWidth, lineJoin: .round)
         )
     }
@@ -113,7 +147,7 @@ struct TmuxWorkspacePaneOverlayView: View {
     }
 }
 
-private struct TmuxWorkspacePaneFlashTimelineSchedule: TimelineSchedule {
+struct TmuxWorkspacePaneFlashTimelineSchedule: TimelineSchedule {
     let startDate: Date
 
     func entries(from requestedStartDate: Date, mode: Mode) -> Entries {
@@ -121,7 +155,7 @@ private struct TmuxWorkspacePaneFlashTimelineSchedule: TimelineSchedule {
         let interval = mode == .lowFrequency ? 1.0 / 10.0 : 1.0 / 60.0
         return Entries(
             nextDate: firstDate,
-            endDate: startDate.addingTimeInterval(FocusFlashPattern.duration),
+            endDate: startDate.addingTimeInterval(FocusFlashPattern.current.duration),
             interval: interval
         )
     }

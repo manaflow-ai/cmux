@@ -1,6 +1,24 @@
 {
-  "originHash" : "21ae962c1bd1db162e73bb73adabe7e6e4bf38fc9981b5ecc0a9ac8ac7c16f5e",
+  "originHash" : "849a0f89f1981fca024e7e1e793e278b2eca0fb4626f903ba20821b120e2bcf1",
   "pins" : [
+    {
+      "identity" : "highlightr",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/raspu/Highlightr.git",
+      "state" : {
+        "revision" : "05e7fcc63b33925cd0c1faaa205cdd5681e7bbef",
+        "version" : "2.3.0"
+      }
+    },
+    {
+      "identity" : "iroh-ffi",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/manaflow-ai/iroh-ffi.git",
+      "state" : {
+        "revision" : "ee19f156667ca640b912108a45f8b5bb8d156fec",
+        "version" : "1.2.0-cmux.1.ios17"
+      }
+    },
     {
       "identity" : "networkimage",
       "kind" : "remoteSourceControl",
@@ -33,8 +51,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/sparkle-project/Sparkle",
       "state" : {
-        "revision" : "5581748cef2bae787496fe6d61139aebe0a451f6",
-        "version" : "2.8.1"
+        "revision" : "79bc9e872948e47877e76f194cb0c8e0412b0b90",
+        "version" : "2.9.5"
       }
     },
     {
@@ -42,8 +60,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-asn1.git",
       "state" : {
-        "revision" : "eb50cbd14606a9161cbc5d452f18797c90ef0bab",
-        "version" : "1.7.0"
+        "revision" : "3b6410f7dee09eb33cdd26260c5fd47fda19b0e2",
+        "version" : "1.7.3"
       }
     },
     {
@@ -71,6 +89,15 @@
       "state" : {
         "revision" : "5f613358148239d0292c0cef674a3c2314737f9e",
         "version" : "2.4.1"
+      }
+    },
+    {
+      "identity" : "swift-syntax",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/swiftlang/swift-syntax.git",
+      "state" : {
+        "revision" : "0687f71944021d616d34d922343dcef086855920",
+        "version" : "600.0.1"
       }
     }
   ],

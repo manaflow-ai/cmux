@@ -1,0 +1,27 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.cmux.invalid/iroh-v2/V2TicketRequest.json",
+  "type": "object",
+  "properties": {
+    "schemaId": {
+      "type": "string",
+      "const": "ticket.request.v1"
+    },
+    "requestId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "stackAccessToken": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 8192
+    }
+  },
+  "required": [
+    "schemaId",
+    "requestId",
+    "stackAccessToken"
+  ],
+  "additionalProperties": false
+}

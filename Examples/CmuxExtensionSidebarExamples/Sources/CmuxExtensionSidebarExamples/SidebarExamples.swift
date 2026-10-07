@@ -1,8 +1,8 @@
-import CmuxExtensionKit
+import CmuxSidebarProviderKit
 import Foundation
 
 public enum SidebarExamples {
-    public static let providers: [any CmuxExtensionSidebarProvider] = [
+    public static let providers: [any CmuxSidebarProvider] = [
         ProjectWorktreeSidebar(),
         AttentionQueueSidebar(),
         DevServerSidebar(),
@@ -16,21 +16,21 @@ public enum SidebarExamples {
 
 struct ExampleSidebarSection {
     var id: String
-    var title: CmuxExtensionLocalizedText
+    var title: CmuxSidebarProviderLocalizedText
     var systemImageName: String
     var projectRootPath: String?
-    var workspaces: [CmuxExtensionWorkspaceSnapshot]
+    var workspaces: [CmuxSidebarProviderWorkspace]
 
     func render(
-        rowTitle: (CmuxExtensionWorkspaceSnapshot) -> String = { $0.title },
-        accessory: CmuxExtensionWorkspaceRowAccessory? = .inspector,
-        subtitle: (CmuxExtensionWorkspaceSnapshot) -> CmuxExtensionSidebarRenderText? = { _ in nil },
-        trailingText: (CmuxExtensionWorkspaceSnapshot) -> CmuxExtensionSidebarRenderText? = { _ in nil },
-        leadingIcon: (CmuxExtensionWorkspaceSnapshot) -> CmuxExtensionSidebarRenderIcon? = { _ in nil }
-    ) -> CmuxExtensionSidebarRenderSection {
-        CmuxExtensionSidebarRenderSection(
+        rowTitle: (CmuxSidebarProviderWorkspace) -> String = { $0.title },
+        accessory: CmuxSidebarProviderRowAccessory? = .inspector,
+        subtitle: (CmuxSidebarProviderWorkspace) -> CmuxSidebarProviderText? = { _ in nil },
+        trailingText: (CmuxSidebarProviderWorkspace) -> CmuxSidebarProviderText? = { _ in nil },
+        leadingIcon: (CmuxSidebarProviderWorkspace) -> CmuxSidebarProviderIcon? = { _ in nil }
+    ) -> CmuxSidebarProviderSection {
+        CmuxSidebarProviderSection(
             id: id,
-            treeSection: CmuxExtensionWorkspaceTreeSection(
+            treeSection: CmuxSidebarProviderTreeSection(
                 id: id,
                 title: title.defaultValue,
                 titleText: title,
@@ -40,7 +40,7 @@ struct ExampleSidebarSection {
                 workspaceIds: workspaces.map(\.id)
             ),
             rows: workspaces.map { workspace in
-                CmuxExtensionSidebarRenderRow(
+                CmuxSidebarProviderRow(
                     id: workspace.id,
                     title: rowTitle(workspace),
                     workspaceId: workspace.id,
@@ -54,17 +54,17 @@ struct ExampleSidebarSection {
     }
 }
 
-func localized(_ key: String, _ defaultValue: String) -> CmuxExtensionLocalizedText {
-    CmuxExtensionLocalizedText(key: key, defaultValue: defaultValue)
+func localized(_ key: String, _ defaultValue: String) -> CmuxSidebarProviderLocalizedText {
+    CmuxSidebarProviderLocalizedText(key: key, defaultValue: defaultValue)
 }
 
 func renderModel(
     providerId: String,
-    snapshot: CmuxExtensionSidebarSnapshot,
-    sections: [CmuxExtensionSidebarRenderSection],
-    presentation: CmuxExtensionSidebarPresentation = .tree
-) -> CmuxExtensionSidebarRenderModel {
-    CmuxExtensionSidebarRenderModel(
+    snapshot: CmuxSidebarProviderSnapshot,
+    sections: [CmuxSidebarProviderSection],
+    presentation: CmuxSidebarProviderPresentation = .tree
+) -> CmuxSidebarProviderRenderModel {
+    CmuxSidebarProviderRenderModel(
         providerId: providerId,
         snapshotSequence: snapshot.sequence,
         sections: presentation == .browserStack ? sections : sections.filter { !$0.rows.isEmpty },
@@ -80,7 +80,7 @@ func trimmed(_ value: String?) -> String? {
     return trimmed
 }
 
-func projectRoot(for workspace: CmuxExtensionWorkspaceSnapshot) -> String? {
+func projectRoot(for workspace: CmuxSidebarProviderWorkspace) -> String? {
     trimmed(workspace.projectRootPath)
 }
 

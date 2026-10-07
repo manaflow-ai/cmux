@@ -1,7 +1,7 @@
-import CmuxExtensionKit
+import CmuxSidebarProviderKit
 
-public struct AttentionQueueSidebar: CmuxExtensionSidebarProvider {
-    public let descriptor = CmuxExtensionSidebarProviderDescriptor(
+public struct AttentionQueueSidebar: CmuxSidebarProvider {
+    public let descriptor = CmuxSidebarProviderDescriptor(
         id: "com.example.cmux.sidebar.attention-queue",
         title: localized("example.sidebar.attentionQueue.title", "Attention Queue"),
         subtitle: localized("example.sidebar.attentionQueue.subtitle", "User extension"),
@@ -11,7 +11,7 @@ public struct AttentionQueueSidebar: CmuxExtensionSidebarProvider {
 
     public init() {}
 
-    public func render(snapshot: CmuxExtensionSidebarSnapshot) -> CmuxExtensionSidebarRenderModel {
+    public func render(snapshot: CmuxSidebarProviderSnapshot) -> CmuxSidebarProviderRenderModel {
         let selected = snapshot.selectedWorkspaceId
         let active = snapshot.workspaces.filter { $0.id == selected }
         let pinned = snapshot.workspaces.filter { $0.isPinned && $0.id != selected }
@@ -60,7 +60,7 @@ public struct AttentionQueueSidebar: CmuxExtensionSidebarProvider {
         return renderModel(providerId: descriptor.id, snapshot: snapshot, sections: sections)
     }
 
-    private func needsAttention(_ workspace: CmuxExtensionWorkspaceSnapshot) -> Bool {
+    private func needsAttention(_ workspace: CmuxSidebarProviderWorkspace) -> Bool {
         workspace.unreadCount > 0
             || trimmed(workspace.latestNotificationText) != nil
             || (hasRemoteTarget(workspace) && (
@@ -70,7 +70,7 @@ public struct AttentionQueueSidebar: CmuxExtensionSidebarProvider {
             ))
     }
 
-    private func rowSubtitle(_ workspace: CmuxExtensionWorkspaceSnapshot) -> CmuxExtensionSidebarRenderText? {
+    private func rowSubtitle(_ workspace: CmuxSidebarProviderWorkspace) -> CmuxSidebarProviderText? {
         if let notification = trimmed(workspace.latestNotificationText) {
             return .plain(notification)
         }
@@ -79,10 +79,10 @@ public struct AttentionQueueSidebar: CmuxExtensionSidebarProvider {
            remoteState != "connected" {
             return .plain(remoteState)
         }
-        return trimmed(workspace.customDescription).map(CmuxExtensionSidebarRenderText.plain)
+        return trimmed(workspace.customDescription).map(CmuxSidebarProviderText.plain)
     }
 
-    private func hasRemoteTarget(_ workspace: CmuxExtensionWorkspaceSnapshot) -> Bool {
+    private func hasRemoteTarget(_ workspace: CmuxSidebarProviderWorkspace) -> Bool {
         trimmed(workspace.remoteDisplayTarget) != nil
     }
 }

@@ -1,8 +1,8 @@
-import CmuxExtensionKit
+import CmuxSidebarProviderKit
 import Foundation
 
-public struct DevServerSidebar: CmuxExtensionSidebarProvider {
-    public let descriptor = CmuxExtensionSidebarProviderDescriptor(
+public struct DevServerSidebar: CmuxSidebarProvider {
+    public let descriptor = CmuxSidebarProviderDescriptor(
         id: "com.example.cmux.sidebar.dev-servers",
         title: localized("example.sidebar.devServers.title", "Dev Servers"),
         subtitle: localized("example.sidebar.devServers.subtitle", "User extension"),
@@ -12,7 +12,7 @@ public struct DevServerSidebar: CmuxExtensionSidebarProvider {
 
     public init() {}
 
-    public func render(snapshot: CmuxExtensionSidebarSnapshot) -> CmuxExtensionSidebarRenderModel {
+    public func render(snapshot: CmuxSidebarProviderSnapshot) -> CmuxSidebarProviderRenderModel {
         let liveServers = snapshot.workspaces.filter(hasServerSignal)
         let remote = snapshot.workspaces.filter { workspace in
             !hasServerSignal(workspace) && trimmed(workspace.remoteDisplayTarget) != nil
@@ -51,7 +51,7 @@ public struct DevServerSidebar: CmuxExtensionSidebarProvider {
         return renderModel(providerId: descriptor.id, snapshot: snapshot, sections: sections)
     }
 
-    private func hasServerSignal(_ workspace: CmuxExtensionWorkspaceSnapshot) -> Bool {
+    private func hasServerSignal(_ workspace: CmuxSidebarProviderWorkspace) -> Bool {
         if !workspace.listeningPorts.isEmpty {
             return true
         }
@@ -72,10 +72,10 @@ public struct DevServerSidebar: CmuxExtensionSidebarProvider {
         return false
     }
 
-    private func serverSubtitle(_ workspace: CmuxExtensionWorkspaceSnapshot) -> CmuxExtensionSidebarRenderText? {
+    private func serverSubtitle(_ workspace: CmuxSidebarProviderWorkspace) -> CmuxSidebarProviderText? {
         if !workspace.listeningPorts.isEmpty {
             return .plain(workspace.listeningPorts.map { ":\($0)" }.joined(separator: ", "))
         }
-        return trimmed(workspace.customDescription).map(CmuxExtensionSidebarRenderText.plain)
+        return trimmed(workspace.customDescription).map(CmuxSidebarProviderText.plain)
     }
 }

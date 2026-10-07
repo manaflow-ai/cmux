@@ -4,20 +4,8 @@ extension AppDelegate {
     func clearRecentlyClosedHistory(preferredTabManager: TabManager? = nil) {
         ClosedItemHistoryStore.shared.removeAll()
 
-        var clearedManagers: Set<ObjectIdentifier> = []
-        func clear(_ manager: TabManager?) {
-            guard let manager else { return }
-            guard clearedManagers.insert(ObjectIdentifier(manager)).inserted else { return }
+        for manager in liveWorkspaceIdentityTabManagers(preferredTabManager: preferredTabManager) {
             manager.clearRecentlyClosedBrowserPanelHistory()
-        }
-
-        clear(preferredTabManager)
-        clear(tabManager)
-        for context in mainWindowContexts.values {
-            clear(context.tabManager)
-        }
-        for route in recoverableMainWindowRoutes() {
-            clear(route.tabManager)
         }
     }
 
@@ -58,25 +46,8 @@ extension AppDelegate {
     }
 
     private func recentlyClosedLegacyBrowserManagers(preferredTabManager: TabManager?) -> [TabManager] {
-        var managers: [TabManager] = []
-        var seen: Set<ObjectIdentifier> = []
-
-        func append(_ manager: TabManager?) {
-            guard let manager else { return }
-            guard manager.mostRecentLegacyClosedBrowserPanelClosedAt() != nil else { return }
-            guard seen.insert(ObjectIdentifier(manager)).inserted else { return }
-            managers.append(manager)
-        }
-
-        append(preferredTabManager)
-        append(tabManager)
-        for context in mainWindowContexts.values {
-            append(context.tabManager)
-        }
-        for route in recoverableMainWindowRoutes() {
-            append(route.tabManager)
-        }
-
+        let managers = liveWorkspaceIdentityTabManagers(preferredTabManager: preferredTabManager)
+            .filter { $0.mostRecentLegacyClosedBrowserPanelClosedAt() != nil }
         return managers.sorted { lhs, rhs in
             let lhsDate = lhs.mostRecentLegacyClosedBrowserPanelClosedAt() ?? .distantPast
             let rhsDate = rhs.mostRecentLegacyClosedBrowserPanelClosedAt() ?? .distantPast
@@ -106,7 +77,13 @@ extension AppDelegate {
                 workspaceEntry.windowId.flatMap { tabManagerFor(windowId: $0) }
                 ?? preferredTabManager
                 ?? tabManager
-            guard let manager, manager.restoreClosedWorkspace(workspaceEntry) else {
+            guard let manager,
+                  manager.restoreClosedWorkspace(
+                    workspaceEntry,
+                    excludingStableIdentities: liveStableIdentitySet(preferredTabManager: preferredTabManager),
+                    excludingWorkspaceIds: liveWorkspaceIdSet(preferredTabManager: preferredTabManager)
+                  )
+            else {
                 return false
             }
             activateMainWindowIfNeeded(for: manager, shouldActivate: shouldActivate)
@@ -114,10 +91,26 @@ extension AppDelegate {
         case .window(let windowEntry):
             var restoredPanelIdsByWorkspaceIndex: [[UUID: UUID]] = []
             var restoredTabManager: TabManager?
+            var windowSnapshot = windowEntry.snapshot
+            if windowSnapshot.windowId == nil {
+                windowSnapshot.windowId = windowEntry.windowId
+            }
+            let originalWindowId = windowSnapshot.windowId
+            let originalWorkspaceIdsByIndex = windowSnapshot.tabManager.workspaces.enumerated().map { index, workspaceSnapshot -> UUID? in
+                if let workspaceId = workspaceSnapshot.workspaceId {
+                    return workspaceId
+                }
+                guard windowEntry.workspaceIds.indices.contains(index) else { return nil }
+                return windowEntry.workspaceIds[index]
+            }
+            let excludedStableIdentities = liveStableIdentitySet()
+            let excludedWorkspaceIds = liveWorkspaceIdSet()
             let windowId = createMainWindow(
-                sessionWindowSnapshot: windowEntry.snapshot,
+                sessionWindowSnapshot: windowSnapshot,
                 shouldActivate: shouldActivate,
-                closedWindowHistoryWorkspaceIds: windowEntry.workspaceIds,
+                remapClosedPanelHistoryFromSessionSnapshot: false,
+                excludingStableIdentitiesFromSessionSnapshot: excludedStableIdentities,
+                excludingWorkspaceIdsFromSessionSnapshot: excludedWorkspaceIds,
                 restoredSessionSnapshotHandler: { panelIdsByWorkspaceIndex, tabManager in
                     restoredPanelIdsByWorkspaceIndex = panelIdsByWorkspaceIndex
                     restoredTabManager = tabManager
@@ -129,12 +122,18 @@ extension AppDelegate {
                 restoredPanelIdsByWorkspaceIndex: restoredPanelIdsByWorkspaceIndex,
                 hasLivePanels: hasLivePanels
             ) else {
+                if let originalWindowId {
+                    ClosedItemHistoryStore.shared.remapWorkspaceWindowIds(from: windowId, to: originalWindowId)
+                    ClosedItemHistoryStore.shared.flushPendingSaves()
+                }
                 discardMainWindowWithoutClosedHistory(windowId: windowId)
                 return false
             }
-            if let oldWindowId = windowEntry.windowId {
-                ClosedItemHistoryStore.shared.remapWorkspaceWindowIds(from: oldWindowId, to: windowId)
-            }
+            restoredTabManager?.remapClosedPanelHistoryAfterSessionRestore(
+                originalWorkspaceIds: originalWorkspaceIdsByIndex,
+                restoredPanelIdsByWorkspaceIndex: restoredPanelIdsByWorkspaceIndex,
+                ambiguousOriginalWorkspaceIds: excludedWorkspaceIds
+            )
             return true
         }
     }

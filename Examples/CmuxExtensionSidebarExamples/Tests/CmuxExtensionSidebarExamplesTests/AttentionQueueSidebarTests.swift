@@ -1,4 +1,4 @@
-import CmuxExtensionKit
+import CmuxSidebarProviderKit
 @testable import CmuxExtensionSidebarExamples
 import XCTest
 
@@ -10,7 +10,7 @@ final class AttentionQueueSidebarTests: XCTestCase {
             remoteDisplayTarget: nil,
             remoteConnectionState: "disconnected"
         )
-        let snapshot = CmuxExtensionSidebarSnapshot(
+        let snapshot = CmuxSidebarProviderSnapshot(
             sequence: 1,
             selectedWorkspaceId: nil,
             workspaces: [local]
@@ -31,7 +31,7 @@ final class AttentionQueueSidebarTests: XCTestCase {
             remoteDisplayTarget: "devbox",
             remoteConnectionState: "disconnected"
         )
-        let snapshot = CmuxExtensionSidebarSnapshot(
+        let snapshot = CmuxSidebarProviderSnapshot(
             sequence: 1,
             selectedWorkspaceId: nil,
             workspaces: [remote]
@@ -50,8 +50,8 @@ final class AttentionQueueSidebarTests: XCTestCase {
         customDescription: String?,
         remoteDisplayTarget: String?,
         remoteConnectionState: String?
-    ) -> CmuxExtensionWorkspaceSnapshot {
-        CmuxExtensionWorkspaceSnapshot(
+    ) -> CmuxSidebarProviderWorkspace {
+        CmuxSidebarProviderWorkspace(
             id: UUID(),
             title: title,
             customDescription: customDescription,

@@ -44,7 +44,7 @@ final class HelpMenuUITests: XCTestCase {
     }
 
     func testMainHelpMenuShowsCmuxResourcesAndOpensKeyboardShortcuts() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         helpMenuResetMenuBarOnlyDefault()
         addTeardownBlock {
             app.terminate()
@@ -119,11 +119,7 @@ final class HelpMenuUITests: XCTestCase {
     }
 
     private func launchAndActivate(_ app: XCUIApplication, activateTimeout: TimeInterval = 2.0) {
-        let options = XCTExpectedFailure.Options()
-        options.isStrict = false
-        XCTExpectFailure("Headless CI may launch the app without foreground activation", options: options) {
-            app.launch()
-        }
+        app.launch()
 
         XCTAssertTrue(
             helpMenuPollUntil(timeout: 10.0) {

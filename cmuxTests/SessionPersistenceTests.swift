@@ -1,5 +1,11 @@
+import CMUXAgentLaunch
+import CmuxCore
+import CmuxFoundation
+import CmuxWorkspaces
 import Darwin
 import XCTest
+import CmuxTerminal
+import CmuxSidebar
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -8,9 +14,33 @@ import XCTest
 #endif
 
 final class SessionPersistenceTests: XCTestCase {
+    func testLegacyNotificationsSidebarSelectionRestoresTabs() {
+        XCTAssertEqual(SessionSidebarSelection.notifications.sidebarSelection, .tabs)
+    }
+
+    func testNotificationsSidebarSelectionPersistsAsTabs() {
+        XCTAssertEqual(SessionSidebarSelection(selection: .notifications), .tabs)
+    }
+
     private struct LegacyPersistedWindowGeometry: Codable {
         let frame: SessionRectSnapshot
         let display: SessionDisplaySnapshot?
+    }
+
+    /// Builds the session snapshot repository under test. The legacy
+    /// `SessionPersistenceStore` namespace enum took `bundleIdentifier` /
+    /// `appSupportDirectory` per call; `SessionSnapshotRepository` binds them
+    /// at construction, so each test constructs the store with the same
+    /// scoping it previously passed per call.
+    private func sessionStore(
+        bundleIdentifier: String? = "com.cmuxterm.tests",
+        appSupportDirectory: URL? = nil
+    ) -> SessionSnapshotRepository<AppSessionSnapshot> {
+        SessionSnapshotRepository(
+            schemaVersion: SessionSnapshotSchema.currentVersion,
+            bundleIdentifier: bundleIdentifier,
+            appSupportDirectory: appSupportDirectory
+        )
     }
 
     @MainActor
@@ -126,6 +156,45 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertTrue(store.notificationMenuSnapshot.hasUnreadNotifications)
     }
 
+    @MainActor
+    func testRestoreSessionNotificationsKeepsNotificationIdsUniqueWhenSnapshotIsDuplicated() throws {
+        let store = TerminalNotificationStore.shared
+        store.replaceNotificationsForTesting([])
+        defer { store.replaceNotificationsForTesting([]) }
+
+        let duplicateId = UUID()
+        let liveWorkspaceId = UUID()
+        let restoredWorkspaceId = UUID()
+        let existing = TerminalNotification(
+            id: duplicateId,
+            tabId: liveWorkspaceId,
+            surfaceId: nil,
+            title: "Existing",
+            subtitle: "codex",
+            body: "Already in the running app",
+            createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+            isRead: false
+        )
+        let restored = TerminalNotification(
+            id: duplicateId,
+            tabId: restoredWorkspaceId,
+            surfaceId: nil,
+            title: "Restored",
+            subtitle: "codex",
+            body: "From the previous launch snapshot",
+            createdAt: Date(timeIntervalSince1970: 1_700_000_001),
+            isRead: false
+        )
+
+        store.replaceNotificationsForTesting([existing])
+        store.restoreSessionNotifications([restored], forTabId: restoredWorkspaceId)
+
+        XCTAssertEqual(store.notifications.count, 2)
+        XCTAssertEqual(Set(store.notifications.map(\.id)).count, 2)
+        XCTAssertTrue(store.notifications.contains { $0.tabId == liveWorkspaceId && $0.id == duplicateId })
+        XCTAssertTrue(store.notifications.contains { $0.tabId == restoredWorkspaceId && $0.id != duplicateId })
+    }
+
     func testSaveAndLoadRoundTripWithCustomSnapshotPath() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)
@@ -134,10 +203,11 @@ final class SessionPersistenceTests: XCTestCase {
 
         let snapshotURL = tempDir.appendingPathComponent("session.json", isDirectory: false)
         let snapshot = makeSnapshot(version: SessionSnapshotSchema.currentVersion)
+        let store = sessionStore()
 
-        XCTAssertTrue(SessionPersistenceStore.save(snapshot, fileURL: snapshotURL))
+        XCTAssertTrue(store.save(snapshot, fileURL: snapshotURL))
 
-        let loaded = SessionPersistenceStore.load(fileURL: snapshotURL)
+        let loaded = store.load(fileURL: snapshotURL)
         XCTAssertNotNil(loaded)
         XCTAssertEqual(loaded?.version, SessionSnapshotSchema.currentVersion)
         XCTAssertEqual(loaded?.windows.count, 1)
@@ -159,43 +229,114 @@ final class SessionPersistenceTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         let bundleIdentifier = "dev.cmux.tests.\(UUID().uuidString)"
-        let activeSnapshotURL = try XCTUnwrap(
-            SessionPersistenceStore.defaultSnapshotFileURL(
-                bundleIdentifier: bundleIdentifier,
-                appSupportDirectory: tempDir
-            )
-        )
-        let previousSnapshotURL = try XCTUnwrap(
-            SessionPersistenceStore.manualRestoreSnapshotFileURL(
-                bundleIdentifier: bundleIdentifier,
-                appSupportDirectory: tempDir
-            )
-        )
+        let store = sessionStore(bundleIdentifier: bundleIdentifier, appSupportDirectory: tempDir)
+        let activeSnapshotURL = try XCTUnwrap(store.defaultSnapshotFileURL())
+        let previousSnapshotURL = try XCTUnwrap(store.manualRestoreSnapshotFileURL())
 
         XCTAssertTrue(
-            SessionPersistenceStore.save(
+            store.save(
                 makeSnapshot(version: SessionSnapshotSchema.currentVersion),
                 fileURL: activeSnapshotURL
             )
         )
-        XCTAssertNil(
-            SessionPersistenceStore.loadReopenSessionSnapshot(
-                bundleIdentifier: bundleIdentifier,
-                appSupportDirectory: tempDir
-            )
-        )
+        XCTAssertNil(store.loadReopenSessionSnapshot(fileURL: nil))
 
         var previousSnapshot = makeSnapshot(version: SessionSnapshotSchema.currentVersion)
         previousSnapshot.windows[0].sidebar.width = 321
-        XCTAssertTrue(SessionPersistenceStore.save(previousSnapshot, fileURL: previousSnapshotURL))
+        XCTAssertTrue(store.save(previousSnapshot, fileURL: previousSnapshotURL))
 
-        let loaded = try XCTUnwrap(
-            SessionPersistenceStore.loadReopenSessionSnapshot(
-                bundleIdentifier: bundleIdentifier,
-                appSupportDirectory: tempDir
-            )
-        )
+        let loaded = try XCTUnwrap(store.loadReopenSessionSnapshot(fileURL: nil))
         XCTAssertEqual(loaded.windows.first?.sidebar.width, 321)
+    }
+
+    private struct SnapshotBackupFixture {
+        let tempDir: URL
+        let bundleIdentifier: String
+        let store: SessionSnapshotRepository<AppSessionSnapshot>
+        let primaryURL: URL
+        let backupURL: URL
+
+        func writeCorruptPrimary() throws {
+            try FileManager.default.createDirectory(
+                at: primaryURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try Data("{\"version\": 9999, \"windows\": [truncated-mid-w".utf8).write(to: primaryURL)
+        }
+    }
+
+    private func makeSnapshotBackupFixture(backupSnapshot: AppSessionSnapshot) throws -> SnapshotBackupFixture {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        let bundleIdentifier = "dev.cmux.tests.\(UUID().uuidString)"
+        let store = sessionStore(bundleIdentifier: bundleIdentifier, appSupportDirectory: tempDir)
+        let fixture = SnapshotBackupFixture(
+            tempDir: tempDir,
+            bundleIdentifier: bundleIdentifier,
+            store: store,
+            primaryURL: try XCTUnwrap(store.defaultSnapshotFileURL()),
+            backupURL: try XCTUnwrap(store.manualRestoreSnapshotFileURL())
+        )
+        XCTAssertTrue(store.save(backupSnapshot, fileURL: fixture.backupURL))
+        return fixture
+    }
+
+    func testSyncManualRestoreCachePreservesBackupWhenPrimarySnapshotIsCorrupt() throws {
+        let fixture = try makeSnapshotBackupFixture(
+            backupSnapshot: makeSnapshot(version: SessionSnapshotSchema.currentVersion)
+        )
+        defer { try? FileManager.default.removeItem(at: fixture.tempDir) }
+        try fixture.writeCorruptPrimary()
+
+        fixture.store.syncManualRestoreSnapshotCache()
+
+        XCTAssertNotNil(
+            fixture.store.load(fileURL: fixture.backupURL),
+            "A corrupt primary snapshot must not destroy the restore-session backup"
+        )
+    }
+
+    func testSyncManualRestoreCacheRemovesBackupWhenPrimarySnapshotIsMissing() throws {
+        let fixture = try makeSnapshotBackupFixture(
+            backupSnapshot: makeSnapshot(version: SessionSnapshotSchema.currentVersion)
+        )
+        defer { try? FileManager.default.removeItem(at: fixture.tempDir) }
+
+        fixture.store.syncManualRestoreSnapshotCache()
+
+        XCTAssertNil(
+            fixture.store.load(fileURL: fixture.backupURL),
+            "A genuinely absent primary snapshot still clears the stale backup"
+        )
+    }
+
+    func testStartupSnapshotLoadRecoversFromBackupWhenPrimarySnapshotIsCorrupt() throws {
+        var backupSnapshot = makeSnapshot(version: SessionSnapshotSchema.currentVersion)
+        backupSnapshot.windows[0].sidebar.width = 321
+        let fixture = try makeSnapshotBackupFixture(backupSnapshot: backupSnapshot)
+        defer { try? FileManager.default.removeItem(at: fixture.tempDir) }
+        try fixture.writeCorruptPrimary()
+
+        let loaded = fixture.store.loadStartupSnapshot()
+
+        XCTAssertEqual(
+            loaded?.windows.first?.sidebar.width,
+            321,
+            "Startup restore must fall back to the backup snapshot when the primary is corrupt"
+        )
+    }
+
+    func testStartupSnapshotLoadReturnsNilWhenPrimarySnapshotIsMissing() throws {
+        let fixture = try makeSnapshotBackupFixture(
+            backupSnapshot: makeSnapshot(version: SessionSnapshotSchema.currentVersion)
+        )
+        defer { try? FileManager.default.removeItem(at: fixture.tempDir) }
+
+        XCTAssertNil(
+            fixture.store.loadStartupSnapshot(),
+            "A clean start without a primary snapshot must not resurrect the backup"
+        )
     }
 
     func testSaveAndLoadRoundTripPreservesWorkspaceCustomColor() {
@@ -207,10 +348,11 @@ final class SessionPersistenceTests: XCTestCase {
         let snapshotURL = tempDir.appendingPathComponent("session.json", isDirectory: false)
         var snapshot = makeSnapshot(version: SessionSnapshotSchema.currentVersion)
         snapshot.windows[0].tabManager.workspaces[0].customColor = "#C0392B"
+        let store = sessionStore()
 
-        XCTAssertTrue(SessionPersistenceStore.save(snapshot, fileURL: snapshotURL))
+        XCTAssertTrue(store.save(snapshot, fileURL: snapshotURL))
 
-        let loaded = SessionPersistenceStore.load(fileURL: snapshotURL)
+        let loaded = store.load(fileURL: snapshotURL)
         XCTAssertEqual(
             loaded?.windows.first?.tabManager.workspaces.first?.customColor,
             "#C0392B"
@@ -225,11 +367,12 @@ final class SessionPersistenceTests: XCTestCase {
 
         let snapshotURL = tempDir.appendingPathComponent("session.json", isDirectory: false)
         let snapshot = makeSnapshot(version: SessionSnapshotSchema.currentVersion)
+        let store = sessionStore()
 
-        XCTAssertTrue(SessionPersistenceStore.save(snapshot, fileURL: snapshotURL))
+        XCTAssertTrue(store.save(snapshot, fileURL: snapshotURL))
         let firstFileNumber = try fileNumber(for: snapshotURL)
 
-        XCTAssertTrue(SessionPersistenceStore.save(snapshot, fileURL: snapshotURL))
+        XCTAssertTrue(store.save(snapshot, fileURL: snapshotURL))
         let secondFileNumber = try fileNumber(for: snapshotURL)
 
         XCTAssertEqual(
@@ -259,9 +402,10 @@ final class SessionPersistenceTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         let snapshotURL = tempDir.appendingPathComponent("session.json", isDirectory: false)
-        XCTAssertTrue(SessionPersistenceStore.save(makeSnapshot(version: SessionSnapshotSchema.currentVersion + 1), fileURL: snapshotURL))
+        let store = sessionStore()
+        XCTAssertTrue(store.save(makeSnapshot(version: SessionSnapshotSchema.currentVersion + 1), fileURL: snapshotURL))
 
-        XCTAssertNil(SessionPersistenceStore.load(fileURL: snapshotURL))
+        XCTAssertNil(store.load(fileURL: snapshotURL))
     }
 
     func testDefaultSnapshotPathSanitizesBundleIdentifier() {
@@ -270,10 +414,10 @@ final class SessionPersistenceTests: XCTestCase {
         try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
-        let path = SessionPersistenceStore.defaultSnapshotFileURL(
+        let path = sessionStore(
             bundleIdentifier: "com.example/unsafe id",
             appSupportDirectory: tempDir
-        )
+        ).defaultSnapshotFileURL()
 
         XCTAssertNotNil(path)
         XCTAssertTrue(path?.path.contains("com.example_unsafe_id") == true)
@@ -344,6 +488,8 @@ final class SessionPersistenceTests: XCTestCase {
             shouldRenderWebView: true,
             pageZoom: 1.2,
             developerToolsVisible: true,
+            isMuted: true,
+            omnibarVisible: false,
             backHistoryURLStrings: [
                 "https://example.com/a",
                 "https://example.com/b"
@@ -357,6 +503,8 @@ final class SessionPersistenceTests: XCTestCase {
         let decoded = try JSONDecoder().decode(SessionBrowserPanelSnapshot.self, from: data)
         XCTAssertEqual(decoded.urlString, source.urlString)
         XCTAssertEqual(decoded.profileID, source.profileID)
+        XCTAssertEqual(decoded.isMuted, source.isMuted)
+        XCTAssertEqual(decoded.omnibarVisible, false)
         XCTAssertEqual(decoded.backHistoryURLStrings, source.backHistoryURLStrings)
         XCTAssertEqual(decoded.forwardHistoryURLStrings, source.forwardHistoryURLStrings)
     }
@@ -374,6 +522,8 @@ final class SessionPersistenceTests: XCTestCase {
         let decoded = try JSONDecoder().decode(SessionBrowserPanelSnapshot.self, from: json)
         XCTAssertEqual(decoded.urlString, "https://example.com/current")
         XCTAssertNil(decoded.profileID)
+        XCTAssertFalse(decoded.isMuted)
+        XCTAssertNil(decoded.omnibarVisible)
         XCTAssertNil(decoded.backHistoryURLStrings)
         XCTAssertNil(decoded.forwardHistoryURLStrings)
     }
@@ -396,6 +546,70 @@ final class SessionPersistenceTests: XCTestCase {
         guard let path else { return }
         let contents = try? String(contentsOfFile: path, encoding: .utf8)
         XCTAssertEqual(contents, "line one\nline two\n")
+    }
+
+    func testScrollbackReplayStoreSweepsOnlyStaleFilesAndUsesPrivatePermissions() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-scrollback-sweep-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let oldURL = try XCTUnwrap(
+            SessionScrollbackReplayStore.replayFileURL(for: "old replay\n", tempDirectory: tempDir)
+        )
+        let freshURL = try XCTUnwrap(
+            SessionScrollbackReplayStore.replayFileURL(for: "fresh replay\n", tempDirectory: tempDir)
+        )
+        let directoryURL = oldURL.deletingLastPathComponent()
+
+        // Simulate pre-upgrade permissions on both the directory and a fresh replay file.
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: directoryURL.path)
+        let legacyFreshURL = directoryURL.appendingPathComponent("legacy-fresh.txt")
+        XCTAssertTrue(
+            FileManager.default.createFile(
+                atPath: legacyFreshURL.path,
+                contents: Data("legacy fresh replay\n".utf8)
+            )
+        )
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: legacyFreshURL.path)
+
+        // Non-replay entries must never be removed merely because they are stale.
+        let staleLogURL = directoryURL.appendingPathComponent("keep.log")
+        XCTAssertTrue(FileManager.default.createFile(atPath: staleLogURL.path, contents: Data("keep".utf8)))
+        let staleDirectoryURL = directoryURL.appendingPathComponent("keep-dir", isDirectory: true)
+        try FileManager.default.createDirectory(at: staleDirectoryURL, withIntermediateDirectories: false)
+
+        let now = Date()
+        for url in [oldURL, staleLogURL, staleDirectoryURL] {
+            try FileManager.default.setAttributes(
+                [.modificationDate: now.addingTimeInterval(-7_200)],
+                ofItemAtPath: url.path
+            )
+        }
+        for url in [freshURL, legacyFreshURL] {
+            try FileManager.default.setAttributes(
+                [.modificationDate: now.addingTimeInterval(-60)],
+                ofItemAtPath: url.path
+            )
+        }
+
+        SessionScrollbackReplayStore.sweepStaleReplayFiles(
+            olderThan: now.addingTimeInterval(-3_600),
+            tempDirectory: tempDir
+        )
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: oldURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: freshURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: legacyFreshURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: staleLogURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: staleDirectoryURL.path))
+
+        let directoryAttributes = try FileManager.default.attributesOfItem(atPath: directoryURL.path)
+        let freshAttributes = try FileManager.default.attributesOfItem(atPath: freshURL.path)
+        let legacyFreshAttributes = try FileManager.default.attributesOfItem(atPath: legacyFreshURL.path)
+        XCTAssertEqual((directoryAttributes[.posixPermissions] as? NSNumber)?.intValue, 0o700)
+        XCTAssertEqual((freshAttributes[.posixPermissions] as? NSNumber)?.intValue, 0o600)
+        XCTAssertEqual((legacyFreshAttributes[.posixPermissions] as? NSNumber)?.intValue, 0o600)
     }
 
     func testScrollbackReplayEnvironmentSkipsWhitespaceOnlyContent() {
@@ -441,6 +655,95 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertTrue(contents.hasSuffix(reset))
     }
 
+    func testScrollbackReplayEndsOnFreshLine() {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-scrollback-replay-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        func replayed(_ scrollback: String) -> String? {
+            let environment = SessionScrollbackReplayStore.replayEnvironment(for: scrollback, tempDirectory: tempDir)
+            guard let path = environment[SessionScrollbackReplayStore.environmentKey] else { return nil }
+            return try? String(contentsOfFile: path, encoding: .utf8)
+        }
+        let red = "\u{001B}[31m"
+        let reset = "\u{001B}[0m"
+
+        // A capture that stops at the old prompt gets a line break so the new
+        // shell's first prompt does not start mid-line.
+        XCTAssertEqual(replayed("Last login: Mon\nleo@mac ~ % "), "Last login: Mon\nleo@mac ~ % \r\n")
+        XCTAssertEqual(replayed("\(red)% \(reset)"), "\(reset)\(red)% \(reset)\r\n\(reset)")
+        // Already on a fresh line, including behind trailing SGR sequences: unchanged.
+        XCTAssertEqual(replayed("done\r\n"), "done\r\n")
+        XCTAssertEqual(replayed("\(red)done\n\(reset)"), "\(reset)\(red)done\n\(reset)")
+    }
+
+    // Regression for https://github.com/manaflow-ai/cmux/issues/5165.
+    //
+    // Ghostty's `write_screen_file:copy,vt` export (used to capture session
+    // scrollback) prepends OSC 10 / OSC 11 sequences that bake the capture-time
+    // theme's default foreground/background. Replaying those into a freshly
+    // launched terminal reconfigures the live terminal's dynamic colors, so
+    // restored default-colored cells keep the OLD theme instead of tracking the
+    // active one — producing white-on-white scrollback after a theme change.
+    // The active theme owns default fg/bg, so the restored history must not carry
+    // these terminal-color OSC sequences.
+    func testScrollbackReplayStripsThemeBakedDefaultColorOSCSequences() {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-scrollback-replay-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let esc = "\u{001B}"
+        // Captured under a dark theme: default fg baked white, default bg baked dark.
+        let setForeground = "\(esc)]10;rgb:ff/ff/ff\(esc)\\"
+        let setBackground = "\(esc)]11;rgb:28/2c/34\(esc)\\"
+        // A BEL-terminated cursor-color OSC, the other dynamic-color terminator form.
+        let setCursor = "\(esc)]12;rgb:c0/c1/b5\u{0007}"
+        // Palette set/reset and a dynamic-color reset are equally theme state that
+        // restored history must not re-impose, so they are stripped too.
+        let setPalette = "\(esc)]4;1;rgb:aa/00/00\(esc)\\"
+        let resetPalette = "\(esc)]104;1\(esc)\\"
+        let resetForeground = "\(esc)]110;\(esc)\\"
+        let red = "\(esc)[31m"
+        let reset = "\(esc)[0m"
+        // OSC 8 hyperlinks are scrollback content, not terminal color config; keep them.
+        let hyperlink = "\(esc)]8;;https://example.com\(esc)\\link\(esc)]8;;\(esc)\\"
+        let source = "\(setForeground)\(setBackground)\(setCursor)"
+            + "\(setPalette)\(resetPalette)\(resetForeground)plain default text\n"
+            + "\(red)RED\(reset) \(hyperlink)\n"
+
+        let environment = SessionScrollbackReplayStore.replayEnvironment(
+            for: source,
+            tempDirectory: tempDir
+        )
+
+        guard let path = environment[SessionScrollbackReplayStore.environmentKey] else {
+            XCTFail("Expected replay file path")
+            return
+        }
+        guard let contents = try? String(contentsOfFile: path, encoding: .utf8) else {
+            XCTFail("Expected replay file contents")
+            return
+        }
+
+        // Terminal-color OSC sequences must be stripped so the active theme owns
+        // default fg/bg/cursor and restored default cells track it.
+        XCTAssertFalse(contents.contains("\(esc)]10;"), "OSC 10 (set foreground) must be stripped")
+        XCTAssertFalse(contents.contains("\(esc)]11;"), "OSC 11 (set background) must be stripped")
+        XCTAssertFalse(contents.contains("\(esc)]12;"), "OSC 12 (set cursor color) must be stripped")
+        XCTAssertFalse(contents.contains("\(esc)]4;"), "OSC 4 (set palette entry) must be stripped")
+        XCTAssertFalse(contents.contains("\(esc)]104;"), "OSC 104 (reset palette entry) must be stripped")
+        XCTAssertFalse(contents.contains("\(esc)]110;"), "OSC 110 (reset foreground) must be stripped")
+        XCTAssertFalse(contents.contains("rgb:ff/ff/ff"), "baked default-color payload must be gone")
+        XCTAssertFalse(contents.contains("rgb:aa/00/00"), "baked palette payload must be gone")
+
+        // Explicit SGR colors, plain text, and hyperlinks are preserved verbatim.
+        XCTAssertTrue(contents.contains("plain default text"))
+        XCTAssertTrue(contents.contains("\(red)RED\(reset)"))
+        XCTAssertTrue(contents.contains(hyperlink), "non-color OSC sequences must be preserved")
+    }
+
     func testSessionScrollbackPersistenceHonorsReportedShellState() {
         XCTAssertTrue(
             Workspace.shouldPersistSessionScrollback(
@@ -484,6 +787,173 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertFalse(truncated.hasPrefix("m"))
     }
 
+    func testTruncatedScrollbackAvoidsLeadingPartialOSCSequence() {
+        let maxChars = SessionPersistencePolicy.maxScrollbackCharactersPerTerminal
+        let sequence = "\u{001B}]8;;https://example.com/path\u{0007}"
+        let cutOffset = 10
+        let tailCount = maxChars - (sequence.count - cutOffset)
+        let source = sequence + String(repeating: "X", count: tailCount)
+
+        guard let truncated = SessionPersistencePolicy.truncatedScrollback(source) else {
+            XCTFail("Expected truncated scrollback")
+            return
+        }
+
+        XCTAssertTrue(truncated.hasPrefix("X"))
+        XCTAssertFalse(truncated.contains("example.com/path"))
+    }
+
+    func testTruncatedScrollbackAvoidsLeadingPartialOSCSequenceWithSTTerminator() {
+        let maxChars = SessionPersistencePolicy.maxScrollbackCharactersPerTerminal
+        let sequence = "\u{001B}]2;window title\u{001B}\\"
+        let cutOffset = 6
+        let tailCount = maxChars - (sequence.count - cutOffset)
+        let source = sequence + String(repeating: "Y", count: tailCount)
+
+        guard let truncated = SessionPersistencePolicy.truncatedScrollback(source) else {
+            XCTFail("Expected truncated scrollback")
+            return
+        }
+
+        XCTAssertTrue(truncated.hasPrefix("Y"))
+        XCTAssertFalse(truncated.contains("window title"))
+    }
+
+    func testTruncatedScrollbackAvoidsLeadingPartialSOSSequence() {
+        let maxChars = SessionPersistencePolicy.maxScrollbackCharactersPerTerminal
+        let sequence = "\u{001B}Xprivate status payload\u{001B}\\"
+        let cutOffset = 8
+        let tailCount = maxChars - (sequence.count - cutOffset)
+        let source = sequence + String(repeating: "Z", count: tailCount)
+
+        guard let truncated = SessionPersistencePolicy.truncatedScrollback(source) else {
+            XCTFail("Expected truncated scrollback")
+            return
+        }
+
+        XCTAssertTrue(truncated.hasPrefix("Z"))
+        XCTAssertFalse(truncated.contains("private status payload"))
+    }
+
+    func testTruncatedScrollbackHandlesDCSAPCAndPMStringSequences() {
+        let maxChars = SessionPersistencePolicy.maxScrollbackCharactersPerTerminal
+        for (marker, fill) in [("P", "D"), ("_", "A"), ("^", "M")] {
+            let sequence = "\u{001B}\(marker)control payload\u{001B}\\"
+            let cutOffset = 6
+            let tailCount = maxChars - (sequence.count - cutOffset)
+            let source = sequence + String(repeating: fill, count: tailCount)
+
+            guard let truncated = SessionPersistencePolicy.truncatedScrollback(source) else {
+                XCTFail("Expected truncated scrollback for \(marker)")
+                continue
+            }
+
+            XCTAssertTrue(truncated.hasPrefix(fill), marker)
+            XCTAssertFalse(truncated.contains("control payload"), marker)
+        }
+    }
+
+    func testBELDoesNotTerminatePartialDCSSequence() {
+        let maxChars = SessionPersistencePolicy.maxScrollbackCharactersPerTerminal
+        let sequence = "\u{001B}Pbefore\u{0007}after\u{001B}\\"
+        let cutOffset = 5
+        let tailCount = maxChars - (sequence.count - cutOffset)
+        let source = sequence + String(repeating: "Q", count: tailCount)
+
+        guard let truncated = SessionPersistencePolicy.truncatedScrollback(source) else {
+            XCTFail("Expected truncated scrollback")
+            return
+        }
+
+        XCTAssertTrue(truncated.hasPrefix("Q"))
+        XCTAssertFalse(truncated.contains("after"))
+    }
+
+    func testLongOSCUsesPostCutScanBudget() {
+        let maxChars = SessionPersistencePolicy.maxScrollbackCharactersPerTerminal
+        let prefix = "\u{001B}]2;"
+        let payload = String(repeating: "T", count: 1_500)
+        let cutOffset = 1_200
+        let suffixAfterCut = payload.count - cutOffset + 1
+        let filler = String(repeating: "S", count: maxChars - suffixAfterCut)
+        let source = prefix + payload + "\u{0007}" + filler
+
+        guard let truncated = SessionPersistencePolicy.truncatedScrollback(source) else {
+            XCTFail("Expected truncated scrollback")
+            return
+        }
+
+        XCTAssertTrue(truncated.hasPrefix("S"))
+        XCTAssertFalse(truncated.contains("\u{0007}"))
+    }
+
+    func testLongCompletedOSCBeforeCutPreservesVisibleOutput() {
+        let maxChars = SessionPersistencePolicy.maxScrollbackCharactersPerTerminal
+        let completedOSC = "\u{001B}]2;" + String(repeating: "T", count: 1_500) + "\u{0007}"
+        let visibleBeforeBEL = "visible-before-bell"
+        let visibleAfterBEL = "visible-after-bell"
+        let cutInsideVisibleOffset = 3
+        let suffixFromCut =
+            visibleBeforeBEL.count - cutInsideVisibleOffset
+            + 1
+            + visibleAfterBEL.count
+        let filler = String(repeating: "F", count: maxChars - suffixFromCut)
+        let source =
+            completedOSC
+            + visibleBeforeBEL
+            + "\u{0007}"
+            + visibleAfterBEL
+            + filler
+
+        guard let truncated = SessionPersistencePolicy.truncatedScrollback(source) else {
+            XCTFail("Expected truncated scrollback")
+            return
+        }
+
+        XCTAssertTrue(truncated.hasPrefix(String(visibleBeforeBEL.dropFirst(cutInsideVisibleOffset))))
+        XCTAssertTrue(truncated.contains("\u{0007}" + visibleAfterBEL))
+    }
+
+    func testLongCompletedOSCWithDistantCutPreservesPlainOutput() {
+        let maxChars = SessionPersistencePolicy.maxScrollbackCharactersPerTerminal
+        let completedOSC = "\u{001B}]2;" + String(repeating: "T", count: 1_500) + "\u{0007}"
+        let plainOutput = String(repeating: "P", count: 1_500)
+        let cutInsidePlainOffset = 1_200
+        let visibleAfterCut = plainOutput.count - cutInsidePlainOffset
+        let trailingBEL = "\u{0007}"
+        let trailingOutput = "after-bell"
+        let filler = String(
+            repeating: "F",
+            count: maxChars - visibleAfterCut - trailingBEL.count - trailingOutput.count
+        )
+        let source = completedOSC + plainOutput + trailingBEL + trailingOutput + filler
+
+        guard let truncated = SessionPersistencePolicy.truncatedScrollback(source) else {
+            XCTFail("Expected truncated scrollback")
+            return
+        }
+
+        XCTAssertTrue(truncated.hasPrefix(String(plainOutput.dropFirst(cutInsidePlainOffset))))
+        XCTAssertTrue(truncated.contains(trailingBEL + trailingOutput))
+    }
+
+    func testMalformedANSIStringScanDoesNotDropDistantRealOutput() {
+        let maxChars = SessionPersistencePolicy.maxScrollbackCharactersPerTerminal
+        let malformed = "\u{001B}]0;unterminated-title"
+        let cutOffset = 8
+        let realOutput = String(repeating: "R", count: 1_500)
+        let suffixCount = malformed.count - cutOffset + realOutput.count + 1
+        let filler = String(repeating: "F", count: maxChars - suffixCount)
+        let source = malformed + realOutput + "\u{0007}" + filler
+
+        guard let truncated = SessionPersistencePolicy.truncatedScrollback(source) else {
+            XCTFail("Expected truncated scrollback")
+            return
+        }
+
+        XCTAssertTrue(truncated.contains(realOutput))
+    }
+
     func testNormalizedExportedScreenPathAcceptsAbsoluteAndFileURL() {
         XCTAssertEqual(
             TerminalController.normalizedExportedScreenPath("/tmp/cmux-screen.txt"),
@@ -499,6 +969,13 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertNil(TerminalController.normalizedExportedScreenPath("relative/path.txt"))
         XCTAssertNil(TerminalController.normalizedExportedScreenPath("   "))
         XCTAssertNil(TerminalController.normalizedExportedScreenPath(nil))
+    }
+
+    func testNormalizedMobileVTExportTextSplitsGhosttyCRLFRows() {
+        let normalized = TerminalController.normalizedMobileVTExportText("first\r\nsecond\r\nthird")
+        let rows = normalized.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+
+        XCTAssertEqual(rows, ["first", "second", "third"])
     }
 
     func testShouldRemoveExportedScreenDirectoryOnlyWithinTemporaryRoot() {
@@ -555,28 +1032,40 @@ final class SessionPersistenceTests: XCTestCase {
             AppDelegate.shouldSaveSessionSnapshotAfterMainWindowRegistration(
                 isTerminatingApp: false,
                 didApplyStartupSessionRestore: false,
-                isApplyingSessionRestore: false
+                isApplyingSessionRestore: false,
+                isStartupSessionRestorePending: false
             )
         )
         XCTAssertFalse(
             AppDelegate.shouldSaveSessionSnapshotAfterMainWindowRegistration(
                 isTerminatingApp: true,
                 didApplyStartupSessionRestore: false,
-                isApplyingSessionRestore: false
+                isApplyingSessionRestore: false,
+                isStartupSessionRestorePending: false
             )
         )
         XCTAssertFalse(
             AppDelegate.shouldSaveSessionSnapshotAfterMainWindowRegistration(
                 isTerminatingApp: false,
                 didApplyStartupSessionRestore: true,
-                isApplyingSessionRestore: false
+                isApplyingSessionRestore: false,
+                isStartupSessionRestorePending: false
             )
         )
         XCTAssertFalse(
             AppDelegate.shouldSaveSessionSnapshotAfterMainWindowRegistration(
                 isTerminatingApp: false,
                 didApplyStartupSessionRestore: false,
-                isApplyingSessionRestore: true
+                isApplyingSessionRestore: true,
+                isStartupSessionRestorePending: false
+            )
+        )
+        XCTAssertFalse(
+            AppDelegate.shouldSaveSessionSnapshotAfterMainWindowRegistration(
+                isTerminatingApp: false,
+                didApplyStartupSessionRestore: false,
+                isApplyingSessionRestore: false,
+                isStartupSessionRestorePending: true
             )
         )
     }
@@ -602,12 +1091,55 @@ final class SessionPersistenceTests: XCTestCase {
         )
     }
 
-    func testSessionAutosaveTickPolicySkipsWhenTerminating() {
+    func testStartupRestoreTransitionGatesEverySessionSave() {
         XCTAssertTrue(
-            AppDelegate.shouldRunSessionAutosaveTick(isTerminatingApp: false)
+            AppDelegate.shouldSkipSessionSaveDuringStartupTransition(
+                isStartupSessionRestorePending: true,
+                isApplyingSessionRestore: false,
+                includeScrollback: false
+            )
+        )
+        XCTAssertTrue(
+            AppDelegate.shouldSkipSessionSaveDuringStartupTransition(
+                isStartupSessionRestorePending: true,
+                isApplyingSessionRestore: false,
+                includeScrollback: true
+            )
+        )
+        XCTAssertTrue(
+            AppDelegate.shouldSkipSessionSaveDuringStartupTransition(
+                isStartupSessionRestorePending: false,
+                isApplyingSessionRestore: true,
+                includeScrollback: false
+            )
         )
         XCTAssertFalse(
-            AppDelegate.shouldRunSessionAutosaveTick(isTerminatingApp: true)
+            AppDelegate.shouldSkipSessionSaveDuringStartupTransition(
+                isStartupSessionRestorePending: false,
+                isApplyingSessionRestore: false,
+                includeScrollback: false
+            )
+        )
+    }
+
+    func testSessionAutosaveTickPolicySkipsWhenTerminatingOrStartupRestorePending() {
+        XCTAssertTrue(
+            AppDelegate.shouldRunSessionAutosaveTick(
+                isTerminatingApp: false,
+                isStartupSessionRestorePending: false
+            )
+        )
+        XCTAssertFalse(
+            AppDelegate.shouldRunSessionAutosaveTick(
+                isTerminatingApp: true,
+                isStartupSessionRestorePending: false
+            )
+        )
+        XCTAssertFalse(
+            AppDelegate.shouldRunSessionAutosaveTick(
+                isTerminatingApp: false,
+                isStartupSessionRestorePending: true
+            )
         )
     }
 
@@ -755,7 +1287,7 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertNotEqual(firstFingerprint, secondFingerprint)
     }
 
-    func testRestorableAgentIndexSkipsHookRecordWithDeadRecordedPID() throws {
+    func testRestorableAgentIndexRetainsDeadRecordedPIDForManualResume() throws {
         let workspaceId = UUID()
         let panelId = UUID()
         let index = try makeRestorableAgentIndex(
@@ -770,7 +1302,10 @@ final class SessionPersistenceTests: XCTestCase {
             pid: Int(Int32.max)
         )
 
-        XCTAssertNil(index.snapshot(workspaceId: workspaceId, panelId: panelId))
+        let entry = try XCTUnwrap(index.entry(workspaceId: workspaceId, panelId: panelId))
+        XCTAssertEqual(entry.snapshot.sessionId, "codex-dead-pid-session")
+        XCTAssertEqual(entry.processLiveness, .exited)
+        XCTAssertFalse(index.hasLiveProcess(workspaceId: workspaceId, panelId: panelId))
     }
 
     func testResolvedWindowFramePrefersSavedDisplayIdentity() {
@@ -811,7 +1346,7 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     func testResolvedWindowFrameKeepsIntersectingFrameWithoutDisplayMetadata() {
-        let savedFrame = SessionRectSnapshot(x: 120, y: 80, width: 500, height: 350)
+        let savedFrame = SessionRectSnapshot(x: 120, y: 80, width: 500, height: 450)
         let display = AppDelegate.SessionDisplayGeometry(
             displayID: 1,
             frame: CGRect(x: 0, y: 0, width: 1_000, height: 800),
@@ -830,7 +1365,7 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(restored.minX, 120, accuracy: 0.001)
         XCTAssertEqual(restored.minY, 80, accuracy: 0.001)
         XCTAssertEqual(restored.width, 500, accuracy: 0.001)
-        XCTAssertEqual(restored.height, 350, accuracy: 0.001)
+        XCTAssertEqual(restored.height, 450, accuracy: 0.001)
     }
 
     func testResolvedStartupPrimaryWindowFrameFallsBackToPersistedGeometryWhenPrimaryMissing() {
@@ -974,62 +1509,6 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(restored.height, 700, accuracy: 0.001)
     }
 
-    func testResolvedWindowFramePreservesExactGeometryWhenDisplayIsUnchanged() {
-        let savedFrame = SessionRectSnapshot(x: 1_303, y: -90, width: 1_280, height: 1_410)
-        let savedDisplay = SessionDisplaySnapshot(
-            displayID: 2,
-            frame: SessionRectSnapshot(x: 0, y: 0, width: 2_560, height: 1_440),
-            visibleFrame: SessionRectSnapshot(x: 0, y: 0, width: 2_560, height: 1_410)
-        )
-        let display = AppDelegate.SessionDisplayGeometry(
-            displayID: 2,
-            frame: CGRect(x: 0, y: 0, width: 2_560, height: 1_440),
-            visibleFrame: CGRect(x: 0, y: 0, width: 2_560, height: 1_410)
-        )
-
-        let restored = AppDelegate.resolvedWindowFrame(
-            from: savedFrame,
-            display: savedDisplay,
-            availableDisplays: [display],
-            fallbackDisplay: display
-        )
-
-        XCTAssertNotNil(restored)
-        guard let restored else { return }
-        XCTAssertEqual(restored.minX, 1_303, accuracy: 0.001)
-        XCTAssertEqual(restored.minY, -90, accuracy: 0.001)
-        XCTAssertEqual(restored.width, 1_280, accuracy: 0.001)
-        XCTAssertEqual(restored.height, 1_410, accuracy: 0.001)
-    }
-
-    func testResolvedWindowFramePreservesExactGeometryWhenDisplayChangesButWindowRemainsAccessible() {
-        let savedFrame = SessionRectSnapshot(x: 1_100, y: -20, width: 1_280, height: 1_000)
-        let savedDisplay = SessionDisplaySnapshot(
-            displayID: 2,
-            frame: SessionRectSnapshot(x: 0, y: 0, width: 2_560, height: 1_440),
-            visibleFrame: SessionRectSnapshot(x: 0, y: 0, width: 2_560, height: 1_410)
-        )
-        let adjustedDisplay = AppDelegate.SessionDisplayGeometry(
-            displayID: 2,
-            frame: CGRect(x: 0, y: 0, width: 2_560, height: 1_440),
-            visibleFrame: CGRect(x: 0, y: 40, width: 2_560, height: 1_360)
-        )
-
-        let restored = AppDelegate.resolvedWindowFrame(
-            from: savedFrame,
-            display: savedDisplay,
-            availableDisplays: [adjustedDisplay],
-            fallbackDisplay: adjustedDisplay
-        )
-
-        XCTAssertNotNil(restored)
-        guard let restored else { return }
-        XCTAssertEqual(restored.minX, 1_100, accuracy: 0.001)
-        XCTAssertEqual(restored.minY, -20, accuracy: 0.001)
-        XCTAssertEqual(restored.width, 1_280, accuracy: 0.001)
-        XCTAssertEqual(restored.height, 1_000, accuracy: 0.001)
-    }
-
     func testResolvedWindowFrameClampsWhenDisplayGeometryChangesEvenWithSameDisplayID() {
         let savedFrame = SessionRectSnapshot(x: 1_303, y: -90, width: 1_280, height: 1_410)
         let savedDisplay = SessionDisplaySnapshot(
@@ -1146,6 +1625,70 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     @MainActor
+    func testRestoredAgentWithoutLiveEvidenceDoesNotPersistRunningState() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let terminal = try XCTUnwrap(workspace.terminalPanel(for: panelId))
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "codex-stale-running-session",
+            workingDirectory: "/tmp/repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/usr/local/bin/codex",
+                arguments: ["/usr/local/bin/codex"],
+                workingDirectory: "/tmp/repo",
+                capturedAt: nil,
+                source: "test"
+            )
+        )
+
+        // A restored terminal can report generic shell activity while its
+        // former agent is already gone. That activity is not agent evidence.
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
+
+        let wasRunning = workspace.sessionAgentWasRunning(
+            panelId: panelId,
+            restorableAgent: agent,
+            resumeBinding: nil,
+            terminal: terminal,
+            observation: nil,
+            currentAgentProcessIdentity: { _ in nil },
+            agentProcessPresence: { _ in .absent }
+        )
+
+        XCTAssertNil(
+            wasRunning,
+            "Generic shell activity must not keep a restored agent Running without a live process or hook"
+        )
+    }
+
+    @MainActor
+    func testRestoredWorkspaceReDerivesAgentStatusInsteadOfReplayingRunningBadge() throws {
+        let source = Workspace()
+        let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+        source.setAgentLifecycle(key: "codex", panelId: sourcePanelId, lifecycle: .running)
+        source.setStatusEntry(
+            SidebarStatusEntry(key: "codex", value: "Running", icon: "circle.fill"),
+            key: "codex",
+            panelId: sourcePanelId
+        )
+
+        let snapshot = source.sessionSnapshot(includeScrollback: false)
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+
+        XCTAssertTrue(
+            restored.agentLifecycleStatesByPanelId.isEmpty,
+            "Restored lifecycle state requires a fresh process or hook observation"
+        )
+        XCTAssertTrue(
+            restored.sidebarStatusEntriesVisibleForDisplay().isEmpty,
+            "A persisted Running row must not survive relaunch without live evidence"
+        )
+    }
+
+    @MainActor
     func testRestoredAntigravityAgentAutoResumeUsesConversationCommand() throws {
         let source = Workspace()
         let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
@@ -1181,7 +1724,7 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(agent.sessionId, "antigravity-conversation-123")
         XCTAssertEqual(
             agent.resumeCommand,
-            "{ cd -- '/tmp/repo' 2>/dev/null || [ ! -d '/tmp/repo' ]; } && '/usr/local/bin/agy' '--conversation' 'antigravity-conversation-123' '--sandbox' 'danger-full-access'"
+            "cd -- '/tmp/repo' 2>/dev/null || [ ! -d '/tmp/repo' ] && '/usr/local/bin/agy' '--conversation' 'antigravity-conversation-123' '--sandbox' 'danger-full-access'"
         )
     }
 
@@ -1199,14 +1742,20 @@ final class SessionPersistenceTests: XCTestCase {
                 "--print",
             ]
         )
+        // Local restore uses a structured selector even without a rendered
+        // resume command. Save an idle shell so the first command is user input.
+        source.updatePanelShellActivityState(panelId: sourcePanelId, state: .promptIdle)
         let snapshot = source.sessionSnapshot(
             includeScrollback: false,
             restorableAgentIndex: sourceIndex
         )
+        XCTAssertEqual(snapshot.panels.first?.terminal?.wasAgentRunning, false)
 
         let restored = Workspace()
         restored.restoreSessionSnapshot(snapshot)
         let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+        let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
+        XCTAssertFalse(restoredPanel.surface.debugInitialInputMetadata().hasInitialInput)
         XCTAssertNil(restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.agent?.resumeCommand)
 
         restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .commandRunning)
@@ -1342,6 +1891,15 @@ final class SessionPersistenceTests: XCTestCase {
                 ]
             ),
             (
+                .kiro,
+                [
+                    "/usr/local/bin/kiro-cli",
+                    "chat",
+                    "--agent",
+                    "cmux",
+                ]
+            ),
+            (
                 .opencode,
                 [
                     "/usr/local/bin/opencode",
@@ -1391,6 +1949,14 @@ final class SessionPersistenceTests: XCTestCase {
                     "gemini-2.5-pro",
                 ]
             ),
+            (
+                .kimi,
+                [
+                    "/usr/local/bin/kimi",
+                    "--model",
+                    "kimi-k2",
+                ]
+            ),
         ]
 
         for scenario in scenarios {
@@ -1407,7 +1973,7 @@ final class SessionPersistenceTests: XCTestCase {
                 includeScrollback: false,
                 restorableAgentIndex: staleIndex
             )
-            let expectedKind: RestorableAgentKind = scenario.kind == .pi ? .custom("pi") : scenario.kind
+            let expectedKind: RestorableAgentKind = [.pi, .kimi].contains(scenario.kind) ? .custom(scenario.kind.rawValue) : scenario.kind
             XCTAssertEqual(initialSnapshot.panels.first?.terminal?.agent?.kind, expectedKind)
 
             workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
@@ -1545,10 +2111,12 @@ final class SessionPersistenceTests: XCTestCase {
                 resolvedEnvironment = ["PI_CODING_AGENT_DIR": "/tmp/pi"]
             case .amp:
                 resolvedEnvironment = ["AMP_SETTINGS_FILE": "/tmp/amp-settings.json"]
-            case .cursor, .rovodev, .factory, .custom:
+            case .cursor, .rovodev, .factory, .ollama, .custom:
                 resolvedEnvironment = [:]
             case .gemini:
                 resolvedEnvironment = ["GEMINI_CLI_HOME": "/tmp/gemini"]
+            case .kiro:
+                resolvedEnvironment = ["KIRO_HOME": "/tmp/kiro"]
             case .antigravity:
                 resolvedEnvironment = ["GEMINI_CLI_HOME": "/tmp/gemini"]
             case .opencode:
@@ -1561,6 +2129,8 @@ final class SessionPersistenceTests: XCTestCase {
                 resolvedEnvironment = ["CODEBUDDY_CONFIG_DIR": "/tmp/codebuddy"]
             case .qoder:
                 resolvedEnvironment = ["QODER_CONFIG_DIR": "/tmp/qoder"]
+            case .kimi:
+                resolvedEnvironment = ["KIMI_SHARE_DIR": "/tmp/kimi"]
             }
         }
         let resolvedExecutablePath = executablePath ?? arguments.first ?? "/usr/local/bin/\(kind.rawValue)"
@@ -1650,281 +2220,44 @@ final class SessionPersistenceTests: XCTestCase {
 }
 
 final class SocketListenerAcceptPolicyTests: XCTestCase {
-    func testAcceptErrorClassificationBucketsExpectedErrnos() {
-        XCTAssertEqual(
-            TerminalController.acceptErrorClassification(errnoCode: EINTR),
-            "immediate_retry"
-        )
-        XCTAssertEqual(
-            TerminalController.acceptErrorClassification(errnoCode: ECONNABORTED),
-            "immediate_retry"
-        )
-        XCTAssertEqual(
-            TerminalController.acceptErrorClassification(errnoCode: EMFILE),
-            "resource_pressure"
-        )
-        XCTAssertEqual(
-            TerminalController.acceptErrorClassification(errnoCode: ENOMEM),
-            "resource_pressure"
-        )
-        XCTAssertEqual(
-            TerminalController.acceptErrorClassification(errnoCode: EBADF),
-            "fatal"
-        )
-        XCTAssertEqual(
-            TerminalController.acceptErrorClassification(errnoCode: EINVAL),
-            "fatal"
-        )
-    }
-
-    func testAcceptErrorPolicySignalsRearmOnlyForFatalErrors() {
-        XCTAssertTrue(TerminalController.shouldRearmListenerForAcceptError(errnoCode: EBADF))
-        XCTAssertTrue(TerminalController.shouldRearmListenerForAcceptError(errnoCode: ENOTSOCK))
-        XCTAssertFalse(TerminalController.shouldRearmListenerForAcceptError(errnoCode: EMFILE))
-        XCTAssertFalse(TerminalController.shouldRearmListenerForAcceptError(errnoCode: EINTR))
-    }
-
-    func testAcceptErrorPolicyRearmsAfterPersistentFailures() {
-        XCTAssertFalse(TerminalController.shouldRearmForConsecutiveAcceptFailures(consecutiveFailures: 0))
-        XCTAssertFalse(TerminalController.shouldRearmForConsecutiveAcceptFailures(consecutiveFailures: 49))
-        XCTAssertTrue(TerminalController.shouldRearmForConsecutiveAcceptFailures(consecutiveFailures: 50))
-        XCTAssertTrue(TerminalController.shouldRearmForConsecutiveAcceptFailures(consecutiveFailures: 120))
-    }
-
-    func testAcceptFailureBackoffIsExponentialAndCapped() {
-        XCTAssertEqual(
-            TerminalController.acceptFailureBackoffMilliseconds(consecutiveFailures: 0),
-            0
-        )
-        XCTAssertEqual(
-            TerminalController.acceptFailureBackoffMilliseconds(consecutiveFailures: 1),
-            10
-        )
-        XCTAssertEqual(
-            TerminalController.acceptFailureBackoffMilliseconds(consecutiveFailures: 2),
-            20
-        )
-        XCTAssertEqual(
-            TerminalController.acceptFailureBackoffMilliseconds(consecutiveFailures: 6),
-            320
-        )
-        XCTAssertEqual(
-            TerminalController.acceptFailureBackoffMilliseconds(consecutiveFailures: 12),
-            5_000
-        )
-        XCTAssertEqual(
-            TerminalController.acceptFailureBackoffMilliseconds(consecutiveFailures: 50),
-            5_000
-        )
-    }
-
-    func testAcceptFailureRearmDelayAppliesMinimumThrottle() {
-        XCTAssertEqual(
-            TerminalController.acceptFailureRearmDelayMilliseconds(consecutiveFailures: 0),
-            100
-        )
-        XCTAssertEqual(
-            TerminalController.acceptFailureRearmDelayMilliseconds(consecutiveFailures: 1),
-            100
-        )
-        XCTAssertEqual(
-            TerminalController.acceptFailureRearmDelayMilliseconds(consecutiveFailures: 2),
-            100
-        )
-        XCTAssertEqual(
-            TerminalController.acceptFailureRearmDelayMilliseconds(consecutiveFailures: 6),
-            320
-        )
-        XCTAssertEqual(
-            TerminalController.acceptFailureRearmDelayMilliseconds(consecutiveFailures: 12),
-            5_000
-        )
-    }
-
-    func testAcceptFailureRecoveryActionResumesAfterDelayForTransientErrors() {
-        XCTAssertEqual(
-            TerminalController.acceptFailureRecoveryAction(
-                errnoCode: EPROTO,
-                consecutiveFailures: 1
-            ),
-            .resumeAfterDelay(delayMs: 10)
-        )
-        XCTAssertEqual(
-            TerminalController.acceptFailureRecoveryAction(
-                errnoCode: EMFILE,
-                consecutiveFailures: 3
-            ),
-            .resumeAfterDelay(delayMs: 40)
-        )
-    }
-
-    func testAcceptFailureRecoveryActionRearmsForFatalAndPersistentFailures() {
-        XCTAssertEqual(
-            TerminalController.acceptFailureRecoveryAction(
-                errnoCode: EBADF,
-                consecutiveFailures: 1
-            ),
-            .rearmAfterDelay(delayMs: 100)
-        )
-        XCTAssertEqual(
-            TerminalController.acceptFailureRecoveryAction(
-                errnoCode: EPROTO,
-                consecutiveFailures: 50
-            ),
-            .rearmAfterDelay(delayMs: 5_000)
-        )
-    }
-
-    func testAcceptFailureBreadcrumbSamplingPrefersEarlyAndPowerOfTwoMilestones() {
-        XCTAssertTrue(TerminalController.shouldEmitAcceptFailureBreadcrumb(consecutiveFailures: 1))
-        XCTAssertTrue(TerminalController.shouldEmitAcceptFailureBreadcrumb(consecutiveFailures: 2))
-        XCTAssertTrue(TerminalController.shouldEmitAcceptFailureBreadcrumb(consecutiveFailures: 3))
-        XCTAssertFalse(TerminalController.shouldEmitAcceptFailureBreadcrumb(consecutiveFailures: 5))
-        XCTAssertTrue(TerminalController.shouldEmitAcceptFailureBreadcrumb(consecutiveFailures: 8))
-        XCTAssertFalse(TerminalController.shouldEmitAcceptFailureBreadcrumb(consecutiveFailures: 9))
-        XCTAssertTrue(TerminalController.shouldEmitAcceptFailureBreadcrumb(consecutiveFailures: 16))
-    }
-
-    func testAcceptLoopCleanupUnlinkPolicySkipsDuringListenerStartup() {
-        XCTAssertFalse(
-            TerminalController.shouldUnlinkSocketPathAfterAcceptLoopCleanup(
-                pathMatches: true,
-                isRunning: false,
-                activeGeneration: 0,
-                listenerStartInProgress: true
+    func testClaudeResumeCommandRoutesThroughWrapperInsteadOfCapturedRealBinary() {
+        // The captured launch executable is the real claude binary
+        // (CMUX_AGENT_LAUNCH_EXECUTABLE). Resuming with it directly bypasses
+        // cmux's `claude` wrapper, which is what injects the hooks, so resumed
+        // sessions silently lost SessionStart/Stop/Notification. Resume must use
+        // the bare `claude` wrapper. https://github.com/manaflow-ai/cmux/issues/5427
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "a22293b7-bcef-4707-8439-2f538c8517a4",
+            workingDirectory: "/tmp/cmux project",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "/opt/Claude Code/bin/claude",
+                arguments: [
+                    "/opt/Claude Code/bin/claude",
+                    "--model",
+                    "sonnet",
+                    "--permission-mode",
+                    "auto"
+                ],
+                workingDirectory: "/tmp/cmux project",
+                environment: ["CLAUDE_CONFIG_DIR": "/tmp/claude config"],
+                capturedAt: 123,
+                source: "environment"
             )
         )
-        XCTAssertFalse(
-            TerminalController.shouldUnlinkSocketPathAfterAcceptLoopCleanup(
-                pathMatches: false,
-                isRunning: false,
-                activeGeneration: 0,
-                listenerStartInProgress: false
-            )
+
+        XCTAssertEqual(
+            snapshot.resumeCommand,
+            "cd -- '/tmp/cmux project' 2>/dev/null || [ ! -d '/tmp/cmux project' ] && /bin/sh -c "
+                + shellQuotedForTest("'env' 'CLAUDE_CONFIG_DIR=/tmp/claude config' 'CMUX_CUSTOM_CLAUDE_PATH=/opt/Claude Code/bin/claude' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR' \"$([ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\" || printf claude)\" '--resume' 'a22293b7-bcef-4707-8439-2f538c8517a4' '--model' 'sonnet' '--permission-mode' 'auto'")
         )
-        XCTAssertFalse(
-            TerminalController.shouldUnlinkSocketPathAfterAcceptLoopCleanup(
-                pathMatches: true,
-                isRunning: true,
-                activeGeneration: 7,
-                listenerStartInProgress: false
-            )
-        )
-        XCTAssertTrue(
-            TerminalController.shouldUnlinkSocketPathAfterAcceptLoopCleanup(
-                pathMatches: true,
-                isRunning: false,
-                activeGeneration: 0,
-                listenerStartInProgress: false
-            )
-        )
+        // Preserve the selected binary for the wrapper without invoking it directly.
+        XCTAssertTrue(snapshot.resumeCommand?.contains("CMUX_CUSTOM_CLAUDE_PATH=/opt/Claude Code/bin/claude") == true)
+        XCTAssertFalse(snapshot.resumeCommand?.contains("&& '/opt/Claude Code/bin/claude'") ?? true)
     }
 
-    func testListenerStopUnlinkPolicyRequiresSameBoundSocketIdentity() {
-        let original = TerminalController.SocketPathIdentity(device: 1, inode: 10)
-        let recreated = TerminalController.SocketPathIdentity(device: 1, inode: 11)
-
-        XCTAssertTrue(
-            TerminalController.shouldUnlinkSocketPathAfterListenerStop(
-                currentIdentity: original,
-                boundIdentity: original
-            )
-        )
-        XCTAssertFalse(
-            TerminalController.shouldUnlinkSocketPathAfterListenerStop(
-                currentIdentity: recreated,
-                boundIdentity: original
-            )
-        )
-        XCTAssertFalse(
-            TerminalController.shouldUnlinkSocketPathAfterListenerStop(
-                currentIdentity: nil,
-                boundIdentity: original
-            )
-        )
-        XCTAssertFalse(
-            TerminalController.shouldUnlinkSocketPathAfterListenerStop(
-                currentIdentity: recreated,
-                boundIdentity: nil
-            )
-        )
-    }
-
-    func testSocketPathIdentityOnlyAcceptsUnixSocketFiles() throws {
-        let shortId = String(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8))
-        let directory = URL(fileURLWithPath: "/tmp/csid-\(shortId)", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-
-        let plainFile = directory.appendingPathComponent("plain-file")
-        XCTAssertTrue(FileManager.default.createFile(atPath: plainFile.path, contents: Data()))
-        XCTAssertNil(TerminalController.socketPathIdentity(at: plainFile.path))
-
-        let socketPath = directory.appendingPathComponent("s").path
-        let socketFD = try bindTestUnixSocket(at: socketPath)
-        defer {
-            Darwin.close(socketFD)
-            Darwin.unlink(socketPath)
-        }
-
-        let identity = try XCTUnwrap(TerminalController.socketPathIdentity(at: socketPath))
-        XCTAssertTrue(TerminalController.socketPathExists(socketPath, matching: identity))
-        XCTAssertFalse(
-            TerminalController.socketPathExists(
-                socketPath,
-                matching: TerminalController.SocketPathIdentity(
-                    device: identity.device,
-                    inode: identity.inode + 1
-                )
-            )
-        )
-        XCTAssertFalse(TerminalController.socketPathExists(socketPath, matching: nil))
-    }
-
-    private func bindTestUnixSocket(at path: String) throws -> Int32 {
-        let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
-        guard fd >= 0 else {
-            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
-        }
-
-        var address = sockaddr_un()
-        address.sun_family = sa_family_t(AF_UNIX)
-        let maxLength = MemoryLayout.size(ofValue: address.sun_path)
-        let didFit = path.withCString { source -> Bool in
-            guard strlen(source) < maxLength else { return false }
-            withUnsafeMutablePointer(to: &address.sun_path) { pathPointer in
-                let destination = UnsafeMutableRawPointer(pathPointer).assumingMemoryBound(to: CChar.self)
-                memset(destination, 0, maxLength)
-                strncpy(destination, source, maxLength - 1)
-            }
-            return true
-        }
-        guard didFit else {
-            Darwin.close(fd)
-            throw NSError(domain: NSPOSIXErrorDomain, code: Int(ENAMETOOLONG))
-        }
-
-        Darwin.unlink(path)
-        let bindResult = withUnsafePointer(to: &address) { pointer in
-            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPointer in
-                Darwin.bind(fd, sockaddrPointer, socklen_t(MemoryLayout<sockaddr_un>.size))
-            }
-        }
-        guard bindResult == 0 else {
-            let bindErrno = errno
-            Darwin.close(fd)
-            throw NSError(domain: NSPOSIXErrorDomain, code: Int(bindErrno))
-        }
-        guard Darwin.listen(fd, 1) == 0 else {
-            let listenErrno = errno
-            Darwin.close(fd)
-            Darwin.unlink(path)
-            throw NSError(domain: NSPOSIXErrorDomain, code: Int(listenErrno))
-        }
-        return fd
-    }
-
-    func testClaudeResumeCommandPreservesLaunchFlagsAndDropsInjectedHookSettings() {
+    func testClaudeForkCommandRoutesThroughWrapperInsteadOfCapturedRealBinary() throws {
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .claude,
             sessionId: "claude-session-123",
@@ -1936,13 +2269,10 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
                     "/opt/Claude Code/bin/claude",
                     "--model",
                     "sonnet",
-                    "--permission-mode",
-                    "auto",
                     "--settings",
                     #"{"hooks":{"SessionStart":[{"hooks":[{"command":"cmux claude-hook session-start"}]}]}}"#,
                     "--session-id",
-                    "old-session",
-                    "initial prompt should not replay"
+                    "old-session"
                 ],
                 workingDirectory: "/tmp/cmux project",
                 environment: ["CLAUDE_CONFIG_DIR": "/tmp/claude config"],
@@ -1951,10 +2281,575 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(
-            snapshot.resumeCommand,
-            "{ cd -- '/tmp/cmux project' 2>/dev/null || [ ! -d '/tmp/cmux project' ]; } && 'env' 'CLAUDE_CONFIG_DIR=/tmp/claude config' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR' '/opt/Claude Code/bin/claude' '--resume' 'claude-session-123' '--model' 'sonnet' '--permission-mode' 'auto'"
+        // Fork mirrors resume: route through the `claude` wrapper (so hooks fire),
+        // drop the captured session selectors and the stale hook --settings.
+        // https://github.com/manaflow-ai/cmux/issues/5427
+        let command = try XCTUnwrap(snapshot.forkCommand)
+        XCTAssertTrue(
+            command.contains(
+                posixEscapedForTest(AgentResumeArgv.claudeWrapperShellExecutableToken)
+                    + " '\\''--resume'\\'' '\\''claude-session-123'\\'' '\\''--fork-session'\\''"
+            ),
+            command
         )
+        XCTAssertTrue(command.contains("CMUX_CUSTOM_CLAUDE_PATH=/opt/Claude Code/bin/claude"), command)
+        XCTAssertFalse(command.contains("cmux claude-hook session-start"), command)
+        XCTAssertFalse(command.contains("old-session"), command)
+    }
+
+    /// Regression for https://github.com/manaflow-ai/cmux/issues/5639.
+    ///
+    /// #5430 fixed the resume *argv string* (bare `claude`) but the close-&-reopen
+    /// restore launcher runs the resumed agent in a fresh `$SHELL -lic` login shell
+    /// where cmux's shell integration (the `claude()` function + per-surface PATH shim)
+    /// is NOT active, and the command is `env … claude …` — `env` resolves `claude`
+    /// via `execvp`, bypassing any shell function. So bare `claude` resolved to the
+    /// user's *real* binary, the cmux wrapper was bypassed, no hook `--settings` was
+    /// injected, and SessionStart/Stop/Notification stayed dead on resume.
+    ///
+    /// Unlike #5430's tests, this asserts the EXECUTED resume command — it runs the
+    /// real `resumeCommand` through `zsh -lic` (exactly what the restore launcher does)
+    /// inside a hermetic sandbox whose user login profile clobbers `PATH` and defines a
+    /// `claude` function (the conditions that defeat PATH-shim / shell-function fixes),
+    /// and asserts the launched invocation routed through the cmux wrapper (its injected
+    /// `--settings`), proving wrapper resolution at the shell layer, not just the argv.
+    func testClaudeResumeCommandExecutesThroughWrapperInsideLoginShellLauncher() throws {
+        let zshURL = URL(fileURLWithPath: "/bin/zsh")
+        try XCTSkipUnless(
+            FileManager.default.isExecutableFile(atPath: zshURL.path),
+            "/bin/zsh is required to exercise the $SHELL -lic restore launcher"
+        )
+
+        let fileManager = FileManager.default
+        let sandbox = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-5639-\(UUID().uuidString)", isDirectory: true)
+        let shimDir = sandbox.appendingPathComponent("cmux-cli-shims", isDirectory: true)
+        let realBinDir = sandbox.appendingPathComponent("realbin", isDirectory: true)
+        let userHome = sandbox.appendingPathComponent("home", isDirectory: true)
+        for dir in [shimDir, realBinDir, userHome] {
+            try fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
+        }
+        defer { try? fileManager.removeItem(at: sandbox) }
+
+        let recordURL = sandbox.appendingPathComponent("record.txt", isDirectory: false)
+        let wrapperURL = sandbox.appendingPathComponent("cmux-claude-wrapper", isDirectory: false)
+        let shimURL = shimDir.appendingPathComponent("claude", isDirectory: false)
+        let realClaudeURL = realBinDir.appendingPathComponent("claude", isDirectory: false)
+
+        func writeExecutable(_ url: URL, _ contents: String) throws {
+            try contents.write(to: url, atomically: true, encoding: .utf8)
+            try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+        }
+
+        // Stand-in for cmux-claude-wrapper: re-inject the hook --settings on --resume
+        // (as the real wrapper does), then record the final invocation.
+        try writeExecutable(wrapperURL, """
+        #!/usr/bin/env bash
+        set -- "$@"
+        for arg in "$@"; do
+          if [[ "$arg" == "--resume" || "$arg" == "-r" ]]; then
+            set -- --settings CMUX_HOOKS_JSON "$@"
+            break
+          fi
+        done
+        printf 'wrapper %s\\n' "$*" > \(shellQuotedForTest(recordURL.path))
+        """)
+        // Per-surface shim that cmux installs and points CMUX_CLAUDE_WRAPPER_SHIM at.
+        try writeExecutable(shimURL, """
+        #!/usr/bin/env bash
+        exec \(shellQuotedForTest(wrapperURL.path)) "$@"
+        """)
+        // The user's "real" claude binary: NO hook injection. If the resume command
+        // reaches this instead of the wrapper, hooks are lost (the bug).
+        try writeExecutable(realClaudeURL, """
+        #!/usr/bin/env bash
+        printf 'real %s\\n' "$*" > \(shellQuotedForTest(recordURL.path))
+        """)
+        // Hostile login profile: rebuild PATH (dropping any inherited shim dir) and
+        // shadow claude with a user function — both would defeat integration-based fixes.
+        try (
+            "export PATH=\(shellQuotedForTest(realBinDir.path)):/usr/bin:/bin\n"
+                + "claude() { command \(shellQuotedForTest(realClaudeURL.path)) \"$@\"; }\n"
+        ).write(to: userHome.appendingPathComponent(".zshrc"), atomically: true, encoding: .utf8)
+        try "".write(to: userHome.appendingPathComponent(".zshenv"), atomically: true, encoding: .utf8)
+        try "".write(to: userHome.appendingPathComponent(".zprofile"), atomically: true, encoding: .utf8)
+
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "claude-session-123",
+            workingDirectory: nil,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "/opt/Claude Code/bin/claude",
+                arguments: [
+                    "/opt/Claude Code/bin/claude",
+                    "--model",
+                    "sonnet"
+                ],
+                workingDirectory: nil,
+                environment: ["CLAUDE_CONFIG_DIR": "/tmp/claude config"],
+                capturedAt: 123,
+                source: "environment"
+            )
+        )
+        let resumeCommand = try XCTUnwrap(snapshot.resumeCommand)
+
+        // Run the resume command exactly as the restore launcher does: `$SHELL -lic <cmd>`.
+        let process = Process()
+        process.executableURL = zshURL
+        process.arguments = ["-lic", resumeCommand]
+        var environment = ["HOME": userHome.path, "ZDOTDIR": userHome.path]
+        // CMUX_CLAUDE_WRAPPER_SHIM is a managed terminal env var inherited by the -lic shell.
+        environment["CMUX_CLAUDE_WRAPPER_SHIM"] = shimURL.path
+        process.environment = environment
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try runWithBoundedWait(process, shellDescription: "zsh -lic")
+
+        let recorded = (try? String(contentsOf: recordURL, encoding: .utf8)) ?? ""
+        XCTAssertTrue(
+            recorded.contains("--settings"),
+            "Resumed claude must route through the cmux wrapper (which injects the hook --settings). Recorded invocation: \(recorded.isEmpty ? "<none>" : recorded)"
+        )
+        XCTAssertTrue(
+            recorded.hasPrefix("wrapper "),
+            "Resume must exec the cmux wrapper, not the user's real claude binary. Recorded invocation: \(recorded.isEmpty ? "<none>" : recorded)"
+        )
+    }
+
+    private func shellQuotedForTest(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    /// The wrapper token as it appears inside a `/bin/sh -c '…'` wrapped command
+    /// (its single quotes escaped by the POSIX `'\''` dance, without outer quotes).
+    private func posixEscapedForTest(_ value: String) -> String {
+        value.replacingOccurrences(of: "'", with: "'\\''")
+    }
+
+    /// Regression: the rendered claude resume command must parse in NON-POSIX login shells.
+    ///
+    /// The session-index resume command is typed into — and copy-pasted into — the
+    /// user's interactive shell. tcsh has no `${VAR:-fallback}` parameter expansion
+    /// ("Bad : modifier in $"), so a raw POSIX-only wrapper token makes the whole resume
+    /// command fail to parse and claude never launches, even though the same string works
+    /// under `zsh -lic`. https://github.com/manaflow-ai/cmux/issues/5639
+    func testClaudeResumeCommandExecutesThroughWrapperInsideTcshLauncher() throws {
+        let tcshURL = URL(fileURLWithPath: "/bin/tcsh")
+        try XCTSkipUnless(
+            FileManager.default.isExecutableFile(atPath: tcshURL.path),
+            "/bin/tcsh is required to exercise the csh|tcsh restore-launcher dispatch"
+        )
+
+        let sandbox = try makeClaudeResumeWrapperShimSandbox()
+        defer { sandbox.removeSandbox() }
+        // Hostile tcsh profile: rebuild PATH (dropping any inherited shim dir) and alias
+        // claude to the user's real binary — the same conditions the zsh test exercises.
+        try (
+            "set path = (\(shellQuotedForTest(sandbox.realBinDirectoryURL.path)) /usr/bin /bin)\n"
+                + "alias claude \(shellQuotedForTest(sandbox.realClaudeURL.path))\n"
+        ).write(to: sandbox.homeURL.appendingPathComponent(".tcshrc"), atomically: true, encoding: .utf8)
+
+        // No working directory: keeps the command free of the POSIX `{ cd …; } &&` guard
+        // (csh/tcsh cannot parse that prefix with or without this fix, a pre-existing
+        // limitation shared by every agent kind) so the assertion isolates the claude
+        // executable token itself.
+        let snapshot = Self.makeClaudeRestorableSnapshot(
+            workingDirectory: nil,
+            sessionId: "a22293b7-bcef-4707-8439-2f538c8517a4"
+        )
+        let resumeCommand = try XCTUnwrap(snapshot.resumeStartupInput(useLocalRestoreVerb: false))
+
+        let recorded = try runClaudeResumeCommand(
+            resumeCommand,
+            shellURL: tcshURL,
+            arguments: ["-c"],
+            sandbox: sandbox
+        )
+        XCTAssertTrue(
+            recorded.hasPrefix("wrapper "),
+            "tcsh-dispatched resume must parse and exec the cmux wrapper. Recorded invocation: \(recorded.isEmpty ? "<none>" : recorded)"
+        )
+        XCTAssertTrue(
+            recorded.contains("--settings"),
+            "tcsh-dispatched resume must re-inject the hook --settings via the wrapper. Recorded invocation: \(recorded.isEmpty ? "<none>" : recorded)"
+        )
+    }
+
+    /// Regression: fish rejects `${…}` outright ("${ is not a valid variable"), and fish
+    /// is a shipped cmux integration (`Resources/shell-integration/fish/`). Session-index
+    /// resume commands are typed into the user's shell, so a POSIX-only wrapper token
+    /// regresses fish users from working resume to a hard parse error. Uses a working
+    /// directory so the brace-free cwd guard
+    /// (`cd … || [ ! -d … ] && …`, https://github.com/manaflow-ai/cmux/issues/6285) is
+    /// exercised too — older fish rejects the POSIX `{ …; }` grouping the guard used to
+    /// emit. https://github.com/manaflow-ai/cmux/issues/5639
+    func testClaudeResumeCommandExecutesThroughWrapperInsideFishLauncher() throws {
+        let fishURL = ["/usr/local/bin/fish", "/opt/homebrew/bin/fish", "/usr/bin/fish"]
+            .map { URL(fileURLWithPath: $0) }
+            .first { FileManager.default.isExecutableFile(atPath: $0.path) }
+        guard let fishURL else {
+            throw XCTSkip("fish is not installed; install fish to exercise the fish restore-launcher dispatch")
+        }
+
+        let sandbox = try makeClaudeResumeWrapperShimSandbox()
+        defer { sandbox.removeSandbox() }
+        let fishConfigDir = sandbox.homeURL.appendingPathComponent(".config/fish", isDirectory: true)
+        try FileManager.default.createDirectory(at: fishConfigDir, withIntermediateDirectories: true)
+        // Hostile fish config: rebuild PATH and shadow claude with a fish function.
+        try (
+            "set -gx PATH \(shellQuotedForTest(sandbox.realBinDirectoryURL.path)) /usr/bin /bin\n"
+                + "function claude\n    \(shellQuotedForTest(sandbox.realClaudeURL.path)) $argv\nend\n"
+        ).write(to: fishConfigDir.appendingPathComponent("config.fish"), atomically: true, encoding: .utf8)
+
+        let snapshot = Self.makeClaudeRestorableSnapshot(workingDirectory: sandbox.sandboxURL.path)
+        let resumeCommand = try XCTUnwrap(snapshot.resumeCommand)
+
+        let recorded = try runClaudeResumeCommand(
+            resumeCommand,
+            shellURL: fishURL,
+            arguments: ["-c"],
+            sandbox: sandbox
+        )
+        XCTAssertTrue(
+            recorded.hasPrefix("wrapper "),
+            "fish-dispatched resume must parse and exec the cmux wrapper. Recorded invocation: \(recorded.isEmpty ? "<none>" : recorded)"
+        )
+        XCTAssertTrue(
+            recorded.contains("--settings"),
+            "fish-dispatched resume must re-inject the hook --settings via the wrapper. Recorded invocation: \(recorded.isEmpty ? "<none>" : recorded)"
+        )
+    }
+
+    /// Regression: nushell parses none of the POSIX resume command (`&&`/`||` are
+    /// dedicated parse errors, `[ … ]` is a list literal, and even a POSIX-quoted
+    /// command head like `'claude' '--resume'` is rejected), so both the typed
+    /// sessions-panel resume and the restore launcher hard-failed for nushell login
+    /// shells. The typed path now renders through
+    /// `TerminalStartupTypedShellCommand.typedInput` which wraps the POSIX command as
+    /// `^/bin/sh -c "…"` for the nushell dialect; this drives that exact string
+    /// through a real `nu -c` with a hostile user config (PATH rebuilt, shim dir
+    /// dropped) and asserts the cmux wrapper still runs and re-injects hooks.
+    /// (The restore launcher's zsh script gained a matching `nu)` branch that
+    /// dispatches `/bin/sh -c` directly; same envelope, exercised by
+    /// `testResumeLauncherScriptDispatchesNushellThroughBinSh`.)
+    func testClaudeResumeCommandExecutesThroughWrapperInsideNushellTypedInput() throws {
+        let nuURL = [
+            ProcessInfo.processInfo.environment["CMUX_TEST_NU_BIN"],
+            "/opt/homebrew/bin/nu",
+            "/usr/local/bin/nu",
+            "/usr/bin/nu",
+        ]
+        .compactMap { $0 }
+        .map { URL(fileURLWithPath: $0) }
+        .first { FileManager.default.isExecutableFile(atPath: $0.path) }
+        guard let nuURL else {
+            throw XCTSkip("nushell is not installed; install nu to exercise the nushell typed-resume dispatch")
+        }
+
+        let sandbox = try makeClaudeResumeWrapperShimSandbox()
+        defer { sandbox.removeSandbox() }
+        let nuConfigDir = sandbox.homeURL.appendingPathComponent(".config/nushell", isDirectory: true)
+        try FileManager.default.createDirectory(at: nuConfigDir, withIntermediateDirectories: true)
+        // Hostile nushell config: rebuild PATH with the user's real claude first —
+        // the exact shadowing that breaks the shim for nushell users.
+        try (
+            "$env.PATH = [\"\(sandbox.realBinDirectoryURL.path)\", \"/usr/bin\", \"/bin\"]\n"
+        ).write(to: nuConfigDir.appendingPathComponent("env.nu"), atomically: true, encoding: .utf8)
+        try "".write(to: nuConfigDir.appendingPathComponent("config.nu"), atomically: true, encoding: .utf8)
+
+        let snapshot = Self.makeClaudeRestorableSnapshot(workingDirectory: sandbox.sandboxURL.path)
+        let resumeCommand = try XCTUnwrap(snapshot.resumeCommand)
+        let typedForNushell = TerminalStartupTypedShellCommand(dialect: .nushell)
+            .typedInput(posixCommand: resumeCommand)
+
+        let recorded = try runClaudeResumeCommand(
+            typedForNushell,
+            shellURL: nuURL,
+            arguments: ["-c"],
+            sandbox: sandbox,
+            environmentOverrides: [
+                "XDG_CONFIG_HOME": sandbox.homeURL.appendingPathComponent(".config").path
+            ]
+        )
+        XCTAssertTrue(
+            recorded.hasPrefix("wrapper "),
+            "nushell-typed resume must parse and exec the cmux wrapper. Recorded invocation: \(recorded.isEmpty ? "<none>" : recorded)"
+        )
+        XCTAssertTrue(
+            recorded.contains("--settings"),
+            "nushell-typed resume must re-inject the hook --settings via the wrapper. Recorded invocation: \(recorded.isEmpty ? "<none>" : recorded)"
+        )
+    }
+
+    /// The one-shot launcher's user-login-shell execution must route nushell
+    /// logins through `/bin/sh -c` (nushell has no `-lc` flags and cannot parse
+    /// the POSIX command) while leaving the POSIX branch untouched.
+    func testOneShotUserLoginShellLauncherDispatchesNushellThroughBinSh() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-oneshot-nu-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let scriptURL = try XCTUnwrap(OneShotTerminalLauncherStore(
+            fileManager: .default,
+            temporaryDirectory: tmp
+        ).writeLauncherScript(
+            command: "cd -- '/tmp/p' && 'claude' '--resume' 'SID'",
+            workingDirectory: nil,
+            execution: .userLoginShell
+        ))
+        let script = try String(contentsOf: scriptURL, encoding: .utf8)
+        XCTAssertTrue(
+            script.contains("nu) exec /bin/sh -c "),
+            "launcher must dispatch nushell logins through /bin/sh: \(script)"
+        )
+        XCTAssertTrue(
+            script.contains(#"*) exec "$SHELL" -lc "#),
+            "the POSIX dispatch branch must stay untouched: \(script)"
+        )
+    }
+
+    /// Regression for the first nushell dogfood round, adapted to the unified
+    /// one-shot launcher: a `.userLoginShell` script executed with a nushell
+    /// login shell must still run its POSIX payload (via /bin/sh) instead of
+    /// handing it to `nu -lc`, which would fail before the agent launches.
+    func testOneShotUserLoginShellLauncherRunsPosixPayloadUnderNushell() throws {
+        let sandbox = try makeClaudeResumeWrapperShimSandbox()
+        defer { sandbox.removeSandbox() }
+
+        // Fake nu login shell that records its argv; reaching it would mean
+        // the POSIX payload was (wrongly) handed to nushell.
+        let fakeNuURL = sandbox.sandboxURL.appendingPathComponent("nu", isDirectory: false)
+        let nuArgsURL = sandbox.sandboxURL.appendingPathComponent("nu-args.txt", isDirectory: false)
+        try (
+            "#!/bin/sh\n"
+                + "printf '%s\\n' \"$@\" > \(shellQuotedForTest(nuArgsURL.path))\n"
+        ).write(to: fakeNuURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeNuURL.path)
+
+        let scriptURL = try XCTUnwrap(OneShotTerminalLauncherStore(
+            fileManager: .default,
+            temporaryDirectory: sandbox.sandboxURL
+        ).writeLauncherScript(
+            command: "'claude' '--resume' 'claude-session-123'",
+            workingDirectory: nil,
+            execution: .userLoginShell
+        ))
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = [scriptURL.path]
+        process.environment = [
+            "HOME": sandbox.homeURL.path,
+            "SHELL": fakeNuURL.path,
+            "PATH": "\(sandbox.realBinDirectoryURL.path):/usr/bin:/bin",
+            "CMUX_CLAUDE_WRAPPER_SHIM": sandbox.shimURL.path,
+        ]
+        let scriptStderr = Pipe()
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = scriptStderr
+        try runWithBoundedWait(process, shellDescription: "/bin/zsh \(scriptURL.path)")
+
+        let stderrText = String(
+            data: scriptStderr.fileHandleForReading.readDataToEndOfFile(),
+            encoding: .utf8
+        ) ?? ""
+        let recorded = (try? String(contentsOf: sandbox.recordURL, encoding: .utf8)) ?? ""
+        XCTAssertTrue(
+            recorded.contains("--resume claude-session-123"),
+            "the POSIX payload must execute through /bin/sh under a nushell login. "
+                + "Recorded: \(recorded.isEmpty ? "<none>" : recorded), stderr: \(stderrText)"
+        )
+        let nuArgs = (try? String(contentsOf: nuArgsURL, encoding: .utf8)) ?? ""
+        XCTAssertTrue(
+            nuArgs.isEmpty,
+            "the POSIX payload must not be handed to the nushell binary: \(nuArgs)"
+        )
+    }
+
+    /// Regression for the stale-shim fallback: `CMUX_CLAUDE_WRAPPER_SHIM` can outlive
+    /// its file (macOS reaps idle temporary-directory contents after ~3 days), and bare
+    /// `${VAR:-claude}` parameter expansion would exec the dead path and hard-fail
+    /// resume with "No such file or directory" — worse than the pre-#5639 behavior,
+    /// which degraded to the PATH-resolved binary. The executability guard in the
+    /// wrapper token must keep that graceful degradation: hooks are lost, resume works.
+    func testClaudeResumeCommandFallsBackToPathClaudeWhenShimFileIsStale() throws {
+        let zshURL = URL(fileURLWithPath: "/bin/zsh")
+        try XCTSkipUnless(
+            FileManager.default.isExecutableFile(atPath: zshURL.path),
+            "/bin/zsh is required to exercise the $SHELL -lic restore launcher"
+        )
+
+        let sandbox = try makeClaudeResumeWrapperShimSandbox()
+        defer { sandbox.removeSandbox() }
+        try ("export PATH=" + shellQuotedForTest(sandbox.realBinDirectoryURL.path) + ":/usr/bin:/bin\n")
+            .write(to: sandbox.homeURL.appendingPathComponent(".zshrc"), atomically: true, encoding: .utf8)
+        try "".write(to: sandbox.homeURL.appendingPathComponent(".zshenv"), atomically: true, encoding: .utf8)
+        try "".write(to: sandbox.homeURL.appendingPathComponent(".zprofile"), atomically: true, encoding: .utf8)
+
+        let snapshot = Self.makeClaudeRestorableSnapshot(workingDirectory: nil)
+        let resumeCommand = try XCTUnwrap(snapshot.resumeCommand)
+
+        let reapedShimPath = sandbox.sandboxURL
+            .appendingPathComponent("reaped", isDirectory: true)
+            .appendingPathComponent("claude", isDirectory: false).path
+        let recorded = try runClaudeResumeCommand(
+            resumeCommand,
+            shellURL: zshURL,
+            arguments: ["-lic"],
+            sandbox: sandbox,
+            environmentOverrides: [
+                "ZDOTDIR": sandbox.homeURL.path,
+                "CMUX_CLAUDE_WRAPPER_SHIM": reapedShimPath
+            ]
+        )
+        XCTAssertTrue(
+            recorded.hasPrefix("real "),
+            "A stale shim path must degrade to the PATH-resolved claude binary, not hard-fail resume. Recorded invocation: \(recorded.isEmpty ? "<none>" : recorded)"
+        )
+        XCTAssertFalse(
+            recorded.contains("--settings"),
+            "The PATH fallback runs the real binary without wrapper hook injection. Recorded invocation: \(recorded)"
+        )
+    }
+
+    private struct ClaudeResumeWrapperShimSandbox {
+        let sandboxURL: URL
+        let homeURL: URL
+        let realBinDirectoryURL: URL
+        let realClaudeURL: URL
+        let shimURL: URL
+        let recordURL: URL
+
+        func removeSandbox() {
+            try? FileManager.default.removeItem(at: sandboxURL)
+        }
+    }
+
+    /// Builds the hermetic wrapper/shim/real-claude sandbox shared by the non-POSIX
+    /// restore-launcher regression tests: a recording stand-in for `cmux-claude-wrapper`
+    /// (re-injects the hook `--settings` on `--resume`, as the real wrapper does), the
+    /// per-surface shim that `CMUX_CLAUDE_WRAPPER_SHIM` points at, and a hook-less "real"
+    /// claude that records when the wrapper was bypassed.
+    private func makeClaudeResumeWrapperShimSandbox() throws -> ClaudeResumeWrapperShimSandbox {
+        let fileManager = FileManager.default
+        let sandbox = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-5639-\(UUID().uuidString)", isDirectory: true)
+        let shimDir = sandbox.appendingPathComponent("cmux-cli-shims", isDirectory: true)
+        let realBinDir = sandbox.appendingPathComponent("realbin", isDirectory: true)
+        let userHome = sandbox.appendingPathComponent("home", isDirectory: true)
+        for dir in [shimDir, realBinDir, userHome] {
+            try fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
+        }
+
+        let recordURL = sandbox.appendingPathComponent("record.txt", isDirectory: false)
+        let wrapperURL = sandbox.appendingPathComponent("cmux-claude-wrapper", isDirectory: false)
+        let shimURL = shimDir.appendingPathComponent("claude", isDirectory: false)
+        let realClaudeURL = realBinDir.appendingPathComponent("claude", isDirectory: false)
+
+        func writeExecutable(_ url: URL, _ contents: String) throws {
+            try contents.write(to: url, atomically: true, encoding: .utf8)
+            try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+        }
+
+        try writeExecutable(wrapperURL, """
+        #!/usr/bin/env bash
+        set -- "$@"
+        for arg in "$@"; do
+          if [[ "$arg" == "--resume" || "$arg" == "-r" ]]; then
+            set -- --settings CMUX_HOOKS_JSON "$@"
+            break
+          fi
+        done
+        printf 'wrapper %s\\n' "$*" > \(shellQuotedForTest(recordURL.path))
+        """)
+        try writeExecutable(shimURL, """
+        #!/usr/bin/env bash
+        exec \(shellQuotedForTest(wrapperURL.path)) "$@"
+        """)
+        try writeExecutable(realClaudeURL, """
+        #!/usr/bin/env bash
+        printf 'real %s\\n' "$*" > \(shellQuotedForTest(recordURL.path))
+        """)
+
+        return ClaudeResumeWrapperShimSandbox(
+            sandboxURL: sandbox,
+            homeURL: userHome,
+            realBinDirectoryURL: realBinDir,
+            realClaudeURL: realClaudeURL,
+            shimURL: shimURL,
+            recordURL: recordURL
+        )
+    }
+
+    private static func makeClaudeRestorableSnapshot(
+        workingDirectory: String?,
+        sessionId: String = "claude-session-123"
+    ) -> SessionRestorableAgentSnapshot {
+        SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: sessionId,
+            workingDirectory: workingDirectory,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "/opt/Claude Code/bin/claude",
+                arguments: [
+                    "/opt/Claude Code/bin/claude",
+                    "--model",
+                    "sonnet"
+                ],
+                workingDirectory: workingDirectory,
+                environment: ["CLAUDE_CONFIG_DIR": "/tmp/claude config"],
+                capturedAt: 123,
+                source: "environment"
+            )
+        )
+    }
+
+    /// Runs `resumeCommand` through the given shell exactly as the restore launcher's
+    /// dispatch line does, with only the managed env the launcher guarantees (`HOME` for
+    /// profile sourcing, `CMUX_CLAUDE_WRAPPER_SHIM` from the managed terminal env).
+    private func runClaudeResumeCommand(
+        _ resumeCommand: String,
+        shellURL: URL,
+        arguments: [String],
+        sandbox: ClaudeResumeWrapperShimSandbox,
+        environmentOverrides: [String: String] = [:]
+    ) throws -> String {
+        let process = Process()
+        process.executableURL = shellURL
+        process.arguments = arguments + [resumeCommand]
+        var environment = [
+            "HOME": sandbox.homeURL.path,
+            "CMUX_CLAUDE_WRAPPER_SHIM": sandbox.shimURL.path
+        ]
+        for (key, value) in environmentOverrides {
+            environment[key] = value
+        }
+        process.environment = environment
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try runWithBoundedWait(process, shellDescription: shellURL.path)
+        return (try? String(contentsOf: sandbox.recordURL, encoding: .utf8)) ?? ""
+    }
+
+    /// Launches `process` and waits with a deadline so a stalled shell (missing
+    /// shebang interpreter, prompting profile) fails the test with a clear message
+    /// instead of hanging until the CI harness kills the job.
+    private func runWithBoundedWait(
+        _ process: Process,
+        shellDescription: String,
+        timeout: TimeInterval = 30
+    ) throws {
+        let exited = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in exited.signal() }
+        try process.run()
+        if exited.wait(timeout: .now() + timeout) == .timedOut {
+            process.terminate()
+            XCTFail("Resume shell (\(shellDescription)) did not exit within \(Int(timeout))s; treating as hung.")
+        }
     }
 
     func testRestorableAgentResumeStartupInputEscapesNonAsciiWorkingDirectoryAsAsciiShellInput() throws {
@@ -1988,12 +2883,38 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         let startupInput = try XCTUnwrap(snapshot.resumeStartupInput())
         XCTAssertTrue(
             startupInput.utf8.allSatisfy { $0 < 0x80 },
-            "Terminal startup input must stay ASCII-only so UTF-8 paths are reconstructed by the shell instead of being mojibaked before execution."
+            "The short restore verb must stay ASCII-only; structured cwd never crosses the shell parser."
         )
+        XCTAssertEqual(
+            startupInput,
+            " \(AgentRestoreLaunch.cliStartupExecutableToken) restore claude claude-session-123\n"
+        )
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(
+                at: root,
+                includingPropertiesForKeys: nil
+            ).map(\.lastPathComponent),
+            ["中文路径"]
+        )
+    }
 
-        let command = startupInput.trimmingCharacters(in: .newlines)
-        let cdCommand = try leadingCdCommand(from: command)
-        try assertZshCommandChangesDirectory(cdCommand, expectedPath: cwdURL.path)
+    /// Resolves resume startup input to the inline command or launcher-script command line.
+    private func inlineResumeCommandResolvingLauncherScript(from startupInput: String) throws -> String {
+        let trimmed = startupInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let scriptPath = launcherScriptPath(from: startupInput) {
+            let script = try String(contentsOfFile: scriptPath, encoding: .utf8)
+            return try XCTUnwrap(
+                script.split(separator: "\n").map(String.init).last,
+                "no resume command line in launcher script: \(script)"
+            )
+        }
+        return trimmed
+    }
+
+    private func launcherScriptPath(from input: String) -> String? {
+        let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(input).map(\.value)
+        guard words.count == 2, words.first == "/bin/zsh" else { return nil }
+        return words.last
     }
 
     func testSessionEntryClaudeResumeCommandChangesToSessionCwdBeforeResume() throws {
@@ -2029,8 +2950,9 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            entry.resumeCommand,
-            "cd /Users/tiffanysun/fun && claude --resume a22293b7-bcef-4707-8439-2f538c8517a4"
+            entry.copyResumeCommand,
+            "cd -- '/Users/tiffanysun/fun' 2>/dev/null || [ ! -d '/Users/tiffanysun/fun' ] && /bin/sh -c "
+                + shellQuotedForTest("\(AgentResumeArgv.claudeWrapperShellExecutableToken) --resume a22293b7-bcef-4707-8439-2f538c8517a4")
         )
     }
 
@@ -2060,7 +2982,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             )
         )
 
-        let command = try XCTUnwrap(entry.resumeCommand)
+        let command = try XCTUnwrap(entry.copyResumeCommand)
         XCTAssertTrue(
             command.utf8.allSatisfy { $0 < 0x80 },
             "Terminal startup input must stay ASCII-only so UTF-8 paths are reconstructed by the shell instead of being mojibaked before execution."
@@ -2071,7 +2993,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
     }
 
     private func leadingCdCommand(from command: String) throws -> String {
-        let separator = try XCTUnwrap(command.range(of: " && "))
+        let separator = try XCTUnwrap(command.range(of: " && "), "no ' && ' separator in: \(command)")
         return String(command[..<separator.lowerBound])
     }
 
@@ -2104,10 +3026,16 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(stdout, expectedPath, file: file, line: line)
     }
 
-    func testRestorableAgentStartupInputUsesInlineCommandWhenShort() {
+    func testRestorableAgentStartupInputUsesShortRestoreVerb() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-resume-short-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let sessionId = "a22293b7-bcef-4707-8439-2f538c8517a4"
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .claude,
-            sessionId: "claude-session-123",
+            sessionId: sessionId,
             workingDirectory: "/tmp/cmux project",
             launchCommand: AgentLaunchCommandSnapshot(
                 launcher: "claude",
@@ -2124,10 +3052,65 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(snapshot.resumeStartupInput(), snapshot.resumeCommand.map { $0 + "\n" })
+        let startupInput = try XCTUnwrap(snapshot.resumeStartupInput())
+        XCTAssertEqual(
+            startupInput,
+            " \(AgentRestoreLaunch.cliStartupExecutableToken) restore claude \(sessionId)\n"
+        )
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(
+                at: tempDir,
+                includingPropertiesForKeys: nil
+            ),
+            []
+        )
+        XCTAssertFalse(try XCTUnwrap(snapshot.resumeCommand).contains("CMUX_AGENT_RESTORE_LAUNCH"))
+        XCTAssertFalse(try XCTUnwrap(snapshot.forkStartupInput()).contains("CMUX_AGENT_RESTORE_LAUNCH"))
     }
 
-    func testRestorableAgentStartupInputUsesLauncherScriptWhenCommandExceedsTerminalInputBudget() throws {
+    func testRestorableAgentRestoreVerbSupportsEveryKindAndIdentifier() throws {
+        let unsupported = SessionRestorableAgentSnapshot(
+            kind: .gemini,
+            sessionId: "5839bed1-0a60-4c05-b6d1-2410d7a3741e",
+            workingDirectory: "/tmp/gemini repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "gemini",
+                executablePath: "/Users/example/.bun/bin/gemini",
+                arguments: ["/Users/example/.bun/bin/gemini"],
+                workingDirectory: "/tmp/gemini repo",
+                environment: nil,
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+        let invalidSession = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "not-a-session-id",
+            workingDirectory: nil,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "claude",
+                arguments: ["claude"],
+                workingDirectory: nil,
+                environment: nil,
+                capturedAt: nil,
+                source: "process"
+            )
+        )
+
+        let unsupportedInput = try XCTUnwrap(unsupported.resumeStartupInput())
+        let invalidSessionInput = try XCTUnwrap(invalidSession.resumeStartupInput())
+        XCTAssertEqual(
+            unsupportedInput,
+            " \(AgentRestoreLaunch.cliStartupExecutableToken) restore gemini 5839bed1-0a60-4c05-b6d1-2410d7a3741e\n"
+        )
+        XCTAssertEqual(
+            invalidSessionInput,
+            " \(AgentRestoreLaunch.cliStartupExecutableToken) restore claude not-a-session-id\n"
+        )
+    }
+
+    func testRestorableAgentStartupInputDoesNotChangeAtFormerTerminalInputBudget() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-agent-resume-test-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
@@ -2156,25 +3139,22 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             )
         )
 
-        let input = try XCTUnwrap(snapshot.resumeStartupInput(temporaryDirectory: tempDir))
-        XCTAssertLessThanOrEqual(input.utf8.count, SessionRestorableAgentSnapshot.maxInlineStartupInputBytes)
-        XCTAssertTrue(input.hasPrefix("/bin/zsh '"))
+        let input = try XCTUnwrap(snapshot.resumeStartupInput())
+        XCTAssertEqual(
+            input,
+            " \(AgentRestoreLaunch.cliStartupExecutableToken) restore codex 019dad34-d218-7943-b81a-eddac5c87951\n"
+        )
         XCTAssertFalse(input.contains(longPath))
-
-        let trimmedInput = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        let prefix = "/bin/zsh '"
-        let scriptPath = String(trimmedInput.dropFirst(prefix.count).dropLast())
-        let scriptContents = try String(contentsOfFile: scriptPath, encoding: .utf8)
-        XCTAssertTrue(scriptContents.contains(longPath))
-        XCTAssertTrue(scriptContents.contains("'resume'"))
-        XCTAssertTrue(scriptContents.contains("'019dad34-d218-7943-b81a-eddac5c87951'"))
-
-        let attributes = try FileManager.default.attributesOfItem(atPath: scriptPath)
-        let permissions = try XCTUnwrap(attributes[.posixPermissions] as? NSNumber).intValue & 0o777
-        XCTAssertEqual(permissions, 0o600)
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(
+                at: tempDir,
+                includingPropertiesForKeys: nil
+            ),
+            []
+        )
     }
 
-    func testRestorableAgentStartupInputSkipsOversizedCommandWhenScriptCannotBeWritten() throws {
+    func testRestorableAgentStartupInputDoesNotNeedWritableTemporaryDirectory() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-agent-resume-test-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
@@ -2205,27 +3185,30 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             )
         )
 
-        XCTAssertNil(snapshot.resumeStartupInput(temporaryDirectory: blockedDirectory))
+        XCTAssertEqual(
+            snapshot.resumeStartupInput(),
+            " \(AgentRestoreLaunch.cliStartupExecutableToken) restore codex 019dad34-d218-7943-b81a-eddac5c87951\n"
+        )
     }
 
     func testClaudeResumeCommandPreservesDangerouslySkipPermissionsAndObservedEnvironment() {
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .claude,
             sessionId: "24ec0052-450c-4914-b1dd-2ee80d4bc84b",
-            workingDirectory: "/Users/lawrence/fun",
+            workingDirectory: "/Users/dev/fun",
             launchCommand: AgentLaunchCommandSnapshot(
                 launcher: "claude",
-                executablePath: "/Users/lawrence/.local/bin/claude",
+                executablePath: "/Users/dev/.local/bin/claude",
                 arguments: [
-                    "/Users/lawrence/.local/bin/claude",
+                    "/Users/dev/.local/bin/claude",
                     "--dangerously-load-development-channels",
                     "server:custom-dev-channel",
                     "--dangerously-skip-permissions"
                 ],
-                workingDirectory: "/Users/lawrence/fun",
+                workingDirectory: "/Users/dev/fun",
                 environment: [
-                    "CLAUDE_CONFIG_DIR": "/Users/lawrence/.codex-accounts/claude/_p1775010019397",
-                    "PATH": "/Users/lawrence/.local/bin:/usr/bin",
+                    "CLAUDE_CONFIG_DIR": "/Users/dev/.codex-accounts/claude/_p1775010019397",
+                    "PATH": "/Users/dev/.local/bin:/usr/bin",
                     "SHELL": "/bin/zsh"
                 ],
                 capturedAt: 123,
@@ -2235,7 +3218,8 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "{ cd -- '/Users/lawrence/fun' 2>/dev/null || [ ! -d '/Users/lawrence/fun' ]; } && 'env' 'CLAUDE_CONFIG_DIR=/Users/lawrence/.codex-accounts/claude/_p1775010019397' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR' '/Users/lawrence/.local/bin/claude' '--resume' '24ec0052-450c-4914-b1dd-2ee80d4bc84b' '--dangerously-load-development-channels' 'server:custom-dev-channel' '--dangerously-skip-permissions'"
+            "cd -- '/Users/dev/fun' 2>/dev/null || [ ! -d '/Users/dev/fun' ] && /bin/sh -c "
+                + shellQuotedForTest("'env' 'CLAUDE_CONFIG_DIR=/Users/dev/.codex-accounts/claude/_p1775010019397' 'CMUX_CUSTOM_CLAUDE_PATH=/Users/dev/.local/bin/claude' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR' \"$([ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\" || printf claude)\" '--resume' '24ec0052-450c-4914-b1dd-2ee80d4bc84b' '--dangerously-load-development-channels' 'server:custom-dev-channel' '--dangerously-skip-permissions'")
         )
     }
 
@@ -2269,7 +3253,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "{ cd -- '/Users/example/repo' 2>/dev/null || [ ! -d '/Users/example/repo' ]; } && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'resume' '019dad34-d218-7943-b81a-eddac5c87951' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access' '--ask-for-approval' 'never' '--search'"
+            "cd -- '/Users/example/repo' 2>/dev/null || [ ! -d '/Users/example/repo' ] && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'resume' '019dad34-d218-7943-b81a-eddac5c87951' '-c' 'check_for_update_on_startup=false' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access' '--ask-for-approval' 'never' '--search'"
         )
     }
 
@@ -2277,12 +3261,12 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .codex,
             sessionId: "019e2bb9-5544-7201-a517-d77bb00d724f",
-            workingDirectory: "/Users/lawrence/fun/cmuxterm-hq",
+            workingDirectory: "/Users/dev/fun/cmuxterm-hq",
             launchCommand: AgentLaunchCommandSnapshot(
                 launcher: "codex",
-                executablePath: "/Users/lawrence/.bun/bin/codex",
+                executablePath: "/Users/dev/.bun/bin/codex",
                 arguments: [
-                    "/Users/lawrence/.bun/bin/codex",
+                    "/Users/dev/.bun/bin/codex",
                     "resume",
                     "--yolo",
                     "--image",
@@ -2291,7 +3275,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
                     "--model",
                     "gpt-5.4",
                 ],
-                workingDirectory: "/Users/lawrence/fun/cmuxterm-hq",
+                workingDirectory: "/Users/dev/fun/cmuxterm-hq",
                 environment: nil,
                 capturedAt: 123,
                 source: "process"
@@ -2300,7 +3284,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "{ cd -- '/Users/lawrence/fun/cmuxterm-hq' 2>/dev/null || [ ! -d '/Users/lawrence/fun/cmuxterm-hq' ]; } && '/Users/lawrence/.bun/bin/codex' 'resume' '019e2bb9-5544-7201-a517-d77bb00d724f' '--yolo' '--model' 'gpt-5.4'"
+            "cd -- '/Users/dev/fun/cmuxterm-hq' 2>/dev/null || [ ! -d '/Users/dev/fun/cmuxterm-hq' ] && '/Users/dev/.bun/bin/codex' 'resume' '019e2bb9-5544-7201-a517-d77bb00d724f' '-c' 'check_for_update_on_startup=false' '--yolo' '--model' 'gpt-5.4'"
         )
     }
 
@@ -2332,7 +3316,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "{ cd -- '/Users/example/repo' 2>/dev/null || [ ! -d '/Users/example/repo' ]; } && 'env' 'CODEX_HOME=/tmp/codex home' '/usr/local/bin/cmux' 'codex-teams' 'resume' '019dad34-d218-7943-b81a-eddac5c87951' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access'"
+            "cd -- '/Users/example/repo' 2>/dev/null || [ ! -d '/Users/example/repo' ] && 'env' 'CODEX_HOME=/tmp/codex home' '/usr/local/bin/cmux' 'codex-teams' 'resume' '019dad34-d218-7943-b81a-eddac5c87951' '-c' 'check_for_update_on_startup=false' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access'"
         )
     }
 
@@ -2364,7 +3348,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "{ cd -- '/Users/example/repo' 2>/dev/null || [ ! -d '/Users/example/repo' ]; } && 'env' 'CODEX_HOME=/tmp/codex home' '/usr/local/bin/cmux' 'codex-teams' 'resume' '019dad34-d218-7943-b81a-eddac5c87952' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access'"
+            "cd -- '/Users/example/repo' 2>/dev/null || [ ! -d '/Users/example/repo' ] && 'env' 'CODEX_HOME=/tmp/codex home' '/usr/local/bin/cmux' 'codex-teams' 'resume' '019dad34-d218-7943-b81a-eddac5c87952' '-c' 'check_for_update_on_startup=false' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access'"
         )
     }
 
@@ -2372,20 +3356,20 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         let claude = SessionRestorableAgentSnapshot(
             kind: .claude,
             sessionId: "24ec0052-450c-4914-b1dd-2ee80d4bc84b",
-            workingDirectory: "/Users/lawrence/fun",
+            workingDirectory: "/Users/dev/fun",
             launchCommand: AgentLaunchCommandSnapshot(
                 launcher: "claude",
-                executablePath: "/Users/lawrence/.local/bin/claude",
+                executablePath: "/Users/dev/.local/bin/claude",
                 arguments: [
-                    "/Users/lawrence/.local/bin/claude",
+                    "/Users/dev/.local/bin/claude",
                     "--dangerously-load-development-channels",
                     "server:custom-dev-channel",
                     "--dangerously-skip-permissions"
                 ],
-                workingDirectory: "/Users/lawrence/fun",
+                workingDirectory: "/Users/dev/fun",
                 environment: [
-                    "CLAUDE_CONFIG_DIR": "/Users/lawrence/.codex-accounts/claude/_p1775010019397",
-                    "PATH": "/Users/lawrence/.local/bin:/usr/bin",
+                    "CLAUDE_CONFIG_DIR": "/Users/dev/.codex-accounts/claude/_p1775010019397",
+                    "PATH": "/Users/dev/.local/bin:/usr/bin",
                     "SHELL": "/bin/zsh"
                 ],
                 capturedAt: 123,
@@ -2395,12 +3379,12 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         let claudeFork = SessionRestorableAgentSnapshot(
             kind: .claude,
             sessionId: "claude-fork-child",
-            workingDirectory: "/Users/lawrence/fun",
+            workingDirectory: "/Users/dev/fun",
             launchCommand: AgentLaunchCommandSnapshot(
                 launcher: "claude",
-                executablePath: "/Users/lawrence/.local/bin/claude",
+                executablePath: "/Users/dev/.local/bin/claude",
                 arguments: [
-                    "/Users/lawrence/.local/bin/claude",
+                    "/Users/dev/.local/bin/claude",
                     "--resume",
                     "24ec0052-450c-4914-b1dd-2ee80d4bc84b",
                     "--fork-session",
@@ -2408,9 +3392,9 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
                     "sonnet",
                     "--dangerously-skip-permissions"
                 ],
-                workingDirectory: "/Users/lawrence/fun",
+                workingDirectory: "/Users/dev/fun",
                 environment: [
-                    "CLAUDE_CONFIG_DIR": "/Users/lawrence/.codex-accounts/claude/_p1775010019397"
+                    "CLAUDE_CONFIG_DIR": "/Users/dev/.codex-accounts/claude/_p1775010019397"
                 ],
                 capturedAt: 123,
                 source: "environment"
@@ -2622,43 +3606,45 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             claude.forkCommand,
-            "{ cd -- '/Users/lawrence/fun' 2>/dev/null || [ ! -d '/Users/lawrence/fun' ]; } && 'env' 'CLAUDE_CONFIG_DIR=/Users/lawrence/.codex-accounts/claude/_p1775010019397' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR' '/Users/lawrence/.local/bin/claude' '--resume' '24ec0052-450c-4914-b1dd-2ee80d4bc84b' '--fork-session' '--dangerously-load-development-channels' 'server:custom-dev-channel' '--dangerously-skip-permissions'"
+            "cd -- '/Users/dev/fun' 2>/dev/null || [ ! -d '/Users/dev/fun' ] && /bin/sh -c "
+                + shellQuotedForTest("'env' 'CLAUDE_CONFIG_DIR=/Users/dev/.codex-accounts/claude/_p1775010019397' 'CMUX_CUSTOM_CLAUDE_PATH=/Users/dev/.local/bin/claude' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR' \"$([ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\" || printf claude)\" '--resume' '24ec0052-450c-4914-b1dd-2ee80d4bc84b' '--fork-session' '--dangerously-load-development-channels' 'server:custom-dev-channel' '--dangerously-skip-permissions'")
         )
         XCTAssertEqual(
             claudeFork.forkCommand,
-            "{ cd -- '/Users/lawrence/fun' 2>/dev/null || [ ! -d '/Users/lawrence/fun' ]; } && 'env' 'CLAUDE_CONFIG_DIR=/Users/lawrence/.codex-accounts/claude/_p1775010019397' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR' '/Users/lawrence/.local/bin/claude' '--resume' 'claude-fork-child' '--fork-session' '--model' 'sonnet' '--dangerously-skip-permissions'"
+            "cd -- '/Users/dev/fun' 2>/dev/null || [ ! -d '/Users/dev/fun' ] && /bin/sh -c "
+                + shellQuotedForTest("'env' 'CLAUDE_CONFIG_DIR=/Users/dev/.codex-accounts/claude/_p1775010019397' 'CMUX_CUSTOM_CLAUDE_PATH=/Users/dev/.local/bin/claude' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR' \"$([ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\" || printf claude)\" '--resume' 'claude-fork-child' '--fork-session' '--model' 'sonnet' '--dangerously-skip-permissions'")
         )
         XCTAssertEqual(
             codex.forkCommand,
-            "{ cd -- '/Users/example/repo' 2>/dev/null || [ ! -d '/Users/example/repo' ]; } && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access' '--ask-for-approval' 'never' '--search'"
+            "cd -- '/Users/example/repo' 2>/dev/null || [ ! -d '/Users/example/repo' ] && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access' '--ask-for-approval' 'never' '--search'"
         )
         XCTAssertEqual(
             codexWithImage.forkCommand,
-            "{ cd -- '/Users/example/repo' 2>/dev/null || [ ! -d '/Users/example/repo' ]; } && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'fork' '019image-session' '--model' 'gpt-5.4'"
+            "cd -- '/Users/example/repo' 2>/dev/null || [ ! -d '/Users/example/repo' ] && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'fork' '019image-session' '--model' 'gpt-5.4'"
         )
         XCTAssertEqual(
             codexFork.forkCommand,
-            "{ cd -- '/Users/example/repo' 2>/dev/null || [ ! -d '/Users/example/repo' ]; } && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'fork' '019e1eca-ee32-7001-ab30-edcae57430bb' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access' '--search'"
+            "cd -- '/Users/example/repo' 2>/dev/null || [ ! -d '/Users/example/repo' ] && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'fork' '019e1eca-ee32-7001-ab30-edcae57430bb' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access' 'stale fork prompt' '--search'"
         )
         XCTAssertEqual(
             codexTeams.forkCommand,
-            "{ cd -- '/Users/example/repo' 2>/dev/null || [ ! -d '/Users/example/repo' ]; } && 'env' 'CODEX_HOME=/tmp/codex home' '/usr/local/bin/cmux' 'codex-teams' 'fork' 'codex-teams-session' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access'"
+            "cd -- '/Users/example/repo' 2>/dev/null || [ ! -d '/Users/example/repo' ] && 'env' 'CODEX_HOME=/tmp/codex home' '/usr/local/bin/cmux' 'codex-teams' 'fork' 'codex-teams-session' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access'"
         )
         XCTAssertEqual(
             directOpenCode.forkCommand,
-            "{ cd -- '/tmp/direct opencode repo' 2>/dev/null || [ ! -d '/tmp/direct opencode repo' ]; } && 'env' 'OPENCODE_CONFIG_DIR=/tmp/opencode config' '/opt/homebrew/bin/opencode' '--session' 'direct-opencode-session-456' '--fork' '--model' 'anthropic/claude-sonnet-4-6' '--port' '4096' '/tmp/direct opencode repo'"
+            "cd -- '/tmp/direct opencode repo' 2>/dev/null || [ ! -d '/tmp/direct opencode repo' ] && 'env' 'OPENCODE_CONFIG_DIR=/tmp/opencode config' '/opt/homebrew/bin/opencode' '--session' 'direct-opencode-session-456' '--fork' '--model' 'anthropic/claude-sonnet-4-6' '--port' '4096' '/tmp/direct opencode repo'"
         )
         XCTAssertEqual(
             directOpenCodeFork.forkCommand,
-            "{ cd -- '/tmp/direct opencode repo' 2>/dev/null || [ ! -d '/tmp/direct opencode repo' ]; } && 'env' 'OPENCODE_CONFIG_DIR=/tmp/opencode config' '/opt/homebrew/bin/opencode' '--session' 'direct-opencode-child-session' '--fork' '--model' 'anthropic/claude-sonnet-4-6' '--port' '4096' '/tmp/direct opencode repo'"
+            "cd -- '/tmp/direct opencode repo' 2>/dev/null || [ ! -d '/tmp/direct opencode repo' ] && 'env' 'OPENCODE_CONFIG_DIR=/tmp/opencode config' '/opt/homebrew/bin/opencode' '--session' 'direct-opencode-child-session' '--fork' '--model' 'anthropic/claude-sonnet-4-6' '--port' '4096' '/tmp/direct opencode repo'"
         )
         XCTAssertEqual(
             omoOpenCode.forkCommand,
-            "{ cd -- '/tmp/opencode repo' 2>/dev/null || [ ! -d '/tmp/opencode repo' ]; } && 'env' 'OPENCODE_CONFIG_DIR=/tmp/opencode config' '/usr/local/bin/cmux' 'omo' '--session' 'opencode-session-123' '--fork' '--model' 'anthropic/claude-sonnet-4-6' '/tmp/opencode repo'"
+            "cd -- '/tmp/opencode repo' 2>/dev/null || [ ! -d '/tmp/opencode repo' ] && 'env' 'OPENCODE_CONFIG_DIR=/tmp/opencode config' '/usr/local/bin/cmux' 'omo' '--session' 'opencode-session-123' '--fork' '--model' 'anthropic/claude-sonnet-4-6' '/tmp/opencode repo'"
         )
         XCTAssertEqual(
             omoOpenCodeFork.forkCommand,
-            "{ cd -- '/tmp/opencode repo' 2>/dev/null || [ ! -d '/tmp/opencode repo' ]; } && 'env' 'OPENCODE_CONFIG_DIR=/tmp/opencode config' '/usr/local/bin/cmux' 'omo' '--session' 'opencode-child-session' '--fork' '--model' 'anthropic/claude-sonnet-4-6' '/tmp/opencode repo'"
+            "cd -- '/tmp/opencode repo' 2>/dev/null || [ ! -d '/tmp/opencode repo' ] && 'env' 'OPENCODE_CONFIG_DIR=/tmp/opencode config' '/usr/local/bin/cmux' 'omo' '--session' 'opencode-child-session' '--fork' '--model' 'anthropic/claude-sonnet-4-6' '/tmp/opencode repo'"
         )
         XCTAssertNil(unsupported.forkCommand)
     }
@@ -2704,22 +3690,23 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
     }
 
     func testOpenCodeForkSupportSkipsLocalProbeForRemoteLikeContext() async {
+        let workingDirectory = "/remote/cmux/project-\(UUID().uuidString)"
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .opencode,
             sessionId: "opencode-session-remote",
-            workingDirectory: "/remote/cmux/project-\(UUID().uuidString)",
+            workingDirectory: workingDirectory,
             launchCommand: AgentLaunchCommandSnapshot(
                 launcher: "opencode",
                 executablePath: "/remote/bin/opencode",
                 arguments: ["/remote/bin/opencode"],
-                workingDirectory: "/remote/cmux/project-\(UUID().uuidString)",
+                workingDirectory: workingDirectory,
                 environment: ["PATH": "/remote/bin:/usr/bin"],
                 capturedAt: 123,
                 source: "process"
             )
         )
 
-        let supportsFork = await AgentForkSupport.supportsFork(snapshot: snapshot)
+        let supportsFork = await AgentForkSupport.supportsFork(snapshot: snapshot, isRemoteContext: true)
         XCTAssertTrue(supportsFork)
     }
 
@@ -2835,12 +3822,22 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             )
         )
 
+        let resolver = AgentForkExecutableIdentityResolver()
+        let cache = ForkCapabilityProbeResultCache()
         try "opencode 1.14.48\n".write(to: versionFile, atomically: true, encoding: .utf8)
-        let unsupportedVersionSupportsFork = await AgentForkSupport.supportsFork(snapshot: snapshot)
+        let unsupportedVersionSupportsFork = await AgentForkSupport.supportsFork(
+            snapshot: snapshot,
+            executableIdentityResolver: resolver,
+            forkCapabilityProbeCache: cache
+        )
         XCTAssertFalse(unsupportedVersionSupportsFork)
 
         try "opencode 1.14.50\n".write(to: versionFile, atomically: true, encoding: .utf8)
-        let supportedVersionSupportsFork = await AgentForkSupport.supportsFork(snapshot: snapshot)
+        let supportedVersionSupportsFork = await AgentForkSupport.supportsFork(
+            snapshot: snapshot,
+            executableIdentityResolver: resolver,
+            forkCapabilityProbeCache: cache
+        )
         XCTAssertFalse(supportedVersionSupportsFork)
     }
 
@@ -2920,14 +3917,14 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             RestorableAgentSessionIndex.processLooksLikeOpenCode(
                 processName: "node",
                 processPath: "/opt/homebrew/bin/node",
-                arguments: ["node", "/Users/lawrence/.bun/bin/opencode"]
+                arguments: ["node", "/Users/dev/.bun/bin/opencode"]
             )
         )
         XCTAssertTrue(
             RestorableAgentSessionIndex.processLooksLikeOpenCode(
                 processName: ".opencode",
-                processPath: "/Users/lawrence/.bun/install/global/node_modules/opencode-ai/bin/.opencode",
-                arguments: ["/Users/lawrence/.bun/install/global/node_modules/opencode-ai/bin/.opencode"]
+                processPath: "/Users/dev/.bun/install/global/node_modules/opencode-ai/bin/.opencode",
+                arguments: ["/Users/dev/.bun/install/global/node_modules/opencode-ai/bin/.opencode"]
             )
         )
         XCTAssertTrue(
@@ -2957,7 +3954,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
                 processPath: "/opt/homebrew/bin/node",
                 arguments: [
                     "node",
-                    "/Users/lawrence/.bun/install/global/node_modules/opencode-ai/src/cli/cmd/tui/worker.js"
+                    "/Users/dev/.bun/install/global/node_modules/opencode-ai/src/cli/cmd/tui/worker.js"
                 ]
             )
         )
@@ -2965,7 +3962,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             RestorableAgentSessionIndex.processLooksLikeOpenCode(
                 processName: "node",
                 processPath: "/opt/homebrew/bin/node",
-                arguments: ["node", "/Users/lawrence/.bun/bin/codex"]
+                arguments: ["node", "/Users/dev/.bun/bin/codex"]
             )
         )
         XCTAssertFalse(
@@ -2979,22 +3976,22 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             RestorableAgentSessionIndex.processLooksLikeOpenCode(
                 processName: "node",
                 processPath: "/opt/homebrew/bin/node",
-                arguments: ["node", "/tmp/script.js", "/Users/lawrence/.bun/bin/opencode"]
+                arguments: ["node", "/tmp/script.js", "/Users/dev/.bun/bin/opencode"]
             )
         )
         XCTAssertTrue(
             RestorableAgentSessionIndex.processLooksLikeOpenCode(
                 processName: "node",
                 processPath: "/opt/homebrew/bin/node",
-                arguments: ["node", "--require", "/tmp/hook.js", "/Users/lawrence/.bun/bin/opencode"]
+                arguments: ["node", "--require", "/tmp/hook.js", "/Users/dev/.bun/bin/opencode"]
             )
         )
         XCTAssertEqual(
             RestorableAgentSessionIndex.openCodeExecutablePathForProcess(
-                arguments: ["node", "/Users/lawrence/.bun/bin/opencode"],
+                arguments: ["node", "/Users/dev/.bun/bin/opencode"],
                 environment: [:]
             ),
-            "/Users/lawrence/.bun/bin/opencode"
+            "/Users/dev/.bun/bin/opencode"
         )
         XCTAssertNil(
             RestorableAgentSessionIndex.openCodeLaunchArgumentsForProcess(
@@ -3126,7 +4123,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             snapshot.forkCommand,
-            "{ cd -- '/tmp/opencode repo' 2>/dev/null || [ ! -d '/tmp/opencode repo' ]; } && '\(executable.path)' '--session' 'opencode-session-123' '--fork' '--model' 'anthropic/claude-sonnet-4-6' '--agent' 'build' '--port' '4096' '/tmp/opencode repo'"
+            "cd -- '/tmp/opencode repo' 2>/dev/null || [ ! -d '/tmp/opencode repo' ] && '\(executable.path)' '--session' 'opencode-session-123' '--fork' '--model' 'anthropic/claude-sonnet-4-6' '--agent' 'build' '--port' '4096' '/tmp/opencode repo'"
         )
     }
 
@@ -3257,7 +4254,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "{ cd -- '/tmp/team repo' 2>/dev/null || [ ! -d '/tmp/team repo' ]; } && 'env' 'CMUX_CUSTOM_CLAUDE_PATH=/opt/Claude Code/bin/claude' '/Applications/cmux.app/Contents/Resources/bin/cmux' 'claude-teams' '--resume' 'claude-team-session' '--teammate-mode' 'auto' '--model' 'sonnet' '--remote-control-session-name-prefix' 'cmux-team' '--permission-mode' 'auto'"
+            "cd -- '/tmp/team repo' 2>/dev/null || [ ! -d '/tmp/team repo' ] && 'env' 'CMUX_CUSTOM_CLAUDE_PATH=/opt/Claude Code/bin/claude' '/Applications/cmux.app/Contents/Resources/bin/cmux' 'claude-teams' '--resume' 'claude-team-session' '--teammate-mode' 'auto' '--model' 'sonnet' '--remote-control-session-name-prefix' 'cmux-team' '--permission-mode' 'auto'"
         )
     }
 
@@ -3289,7 +4286,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "'env' 'NODE_OPTIONS=--max-old-space-size=4096' 'claude' '--resume' 'claude-session-debug' '--debug' 'api,mcp' '--model' 'sonnet'"
+            "/bin/sh -c " + shellQuotedForTest("'env' 'NODE_OPTIONS=--max-old-space-size=4096' \"$([ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\" || printf claude)\" '--resume' 'claude-session-debug' '--debug' 'api,mcp' '--model' 'sonnet'")
         )
     }
 
@@ -3317,7 +4314,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "'env' 'ANTHROPIC_BASE_URL=https://api.example.test' 'ANTHROPIC_MODEL=' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=ANTHROPIC_BASE_URL,ANTHROPIC_MODEL' 'claude' '--resume' 'claude-session-env'"
+            "/bin/sh -c " + shellQuotedForTest("'env' 'ANTHROPIC_BASE_URL=https://api.example.test' 'ANTHROPIC_MODEL=' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=ANTHROPIC_BASE_URL,ANTHROPIC_MODEL' \"$([ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\" || printf claude)\" '--resume' 'claude-session-env'")
         )
         XCTAssertFalse(snapshot.resumeCommand?.contains("ANTHROPIC_AUTH_TOKEN") ?? true)
     }
@@ -3342,7 +4339,31 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "'env' 'NODE_OPTIONS=--trace-warnings' 'claude' '--resume' 'claude-session-node-options' '--model' 'sonnet'"
+            "/bin/sh -c " + shellQuotedForTest("'env' 'NODE_OPTIONS=--trace-warnings' \"$([ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\" || printf claude)\" '--resume' 'claude-session-node-options' '--model' 'sonnet'")
+        )
+    }
+
+    func testClaudeResumeCommandStripsQuotedCmuxNodeOptionsRestoreModuleInHomeWithSpace() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "claude-session-node-options-space",
+            workingDirectory: nil,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "claude",
+                arguments: ["claude"],
+                workingDirectory: nil,
+                environment: [
+                    "NODE_OPTIONS": "--require=\"/Users/a b/.cmuxterm/cmux-claude-node-options/restore-node-options.cjs\" --max-old-space-size=4096 --trace-warnings --require=\"/Users/a b/tools/hook.cjs\""
+                ],
+                capturedAt: nil,
+                source: nil
+            )
+        )
+
+        XCTAssertEqual(
+            snapshot.resumeCommand,
+            "/bin/sh -c " + shellQuotedForTest("'env' 'NODE_OPTIONS=--trace-warnings --require=\"/Users/a b/tools/hook.cjs\"' \"$([ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\" || printf claude)\" '--resume' 'claude-session-node-options-space'")
         )
     }
 
@@ -3366,7 +4387,55 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "'claude' '--resume' 'claude-session-empty-node-options' '--model' 'sonnet'"
+            "/bin/sh -c " + shellQuotedForTest("\"$([ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\" || printf claude)\" '--resume' 'claude-session-empty-node-options' '--model' 'sonnet'")
+        )
+    }
+
+    func testClaudeResumeCommandStripsQuotedCmuxNodeOptionsRestoreModuleAndKeepsModelArguments() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "claude-session-quoted-node-options",
+            workingDirectory: nil,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "claude",
+                arguments: ["claude", "--model", "sonnet"],
+                workingDirectory: nil,
+                environment: [
+                    "NODE_OPTIONS": "--require=\"/Users/a b/.cmuxterm/cmux-claude-node-options/restore-node-options.cjs\" --max-old-space-size=4096 --trace-warnings"
+                ],
+                capturedAt: nil,
+                source: nil
+            )
+        )
+
+        XCTAssertEqual(
+            snapshot.resumeCommand,
+            "/bin/sh -c " + shellQuotedForTest("'env' 'NODE_OPTIONS=--trace-warnings' \"$([ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\" || printf claude)\" '--resume' 'claude-session-quoted-node-options' '--model' 'sonnet'")
+        )
+    }
+
+    func testClaudeResumeCommandStripsSpaceSeparatedQuotedCmuxNodeOptionsRestoreModuleInHomeWithSpace() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "claude-session-quoted-separate-node-options",
+            workingDirectory: nil,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "claude",
+                arguments: ["claude", "--model", "sonnet"],
+                workingDirectory: nil,
+                environment: [
+                    "NODE_OPTIONS": "--require \"/Users/a b/.cmuxterm/cmux-claude-node-options/restore-node-options.cjs\" --max-old-space-size 4096 --require=\"/Users/a b/lib/user \\\"preload\\\".cjs\""
+                ],
+                capturedAt: nil,
+                source: nil
+            )
+        )
+
+        XCTAssertEqual(
+            snapshot.resumeCommand,
+            "/bin/sh -c " + shellQuotedForTest("'env' 'NODE_OPTIONS=--require=\"/Users/a b/lib/user \\\"preload\\\".cjs\"' \"$([ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\" || printf claude)\" '--resume' 'claude-session-quoted-separate-node-options' '--model' 'sonnet'")
         )
     }
 
@@ -3421,17 +4490,17 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         let staleBunWorker = SessionRestorableAgentSnapshot(
             kind: .opencode,
             sessionId: "ses_24b0be92affeVRRBplLmUzbXQl",
-            workingDirectory: "/Users/lawrence/fun",
+            workingDirectory: "/Users/dev/fun",
             launchCommand: AgentLaunchCommandSnapshot(
                 launcher: "opencode",
-                executablePath: "/Users/lawrence/.bun/bin/opencode",
+                executablePath: "/Users/dev/.bun/bin/opencode",
                 arguments: [
-                    "/Users/lawrence/.bun/bin/opencode",
+                    "/Users/dev/.bun/bin/opencode",
                     "/$bunfs/root/src/cli/cmd/tui/worker.js"
                 ],
-                workingDirectory: "/Users/lawrence/fun",
+                workingDirectory: "/Users/dev/fun",
                 environment: [
-                    "PATH": "/Users/lawrence/.bun/bin:/usr/bin",
+                    "PATH": "/Users/dev/.bun/bin:/usr/bin",
                     "SHELL": "/bin/zsh"
                 ],
                 capturedAt: 123,
@@ -3469,15 +4538,15 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             direct.resumeCommand,
-            "{ cd -- '/tmp/direct opencode repo' 2>/dev/null || [ ! -d '/tmp/direct opencode repo' ]; } && 'env' 'OPENCODE_CONFIG_DIR=/tmp/opencode config' '/opt/homebrew/bin/opencode' '--session' 'direct-opencode-session-456' '--model' 'anthropic/claude-sonnet-4-6' '--port' '4096' '/tmp/direct opencode repo'"
+            "cd -- '/tmp/direct opencode repo' 2>/dev/null || [ ! -d '/tmp/direct opencode repo' ] && 'env' 'OPENCODE_CONFIG_DIR=/tmp/opencode config' '/opt/homebrew/bin/opencode' '--session' 'direct-opencode-session-456' '--model' 'anthropic/claude-sonnet-4-6' '--port' '4096' '/tmp/direct opencode repo'"
         )
         XCTAssertEqual(
             omo.resumeCommand,
-            "{ cd -- '/tmp/opencode repo' 2>/dev/null || [ ! -d '/tmp/opencode repo' ]; } && 'env' 'OPENCODE_CONFIG_DIR=/tmp/opencode config' '/usr/local/bin/cmux' 'omo' '--session' 'opencode-session-123' '--model' 'anthropic/claude-sonnet-4-6' '/tmp/opencode repo'"
+            "cd -- '/tmp/opencode repo' 2>/dev/null || [ ! -d '/tmp/opencode repo' ] && 'env' 'OPENCODE_CONFIG_DIR=/tmp/opencode config' '/usr/local/bin/cmux' 'omo' '--session' 'opencode-session-123' '--model' 'anthropic/claude-sonnet-4-6' '/tmp/opencode repo'"
         )
         XCTAssertEqual(
             staleBunWorker.resumeCommand,
-            "{ cd -- '/Users/lawrence/fun' 2>/dev/null || [ ! -d '/Users/lawrence/fun' ]; } && '/Users/lawrence/.bun/bin/opencode' '--session' 'ses_24b0be92affeVRRBplLmUzbXQl'"
+            "cd -- '/Users/dev/fun' 2>/dev/null || [ ! -d '/Users/dev/fun' ] && '/Users/dev/.bun/bin/opencode' '--session' 'ses_24b0be92affeVRRBplLmUzbXQl'"
         )
         XCTAssertNil(omx.resumeCommand)
         XCTAssertNil(omc.resumeCommand)
@@ -3532,7 +4601,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(snapshot.launchCommand?.arguments.first, "/usr/local/bin/codex")
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "{ cd -- '/tmp/repo' 2>/dev/null || [ ! -d '/tmp/repo' ]; } && 'env' 'CODEX_HOME=/tmp/codex' '/usr/local/bin/codex' 'resume' 'codex-session-123' '--model' 'gpt-5.4' '--search'"
+            "cd -- '/tmp/repo' 2>/dev/null || [ ! -d '/tmp/repo' ] && 'env' 'CODEX_HOME=/tmp/codex' '/usr/local/bin/codex' 'resume' 'codex-session-123' '-c' 'check_for_update_on_startup=false' '--model' 'gpt-5.4' '--search'"
         )
     }
 
@@ -3603,7 +4672,8 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
                 RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId): (
                     snapshot: detectedSnapshot,
                     updatedAt: 999,
-                    processIDs: [123]
+                    processIDs: Set([123]), agentProcessIDs: Set([123]),
+                    sessionIDSource: .explicit
                 ),
             ]
         )
@@ -3670,7 +4740,8 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
                 RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId): (
                     snapshot: detectedSnapshot,
                     updatedAt: 999,
-                    processIDs: [456]
+                    processIDs: Set([456]), agentProcessIDs: Set([456]),
+                    sessionIDSource: .explicit
                 ),
             ]
         )
@@ -3745,12 +4816,12 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 final class SidebarDragFailsafePolicyTests: XCTestCase {
     func testRequestsClearWhenMonitorStartsAfterMouseRelease() {
         XCTAssertTrue(
-            SidebarDragFailsafePolicy.shouldRequestClearWhenMonitoringStarts(
+            SidebarDragFailsafePolicy().shouldRequestClearWhenMonitoringStarts(
                 isLeftMouseButtonDown: false
             )
         )
         XCTAssertFalse(
-            SidebarDragFailsafePolicy.shouldRequestClearWhenMonitoringStarts(
+            SidebarDragFailsafePolicy().shouldRequestClearWhenMonitoringStarts(
                 isLeftMouseButtonDown: true
             )
         )
@@ -3758,12 +4829,12 @@ final class SidebarDragFailsafePolicyTests: XCTestCase {
 
     func testRequestsClearForLeftMouseUpEventsOnly() {
         XCTAssertTrue(
-            SidebarDragFailsafePolicy.shouldRequestClear(
+            SidebarDragFailsafePolicy().shouldRequestClear(
                 forMouseEventType: .leftMouseUp
             )
         )
         XCTAssertFalse(
-            SidebarDragFailsafePolicy.shouldRequestClear(
+            SidebarDragFailsafePolicy().shouldRequestClear(
                 forMouseEventType: .leftMouseDragged
             )
         )
@@ -3858,6 +4929,23 @@ extension SessionPersistenceTests {
         )
     }
 
+    func testAgentHookSurfaceResumeBindingDropsDuplicateKimiWorkingDirectoryOption() {
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "cd '/tmp/project' && kimi --resume session --work-dir '/tmp/project' --model kimi-k2",
+            cwd: "/tmp/project",
+            source: "agent-hook",
+            updatedAt: 1
+        )
+
+        XCTAssertEqual(
+            binding.command,
+            TerminalStartupWorkingDirectoryPrefix.prefix(
+                "kimi --resume session --model kimi-k2",
+                workingDirectory: "/tmp/project"
+            )
+        )
+    }
+
     func testAgentHookSurfaceResumeBindingPreservesShellOperatorsWhenDroppingDuplicateWorkingDirectoryOption() {
         let binding = SurfaceResumeBindingSnapshot(
             command: "cd '/tmp/project' && codex resume session --cd '/tmp/project' && echo done",
@@ -3894,6 +4982,45 @@ extension SessionPersistenceTests {
             )
         )
         XCTAssertFalse(binding.command.contains(legacyQuotedCwd), binding.command)
+    }
+
+    // Regression for https://github.com/manaflow-ai/cmux/issues/6285: the cwd guard runs
+    // verbatim in the user's login shell, which may be fish. fish has no POSIX `{ …; }`
+    // command grouping (it uses `begin; …; end`) and errors before the agent launches.
+    // The emitted guard must therefore avoid brace grouping entirely while keeping the
+    // same `(cd || test) && cmd` semantics via a left-associative AND-OR list.
+    func testWorkingDirectoryPrefixUsesNoPosixBraceGroupingForFishLoginShell() {
+        let prefixed = TerminalStartupWorkingDirectoryPrefix.prefix(
+            "claude --resume abc",
+            workingDirectory: "/tmp/fish repo"
+        )
+        XCTAssertFalse(prefixed.contains("{ "), prefixed)
+        XCTAssertFalse(prefixed.contains("; }"), prefixed)
+        XCTAssertEqual(
+            prefixed,
+            "cd -- '/tmp/fish repo' 2>/dev/null || [ ! -d '/tmp/fish repo' ] && claude --resume abc"
+        )
+    }
+
+    // A binding persisted by an older cmux with the legacy braced guard must be
+    // canonicalized to the fish-safe unbraced form on the next agent-hook write so the
+    // upgrade self-heals existing fish users.
+    func testAgentHookSurfaceResumeBindingCanonicalizesLegacyBracedGuardToFishSafeForm() {
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "{ cd -- '/tmp/fish repo' 2>/dev/null || [ ! -d '/tmp/fish repo' ]; } && codex resume session",
+            cwd: "/tmp/fish repo",
+            source: "agent-hook",
+            updatedAt: 1
+        )
+
+        XCTAssertFalse(binding.command.contains("{ "), binding.command)
+        XCTAssertEqual(
+            binding.command,
+            TerminalStartupWorkingDirectoryPrefix.prefix(
+                "codex resume session",
+                workingDirectory: "/tmp/fish repo"
+            )
+        )
     }
 
     func testAgentHookSurfaceResumeStartupInputRunsWhenSavedWorkingDirectoryWasDeleted() throws {
@@ -3947,11 +5074,11 @@ extension SessionPersistenceTests {
         XCTAssertEqual(process.terminationStatus, 0, errorText)
 
         let output = try String(contentsOf: outputURL, encoding: .utf8)
-        XCTAssertTrue(output.contains("resume session-duplicate-turn --yolo"), output)
+        XCTAssertTrue(output.contains("resume session-duplicate-turn -c check_for_update_on_startup=false --yolo"), output)
         XCTAssertFalse(output.hasPrefix("\(deletedCwd.path)|"), output)
     }
 
-    func testSurfaceResumeBindingStartupInputUsesLauncherScriptWhenLong() throws {
+    func testSurfaceResumeBindingStartupInputUsesSurfaceRestoreVerbWhenLong() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-surface-resume-test-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
@@ -3967,20 +5094,21 @@ extension SessionPersistenceTests {
         )
 
         let inlineInput = try XCTUnwrap(binding.inlineStartupInput)
-        XCTAssertGreaterThan(inlineInput.utf8.count, SurfaceResumeBindingSnapshot.maxInlineStartupInputBytes)
+        XCTAssertGreaterThan(inlineInput.utf8.count, 900)
 
-        let input = try XCTUnwrap(binding.startupInputWithLauncherScript(temporaryDirectory: tempDir))
-        XCTAssertLessThanOrEqual(input.utf8.count, SurfaceResumeBindingSnapshot.maxInlineStartupInputBytes)
-        XCTAssertTrue(input.hasPrefix("/bin/zsh '"))
+        let input = try XCTUnwrap(binding.restoreStartupInput())
+        XCTAssertEqual(
+            input,
+            " \(AgentRestoreLaunch.cliStartupExecutableToken) restore --surface\n"
+        )
         XCTAssertFalse(input.contains(longPath))
-
-        let trimmedInput = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        let prefix = "/bin/zsh '"
-        let scriptPath = String(trimmedInput.dropFirst(prefix.count).dropLast())
-        let scriptContents = try String(contentsOfFile: scriptPath, encoding: .utf8)
-        XCTAssertTrue(scriptContents.contains(longPath))
-        XCTAssertTrue(scriptContents.contains("'CODEX_HOME=/tmp/codex home'"))
-        XCTAssertTrue(scriptContents.contains("codex resume session"))
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(
+                at: tempDir,
+                includingPropertiesForKeys: nil
+            ),
+            []
+        )
     }
 
     @MainActor
@@ -4397,6 +5525,835 @@ extension SessionPersistenceTests {
         XCTAssertNil(binding.environment?["SERVICE_TOKEN"])
     }
 
+    func testSurfaceResumeCommandIsShellExpansionSafe() {
+        XCTAssertTrue(
+            SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(
+                "claude --resume abc123"
+            )
+        )
+        XCTAssertFalse(
+            SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(
+                "/tmp/tool-* --resume x"
+            )
+        )
+        XCTAssertFalse(
+            SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(
+                "claude --resume s?d"
+            )
+        )
+        XCTAssertFalse(
+            SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(
+                "claude --resume [abc]"
+            )
+        )
+        XCTAssertFalse(
+            SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(
+                "{sh,-c,/tmp/evil} --resume b"
+            )
+        )
+        XCTAssertFalse(
+            SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(
+                "claude --resume {a,b}"
+            )
+        )
+        XCTAssertFalse(
+            SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(
+                "~/bin/claude --resume x"
+            )
+        )
+        XCTAssertFalse(
+            SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(
+                "=claude --resume x"
+            )
+        )
+        XCTAssertTrue(
+            SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(
+                "claude --resume 'lit-*'"
+            )
+        )
+        XCTAssertTrue(
+            SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(
+                "claude \"--flag=*\""
+            )
+        )
+        XCTAssertTrue(
+            SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(
+                "claude --resume '{a,b}'"
+            )
+        )
+        XCTAssertTrue(
+            SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(
+                "claude \"--resume={x}\""
+            )
+        )
+        XCTAssertTrue(
+            SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(
+                "claude --flag=value"
+            )
+        )
+        XCTAssertTrue(
+            SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(
+                "FOO=1 claude --resume x"
+            )
+        )
+        XCTAssertFalse(
+            SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(
+                "claude --resume x ; evil"
+            )
+        )
+        XCTAssertFalse(
+            SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(
+                "claude --resume x; evil"
+            )
+        )
+        XCTAssertFalse(
+            SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(
+                "claude --resume x && evil"
+            )
+        )
+        XCTAssertFalse(
+            SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(
+                "claude --resume \"$(evil)\""
+            )
+        )
+        XCTAssertFalse(
+            SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(
+                "claude --resume `evil`"
+            )
+        )
+        XCTAssertFalse(
+            SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(
+                "claude --resume \"`evil`\""
+            )
+        )
+        XCTAssertFalse(
+            SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(
+                "claude --resume x\nevil"
+            )
+        )
+        XCTAssertFalse(
+            SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(
+                "claude --resume !!"
+            )
+        )
+        XCTAssertFalse(
+            SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(
+                "! claude --resume x"
+            )
+        )
+        XCTAssertFalse(
+            SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(
+                "claude --resume \"!!\""
+            )
+        )
+        XCTAssertTrue(
+            SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(
+                "claude --resume '!!'"
+            )
+        )
+        XCTAssertTrue(
+            SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(
+                "claude --resume \\!x"
+            )
+        )
+        XCTAssertTrue(
+            SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(
+                "claude --resume 'a;b'"
+            )
+        )
+        XCTAssertFalse(
+            SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(
+                "claude --resume 'unterminated"
+            )
+        )
+    }
+
+    func testSurfaceResumeGeneralizedApprovalPrefix() {
+        XCTAssertEqual(
+            SurfaceResumeCommandCanonicalizer.generalizedApprovalPrefix(
+                forCommand: "claude --resume 5f0c9e2a"
+            ),
+            ["claude", "--resume"]
+        )
+        XCTAssertEqual(
+            SurfaceResumeCommandCanonicalizer.generalizedApprovalPrefix(
+                forCommand: "codex resume 01977abc"
+            ),
+            ["codex", "resume"]
+        )
+        // Trailing arguments after the session id cannot be represented in a
+        // prefix scope; generalizing would silently drop them from the
+        // approval policy, so no generalized prefix is offered.
+        XCTAssertNil(
+            SurfaceResumeCommandCanonicalizer.generalizedApprovalPrefix(
+                forCommand: "codex resume 01977abc --yolo"
+            )
+        )
+        XCTAssertNil(
+            SurfaceResumeCommandCanonicalizer.generalizedApprovalPrefix(
+                forCommand: "cd /x && claude --resume abc"
+            )
+        )
+        XCTAssertEqual(
+            SurfaceResumeCommandCanonicalizer.generalizedApprovalPrefix(
+                forCommand: "FOO=1 claude --resume abc"
+            ),
+            ["FOO=1", "claude", "--resume"]
+        )
+        XCTAssertEqual(
+            SurfaceResumeCommandCanonicalizer.generalizedApprovalPrefix(
+                forCommand: "env FOO=1 claude --resume abc"
+            ),
+            ["env", "FOO=1", "claude", "--resume"]
+        )
+        XCTAssertNil(
+            SurfaceResumeCommandCanonicalizer.generalizedApprovalPrefix(
+                forCommand: "env -i FOO=1 claude --resume abc"
+            )
+        )
+        XCTAssertNil(
+            SurfaceResumeCommandCanonicalizer.generalizedApprovalPrefix(
+                forCommand: "FOO=1 env -u BAR claude --resume abc"
+            )
+        )
+        XCTAssertNil(
+            SurfaceResumeCommandCanonicalizer.generalizedApprovalPrefix(
+                forCommand: "env env claude --resume abc"
+            )
+        )
+        XCTAssertNil(
+            SurfaceResumeCommandCanonicalizer.generalizedApprovalPrefix(
+                forCommand: "claude"
+            )
+        )
+        XCTAssertEqual(
+            SurfaceResumeCommandCanonicalizer.generalizedApprovalPrefix(
+                forCommand: "'claude' '--resume' 'session id'"
+            ),
+            ["claude", "--resume"]
+        )
+        XCTAssertEqual(
+            SurfaceResumeCommandCanonicalizer.generalizedApprovalPrefix(
+                forCommand: "tool '--flag=$(payload)' session-a"
+            ),
+            ["tool", "--flag=$(payload)"]
+        )
+        XCTAssertNil(
+            SurfaceResumeCommandCanonicalizer.generalizedApprovalPrefix(
+                forCommand: "tool --flag=$(payload) session-b"
+            )
+        )
+        XCTAssertNil(
+            SurfaceResumeCommandCanonicalizer.generalizedApprovalPrefix(
+                forCommand: "claude --resume x && evil"
+            )
+        )
+    }
+
+    func testSurfaceResumeGeneralizedApprovalMatchesDifferentSessionInSameFolder() throws {
+        let storeURL = try makeSurfaceResumeApprovalStoreURL()
+        let secret = Data("approval-secret".utf8)
+        let firstBinding = SurfaceResumeBindingSnapshot(
+            command: "claude --resume first-session",
+            cwd: "/tmp/project",
+            source: nil,
+            environment: ["PATH": "/usr/bin:/bin"]
+        )
+        let prefix = try XCTUnwrap(
+            SurfaceResumeCommandCanonicalizer.generalizedApprovalPrefix(
+                forCommand: firstBinding.command
+            )
+        )
+        let record = try XCTUnwrap(SurfaceResumeApprovalStore.approve(
+            binding: firstBinding,
+            policy: .auto,
+            commandPrefix: prefix,
+            fileURL: storeURL,
+            signingSecret: secret
+        ))
+        let secondBinding = SurfaceResumeBindingSnapshot(
+            command: "claude --resume second-session",
+            cwd: "/tmp/project",
+            source: nil,
+            environment: ["PATH": "/usr/bin:/bin"]
+        )
+        let differentFolderBinding = SurfaceResumeBindingSnapshot(
+            command: "claude --resume second-session",
+            cwd: "/tmp/other-project",
+            source: nil,
+            environment: ["PATH": "/usr/bin:/bin"]
+        )
+        let compoundCommandBinding = SurfaceResumeBindingSnapshot(
+            command: "claude --resume second-session ; evil",
+            cwd: "/tmp/project",
+            source: nil,
+            environment: ["PATH": "/usr/bin:/bin"]
+        )
+        let chainedCommandBinding = SurfaceResumeBindingSnapshot(
+            command: "claude --resume second-session && evil",
+            cwd: "/tmp/project",
+            source: nil,
+            environment: ["PATH": "/usr/bin:/bin"]
+        )
+
+        XCTAssertEqual(record.commandPrefix, ["claude", "--resume"])
+        XCTAssertTrue(record.matches(secondBinding))
+        XCTAssertFalse(record.matches(differentFolderBinding))
+        XCTAssertFalse(record.matches(compoundCommandBinding))
+        XCTAssertFalse(record.matches(chainedCommandBinding))
+    }
+
+    func testSurfaceResumeApprovalRecordMatchesOnlyLocalBindings() {
+        let record = SurfaceResumeApprovalRecord(
+            id: "local-only",
+            commandPrefix: ["claude", "--resume"],
+            cwd: "/tmp/project",
+            environment: ["PATH": "/usr/bin:/bin"],
+            policy: .auto
+        )
+        let localBinding = SurfaceResumeBindingSnapshot(
+            command: "claude --resume session-a",
+            cwd: "/tmp/project",
+            environment: ["PATH": "/usr/bin:/bin"]
+        )
+        let remoteBinding = SurfaceResumeBindingSnapshot(
+            command: localBinding.command,
+            cwd: localBinding.cwd,
+            environment: localBinding.environment,
+            launchFlavor: .persistentSSH(SurfaceResumeRemoteContext(
+                workspaceID: UUID(),
+                surfaceID: UUID(),
+                persistentPTYSessionID: "remote-session"
+            ))
+        )
+
+        XCTAssertTrue(record.matches(localBinding))
+        XCTAssertFalse(record.matches(remoteBinding))
+    }
+
+    func testSurfaceResumeGeneralizedApprovalRejectsUnsafeExpansionInPrefix() {
+        let record = SurfaceResumeApprovalRecord(
+            id: "quoted-expansion-prefix",
+            commandPrefix: ["tool", "--flag=$(payload)"],
+            cwd: "/tmp/project",
+            policy: .prompt
+        )
+        let quotedOriginalBinding = SurfaceResumeBindingSnapshot(
+            command: "tool '--flag=$(payload)' session-a",
+            cwd: "/tmp/project"
+        )
+        let unquotedExpansionBinding = SurfaceResumeBindingSnapshot(
+            command: "tool --flag=$(payload) session-b",
+            cwd: "/tmp/project"
+        )
+
+        XCTAssertTrue(record.matches(quotedOriginalBinding))
+        XCTAssertFalse(record.matches(unquotedExpansionBinding))
+    }
+
+    func testSurfaceResumeGeneralizedApprovalRejectsUnquotedGlobFromQuotedPrefix() {
+        let record = SurfaceResumeApprovalRecord(
+            id: "quoted-glob-prefix",
+            commandPrefix: ["/tmp/tool-*", "--resume"],
+            cwd: "/tmp/project",
+            policy: .prompt
+        )
+        let quotedOriginalBinding = SurfaceResumeBindingSnapshot(
+            command: "'/tmp/tool-*' --resume a",
+            cwd: "/tmp/project"
+        )
+        let unquotedGlobBinding = SurfaceResumeBindingSnapshot(
+            command: "/tmp/tool-* --resume b",
+            cwd: "/tmp/project"
+        )
+
+        XCTAssertTrue(record.matches(quotedOriginalBinding))
+        XCTAssertFalse(record.matches(unquotedGlobBinding))
+    }
+
+    func testSurfaceResumeGeneralizedApprovalRejectsUnquotedBraceExpansionFromQuotedPrefix() {
+        let record = SurfaceResumeApprovalRecord(
+            id: "quoted-brace-prefix",
+            commandPrefix: ["{sh,-c,/tmp/evil}", "--resume"],
+            cwd: "/tmp/project",
+            policy: .prompt
+        )
+        let quotedOriginalBinding = SurfaceResumeBindingSnapshot(
+            command: "'{sh,-c,/tmp/evil}' --resume a",
+            cwd: "/tmp/project"
+        )
+        let unquotedBraceBinding = SurfaceResumeBindingSnapshot(
+            command: "{sh,-c,/tmp/evil} --resume b",
+            cwd: "/tmp/project"
+        )
+
+        XCTAssertTrue(record.matches(quotedOriginalBinding))
+        XCTAssertFalse(record.matches(unquotedBraceBinding))
+    }
+
+    func testSurfaceResumeGeneralizedApprovalMatchesOnlyShellExpansionSafeCommands() {
+        let record = SurfaceResumeApprovalRecord(
+            id: "safe-command-prefix",
+            commandPrefix: ["claude", "--resume"],
+            cwd: "/tmp/project",
+            policy: .prompt
+        )
+
+        XCTAssertTrue(record.matches(SurfaceResumeBindingSnapshot(
+            command: "claude --resume 'a;b'",
+            cwd: "/tmp/project"
+        )))
+        XCTAssertFalse(record.matches(SurfaceResumeBindingSnapshot(
+            command: "claude --resume x && evil",
+            cwd: "/tmp/project"
+        )))
+        XCTAssertFalse(record.matches(SurfaceResumeBindingSnapshot(
+            command: "claude --resume `evil`",
+            cwd: "/tmp/project"
+        )))
+        XCTAssertFalse(record.matches(SurfaceResumeBindingSnapshot(
+            command: "claude --resume $(evil)",
+            cwd: "/tmp/project"
+        )))
+        XCTAssertFalse(record.matches(SurfaceResumeBindingSnapshot(
+            command: "claude --resume x\nevil",
+            cwd: "/tmp/project"
+        )))
+    }
+
+    func testSurfaceResumeGeneralizedAutoApprovalDoesNotPromptForMatchingProposal() throws {
+        let storeURL = try makeSurfaceResumeApprovalStoreURL()
+        let secret = Data("approval-secret".utf8)
+        let firstBinding = SurfaceResumeBindingSnapshot(
+            command: "claude --resume first-session",
+            cwd: "/tmp/project",
+            source: nil,
+            environment: ["PATH": "/usr/bin:/bin"]
+        )
+        let prefix = try XCTUnwrap(
+            SurfaceResumeCommandCanonicalizer.generalizedApprovalPrefix(
+                forCommand: firstBinding.command
+            )
+        )
+        let record = try XCTUnwrap(SurfaceResumeApprovalStore.approve(
+            binding: firstBinding,
+            policy: .auto,
+            commandPrefix: prefix,
+            fileURL: storeURL,
+            signingSecret: secret
+        ))
+        let secondBinding = SurfaceResumeBindingSnapshot(
+            command: "claude --resume second-session",
+            cwd: "/tmp/project",
+            source: nil,
+            environment: ["PATH": "/usr/bin:/bin"]
+        )
+
+        XCTAssertTrue(record.matches(secondBinding))
+        XCTAssertFalse(SurfaceResumeApprovalStore.shouldPromptForProposal(
+            binding: secondBinding,
+            existingRecord: record,
+            isMainThread: true,
+            isRunningTests: false
+        ))
+    }
+
+    func testSurfaceResumeApprovalRejectsUnsafeCommandWithoutWritingRecord() throws {
+        let storeURL = try makeSurfaceResumeApprovalStoreURL()
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "tool --resume x && echo done",
+            cwd: "/tmp/project"
+        )
+
+        XCTAssertNil(SurfaceResumeApprovalStore.approve(
+            binding: binding,
+            policy: .auto,
+            fileURL: storeURL,
+            signingSecret: Data("approval-secret".utf8)
+        ))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: storeURL.path))
+        XCTAssertTrue(SurfaceResumeApprovalStore.loadRecords(fileURL: storeURL).isEmpty)
+    }
+
+    func testSurfaceResumeApprovalRejectsNonLocalBindingWithoutWritingRecord() throws {
+        let storeURL = try makeSurfaceResumeApprovalStoreURL()
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "claude --resume abc123",
+            cwd: "/tmp/project",
+            launchFlavor: .persistentSSH(SurfaceResumeRemoteContext(
+                workspaceID: UUID(),
+                surfaceID: UUID(),
+                persistentPTYSessionID: "remote-session"
+            ))
+        )
+
+        XCTAssertNil(SurfaceResumeApprovalStore.approve(
+            binding: binding,
+            policy: .auto,
+            fileURL: storeURL,
+            signingSecret: Data("approval-secret".utf8)
+        ))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: storeURL.path))
+        XCTAssertTrue(SurfaceResumeApprovalStore.loadRecords(fileURL: storeURL).isEmpty)
+    }
+
+    func testSurfaceResumeApprovalReturnsNilWhenStoreCannotBeWritten() throws {
+        let storeURL = try makeSurfaceResumeApprovalStoreURL()
+        let nonDirectoryURL = storeURL.deletingLastPathComponent()
+            .appendingPathComponent("not-a-directory", isDirectory: false)
+        try Data().write(to: nonDirectoryURL)
+        let unwritableStoreURL = nonDirectoryURL
+            .appendingPathComponent("resume-commands.json", isDirectory: false)
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "claude --resume abc123",
+            cwd: "/tmp/project"
+        )
+
+        XCTAssertNil(SurfaceResumeApprovalStore.approve(
+            binding: binding,
+            policy: .auto,
+            fileURL: unwritableStoreURL,
+            signingSecret: Data("approval-secret".utf8)
+        ))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: unwritableStoreURL.path))
+        XCTAssertTrue(SurfaceResumeApprovalStore.loadRecords(fileURL: unwritableStoreURL).isEmpty)
+    }
+
+    func testSurfaceResumeApprovalDoesNotPromptForUnsafeCompoundCommand() {
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "tool --resume x && echo done",
+            cwd: "/tmp/project"
+        )
+
+        XCTAssertFalse(SurfaceResumeApprovalStore.shouldPromptForProposal(
+            binding: binding,
+            existingRecord: nil,
+            isMainThread: true,
+            isRunningTests: false
+        ))
+    }
+
+    func testSurfaceResumeApprovalDoesNotPromptForNonLocalBinding() {
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "claude --resume abc123",
+            cwd: "/tmp/project",
+            launchFlavor: .persistentSSH(SurfaceResumeRemoteContext(
+                workspaceID: UUID(),
+                surfaceID: UUID(),
+                persistentPTYSessionID: "remote-session"
+            ))
+        )
+
+        XCTAssertFalse(SurfaceResumeApprovalStore.shouldPromptForProposal(
+            binding: binding,
+            existingRecord: nil,
+            isMainThread: true,
+            isRunningTests: false
+        ))
+    }
+
+    func testSurfaceResumeApprovalExactPolicyPreservesGeneralizedPromptRecord() throws {
+        let storeURL = try makeSurfaceResumeApprovalStoreURL()
+        let secret = Data("approval-secret".utf8)
+        let exactBinding = SurfaceResumeBindingSnapshot(
+            command: "claude --resume session-a",
+            cwd: "/tmp/project",
+            environment: ["PATH": "/usr/bin:/bin"]
+        )
+        let generalizedRecord = try XCTUnwrap(SurfaceResumeApprovalStore.approve(
+            binding: exactBinding,
+            policy: .prompt,
+            commandPrefix: ["claude", "--resume"],
+            fileURL: storeURL,
+            signingSecret: secret
+        ))
+
+        let exactRecord = try XCTUnwrap(SurfaceResumeApprovalStore.approve(
+            binding: exactBinding,
+            policy: .auto,
+            fileURL: storeURL,
+            signingSecret: secret
+        ))
+
+        XCTAssertNotEqual(exactRecord.id, generalizedRecord.id)
+        XCTAssertEqual(exactRecord.commandPrefix, ["claude", "--resume", "session-a"])
+        XCTAssertEqual(exactRecord.policy, .auto)
+
+        let records = SurfaceResumeApprovalStore.validRecords(
+            fileURL: storeURL,
+            signingSecret: secret
+        )
+        XCTAssertEqual(records.count, 2)
+        let preservedGeneralizedRecord = try XCTUnwrap(
+            records.first(where: { $0.id == generalizedRecord.id })
+        )
+        XCTAssertEqual(preservedGeneralizedRecord.commandPrefix, generalizedRecord.commandPrefix)
+        XCTAssertEqual(preservedGeneralizedRecord.policy, .prompt)
+
+        let effectiveExactBinding = SurfaceResumeApprovalStore.applyingStoredApproval(
+            to: exactBinding,
+            fileURL: storeURL,
+            signingSecret: secret
+        )
+        XCTAssertEqual(effectiveExactBinding.approvalRecordId, exactRecord.id)
+        XCTAssertEqual(effectiveExactBinding.approvalPolicy, .auto)
+
+        let siblingBinding = SurfaceResumeBindingSnapshot(
+            command: "claude --resume session-b",
+            cwd: "/tmp/project",
+            environment: ["PATH": "/usr/bin:/bin"]
+        )
+        let effectiveSiblingBinding = SurfaceResumeApprovalStore.applyingStoredApproval(
+            to: siblingBinding,
+            fileURL: storeURL,
+            signingSecret: secret
+        )
+        XCTAssertEqual(effectiveSiblingBinding.approvalRecordId, generalizedRecord.id)
+        XCTAssertEqual(effectiveSiblingBinding.approvalPolicy, .prompt)
+    }
+
+    func testSurfaceResumeApprovalReusesRecordIdForIdenticalPrefix() throws {
+        let storeURL = try makeSurfaceResumeApprovalStoreURL()
+        let secret = Data("approval-secret".utf8)
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "claude --resume session-a",
+            cwd: "/tmp/project"
+        )
+        let prefix = ["claude", "--resume"]
+        let originalRecord = try XCTUnwrap(SurfaceResumeApprovalStore.approve(
+            binding: binding,
+            policy: .prompt,
+            commandPrefix: prefix,
+            fileURL: storeURL,
+            signingSecret: secret
+        ))
+
+        let updatedRecord = try XCTUnwrap(SurfaceResumeApprovalStore.approve(
+            binding: binding,
+            policy: .manual,
+            commandPrefix: prefix,
+            fileURL: storeURL,
+            signingSecret: secret
+        ))
+
+        XCTAssertEqual(updatedRecord.id, originalRecord.id)
+        XCTAssertEqual(updatedRecord.commandPrefix, prefix)
+        XCTAssertEqual(updatedRecord.policy, .manual)
+        XCTAssertEqual(
+            SurfaceResumeApprovalStore.validRecords(
+                fileURL: storeURL,
+                signingSecret: secret
+            ).count,
+            1
+        )
+    }
+
+    func testSurfaceResumeApprovalRepeatedExactCLIApprovalReusesRecord() throws {
+        let storeURL = try makeSurfaceResumeApprovalStoreURL()
+        let secret = Data("approval-secret".utf8)
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "tmux attach -t work",
+            cwd: "/tmp/project",
+            source: "cli",
+            environment: ["PATH": "/usr/bin:/bin"]
+        )
+        let originalRecord = try XCTUnwrap(SurfaceResumeApprovalStore.approve(
+            binding: binding,
+            policy: .manual,
+            fileURL: storeURL,
+            signingSecret: secret
+        ))
+
+        let repeatedRecord = try XCTUnwrap(SurfaceResumeApprovalStore.approve(
+            binding: binding,
+            policy: .manual,
+            fileURL: storeURL,
+            signingSecret: secret
+        ))
+
+        XCTAssertEqual(repeatedRecord.id, originalRecord.id)
+        XCTAssertEqual(
+            SurfaceResumeApprovalStore.validRecords(
+                fileURL: storeURL,
+                signingSecret: secret
+            ).map(\.id),
+            [originalRecord.id]
+        )
+    }
+
+    func testSurfaceResumeApprovalGeneralizingExactPromptRemovesSubsumedRecord() throws {
+        let storeURL = try makeSurfaceResumeApprovalStoreURL()
+        let secret = Data("approval-secret".utf8)
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "claude --resume session-a",
+            cwd: "/tmp/project",
+            environment: ["PATH": "/usr/bin:/bin"]
+        )
+        let exactRecord = try XCTUnwrap(SurfaceResumeApprovalStore.approve(
+            binding: binding,
+            policy: .prompt,
+            fileURL: storeURL,
+            signingSecret: secret
+        ))
+        let generalizedPrefix = ["claude", "--resume"]
+
+        let generalizedRecord = try XCTUnwrap(SurfaceResumeApprovalStore.approve(
+            binding: binding,
+            policy: .auto,
+            commandPrefix: generalizedPrefix,
+            fileURL: storeURL,
+            signingSecret: secret
+        ))
+
+        var records = SurfaceResumeApprovalStore.validRecords(
+            fileURL: storeURL,
+            signingSecret: secret
+        )
+        XCTAssertEqual(records.map(\.id), [generalizedRecord.id])
+        XCTAssertFalse(records.contains(where: { $0.id == exactRecord.id }))
+        XCTAssertEqual(records.first?.commandPrefix, generalizedPrefix)
+
+        let effectiveBinding = SurfaceResumeApprovalStore.applyingStoredApproval(
+            to: binding,
+            fileURL: storeURL,
+            signingSecret: secret
+        )
+        XCTAssertEqual(effectiveBinding.approvalRecordId, generalizedRecord.id)
+        XCTAssertEqual(effectiveBinding.approvalPolicy, .auto)
+        XCTAssertTrue(effectiveBinding.allowsAutomaticResume)
+
+        let repeatedRecord = try XCTUnwrap(SurfaceResumeApprovalStore.approve(
+            binding: binding,
+            policy: .auto,
+            commandPrefix: generalizedPrefix,
+            fileURL: storeURL,
+            signingSecret: secret
+        ))
+        records = SurfaceResumeApprovalStore.validRecords(
+            fileURL: storeURL,
+            signingSecret: secret
+        )
+        XCTAssertEqual(repeatedRecord.id, generalizedRecord.id)
+        XCTAssertEqual(records.map(\.id), [generalizedRecord.id])
+    }
+
+    func testSurfaceResumeApprovalGeneralizedManualPolicyRemovesSiblingExactAutoRecordInSameScope() throws {
+        let storeURL = try makeSurfaceResumeApprovalStoreURL()
+        let secret = Data("approval-secret".utf8)
+        let siblingBinding = SurfaceResumeBindingSnapshot(
+            command: "claude --resume session-b",
+            cwd: "/tmp/project",
+            environment: ["PATH": "/usr/bin:/bin"]
+        )
+        let siblingExactRecord = try XCTUnwrap(SurfaceResumeApprovalStore.approve(
+            binding: siblingBinding,
+            policy: .auto,
+            fileURL: storeURL,
+            signingSecret: secret
+        ))
+        let differentCWDBinding = SurfaceResumeBindingSnapshot(
+            command: siblingBinding.command,
+            cwd: "/tmp/other-project",
+            environment: siblingBinding.environment
+        )
+        let differentCWDExactRecord = try XCTUnwrap(SurfaceResumeApprovalStore.approve(
+            binding: differentCWDBinding,
+            policy: .auto,
+            fileURL: storeURL,
+            signingSecret: secret
+        ))
+        let approvingBinding = SurfaceResumeBindingSnapshot(
+            command: "claude --resume session-a",
+            cwd: "/tmp/project",
+            environment: siblingBinding.environment
+        )
+
+        let generalizedRecord = try XCTUnwrap(SurfaceResumeApprovalStore.approve(
+            binding: approvingBinding,
+            policy: .manual,
+            commandPrefix: ["claude", "--resume"],
+            fileURL: storeURL,
+            signingSecret: secret
+        ))
+
+        let records = SurfaceResumeApprovalStore.validRecords(
+            fileURL: storeURL,
+            signingSecret: secret
+        )
+        XCTAssertFalse(records.contains(where: { $0.id == siblingExactRecord.id }))
+        XCTAssertTrue(records.contains(where: { $0.id == differentCWDExactRecord.id }))
+        XCTAssertTrue(records.contains(where: { $0.id == generalizedRecord.id }))
+
+        let effectiveSiblingBinding = SurfaceResumeApprovalStore.applyingStoredApproval(
+            to: siblingBinding,
+            fileURL: storeURL,
+            signingSecret: secret
+        )
+        XCTAssertEqual(effectiveSiblingBinding.approvalRecordId, generalizedRecord.id)
+        XCTAssertEqual(effectiveSiblingBinding.approvalPolicy, .manual)
+
+        let effectiveDifferentCWDBinding = SurfaceResumeApprovalStore.applyingStoredApproval(
+            to: differentCWDBinding,
+            fileURL: storeURL,
+            signingSecret: secret
+        )
+        XCTAssertEqual(effectiveDifferentCWDBinding.approvalRecordId, differentCWDExactRecord.id)
+        XCTAssertEqual(effectiveDifferentCWDBinding.approvalPolicy, .auto)
+    }
+
+    @MainActor
+    func testSurfaceResumeRunPromptBatchDecisionIsEffectiveOnlyWithinPass() {
+        let batch = SurfaceResumeRunPromptBatch.shared
+        batch.reset()
+        defer { batch.reset() }
+
+        XCTAssertNil(batch.stickyDecision)
+        XCTAssertNil(batch.effectiveDecision)
+
+        batch.beginRestorePass()
+        batch.recordDecision(.runAll)
+        guard case .runAll? = batch.effectiveDecision else {
+            XCTFail("Expected run-all decision during restore pass")
+            return
+        }
+        batch.endRestorePass()
+
+        XCTAssertNil(batch.stickyDecision)
+        XCTAssertNil(batch.effectiveDecision)
+    }
+
+    @MainActor
+    func testSurfaceResumeRunPromptBatchNestedPassKeepsDecisionUntilOuterEnd() {
+        let batch = SurfaceResumeRunPromptBatch.shared
+        batch.reset()
+        defer { batch.reset() }
+
+        batch.beginRestorePass()
+        batch.beginRestorePass()
+        batch.recordDecision(.skipAll)
+        batch.endRestorePass()
+        guard case .skipAll? = batch.effectiveDecision else {
+            XCTFail("Expected nested restore pass to keep skip-all decision")
+            return
+        }
+        batch.endRestorePass()
+
+        XCTAssertNil(batch.stickyDecision)
+        XCTAssertNil(batch.effectiveDecision)
+    }
+
+    @MainActor
+    func testSurfaceResumeRunPromptBatchIgnoresDecisionOutsidePass() {
+        let batch = SurfaceResumeRunPromptBatch.shared
+        batch.reset()
+        defer { batch.reset() }
+
+        batch.recordDecision(.runAll)
+
+        XCTAssertNil(batch.stickyDecision)
+        XCTAssertNil(batch.effectiveDecision)
+    }
+
     func testSurfaceResumeApprovalAutoPolicyAppliesSignedPrefix() throws {
         let storeURL = try makeSurfaceResumeApprovalStoreURL()
         let secret = Data("approval-secret".utf8)
@@ -4748,7 +6705,7 @@ extension SessionPersistenceTests {
         ))
         XCTAssertEqual(try Data(contentsOf: settingsURL), invalidSettingsData)
 
-        XCTAssertNotNil(SurfaceResumeApprovalStore.approve(
+        XCTAssertNil(SurfaceResumeApprovalStore.approve(
             binding: binding,
             policy: .auto,
             commandPrefix: ["tmux", "attach"],
@@ -4865,6 +6822,198 @@ extension SessionPersistenceTests {
         XCTAssertTrue(effectiveBinding.allowsAutomaticResume)
     }
 
+    func testRemoteHermesAgentHookSurfaceResumeBootstrapsSubrouterAndRewritesStaleCodexProvider() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hermes-surface-resume-\(UUID().uuidString)", isDirectory: true)
+        let codexHome = root.appendingPathComponent("codex", isDirectory: true)
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        try """
+        model = "gpt-5.5"
+        openai_base_url = "http://subrouter-team:31415/v1"
+        chatgpt_base_url = "http://subrouter-team:31415/backend-api"
+        """.write(to: codexHome.appendingPathComponent("config.toml"), atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "hermes-agent",
+            command: "cd '/tmp/project' && 'hermes' '--provider' 'openai-codex' '--resume' 'hermes-session-123'",
+            cwd: "/tmp/project",
+            source: "agent-hook",
+            environment: [
+                "CODEX_HOME": codexHome.path,
+                "CUSTOM_BASE_URL": "http://subrouter-team:31415/v1",
+            ],
+            autoResume: true,
+            launchFlavor: remoteSurfaceResumeLaunchFlavor()
+        )
+
+        let input = try XCTUnwrap(Workspace.surfaceResumeStartupInput(
+            binding,
+            autoResumeAgentSessions: true,
+            promptForApproval: false
+        ))
+
+        let words = expandedStartupShellWords(input)
+
+        XCTAssertTrue(input.contains("config set model.provider"))
+        XCTAssertTrue(input.contains("config set model.base_url"))
+        XCTAssertTrue(input.contains("config set model.api_mode"))
+        XCTAssertTrue(input.contains("codex_responses"))
+        XCTAssertTrue(input.contains("gpt-5.5"))
+        XCTAssertTrue(zip(words, words.dropFirst()).contains { $0 == "--provider" && $1 == "custom" })
+        XCTAssertFalse(input.contains("openai-codex"))
+    }
+
+    func testRemoteHermesAgentHookSurfaceResumeBootstrapUsesCapturedExecutable() throws {
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "hermes-agent",
+            command: "cd '/tmp/hermes' && '/opt/homebrew/bin/hermes' '--provider' 'custom' '--resume' 'hermes-session-123'",
+            cwd: "/tmp/hermes",
+            source: "agent-hook",
+            environment: [
+                "CUSTOM_BASE_URL": "http://subrouter-team:31415/v1",
+            ],
+            autoResume: true,
+            launchFlavor: remoteSurfaceResumeLaunchFlavor()
+        )
+
+        let input = try XCTUnwrap(Workspace.surfaceResumeStartupInput(
+            binding,
+            autoResumeAgentSessions: true,
+            promptForApproval: false
+        ))
+
+        let words = expandedStartupShellWords(input)
+        for setting in ["model.provider", "model.base_url"] {
+            let settingIndex = try XCTUnwrap(words.firstIndex(of: setting))
+            XCTAssertEqual(
+                Array(words.prefix(settingIndex + 1).suffix(4)),
+                ["/opt/homebrew/bin/hermes", "config", "set", setting]
+            )
+        }
+    }
+
+    func testRemoteHermesAgentHookSurfaceResumeBootstrapStaysInsideCwdGuard() throws {
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "hermes-agent",
+            command: "cd -- '/tmp/hermes project' 2>/dev/null || [ ! -d '/tmp/hermes project' ] && './hermes' '--provider' 'custom' '--resume' 'hermes-session-123'",
+            cwd: "/tmp/hermes project",
+            source: "agent-hook",
+            environment: [
+                "CUSTOM_BASE_URL": "http://subrouter-team:31415/v1",
+            ],
+            autoResume: true,
+            launchFlavor: remoteSurfaceResumeLaunchFlavor()
+        )
+
+        let input = try XCTUnwrap(Workspace.surfaceResumeStartupInput(
+            binding,
+            autoResumeAgentSessions: true,
+            promptForApproval: false
+        ))
+
+        let words = expandedStartupShellWords(input)
+
+        let cdIndex = try XCTUnwrap(words.firstIndex(of: "cd"))
+        let bootstrapIndex = try XCTUnwrap(words.firstIndex(of: "model.provider"))
+        XCTAssertLessThan(cdIndex, bootstrapIndex)
+        XCTAssertEqual(Array(words.prefix(bootstrapIndex + 1).suffix(3)), ["config", "set", "model.provider"])
+        XCTAssertEqual(
+            Array(words.prefix(bootstrapIndex + 1).suffix(4)),
+            ["./hermes", "config", "set", "model.provider"]
+        )
+        XCTAssertTrue(zip(words, words.dropFirst()).contains { $0 == "--provider" && $1 == "custom" })
+    }
+
+    func testRemoteHermesAgentHookSurfaceResumeReplacesExistingBootstrap() throws {
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "hermes-agent",
+            command: "cd '/tmp/project' && '/opt/homebrew/bin/hermes' config set model.provider 'custom' >/dev/null && '/opt/homebrew/bin/hermes' config set model.base_url 'http://old-subrouter:9999/v1' >/dev/null && '/opt/homebrew/bin/hermes' config set model.api_mode 'codex_responses' >/dev/null && '/opt/homebrew/bin/hermes' '--provider' 'custom' '--resume' 'hermes-session-123'",
+            cwd: "/tmp/project",
+            source: "agent-hook",
+            environment: [
+                "CUSTOM_BASE_URL": "http://subrouter-team:31415/v1",
+            ],
+            autoResume: true,
+            launchFlavor: remoteSurfaceResumeLaunchFlavor()
+        )
+
+        let input = try XCTUnwrap(Workspace.surfaceResumeStartupInput(
+            binding,
+            autoResumeAgentSessions: true,
+            promptForApproval: false
+        ))
+
+        XCTAssertEqual(input.components(separatedBy: "config set model.provider").count - 1, 1)
+        XCTAssertTrue(input.contains("http://subrouter-team:31415/v1"))
+        XCTAssertFalse(input.contains("http://old-subrouter:9999/v1"))
+    }
+
+    func testRemoteHermesAgentHookSurfaceResumeHandlesMalformedTrailingEscape() throws {
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "hermes-agent",
+            command: "cd '/tmp/project' && '/opt/homebrew/bin/hermes' \\",
+            cwd: "/tmp/project",
+            source: "agent-hook",
+            environment: [
+                "CUSTOM_BASE_URL": "http://subrouter-team:31415/v1",
+            ],
+            autoResume: true,
+            launchFlavor: remoteSurfaceResumeLaunchFlavor()
+        )
+
+        let input = try XCTUnwrap(Workspace.surfaceResumeStartupInput(
+            binding,
+            autoResumeAgentSessions: true,
+            promptForApproval: false
+        ))
+
+        XCTAssertTrue(input.contains("config set model.provider"))
+    }
+
+    func testRemoteHermesAgentHookSurfaceResumeSkipsCodexBootstrapForExplicitProvider() throws {
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "hermes-agent",
+            command: "cd '/tmp/project' && '/opt/homebrew/bin/hermes' '--provider' 'anthropic' '--resume' 'hermes-session-123'",
+            cwd: "/tmp/project",
+            source: "agent-hook",
+            environment: [
+                "CUSTOM_BASE_URL": "http://subrouter-team:31415/v1",
+            ],
+            autoResume: true,
+            launchFlavor: remoteSurfaceResumeLaunchFlavor()
+        )
+
+        let input = try XCTUnwrap(Workspace.surfaceResumeStartupInput(
+            binding,
+            autoResumeAgentSessions: true,
+            promptForApproval: false
+        ))
+
+        let words = expandedStartupShellWords(input)
+
+        XCTAssertFalse(input.contains("config set model.provider"))
+        XCTAssertTrue(zip(words, words.dropFirst()).contains { $0 == "--provider" && $1 == "anthropic" })
+    }
+
+    private func expandedStartupShellWords(_ command: String) -> [String] {
+        let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(command).map(\.value)
+        var expanded: [String] = []
+        var index = 0
+        while index < words.count {
+            if ["/bin/sh", "/bin/zsh"].contains(words[index]),
+               index + 2 < words.count,
+               ["-c", "-lc", "-fc"].contains(words[index + 1]) {
+                expanded.append(contentsOf: expandedStartupShellWords(words[index + 2]))
+                index += 3
+            } else {
+                expanded.append(words[index])
+                index += 1
+            }
+        }
+        return expanded
+    }
+
     private func makeSurfaceResumeApprovalStoreURL() throws -> URL {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-surface-resume-approvals-\(UUID().uuidString)", isDirectory: true)
@@ -4873,6 +7022,14 @@ extension SessionPersistenceTests {
             try? FileManager.default.removeItem(at: root)
         }
         return root.appendingPathComponent("resume-commands.json", isDirectory: false)
+    }
+
+    private func remoteSurfaceResumeLaunchFlavor() -> SurfaceResumeLaunchFlavor {
+        .persistentSSH(SurfaceResumeRemoteContext(
+            workspaceID: UUID(),
+            surfaceID: UUID(),
+            persistentPTYSessionID: "test-remote-session"
+        ))
     }
 
     private func makeSurfaceResumeApprovalCmuxSettingsURL() throws -> URL {
@@ -4930,13 +7087,16 @@ extension SessionPersistenceTests {
 
     @MainActor
     func testRestoreDoesNotPassDeletedAgentHookCwdToTerminalRuntime() throws {
-        let source = Workspace()
-        let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
-        let missingCwd = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-deleted-agent-hook-cwd-\(UUID().uuidString)", isDirectory: true)
-            .appendingPathComponent("repo", isDirectory: true)
-        let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
-            SurfaceResumeBindingIndex.PanelKey(workspaceId: source.id, panelId: sourcePanelId): SurfaceResumeBindingSnapshot(
+        try withAutoResumeAgentSessionsEnabled {
+            let source = Workspace()
+            let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+            let missingCwd = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-deleted-agent-hook-cwd-\(UUID().uuidString)", isDirectory: true)
+                .appendingPathComponent("repo", isDirectory: true)
+            var snapshot = source.sessionSnapshot(includeScrollback: false)
+            let panelIndex = try XCTUnwrap(snapshot.panels.firstIndex { $0.id == sourcePanelId })
+            var terminalSnapshot = try XCTUnwrap(snapshot.panels[panelIndex].terminal)
+            terminalSnapshot.resumeBinding = SurfaceResumeBindingSnapshot(
                 name: "Codex",
                 kind: "codex",
                 command: "cd '\(missingCwd.path)' && codex resume session-duplicate-turn --yolo",
@@ -4948,22 +7108,158 @@ extension SessionPersistenceTests {
                 ],
                 autoResume: true,
                 updatedAt: 10
-            ),
-        ])
-        let snapshot = source.sessionSnapshot(
-            includeScrollback: false,
-            surfaceResumeBindingIndex: bindingIndex
-        )
+            )
+            // This restore fixture represents a hook-bound agent that was
+            // running at quit; an unobserved binding alone cannot establish that.
+            terminalSnapshot.wasAgentRunning = true
+            snapshot.panels[panelIndex].terminal = terminalSnapshot
 
-        let restored = Workspace()
-        restored.restoreSessionSnapshot(snapshot)
-        let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
-        let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
-        let input = try XCTUnwrap(restoredPanel.surface.debugInitialInputForTesting())
+            let restored = Workspace(restorableAgentIndexProvider: { .empty })
+            restored.restoreSessionSnapshot(snapshot)
+            let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+            let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
+            let startupInput = try XCTUnwrap(restoredPanel.surface.debugInitialInputForTesting())
 
-        XCTAssertNil(restoredPanel.requestedWorkingDirectory)
-        XCTAssertTrue(input.contains("codex resume session-duplicate-turn --yolo"), input)
-        XCTAssertTrue(input.contains("{ cd -- '\(missingCwd.path)' 2>/dev/null || [ ! -d '\(missingCwd.path)' ]; } &&"), input)
+            XCTAssertNil(restoredPanel.requestedWorkingDirectory)
+            XCTAssertEqual(
+                startupInput,
+                " \(AgentRestoreLaunch.cliStartupExecutableToken) restore codex session-duplicate-turn\n"
+            )
+            XCTAssertFalse(startupInput.contains(missingCwd.path))
+        }
+    }
+
+    @MainActor
+    func testRestorePreservesUnmountedVolumeCwdBindingsWhenInitialReportsAreScrambled() throws {
+        try withAutoResumeAgentSessionsEnabled {
+            let manager = TabManager(autoWelcomeIfNeeded: false)
+            defer { manager.tabs.forEach { $0.teardownAllPanels() } }
+            let volumeName = "cmux-issue-5278-\(UUID().uuidString)"
+            let expectedCwdsByWorkspaceAndPanel = try makeUnmountedVolumeCwdSnapshot(
+                manager: manager,
+                volumeName: volumeName
+            )
+            let sourceSnapshot = manager.sessionSnapshot(includeScrollback: false)
+            for workspace in sourceSnapshot.workspaces {
+                for panel in workspace.panels {
+                    XCTAssertEqual(panel.terminal?.wasAgentRunning, true)
+                }
+            }
+            let snapshotData = try JSONEncoder().encode(sourceSnapshot)
+            let decodedSnapshot = try JSONDecoder().decode(SessionTabManagerSnapshot.self, from: snapshotData)
+            let restored = TabManager(autoWelcomeIfNeeded: false)
+            defer { restored.tabs.forEach { $0.teardownAllPanels() } }
+
+            restored.restoreSessionSnapshot(decodedSnapshot)
+            let allExpectedCwds = expectedCwdsByWorkspaceAndPanel
+                .values
+                .flatMap { $0.values }
+                .sorted()
+            let rotatedExpectedCwds = Array(allExpectedCwds.dropFirst()) + [allExpectedCwds[0]]
+            let scrambledCwds = Dictionary(uniqueKeysWithValues: zip(allExpectedCwds, rotatedExpectedCwds))
+            for workspace in restored.tabs {
+                let workspaceTitle = try XCTUnwrap(workspace.customTitle)
+                let expectedPanelCwds = try XCTUnwrap(expectedCwdsByWorkspaceAndPanel[workspaceTitle])
+                for (panelId, panelTitle) in workspace.panelCustomTitles {
+                    let expectedCwd = try XCTUnwrap(expectedPanelCwds[panelTitle])
+                    let scrambledCwd = try XCTUnwrap(scrambledCwds[expectedCwd])
+                    restored.updateSurfaceDirectory(
+                        tabId: workspace.id,
+                        surfaceId: panelId,
+                        directory: scrambledCwd
+                    )
+                }
+            }
+
+            let postReportSnapshot = restored.sessionSnapshot(includeScrollback: false)
+            for workspaceSnapshot in postReportSnapshot.workspaces {
+                let workspaceTitle = try XCTUnwrap(workspaceSnapshot.customTitle)
+                let expectedPanelCwds = try XCTUnwrap(expectedCwdsByWorkspaceAndPanel[workspaceTitle])
+                for panelSnapshot in workspaceSnapshot.panels {
+                    let panelTitle = try XCTUnwrap(panelSnapshot.customTitle)
+                    let expectedCwd = try XCTUnwrap(expectedPanelCwds[panelTitle])
+                    XCTAssertEqual(panelSnapshot.directory, expectedCwd, "\(workspaceTitle) / \(panelTitle)")
+                    XCTAssertEqual(panelSnapshot.terminal?.workingDirectory, expectedCwd, "\(workspaceTitle) / \(panelTitle)")
+                    XCTAssertEqual(panelSnapshot.terminal?.resumeBinding?.cwd, expectedCwd, "\(workspaceTitle) / \(panelTitle)")
+                }
+            }
+        }
+    }
+
+    @MainActor
+    private func withAutoResumeAgentSessionsEnabled<T>(_ body: () throws -> T) rethrows -> T {
+        let defaults = UserDefaults.standard
+        let key = AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey
+        let previous = defaults.object(forKey: key)
+        defaults.set(true, forKey: key)
+        defer {
+            if let previous {
+                defaults.set(previous, forKey: key)
+            } else {
+                defaults.removeObject(forKey: key)
+            }
+        }
+        return try body()
+    }
+
+    private func launcherScriptPath(from input: String) -> String? {
+        let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(input).map(\.value)
+        guard words.count == 2, words.first == "/bin/zsh" else { return nil }
+        return words.last
+    }
+
+    @MainActor
+    private func makeUnmountedVolumeCwdSnapshot(
+        manager: TabManager,
+        volumeName: String
+    ) throws -> [String: [String: String]] {
+        let workspaces = [
+            try XCTUnwrap(manager.selectedWorkspace),
+            manager.addWorkspace(inheritWorkingDirectory: false, select: true, autoWelcomeIfNeeded: false),
+            manager.addWorkspace(inheritWorkingDirectory: false, select: true, autoWelcomeIfNeeded: false),
+        ]
+        var expected: [String: [String: String]] = [:]
+
+        for (workspaceIndex, workspace) in workspaces.enumerated() {
+            let workspaceTitle = "Project \(workspaceIndex + 1)"
+            workspace.setCustomTitle(workspaceTitle)
+            let paneId = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+            let firstPanelId = try XCTUnwrap(workspace.focusedPanelId)
+            let secondPanelId = try XCTUnwrap(workspace.newTerminalSurface(inPane: paneId, focus: true)?.id)
+            for (panelIndex, panelId) in [firstPanelId, secondPanelId].enumerated() {
+                let panelTitle = "Tab \(workspaceIndex + 1).\(panelIndex + 1)"
+                let cwd = "/Volumes/\(volumeName)/project-\(workspaceIndex + 1)/tab-\(panelIndex + 1)"
+                let sessionId = "session-\(workspaceIndex)-\(panelIndex)"
+                workspace.setPanelCustomTitle(panelId: panelId, title: panelTitle)
+                workspace.updatePanelDirectory(panelId: panelId, directory: cwd)
+                XCTAssertTrue(
+                    workspace.setSurfaceResumeBinding(
+                        SurfaceResumeBindingSnapshot(
+                            name: "Codex",
+                            kind: "codex",
+                            command: "cd '\(cwd)' && codex resume \(sessionId) --yolo",
+                            cwd: cwd,
+                            checkpointId: sessionId,
+                            source: "agent-hook",
+                            autoResume: true,
+                            updatedAt: 10 + Double(workspaceIndex * 10 + panelIndex)
+                        ),
+                        panelId: panelId
+                    )
+                )
+                // A running hook-bound agent must have exact-session process
+                // evidence before its guarded startup can be saved for restore.
+                workspace.recordAgentPID(
+                    key: "codex.\(sessionId)",
+                    pid: getpid(),
+                    panelId: panelId,
+                    refreshPorts: false
+                )
+                expected[workspaceTitle, default: [:]][panelTitle] = cwd
+            }
+        }
+
+        return expected
     }
 
     @MainActor
@@ -5060,7 +7356,7 @@ extension SessionPersistenceTests {
     }
 
     @MainActor
-    func testRestoreScopesSurfaceResumeBindingEnvironmentToInitialInput() throws {
+    func testRestoreKeepsSurfaceResumeBindingEnvironmentBehindShortVerb() throws {
         let source = Workspace()
         let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
         let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
@@ -5091,14 +7387,17 @@ extension SessionPersistenceTests {
 
         XCTAssertNil(restoredPanel.surface.debugAdditionalEnvironmentForTesting()["CODEX_HOME"])
         XCTAssertNil(restoredPanel.surface.debugAdditionalEnvironmentForTesting()["EMPTY"])
+        let input = try XCTUnwrap(restoredPanel.surface.debugInitialInputForTesting())
         XCTAssertEqual(
-            restoredPanel.surface.debugInitialInputForTesting(),
-            "'/usr/bin/env' 'CODEX_HOME=/tmp/codex home' 'EMPTY=' '/bin/zsh' '-lc' 'codex resume session'\n"
+            input,
+            " \(AgentRestoreLaunch.cliStartupExecutableToken) restore codex session\n"
         )
+        XCTAssertFalse(input.contains("CODEX_HOME"))
+        XCTAssertNil(launcherScriptPath(from: input))
     }
 
     @MainActor
-    func testRestoreUsesLauncherScriptForLongSurfaceResumeBinding() throws {
+    func testRestoreUsesSameShortVerbForLongSurfaceResumeBinding() throws {
         let source = Workspace()
         let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
         let longPath = "/tmp/" + String(repeating: "nested-project-", count: 120)
@@ -5129,17 +7428,12 @@ extension SessionPersistenceTests {
 
         XCTAssertNil(restoredPanel.surface.debugAdditionalEnvironmentForTesting()["CODEX_HOME"])
         let input = try XCTUnwrap(restoredPanel.surface.debugInitialInputForTesting())
-        XCTAssertTrue(input.hasPrefix("/bin/zsh '"))
+        XCTAssertEqual(
+            input,
+            " \(AgentRestoreLaunch.cliStartupExecutableToken) restore codex session\n"
+        )
         XCTAssertFalse(input.contains(longPath))
-
-        let trimmedInput = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        let prefix = "/bin/zsh '"
-        let scriptPath = String(trimmedInput.dropFirst(prefix.count).dropLast())
-        defer { try? FileManager.default.removeItem(atPath: scriptPath) }
-        let scriptContents = try String(contentsOfFile: scriptPath, encoding: .utf8)
-        XCTAssertTrue(scriptContents.contains(longPath))
-        XCTAssertTrue(scriptContents.contains("'CODEX_HOME=/tmp/codex home'"))
-        XCTAssertTrue(scriptContents.contains("codex resume session"))
+        XCTAssertNil(launcherScriptPath(from: input))
     }
 
     @MainActor
@@ -5292,6 +7586,164 @@ extension SessionPersistenceTests {
         XCTAssertEqual(binding.checkpointId, "work")
         XCTAssertEqual(binding.cwd, "/tmp/project")
         XCTAssertEqual(binding.command, "'/opt/homebrew/bin/tmux' '-L' 'dev' 'attach' '-t' 'work'")
+    }
+
+    func testPlainSSHProcessDetectedResumeBindingRerunsInteractiveCommand() throws {
+        let binding = try XCTUnwrap(
+            TerminalSSHSessionDetector.resumeBinding(
+                processName: "ssh",
+                processPath: "/usr/bin/ssh",
+                arguments: [
+                    "/usr/bin/ssh",
+                    "-p", "2222",
+                    "-i", "/Users/test/.ssh/id_ed25519",
+                    "tinybox",
+                ],
+                environment: ["PWD": "/Users/test/project"]
+            )
+        )
+
+        XCTAssertEqual(binding.kind, "ssh")
+        XCTAssertEqual(binding.source, "process-detected")
+        XCTAssertTrue(binding.allowsAutomaticResume)
+        XCTAssertEqual(binding.cwd, "/Users/test/project")
+        XCTAssertEqual(
+            binding.command,
+            "'/usr/bin/ssh' '-p' '2222' '-i' '/Users/test/.ssh/id_ed25519' 'tinybox'"
+        )
+        XCTAssertEqual(binding.startupInput, binding.command + "\n")
+    }
+
+    func testPlainSSHProcessDetectedResumeBindingUsesResolvedExecutablePath() throws {
+        let binding = try XCTUnwrap(
+            TerminalSSHSessionDetector.resumeBinding(
+                processName: "ssh",
+                processPath: "/opt/company/bin/ssh",
+                arguments: ["ssh", "tinybox"],
+                environment: [:]
+            )
+        )
+
+        XCTAssertEqual(binding.command, "'/opt/company/bin/ssh' 'tinybox'")
+        XCTAssertEqual(binding.launchCommand?.executablePath, "/opt/company/bin/ssh")
+        XCTAssertEqual(binding.launchCommand?.arguments, ["/opt/company/bin/ssh", "tinybox"])
+    }
+
+    func testPlainSSHProcessDetectedResumeBindingRejectsRemoteCommand() {
+        let binding = TerminalSSHSessionDetector.resumeBinding(
+            processName: "ssh",
+            processPath: "/usr/bin/ssh",
+            arguments: ["ssh", "tinybox", "uname", "-a"],
+            environment: [:]
+        )
+
+        XCTAssertNil(binding)
+    }
+
+    func testPlainSSHProcessDetectedResumeBindingDoesNotReplaceManagedPTYBinding() {
+        let binding = TerminalSSHSessionDetector.resumeBinding(
+            processName: "ssh",
+            processPath: "/usr/bin/ssh",
+            arguments: ["ssh", "tinybox"],
+            environment: ["CMUX_SSH_PTY_SESSION_ID": "ssh-managed"]
+        )
+
+        XCTAssertNil(binding)
+    }
+
+    func testPlainSSHProcessDetectedResumeBindingRejectsRemoteCommandOption() {
+        let binding = TerminalSSHSessionDetector.resumeBinding(
+            processName: "ssh",
+            processPath: "/usr/bin/ssh",
+            arguments: ["ssh", "-o", "RemoteCommand=uname -a", "tinybox"],
+            environment: [:]
+        )
+
+        XCTAssertNil(binding)
+    }
+
+    func testPlainSSHProcessDetectedResumeBindingRejectsNonInteractiveSSHFlags() {
+        let invocations = [
+            ["ssh", "-n", "tinybox"],
+            ["ssh", "-T", "tinybox"],
+            ["ssh", "-G", "tinybox"],
+            ["ssh", "-V"],
+            ["ssh", "-o", "RequestTTY=no", "tinybox"],
+            ["ssh", "-o", "StdinNull=yes", "tinybox"],
+        ]
+
+        for arguments in invocations {
+            XCTAssertNil(
+                TerminalSSHSessionDetector.resumeBinding(
+                    processName: "ssh",
+                    processPath: "/usr/bin/ssh",
+                    arguments: arguments,
+                    environment: [:]
+                ),
+                "Expected non-interactive invocation to be rejected: \(arguments)"
+            )
+        }
+    }
+
+    func testPlainSSHProcessDetectedResumeBindingAllowsRemoteCommandNone() throws {
+        let binding = try XCTUnwrap(
+            TerminalSSHSessionDetector.resumeBinding(
+                processName: "ssh",
+                processPath: "/usr/bin/ssh",
+                arguments: ["ssh", "-o", "RemoteCommand=none", "tinybox"],
+                environment: [:]
+            )
+        )
+
+        XCTAssertEqual(binding.kind, "ssh")
+        XCTAssertEqual(binding.command, "'/usr/bin/ssh' '-o' 'RemoteCommand=none' 'tinybox'")
+    }
+
+    func testPlainSSHProcessDetectedBindingFallsBackToPaneTTYWhenScopeIsMissing() throws {
+        let workspaceID = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
+        let panelID = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
+        let process = CmuxTopProcessInfo(
+            pid: 4242,
+            parentPID: 1,
+            name: "ssh",
+            path: "/usr/bin/ssh",
+            ttyDevice: 9876,
+            cmuxWorkspaceID: nil,
+            cmuxSurfaceID: nil,
+            cmuxAttributionReason: nil,
+            processGroupID: 4242,
+            terminalProcessGroupID: 4242,
+            cpuPercent: 0,
+            residentBytes: 1,
+            virtualBytes: 1,
+            threadCount: 1
+        )
+        let snapshot = CmuxTopProcessSnapshot(
+            processes: [process],
+            sampledAt: Date(timeIntervalSince1970: 1_777_777_777),
+            includesProcessDetails: true
+        )
+        let key = SurfaceResumeBindingIndex.PanelKey(
+            workspaceId: workspaceID,
+            panelId: panelID
+        )
+        let detected = SurfaceResumeBindingIndex.processDetectedTmuxBindings(
+            fileManager: .default,
+            processSnapshot: snapshot,
+            capturedAt: 1_777_777_777,
+            ttyDeviceBindings: [key: 9876],
+            processArgumentsProvider: { _ in
+                CmuxTopProcessArguments(
+                    arguments: ["/usr/bin/ssh", "tinybox"],
+                    environment: [:]
+                )
+            }
+        )
+
+        let binding = try XCTUnwrap(detected[key]?.binding)
+        XCTAssertEqual(binding.kind, "ssh")
+        XCTAssertEqual(binding.source, "process-detected")
+        XCTAssertEqual(binding.command, "'/usr/bin/ssh' 'tinybox'")
     }
 
     func testTmuxProcessDetectedResumeBindingPreservesTmuxTmpdir() throws {

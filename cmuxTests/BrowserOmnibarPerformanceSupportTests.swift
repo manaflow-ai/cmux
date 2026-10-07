@@ -1,4 +1,5 @@
 import XCTest
+import Foundation
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -7,6 +8,160 @@ import XCTest
 #endif
 
 final class BrowserOmnibarPerformanceSupportTests: XCTestCase {
+    @MainActor
+    func testSuggestionRefreshSchedulerCoalescesTypingBurst() async {
+        let clock = ManualOmnibarSuggestionRefreshClock()
+        let scheduler = OmnibarSuggestionRefreshScheduler(
+            debounceDelay: .milliseconds(40),
+            clock: clock
+        )
+        let firstRefresh = expectation(description: "first debounced refresh emitted")
+        var refreshCount = 0
+
+        let listener = Task { @MainActor in
+            for await _ in scheduler.refreshStream {
+                refreshCount += 1
+                if refreshCount == 1 {
+                    firstRefresh.fulfill()
+                }
+            }
+        }
+
+        for _ in 0..<20 {
+            scheduler.scheduleRefresh()
+        }
+
+        await waitForPendingSleep(on: clock)
+        await clock.advance()
+        await fulfillment(of: [firstRefresh], timeout: 1)
+        await Task.yield()
+        listener.cancel()
+
+        XCTAssertEqual(
+            refreshCount,
+            1,
+            "A burst of omnibar text changes should schedule one suggestion refresh after the debounce window."
+        )
+    }
+
+    @MainActor
+    func testSuggestionRefreshSchedulerCancelsPendingRefresh() async {
+        let clock = ManualOmnibarSuggestionRefreshClock()
+        let scheduler = OmnibarSuggestionRefreshScheduler(
+            debounceDelay: .milliseconds(40),
+            clock: clock
+        )
+        var refreshCount = 0
+
+        let listener = Task { @MainActor in
+            for await _ in scheduler.refreshStream {
+                refreshCount += 1
+            }
+        }
+
+        scheduler.scheduleRefresh()
+        await waitForPendingSleep(on: clock)
+        scheduler.cancelPendingRefresh()
+        await clock.advance()
+        await Task.yield()
+        await Task.yield()
+
+        listener.cancel()
+
+        XCTAssertEqual(refreshCount, 0)
+    }
+
+    @MainActor
+    func testSuggestionRefreshSchedulerInvalidatesQueuedRefreshOnCancel() async throws {
+        let clock = ManualOmnibarSuggestionRefreshClock()
+        let scheduler = OmnibarSuggestionRefreshScheduler(
+            debounceDelay: .milliseconds(40),
+            clock: clock
+        )
+        let queuedRefresh = expectation(description: "debounced refresh emitted")
+        var queuedGeneration: UInt64?
+        // Wait for the emission itself: two Task.yield() calls cannot order the
+        // refresh task's hop from the clock actor back to the main actor before
+        // cancelPendingRefresh(), and losing that race emits nothing.
+        let listener = Task { @MainActor in
+            var iterator = scheduler.refreshStream.makeAsyncIterator()
+            queuedGeneration = await iterator.next()
+            queuedRefresh.fulfill()
+        }
+
+        scheduler.scheduleRefresh()
+        await waitForPendingSleep(on: clock)
+        await clock.advance()
+        await fulfillment(of: [queuedRefresh], timeout: 1)
+        listener.cancel()
+        let generation = try XCTUnwrap(queuedGeneration)
+        XCTAssertTrue(
+            scheduler.shouldProcessRefresh(generation),
+            "An emitted refresh should run while nothing has cancelled it."
+        )
+
+        // The consumer asks shouldProcessRefresh when it handles a generation, so
+        // cancelling after emission models a refresh queued behind Escape.
+        scheduler.cancelPendingRefresh()
+        XCTAssertFalse(
+            scheduler.shouldProcessRefresh(generation),
+            "A refresh already queued before cancellation should not run after Escape, hide, or focus loss."
+        )
+    }
+
+    func testOmnibarBufferChangeClearsInlineCompletionBeforeDebouncedRefresh() {
+        var state = OmnibarState(
+            isFocused: true,
+            currentURLString: "",
+            buffer: "g",
+            suggestions: [],
+            selectedSuggestionIndex: 0,
+            selectedSuggestionID: nil,
+            isUserEditing: true
+        )
+
+        let effects = omnibarReduce(state: &state, event: .bufferChanged("go"))
+
+        XCTAssertTrue(effects.shouldRefreshSuggestions)
+        XCTAssertTrue(effects.shouldClearInlineCompletion)
+    }
+
+    func testOmnibarUnchangedBufferKeepsInlineCompletionStable() {
+        var state = OmnibarState(
+            isFocused: true,
+            currentURLString: "",
+            buffer: "go",
+            suggestions: [],
+            selectedSuggestionIndex: 0,
+            selectedSuggestionID: nil,
+            isUserEditing: true
+        )
+
+        let effects = omnibarReduce(state: &state, event: .bufferChanged("go"))
+
+        XCTAssertTrue(effects.shouldRefreshSuggestions)
+        XCTAssertFalse(effects.shouldClearInlineCompletion)
+    }
+
+    func testOmnibarEscapeCancelsPendingSuggestionRefresh() {
+        var state = OmnibarState(
+            isFocused: true,
+            currentURLString: "",
+            buffer: "go",
+            suggestions: [],
+            selectedSuggestionIndex: 0,
+            selectedSuggestionID: nil,
+            isUserEditing: true
+        )
+
+        let effects = omnibarReduce(state: &state, event: .escape)
+
+        XCTAssertTrue(effects.shouldSelectAll)
+        XCTAssertTrue(effects.shouldCancelPendingSuggestionRefresh)
+        XCTAssertEqual(state.buffer, "")
+        XCTAssertFalse(state.isUserEditing)
+    }
+
     func testOpenTabSuggestionSeedSnapshotsAreEvaluatedOnlyOnce() {
         let workspaceId = UUID()
         let panelId = UUID()
@@ -73,5 +228,62 @@ final class BrowserOmnibarPerformanceSupportTests: XCTestCase {
 
         XCTAssertEqual(matches.map(\.title), ["Docs"])
         XCTAssertEqual(matches.map(\.url), [url])
+    }
+
+    @MainActor
+    private func waitForPendingSleep(on clock: ManualOmnibarSuggestionRefreshClock) async {
+        let pendingSleep = expectation(description: "manual clock has a pending sleep")
+        let waiter = Task { @MainActor in
+            await clock.waitForPendingSleep()
+            pendingSleep.fulfill()
+        }
+        await fulfillment(of: [pendingSleep], timeout: 1)
+        waiter.cancel()
+    }
+}
+
+private actor ManualOmnibarSuggestionRefreshClock: OmnibarSuggestionRefreshClock {
+    private var continuations: [UUID: CheckedContinuation<Void, Error>] = [:]
+    private var pendingSleepWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func sleep(for duration: Duration) async throws {
+        let id = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                continuations[id] = continuation
+                resumePendingSleepWaiters()
+            }
+        } onCancel: {
+            Task {
+                await self.cancel(id)
+            }
+        }
+    }
+
+    func waitForPendingSleep() async {
+        guard continuations.isEmpty else { return }
+        await withCheckedContinuation { continuation in
+            pendingSleepWaiters.append(continuation)
+        }
+    }
+
+    func advance() {
+        let pendingContinuations = Array(continuations.values)
+        continuations.removeAll(keepingCapacity: true)
+        for continuation in pendingContinuations {
+            continuation.resume()
+        }
+    }
+
+    private func cancel(_ id: UUID) {
+        continuations.removeValue(forKey: id)?.resume(throwing: CancellationError())
+    }
+
+    private func resumePendingSleepWaiters() {
+        let waiters = pendingSleepWaiters
+        pendingSleepWaiters.removeAll(keepingCapacity: true)
+        for waiter in waiters {
+            waiter.resume()
+        }
     }
 }

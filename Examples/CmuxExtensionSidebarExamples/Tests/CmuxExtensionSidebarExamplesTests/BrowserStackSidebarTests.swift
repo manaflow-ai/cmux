@@ -1,4 +1,4 @@
-import CmuxExtensionKit
+import CmuxSidebarProviderKit
 @testable import CmuxExtensionSidebarExamples
 import XCTest
 
@@ -34,7 +34,7 @@ final class BrowserStackSidebarTests: XCTestCase {
         let movedWorkspace = snapshot.workspaces[3]
         let result = try provider.handle(
             .moveWorkspace(
-                CmuxExtensionSidebarWorkspaceMove(
+                CmuxSidebarProviderWorkspaceMove(
                     workspaceId: movedWorkspace.id,
                     sourceSectionId: "loose",
                     targetSectionId: "group:reading-list",
@@ -93,7 +93,7 @@ final class BrowserStackSidebarTests: XCTestCase {
             ])
         )
 
-        let reconciled = try store.reconciledState(for: CmuxExtensionSidebarSnapshot(
+        let reconciled = try store.reconciledState(for: CmuxSidebarProviderSnapshot(
             sequence: 2,
             selectedWorkspaceId: nil,
             workspaces: [first, added]
@@ -121,7 +121,7 @@ final class BrowserStackSidebarTests: XCTestCase {
         let movedWorkspace = firstSnapshot.workspaces[3]
         let result = try provider.handle(
             .moveWorkspace(
-                CmuxExtensionSidebarWorkspaceMove(
+                CmuxSidebarProviderWorkspaceMove(
                     workspaceId: movedWorkspace.id,
                     sourceSectionId: "loose",
                     targetSectionId: "group:reading-list",
@@ -136,7 +136,7 @@ final class BrowserStackSidebarTests: XCTestCase {
         let secondMovedWorkspace = secondSnapshot.workspaces[3]
         XCTAssertTrue(try provider.handle(
             .moveWorkspace(
-                CmuxExtensionSidebarWorkspaceMove(
+                CmuxSidebarProviderWorkspaceMove(
                     workspaceId: secondMovedWorkspace.id,
                     sourceSectionId: "loose",
                     targetSectionId: "group:reading-list",
@@ -174,7 +174,7 @@ final class BrowserStackSidebarTests: XCTestCase {
         let store = BrowserStackSidebarStore(stateURL: stateURL)
 
         var preferredState = BrowserStackSidebarState.initial(snapshot: oldSnapshot)
-        preferredState.moveWorkspace(CmuxExtensionSidebarWorkspaceMove(
+        preferredState.moveWorkspace(CmuxSidebarProviderWorkspaceMove(
             workspaceId: movedWorkspace.id,
             sourceSectionId: "loose",
             targetSectionId: "group:reading-list",
@@ -183,7 +183,7 @@ final class BrowserStackSidebarTests: XCTestCase {
         try store.save(preferredState.reconciled(with: oldSnapshot), scopeKey: scopeKey(for: oldWindowId))
         try store.save(BrowserStackSidebarState.initial(snapshot: otherSnapshot), scopeKey: scopeKey(for: otherWindowId))
 
-        let relaunchedSnapshot = CmuxExtensionSidebarSnapshot(
+        let relaunchedSnapshot = CmuxSidebarProviderSnapshot(
             sequence: 2,
             selectedWorkspaceId: oldSnapshot.selectedWorkspaceId,
             workspaces: oldSnapshot.workspaces,
@@ -195,7 +195,7 @@ final class BrowserStackSidebarTests: XCTestCase {
     }
 
     func testBrowserStackRenderModelPreservesEmptyRequiredSections() {
-        let snapshot = CmuxExtensionSidebarSnapshot(sequence: 1, selectedWorkspaceId: nil, workspaces: [])
+        let snapshot = CmuxSidebarProviderSnapshot(sequence: 1, selectedWorkspaceId: nil, workspaces: [])
         let sections = [
             ExampleSidebarSection(
                 id: "tiles",
@@ -233,7 +233,7 @@ final class BrowserStackSidebarTests: XCTestCase {
             workspace(title: "Third"),
             workspace(title: "Fourth"),
         ]
-        let snapshot = CmuxExtensionSidebarSnapshot(
+        let snapshot = CmuxSidebarProviderSnapshot(
             sequence: 1,
             selectedWorkspaceId: nil,
             workspaces: workspaces
@@ -307,7 +307,7 @@ final class BrowserStackSidebarTests: XCTestCase {
         let original = workspace(title: "Original")
         var replacement = workspace(title: "Replacement")
         replacement.id = original.id
-        let snapshot = CmuxExtensionSidebarSnapshot(
+        let snapshot = CmuxSidebarProviderSnapshot(
             sequence: 1,
             selectedWorkspaceId: original.id,
             workspaces: [original, replacement]
@@ -346,9 +346,9 @@ final class BrowserStackSidebarTests: XCTestCase {
         return try store.load()
     }
 
-    private func snapshot(titles: [String], windowId: UUID? = nil) -> CmuxExtensionSidebarSnapshot {
+    private func snapshot(titles: [String], windowId: UUID? = nil) -> CmuxSidebarProviderSnapshot {
         let workspaces = titles.map { workspace(title: $0) }
-        return CmuxExtensionSidebarSnapshot(
+        return CmuxSidebarProviderSnapshot(
             sequence: 1,
             selectedWorkspaceId: workspaces.first?.id,
             workspaces: workspaces,
@@ -360,8 +360,8 @@ final class BrowserStackSidebarTests: XCTestCase {
         "window-\(windowId.uuidString.lowercased())"
     }
 
-    private func workspace(title: String) -> CmuxExtensionWorkspaceSnapshot {
-        CmuxExtensionWorkspaceSnapshot(
+    private func workspace(title: String) -> CmuxSidebarProviderWorkspace {
+        CmuxSidebarProviderWorkspace(
             id: UUID(),
             title: title,
             customDescription: nil,

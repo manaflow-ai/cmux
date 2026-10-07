@@ -1,11 +1,15 @@
+import CmuxFoundation
+import CmuxWorkspaces
 import AppKit
+import CmuxTerminal
 import Carbon.HIToolbox
+import CmuxSettingsUI
 import Observation
 import SwiftUI
 import UniformTypeIdentifiers
 import os
 
-private enum TextBoxLayout {
+enum TextBoxLayout {
     static let minLines = 1
     static let lineSpacing: CGFloat = 0
     static let textInset = NSSize(width: 1, height: 5)
@@ -22,13 +26,22 @@ private enum TextBoxLayout {
     static let iconSymbolSize: CGFloat = 13
     static let sendSymbolSize: CGFloat = 14
     static let buttonBottomPadding: CGFloat = 3
-    static let leadingButtonHorizontalOffset: CGFloat = -1
-    static let trailingButtonHorizontalOffset: CGFloat = 1
+    static let leadingButtonHorizontalOffset: CGFloat = -2
+    static let trailingButtonHorizontalOffset: CGFloat = 2
     static let attachmentControlSpacing: CGFloat = 2
-    static let attachmentImageSize: CGFloat = 16
-    static let attachmentChipHeight: CGFloat = 18
-    static let inlineAttachmentMaxTextWidth: CGFloat = 118
-    static let inlineAttachmentTrailingControlWidth: CGFloat = 14
+    static var attachmentImageSize: CGFloat {
+        GlobalFontMagnification.scaledSize(16)
+    }
+    static var attachmentChipHeight: CGFloat {
+        let font = GlobalFontMagnification.systemFont(ofSize: 11, weight: .semibold)
+        return max(18, ceil(font.ascender - font.descender + font.leading) + 6)
+    }
+    static var inlineAttachmentMaxTextWidth: CGFloat {
+        GlobalFontMagnification.scaledSize(118)
+    }
+    static var inlineAttachmentTrailingControlWidth: CGFloat {
+        GlobalFontMagnification.scaledSize(14)
+    }
 
     static func textInset(forLineCount lineCount: Int) -> NSSize {
         lineCount <= minLines ? textInset : multilineTextInset
@@ -178,7 +191,7 @@ private struct TextBoxInputGlassPillBackground: View {
     }
 }
 
-private struct TextBoxSendButtonStyle: ButtonStyle {
+struct TextBoxSendButtonStyle: ButtonStyle {
     let canSend: Bool
 
     func makeBody(configuration: Configuration) -> some View {
@@ -193,9 +206,9 @@ private struct TextBoxSendButtonStyle: ButtonStyle {
 
     private func backgroundColor(isPressed: Bool) -> Color {
         guard canSend else {
-            return Color.white.opacity(0.18)
+            return Color.white.opacity(0.74)
         }
-        return isPressed ? Color.white.opacity(0.68) : Color.white
+        return Color.white.opacity(isPressed ? 0.72 : 1.0)
     }
 }
 
@@ -206,6 +219,7 @@ struct TextBoxAttachment: Identifiable {
     let submissionPath: String
     let localURL: URL?
     let thumbnail: NSImage?
+    let inlineThumbnailSource: TextBoxInlineAttachmentThumbnailSource?
     let cleanupLocalURLWhenDisposed: Bool
 
     init(
@@ -223,7 +237,13 @@ struct TextBoxAttachment: Identifiable {
         self.submissionText = submissionText
         self.submissionPath = submissionPath
         self.localURL = standardizedURL
-        self.thumbnail = standardizedURL.flatMap { TextBoxAttachment.makeThumbnail(for: $0) }
+        let thumbnail = standardizedURL.flatMap { TextBoxAttachment.makeThumbnail(for: $0) }
+        self.thumbnail = thumbnail
+        self.inlineThumbnailSource = if let standardizedURL, thumbnail != nil {
+            TextBoxInlineAttachmentThumbnailSource(fileURL: standardizedURL)
+        } else {
+            nil
+        }
         self.cleanupLocalURLWhenDisposed = cleanupLocalURLWhenDisposed
     }
 
@@ -240,7 +260,11 @@ struct TextBoxAttachment: Identifiable {
         self.submissionText = submissionText
         self.submissionPath = submissionPath ?? standardizedURL.path
         self.localURL = standardizedURL
-        self.thumbnail = TextBoxAttachment.makeThumbnail(for: standardizedURL)
+        let thumbnail = TextBoxAttachment.makeThumbnail(for: standardizedURL)
+        self.thumbnail = thumbnail
+        self.inlineThumbnailSource = thumbnail.map { _ in
+            TextBoxInlineAttachmentThumbnailSource(fileURL: standardizedURL)
+        }
         self.cleanupLocalURLWhenDisposed = cleanupLocalURLWhenDisposed
     }
 
@@ -270,7 +294,7 @@ struct TextBoxAttachment: Identifiable {
     }
 
     static func shouldCleanupLocalURLWhenDisposed(_ fileURL: URL) -> Bool {
-        GhosttyPasteboardHelper.isOwnedTemporaryImageFile(fileURL)
+        GhosttyApp.terminalPasteboard.isOwnedTemporaryImageFile(fileURL)
             || TextBoxDraftAttachmentStorage.isOwnedDraftCopy(fileURL)
     }
 
@@ -306,7 +330,7 @@ private enum TextBoxDraftAttachmentStorage {
 
     static func snapshot(for attachment: TextBoxAttachment) -> SessionTextBoxInputAttachmentSnapshot {
         guard let localURL = attachment.localURL,
-              GhosttyPasteboardHelper.isOwnedTemporaryImageFile(localURL) else {
+              GhosttyApp.terminalPasteboard.isOwnedTemporaryImageFile(localURL) else {
             return fallbackSnapshot(for: attachment)
         }
         let standardizedLocalURL = localURL.standardizedFileURL
@@ -347,7 +371,7 @@ private enum TextBoxDraftAttachmentStorage {
 
     static func prepareDurableCopy(for attachment: TextBoxAttachment) {
         guard let localURL = attachment.localURL,
-              GhosttyPasteboardHelper.isOwnedTemporaryImageFile(localURL) else {
+              GhosttyApp.terminalPasteboard.isOwnedTemporaryImageFile(localURL) else {
             return
         }
         let standardizedLocalURL = localURL.standardizedFileURL
@@ -556,7 +580,7 @@ private enum TextBoxDraftAttachmentStorage {
 #if DEBUG
     static func debugPrepareDurableCopySynchronously(for attachment: TextBoxAttachment) -> URL? {
         guard let localURL = attachment.localURL,
-              GhosttyPasteboardHelper.isOwnedTemporaryImageFile(localURL) else {
+              GhosttyApp.terminalPasteboard.isOwnedTemporaryImageFile(localURL) else {
             return nil
         }
         let originalURL = localURL.standardizedFileURL
@@ -620,7 +644,7 @@ extension SessionTextBoxInputAttachmentSnapshot {
     }
 }
 
-private enum TextBoxSubmissionFormatter {
+enum TextBoxSubmissionFormatter {
     static func parts(from attributed: NSAttributedString) -> [TextBoxSubmissionPart] {
         let raw = attributed.string as NSString
         let fullRange = NSRange(location: 0, length: attributed.length)
@@ -731,224 +755,6 @@ enum TextBoxPasteboardRestorationGuard {
     }
 }
 
-private final class TextBoxInlineTextAttachment: NSTextAttachment {
-    let textBoxAttachment: TextBoxAttachment
-
-    init(
-        attachment: TextBoxAttachment,
-        font: NSFont,
-        foregroundColor: NSColor
-    ) {
-        self.textBoxAttachment = attachment
-        super.init(data: nil, ofType: nil)
-        refreshCell(font: font, foregroundColor: foregroundColor)
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    func refreshCell(font: NSFont, foregroundColor: NSColor) {
-        refreshCell(font: font, foregroundColor: foregroundColor, isFocused: false)
-    }
-
-    func refreshCell(font: NSFont, foregroundColor: NSColor, isFocused: Bool) {
-        attachmentCell = TextBoxInlineAttachmentCell(
-            attachment: textBoxAttachment,
-            image: TextBoxInlineAttachmentRenderer.image(
-                for: textBoxAttachment,
-                font: font,
-                foregroundColor: foregroundColor,
-                isFocused: isFocused
-            )
-        )
-    }
-
-    override func attachmentBounds(
-        for textContainer: NSTextContainer?,
-        proposedLineFragment lineFrag: NSRect,
-        glyphPosition position: NSPoint,
-        characterIndex charIndex: Int
-    ) -> NSRect {
-        let width = attachmentCell?.cellSize().width ?? 1
-        return NSRect(x: 0, y: 0, width: width, height: 1)
-    }
-}
-
-private final class TextBoxInlineAttachmentCell: NSTextAttachmentCell {
-    private let textBoxAttachment: TextBoxAttachment
-    private let renderedImage: NSImage
-
-    init(attachment: TextBoxAttachment, image: NSImage) {
-        self.textBoxAttachment = attachment
-        self.renderedImage = image
-        super.init(imageCell: image)
-    }
-
-    @available(*, unavailable)
-    required init(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override func wantsToTrackMouse() -> Bool {
-        true
-    }
-
-    override var cellSize: NSSize {
-        NSSize(width: renderedImage.size.width, height: 1)
-    }
-
-    override func trackMouse(
-        with event: NSEvent,
-        in cellFrame: NSRect,
-        of controlView: NSView?,
-        atCharacterIndex charIndex: Int,
-        untilMouseUp flag: Bool
-    ) -> Bool {
-        guard event.type == .leftMouseDown,
-              let textView = controlView as? TextBoxInputTextView else {
-            return false
-        }
-
-        let clickPoint = textView.convert(event.locationInWindow, from: nil)
-        let drawnCellFrame = drawnFrame(for: cellFrame)
-        let closeRect = NSRect(
-            x: drawnCellFrame.maxX - TextBoxLayout.inlineAttachmentTrailingControlWidth - 6,
-            y: drawnCellFrame.minY,
-            width: TextBoxLayout.inlineAttachmentTrailingControlWidth + 6,
-            height: drawnCellFrame.height
-        )
-        textView.handleInlineAttachmentCellClick(
-            attachment: textBoxAttachment,
-            characterIndex: charIndex,
-            clickCount: event.clickCount,
-            isCloseClick: closeRect.contains(clickPoint)
-        )
-        return true
-    }
-
-    override func draw(withFrame cellFrame: NSRect, in controlView: NSView?) {
-        renderedImage.draw(in: drawnFrame(for: cellFrame))
-    }
-
-    override func cellFrame(
-        for textContainer: NSTextContainer,
-        proposedLineFragment lineFrag: NSRect,
-        glyphPosition position: NSPoint,
-        characterIndex charIndex: Int
-    ) -> NSRect {
-        return NSRect(
-            x: position.x,
-            y: lineFrag.minY,
-            width: renderedImage.size.width,
-            height: lineFrag.height
-        )
-    }
-
-    private func drawnFrame(for cellFrame: NSRect) -> NSRect {
-        NSRect(
-            x: cellFrame.minX,
-            y: cellFrame.midY - renderedImage.size.height / 2 + TextBoxLayout.inlineAttachmentVerticalOffset,
-            width: renderedImage.size.width,
-            height: renderedImage.size.height
-        )
-    }
-}
-
-private enum TextBoxInlineAttachmentRenderer {
-    static func image(
-        for attachment: TextBoxAttachment,
-        font: NSFont,
-        foregroundColor: NSColor,
-        isFocused: Bool
-    ) -> NSImage {
-        let textFont = NSFont.systemFont(ofSize: 11, weight: .semibold)
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.lineBreakMode = .byTruncatingMiddle
-        let textAttributes: [NSAttributedString.Key: Any] = [
-            .font: textFont,
-            .foregroundColor: foregroundColor.withAlphaComponent(0.90),
-            .paragraphStyle: paragraph
-        ]
-        let textWidth = min(
-            TextBoxLayout.inlineAttachmentMaxTextWidth,
-            ceil((attachment.displayName as NSString).size(withAttributes: textAttributes).width)
-        )
-        let height = TextBoxLayout.attachmentChipHeight
-        let iconSize = TextBoxLayout.attachmentImageSize
-        let horizontalPadding: CGFloat = 6
-        let iconTextGap: CGFloat = 4
-        let width = horizontalPadding * 2
-            + iconSize
-            + iconTextGap
-            + textWidth
-            + TextBoxLayout.inlineAttachmentTrailingControlWidth
-
-        let image = NSImage(size: NSSize(width: width, height: height))
-        image.lockFocus()
-        defer { image.unlockFocus() }
-
-        NSGraphicsContext.current?.imageInterpolation = .high
-        let bounds = NSRect(origin: .zero, size: image.size)
-        let background = foregroundColor.withAlphaComponent(isFocused ? 0.16 : 0.10)
-        background.setFill()
-        NSBezierPath(roundedRect: bounds, xRadius: height / 2, yRadius: height / 2).fill()
-
-        let border = isFocused
-            ? NSColor.controlAccentColor.withAlphaComponent(0.95)
-            : foregroundColor.withAlphaComponent(0.14)
-        border.setStroke()
-        let borderPath = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: height / 2, yRadius: height / 2)
-        borderPath.lineWidth = isFocused ? 1.5 : 1
-        borderPath.stroke()
-
-        let iconRect = NSRect(
-            x: horizontalPadding,
-            y: (height - iconSize) / 2,
-            width: iconSize,
-            height: iconSize
-        )
-        if let thumbnail = attachment.thumbnail {
-            NSGraphicsContext.saveGraphicsState()
-            NSBezierPath(roundedRect: iconRect, xRadius: 4, yRadius: 4).addClip()
-            thumbnail.draw(in: iconRect)
-            NSGraphicsContext.restoreGraphicsState()
-        } else {
-            let icon = NSImage(systemSymbolName: "doc", accessibilityDescription: nil)
-            icon?.withSymbolConfiguration(.init(pointSize: 11, weight: .medium))?
-                .draw(in: iconRect, from: .zero, operation: .sourceOver, fraction: 0.9)
-        }
-
-        let textSize = (attachment.displayName as NSString).size(withAttributes: textAttributes)
-
-        let textRect = NSRect(
-            x: iconRect.maxX + iconTextGap,
-            y: (height - textSize.height) / 2,
-            width: textWidth,
-            height: textSize.height
-        )
-        (attachment.displayName as NSString).draw(in: textRect, withAttributes: textAttributes)
-
-        let closeAttributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 9, weight: .bold),
-            .foregroundColor: foregroundColor.withAlphaComponent(0.48)
-        ]
-        let closeString = "×" as NSString
-        let closeSize = closeString.size(withAttributes: closeAttributes)
-        closeString.draw(
-            at: NSPoint(
-                x: bounds.maxX - horizontalPadding - closeSize.width + 1,
-                y: (height - closeSize.height) / 2
-            ),
-            withAttributes: closeAttributes
-        )
-
-        image.isTemplate = false
-        return image
-    }
-}
-
 private enum TextBoxAttachmentPreviewLayout {
     static let maxImageSize = CGSize(width: 408, height: 288)
     static let minImageSize = CGSize(width: 220, height: 140)
@@ -1023,7 +829,7 @@ private struct TextBoxAttachmentPreviewPopoverView: View {
             if attachment.localURL != nil {
                 Button(action: openInPreview) {
                     Text(String(localized: "textbox.openWithPreview.button", defaultValue: "Open with Preview"))
-                        .font(.system(size: 12, weight: .semibold))
+                        .cmuxFont(size: 12, weight: .semibold)
                         .lineLimit(1)
                 }
                 .buttonStyle(TextBoxAttachmentPreviewOpenButtonStyle())
@@ -1063,10 +869,9 @@ private struct TextBoxAttachmentPreviewPopoverView: View {
                 .background(Color.black.opacity(0.82))
         } else {
             VStack(spacing: 10) {
-                Image(systemName: "doc")
-                    .font(.system(size: 42, weight: .regular))
+                CmuxSystemSymbolImage(magnified: "doc", pointSize: 42, weight: .regular, tint: .primary.opacity(0.86))
                 Text(attachment.displayName)
-                    .font(.system(size: 13, weight: .medium))
+                    .cmuxFont(size: 13, weight: .medium)
                     .lineLimit(2)
                     .multilineTextAlignment(.center)
                     .truncationMode(.middle)
@@ -1082,7 +887,7 @@ private struct TextBoxAttachmentPreviewPopoverView: View {
 }
 
 @MainActor
-private enum TextBoxAttachmentPreviewOpening {
+enum TextBoxAttachmentPreviewOpening {
     static func openInPreview(_ attachment: TextBoxAttachment) {
         guard let url = attachment.localURL else { return }
         if let previewURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Preview") {
@@ -1145,8 +950,7 @@ private struct TextBoxAttachmentChip: View {
                     )
                     .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
             } else {
-                Image(systemName: "doc")
-                    .font(.system(size: 12, weight: .medium))
+                CmuxSystemSymbolImage(magnified: "doc", pointSize: 12, weight: .medium, tint: foreground.opacity(0.88))
                     .frame(
                         width: TextBoxLayout.attachmentImageSize,
                         height: TextBoxLayout.attachmentImageSize
@@ -1154,14 +958,13 @@ private struct TextBoxAttachmentChip: View {
             }
 
             Text(attachment.displayName)
-                .font(.system(size: 11, weight: .medium))
+                .cmuxFont(size: 11, weight: .medium)
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .frame(maxWidth: 118, alignment: .leading)
 
             Button(action: onRemove) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 8, weight: .bold))
+                CmuxSystemSymbolImage(magnified: "xmark", pointSize: 8, weight: .bold, tint: foreground.opacity(0.62))
                     .frame(width: 14, height: 14)
             }
             .buttonStyle(.plain)
@@ -1210,906 +1013,119 @@ func shouldHandleTextBoxPlainArrowLocally(
     }
 }
 
-private enum TextBoxAgentDetection: CaseIterable {
-    case claudeCode
-    case codex
-    case opencode
-
-    private var definitionID: String {
-        switch self {
-        case .claudeCode:
-            return "claude"
-        case .codex:
-            return "codex"
-        case .opencode:
-            return "opencode"
-        }
+func textBoxCommandShortcutKey(
+    for event: NSEvent,
+    translateKey: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:),
+    normalizedCharacters: (NSEvent) -> String = KeyboardLayout.normalizedCharacters(for:)
+) -> String {
+    if let translated = translateKey(event.keyCode, event.modifierFlags)?.lowercased(),
+       translated.count == 1,
+       translated.allSatisfy(\.isASCII) {
+        return translated
     }
-
-    private var identityAliases: Set<String> {
-        switch self {
-        case .claudeCode:
-            return ["claude", "claude_code", "claude-code", "claudecode", "omc"]
-        case .codex:
-            return ["codex", "omx"]
-        case .opencode:
-            return ["opencode", "open-code", "opencode-ai", "omo"]
-        }
-    }
-
-    func matches(context: String) -> Bool {
-        context
-            .split(separator: "\n", omittingEmptySubsequences: false)
-            .contains { matches(metadataLine: String($0)) }
-    }
-
-    static func supportsAgentPrefixes(context: String) -> Bool {
-        allCases.contains { $0.matches(context: context) }
-    }
-
-    static func isClaudeCode(context: String) -> Bool {
-        claudeCode.matches(context: context)
-    }
-
-    private func matches(metadataLine rawLine: String) -> Bool {
-        let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !line.isEmpty else { return false }
-
-        if let value = Self.metadataValue(line, prefix: "restoredAgent:") {
-            return matchesIdentity(value)
-        }
-        if let value = Self.metadataValue(line, prefix: "agentPIDKey:") {
-            return matchesIdentity(value)
-        }
-        if let value = Self.metadataValue(line, prefix: "initialCommand:") {
-            return matchesCommand(value)
-        }
-        if let value = Self.metadataValue(line, prefix: "tmuxStartCommand:") {
-            return matchesCommand(value)
-        }
-        return false
-    }
-
-    private func matchesIdentity(_ rawValue: String) -> Bool {
-        let normalized = rawValue
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        guard !normalized.isEmpty else { return false }
-        if identityAliases.contains(normalized) {
-            return true
-        }
-        let baseKey = normalized.split(separator: ".").first.map(String.init) ?? normalized
-        return identityAliases.contains(baseKey)
-    }
-
-    private func matchesCommand(_ command: String) -> Bool {
-        let tokens = Self.shellLikeTokens(command)
-        guard !tokens.isEmpty else { return false }
-        return Self.commandSegments(from: tokens).contains { segment in
-            matchesCommandSegment(segment, depth: 0)
-        }
-    }
-
-    private func matchesCommandSegment(_ tokens: [String], depth: Int) -> Bool {
-        guard !tokens.isEmpty else { return false }
-        let resolved = Self.resolvedCommandSegment(tokens)
-        guard let executable = resolved.arguments.first else { return false }
-        if CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
-            processName: executable,
-            processPath: executable,
-            arguments: resolved.arguments,
-            environment: resolved.environment
-        )?.id == definitionID {
-            return true
-        }
-
-        guard depth < 2 else { return false }
-        return Self.shellSubcommandSegments(from: resolved.arguments).contains { segment in
-            matchesCommandSegment(segment, depth: depth + 1)
-        }
-    }
-
-    private static func metadataValue(_ line: String, prefix: String) -> String? {
-        guard line.hasPrefix(prefix) else { return nil }
-        return String(line.dropFirst(prefix.count))
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private static func shellLikeTokens(_ command: String) -> [String] {
-        var tokens: [String] = []
-        var current = ""
-        var quote: Character?
-        var escaping = false
-
-        func flush() {
-            guard !current.isEmpty else { return }
-            tokens.append(current)
-            current.removeAll(keepingCapacity: true)
-        }
-
-        for character in command {
-            if escaping {
-                current.append(character)
-                escaping = false
-                continue
-            }
-            if character == "\\" {
-                escaping = true
-                continue
-            }
-            if let activeQuote = quote {
-                if character == activeQuote {
-                    quote = nil
-                } else {
-                    current.append(character)
-                }
-                continue
-            }
-            if character == "\"" || character == "'" {
-                quote = character
-                continue
-            }
-            if character.isWhitespace {
-                flush()
-                continue
-            }
-            current.append(character)
-        }
-        flush()
-        return tokens
-    }
-
-    private static func commandSegments(from tokens: [String]) -> [[String]] {
-        var result: [[String]] = []
-        var current: [String] = []
-        for token in tokens {
-            if token == "&&" || token == "||" || token == ";" {
-                if !current.isEmpty {
-                    result.append(current)
-                    current = []
-                }
-            } else {
-                current.append(token)
-            }
-        }
-        if !current.isEmpty {
-            result.append(current)
-        }
-        return result
-    }
-
-    private static func resolvedCommandSegment(_ tokens: [String]) -> (arguments: [String], environment: [String: String]) {
-        var environment: [String: String] = [:]
-        var index = 0
-        let firstBasename = tokens.first.map { ($0 as NSString).lastPathComponent.lowercased() }
-
-        if firstBasename == "env" {
-            index = 1
-            while index < tokens.count {
-                let token = tokens[index]
-                if token.hasPrefix("-") {
-                    index += 1
-                    continue
-                }
-                guard let assignment = environmentAssignment(token) else { break }
-                environment[assignment.key] = assignment.value
-                index += 1
-            }
-        } else {
-            while index < tokens.count {
-                guard let assignment = environmentAssignment(tokens[index]) else { break }
-                environment[assignment.key] = assignment.value
-                index += 1
-            }
-        }
-
-        let arguments = Array(tokens.dropFirst(index))
-        return (arguments.isEmpty ? tokens : arguments, environment)
-    }
-
-    private static func shellSubcommandSegments(from arguments: [String]) -> [[String]] {
-        guard let executable = arguments.first else { return [] }
-        let basename = (executable as NSString).lastPathComponent.lowercased()
-        guard ["sh", "bash", "zsh", "fish"].contains(basename) else { return [] }
-
-        var commandStartIndex: Int?
-        for index in arguments.indices.dropFirst() {
-            let argument = arguments[index]
-            if argument == "-c" || argument == "-lc" || argument == "-cl" {
-                commandStartIndex = arguments.index(after: index)
-                break
-            }
-            if argument.hasPrefix("-"),
-               !argument.hasPrefix("--"),
-               argument.dropFirst().contains("c") {
-                commandStartIndex = arguments.index(after: index)
-                break
-            }
-        }
-
-        guard let commandStartIndex,
-              commandStartIndex < arguments.endIndex else {
-            return []
-        }
-        let commandTokens = shellLikeTokens(arguments[commandStartIndex])
-        guard !commandTokens.isEmpty else { return [] }
-        return commandSegments(from: commandTokens)
-    }
-
-    private static func environmentAssignment(_ token: String) -> (key: String, value: String)? {
-        guard let equalsIndex = token.firstIndex(of: "="),
-              equalsIndex != token.startIndex else {
-            return nil
-        }
-        let key = String(token[..<equalsIndex])
-        guard key.range(of: #"^[A-Za-z_][A-Za-z0-9_]*$"#, options: .regularExpression) != nil else {
-            return nil
-        }
-        return (key, String(token[token.index(after: equalsIndex)...]))
-    }
-}
-
-enum TextBoxMentionKind: Equatable, Sendable {
-    case file
-    case skill
-
-    var defaultTrigger: Character {
-        switch self {
-        case .file:
-            "@"
-        case .skill:
-            "/"
-        }
-    }
-}
-
-struct TextBoxMentionQuery: Equatable, Sendable {
-    let kind: TextBoxMentionKind
-    let location: Int
-    let length: Int
-    let query: String
-    let trigger: Character
-
-    var range: NSRange {
-        NSRange(location: location, length: length)
-    }
-
-    init(kind: TextBoxMentionKind, range: NSRange, query: String, trigger: Character? = nil) {
-        self.kind = kind
-        location = range.location
-        length = range.length
-        self.query = query
-        self.trigger = trigger ?? kind.defaultTrigger
-    }
-}
-
-struct TextBoxMentionSuggestion: Identifiable, Equatable, Sendable {
-    let id: String
-    let title: String
-    let subtitle: String
-    let insertionText: String
-    let systemImageName: String
-}
-
-enum TextBoxMentionCompletionDetector {
-    static func query(in text: String, selectedRange: NSRange) -> TextBoxMentionQuery? {
-        guard selectedRange.length == 0,
-              selectedRange.location != NSNotFound else {
-            return nil
-        }
-
-        let nsText = text as NSString
-        let cursor = min(max(0, selectedRange.location), nsText.length)
-        guard cursor > 0 else { return nil }
-
-        var tokenStart = cursor
-        while tokenStart > 0 {
-            let previous = nsText.substring(with: NSRange(location: tokenStart - 1, length: 1))
-            if previous.rangeOfCharacter(from: .whitespacesAndNewlines) != nil {
-                break
-            }
-            tokenStart -= 1
-        }
-
-        guard tokenStart < cursor else { return nil }
-        let tokenRange = NSRange(location: tokenStart, length: cursor - tokenStart)
-        let token = nsText.substring(with: tokenRange)
-        guard let trigger = token.first else { return nil }
-
-        let kind: TextBoxMentionKind
-        switch trigger {
-        case "@":
-            kind = .file
-        case "/":
-            kind = .skill
-        case "$":
-            kind = .skill
-        default:
-            return nil
-        }
-
-        guard token.allSatisfy({ character in
-            character != "[" &&
-                character != "]" &&
-                character != "(" &&
-                character != ")" &&
-                character != "<" &&
-                character != ">"
-        }) else {
-            return nil
-        }
-
-        let query = String(token.dropFirst())
-        if kind == .skill, query.isEmpty {
-            return nil
-        }
-        return TextBoxMentionQuery(kind: kind, range: tokenRange, query: query, trigger: trigger)
-    }
-}
-
-private enum TextBoxMentionMarkdown {
-    static func link(label: String, path: String) -> String {
-        let escapedLabel = label
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "[", with: "\\[")
-            .replacingOccurrences(of: "]", with: "\\]")
-        return "[\(escapedLabel)](\(markdownTarget(for: path)))"
-    }
-
-    private static func markdownTarget(for path: String) -> String {
-        if path.rangeOfCharacter(from: .whitespacesAndNewlines) != nil ||
-            path.contains("(") ||
-            path.contains(")") {
-            return "<\(path.replacingOccurrences(of: ">", with: "%3E"))>"
-        }
-        return path.replacingOccurrences(of: ")", with: "%29")
-    }
-}
-
-private struct TextBoxMentionCandidate: Sendable {
-    let title: String
-    let subtitle: String
-    let insertionText: String
-    let systemImageName: String
-    let searchKey: String
-    let priority: Int
-
-    func suggestion(trigger: Character) -> TextBoxMentionSuggestion {
-        let displayTitle: String
-        if (trigger == "/" || trigger == "$"), (title.hasPrefix("/") || title.hasPrefix("$")) {
-            displayTitle = "\(trigger)\(title.dropFirst())"
-        } else {
-            displayTitle = title
-        }
-
-        return TextBoxMentionSuggestion(
-            id: insertionText,
-            title: displayTitle,
-            subtitle: subtitle,
-            insertionText: insertionText,
-            systemImageName: systemImageName
-        )
-    }
-}
-
-private struct TextBoxMentionCandidateIndex: Sendable {
-    private let corpus: [CommandPaletteSearchCorpusEntry<TextBoxMentionCandidate>]
-    private let nucleoIndex: CommandPaletteNucleoSearchIndex<TextBoxMentionCandidate>?
-
-    init(candidates: [TextBoxMentionCandidate]) {
-        corpus = candidates.map { candidate in
-            CommandPaletteSearchCorpusEntry(
-                payload: candidate,
-                rank: candidate.priority,
-                title: candidate.title,
-                searchableTexts: [
-                    candidate.title,
-                    candidate.subtitle,
-                    candidate.searchKey
-                ]
-            )
-        }
-        nucleoIndex = corpus.count >= 32 ? CommandPaletteNucleoSearchIndex(entries: corpus) : nil
-    }
-
-    func rankedCandidates(matching rawQuery: String, limit: Int) -> [TextBoxMentionCandidate] {
-        let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let nucleoResults = nucleoIndex?.search(
-            query: query,
-            resultLimit: limit,
-            historyBoost: { _, _ in 0 }
-        ) {
-            return nucleoResults.map(\.payload)
-        }
-
-        return CommandPaletteSearchEngine.search(
-            entries: corpus,
-            query: query,
-            resultLimit: limit,
-            historyBoost: { _, _ in 0 }
-        )
-        .map(\.payload)
-    }
-}
-
-actor TextBoxMentionIndexStore {
-    static let shared = TextBoxMentionIndexStore()
-
-    private struct CachedIndex {
-        let index: TextBoxMentionCandidateIndex
-        let createdAt: Date
-    }
-
-    private static let fileIndexTTL: TimeInterval = 2
-    private static let maxIndexedFiles = 6000
-    private static let maxIndexedSkills = 800
-    private static let suggestionLimit = 8
-    private static let skippedDirectoryNames: Set<String> = [
-        ".build",
-        ".git",
-        ".next",
-        ".swiftpm",
-        ".vercel",
-        "DerivedData",
-        "Library",
-        "node_modules",
-        "Pods",
-        "vendor"
-    ]
-
-    private var fileIndexesByRoot: [String: CachedIndex] = [:]
-    private var skillIndexesByRootKey: [String: TextBoxMentionCandidateIndex] = [:]
-
-    func suggestions(
-        for query: TextBoxMentionQuery,
-        rootDirectory: String?
-    ) async -> [TextBoxMentionSuggestion] {
-        switch query.kind {
-        case .file:
-            guard let rootDirectory = Self.normalizedDirectory(rootDirectory) else { return [] }
-            return fileSuggestions(for: query, rootDirectory: rootDirectory)
-        case .skill:
-            let index = skillIndex(rootDirectory: Self.normalizedDirectory(rootDirectory))
-            return index.rankedCandidates(matching: query.query, limit: Self.suggestionLimit)
-                .map { $0.suggestion(trigger: query.trigger) }
-        }
-    }
-
-    private func fileSuggestions(
-        for query: TextBoxMentionQuery,
-        rootDirectory: String
-    ) -> [TextBoxMentionSuggestion] {
-        let now = Date()
-        let index = fileIndex(rootDirectory: rootDirectory, now: now)
-        var matches = index.rankedCandidates(matching: query.query, limit: Self.suggestionLimit)
-        if matches.isEmpty, !query.query.isEmpty {
-            let refreshed = refreshFileIndex(rootDirectory: rootDirectory, now: now)
-            matches = refreshed.rankedCandidates(matching: query.query, limit: Self.suggestionLimit)
-        }
-        return matches
-            .map { $0.suggestion(trigger: query.trigger) }
-    }
-
-    private func fileIndex(
-        rootDirectory: String,
-        now: Date
-    ) -> TextBoxMentionCandidateIndex {
-        if let cached = fileIndexesByRoot[rootDirectory],
-           now.timeIntervalSince(cached.createdAt) < Self.fileIndexTTL {
-            return cached.index
-        }
-        return refreshFileIndex(rootDirectory: rootDirectory, now: now)
-    }
-
-    private func refreshFileIndex(
-        rootDirectory: String,
-        now: Date
-    ) -> TextBoxMentionCandidateIndex {
-        let rootURL = URL(fileURLWithPath: rootDirectory, isDirectory: true)
-        let index = TextBoxMentionCandidateIndex(candidates: Self.scanFiles(rootURL: rootURL))
-        fileIndexesByRoot[rootDirectory] = CachedIndex(index: index, createdAt: now)
-        return index
-    }
-
-    private func skillIndex(rootDirectory: String?) -> TextBoxMentionCandidateIndex {
-        let roots = Self.skillSearchRoots(rootDirectory: rootDirectory)
-        let cacheKey = roots.map(\.path).joined(separator: "\n")
-        if let cached = skillIndexesByRootKey[cacheKey] {
-            return cached
-        }
-
-        var seenPaths = Set<String>()
-        var candidates: [TextBoxMentionCandidate] = []
-        for root in roots {
-            for skillURL in Self.scanSkillFiles(rootURL: root) {
-                let path = skillURL.standardizedFileURL.path
-                guard seenPaths.insert(path).inserted else { continue }
-                let skillName = Self.skillName(from: skillURL)
-                candidates.append(TextBoxMentionCandidate(
-                    title: "/\(skillName)",
-                    subtitle: Self.displayPath(path),
-                    insertionText: TextBoxMentionMarkdown.link(label: "$\(skillName)", path: path),
-                    systemImageName: "sparkle.magnifyingglass",
-                    searchKey: "\(skillName) \(path)".lowercased(),
-                    priority: 0
-                ))
-                if candidates.count >= Self.maxIndexedSkills {
-                    break
-                }
-            }
-            if candidates.count >= Self.maxIndexedSkills {
-                break
-            }
-        }
-
-        let index = TextBoxMentionCandidateIndex(candidates: candidates)
-        skillIndexesByRootKey[cacheKey] = index
-        return index
-    }
-
-    private static func scanFiles(rootURL: URL) -> [TextBoxMentionCandidate] {
-        let fileManager = FileManager.default
-        guard let enumerator = fileManager.enumerator(
-            at: rootURL,
-            includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey],
-            options: [.skipsHiddenFiles, .skipsPackageDescendants],
-            errorHandler: { _, _ in true }
-        ) else {
-            return []
-        }
-
-        let rootPath = rootURL.standardizedFileURL.path
-        var candidates: [TextBoxMentionCandidate] = []
-        while let item = enumerator.nextObject() as? URL {
-            let standardizedURL = item.standardizedFileURL
-            let name = standardizedURL.lastPathComponent
-            let values = try? standardizedURL.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey])
-            if values?.isDirectory == true {
-                if skippedDirectoryNames.contains(name) {
-                    enumerator.skipDescendants()
-                }
-                continue
-            }
-            guard values?.isRegularFile == true else { continue }
-
-            let relativePath = Self.relativePath(for: standardizedURL.path, rootPath: rootPath)
-            candidates.append(TextBoxMentionCandidate(
-                title: "@\(relativePath)",
-                subtitle: Self.displayPath(standardizedURL.path),
-                insertionText: TextBoxMentionMarkdown.link(label: "@\(relativePath)", path: standardizedURL.path),
-                systemImageName: "doc",
-                searchKey: "\(relativePath) \(name)".lowercased(),
-                priority: min(relativePath.split(separator: "/").count, 20)
-            ))
-
-            if candidates.count >= maxIndexedFiles {
-                break
-            }
-        }
-        return candidates.sorted {
-            if $0.priority != $1.priority {
-                return $0.priority < $1.priority
-            }
-            return $0.title.localizedStandardCompare($1.title) == .orderedAscending
-        }
-    }
-
-    private static func scanSkillFiles(rootURL: URL) -> [URL] {
-        let fileManager = FileManager.default
-        guard fileManager.fileExists(atPath: rootURL.path) else { return [] }
-
-        var result: [URL] = []
-        if fileManager.fileExists(atPath: rootURL.appendingPathComponent("SKILL.md").path) {
-            result.append(rootURL.appendingPathComponent("SKILL.md"))
-            return result
-        }
-
-        guard let enumerator = fileManager.enumerator(
-            at: rootURL,
-            includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey],
-            options: [.skipsHiddenFiles, .skipsPackageDescendants],
-            errorHandler: { _, _ in true }
-        ) else {
-            return []
-        }
-
-        while let item = enumerator.nextObject() as? URL {
-            let standardizedURL = item.standardizedFileURL
-            if standardizedURL.lastPathComponent == "SKILL.md" {
-                result.append(standardizedURL)
-                if result.count >= maxIndexedSkills {
-                    break
-                }
-                enumerator.skipDescendants()
-                continue
-            }
-
-            if let values = try? standardizedURL.resourceValues(forKeys: [.isDirectoryKey]),
-               values.isDirectory == true,
-               skippedDirectoryNames.contains(standardizedURL.lastPathComponent) {
-                enumerator.skipDescendants()
-            }
-        }
-        return result
-    }
-
-    private static func skillSearchRoots(rootDirectory: String?) -> [URL] {
-        let fileManager = FileManager.default
-        var roots: [URL] = []
-
-        if let rootDirectory {
-            var current = URL(fileURLWithPath: rootDirectory, isDirectory: true).standardizedFileURL
-            while current.path != "/" {
-                let skillsURL = current.appendingPathComponent("skills", isDirectory: true)
-                if fileManager.fileExists(atPath: skillsURL.path) {
-                    roots.append(skillsURL)
-                }
-                current.deleteLastPathComponent()
-            }
-        }
-
-        let home = fileManager.homeDirectoryForCurrentUser
-        roots.append(home.appendingPathComponent(".codex/skills", isDirectory: true))
-        roots.append(home.appendingPathComponent(".codex/skills/.system", isDirectory: true))
-        roots.append(home.appendingPathComponent(".agents/skills", isDirectory: true))
-        roots.append(contentsOf: pluginSkillRoots(
-            pluginCacheURL: home.appendingPathComponent(".codex/plugins/cache", isDirectory: true),
-            fileManager: fileManager
-        ))
-
-        var seen = Set<String>()
-        return roots
-            .map(\.standardizedFileURL)
-            .filter { fileManager.fileExists(atPath: $0.path) }
-            .filter { seen.insert($0.path).inserted }
-    }
-
-    private static func pluginSkillRoots(pluginCacheURL: URL, fileManager: FileManager) -> [URL] {
-        guard let vendors = try? fileManager.contentsOfDirectory(
-            at: pluginCacheURL,
-            includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles]
-        ) else {
-            return []
-        }
-
-        var roots: [URL] = []
-        for vendor in vendors where isDirectory(vendor, fileManager: fileManager) {
-            guard let pluginNames = try? fileManager.contentsOfDirectory(
-                at: vendor,
-                includingPropertiesForKeys: [.isDirectoryKey],
-                options: [.skipsHiddenFiles]
-            ) else { continue }
-
-            for pluginName in pluginNames where isDirectory(pluginName, fileManager: fileManager) {
-                guard let versions = try? fileManager.contentsOfDirectory(
-                    at: pluginName,
-                    includingPropertiesForKeys: [.isDirectoryKey],
-                    options: [.skipsHiddenFiles]
-                ) else { continue }
-
-                for version in versions where isDirectory(version, fileManager: fileManager) {
-                    let skillsURL = version.appendingPathComponent("skills", isDirectory: true)
-                    if isDirectory(skillsURL, fileManager: fileManager) {
-                        roots.append(skillsURL)
-                    }
-                }
-            }
-        }
-        return roots
-    }
-
-    private static func isDirectory(_ url: URL, fileManager: FileManager) -> Bool {
-        (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
-    }
-
-    private static func skillName(from skillURL: URL) -> String {
-        guard let content = try? String(contentsOf: skillURL, encoding: .utf8) else {
-            return skillURL.deletingLastPathComponent().lastPathComponent
-        }
-
-        for line in content.split(separator: "\n", maxSplits: 32, omittingEmptySubsequences: false) {
-            let trimmed = String(line).trimmingCharacters(in: .whitespacesAndNewlines)
-            guard trimmed.hasPrefix("name:") else { continue }
-            let name = String(trimmed.dropFirst("name:".count)).trimmingCharacters(in: .whitespacesAndNewlines)
-            if !name.isEmpty {
-                return name.trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
-            }
-        }
-        return skillURL.deletingLastPathComponent().lastPathComponent
-    }
-
-    private static func normalizedDirectory(_ path: String?) -> String? {
-        guard let path = path?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !path.isEmpty else {
-            return nil
-        }
-
-        let expanded = (path as NSString).expandingTildeInPath
-        let url = URL(fileURLWithPath: expanded, isDirectory: true).standardizedFileURL
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
-              isDirectory.boolValue else {
-            return nil
-        }
-        return url.path
-    }
-
-    private static func relativePath(for path: String, rootPath: String) -> String {
-        guard path.hasPrefix(rootPath) else { return path }
-        let start = path.index(path.startIndex, offsetBy: rootPath.count)
-        let relative = String(path[start...]).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        return relative.isEmpty ? URL(fileURLWithPath: path).lastPathComponent : relative
-    }
-
-    private static func displayPath(_ path: String) -> String {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        guard path.hasPrefix(home) else { return path }
-        return "~" + String(path.dropFirst(home.count))
-    }
-}
-
-@MainActor
-@Observable
-private final class TextBoxMentionCompletionController {
-    private(set) var suggestions: [TextBoxMentionSuggestion] = []
-    private(set) var selectionIndex: Int = 0
-
-    @ObservationIgnored
-    private(set) var activeQuery: TextBoxMentionQuery?
-    @ObservationIgnored
-    private var activeRootDirectory: String?
-    @ObservationIgnored
-    private var lookupTask: Task<Void, Never>?
-    @ObservationIgnored
-    var onStateChanged: (() -> Void)?
-
-    var hasSuggestions: Bool {
-        !suggestions.isEmpty
-    }
-
-    var selectedSuggestion: TextBoxMentionSuggestion? {
-        guard suggestions.indices.contains(selectionIndex) else { return nil }
-        return suggestions[selectionIndex]
-    }
-
-    func refresh(for query: TextBoxMentionQuery?, rootDirectory: String?) {
-        guard activeQuery != query || activeRootDirectory != rootDirectory else { return }
-        activeQuery = query
-        activeRootDirectory = rootDirectory
-        selectionIndex = 0
-        lookupTask?.cancel()
-        suggestions = []
-        onStateChanged?()
-
-        guard let query else {
-            return
-        }
-
-        lookupTask = Task { [weak self] in
-            let suggestions = await TextBoxMentionIndexStore.shared.suggestions(
-                for: query,
-                rootDirectory: rootDirectory
-            )
-            await MainActor.run {
-                guard let self,
-                      self.activeQuery == query,
-                      self.activeRootDirectory == rootDirectory else {
-                    return
-                }
-                self.suggestions = suggestions
-                self.selectionIndex = suggestions.isEmpty ? 0 : min(self.selectionIndex, suggestions.count - 1)
-                self.onStateChanged?()
-            }
-        }
-    }
-
-    func moveSelection(delta: Int) {
-        guard !suggestions.isEmpty else { return }
-        let count = suggestions.count
-        selectionIndex = (selectionIndex + delta + count) % count
-    }
-
-    func clear() {
-        activeQuery = nil
-        activeRootDirectory = nil
-        suggestions = []
-        selectionIndex = 0
-        lookupTask?.cancel()
-        lookupTask = nil
-        onStateChanged?()
-    }
-
-    deinit {
-        lookupTask?.cancel()
-    }
-
-#if DEBUG
-    func debugSetState(
-        query: TextBoxMentionQuery?,
-        suggestions debugSuggestions: [TextBoxMentionSuggestion]
-    ) {
-        lookupTask?.cancel()
-        lookupTask = nil
-        activeQuery = query
-        activeRootDirectory = nil
-        suggestions = debugSuggestions
-        selectionIndex = suggestions.isEmpty ? 0 : min(selectionIndex, suggestions.count - 1)
-        onStateChanged?()
-    }
-
-    var debugSuggestionCount: Int {
-        suggestions.count
-    }
-#endif
+    return normalizedCharacters(event).lowercased()
 }
 
 private struct TextBoxMentionCompletionPopoverView: View {
-    let controller: TextBoxMentionCompletionController
+    let suggestions: [TextBoxMentionSuggestion]
+    let selectionIndex: Int
+    let searchTerm: String
+    let isLoading: Bool
     let onSelect: (TextBoxMentionSuggestion) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            ForEach(Array(controller.suggestions.enumerated()), id: \.element.id) { index, suggestion in
-                Button {
-                    onSelect(suggestion)
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: suggestion.systemImageName)
-                            .font(.system(size: 13, weight: .medium))
-                            .frame(width: 18)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(suggestion.title)
-                                .font(.system(size: 12, weight: .semibold))
-                                .lineLimit(1)
-                            Text(suggestion.subtitle)
-                                .font(.system(size: 10, weight: .regular))
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
+        ScrollViewReader { proxy in
+            ScrollView(.vertical, showsIndicators: true) {
+                LazyVStack(alignment: .leading, spacing: 1) {
+                    if suggestions.isEmpty, isLoading {
+                        HStack {
+                            Spacer(minLength: 0)
+                            ProgressView()
+                                .controlSize(.small)
+                            Spacer(minLength: 0)
+                        }
+                        .frame(maxWidth: .infinity, minHeight: 28, alignment: .center)
+                    } else {
+                        ForEach(Array(suggestions.enumerated()), id: \.element.id) { index, suggestion in
+                            Button {
+                                onSelect(suggestion)
+                            } label: {
+                                Text(Self.highlightedTitle(suggestion.title, query: searchTerm))
+                                    .cmuxFont(size: 12, weight: .semibold)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                    .padding(.horizontal, 8)
+                                    .frame(maxWidth: .infinity, minHeight: 24, alignment: .leading)
+                                    .background {
+                                        RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                            .fill(index == selectionIndex ? Color.accentColor.opacity(0.24) : Color.clear)
+                                    }
+                            }
+                            .buttonStyle(.plain)
+                            .id(index)
                         }
                     }
-                    .padding(.horizontal, 8)
-                    .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
-                    .background {
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .fill(index == controller.selectionIndex ? Color.accentColor.opacity(0.24) : Color.clear)
-                    }
                 }
-                .buttonStyle(.plain)
+                .padding(4)
+            }
+            .onChange(of: selectionIndex) { _, newValue in
+                proxy.scrollTo(newValue, anchor: nil)
             }
         }
-        .padding(5)
-        .frame(width: 430)
+        .frame(width: 360)
         .background(.regularMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .transaction { transaction in
+            transaction.animation = nil
+        }
+    }
+
+    private static func highlightedTitle(_ title: String, query: String) -> AttributedString {
+        var attributed = AttributedString(title)
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedQuery.isEmpty else { return attributed }
+        let ranges = subsequenceMatchRanges(query: trimmedQuery, in: title)
+        guard !ranges.isEmpty else { return attributed }
+        for range in ranges {
+            guard let attrLower = AttributedString.Index(range.lowerBound, within: attributed),
+                  let attrUpper = AttributedString.Index(range.upperBound, within: attributed) else {
+                continue
+            }
+            attributed[attrLower..<attrUpper].foregroundColor = .accentColor
+            attributed[attrLower..<attrUpper].inlinePresentationIntent = .stronglyEmphasized
+        }
+        return attributed
+    }
+
+    private static func subsequenceMatchRanges(query: String, in text: String) -> [Range<String.Index>] {
+        guard !query.isEmpty, !text.isEmpty else { return [] }
+        var ranges: [Range<String.Index>] = []
+        var queryIndex = query.startIndex
+        var textIndex = text.startIndex
+
+        while queryIndex < query.endIndex, textIndex < text.endIndex {
+            let nextTextIndex = text.index(after: textIndex)
+            let nextQueryIndex = query.index(after: queryIndex)
+            let textCharacter = String(text[textIndex..<nextTextIndex])
+            let queryCharacter = String(query[queryIndex..<nextQueryIndex])
+            if textCharacter.compare(
+                queryCharacter,
+                options: [.caseInsensitive, .diacriticInsensitive],
+                locale: nil
+            ) == .orderedSame {
+                ranges.append(textIndex..<nextTextIndex)
+                queryIndex = nextQueryIndex
+            }
+            textIndex = nextTextIndex
+        }
+
+        return queryIndex == query.endIndex ? ranges : []
     }
 }
 
-@MainActor
-protocol TextBoxSubmitSurfaceControlling: AnyObject {
-    var clipboardReadGeneration: Int { get }
-    var textBoxSubmitObservationWindow: NSWindow? { get }
-    var textBoxSubmitTerminalSurface: TerminalSurface? { get }
-
-    func visibleText() -> String?
-    @discardableResult
-    func sendKeyText(_ text: String) -> Bool
-    @discardableResult
-    func sendText(_ text: String) -> Bool
-    @discardableResult
-    func sendNamedKey(_ keyName: String) -> TerminalSurface.NamedKeySendResult
-    @discardableResult
-    func performBindingAction(_ action: String) -> Bool
-}
-
-extension TerminalSurface: TextBoxSubmitSurfaceControlling {
-    var textBoxSubmitObservationWindow: NSWindow? {
-        hostedView.window
-    }
-
-    var textBoxSubmitTerminalSurface: TerminalSurface? {
-        self
-    }
+final class TextBoxMentionCompletionPanel: NSPanel {
+    override var canBecomeKey: Bool { false }
+    override var canBecomeMain: Bool { false }
 }
 
 private extension TerminalSurface.NamedKeySendResult {
@@ -2216,13 +1232,20 @@ enum TextBoxSubmit {
             }
         }
 
-        let submitKey = isClaude && containsNewline ? "ctrl+enter" : TextBoxTerminalKey.returnKey.rawValue
+        let submitKey = TextBoxAgentDetection.composedPromptSubmitKey(containsNewline: containsNewline, context: terminalAgentContext)
         if isClaude, containsImageAttachment(inputParts) {
             return claudeSequentialImageDispatchEvents(from: inputParts, submitKey: submitKey)
         }
 
         let pastePayload = TextBoxSubmissionFormatter.formattedText(from: inputParts)
         return [.pasteText(pastePayload), .namedKey(submitKey)]
+    }
+
+    static func launchDispatchEvents(launchCommand: String) -> [DispatchEvent] {
+        [
+            .pasteText(launchCommand),
+            .namedKey(TextBoxTerminalKey.returnKey.rawValue),
+        ]
     }
 
     static func send(
@@ -2242,6 +1265,14 @@ enum TextBoxSubmit {
         onComplete: ((CompletionContext) -> Void)? = nil
     ) {
         let events = dispatchEvents(for: parts, terminalAgentContext: terminalAgentContext)
+        TextBoxSubmitEventRunner.run(events, via: surface, onComplete: onComplete)
+    }
+
+    static func sendEvents(
+        _ events: [DispatchEvent],
+        via surface: TerminalSurface,
+        onComplete: ((CompletionContext) -> Void)? = nil
+    ) {
         TextBoxSubmitEventRunner.run(events, via: surface, onComplete: onComplete)
     }
 
@@ -2470,10 +1501,12 @@ private final class TextBoxSubmitEventRunner {
     private var confirmedClaudeImageSubmissionTexts: [String: Int] = [:]
     private var observers: [NSObjectProtocol] = []
     private var waitTimeoutTimer: DispatchSourceTimer?
+    private var pasteFilePathTask: Task<Void, Never>?
+    private var pasteFilePathMutationLease: TerminalPasteboardMutationLease?
     private var releaseTickNotifications: (() -> Void)?
     private var releaseRenderedFrameNotifications: (() -> Void)?
-    private var originalPasteboardItems: [PasteboardItemSnapshot]?
-    private var temporaryPasteboardRestorationToken: TextBoxPasteboardRestorationToken?
+    private var temporaryPasteboardMutationResult:
+        TerminalPasteboardMutationResult?
     private var observationToken = UUID()
 
     private static var waitTimeoutSeconds: TimeInterval {
@@ -2485,8 +1518,10 @@ private final class TextBoxSubmitEventRunner {
         return 15
     }
 
-    private struct PasteboardItemSnapshot {
-        let representations: [(type: NSPasteboard.PasteboardType, data: Data)]
+    private enum PasteFilePathStart {
+        case pending
+        case completed
+        case rejected
     }
 
     private struct PendingRun {
@@ -2587,7 +1622,12 @@ private final class TextBoxSubmitEventRunner {
                     return
                 }
             case .pasteFilePath(let path):
-                guard pasteFilePath(path) else {
+                switch pasteFilePath(path) {
+                case .pending:
+                    return
+                case .completed:
+                    continue
+                case .rejected:
                     fail(.terminalWriteRejected)
                     return
                 }
@@ -2628,6 +1668,7 @@ private final class TextBoxSubmitEventRunner {
 
     private func fail(_ failure: TextBoxSubmit.CompletionContext.Failure) {
         removeObservers()
+        cancelPendingPasteboardMutation()
         restorePasteboardIfNeeded()
         let completion = onComplete
         onComplete = nil
@@ -2646,6 +1687,7 @@ private final class TextBoxSubmitEventRunner {
     }
 
     private func finish() {
+        cancelPendingPasteboardMutation()
         restorePasteboardIfNeeded()
         let completion = onComplete
         onComplete = nil
@@ -2718,6 +1760,7 @@ private final class TextBoxSubmitEventRunner {
 
     private func cancelForTesting() {
         removeObservers()
+        cancelPendingPasteboardMutation()
         restorePasteboardIfNeeded()
         onComplete = nil
     }
@@ -2985,86 +2028,125 @@ private final class TextBoxSubmitEventRunner {
         timer.resume()
     }
 
-    private func pasteFilePath(_ path: String) -> Bool {
+    private func pasteFilePath(_ path: String) -> PasteFilePathStart {
+        // A run can paste several images. Restore the prior temporary write
+        // first so each new receipt captures the user's latest clipboard.
+        restorePasteboardIfNeeded()
         let pasteboard = NSPasteboard.general
-        if originalPasteboardItems == nil {
-            originalPasteboardItems = Self.snapshotPasteboardItems(pasteboard)
-        } else if !TextBoxPasteboardRestorationGuard.isCurrentTemporaryWrite(
-            pasteboard: pasteboard,
-            token: temporaryPasteboardRestorationToken
-        ) {
-            originalPasteboardItems = Self.snapshotPasteboardItems(pasteboard)
-            temporaryPasteboardRestorationToken = nil
-        }
-
         let fileURL = URL(fileURLWithPath: path).standardizedFileURL
-        pasteboard.clearContents()
-        let wroteURL = pasteboard.writeObjects([fileURL as NSURL])
-        if !wroteURL {
-            pasteboard.clearContents()
-            pasteboard.declareTypes([.fileURL, PasteboardFileURLReader.legacyFilenamesPboardType], owner: nil)
-            _ = pasteboard.setString(fileURL.absoluteString, forType: .fileURL)
-            _ = pasteboard.setPropertyList([fileURL.path], forType: PasteboardFileURLReader.legacyFilenamesPboardType)
+        let item = NSPasteboardItem()
+        let wroteFileURL = item.setString(
+            fileURL.absoluteString,
+            forType: .fileURL
+        )
+        let wroteLegacyPaths = item.setPropertyList(
+            [fileURL.path],
+            forType: PasteboardFileURLReader.legacyFilenamesPboardType
+        )
+        guard wroteFileURL || wroteLegacyPaths else {
+            return .rejected
         }
-        temporaryPasteboardRestorationToken = TextBoxPasteboardRestorationGuard.token(
-            afterWritingTemporaryFileURL: fileURL,
-            to: pasteboard
-        )
-
-#if DEBUG
-        cmuxDebugLog(
-            "textbox.submit.pasteFile id=\(id.uuidString.prefix(5)) pathLength=\(fileURL.path.utf8.count) wroteURL=\(wroteURL ? 1 : 0) " +
-            "types=\((pasteboard.types ?? []).map(\.rawValue).joined(separator: ","))"
-        )
-#endif
-
-        let handled = surface.performBindingAction("paste_from_clipboard")
-#if DEBUG
-        cmuxDebugLog("textbox.submit.pasteFile.binding id=\(id.uuidString.prefix(5)) handled=\(handled ? 1 : 0)")
-#endif
-        if handled {
-            return true
-        } else {
+        guard let lease = GhosttyApp.terminalPasteboard.reserveMutation(
+            of: pasteboard,
+            replacingWith: [item]
+        ) else {
             filePasteFallbackSatisfiedClipboardRead = true
-            let sentFallback = surface.sendText(TerminalImageTransferPlanner.escapeForShell(path))
-            restorePasteboardIfNeeded()
-            return sentFallback
+            return surface.sendText(
+                TerminalImageTransferPlanner.escapeForShell(path)
+            ) ? .completed : .rejected
+        }
+        pasteFilePathMutationLease = lease
+
+        pasteFilePathTask = Task { @MainActor [weak self] in
+            guard let result = await lease.waitUntilApplied() else {
+                _ = lease.finish()
+                guard let self, Self.active[id] === self else { return }
+                pasteFilePathTask = nil
+                if pasteFilePathMutationLease === lease {
+                    pasteFilePathMutationLease = nil
+                }
+                fail(.terminalWriteRejected)
+                return
+            }
+            guard let self, Self.active[id] === self else {
+                _ = lease.finish()
+                return
+            }
+            pasteFilePathTask = nil
+            if pasteFilePathMutationLease === lease {
+                pasteFilePathMutationLease = nil
+            }
+
+            guard result.didWrite else {
+                _ = lease.finish()
+                filePasteFallbackSatisfiedClipboardRead = true
+                guard surface.sendText(
+                    TerminalImageTransferPlanner.escapeForShell(path)
+                ) else {
+                    fail(.terminalWriteRejected)
+                    return
+                }
+                processNext()
+                return
+            }
+            temporaryPasteboardMutationResult = result
+
+#if DEBUG
+            cmuxDebugLog(
+                "textbox.submit.pasteFile id=\(id.uuidString.prefix(5)) " +
+                "pathLength=\(fileURL.path.utf8.count) wroteURL=1 " +
+                "types=\((pasteboard.types ?? []).map(\.rawValue).joined(separator: ","))"
+            )
+#endif
+
+            let handled = surface.performExplicitInputBindingAction(
+                "paste_from_clipboard"
+            )
+            // The binding's synchronous runtime callback has now registered
+            // its read behind this mutation, so the lane can advance.
+            _ = lease.finish()
+#if DEBUG
+            cmuxDebugLog(
+                "textbox.submit.pasteFile.binding id=\(id.uuidString.prefix(5)) " +
+                "handled=\(handled ? 1 : 0)"
+            )
+#endif
+            guard handled else {
+                filePasteFallbackSatisfiedClipboardRead = true
+                let sentFallback = surface.sendText(
+                    TerminalImageTransferPlanner.escapeForShell(path)
+                )
+                restorePasteboardIfNeeded()
+                guard sentFallback else {
+                    fail(.terminalWriteRejected)
+                    return
+                }
+                processNext()
+                return
+            }
+            processNext()
+        }
+        return .pending
+    }
+
+    private func cancelPendingPasteboardMutation() {
+        pasteFilePathTask?.cancel()
+        pasteFilePathTask = nil
+        guard let lease = pasteFilePathMutationLease else { return }
+        pasteFilePathMutationLease = nil
+        let appliedResult = lease.finish()
+        if temporaryPasteboardMutationResult == nil {
+            temporaryPasteboardMutationResult = appliedResult
         }
     }
 
     private func restorePasteboardIfNeeded() {
-        guard let originalPasteboardItems else { return }
-        self.originalPasteboardItems = nil
-        let pasteboard = NSPasteboard.general
-        guard TextBoxPasteboardRestorationGuard.shouldRestore(
-            pasteboard: pasteboard,
-            token: temporaryPasteboardRestorationToken
-        ) else {
-            temporaryPasteboardRestorationToken = nil
-            return
-        }
-        temporaryPasteboardRestorationToken = nil
-        pasteboard.clearContents()
-        guard !originalPasteboardItems.isEmpty else { return }
-        let restoredItems = originalPasteboardItems.map { snapshot in
-            let item = NSPasteboardItem()
-            for representation in snapshot.representations {
-                item.setData(representation.data, forType: representation.type)
-            }
-            return item
-        }
-        pasteboard.writeObjects(restoredItems)
-    }
-
-    private static func snapshotPasteboardItems(_ pasteboard: NSPasteboard) -> [PasteboardItemSnapshot] {
-        (pasteboard.pasteboardItems ?? []).map { item in
-            PasteboardItemSnapshot(
-                representations: item.types.compactMap { type in
-                    guard let data = item.data(forType: type) else { return nil }
-                    return (type: type, data: data)
-                }
-            )
-        }
+        guard let result = temporaryPasteboardMutationResult else { return }
+        guard GhosttyApp.terminalPasteboard.restoreContents(
+            replacedBy: result,
+            in: .general
+        ) else { return }
+        temporaryPasteboardMutationResult = nil
     }
 
     private func claudeImageTokenReady() -> Bool {
@@ -3143,28 +2225,52 @@ private final class TextBoxSubmitEventRunner {
 }
 
 struct TextBoxInputContainer: View {
+    @AppStorage(TerminalTextBoxInputSettings.defaultSubmitActionKey)
+    var configuredDefaultSubmitActionID = TerminalTextBoxInputSettings.defaultSubmitActionID
+    @AppStorage(TerminalTextBoxInputSettings.submitActionsKey)
+    var configuredSubmitActionsJSON = ""
+    @State var submitActionImageCache: [String: NSImage] = [:]
+    @State var submitActionAssetAvailabilityCache: [String: Bool] = [:]
+    @State var cachedSubmitActionsJSON: String?
+    @State var cachedSubmitActions = TerminalTextBoxInputSettings.submitActions(configuredJSON: "")
     @Binding var text: String
     @Binding var attachments: [TextBoxAttachment]
+    @Binding var selectedSubmitActionID: String?
+    @Binding var pendingProviderLaunchAction: TextBoxSubmitAction?
+    @Binding var pendingProviderLaunchStartedAt: Date?
     let surface: TerminalSurface
     let terminalBackgroundColor: NSColor
     let terminalForegroundColor: NSColor
     let terminalFont: NSFont
     let maxLines: Int
     let terminalAgentContext: String
+    let shellActivityState: PanelShellActivityState
+    let allowsCommandTemplateSubmit: Bool
     let onFocusTextBox: () -> Void
     let onToggleFocus: () -> Void
+    let onSelectSubmitAction: (String) -> Void
+    let onRecordLaunchCommand: (String) -> Void
+    let onClearLaunchCommand: () -> Void
     let onEscape: () -> Void
     let onTextViewCreated: (TextBoxInputTextView) -> Void
     let onTextViewMovedToWindow: (TextBoxInputTextView) -> Void
     let onTextViewDismantled: (TextBoxInputTextView) -> Void
-
     @State private var textViewHeight: CGFloat = 0
     @State private var hasPendingAttachmentUpload = false
+    @State private var hasMarkedText = false
     @State private var textViewReference = TextBoxInputViewReference()
     @State private var contentRevision: UInt64 = 0
+    @State var pendingProviderLaunchTimeoutScheduler = MainActorDeferredActionScheduler()
+    @ObservedObject private var commentPool: DiffCommentSubmissionPool = .shared
+
+    private var pendingCommentCount: Int {
+        commentPool.pendingCount(workspaceId: surface.owningWorkspace()?.id)
+    }
+
+    private var textBasePointSize: CGFloat { max(14, terminalFont.pointSize / max(GlobalFontMagnification.scale, 0.01) + 2) }
 
     private var textFont: NSFont {
-        NSFont.systemFont(ofSize: max(14, terminalFont.pointSize + 2), weight: .regular)
+        GlobalFontMagnification.systemFont(ofSize: textBasePointSize, weight: .regular)
     }
 
     private func heightForLines(_ lines: Int) -> CGFloat {
@@ -3196,10 +2302,20 @@ struct TextBoxInputContainer: View {
         let clampedHeight = max(minHeight, min(maxHeight, textViewHeight))
         let foreground = Color(nsColor: terminalForegroundColor)
         let background = Color(nsColor: terminalBackgroundColor)
-        let canSend = !hasPendingAttachmentUpload
-            && (!text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty)
+        let baseCanSend = TextBoxSubmitAvailability.shouldEnableSubmit(
+            text: text,
+            attachmentCount: attachments.count + pendingCommentCount,
+            hasPendingAttachmentUpload: hasPendingAttachmentUpload,
+            hasMarkedText: hasMarkedText
+        )
+        let canSend = Self.shouldEnableSubmitButton(baseCanSend: baseCanSend, pendingProviderLaunchAction: pendingProviderLaunchAction, action: effectiveSubmitAction, shouldForceTextEntrySubmit: shouldForceTextEntrySubmit, allowsCommandTemplateSubmit: allowsCommandTemplateSubmit)
 
-        HStack(alignment: .bottom, spacing: 6) {
+        VStack(alignment: .leading, spacing: 6) {
+            if pendingCommentCount > 0 {
+                pendingCommentsChip(count: pendingCommentCount, foreground: foreground)
+                    .padding(.top, 6)
+            }
+            HStack(alignment: .bottom, spacing: 6) {
             addFilesButton(foreground: foreground)
                 .offset(x: TextBoxLayout.leadingButtonHorizontalOffset)
                 .padding(.bottom, TextBoxLayout.buttonBottomPadding)
@@ -3219,6 +2335,7 @@ struct TextBoxInputContainer: View {
                     onEscape: onEscape,
                     onFocusTextBox: onFocusTextBox,
                     onToggleFocus: onToggleFocus,
+                    onCycleSubmitAction: cycleSubmitAction,
                     onForwardText: forwardText(_:focusTerminalAfterSend:),
                     onForwardKey: forwardKey(_:),
                     onForwardControl: forwardControl(_:),
@@ -3226,14 +2343,19 @@ struct TextBoxInputContainer: View {
                     onInsertFileURLs: insertSelectedFileURLs(_:into:),
                     onChooseFiles: chooseFiles,
                     onContentChanged: markContentChanged,
+                    onMarkedTextStateChanged: updateMarkedTextState(_:),
                     onTextViewCreated: registerTextView(_:),
                     onTextViewMovedToWindow: onTextViewMovedToWindow,
                     onTextViewDismantled: onTextViewDismantled
                 )
 
-                if text.isEmpty && attachments.isEmpty {
+                if TextBoxSubmitAvailability.shouldShowPlaceholder(
+                    text: text,
+                    attachmentCount: attachments.count,
+                    hasMarkedText: hasMarkedText
+                ) {
                     Text(String(localized: "textbox.placeholder", defaultValue: "Prompt or command"))
-                        .font(.system(size: textFont.pointSize))
+                        .cmuxFont(size: textBasePointSize)
                         .foregroundStyle(Color(nsColor: terminalForegroundColor).opacity(0.36))
                         .padding(.leading, TextBoxLayout.textInset.width)
                         .frame(height: clampedHeight, alignment: .center)
@@ -3244,9 +2366,10 @@ struct TextBoxInputContainer: View {
             .frame(height: clampedHeight)
             .frame(maxWidth: .infinity)
 
-            sendButton(canSend: canSend, foreground: foreground)
+            sendButton(canSend: canSend, presentation: submitActionPresentation)
                 .offset(x: TextBoxLayout.trailingButtonHorizontalOffset)
                 .padding(.bottom, TextBoxLayout.buttonBottomPadding)
+            }
         }
         .padding(.horizontal, TextBoxLayout.pillHorizontalPadding)
         .padding(.vertical, TextBoxLayout.pillVerticalPadding)
@@ -3257,13 +2380,41 @@ struct TextBoxInputContainer: View {
             )
         )
         .padding(.horizontal, 10)
-        .padding(.vertical, 7)
+        .padding(.bottom, 7)
+        .task(id: submitActionImageCacheTaskKey) {
+            await refreshSubmitActionImageCache(keys: submitActionImageCacheKeys)
+        }
+        .onAppear {
+            refreshSubmitActionsCacheIfNeeded()
+            reconcilePendingProviderLaunch()
+            if pendingProviderLaunchAction != nil {
+                schedulePendingProviderLaunchTimeout()
+            }
+        }
+        .onDisappear {
+            pendingProviderLaunchTimeoutScheduler.cancel()
+        }
+        .onChange(of: configuredSubmitActionsJSON) { _, _ in
+            refreshSubmitActionsCacheIfNeeded()
+        }
+        .onChange(of: terminalAgentContext) { _, _ in
+            reconcilePendingProviderLaunch()
+        }
+        .onChange(of: shellActivityState) { _, _ in
+            reconcilePendingProviderLaunch()
+        }
+        .onChange(of: allowsCommandTemplateSubmit) { _, _ in
+            reconcilePendingProviderLaunch()
+        }
+        .onChange(of: configuredDefaultSubmitActionID) { _, _ in
+            guard selectedSubmitActionID == nil else { return }
+            cancelPendingProviderLaunch()
+        }
     }
 
     private func addFilesButton(foreground: Color) -> some View {
         Button(action: chooseFiles) {
-            Image(systemName: "plus")
-                .font(.system(size: TextBoxLayout.iconSymbolSize, weight: .semibold))
+            CmuxSystemSymbolImage(magnified: "plus", pointSize: TextBoxLayout.iconSymbolSize, weight: .semibold, tint: foreground.opacity(0.82))
                 .frame(width: TextBoxLayout.iconButtonSize, height: TextBoxLayout.iconButtonSize)
                 .background(
                     Circle()
@@ -3299,33 +2450,149 @@ struct TextBoxInputContainer: View {
         .frame(height: TextBoxLayout.attachmentChipHeight)
     }
 
-    private func sendButton(canSend: Bool, foreground: Color) -> some View {
-        Button(action: submit) {
-            Image(systemName: "arrow.up")
-                .font(.system(size: TextBoxLayout.sendSymbolSize, weight: .bold))
-                .frame(width: TextBoxLayout.iconButtonSize, height: TextBoxLayout.iconButtonSize)
+    @State private var showPendingCommentsPreview = false
+
+    private func pendingCommentsChip(count: Int, foreground: Color) -> some View {
+        HStack(spacing: 5) {
+            Button {
+                showPendingCommentsPreview.toggle()
+            } label: {
+                HStack(spacing: 5) {
+                    CmuxSystemSymbolImage(magnified: "text.bubble", pointSize: 11, weight: .medium, tint: foreground.opacity(0.92))
+                    Text(pendingCommentsLabel(count))
+                        .cmuxFont(size: 12, weight: .medium)
+                        .lineLimit(1)
+                }
+            }
+            .buttonStyle(.plain)
+            .help(String(
+                localized: "textbox.diffComments.preview",
+                defaultValue: "Show comments"
+            ))
+            Button {
+                dismissPendingComments()
+            } label: {
+                CmuxSystemSymbolImage(magnified: "xmark", pointSize: 9, weight: .bold, tint: foreground.opacity(0.92))
+                    .frame(width: 16, height: 16)
+                    .background(Circle().fill(foreground.opacity(0.12)))
+            }
+            .buttonStyle(.plain)
+            .help(String(
+                localized: "textbox.diffComments.dismiss",
+                defaultValue: "Dismiss comments without sending"
+            ))
         }
-        .buttonStyle(TextBoxSendButtonStyle(canSend: canSend))
-        .foregroundStyle(canSend ? Color.black.opacity(0.86) : foreground.opacity(0.38))
-        .help(String(localized: "textbox.send.tooltip", defaultValue: "Send"))
-        .accessibilityLabel(String(localized: "textbox.send.tooltip", defaultValue: "Send"))
-        .disabled(!canSend)
-        .frame(width: TextBoxLayout.iconButtonSize, height: TextBoxLayout.iconButtonSize)
+        .padding(.leading, 9)
+        .padding(.trailing, 5)
+        .frame(height: 26)
+        .background(
+            Capsule().fill(foreground.opacity(0.10))
+        )
+        .overlay(
+            Capsule().strokeBorder(foreground.opacity(0.18), lineWidth: 1)
+        )
+        .foregroundStyle(foreground.opacity(0.92))
+        .popover(isPresented: $showPendingCommentsPreview, arrowEdge: .top) {
+            pendingCommentsPreview()
+        }
+        .accessibilityLabel(pendingCommentsLabel(count))
     }
 
-    private func submit() {
-        guard textViewReference.textView?.hasPendingAttachmentUploadPlaceholder() != true else {
-            NSSound.beep()
-            return
+    private func pendingCommentsPreview() -> some View {
+        let entries = surface.owningWorkspace().map {
+            commentPool.entriesByWorkspace[$0.id] ?? []
+        } ?? []
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(Array(entries.enumerated()), id: \.offset) { _, entry in
+                    Text(entry.submissionText.trimmingCharacters(in: .whitespacesAndNewlines))
+                        .cmuxFont(size: 11, design: .monospaced)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 14)
+            .padding(.bottom, 12)
         }
+        .frame(minWidth: 320, idealWidth: 440, maxWidth: 520, maxHeight: 360)
+    }
 
-        let submittedParts = textViewReference.textView?.submissionParts()
-            ?? [TextBoxSubmissionPart.text(text.trimmingCharacters(in: .newlines))]
-        guard TextBoxSubmissionFormatter.hasSubmittableContent(submittedParts) else {
+    private func dismissPendingComments() {
+        guard let workspaceId = surface.owningWorkspace()?.id else { return }
+        let dismissed = DiffCommentSubmissionPool.shared.consumeAll(workspaceId: workspaceId)
+        // Mark consumed so viewer reloads do not resurrect the chip; the
+        // comments stay saved in the diff viewer.
+        for (repoRoot, entries) in Dictionary(grouping: dismissed, by: \.repoRoot) {
+            DiffCommentStore.shared.markConsumed(ids: entries.map(\.commentId), repoRoot: repoRoot)
+        }
+    }
+
+    private func pendingCommentsLabel(_ count: Int) -> String {
+        count == 1
+            ? String(localized: "textbox.diffComments.one", defaultValue: "1 comment")
+            : String(
+                format: String(localized: "textbox.diffComments.many", defaultValue: "%d comments"),
+                count
+            )
+    }
+
+    func submit() {
+        let textView = textViewReference.textView
+        guard TextBoxSubmitAvailability.shouldSubmit(
+            hasPendingAttachmentUpload: textView?.hasPendingAttachmentUploadPlaceholder() ?? hasPendingAttachmentUpload,
+            hasMarkedText: textView?.hasMarkedText() ?? hasMarkedText
+        ) else {
             NSSound.beep()
             return
         }
-        let submittedTextView = textViewReference.textView
+        let submittedParts = textView?.submissionParts()
+            ?? [TextBoxSubmissionPart.text(text.trimmingCharacters(in: .newlines))]
+        let poolWorkspaceId = surface.owningWorkspace()?.id
+        let hasTypedContent = TextBoxSubmissionFormatter.hasSubmittableContent(submittedParts)
+        guard hasTypedContent || pendingCommentCount > 0 else {
+            NSSound.beep()
+            return
+        }
+        if isPendingProviderLaunchAwaitingAgent {
+            NSSound.beep()
+            return
+        }
+        let launchAction = effectiveSubmitAction
+        if Self.shouldFailClosedForCommandTemplate(
+            action: launchAction,
+            shouldForceTextEntrySubmit: shouldForceTextEntrySubmit,
+            allowsCommandTemplateSubmit: allowsCommandTemplateSubmit
+        ) {
+            NSSound.beep()
+            return
+        }
+        if let launchCommand = providerLaunchCommand(for: launchAction) {
+            startPendingProviderLaunch(launchAction)
+            onRecordLaunchCommand(launchAction.launchContextCommand() ?? launchCommand)
+            TextBoxSubmit.sendEvents(
+                TextBoxSubmit.launchDispatchEvents(launchCommand: launchCommand),
+                via: surface
+            ) { completionContext in
+                if !completionContext.didSubmit {
+                    clearPendingProviderLaunch()
+                    onClearLaunchCommand()
+                    NSSound.beep()
+                }
+            }
+            return
+        }
+        // Claim the workspace's pending diff comments: this submission carries
+        // them, and the chip clears from every other TextBox in the workspace.
+        let pendingComments = poolWorkspaceId.map {
+            DiffCommentSubmissionPool.shared.consumeAll(workspaceId: $0)
+        } ?? []
+        var partsToSend = submittedParts
+        if !pendingComments.isEmpty {
+            let bundle = pendingComments.map(\.submissionText).joined(separator: "\n")
+            partsToSend.append(.text(hasTypedContent ? "\n\n" + bundle : bundle))
+        }
+        let submittedTextView = textView
         let preservedContent = submittedTextView?.attributedContentForPreservation()
         submittedTextView?.prepareForSubmit()
         submittedTextView?.clearContent(cleanupAttachmentFiles: false)
@@ -3338,12 +2605,26 @@ struct TextBoxInputContainer: View {
             text: "",
             attachmentCount: 0
         )
-        TextBoxSubmit.send(
-            submittedParts,
-            via: surface,
-            terminalAgentContext: terminalAgentContext
+        let submitPlan = dispatchPlan(partsToSend, applying: effectiveSubmitAction)
+        if let launchContextCommand = submitPlan.launchContextCommand {
+            startPendingProviderLaunch(launchAction)
+            onRecordLaunchCommand(launchContextCommand)
+        }
+        TextBoxSubmit.sendEvents(
+            submitPlan.events,
+            via: surface
         ) { completionContext in
             guard completionContext.didSubmit else {
+                if submitPlan.launchContextCommand != nil {
+                    clearPendingProviderLaunch()
+                    onClearLaunchCommand()
+                }
+                if let poolWorkspaceId, !pendingComments.isEmpty {
+                    DiffCommentSubmissionPool.shared.restorePending(
+                        pendingComments,
+                        workspaceId: poolWorkspaceId
+                    )
+                }
                 guard TextBoxFailedSubmitRollbackPolicy.shouldRestore(
                     rollbackSnapshot: rollbackSnapshot,
                     currentSnapshot: currentRollbackSnapshot()
@@ -3363,6 +2644,12 @@ struct TextBoxInputContainer: View {
                 NSSound.beep()
                 return
             }
+            if !pendingComments.isEmpty {
+                for (repoRoot, entries) in Dictionary(grouping: pendingComments, by: \.repoRoot) {
+                    DiffCommentStore.shared.markConsumed(ids: entries.map(\.commentId), repoRoot: repoRoot)
+                }
+            }
+            resetPanelSubmitActionAfterSuccessfulSubmit(submittedAction: launchAction)
             let submittedAttachments = submittedParts.compactMap { part -> TextBoxAttachment? in
                 if case .attachment(let attachment) = part { return attachment }
                 return nil
@@ -3370,15 +2657,29 @@ struct TextBoxInputContainer: View {
             submittedTextView?.cleanupCopiedDraftFilesForPreservedLocalPathSubmissions(submittedAttachments)
             let cleanupAttachments = TextBoxSubmit.cleanupAttachmentsAfterSubmit(
                 from: submittedParts,
-                terminalAgentContext: terminalAgentContext,
+                terminalAgentContext: submitPlan.cleanupTerminalAgentContext,
                 completionContext: completionContext
             )
             submittedTextView?.cleanupDisposableAttachmentFiles(cleanupAttachments)
         }
     }
 
+    private func resetPanelSubmitActionAfterSuccessfulSubmit(submittedAction: TextBoxSubmitAction) {
+        let nextID = Self.panelSubmitActionIDAfterSuccessfulSubmit(
+            currentSubmitActionID: effectiveSubmitActionID,
+            submittedAction: submittedAction
+        )
+        guard nextID != effectiveSubmitActionID else { return }
+        selectedSubmitActionID = nextID
+    }
+
     private func markContentChanged() {
         _ = advanceContentRevision()
+    }
+
+    private func updateMarkedTextState(_ nextValue: Bool) {
+        guard hasMarkedText != nextValue else { return }
+        hasMarkedText = nextValue
     }
 
     @discardableResult
@@ -3396,6 +2697,7 @@ struct TextBoxInputContainer: View {
         )
     }
 
+    /// Records the newly constructed text view and lets the panel restore draft state.
     private func registerTextView(_ textView: TextBoxInputTextView) {
         textViewReference.textView = textView
         onTextViewCreated(textView)
@@ -3469,12 +2771,8 @@ struct TextBoxInputContainer: View {
         _ = surface.sendNamedKey("ctrl-\(key)")
     }
 
-    private func handlePaste(_ pasteboard: NSPasteboard, into textView: TextBoxInputTextView) -> Bool {
-        let preparedContent = TerminalImageTransferPlanner.prepare(
-            pasteboard: pasteboard,
-            mode: .paste
-        )
-        return insertPreparedContent(preparedContent, into: textView)
+    func ownsTextView(_ textView: TextBoxInputTextView) -> Bool {
+        textViewReference.textView === textView
     }
 
     private func insertPreparedContent(
@@ -3487,54 +2785,40 @@ struct TextBoxInputContainer: View {
             return true
         case .fileURLs(let fileURLs):
             return attachFileURLs(fileURLs, into: textView)
-        case .reject:
+        case .reject, .rejectOversizedImage:
             return false
         }
     }
 
-    private func attachFileURLs(_ fileURLs: [URL], into textView: TextBoxInputTextView) -> Bool {
-        let standardizedURLs = fileURLs
-            .filter(\.isFileURL)
-            .map(\.standardizedFileURL)
-        guard !standardizedURLs.isEmpty else { return false }
-
-        let plan = TerminalImageTransferPlanner.plan(
-            fileURLs: standardizedURLs,
-            target: surface.resolvedImageTransferTarget(),
-            mode: .paste
-        )
-
-        switch plan {
-        case .insertText, .insertTextSegments:
-            textView.insertAttachments(
-                standardizedURLs.map {
-                        TextBoxAttachment(
-                            localURL: $0,
-                            submissionText: TextBoxAttachment.submissionText(forLocalFileURL: $0),
-                            cleanupLocalURLWhenDisposed: TextBoxAttachment.shouldCleanupLocalURLWhenDisposed($0)
-                        )
-                }
-            )
-            attachments = textView.inlineAttachments()
-            text = textView.plainText()
-            return true
-        case .uploadFiles(let uploadURLs, let remoteTarget):
-            uploadFileAttachments(uploadURLs, remoteTarget: remoteTarget, focusing: textView)
-            return true
-        case .reject:
-            return false
-        }
-    }
-
-    private func uploadFileAttachments(
+    func uploadFileAttachments(
         _ fileURLs: [URL],
         remoteTarget: TerminalRemoteUploadTarget,
-        focusing textView: TextBoxInputTextView
+        focusing textView: TextBoxInputTextView,
+        replacingPlaceholderID existingPlaceholderID: UUID? = nil,
+        validationToken existingValidationToken: UInt64? = nil,
+        preparedAttachments: [TextBoxPreparedAttachment] = [],
+        preparationService: TerminalImageTransferPreparationService? = nil
     ) {
-        let placeholderID = UUID()
-        textView.insertPendingAttachmentUploadPlaceholder(id: placeholderID)
+        let placeholderID = existingPlaceholderID ?? UUID()
+        if existingPlaceholderID == nil {
+            guard textView.beginPendingPasteReservation(id: placeholderID)
+            else {
+                cleanupPreparedPasteFileURLs(
+                    fileURLs,
+                    using: preparationService
+                )
+                return
+            }
+        }
         let operation = TerminalImageTransferOperation()
-        let uploadValidationToken = textView.pendingAttachmentUploadValidationToken()
+        let uploadValidationToken = existingValidationToken
+            ?? textView.pendingAttachmentUploadValidationToken()
+        let preparedAttachmentsByPath = Dictionary(
+            preparedAttachments.map {
+                ($0.fileURL.standardizedFileURL.path, $0)
+            },
+            uniquingKeysWith: { first, _ in first }
+        )
         surface.hostedView.beginImageTransferIndicator(
             for: operation,
             onCancel: { _ = operation.cancel() }
@@ -3543,10 +2827,12 @@ struct TextBoxInputContainer: View {
         let finish: (Result<[String], Error>) -> Void = { [weak surface] result in
             DispatchQueue.main.async {
                 @MainActor func removePendingPlaceholder() {
-                    guard textViewReference.textView === textView,
-                          textView.removePendingAttachmentUploadPlaceholder(id: placeholderID) else {
+                    guard textView.removePendingAttachmentUploadPlaceholder(
+                        id: placeholderID
+                    ) else {
                         return
                     }
+                    guard textViewReference.textView === textView else { return }
                     attachments = textView.inlineAttachments()
                     text = textView.plainText()
                 }
@@ -3554,7 +2840,10 @@ struct TextBoxInputContainer: View {
                 surface?.hostedView.endImageTransferIndicator(for: operation)
                 guard operation.finish() else {
                     removePendingPlaceholder()
-                    GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles(fileURLs)
+                    cleanupPreparedPasteFileURLs(
+                        fileURLs,
+                        using: preparationService
+                    )
                     return
                 }
 
@@ -3562,12 +2851,27 @@ struct TextBoxInputContainer: View {
                 case .success(let remotePaths):
                     guard !remotePaths.isEmpty else {
                         removePendingPlaceholder()
-                        GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles(fileURLs)
+                        cleanupPreparedPasteFileURLs(
+                            fileURLs,
+                            using: preparationService
+                        )
                         NSSound.beep()
                         return
                     }
                     let newAttachments = fileURLs.enumerated().compactMap { index, fileURL -> TextBoxAttachment? in
                         guard remotePaths.indices.contains(index) else { return nil }
+                        if let preparedAttachment = preparedAttachmentsByPath[
+                            fileURL.standardizedFileURL.path
+                        ] {
+                            return TextBoxAttachment(
+                                preparedAttachment: preparedAttachment,
+                                submissionText: TextBoxAttachment.submissionText(
+                                    forPath: remotePaths[index]
+                                ),
+                                submissionPath: remotePaths[index],
+                                cleanupLocalURLWhenDisposed: true
+                            )
+                        }
                         return TextBoxAttachment(
                             localURL: fileURL,
                             submissionText: TextBoxAttachment.submissionText(forPath: remotePaths[index]),
@@ -3577,14 +2881,20 @@ struct TextBoxInputContainer: View {
                     }
                     guard !newAttachments.isEmpty else {
                         removePendingPlaceholder()
-                        GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles(fileURLs)
+                        cleanupPreparedPasteFileURLs(
+                            fileURLs,
+                            using: preparationService
+                        )
                         NSSound.beep()
                         return
                     }
                     guard textViewReference.textView === textView,
                           textView.canAcceptPendingAttachmentUpload(validationToken: uploadValidationToken) else {
                         removePendingPlaceholder()
-                        GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles(fileURLs)
+                        cleanupPreparedPasteFileURLs(
+                            fileURLs,
+                            using: preparationService
+                        )
                         return
                     }
                     guard textView.replacePendingAttachmentUploadPlaceholder(
@@ -3592,14 +2902,20 @@ struct TextBoxInputContainer: View {
                         with: newAttachments
                     ) else {
                         removePendingPlaceholder()
-                        GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles(fileURLs)
+                        cleanupPreparedPasteFileURLs(
+                            fileURLs,
+                            using: preparationService
+                        )
                         return
                     }
                     attachments = textView.inlineAttachments()
                     text = textView.plainText()
                 case .failure:
                     removePendingPlaceholder()
-                    GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles(fileURLs)
+                    cleanupPreparedPasteFileURLs(
+                        fileURLs,
+                        using: preparationService
+                    )
                     NSSound.beep()
                 }
             }
@@ -3647,6 +2963,7 @@ struct TextBoxInputView: NSViewRepresentable {
     let onEscape: () -> Void
     let onFocusTextBox: () -> Void
     let onToggleFocus: () -> Void
+    let onCycleSubmitAction: () -> Void
     let onForwardText: (String, Bool) -> Void
     let onForwardKey: (TextBoxTerminalKey) -> Void
     let onForwardControl: (String) -> Void
@@ -3654,9 +2971,64 @@ struct TextBoxInputView: NSViewRepresentable {
     let onInsertFileURLs: ([URL], TextBoxInputTextView) -> Bool
     let onChooseFiles: () -> Void
     let onContentChanged: () -> Void
+    let onMarkedTextStateChanged: (Bool) -> Void
     let onTextViewCreated: (TextBoxInputTextView) -> Void
     let onTextViewMovedToWindow: (TextBoxInputTextView) -> Void
     let onTextViewDismantled: (TextBoxInputTextView) -> Void
+
+    init(
+        text: Binding<String>,
+        attachments: Binding<[TextBoxAttachment]>,
+        textViewHeight: Binding<CGFloat>,
+        hasPendingAttachmentUpload: Binding<Bool>,
+        font: NSFont,
+        backgroundColor: NSColor,
+        foregroundColor: NSColor,
+        terminalTitle: String,
+        completionRootDirectory: String?,
+        onSubmit: @escaping () -> Void,
+        onEscape: @escaping () -> Void,
+        onFocusTextBox: @escaping () -> Void,
+        onToggleFocus: @escaping () -> Void,
+        onCycleSubmitAction: @escaping () -> Void = {},
+        onForwardText: @escaping (String, Bool) -> Void,
+        onForwardKey: @escaping (TextBoxTerminalKey) -> Void,
+        onForwardControl: @escaping (String) -> Void,
+        onPaste: @escaping (NSPasteboard, TextBoxInputTextView) -> Bool,
+        onInsertFileURLs: @escaping ([URL], TextBoxInputTextView) -> Bool,
+        onChooseFiles: @escaping () -> Void,
+        onContentChanged: @escaping () -> Void,
+        onMarkedTextStateChanged: @escaping (Bool) -> Void = { _ in },
+        onTextViewCreated: @escaping (TextBoxInputTextView) -> Void,
+        onTextViewMovedToWindow: @escaping (TextBoxInputTextView) -> Void,
+        onTextViewDismantled: @escaping (TextBoxInputTextView) -> Void
+    ) {
+        self._text = text
+        self._attachments = attachments
+        self._textViewHeight = textViewHeight
+        self._hasPendingAttachmentUpload = hasPendingAttachmentUpload
+        self.font = font
+        self.backgroundColor = backgroundColor
+        self.foregroundColor = foregroundColor
+        self.terminalTitle = terminalTitle
+        self.completionRootDirectory = completionRootDirectory
+        self.onSubmit = onSubmit
+        self.onEscape = onEscape
+        self.onFocusTextBox = onFocusTextBox
+        self.onToggleFocus = onToggleFocus
+        self.onCycleSubmitAction = onCycleSubmitAction
+        self.onForwardText = onForwardText
+        self.onForwardKey = onForwardKey
+        self.onForwardControl = onForwardControl
+        self.onPaste = onPaste
+        self.onInsertFileURLs = onInsertFileURLs
+        self.onChooseFiles = onChooseFiles
+        self.onContentChanged = onContentChanged
+        self.onMarkedTextStateChanged = onMarkedTextStateChanged
+        self.onTextViewCreated = onTextViewCreated
+        self.onTextViewMovedToWindow = onTextViewMovedToWindow
+        self.onTextViewDismantled = onTextViewDismantled
+    }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
@@ -3701,6 +3073,8 @@ struct TextBoxInputView: NSViewRepresentable {
 
         updateTextView(textView, context: context)
         onTextViewCreated(textView)
+        context.coordinator.queuePendingAttachmentUploadStateSync(from: textView)
+        context.coordinator.queuePendingMarkedTextStateSync(from: textView)
         return scrollView
     }
 
@@ -3708,7 +3082,8 @@ struct TextBoxInputView: NSViewRepresentable {
         guard let textView = scrollView.documentView as? TextBoxInputTextView else { return }
         coordinator.parent.onTextViewDismantled(textView)
         textView.onMoveToWindow = { _ in }
-        textView.onLayoutCompleted = { _ in }
+        textView.onLayoutCompleted = { _, _ in }
+        textView.onPendingAttachmentUploadStateChanged = { _ in }
         textView.invalidatePendingAttachmentUploads()
         textView.discardUndoHistoryAndCleanupPendingAttachmentFiles()
     }
@@ -3725,9 +3100,9 @@ struct TextBoxInputView: NSViewRepresentable {
                 height: CGFloat.greatestFiniteMagnitude
             )
         }
-        if textView.inlineAttachments().isEmpty && textView.plainText() != text {
-            textView.string = text
-        }
+        // The mounted AppKit editor owns the live draft. Its binding publications can lag this
+        // update, so treating an older binding snapshot as input would clobber text, selection,
+        // marked text, and undo state. Restored drafts enter through the explicit install paths.
         updateTextView(textView, context: context)
     }
 
@@ -3743,67 +3118,139 @@ struct TextBoxInputView: NSViewRepresentable {
         textView.onEscape = onEscape
         textView.onFocusTextBox = onFocusTextBox
         textView.onToggleFocus = onToggleFocus
+        textView.onCycleSubmitAction = onCycleSubmitAction
         textView.onForwardText = onForwardText
         textView.onForwardKey = onForwardKey
         textView.onForwardControl = onForwardControl
         textView.onPaste = onPaste
         textView.onInsertFileURLs = onInsertFileURLs
         textView.onChooseFiles = onChooseFiles
+        textView.onMarkedTextStateChanged = { [weak coordinator, weak textView] hasMarkedText in
+            coordinator?.noteMarkedTextStateChanged(hasMarkedText, from: textView)
+        }
+        textView.onPendingAttachmentUploadStateChanged = { [weak coordinator] hasPendingUpload in
+            coordinator?.notePendingAttachmentUploadStateChanged(
+                hasPendingUpload
+            )
+        }
         textView.refreshInlineAttachmentCells(font: font, foregroundColor: foregroundColor)
         textView.recenterSingleLineTextContainer()
         textView.wantsLayer = true
         textView.layer?.backgroundColor = NSColor.clear.cgColor
         textView.layer?.borderWidth = 0
         textView.delegate = context.coordinator
-        textView.onLayoutCompleted = { [weak coordinator] textView in
-            coordinator?.recalculateHeight(textView)
+        textView.onLayoutCompleted = { [weak coordinator] textView, lineFragmentCount in
+            coordinator?.recalculateHeight(textView, lineFragmentCount: lineFragmentCount)
         }
     }
 
-    final class Coordinator: NSObject, NSTextViewDelegate {
+    @MainActor final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: TextBoxInputView
+        private var pendingAttachmentUploadStateForNextLayout: Bool?
+        private var pendingMarkedTextStateForNextLayout: Bool?
+        private var deliveredMarkedTextState: Bool?
 
         init(parent: TextBoxInputView) {
             self.parent = parent
         }
 
+        /// Captures pending-upload state once after representable construction restores AppKit storage.
+        func queuePendingAttachmentUploadStateSync(from textView: TextBoxInputTextView) {
+            pendingAttachmentUploadStateForNextLayout = textView.hasPendingAttachmentUploadPlaceholder()
+        }
+
+        func queuePendingMarkedTextStateSync(from textView: TextBoxInputTextView) {
+            pendingMarkedTextStateForNextLayout = textView.hasMarkedText()
+        }
+
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? TextBoxInputTextView else { return }
             textView.normalizeTextBaselineOffsets()
-            parent.text = textView.plainText()
-            parent.attachments = textView.inlineAttachments()
-            parent.hasPendingAttachmentUpload = textView.hasPendingAttachmentUploadPlaceholder()
-            parent.onContentChanged()
+            publishTextViewContent(textView)
+            noteMarkedTextStateChanged(textView.hasMarkedText(), from: textView)
             if parent.text.isEmpty,
                parent.attachments.isEmpty,
                !textView.hasPendingAttachmentUploadPlaceholder() {
                 textView.invalidatePendingAttachmentUploads()
             }
-            textView.refreshMentionCompletions()
+            if !textView.isHandlingDidChangeText {
+                textView.refreshMentionCompletions()
+            }
             recalculateHeight(textView)
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {
             guard let textView = notification.object as? TextBoxInputTextView else { return }
+            noteMarkedTextStateChanged(textView.hasMarkedText(), from: textView)
             let color = textView.textColor ?? .labelColor
             textView.layer?.borderColor = color.withAlphaComponent(
                 textView.window?.firstResponder === textView ? 0.45 : 0.24
             ).cgColor
             textView.refreshInlineAttachmentFocus()
-            textView.refreshMentionCompletions()
+            if !textView.isHandlingDidChangeText {
+                textView.refreshMentionCompletions()
+            }
         }
 
-        func recalculateHeight(_ textView: NSTextView) {
+        func noteMarkedTextStateChanged(_ hasMarkedText: Bool, from textView: TextBoxInputTextView? = nil) {
+            let pendingMarkedTextState = pendingMarkedTextStateForNextLayout
+            if textView != nil {
+                pendingMarkedTextStateForNextLayout = nil
+            }
+            if !hasMarkedText,
+               let textView,
+               deliveredMarkedTextState == true || pendingMarkedTextState == true {
+                publishTextViewContent(textView)
+            }
+            if deliveredMarkedTextState != hasMarkedText {
+                parent.onMarkedTextStateChanged(hasMarkedText)
+            }
+            deliveredMarkedTextState = hasMarkedText
+        }
+
+        func notePendingAttachmentUploadStateChanged(
+            _ hasPendingUpload: Bool
+        ) {
+            pendingAttachmentUploadStateForNextLayout = nil
+            guard parent.hasPendingAttachmentUpload != hasPendingUpload else {
+                return
+            }
+            parent.hasPendingAttachmentUpload = hasPendingUpload
+            parent.onContentChanged()
+        }
+
+        private func publishTextViewContent(_ textView: TextBoxInputTextView) {
+            let nextContent = textView.bindingContentForPreservation()
+            let nextHasPendingAttachmentUpload = textView.hasPendingAttachmentUploadPlaceholder()
+            let contentChanged = parent.text != nextContent.text
+                || parent.attachments.map(\.id) != nextContent.attachments.map(\.id)
+                || parent.hasPendingAttachmentUpload != nextHasPendingAttachmentUpload
+            parent.text = nextContent.text
+            parent.attachments = nextContent.attachments
+            parent.hasPendingAttachmentUpload = nextHasPendingAttachmentUpload
+            if contentChanged {
+                parent.onContentChanged()
+            }
+        }
+
+        func recalculateHeight(_ textView: NSTextView, lineFragmentCount measuredLineFragmentCount: Int? = nil) {
             guard let layoutManager = textView.layoutManager,
                   let textContainer = textView.textContainer else { return }
-            (textView as? TextBoxInputTextView)?.recenterSingleLineTextContainer()
             layoutManager.ensureLayout(for: textContainer)
-            let lineFragmentCount = (textView as? TextBoxInputTextView)?.visualLineFragmentCount()
+            let lineFragmentCount = measuredLineFragmentCount
+                ?? (textView as? TextBoxInputTextView)?.visualLineFragmentCount()
                 ?? TextBoxInputTextView.visualLineFragmentCount(
                     textView: textView,
                     layoutManager: layoutManager,
                     textContainer: textContainer
                 )
+            if let textBoxView = textView as? TextBoxInputTextView {
+                if measuredLineFragmentCount == nil {
+                    textBoxView.recenterSingleLineTextContainer(lineFragmentCount: lineFragmentCount)
+                }
+                applyPendingAttachmentUploadStateSyncIfNeeded()
+                applyPendingMarkedTextStateSyncIfNeeded()
+            }
             let preferredHeight: CGFloat
 
             if lineFragmentCount <= TextBoxLayout.minLines {
@@ -3834,16 +3281,44 @@ struct TextBoxInputView: NSViewRepresentable {
                 parent.textViewHeight = preferredHeight
             }
         }
+
+        /// Applies the one-shot pending-upload state captured during representable construction.
+        private func applyPendingAttachmentUploadStateSyncIfNeeded() {
+            // Silent restore skips textDidChange to avoid publishing through TerminalPanel while
+            // SwiftUI constructs the representable. Layout completion is the post-construction
+            // bridge point that keeps this binding aligned without mutating state from makeNSView.
+            guard let hasPendingUpload = pendingAttachmentUploadStateForNextLayout else { return }
+            pendingAttachmentUploadStateForNextLayout = nil
+            guard parent.hasPendingAttachmentUpload != hasPendingUpload else { return }
+            parent.hasPendingAttachmentUpload = hasPendingUpload
+        }
+
+        /// Applies the one-shot marked-text state captured during representable construction.
+        private func applyPendingMarkedTextStateSyncIfNeeded() {
+            guard let hasMarkedText = pendingMarkedTextStateForNextLayout else { return }
+            pendingMarkedTextStateForNextLayout = nil
+            noteMarkedTextStateChanged(hasMarkedText)
+        }
     }
 }
 
 final class TextBoxInputTextView: NSTextView {
+    fileprivate private(set) var isHandlingDidChangeText = false
+
     var terminalTitle = ""
-    var completionRootDirectory: String?
+    var completionRootDirectory: String? {
+        didSet {
+            warmMentionCompletionIndexesIfNeeded()
+            if oldValue != completionRootDirectory {
+                refreshMentionCompletions()
+            }
+        }
+    }
     var onSubmit: () -> Void = {}
     var onEscape: () -> Void = {}
     var onFocusTextBox: () -> Void = {}
     var onToggleFocus: () -> Void = {}
+    var onCycleSubmitAction: () -> Void = {}
     var onForwardText: (String, Bool) -> Void = { _, _ in }
     var onForwardKey: (TextBoxTerminalKey) -> Void = { _ in }
     var onForwardControl: (String) -> Void = { _ in }
@@ -3851,26 +3326,58 @@ final class TextBoxInputTextView: NSTextView {
     var onInsertFileURLs: ([URL], TextBoxInputTextView) -> Bool = { _, _ in false }
     var onChooseFiles: () -> Void = {}
     var onMoveToWindow: (TextBoxInputTextView) -> Void = { _ in }
-    var onLayoutCompleted: (TextBoxInputTextView) -> Void = { _ in }
+    var onLayoutCompleted: (TextBoxInputTextView, Int) -> Void = { _, _ in }
+    var onMarkedTextStateChanged: (Bool) -> Void = { _ in }
+    var onPendingAttachmentUploadStateChanged: (Bool) -> Void = { _ in }
     private var isReportingLayoutCompletion = false
-
     private static let localControlKeys: Set<String> = ["a", "e", "f", "b", "n", "p", "k", "h"]
-    private static let pendingAttachmentUploadPlaceholderCharacter = "\u{200B}"
-    private static let pendingAttachmentUploadPlaceholderAttribute = NSAttributedString.Key(
+    static let pendingAttachmentUploadPlaceholderCharacter = "\u{200B}"
+    static let pendingAttachmentUploadPlaceholderAttribute = NSAttributedString.Key(
         "cmux.textBoxPendingAttachmentUploadID"
     )
     private var attachmentPreviewPopover: NSPopover?
     private var attachmentPreviewCharacterIndex: Int?
-    private var focusedAttachmentCharacterIndex: Int?
+    var focusedAttachmentCharacterIndex: Int?
+    private weak var renderedFocusedInlineAttachment: TextBoxInlineTextAttachment?
+    private var inlineAttachmentsByID: [UUID: [TextBoxInlineTextAttachment]] = [:]
+    private var inlineAttachmentRendererStorage: TextBoxInlineAttachmentRenderer?
+    private var inlineAttachmentRenderer: TextBoxInlineAttachmentRenderer {
+        if let inlineAttachmentRendererStorage {
+            return inlineAttachmentRendererStorage
+        }
+        let renderer = TextBoxInlineAttachmentRenderer { [weak self] attachmentID in
+            self?.refreshInlineAttachmentCell(forAttachmentID: attachmentID)
+        }
+        inlineAttachmentRendererStorage = renderer
+        return renderer
+    }
     private var attachmentKeyDownMonitor: Any?
     private var preserveAttachmentFocusOnNextResign = false
     private var attachmentUploadInvalidationGeneration: UInt64 = 0
-    private var mentionCompletionPopover: NSPopover?
+    var nextPendingPasteReservationSequence: UInt64 = 0
+    var activePastePreparationTasks: [UUID: Task<Void, Never>] = [:]
+    var pendingPasteReservations: [UUID: TextBoxPendingPasteReservation] = [:] {
+        didSet {
+            let hadPendingPaste = !oldValue.isEmpty
+            let hasPendingPaste = !pendingPasteReservations.isEmpty
+            guard hadPendingPaste != hasPendingPaste else { return }
+            onPendingAttachmentUploadStateChanged(hasPendingPaste)
+        }
+    }
+    private var mentionCompletionPanel: TextBoxMentionCompletionPanel?
+    private var mentionCompletionPanelHost: NSHostingView<TextBoxMentionCompletionPopoverView>?
     private var mentionCompletionControllerStorage: TextBoxMentionCompletionController?
+    private var warmedMentionCompletionRootDirectory: String?
+    private var mentionCompletionWarmupTask: Task<Void, Never>?
+    private var mentionCompletionWindowObserverTokens: [NSObjectProtocol] = []
+    private weak var mentionCompletionObservedWindow: NSWindow?
+    private var mentionCompletionRepositionIsScheduled = false
+    private var activeInsertTextDepth = 0
+    private var didChangeTextDuringActiveInsertText = false
     private var pendingUndoableAttachmentFileCleanup: [String: TextBoxAttachment] = [:]
     private var pendingAutomaticAttachmentFileCleanup: [String: TextBoxAttachment] = [:]
     private var suppressAutomaticAttachmentFileCleanup = false
-    private var mentionCompletionController: TextBoxMentionCompletionController {
+    var mentionCompletionController: TextBoxMentionCompletionController {
         if let mentionCompletionControllerStorage {
             return mentionCompletionControllerStorage
         }
@@ -3882,11 +3389,13 @@ final class TextBoxInputTextView: NSTextView {
         return controller
     }
 
-    private var isAttachmentPreviewShown: Bool {
+    var isAttachmentPreviewShown: Bool {
         attachmentPreviewPopover?.isShown == true
     }
 
     deinit {
+        mentionCompletionWarmupTask?.cancel()
+        removeMentionCompletionWindowObservers()
         dismissMentionCompletions()
         removeAttachmentKeyDownMonitor()
         discardUndoHistoryAndCleanupPendingAttachmentFiles()
@@ -3898,10 +3407,30 @@ final class TextBoxInputTextView: NSTextView {
         super.viewDidMoveToWindow()
         if window == nil {
             invalidatePendingAttachmentUploads()
+            dismissMentionCompletions()
         } else {
             notifyMovedToWindowIfAttached()
+            if mentionCompletionPanel?.isVisible == true {
+                scheduleMentionCompletionPanelReposition()
+            }
         }
         layer?.borderColor = textColor?.withAlphaComponent(0.24).cgColor
+    }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        refreshInlineAttachmentCells(
+            font: font ?? GlobalFontMagnification.systemFont(ofSize: NSFont.systemFontSize),
+            foregroundColor: textColor ?? .labelColor
+        )
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        refreshInlineAttachmentCells(
+            font: font ?? GlobalFontMagnification.systemFont(ofSize: NSFont.systemFontSize),
+            foregroundColor: textColor ?? .labelColor
+        )
     }
 
     private func notifyMovedToWindowIfAttached() {
@@ -3948,22 +3477,97 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     override func shouldChangeText(in affectedCharRange: NSRange, replacementString: String?) -> Bool {
-        guard super.shouldChangeText(in: affectedCharRange, replacementString: replacementString) else {
-            return false
-        }
+        if handleTextChangeTouchingPendingPasteReservation(in: affectedCharRange, replacementString: replacementString) { return false }
+        guard super.shouldChangeText(in: affectedCharRange, replacementString: replacementString) else { return false }
+        updateMarkerlessPendingPasteReservations(for: affectedCharRange, replacementString: replacementString)
         queueAutomaticAttachmentFileCleanup(in: affectedCharRange)
         return true
     }
 
     override func insertText(_ insertString: Any, replacementRange: NSRange) {
+        // IMEs can hand back a stale replacement range past the end of the
+        // UTF-16 storage; NSTextView raises NSRangeException on those.
+        let replacementRange = sanitizedTextStorageReplacementRange(replacementRange)
         queueAutomaticAttachmentFileCleanup(in: replacementRange)
+        let isOuterInsertText = activeInsertTextDepth == 0
+        if isOuterInsertText {
+            didChangeTextDuringActiveInsertText = false
+        }
+        activeInsertTextDepth += 1
         super.insertText(insertString, replacementRange: replacementRange)
-        flushAutomaticAttachmentFileCleanup()
+        activeInsertTextDepth = max(0, activeInsertTextDepth - 1)
+        let didChangeTextWasHandled = didChangeTextDuringActiveInsertText
+        if isOuterInsertText {
+            didChangeTextDuringActiveInsertText = false
+        }
+        if didChangeTextWasHandled {
+            flushAutomaticAttachmentFileCleanup()
+        } else {
+            didChangeText()
+        }
+        onMarkedTextStateChanged(hasMarkedText())
+    }
+
+    override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
+        let markedTextLength = Self.textInputStringLength(string)
+        super.setMarkedText(
+            string,
+            selectedRange: Self.sanitizedMarkedTextSelectionRange(selectedRange, markedTextLength: markedTextLength),
+            replacementRange: sanitizedTextStorageReplacementRange(replacementRange)
+        )
+        onMarkedTextStateChanged(hasMarkedText())
+        // Marked text bypasses textDidChange. Schedule the TextBox measurement boundary so
+        // AppKit coalesces rapid preedit updates before laying out TextKit storage.
+        needsLayout = true
+        needsDisplay = true
+    }
+
+    private func sanitizedTextStorageReplacementRange(_ range: NSRange) -> NSRange {
+        guard range.location != NSNotFound else { return range }
+        return Self.sanitizedRange(range, upperBound: attributedString().length)
+    }
+
+    private static func sanitizedRange(_ range: NSRange, upperBound: Int) -> NSRange {
+        guard range.location != NSNotFound else { return range }
+        let upperBound = max(0, upperBound)
+        let location = min(max(0, range.location), upperBound)
+        let length = min(max(0, range.length), upperBound - location)
+        return NSRange(location: location, length: length)
+    }
+
+    private static func sanitizedMarkedTextSelectionRange(_ range: NSRange, markedTextLength: Int) -> NSRange {
+        let markedTextLength = max(0, markedTextLength)
+        guard range.location != NSNotFound else {
+            return NSRange(location: markedTextLength, length: 0)
+        }
+        return sanitizedRange(range, upperBound: markedTextLength)
+    }
+
+    private static func textInputStringLength(_ string: Any) -> Int {
+        if let attributed = string as? NSAttributedString {
+            return attributed.length
+        }
+        let plain = (string as? String) ?? String(describing: string)
+        return (plain as NSString).length
+    }
+
+    override func unmarkText() {
+        super.unmarkText()
+        onMarkedTextStateChanged(hasMarkedText())
     }
 
     override func didChangeText() {
+        if activeInsertTextDepth > 0 {
+            didChangeTextDuringActiveInsertText = true
+        }
+        isHandlingDidChangeText = true
+        defer { isHandlingDidChangeText = false }
+        if undoManager?.isUndoing == true || undoManager?.isRedoing == true {
+            reconcileInlineAttachmentRenderingAfterUndoRedo()
+        }
         super.didChangeText()
         flushAutomaticAttachmentFileCleanup()
+        refreshMentionCompletions()
     }
 
     override func copy(_ sender: Any?) {
@@ -3987,13 +3591,15 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     func clearContent(cleanupAttachmentFiles: Bool = true) {
+        invalidatePendingAttachmentUploads()
+        let attachments = inlineAttachments()
         if cleanupAttachmentFiles {
             cleanupDisposableAttachmentFiles(
-                inlineAttachments(),
+                attachments,
                 preservingActiveInlineAttachments: false
             )
         }
-        invalidatePendingAttachmentUploads()
+        discardAllInlineAttachmentRendering()
         dismissMentionCompletions()
         clearAttachmentFocus(dismissPreview: true)
         textStorage?.setAttributedString(NSAttributedString(string: ""))
@@ -4006,21 +3612,34 @@ final class TextBoxInputTextView: NSTextView {
         discardUndoHistoryAndCleanupPendingAttachmentFiles()
     }
 
-    func installPreservedContent(_ content: NSAttributedString) {
-        installAttributedContent(content)
+    /// Installs preserved attributed content into the text view.
+    ///
+    /// Pass `false` for `notifyingTextChange` only from representable construction paths where
+    /// the owning panel already has the current draft state. That restores AppKit storage without
+    /// running delegate or binding side effects during SwiftUI lifecycle work.
+    func installPreservedContent(_ content: NSAttributedString, notifyingTextChange: Bool = true) {
+        installAttributedContent(content, notifyingTextChange: notifyingTextChange)
     }
 
-    func installSessionDraft(_ draft: SessionTextBoxInputDraftSnapshot) {
-        installAttributedContent(attributedContent(from: draft))
+    /// Installs a saved session draft into the text view.
+    ///
+    /// Pass `false` for `notifyingTextChange` only from representable construction paths where
+    /// the owning panel already has the current draft state. That restores AppKit storage without
+    /// running delegate or binding side effects during SwiftUI lifecycle work.
+    func installSessionDraft(_ draft: SessionTextBoxInputDraftSnapshot, notifyingTextChange: Bool = true) {
+        installAttributedContent(
+            attributedContent(from: draft),
+            notifyingTextChange: notifyingTextChange
+        )
     }
 
-    private func installAttributedContent(_ content: NSAttributedString) {
+    private func installAttributedContent(_ content: NSAttributedString, notifyingTextChange: Bool) {
         invalidatePendingAttachmentUploads()
         dismissMentionCompletions()
         clearAttachmentFocus(dismissPreview: true)
         textStorage?.setAttributedString(content)
         refreshInlineAttachmentCells(
-            font: font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize),
+            font: font ?? GlobalFontMagnification.systemFont(ofSize: NSFont.systemFontSize),
             foregroundColor: textColor ?? .labelColor
         )
         typingAttributes = currentTextAttributes()
@@ -4029,11 +3648,16 @@ final class TextBoxInputTextView: NSTextView {
             layoutManager?.ensureLayout(for: textContainer)
         }
         recenterSingleLineTextContainer()
-        didChangeText()
+        if notifyingTextChange {
+            didChangeText()
+        } else {
+            flushAutomaticAttachmentFileCleanup()
+        }
     }
 
     func attributedContentForPreservation() -> NSAttributedString {
         let preserved = NSMutableAttributedString(attributedString: attributedString())
+        restorePendingPasteReservations(in: preserved)
         Self.removePendingAttachmentUploadPlaceholders(from: preserved)
         return preserved
     }
@@ -4130,17 +3754,7 @@ final class TextBoxInputTextView: NSTextView {
 
     func insertPendingAttachmentUploadPlaceholder(id: UUID) {
         window?.makeFirstResponder(self)
-        var attributes = currentTextAttributes()
-        attributes[Self.pendingAttachmentUploadPlaceholderAttribute] = id.uuidString
-        insertText(
-            NSAttributedString(
-                string: Self.pendingAttachmentUploadPlaceholderCharacter,
-                attributes: attributes
-            ),
-            replacementRange: selectedRange()
-        )
-        normalizeTextBaselineOffsets()
-        recenterSingleLineTextContainer()
+        _ = beginPendingPasteReservation(id: id)
     }
 
     @discardableResult
@@ -4148,56 +3762,27 @@ final class TextBoxInputTextView: NSTextView {
         id: UUID,
         with attachments: [TextBoxAttachment]
     ) -> Bool {
-        guard !attachments.isEmpty,
-              let textStorage,
-              let placeholderRange = pendingAttachmentUploadPlaceholderRange(id: id) else {
-            return false
-        }
+        commitPendingPasteReservation(id: id, with: attachments)
+    }
 
-        attachments.forEach(TextBoxDraftAttachmentStorage.prepareDurableCopy)
-        let selectedRangeBeforeReplacement = selectedRange()
-        let inserted = inlineAttachmentAttributedString(for: attachments, replacing: placeholderRange)
-        textStorage.replaceCharacters(in: placeholderRange, with: inserted)
-        setSelectedRange(
-            adjustedSelectionRange(
-                selectedRangeBeforeReplacement,
-                replacing: placeholderRange,
-                insertedLength: inserted.length
-            )
-        )
-        normalizeTextBaselineOffsets()
-        recenterSingleLineTextContainer()
-        didChangeText()
-        return true
+    @discardableResult
+    func replacePendingAttachmentUploadPlaceholder(
+        id: UUID,
+        withText insertedText: String
+    ) -> Bool {
+        commitPendingPasteReservation(id: id, withText: insertedText)
     }
 
     @discardableResult
     func removePendingAttachmentUploadPlaceholder(id: UUID) -> Bool {
-        guard let textStorage,
-              let placeholderRange = pendingAttachmentUploadPlaceholderRange(id: id) else {
-            return false
-        }
-
-        let selectedRangeBeforeRemoval = selectedRange()
-        textStorage.replaceCharacters(in: placeholderRange, with: NSAttributedString(string: ""))
-        setSelectedRange(
-            adjustedSelectionRange(
-                selectedRangeBeforeRemoval,
-                replacing: placeholderRange,
-                insertedLength: 0
-            )
-        )
-        normalizeTextBaselineOffsets()
-        recenterSingleLineTextContainer()
-        didChangeText()
-        return true
+        rollbackPendingPasteReservation(id: id)
     }
 
     func hasPendingAttachmentUploadPlaceholder() -> Bool {
-        pendingAttachmentUploadPlaceholderRange(id: nil) != nil
+        !pendingPasteReservations.isEmpty
     }
 
-    private func insertAttachments(
+    func insertAttachments(
         _ attachments: [TextBoxAttachment],
         replacementRange: NSRange
     ) {
@@ -4241,18 +3826,35 @@ final class TextBoxInputTextView: NSTextView {
 
     func refreshInlineAttachmentCells(font: NSFont, foregroundColor: NSColor) {
         let attributed = attributedString()
+        let appearance = effectiveAppearance
+        let backingScale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1
+        var attachmentIDs: Set<UUID> = []
+        var attachmentsByID: [UUID: [TextBoxInlineTextAttachment]] = [:]
+        var focusedInlineAttachment: TextBoxInlineTextAttachment?
         attributed.enumerateAttribute(
             .attachment,
             in: NSRange(location: 0, length: attributed.length),
             options: []
         ) { value, range, _ in
             guard let attachment = value as? TextBoxInlineTextAttachment else { return }
+            attachmentIDs.insert(attachment.textBoxAttachment.id)
+            attachmentsByID[attachment.textBoxAttachment.id, default: []].append(attachment)
+            let isFocused = isAttachmentFocused(at: range.location)
             attachment.refreshCell(
                 font: font,
                 foregroundColor: foregroundColor,
-                isFocused: isAttachmentFocused(at: range.location)
+                isFocused: isFocused,
+                renderer: inlineAttachmentRenderer,
+                appearance: appearance,
+                backingScale: backingScale
             )
+            if isFocused {
+                focusedInlineAttachment = attachment
+            }
         }
+        inlineAttachmentsByID = attachmentsByID
+        inlineAttachmentRenderer.retainAttachments(withIDs: attachmentIDs)
+        renderedFocusedInlineAttachment = focusedInlineAttachment
         normalizeTextBaselineOffsets()
         typingAttributes = currentTextAttributes(font: font, foregroundColor: foregroundColor)
         recenterSingleLineTextContainer()
@@ -4262,10 +3864,78 @@ final class TextBoxInputTextView: NSTextView {
         if !isFocusedAttachmentSelectionValid() {
             clearAttachmentFocus(dismissPreview: isAttachmentPreviewShown)
         }
-        refreshInlineAttachmentCells(
-            font: font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize),
-            foregroundColor: textColor ?? .labelColor
-        )
+        let currentFocusedAttachment = focusedAttachmentCharacterIndex.flatMap {
+            inlineTextAttachment(at: $0)
+        }
+        guard renderedFocusedInlineAttachment !== currentFocusedAttachment else { return }
+
+        if let previouslyFocusedAttachment = renderedFocusedInlineAttachment {
+            refreshInlineAttachmentCell(previouslyFocusedAttachment, isFocused: false)
+        }
+        if let currentFocusedAttachment {
+            refreshInlineAttachmentCell(currentFocusedAttachment, isFocused: true)
+        }
+        renderedFocusedInlineAttachment = currentFocusedAttachment
+    }
+
+    private func refreshInlineAttachmentCell(forAttachmentID attachmentID: UUID) {
+        guard let attachments = inlineAttachmentsByID[attachmentID] else { return }
+        let font = font ?? GlobalFontMagnification.systemFont(ofSize: NSFont.systemFontSize)
+        let foregroundColor = textColor ?? .labelColor
+        let appearance = effectiveAppearance
+        let backingScale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1
+        for attachment in attachments {
+            attachment.refreshCell(
+                font: font,
+                foregroundColor: foregroundColor,
+                isFocused: attachment.isFocused,
+                renderer: inlineAttachmentRenderer,
+                appearance: appearance,
+                backingScale: backingScale
+            )
+        }
+        // Placeholder and normalized thumbnails have identical geometry, so no layout pass is needed.
+        needsDisplay = true
+    }
+
+    private func refreshInlineAttachmentCell(
+        _ target: TextBoxInlineTextAttachment,
+        isFocused: Bool
+    ) {
+        let attributed = attributedString()
+        attributed.enumerateAttribute(
+            .attachment,
+            in: NSRange(location: 0, length: attributed.length),
+            options: []
+        ) { value, range, stop in
+            guard let attachment = value as? TextBoxInlineTextAttachment,
+                  attachment === target else {
+                return
+            }
+            attachment.refreshCell(
+                font: font ?? GlobalFontMagnification.systemFont(ofSize: NSFont.systemFontSize),
+                foregroundColor: textColor ?? .labelColor,
+                isFocused: isFocused,
+                renderer: inlineAttachmentRenderer,
+                appearance: effectiveAppearance,
+                backingScale: window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1
+            )
+            layoutManager?.invalidateDisplay(forCharacterRange: range)
+            needsDisplay = true
+            stop.pointee = true
+        }
+    }
+
+    private func inlineTextAttachment(at characterIndex: Int) -> TextBoxInlineTextAttachment? {
+        guard characterIndex >= 0,
+              characterIndex < attributedString().length else {
+            return nil
+        }
+        return attributedString().attribute(
+            .attachment,
+            at: characterIndex,
+            effectiveRange: nil
+        ) as? TextBoxInlineTextAttachment
     }
 
     func recenterSingleLineTextContainer() {
@@ -4274,11 +3944,16 @@ final class TextBoxInputTextView: NSTextView {
 
         layoutManager.ensureLayout(for: textContainer)
         let lineFragmentCount = visualLineFragmentCount()
+        recenterSingleLineTextContainer(lineFragmentCount: lineFragmentCount)
+    }
+
+    fileprivate func recenterSingleLineTextContainer(lineFragmentCount: Int) {
+        guard textContainer != nil else { return }
 
         let targetHeight = bounds.height > 0 ? bounds.height : TextBoxLayout.minimumTextHeight
         var targetVerticalInset: CGFloat
         if lineFragmentCount <= TextBoxLayout.minLines {
-            let currentFont = font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize)
+            let currentFont = font ?? GlobalFontMagnification.systemFont(ofSize: NSFont.systemFontSize)
             let lineHeight = ceil(currentFont.ascender - currentFont.descender + currentFont.leading)
             let singleLineHeight = max(
                 TextBoxLayout.minimumTextHeight,
@@ -4330,120 +4005,16 @@ final class TextBoxInputTextView: NSTextView {
 
     override func layout() {
         super.layout()
-        recenterSingleLineTextContainer()
         guard !isReportingLayoutCompletion else { return }
         isReportingLayoutCompletion = true
-        onLayoutCompleted(self)
-        isReportingLayoutCompletion = false
+        defer { isReportingLayoutCompletion = false }
+        guard let layoutManager,
+              let textContainer else { return }
+        layoutManager.ensureLayout(for: textContainer)
+        let lineFragmentCount = visualLineFragmentCount()
+        recenterSingleLineTextContainer(lineFragmentCount: lineFragmentCount)
+        onLayoutCompleted(self, lineFragmentCount)
     }
-
-#if DEBUG
-    func installDebugInlineFixture(
-        _ attachment: TextBoxAttachment?,
-        beforeText: String,
-        afterText: String
-    ) {
-        let textAttributes = currentTextAttributes()
-        let attributed = NSMutableAttributedString(string: beforeText, attributes: textAttributes)
-        if let attachment {
-            attributed.append(inlineAttachmentAttributedString(for: attachment))
-        }
-        attributed.append(NSAttributedString(string: afterText, attributes: textAttributes))
-
-        textStorage?.setAttributedString(attributed)
-        normalizeTextBaselineOffsets()
-        typingAttributes = currentTextAttributes()
-        setSelectedRange(NSRange(location: attributed.length, length: 0))
-        if let textContainer {
-            layoutManager?.ensureLayout(for: textContainer)
-        }
-        recenterSingleLineTextContainer()
-        scrollRangeToVisible(NSRange(location: attributed.length, length: 0))
-        needsDisplay = true
-        enclosingScrollView?.needsDisplay = true
-        window?.viewsNeedDisplay = true
-        window?.displayIfNeeded()
-        didChangeText()
-    }
-
-    @discardableResult
-    func debugInteract(action: String) -> [String: Any] {
-        window?.makeFirstResponder(self)
-
-        switch action {
-        case "focus":
-            break
-        case "submit":
-            submitIfAllowed()
-        case "select_first_attachment":
-            if let characterIndex = firstInlineAttachmentCharacterIndex() {
-                selectAttachment(at: characterIndex)
-            }
-        case "close_first_attachment":
-            if let characterIndex = firstInlineAttachmentCharacterIndex() {
-                deleteAttachment(at: characterIndex)
-            }
-        case "preview_first_attachment":
-            if let characterIndex = firstInlineAttachmentCharacterIndex(),
-               let attachment = attachment(at: characterIndex) {
-                showAttachmentPreview(attachment, characterIndex: characterIndex)
-            }
-        case "open_preview":
-            if let focused = focusedAttachment() {
-                TextBoxAttachmentPreviewOpening.openInPreview(focused.attachment)
-            }
-        case "space":
-            if let focused = focusedAttachment() {
-                toggleAttachmentPreview(focused.attachment, characterIndex: focused.characterIndex)
-            }
-        case "left":
-            moveInsertionPointLeft()
-        case "right":
-            moveInsertionPointRight()
-        case "escape":
-            if isAttachmentPreviewShown {
-                dismissAttachmentPreview()
-            } else {
-                clearAttachmentFocus(dismissPreview: true)
-                refreshInlineAttachmentFocus()
-            }
-        default:
-            break
-        }
-
-        needsDisplay = true
-        enclosingScrollView?.needsDisplay = true
-        window?.viewsNeedDisplay = true
-        window?.displayIfNeeded()
-        return debugInteractionState()
-    }
-
-    func debugInteractionState() -> [String: Any] {
-        let selection = selectedRange()
-        return [
-            "selected_location": selection.location,
-            "selected_length": selection.length,
-            "focused_attachment_index": focusedAttachmentCharacterIndex ?? -1,
-            "preview_shown": isAttachmentPreviewShown,
-            "attachment_count": inlineAttachments().count,
-            "plain_text": plainText()
-        ]
-    }
-
-    private func firstInlineAttachmentCharacterIndex() -> Int? {
-        var result: Int?
-        attributedString().enumerateAttribute(
-            .attachment,
-            in: NSRange(location: 0, length: attributedString().length),
-            options: []
-        ) { value, range, stop in
-            guard value is TextBoxInlineTextAttachment else { return }
-            result = range.location
-            stop.pointee = true
-        }
-        return result
-    }
-#endif
 
     override func mouseDown(with event: NSEvent) {
         dismissMentionCompletions()
@@ -4463,7 +4034,7 @@ final class TextBoxInputTextView: NSTextView {
         super.mouseDown(with: event)
     }
 
-    fileprivate func handleInlineAttachmentCellClick(
+    func handleInlineAttachmentCellClick(
         attachment: TextBoxAttachment,
         characterIndex: Int,
         clickCount: Int,
@@ -4512,20 +4083,18 @@ final class TextBoxInputTextView: NSTextView {
         guard flags.contains(.command),
               !flags.contains(.option),
               !flags.contains(.control),
-              event.keyCode == UInt16(kVK_ANSI_Z) else {
+              textBoxCommandShortcutKey(for: event) == "z" else {
             return super.performKeyEquivalent(with: event)
         }
 
         if flags.contains(.shift) {
             guard undoManager?.canRedo == true else { return true }
             undoManager?.redo()
-            synchronizeAfterUndoRedo()
             return true
         }
 
         guard undoManager?.canUndo == true else { return true }
         undoManager?.undo()
-        synchronizeAfterUndoRedo()
         return true
     }
 
@@ -4641,6 +4210,12 @@ final class TextBoxInputTextView: NSTextView {
             return
         }
 
+        if commandSelector == #selector(NSResponder.insertBacktab(_:)),
+           let event = NSApp.currentEvent,
+           handleConfiguredTextBoxShortcut(event) {
+            return
+        }
+
         if commandSelector == #selector(NSResponder.cancelOperation(_:)) {
             if isAttachmentPreviewShown {
                 dismissAttachmentPreview()
@@ -4704,37 +4279,102 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     func refreshMentionCompletions() {
+        let query = TextBoxMentionCompletionDetector.query(
+            in: attributedString().string,
+            selectedRange: selectedRange()
+        )
         mentionCompletionController.refresh(
-            for: TextBoxMentionCompletionDetector.query(
-                in: attributedString().string,
-                selectedRange: selectedRange()
-            ),
+            for: query,
             rootDirectory: completionRootDirectory
         )
     }
 
+    private func warmMentionCompletionIndexesIfNeeded() {
+        let rootDirectory = completionRootDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cacheKey = rootDirectory?.isEmpty == false ? rootDirectory : nil
+        guard warmedMentionCompletionRootDirectory != cacheKey else { return }
+        warmedMentionCompletionRootDirectory = cacheKey
+        mentionCompletionWarmupTask?.cancel()
+        mentionCompletionWarmupTask = Task {
+            await TextBoxMentionIndexStore.shared.warmIndexes(rootDirectory: cacheKey)
+        }
+    }
+
     private func handleMentionCompletionKeyEvent(_ event: NSEvent) -> Bool {
-        guard mentionCompletionController.hasSuggestions else { return false }
+        guard mentionCompletionController.isActive else { return false }
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         guard !flags.contains(.command),
-              !flags.contains(.control),
               !flags.contains(.option) else {
             return false
         }
 
+        if flags.contains(.control) {
+            guard let key = mentionCompletionControlNavigationKey(for: event) else { return false }
+            switch key {
+            case "p", "k":
+                if shouldBypassHiddenMentionCompletionKeyboardInteraction() {
+                    dismissMentionCompletions()
+                    return false
+                }
+                // Only claim the navigation keys once there are rows to move through;
+                // otherwise (active query still loading or zero hits) let them fall
+                // through to normal text editing instead of being silently swallowed.
+                guard mentionCompletionController.hasCurrentSuggestions else { return false }
+                mentionCompletionController.moveSelection(delta: -1)
+                return true
+            case "n", "j":
+                if shouldBypassHiddenMentionCompletionKeyboardInteraction() {
+                    dismissMentionCompletions()
+                    return false
+                }
+                guard mentionCompletionController.hasCurrentSuggestions else { return false }
+                mentionCompletionController.moveSelection(delta: 1)
+                return true
+            default:
+                return false
+            }
+        }
+
         switch Int(event.keyCode) {
         case kVK_UpArrow:
+            if shouldBypassHiddenMentionCompletionKeyboardInteraction() {
+                dismissMentionCompletions()
+                return false
+            }
+            guard mentionCompletionController.hasCurrentSuggestions else { return false }
             mentionCompletionController.moveSelection(delta: -1)
             return true
         case kVK_DownArrow:
+            if shouldBypassHiddenMentionCompletionKeyboardInteraction() {
+                dismissMentionCompletions()
+                return false
+            }
+            guard mentionCompletionController.hasCurrentSuggestions else { return false }
             mentionCompletionController.moveSelection(delta: 1)
             return true
         case kVK_Return, kVK_ANSI_KeypadEnter:
             guard !flags.contains(.shift) else { return false }
+            if shouldBypassHiddenMentionCompletionKeyboardInteraction() {
+                dismissMentionCompletions()
+                return false
+            }
+            if shouldBypassMentionCompletionReturnAcceptance() {
+                dismissMentionCompletions()
+                return false
+            }
             return acceptMentionCompletion()
         case kVK_Tab:
+            if shouldBypassHiddenMentionCompletionKeyboardInteraction() {
+                dismissMentionCompletions()
+                return false
+            }
             return acceptMentionCompletion()
         case kVK_Escape:
+            if shouldBypassHiddenMentionCompletionKeyboardInteraction() {
+                dismissMentionCompletions()
+                return false
+            }
+            guard mentionCompletionController.shouldShowPopover else { return false }
             dismissMentionCompletions()
             return true
         default:
@@ -4743,19 +4383,47 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     private func handleMentionCompletionCommand(_ commandSelector: Selector) -> Bool {
-        guard mentionCompletionController.hasSuggestions else { return false }
+        guard mentionCompletionController.isActive else { return false }
 
         switch commandSelector {
         case #selector(NSResponder.moveUp(_:)):
+            if shouldBypassHiddenMentionCompletionKeyboardInteraction() {
+                dismissMentionCompletions()
+                return false
+            }
+            guard mentionCompletionController.hasCurrentSuggestions else { return false }
             mentionCompletionController.moveSelection(delta: -1)
             return true
         case #selector(NSResponder.moveDown(_:)):
+            if shouldBypassHiddenMentionCompletionKeyboardInteraction() {
+                dismissMentionCompletions()
+                return false
+            }
+            guard mentionCompletionController.hasCurrentSuggestions else { return false }
             mentionCompletionController.moveSelection(delta: 1)
             return true
-        case #selector(NSResponder.insertNewline(_:)),
-             #selector(NSResponder.insertTab(_:)):
+        case #selector(NSResponder.insertNewline(_:)):
+            if shouldBypassHiddenMentionCompletionKeyboardInteraction() {
+                dismissMentionCompletions()
+                return false
+            }
+            if shouldBypassMentionCompletionReturnAcceptance() {
+                dismissMentionCompletions()
+                return false
+            }
+            return acceptMentionCompletion()
+        case #selector(NSResponder.insertTab(_:)):
+            if shouldBypassHiddenMentionCompletionKeyboardInteraction() {
+                dismissMentionCompletions()
+                return false
+            }
             return acceptMentionCompletion()
         case #selector(NSResponder.cancelOperation(_:)):
+            if shouldBypassHiddenMentionCompletionKeyboardInteraction() {
+                dismissMentionCompletions()
+                return false
+            }
+            guard mentionCompletionController.shouldShowPopover else { return false }
             dismissMentionCompletions()
             return true
         default:
@@ -4763,10 +4431,33 @@ final class TextBoxInputTextView: NSTextView {
         }
     }
 
+    private func shouldBypassHiddenMentionCompletionKeyboardInteraction() -> Bool {
+        guard let window else { return false }
+        guard NSApp.isActive,
+              window.isKeyWindow,
+              window.firstResponder === self,
+              mentionCompletionPanel?.isVisible == true else {
+            return true
+        }
+        return false
+    }
+
+    private func shouldBypassMentionCompletionReturnAcceptance() -> Bool {
+        guard let query = mentionCompletionController.activeQuery,
+              query.kind == .skill,
+              query.query.isEmpty else {
+            return false
+        }
+        return true
+    }
+
     @discardableResult
     private func acceptMentionCompletion(_ explicitSuggestion: TextBoxMentionSuggestion? = nil) -> Bool {
-        guard let query = mentionCompletionController.activeQuery,
+        guard mentionCompletionController.hasCurrentSuggestions,
+              let query = mentionCompletionController.activeQuery,
               let suggestion = explicitSuggestion ?? mentionCompletionController.selectedSuggestion,
+              explicitSuggestion == nil ||
+                  mentionCompletionController.suggestions.contains(where: { $0.id == suggestion.id }),
               isValidSelectedRange(query.range),
               shouldChangeText(in: query.range, replacementString: suggestion.insertionText) else {
             return false
@@ -4808,39 +4499,220 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     private func syncMentionCompletionPopover() {
-        guard mentionCompletionController.hasSuggestions,
+        guard mentionCompletionController.shouldShowPopover else {
+            dismissMentionCompletionPopoverOnly()
+            return
+        }
+        guard NSApp.isActive,
               window?.firstResponder === self,
+              let parentWindow = window,
+              parentWindow.isKeyWindow,
               let anchorRect = mentionCompletionAnchorRect() else {
             dismissMentionCompletionPopoverOnly()
             return
         }
+        updateMentionCompletionWindowObservers(for: parentWindow)
 
-        let popover = mentionCompletionPopover ?? makeMentionCompletionPopover()
-        popover.contentSize = NSSize(
-            width: 430,
-            height: CGFloat(mentionCompletionController.suggestions.count) * 36 + 10
+        let showsLoadingRow = mentionCompletionController.suggestions.isEmpty &&
+            mentionCompletionController.isLoadingSuggestions
+        let rowCount = showsLoadingRow ? 1 : mentionCompletionController.suggestions.count
+        let maxVisibleRows = 12
+        let visibleRows = min(rowCount, maxVisibleRows)
+        let rowHeight: CGFloat = 25
+        let contentSize = NSSize(
+            width: 360,
+            height: CGFloat(visibleRows) * rowHeight + 8
         )
-        if !popover.isShown {
-            popover.show(relativeTo: anchorRect, of: self, preferredEdge: .maxY)
-            window?.makeFirstResponder(self)
+        let host: NSHostingView<TextBoxMentionCompletionPopoverView>
+        if let existingHost = mentionCompletionPanelHost {
+            existingHost.rootView = mentionCompletionPopoverView()
+            host = existingHost
+        } else {
+            host = NSHostingView(rootView: mentionCompletionPopoverView())
+            host.translatesAutoresizingMaskIntoConstraints = true
+            host.autoresizingMask = []
+            mentionCompletionPanelHost = host
+        }
+        host.frame = NSRect(origin: .zero, size: contentSize)
+
+        let panel = mentionCompletionPanel ?? makeMentionCompletionPanel(host: host)
+        if panel.contentView !== host {
+            panel.contentView = host
+        }
+        panel.setContentSize(contentSize)
+        let targetOrigin = mentionCompletionPanelOrigin(
+            anchorRect: anchorRect,
+            contentSize: contentSize
+        )
+        if mentionCompletionPanelOriginNeedsUpdate(from: panel.frame.origin, to: targetOrigin) {
+            panel.setFrameOrigin(targetOrigin)
+        }
+
+        if panel.parent !== parentWindow {
+            panel.parent?.removeChildWindow(panel)
+            parentWindow.addChildWindow(panel, ordered: .above)
+        }
+        if !panel.isVisible {
+            panel.orderFront(nil)
         }
     }
 
-    private func makeMentionCompletionPopover() -> NSPopover {
-        let popover = NSPopover()
-        popover.behavior = .semitransient
-        popover.animates = false
-        popover.contentViewController = NSHostingController(
-            rootView: TextBoxMentionCompletionPopoverView(
-                controller: mentionCompletionController,
-                onSelect: { [weak self] suggestion in
-                    self?.window?.makeFirstResponder(self)
-                    self?.acceptMentionCompletion(suggestion)
-                }
-            )
+    private func makeMentionCompletionPanel(
+        host: NSHostingView<TextBoxMentionCompletionPopoverView>
+    ) -> TextBoxMentionCompletionPanel {
+        let panel = TextBoxMentionCompletionPanel(
+            contentRect: NSRect(origin: .zero, size: host.fittingSize),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
         )
-        mentionCompletionPopover = popover
-        return popover
+        panel.identifier = NSUserInterfaceItemIdentifier("cmux.textbox.mentionCompletionPanel")
+        panel.isFloatingPanel = true
+        panel.hidesOnDeactivate = true
+        panel.becomesKeyOnlyIfNeeded = true
+        panel.worksWhenModal = true
+        panel.level = .popUpMenu
+        panel.backgroundColor = .clear
+        panel.isOpaque = false
+        panel.hasShadow = true
+        panel.collectionBehavior = [.transient, .fullScreenAuxiliary, .moveToActiveSpace]
+        panel.contentView = host
+        mentionCompletionPanel = panel
+        return panel
+    }
+
+    private func updateMentionCompletionWindowObservers(for parentWindow: NSWindow) {
+        if mentionCompletionObservedWindow === parentWindow,
+           !mentionCompletionWindowObserverTokens.isEmpty {
+            return
+        }
+
+        removeMentionCompletionWindowObservers()
+        mentionCompletionObservedWindow = parentWindow
+
+        let notificationNames: [Notification.Name] = [
+            NSWindow.didMoveNotification,
+            NSWindow.didResizeNotification,
+            NSWindow.didChangeScreenNotification,
+            NSWindow.didResignKeyNotification
+        ]
+        let notificationCenter = NotificationCenter.default
+        mentionCompletionWindowObserverTokens = notificationNames.map { notificationName in
+            notificationCenter.addObserver(
+                forName: notificationName,
+                object: parentWindow,
+                queue: .main
+            ) { [weak self] _ in
+                self?.scheduleMentionCompletionPanelReposition()
+            }
+        }
+    }
+
+    private func removeMentionCompletionWindowObservers() {
+        let notificationCenter = NotificationCenter.default
+        for observerToken in mentionCompletionWindowObserverTokens {
+            notificationCenter.removeObserver(observerToken)
+        }
+        mentionCompletionWindowObserverTokens = []
+        mentionCompletionObservedWindow = nil
+        mentionCompletionRepositionIsScheduled = false
+    }
+
+    private func scheduleMentionCompletionPanelReposition() {
+        guard mentionCompletionPanel?.isVisible == true,
+              !mentionCompletionRepositionIsScheduled else {
+            return
+        }
+        mentionCompletionRepositionIsScheduled = true
+        Task { @MainActor [weak self] in
+            guard let self,
+                  self.mentionCompletionRepositionIsScheduled else {
+                return
+            }
+            self.mentionCompletionRepositionIsScheduled = false
+            self.repositionMentionCompletionPanelIfNeeded()
+        }
+    }
+
+    private func repositionMentionCompletionPanelIfNeeded() {
+        guard mentionCompletionController.shouldShowPopover,
+              let panel = mentionCompletionPanel,
+              panel.isVisible,
+              NSApp.isActive,
+              window?.firstResponder === self,
+              let parentWindow = window,
+              parentWindow.isKeyWindow,
+              let anchorRect = mentionCompletionAnchorRect(),
+              let contentSize = mentionCompletionPanelContentSize(panel),
+              contentSize.width > 0,
+              contentSize.height > 0 else {
+            dismissMentionCompletionPopoverOnly()
+            return
+        }
+
+        updateMentionCompletionWindowObservers(for: parentWindow)
+        if panel.parent !== parentWindow {
+            panel.parent?.removeChildWindow(panel)
+            parentWindow.addChildWindow(panel, ordered: .above)
+        }
+
+        let targetOrigin = mentionCompletionPanelOrigin(
+            anchorRect: anchorRect,
+            contentSize: contentSize
+        )
+        if mentionCompletionPanelOriginNeedsUpdate(from: panel.frame.origin, to: targetOrigin) {
+            panel.setFrameOrigin(targetOrigin)
+        }
+    }
+
+    private func mentionCompletionPanelContentSize(_ panel: TextBoxMentionCompletionPanel) -> NSSize? {
+        if let contentView = panel.contentView {
+            return contentView.bounds.size
+        }
+        return panel.contentRect(forFrameRect: panel.frame).size
+    }
+
+    private func mentionCompletionPanelOriginNeedsUpdate(
+        from currentOrigin: NSPoint,
+        to targetOrigin: NSPoint
+    ) -> Bool {
+        abs(currentOrigin.x - targetOrigin.x) > 0.5 ||
+            abs(currentOrigin.y - targetOrigin.y) > 0.5
+    }
+
+    private func mentionCompletionPanelOrigin(
+        anchorRect: NSRect,
+        contentSize: NSSize
+    ) -> NSPoint {
+        let anchorInWindow = convert(anchorRect, to: nil)
+        guard let window else {
+            return .zero
+        }
+        let anchorOnScreen = window.convertToScreen(anchorInWindow)
+        let screenFrame = window.screen?.visibleFrame ?? anchorOnScreen
+        var x = anchorOnScreen.minX
+        let gap: CGFloat = 4
+        var y = anchorOnScreen.minY - contentSize.height - gap
+        if y < screenFrame.minY + 8 {
+            y = anchorOnScreen.maxY + gap
+        }
+        let maxX = screenFrame.maxX - contentSize.width - 8
+        if x > maxX { x = max(screenFrame.minX + 8, maxX) }
+        if x < screenFrame.minX + 8 { x = screenFrame.minX + 8 }
+        return NSPoint(x: x, y: y)
+    }
+
+    private func mentionCompletionPopoverView() -> TextBoxMentionCompletionPopoverView {
+        TextBoxMentionCompletionPopoverView(
+            suggestions: mentionCompletionController.suggestions,
+            selectionIndex: mentionCompletionController.selectionIndex,
+            searchTerm: mentionCompletionController.activeQuery?.query ?? "",
+            isLoading: mentionCompletionController.isLoadingSuggestions,
+            onSelect: { [weak self] suggestion in
+                self?.window?.makeFirstResponder(self)
+                self?.acceptMentionCompletion(suggestion)
+            }
+        )
     }
 
     private func mentionCompletionAnchorRect() -> NSRect? {
@@ -4860,7 +4732,8 @@ final class TextBoxInputTextView: NSTextView {
             )
         }
 
-        let cursor = min(max(0, selectedRange().location), length)
+        let queryCursor = mentionCompletionController.activeQuery.map { NSMaxRange($0.range) }
+        let cursor = min(max(0, queryCursor ?? selectedRange().location), length)
         let characterLocation = max(0, min(cursor, length - 1))
         let glyphRange = layoutManager.glyphRange(
             forCharacterRange: NSRange(location: characterLocation, length: 1),
@@ -4883,11 +4756,16 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     private func dismissMentionCompletionPopoverOnly() {
-        mentionCompletionPopover?.performClose(nil)
-        mentionCompletionPopover = nil
+        removeMentionCompletionWindowObservers()
+        if let panel = mentionCompletionPanel {
+            panel.parent?.removeChildWindow(panel)
+            panel.orderOut(nil)
+        }
+        mentionCompletionPanel = nil
+        mentionCompletionPanelHost = nil
     }
 
-    private func moveInsertionPointLeft() {
+    func moveInsertionPointLeft() {
         if moveFocusedAttachmentSelection(toTrailingEdge: false) {
             return
         }
@@ -4916,9 +4794,11 @@ final class TextBoxInputTextView: NSTextView {
 
     func invalidatePendingAttachmentUploads() {
         attachmentUploadInvalidationGeneration &+= 1
+        cancelActivePastePreparations()
+        rollbackAllPendingPasteReservations(notifyingTextChange: false)
     }
 
-    private func submitIfAllowed() {
+    func submitIfAllowed() {
         guard !hasPendingAttachmentUploadPlaceholder() else {
             NSSound.beep()
             return
@@ -4930,11 +4810,11 @@ final class TextBoxInputTextView: NSTextView {
         onSubmit()
     }
 
-    private func synchronizeAfterUndoRedo() {
-        normalizeTextBaselineOffsets()
-        recenterSingleLineTextContainer()
-        didChangeText()
-        refreshMentionCompletions()
+    private func reconcileInlineAttachmentRenderingAfterUndoRedo() {
+        refreshInlineAttachmentCells(
+            font: font ?? GlobalFontMagnification.systemFont(ofSize: NSFont.systemFontSize),
+            foregroundColor: textColor ?? .labelColor
+        )
         needsDisplay = true
         enclosingScrollView?.needsDisplay = true
         window?.viewsNeedDisplay = true
@@ -4943,44 +4823,101 @@ final class TextBoxInputTextView: NSTextView {
 #if DEBUG
     func debugSetMentionCompletionState(
         query: TextBoxMentionQuery?,
-        suggestions: [TextBoxMentionSuggestion]
+        suggestions: [TextBoxMentionSuggestion],
+        rootDirectory: String? = nil,
+        isLoading: Bool = false
     ) {
-        mentionCompletionController.debugSetState(query: query, suggestions: suggestions)
+        mentionCompletionController.debugSetState(
+            query: query,
+            suggestions: suggestions,
+            rootDirectory: rootDirectory,
+            isLoading: isLoading
+        )
     }
 
     func debugMentionSuggestionCount() -> Int {
         mentionCompletionController.debugSuggestionCount
     }
+
+    func debugMentionSuggestionTitles() -> [String] {
+        mentionCompletionController.debugSuggestionTitles
+    }
+
+    func debugMentionSuggestionsAreCurrent() -> Bool {
+        mentionCompletionController.debugHasCurrentSuggestions
+    }
+
+    func debugMentionCompletionsShouldShowPopover() -> Bool {
+        mentionCompletionController.debugShouldShowPopover
+    }
+
+    func debugMentionSelectionIndex() -> Int {
+        mentionCompletionController.selectionIndex
+    }
+
+    func debugAcceptMentionCompletion() -> Bool {
+        acceptMentionCompletion()
+    }
+
+    func debugAcceptMentionCompletion(suggestion: TextBoxMentionSuggestion) -> Bool {
+        acceptMentionCompletion(suggestion)
+    }
+
+    func debugControlKey(for event: NSEvent) -> String? {
+        controlKey(for: event)
+    }
+
+    func debugMentionCompletionControlNavigationKey(for event: NSEvent) -> String? {
+        mentionCompletionControlNavigationKey(for: event)
+    }
+
 #endif
 
-    private func handleConfiguredTextBoxShortcut(_ event: NSEvent) -> Bool {
+    func handleConfiguredTextBoxShortcut(_ event: NSEvent) -> Bool {
         guard event.type == .keyDown,
-              !KeyboardShortcutRecorderActivity.isAnyRecorderActive else {
+              !KeyboardShortcutRecorderActivity.isAnyRecorderActive,
+              !RecorderHostButton.isActivelyRecording else {
             return false
         }
-        if KeyboardShortcutSettings.shortcut(for: .focusTextBoxInput).matches(event: event) {
+        if hasMarkedText(),
+           shortcutRoutingShouldBypassForPrintableOptionText(event: event) {
+            return false
+        }
+        if textBoxShortcut(event, matches: .focusTextBoxInput) {
             onToggleFocus()
             return true
         }
-        if KeyboardShortcutSettings.shortcut(for: .attachTextBoxFile).matches(event: event) {
+        if textBoxShortcut(event, matches: .cycleTextBoxSubmitAction) {
+            guard !hasMarkedText() else { return false }
+            onCycleSubmitAction()
+            return true
+        }
+        if textBoxShortcut(event, matches: .attachTextBoxFile) {
             onChooseFiles()
             return true
         }
         return false
     }
 
+    private func textBoxShortcut(_ event: NSEvent, matches action: KeyboardShortcutSettings.Action) -> Bool {
+        guard KeyboardShortcutSettings.shortcut(for: action).matches(event: event) else {
+            return false
+        }
+        return AppDelegate.shared?.shortcutWhenClauseAllows(action: action, event: event) ?? true
+    }
+
     private func handleStandardEditShortcut(_ event: NSEvent) -> Bool {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         guard flags == .command else { return false }
 
-        switch Int(event.keyCode) {
-        case kVK_ANSI_C:
+        switch textBoxCommandShortcutKey(for: event) {
+        case "c":
             copy(nil)
             return true
-        case kVK_ANSI_X:
+        case "x":
             cut(nil)
             return true
-        case kVK_ANSI_V:
+        case "v":
             paste(nil)
             return true
         default:
@@ -4988,7 +4925,7 @@ final class TextBoxInputTextView: NSTextView {
         }
     }
 
-    private func deleteAttachment(at characterIndex: Int) {
+    func deleteAttachment(at characterIndex: Int) {
         deleteAttachmentSelection(in: NSRange(location: characterIndex, length: 1))
     }
 
@@ -5023,7 +4960,7 @@ final class TextBoxInputTextView: NSTextView {
         return true
     }
 
-    private func moveInsertionPointRight() {
+    func moveInsertionPointRight() {
         if moveFocusedAttachmentSelection(toTrailingEdge: true) {
             return
         }
@@ -5056,7 +4993,7 @@ final class TextBoxInputTextView: NSTextView {
         return NSMaxRange(nsText.rangeOfComposedCharacterSequence(at: clampedLocation))
     }
 
-    private func selectAttachment(at characterIndex: Int) {
+    func selectAttachment(at characterIndex: Int) {
         guard attachment(at: characterIndex) != nil else {
             clearAttachmentFocus(dismissPreview: true)
             return
@@ -5069,7 +5006,7 @@ final class TextBoxInputTextView: NSTextView {
         refreshInlineAttachmentFocus()
     }
 
-    private func focusedAttachment() -> (attachment: TextBoxAttachment, characterIndex: Int)? {
+    func focusedAttachment() -> (attachment: TextBoxAttachment, characterIndex: Int)? {
         let range = selectedRange()
         if let focusedAttachmentCharacterIndex,
            range.location == focusedAttachmentCharacterIndex,
@@ -5105,7 +5042,7 @@ final class TextBoxInputTextView: NSTextView {
         return attachment(at: focusedAttachmentCharacterIndex) != nil
     }
 
-    private func attachment(at characterIndex: Int) -> TextBoxAttachment? {
+    func attachment(at characterIndex: Int) -> TextBoxAttachment? {
         guard characterIndex >= 0,
               characterIndex < attributedString().length,
               let inlineAttachment = attributedString().attribute(
@@ -5127,7 +5064,7 @@ final class TextBoxInputTextView: NSTextView {
         return true
     }
 
-    private func toggleAttachmentPreview(
+    func toggleAttachmentPreview(
         _ attachment: TextBoxAttachment,
         characterIndex: Int
     ) {
@@ -5178,7 +5115,7 @@ final class TextBoxInputTextView: NSTextView {
         }
     }
 
-    private func showAttachmentPreview(
+    func showAttachmentPreview(
         _ attachment: TextBoxAttachment,
         characterIndex: Int
     ) {
@@ -5205,13 +5142,13 @@ final class TextBoxInputTextView: NSTextView {
         installAttachmentKeyDownMonitorIfNeeded()
     }
 
-    private func dismissAttachmentPreview() {
+    func dismissAttachmentPreview() {
         attachmentPreviewPopover?.performClose(nil)
         attachmentPreviewPopover = nil
         attachmentPreviewCharacterIndex = nil
     }
 
-    private func clearAttachmentFocus(dismissPreview shouldDismissPreview: Bool) {
+    func clearAttachmentFocus(dismissPreview shouldDismissPreview: Bool) {
         if shouldDismissPreview {
             dismissAttachmentPreview()
         }
@@ -5251,7 +5188,7 @@ final class TextBoxInputTextView: NSTextView {
         return (attachments, range)
     }
 
-    private func isValidSelectedRange(_ range: NSRange) -> Bool {
+    func isValidSelectedRange(_ range: NSRange) -> Bool {
         guard range.location != NSNotFound,
               range.location >= 0,
               range.length >= 0 else {
@@ -5272,32 +5209,46 @@ final class TextBoxInputTextView: NSTextView {
             .filter { !$0.isEmpty }
             .joined(separator: " ")
 
-        var types: [NSPasteboard.PasteboardType] = [.string]
-        if !fileURLs.isEmpty {
-            types.append(.fileURL)
-            types.append(PasteboardFileURLReader.legacyFilenamesPboardType)
+        var items: [NSPasteboardItem] = []
+        for fileURL in fileURLs {
+            let item = NSPasteboardItem()
+            guard item.setString(
+                fileURL.absoluteString,
+                forType: .fileURL
+            ) else {
+                return false
+            }
+            items.append(item)
+        }
+        if items.isEmpty {
+            items.append(NSPasteboardItem())
         }
 
-        pasteboard.clearContents()
-        pasteboard.declareTypes(types, owner: nil)
-
-        var wroteContent = false
+        let firstItem = items[0]
+        var wroteFirstItemContent = !fileURLs.isEmpty
         if !fileURLs.isEmpty {
-            if let firstURL = fileURLs.first {
-                wroteContent = pasteboard.setString(firstURL.absoluteString, forType: .fileURL) || wroteContent
-            }
-            wroteContent = pasteboard.setPropertyList(
+            wroteFirstItemContent = firstItem.setPropertyList(
                 fileURLs.map(\.path),
                 forType: PasteboardFileURLReader.legacyFilenamesPboardType
-            ) || wroteContent
+            ) || wroteFirstItemContent
         }
 
         if !submissionText.isEmpty {
-            wroteContent = pasteboard.setString(submissionText, forType: .string) || wroteContent
+            wroteFirstItemContent = firstItem.setString(
+                submissionText,
+                forType: .string
+            ) || wroteFirstItemContent
         } else if let firstURL = fileURLs.first {
-            wroteContent = pasteboard.setString(firstURL.path, forType: .string) || wroteContent
+            wroteFirstItemContent = firstItem.setString(
+                firstURL.path,
+                forType: .string
+            ) || wroteFirstItemContent
         }
-        return wroteContent
+        guard wroteFirstItemContent else { return false }
+        return GhosttyApp.terminalPasteboard.replaceContents(
+            of: pasteboard,
+            with: items
+        )
     }
 
     private func deleteAttachmentSelection(
@@ -5309,7 +5260,9 @@ final class TextBoxInputTextView: NSTextView {
             return
         }
 
-        let removedAttachments = inlineAttachments(in: range)
+        let removedInlineAttachments = inlineTextAttachments(in: range)
+        let removedAttachments = removedInlineAttachments.map(\.textBoxAttachment)
+        discardInlineAttachmentRendering(for: removedInlineAttachments)
         suppressAutomaticAttachmentFileCleanup = true
         defer { suppressAutomaticAttachmentFileCleanup = false }
         insertText("", replacementRange: range)
@@ -5325,22 +5278,28 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     private func inlineAttachments(in range: NSRange) -> [TextBoxAttachment] {
+        inlineTextAttachments(in: range).map(\.textBoxAttachment)
+    }
+
+    private func inlineTextAttachments(in range: NSRange) -> [TextBoxInlineTextAttachment] {
         guard isValidSelectedRange(range),
               range.length > 0 else {
             return []
         }
-        var result: [TextBoxAttachment] = []
+        var result: [TextBoxInlineTextAttachment] = []
         attributedString().enumerateAttribute(.attachment, in: range, options: []) { value, _, _ in
             guard let attachment = value as? TextBoxInlineTextAttachment else { return }
-            result.append(attachment.textBoxAttachment)
+            result.append(attachment)
         }
         return result
     }
 
     private func queueAutomaticAttachmentFileCleanup(in range: NSRange) {
         guard !suppressAutomaticAttachmentFileCleanup else { return }
-        let removedAttachments = inlineAttachments(in: range)
-        guard !removedAttachments.isEmpty else { return }
+        let removedInlineAttachments = inlineTextAttachments(in: range)
+        guard !removedInlineAttachments.isEmpty else { return }
+        discardInlineAttachmentRendering(for: removedInlineAttachments)
+        let removedAttachments = removedInlineAttachments.map(\.textBoxAttachment)
         for attachment in removedAttachments {
             guard attachment.cleanupLocalURLWhenDisposed,
                   let localURL = attachment.localURL else { continue }
@@ -5353,6 +5312,39 @@ final class TextBoxInputTextView: NSTextView {
         let attachments = Array(pendingAutomaticAttachmentFileCleanup.values)
         pendingAutomaticAttachmentFileCleanup.removeAll(keepingCapacity: true)
         cleanupRemovedAttachmentFiles(attachments)
+    }
+
+    private func discardInlineAttachmentRendering(
+        for removedAttachments: [TextBoxInlineTextAttachment]
+    ) {
+        let removedByID = Dictionary(
+            grouping: removedAttachments,
+            by: \.textBoxAttachment.id
+        )
+        var attachmentIDsWithoutOccurrences: Set<UUID> = []
+        for (attachmentID, removedOccurrences) in removedByID {
+            let removedIdentities = Set(removedOccurrences.map(ObjectIdentifier.init))
+            guard var remainingOccurrences = inlineAttachmentsByID[attachmentID] else {
+                continue
+            }
+            remainingOccurrences.removeAll {
+                removedIdentities.contains(ObjectIdentifier($0))
+            }
+            if remainingOccurrences.isEmpty {
+                inlineAttachmentsByID.removeValue(forKey: attachmentID)
+                attachmentIDsWithoutOccurrences.insert(attachmentID)
+            } else {
+                inlineAttachmentsByID[attachmentID] = remainingOccurrences
+            }
+        }
+        inlineAttachmentRendererStorage?.removeAttachments(
+            withIDs: attachmentIDsWithoutOccurrences
+        )
+    }
+
+    private func discardAllInlineAttachmentRendering() {
+        inlineAttachmentsByID.removeAll()
+        inlineAttachmentRendererStorage?.retainAttachments(withIDs: [])
     }
 
     private func installAttachmentKeyDownMonitorIfNeeded() {
@@ -5391,24 +5383,29 @@ final class TextBoxInputTextView: NSTextView {
 
     private static let attachmentReplacementCharacter = "\u{FFFC}"
 
-    private func currentTextAttributes(
+    func currentTextAttributes(
         font explicitFont: NSFont? = nil,
         foregroundColor explicitForegroundColor: NSColor? = nil
     ) -> [NSAttributedString.Key: Any] {
         [
-            .font: explicitFont ?? font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize),
+            .font: explicitFont ?? font ?? GlobalFontMagnification.systemFont(ofSize: NSFont.systemFontSize),
             .foregroundColor: explicitForegroundColor ?? textColor ?? .labelColor,
             .baselineOffset: textBaselineOffsetForCurrentContent()
         ]
     }
 
-    private func inlineAttachmentAttributedString(for attachment: TextBoxAttachment) -> NSAttributedString {
+    func inlineAttachmentAttributedString(for attachment: TextBoxAttachment) -> NSAttributedString {
+        let inlineAttachment = TextBoxInlineTextAttachment(
+            attachment: attachment,
+            font: font ?? GlobalFontMagnification.systemFont(ofSize: NSFont.systemFontSize),
+            foregroundColor: textColor ?? .labelColor,
+            renderer: inlineAttachmentRenderer,
+            appearance: effectiveAppearance,
+            backingScale: window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1
+        )
+        inlineAttachmentsByID[attachment.id, default: []].append(inlineAttachment)
         let attributed = NSMutableAttributedString(
-            attachment: TextBoxInlineTextAttachment(
-                attachment: attachment,
-                font: font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize),
-                foregroundColor: textColor ?? .labelColor
-            )
+            attachment: inlineAttachment
         )
         attributed.addAttribute(
             .baselineOffset,
@@ -5479,7 +5476,7 @@ final class TextBoxInputTextView: NSTextView {
         return character.rangeOfCharacter(from: .whitespacesAndNewlines) != nil
     }
 
-    private static func pendingAttachmentUploadPlaceholderRanges(
+    static func pendingAttachmentUploadPlaceholderRanges(
         in attributed: NSAttributedString,
         id: UUID?
     ) -> [NSRange] {
@@ -5511,7 +5508,7 @@ final class TextBoxInputTextView: NSTextView {
         }
     }
 
-    private func pendingAttachmentUploadPlaceholderRange(id: UUID?) -> NSRange? {
+    func pendingAttachmentUploadPlaceholderRange(id: UUID?) -> NSRange? {
         Self.pendingAttachmentUploadPlaceholderRanges(in: attributedString(), id: id).first
     }
 
@@ -5534,7 +5531,7 @@ final class TextBoxInputTextView: NSTextView {
             TextBoxDraftAttachmentStorage.removeCopiedDraftForOriginalTemporaryFile(url)
             return !TextBoxDraftAttachmentStorage.removeIfOwnedDraftCopy(url)
         }
-        GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles(ghosttyTemporaryURLs)
+        GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(ghosttyTemporaryURLs)
     }
 
     func cleanupCopiedDraftFilesForPreservedLocalPathSubmissions(_ attachments: [TextBoxAttachment]) {
@@ -5611,7 +5608,7 @@ final class TextBoxInputTextView: NSTextView {
         fileURL.standardizedFileURL.path
     }
 
-    private func adjustedSelectionRange(
+    func adjustedSelectionRange(
         _ selectedRange: NSRange,
         replacing replacedRange: NSRange,
         insertedLength: Int
@@ -5805,6 +5802,18 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     private func controlKey(for event: NSEvent) -> String? {
+        physicalControlKey(for: event) ?? event.charactersIgnoringModifiers?.lowercased()
+    }
+
+    private func mentionCompletionControlNavigationKey(for event: NSEvent) -> String? {
+        let normalizedKey = KeyboardLayout.normalizedCharacters(for: event).lowercased()
+        if normalizedKey.count == 1, normalizedKey.allSatisfy(\.isASCII) {
+            return normalizedKey
+        }
+        return controlKey(for: event)
+    }
+
+    private func physicalControlKey(for event: NSEvent) -> String? {
         switch Int(event.keyCode) {
         case kVK_ANSI_A: return "a"
         case kVK_ANSI_B: return "b"
@@ -5834,7 +5843,7 @@ final class TextBoxInputTextView: NSTextView {
         case kVK_ANSI_Z: return "z"
         case kVK_ANSI_Backslash: return "\\"
         default:
-            return event.charactersIgnoringModifiers?.lowercased()
+            return nil
         }
     }
 }

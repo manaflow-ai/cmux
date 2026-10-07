@@ -32,6 +32,8 @@ from typing import Any, Callable, Iterable
 
 DEFAULT_DURATION_SECONDS = 12 * 60 * 60
 DEFAULT_TIMEOUT_SECONDS = 12.0
+# Outer harness allowance above BrowserScreenshotTimingBudget's 41.5-second client deadline.
+BROWSER_SCREENSHOT_TIMEOUT_SECONDS = 45.0
 DEFAULT_BURST_WORKERS = 6
 DEFAULT_BURST_REQUESTS = 48
 DIAGNOSTIC_TEXT_LIMIT_BYTES = 256 * 1024
@@ -42,6 +44,7 @@ MIN_SPINDUMP_FREE_BYTES = 2 * 1024 * 1024 * 1024
 
 
 TOP_LEVEL_COMMANDS = {
+    "agent",
     "welcome",
     "docs",
     "settings",
@@ -50,6 +53,8 @@ TOP_LEVEL_COMMANDS = {
     "disable-browser",
     "enable-browser",
     "browser-status",
+    "restore",
+    "fork",
     "restore-session",
     "open",
     "feedback",
@@ -116,6 +121,7 @@ TOP_LEVEL_COMMANDS = {
     "read-screen",
     "send",
     "send-key",
+    "paste",
     "send-panel",
     "send-key-panel",
     "notify",
@@ -205,6 +211,8 @@ SKIPPED_SOCKET_METHODS = {
     "feed.exit_plan.reply": "mutates feed state",
     "events.stream": "streaming protocol, covered by cmux events --limit",
     "session.restore_previous": "mutates app session state",
+    "session.import": "opens windows from another install's saved session",
+    "session.export": "writes a session snapshot file",
     "workspace.remote.configure": "requires remote workspace credentials",
     "workspace.remote.foreground_auth_ready": "requires remote workspace state",
     "workspace.remote.reconnect": "requires remote workspace state",
@@ -866,6 +874,7 @@ def build_cli_cases(ctx: StressContext) -> list[CliCase]:
         CliCase("help-flag", argv("--help"), no_socket=True, covered_command="help"),
         CliCase("help-command", argv("help"), no_socket=True, covered_command="help"),
         CliCase("welcome", argv("welcome"), no_socket=True, covered_command="welcome"),
+        CliCase("agent-help", argv("agent", "--help"), no_socket=True, covered_command="agent"),
         CliCase("docs", argv("docs"), no_socket=True, covered_command="docs"),
         CliCase("docs-settings", argv("docs", "settings"), no_socket=True, covered_command="docs"),
         CliCase("settings-path", argv("settings", "path"), no_socket=True, covered_command="settings"),
@@ -876,6 +885,8 @@ def build_cli_cases(ctx: StressContext) -> list[CliCase]:
         CliCase("disable-browser-help", argv("disable-browser", "--help"), no_socket=True, covered_command="disable-browser"),
         CliCase("enable-browser-help", argv("enable-browser", "--help"), no_socket=True, covered_command="enable-browser"),
         CliCase("browser-status", argv("browser-status", "--json"), no_socket=True, covered_command="browser-status", env_factory=lambda c: c.no_socket_env()),
+        CliCase("restore-help", argv("restore", "--help"), no_socket=True, covered_command="restore"),
+        CliCase("fork-help", argv("fork", "--help"), no_socket=True, covered_command="fork"),
         CliCase("restore-session-help", argv("restore-session", "--help"), no_socket=True, covered_command="restore-session"),
         CliCase("feedback-help", argv("feedback", "--help"), no_socket=True, covered_command="feedback"),
         CliCase("feed-help", argv("feed", "--help"), no_socket=True, covered_command="feed"),
@@ -941,6 +952,7 @@ def build_cli_cases(ctx: StressContext) -> list[CliCase]:
         CliCase("read-screen", ctx_argv(lambda c: ["read-screen", "--workspace", require(c.workspace_id, "workspace"), "--surface", require(c.surface_id, "surface"), "--lines", "5"]), expect_codes=any_code, covered_command="read-screen"),
         CliCase("send", ctx_argv(lambda c: ["send", "--workspace", require(c.workspace_id, "workspace"), "--surface", require(c.surface_id, "surface"), "printf stress-cli\\n"]), expect_codes=any_code, covered_command="send"),
         CliCase("send-key", ctx_argv(lambda c: ["send-key", "--workspace", require(c.workspace_id, "workspace"), "--surface", require(c.surface_id, "surface"), "enter"]), expect_codes=any_code, covered_command="send-key"),
+        CliCase("paste", ctx_argv(lambda c: ["paste", "--workspace", require(c.workspace_id, "workspace"), "--surface", require(c.surface_id, "surface"), "--", "stress-cli paste"]), expect_codes=any_code, covered_command="paste"),
         CliCase("send-panel", ctx_argv(lambda c: ["send-panel", "--workspace", require(c.workspace_id, "workspace"), "--panel", require(c.surface_id, "surface"), "printf stress-panel\\n"]), expect_codes=any_code, covered_command="send-panel"),
         CliCase("send-key-panel", ctx_argv(lambda c: ["send-key-panel", "--workspace", require(c.workspace_id, "workspace"), "--panel", require(c.surface_id, "surface"), "enter"]), expect_codes=any_code, covered_command="send-key-panel"),
         CliCase("notify", ctx_argv(lambda c: ["notify", "--workspace", require(c.workspace_id, "workspace"), "--surface", require(c.surface_id, "surface"), "--title", "stress", "--body", "cli"]), covered_command="notify"),
@@ -1025,7 +1037,7 @@ def browser_cli_cases() -> list[CliCase]:
         CliCase("browser-press", ctx_argv(lambda c: ["browser", "--surface", require(c.browser_surface_id, "browser surface"), "press", "Enter"]), expect_codes=any_code, covered_command="browser"),
         CliCase("browser-select", ctx_argv(lambda c: ["browser", "--surface", require(c.browser_surface_id, "browser surface"), "select", "#s", "b"]), expect_codes=any_code, covered_command="browser"),
         CliCase("browser-scroll", ctx_argv(lambda c: ["browser", "--surface", require(c.browser_surface_id, "browser surface"), "scroll", "--dy", "20"]), expect_codes=any_code, covered_command="browser"),
-        CliCase("browser-screenshot", ctx_argv(lambda c: ["browser", "--surface", require(c.browser_surface_id, "browser surface"), "screenshot", "--out", str(c.screenshot_path)]), expect_codes=any_code, timeout=20, covered_command="browser"),
+        CliCase("browser-screenshot", ctx_argv(lambda c: ["browser", "--surface", require(c.browser_surface_id, "browser surface"), "screenshot", "--out", str(c.screenshot_path)]), expect_codes=any_code, timeout=BROWSER_SCREENSHOT_TIMEOUT_SECONDS, covered_command="browser"),
         CliCase("browser-get-title", ctx_argv(lambda c: ["browser", "--surface", require(c.browser_surface_id, "browser surface"), "get", "title"]), expect_codes=any_code, covered_command="browser"),
         CliCase("browser-get-text", ctx_argv(lambda c: ["browser", "--surface", require(c.browser_surface_id, "browser surface"), "get", "text", "body"]), expect_codes=any_code, covered_command="browser"),
         CliCase("browser-is-visible", ctx_argv(lambda c: ["browser", "--surface", require(c.browser_surface_id, "browser surface"), "is", "visible", "body"]), expect_codes=any_code, covered_command="browser"),
@@ -1108,6 +1120,7 @@ def build_socket_cases(ctx: StressContext, capabilities: set[str]) -> list[Socke
         SocketCase("surface.report_shell_state", "surface.report_shell_state", lambda c: {**p_surface(c), "state": "running"}),
         SocketCase("surface.ports_kick", "surface.ports_kick", p_surface, expect_ok=None),
         SocketCase("surface.read_text", "surface.read_text", lambda c: {**p_surface(c), "lines": 5, "scrollback": True}, expect_ok=None),
+        SocketCase("surface.input_state", "surface.input_state", lambda c: p_surface(c), expect_ok=None),
         SocketCase("surface.clear_history", "surface.clear_history", p_surface, expect_ok=None),
         SocketCase("surface.trigger_flash", "surface.trigger_flash", p_surface, expect_ok=None),
         SocketCase("surface.create", "surface.create", lambda c: {"workspace_id": require(c.workspace_id, "workspace"), "type": "terminal", "focus": False}, layout_mutation=True),
@@ -1139,6 +1152,11 @@ def build_socket_cases(ctx: StressContext, capabilities: set[str]) -> list[Socke
         SocketCase("notification.mark_read", "notification.mark_read", lambda c: {"all": True}, expect_ok=None),
         SocketCase("notification.open", "notification.open", lambda c: {"id": c.create_notification_for_case("open")}, expect_ok=None),
         SocketCase("notification.jump_to_unread", "notification.jump_to_unread", lambda c: {}, expect_ok=None),
+        SocketCase("agent.message.send", "agent.message.send", lambda c: {"target": require(c.surface_id, "surface"), "from": "stress", "body": "socket"}),
+        SocketCase("agent.message.list", "agent.message.list", lambda c: {"surface": require(c.surface_id, "surface"), "limit": 5}),
+        SocketCase("agent.message.claim", "agent.message.claim", lambda c: {"surface_id": require(c.surface_id, "surface"), "via": "stress"}),
+        SocketCase("agent.message.mark_read", "agent.message.mark_read", lambda c: {"surface_id": require(c.surface_id, "surface")}),
+        SocketCase("agent.message.poll", "agent.message.poll", lambda c: {"surface_id": require(c.surface_id, "surface"), "poller_key": "stress"}),
         SocketCase("app.focus_override.set", "app.focus_override.set", lambda c: {"state": "clear"}, expect_ok=None),
         SocketCase("app.simulate_active", "app.simulate_active", lambda c: {}),
         SocketCase("debug.terminals", "debug.terminals", lambda c: {}),
@@ -1191,7 +1209,7 @@ def browser_socket_cases() -> list[SocketCase]:
         SocketCase("browser.select", "browser.select", lambda c: {**p_browser(c), "selector": "#s", "value": "b"}, expect_ok=None),
         SocketCase("browser.scroll", "browser.scroll", lambda c: {**p_browser(c), "dy": 20}, expect_ok=None),
         SocketCase("browser.scroll_into_view", "browser.scroll_into_view", lambda c: {**p_browser(c), "selector": "body"}, expect_ok=None),
-        SocketCase("browser.screenshot", "browser.screenshot", p_browser, expect_ok=None, timeout=20),
+        SocketCase("browser.screenshot", "browser.screenshot", p_browser, expect_ok=None, timeout=BROWSER_SCREENSHOT_TIMEOUT_SECONDS),
         SocketCase("browser.get.text", "browser.get.text", lambda c: {**p_browser(c), "selector": "body"}, expect_ok=None),
         SocketCase("browser.get.html", "browser.get.html", lambda c: {**p_browser(c), "selector": "body"}, expect_ok=None),
         SocketCase("browser.get.value", "browser.get.value", lambda c: {**p_browser(c), "selector": "#i"}, expect_ok=None),

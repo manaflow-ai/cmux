@@ -1,8 +1,8 @@
-import CmuxExtensionKit
+import CmuxSidebarProviderKit
 import Foundation
 
-public struct ProjectWorktreeSidebar: CmuxExtensionSidebarProvider {
-    public let descriptor = CmuxExtensionSidebarProviderDescriptor(
+public struct ProjectWorktreeSidebar: CmuxSidebarProvider {
+    public let descriptor = CmuxSidebarProviderDescriptor(
         id: "com.example.cmux.sidebar.project-worktrees",
         title: localized("example.sidebar.projectWorktrees.title", "Project Worktrees"),
         subtitle: localized("example.sidebar.projectWorktrees.subtitle", "User extension"),
@@ -12,8 +12,8 @@ public struct ProjectWorktreeSidebar: CmuxExtensionSidebarProvider {
 
     public init() {}
 
-    public func render(snapshot: CmuxExtensionSidebarSnapshot) -> CmuxExtensionSidebarRenderModel {
-        var sections: [CmuxExtensionSidebarRenderSection] = []
+    public func render(snapshot: CmuxSidebarProviderSnapshot) -> CmuxSidebarProviderRenderModel {
+        var sections: [CmuxSidebarProviderSection] = []
 
         sections.append(
             ExampleSidebarSection(
@@ -23,10 +23,10 @@ public struct ProjectWorktreeSidebar: CmuxExtensionSidebarProvider {
                 projectRootPath: nil,
                 workspaces: snapshot.workspaces.filter(\.isPinned)
             )
-            .render(subtitle: branchSubtitle)
+            .render(subtitle: rowSubtitle)
         )
 
-        var grouped: [String: [CmuxExtensionWorkspaceSnapshot]] = [:]
+        var grouped: [String: [CmuxSidebarProviderWorkspace]] = [:]
         var orderedProjectRoots: [String] = []
 
         for workspace in snapshot.workspaces where !workspace.isPinned {
@@ -51,14 +51,17 @@ public struct ProjectWorktreeSidebar: CmuxExtensionSidebarProvider {
                     projectRootPath: root == "no-folder" ? nil : root,
                     workspaces: grouped[root] ?? []
                 )
-                .render(subtitle: branchSubtitle)
+                .render(subtitle: rowSubtitle)
             )
         }
 
         return renderModel(providerId: descriptor.id, snapshot: snapshot, sections: sections)
     }
 
-    private func branchSubtitle(_ workspace: CmuxExtensionWorkspaceSnapshot) -> CmuxExtensionSidebarRenderText? {
-        trimmed(workspace.branchSummary).map(CmuxExtensionSidebarRenderText.plain)
+    private func rowSubtitle(_ workspace: CmuxSidebarProviderWorkspace) -> CmuxSidebarProviderText? {
+        if let description = trimmed(workspace.customDescription) {
+            return .plain(description)
+        }
+        return trimmed(workspace.branchSummary).map(CmuxSidebarProviderText.plain)
     }
 }

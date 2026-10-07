@@ -1,3 +1,4 @@
+import CmuxCloud
 import Foundation
 
 enum CmuxSSHURLParseError: Error, Equatable {
@@ -21,7 +22,7 @@ enum CmuxSSHURLParseError: Error, Equatable {
 struct CmuxSSHURLRequest: Equatable {
     static let maxDestinationLength = 256
     static let maxTitleLength = 160
-    static let supportedSchemes: Set<String> = ["cmux", "cmux-nightly", "cmux-dev"]
+    static let supportedSchemes: Set<String> = ["cmux", "cmux-nightly", "cmux-rc", "cmux-dev"]
     static var activeSupportedSchemes: Set<String> {
         [AuthEnvironment.callbackScheme.lowercased()]
     }
@@ -81,6 +82,9 @@ struct CmuxSSHURLRequest: Equatable {
         _ url: URL,
         supportedSchemes: Set<String> = activeSupportedSchemes
     ) -> Result<CmuxSSHURLRequest?, CmuxSSHURLParseError> {
+        if isStandardSSHURLScheme(url.scheme) {
+            return parseStandardSSHURL(url)
+        }
         guard isSupportedScheme(url.scheme, supportedSchemes: supportedSchemes) else {
             return .success(nil)
         }
@@ -195,6 +199,166 @@ struct CmuxSSHURLRequest: Equatable {
                 noFocus: noFocus
             )
         )
+    }
+
+    private static func isStandardSSHURLScheme(_ scheme: String?) -> Bool {
+        scheme?.lowercased() == "ssh"
+    }
+
+    private static func parseStandardSSHURL(_ url: URL) -> Result<CmuxSSHURLRequest?, CmuxSSHURLParseError> {
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return .failure(.missingDestination)
+        }
+
+        let path = components.percentEncodedPath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard path.isEmpty else {
+            return .failure(.conflictingDestinationParameters)
+        }
+        guard components.password == nil else {
+            return .failure(.unsupportedParameter("password"))
+        }
+
+        let queryItems = components.queryItems ?? []
+        let allowedQueryNames: Set<String> = ["title", "name", "no-focus"]
+        var seenQueryNames = Set<String>()
+        for item in queryItems {
+            let name = item.name.lowercased()
+            guard allowedQueryNames.contains(name) else {
+                return .failure(.unsupportedParameter(displayParameterName(item.name)))
+            }
+            guard seenQueryNames.insert(name).inserted else {
+                return .failure(.duplicateParameter(displayParameterName(item.name)))
+            }
+        }
+
+        guard let hostValue = components.host, !hostValue.isEmpty else {
+            return .failure(.missingDestination)
+        }
+        let destinationHost = unbracketedStandardSSHHost(hostValue)
+        guard !destinationHost.hasPrefix("-") else {
+            return .failure(.destinationStartsWithDash)
+        }
+        guard isAllowedStandardSSHHost(hostValue) else {
+            return .failure(.destinationContainsUnsafeCharacters)
+        }
+
+        let userValue = components.user?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let userValue, !userValue.isEmpty {
+            guard !userValue.hasPrefix("-") else {
+                return .failure(.destinationStartsWithDash)
+            }
+            guard isAllowedSSHUser(userValue) else {
+                return .failure(.destinationContainsUnsafeCharacters)
+            }
+        }
+        let destination: String
+        if let userValue, !userValue.isEmpty {
+            destination = "\(userValue)@\(destinationHost)"
+        } else {
+            destination = destinationHost
+        }
+        guard destination.count <= maxDestinationLength else {
+            return .failure(.destinationTooLong(maxLength: maxDestinationLength))
+        }
+
+        let parsedPort: Int?
+        switch standardSSHURLPort(in: components) {
+        case .success(let port):
+            parsedPort = port
+        case .failure(let error):
+            return .failure(error)
+        }
+
+        let titleValue = normalizedQueryValue(namedAnyOf: ["title"], in: queryItems)
+        let nameValue = normalizedQueryValue(namedAnyOf: ["name"], in: queryItems)
+        guard titleValue == nil || nameValue == nil else {
+            return .failure(.conflictingTitleParameters)
+        }
+        let title = titleValue ?? nameValue
+        if let title {
+            guard title.count <= maxTitleLength else {
+                return .failure(.titleTooLong(maxLength: maxTitleLength))
+            }
+            guard !containsUnsafeHiddenCharacter(title) else {
+                return .failure(.titleContainsUnsafeCharacters)
+            }
+        }
+
+        let noFocus: Bool
+        switch normalizedBooleanValue(named: "no-focus", in: queryItems) {
+        case .success(let value):
+            noFocus = value
+        case .failure(let error):
+            return .failure(error)
+        }
+
+        return .success(
+            CmuxSSHURLRequest(
+                originalURL: url,
+                destination: destination,
+                port: parsedPort,
+                title: title,
+                sshOptions: [],
+                noFocus: noFocus
+            )
+        )
+    }
+
+    private static func standardSSHURLPort(in components: URLComponents) -> Result<Int?, CmuxSSHURLParseError> {
+        if let port = components.port {
+            guard port > 0, port <= 65_535 else {
+                return .failure(.invalidPort)
+            }
+            return .success(port)
+        }
+        guard !standardSSHURLHasExplicitPort(in: components) else {
+            return .failure(.invalidPort)
+        }
+        return .success(nil)
+    }
+
+    private static func standardSSHURLHasExplicitPort(in components: URLComponents) -> Bool {
+        guard let string = components.string,
+              let authorityStart = string.range(of: "://")?.upperBound else {
+            return false
+        }
+
+        var authority = string[authorityStart...]
+        if let authorityEnd = authority.firstIndex(where: { $0 == "/" || $0 == "?" || $0 == "#" }) {
+            authority = authority[..<authorityEnd]
+        }
+        if let userInfoEnd = authority.lastIndex(of: "@") {
+            authority = authority[authority.index(after: userInfoEnd)...]
+        }
+
+        if authority.hasPrefix("[") {
+            guard let closingBracket = authority.firstIndex(of: "]") else { return false }
+            let afterBracket = authority.index(after: closingBracket)
+            return afterBracket < authority.endIndex && authority[afterBracket] == ":"
+        }
+
+        return authority.contains(":")
+    }
+
+    private static func unbracketedStandardSSHHost(_ host: String) -> String {
+        if host.hasPrefix("[") && host.hasSuffix("]") {
+            return String(host.dropFirst().dropLast())
+        }
+        return host
+    }
+
+    private static func isAllowedStandardSSHHost(_ value: String) -> Bool {
+        if isAllowedSSHHost(value) {
+            return true
+        }
+        guard !containsUnsafeHiddenCharacter(value),
+              value.contains(":"),
+              !value.hasPrefix("["),
+              !value.hasSuffix("]") else {
+            return false
+        }
+        let allowed = CharacterSet(charactersIn: "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz:.%")
+        return value.unicodeScalars.allSatisfy { allowed.contains($0) }
     }
 
     private static func isSupportedScheme(_ scheme: String?, supportedSchemes: Set<String>) -> Bool {
@@ -376,6 +540,8 @@ struct CmuxNavigationURLRequest: Equatable {
 
     let originalURL: URL
     let target: Target
+    let stableFallbackWorkspaceId: UUID?
+    let stableFallbackSurfaceId: UUID?
 
     static func parse(
         _ url: URL,
@@ -396,7 +562,6 @@ struct CmuxNavigationURLRequest: Equatable {
         guard components.user == nil,
               components.password == nil,
               components.port == nil,
-              components.percentEncodedQuery == nil,
               components.percentEncodedFragment == nil else {
             return .failure(.unsupportedURLShape)
         }
@@ -408,7 +573,19 @@ struct CmuxNavigationURLRequest: Equatable {
             return .failure(.invalidIdentifier("workspace"))
         }
         if route.count == 2 {
-            return .success(CmuxNavigationURLRequest(originalURL: url, target: .workspace(workspaceId)))
+            let fallback: (workspaceId: UUID?, surfaceId: UUID?)?
+            switch parseStableFallback(from: components, allowedNames: ["stable_workspace_id"]) {
+            case .success(let parsedFallback):
+                fallback = parsedFallback
+            case .failure(let error):
+                return .failure(error)
+            }
+            return .success(CmuxNavigationURLRequest(
+                originalURL: url,
+                target: .workspace(workspaceId),
+                stableFallbackWorkspaceId: fallback?.workspaceId,
+                stableFallbackSurfaceId: fallback?.surfaceId
+            ))
         }
 
         let childKind = route[2].lowercased()
@@ -425,17 +602,34 @@ struct CmuxNavigationURLRequest: Equatable {
 
         switch childKind {
         case "pane":
+            if components.percentEncodedQuery != nil {
+                return .failure(.unsupportedURLShape)
+            }
             return .success(
                 CmuxNavigationURLRequest(
                     originalURL: url,
-                    target: .pane(workspaceId: workspaceId, paneId: childId)
+                    target: .pane(workspaceId: workspaceId, paneId: childId),
+                    stableFallbackWorkspaceId: nil,
+                    stableFallbackSurfaceId: nil
                 )
             )
         case "surface", "panel":
+            let fallback: (workspaceId: UUID?, surfaceId: UUID?)?
+            switch parseStableFallback(
+                from: components,
+                allowedNames: ["stable_workspace_id", "stable_surface_id"]
+            ) {
+            case .success(let parsedFallback):
+                fallback = parsedFallback
+            case .failure(let error):
+                return .failure(error)
+            }
             return .success(
                 CmuxNavigationURLRequest(
                     originalURL: url,
-                    target: .surface(workspaceId: workspaceId, surfaceId: childId)
+                    target: .surface(workspaceId: workspaceId, surfaceId: childId),
+                    stableFallbackWorkspaceId: fallback?.workspaceId,
+                    stableFallbackSurfaceId: fallback?.surfaceId
                 )
             )
         default:
@@ -458,9 +652,22 @@ struct CmuxNavigationURLRequest: Equatable {
     static func surfaceLink(
         workspaceId: UUID,
         surfaceId: UUID,
+        stableWorkspaceId: UUID? = nil,
+        stableSurfaceId: UUID? = nil,
         scheme: String = AuthEnvironment.callbackScheme
     ) -> String {
-        "\(scheme)://workspace/\(workspaceId.uuidString)/surface/\(surfaceId.uuidString)"
+        var link = "\(scheme)://workspace/\(workspaceId.uuidString)/surface/\(surfaceId.uuidString)"
+        var queryItems: [String] = []
+        if let stableWorkspaceId {
+            queryItems.append("stable_workspace_id=\(stableWorkspaceId.uuidString)")
+        }
+        if let stableSurfaceId {
+            queryItems.append("stable_surface_id=\(stableSurfaceId.uuidString)")
+        }
+        if !queryItems.isEmpty {
+            link += "?\(queryItems.joined(separator: "&"))"
+        }
+        return link
     }
 
     private static func isSupportedScheme(_ scheme: String?, supportedSchemes: Set<String>) -> Bool {
@@ -478,6 +685,53 @@ struct CmuxNavigationURLRequest: Equatable {
             .split(separator: "/", omittingEmptySubsequences: true)
             .map(String.init)
         return route
+    }
+
+    private static func parseStableFallback(
+        from components: URLComponents,
+        allowedNames: Set<String>
+    ) -> Result<(workspaceId: UUID?, surfaceId: UUID?)?, CmuxNavigationURLParseError> {
+        guard components.percentEncodedQuery != nil else { return .success(nil) }
+        guard let items = components.queryItems, !items.isEmpty else {
+            return .failure(.unsupportedURLShape)
+        }
+
+        var stableWorkspaceId: UUID?
+        var stableSurfaceId: UUID?
+        var seenNames: Set<String> = []
+        for item in items {
+            guard allowedNames.contains(item.name),
+                  seenNames.insert(item.name).inserted,
+                  let value = item.value,
+                  !value.isEmpty else {
+                return .failure(.unsupportedURLShape)
+            }
+
+            guard let id = UUID(uuidString: value) else {
+                switch item.name {
+                case "stable_workspace_id":
+                    return .failure(.invalidIdentifier("stable_workspace"))
+                case "stable_surface_id":
+                    return .failure(.invalidIdentifier("stable_surface"))
+                default:
+                    return .failure(.unsupportedURLShape)
+                }
+            }
+
+            switch item.name {
+            case "stable_workspace_id":
+                stableWorkspaceId = id
+            case "stable_surface_id":
+                stableSurfaceId = id
+            default:
+                return .failure(.unsupportedURLShape)
+            }
+        }
+
+        return .success((
+            workspaceId: stableWorkspaceId,
+            surfaceId: stableSurfaceId
+        ))
     }
 }
 

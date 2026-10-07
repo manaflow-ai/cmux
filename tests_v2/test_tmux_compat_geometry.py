@@ -31,6 +31,28 @@ def _must(cond: bool, msg: str) -> None:
         raise cmuxError(msg)
 
 
+def _wait_for_pane_count(c: cmux, workspace_id: str, expected: int, timeout_s: float = 10.0) -> dict:
+    """Poll pane.list until the workspace reports exactly `expected` panes.
+
+    Returns the pane.list payload the instant the count matches, so callers
+    assert on the real layout state instead of waiting a fixed duration on
+    async split/workspace readiness. Fails only at a generous deadline.
+    """
+    deadline = time.monotonic() + timeout_s
+    payload: dict = {}
+    count = -1
+    while time.monotonic() < deadline:
+        payload = c._call("pane.list", {"workspace_id": workspace_id})
+        count = len(payload.get("panes", []))
+        if count == expected:
+            return payload
+        time.sleep(0.02)
+    raise cmuxError(
+        f"Timed out waiting for {expected} pane(s) in workspace {workspace_id}; "
+        f"last count={count}"
+    )
+
+
 def _find_cli_binary() -> str:
     env_cli = os.environ.get("CMUXTERM_CLI")
     if env_cli and os.path.isfile(env_cli) and os.access(env_cli, os.X_OK):
@@ -163,19 +185,18 @@ def test_multi_pane_geometry(cli: str, c: cmux) -> None:
     print("  test_multi_pane_geometry ... ", end="", flush=True)
     ws = c.new_workspace()
     c.select_workspace(ws)
-    time.sleep(0.3)
 
-    # Get single-pane geometry first
-    payload_before = c._call("pane.list", {"workspace_id": ws})
+    # Get single-pane geometry first. Wait on the real layout signal (the new
+    # workspace settling to its single pane) rather than a fixed delay.
+    payload_before = _wait_for_pane_count(c, ws, 1)
     panes_before = payload_before.get("panes", [])
     _must(len(panes_before) == 1, f"Expected 1 pane before split, got {len(panes_before)}")
     single_cols = panes_before[0].get("columns", 0)
 
-    # Split horizontally
+    # Split horizontally, then wait until the split has actually produced the
+    # second pane instead of guessing at how long the split takes.
     c.new_split("right")
-    time.sleep(0.3)
-
-    payload_after = c._call("pane.list", {"workspace_id": ws})
+    payload_after = _wait_for_pane_count(c, ws, 2)
     panes_after = payload_after.get("panes", [])
     _must(len(panes_after) == 2, f"Expected 2 panes after split, got {len(panes_after)}")
 
