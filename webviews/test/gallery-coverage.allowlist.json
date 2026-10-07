@@ -201,11 +201,5 @@
     "viewer-empty/PathPicker.tsx#PathPickerDialog",
     "viewer-empty/icons.tsx#EmptyIcon"
   ],
-  "pages": [
-    "cmux.apps",
-    "cmux.changelog",
-    "cmux.cloud",
-    "cmux.coderouter",
-    "cmux.icon-picker"
-  ]
+  "pages": ["cmux.apps", "cmux.changelog", "cmux.cloud", "cmux.coderouter", "cmux.icon-picker"]
 }
