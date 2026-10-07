@@ -2,12 +2,13 @@
 
 Status: lane B5 of [PLAN.md](PLAN.md), 2026-10-06, branch `feat-cmux-next-ios-b5-mac-host`.
 Wire: [a0-rpc.md](a0-rpc.md). Link: [a3-link.md](a3-link.md) (section 10, `LinkAcceptor`, `LinkHost`).
-Control plane: B1 `b1-control-do.md` on `feat-cmux-next-ios-b1-control-do` (unmerged; coded to its
-documented interface). Binding: OWNERSHIP-PRINCIPLES.md, architecture.md 5a, ghostty-next.md 2,
+Control plane: B1 `b1-control-do.md`, merged into this branch from `feat-cmux-next-ios-b1-control-do`
+(the uplink rides its `CmuxControlPlane` transport). Binding: OWNERSHIP-PRINCIPLES.md, architecture.md 5a, ghostty-next.md 2,
 skills/cmux-socket-policy (relay authorization).
 
 Code: `Packages/Shared/CmuxMobileHost` (module `CmuxMobileHost`, Swift 6, macOS 14, no AppKit, no
-CmuxNext dependency). Depends on `CmuxLink`, `CmuxMobileWire`, `CmuxTerminalStream`.
+CmuxNext dependency). Depends on `CmuxLink`, `CmuxMobileWire`, `CmuxTerminalStream`, `CmuxControlPlane`.
+`MobileHost` is single use: `stop()` is final, the app makes a new one per sign-in.
 
 ## 1. Where the host lives
 
@@ -78,10 +79,16 @@ account this Mac is signed into.
   and `(install, link session id)` was not seen before (replay cache). The session id binds the proof
   to one link session, so a captured hello cannot open another.
 - Carriers that authenticate the peer themselves (B4 pins device keys, B2's signaling `from`) may
-  also pass a `CarrierAttestation`; when present it must name the same install, else deny.
-- Revocation: `MobileTrustStore.revocations()` closes every live session of that install at once
-  (`channel.closed {code: auth.revoked}` on each channel, then link close). Sign-out or account
-  switch stops the host (`MobileHost.stop()`).
+  also pass a `CarrierAttestation`; when present it must name the same install, else deny. Gap:
+  `LinkHost` hides the transport from the session, so `MobileHost` cannot obtain one yet; B2/B4 need
+  a peer-identity hook on `LinkSession` (CmuxLink change) to feed it.
+- Revocation: `MobileTrustStore.revocations()` (the store marks the device revoked before it
+  yields) reaches every session of that install, including one still in admission (matched by the
+  hello's claimed install; the hello path then answers `auth.forbidden`). The session's
+  `MobileSessionGate` closes first, so no op runs and no input reaches a terminal after that point;
+  each channel gets `channel.closed {code: auth.revoked}` within a 500 ms grace on the injected
+  clock, then the link session closes whether or not the peer read them. Ops also re-check the trust
+  store per op. Sign-out or account switch stops the host (`MobileHost.stop()`).
 - Failures answer `error {code: auth.unauthenticated | auth.forbidden}` on channel 0 and close the
   link session; nothing else is served.
 
@@ -147,12 +154,23 @@ seam (the app supplies a WebSocket with subprotocols `cmux.wire.v1, bearer.<inst
    dedupes on the same key.
 5. `signal` frames addressed to the host are handed to the `SignalingSink` seam (B2).
 
-Seq: the workspace stream's seq starts at the host process's start time in milliseconds and grows
-by one per event, so a restarted host never reuses a seq a mirror holds (HostDO and phones treat a
-lower or unknown seq as a gap and take the snapshot). No persistence needed.
+Seq and epoch: the workspace stream's seq starts at the host process's start time in milliseconds
+and grows by one per event, so a restarted host never reuses a seq a mirror holds. Every snapshot and
+event also carries a top-level `epoch` member (`ep_<start>_<random>`, one per stream instance; A0
+decoders ignore unknown members), as B1 section 11 asks: a `subscribe` with `after_seq` and another
+`epoch` gets a snapshot, and `HostDO` can do the same for device cursors. A0 should add `epoch` to
+`snapshot`, `event` and `subscribe` in the catalog and schemas.
 
-Interface risk: B1 is unmerged. The uplink depends only on frames listed in b1-control-do.md
-sections 2 and 3 (`to`/`from` members on top of A0 frames, handled as raw JSON members).
+A `snapshot.request` with `to` (a device's pending keys) is answered with a snapshot to that device
+only, carrying its decided keys from the ledger; the broadcast forwarder is untouched. Forwarded ops
+run per device in order, devices concurrently; a malformed forwarded op is still settled
+(`validation.invalid` + `request-settled`) so `HostDO`'s forward does not wait for its TTL. The
+production socket is `ControlPlaneHostSocket` over B1's `ControlPlaneConnection`
+(`URLSessionControlPlaneTransport`); `ControlPlaneClient` itself is the device role and is not used
+for the host role.
+
+The uplink depends only on frames listed in b1-control-do.md sections 2 and 3 (`to`/`from` members
+on top of A0 frames, handled as raw JSON members).
 
 ## 6. Seams for later lanes
 
@@ -169,13 +187,16 @@ sections 2 and 3 (`to`/`from` members on top of A0 frames, handled as raw JSON m
 
 ## 7. Tests
 
-Swift Testing in `Packages/Shared/CmuxMobileHost/Tests`, over `CmuxLinkTesting` loopback carriers
+45 Swift Testing tests in `Packages/Shared/CmuxMobileHost/Tests`, over `CmuxLinkTesting` loopback carriers
 with a fake daemon and a fake control socket: device proof (accept, unknown, revoked, other account,
 bad signature, stale, replay, attestation mismatch, revocation kicks live sessions), session rules
 (channel before hello, parity, reused id, unknown kind, handler seam), rpc (snapshot, event on
 change, `after_seq` replay, gap snapshot, rename result + settled, idempotent replay, spawn refused,
 command params refused, unknown id refused), terminal (opened params, keyframe snapshot, bytes,
 input and viewport forwarded, not found, overflow drops backlog and requests one snapshot), uplink
-(hello, caps, presence, snapshot on request, events, forwarded op answered with `to`).
+(hello, caps, presence, snapshot on request, events, forwarded op answered with `to`), and review
+regressions (revoking a peer that stopped reading, revocation during admission, contiguous seqs under
+credit pressure, `channel.close` while backpressured, a change during the first load, epoch mismatch,
+scoped pending-key snapshot, malformed forwarded op settled).
 
 No Rust in this lane, so nothing needs cargo.
