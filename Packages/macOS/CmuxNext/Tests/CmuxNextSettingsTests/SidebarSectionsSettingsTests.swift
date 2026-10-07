@@ -37,6 +37,17 @@ import Testing
         #expect(bad.diagnostics.map(\.path) == ["sidebar.showCounts"])
     }
 
+    /// S1: rows are one line unless the folder line is turned on.
+    @Test func theWorkspaceFolderLineIsOptIn() throws {
+        #expect(try !parse("{}").sidebarSections.showWorkspaceDirectory)
+        #expect(try parse(#"{"sidebar": {"showWorkspaceDirectory": true}}"#).sidebarSections.showWorkspaceDirectory)
+        let bad = try parse(#"{"sidebar": {"showWorkspaceDirectory": "yes"}}"#)
+        #expect(bad.sidebarSections == .defaults)
+        #expect(bad.diagnostics.map(\.path) == ["sidebar.showWorkspaceDirectory"])
+        let descriptor = try #require(SettingsSchema.all.first { $0.path == ["sidebar", "showWorkspaceDirectory"] })
+        #expect(descriptor.section == .appearance)
+    }
+
     /// One nested-tabs key: `sidebar.showWorkspaceTabs` (#17186). An
     /// unshipped `sidebar.nestedTabs` is not a setting.
     @Test func nestedTabsIsNotASecondKey() {

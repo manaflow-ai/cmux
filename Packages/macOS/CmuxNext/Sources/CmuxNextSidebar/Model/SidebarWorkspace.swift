@@ -132,4 +132,10 @@ nonisolated extension SidebarWorkspace {
     public var rowDetail: String? {
         liveDetail ?? subtitle.flatMap { $0.isEmpty ? nil : $0 }
     }
+
+    /// The row's second line: a live status always; the passive folder
+    /// line only when `sidebar.showWorkspaceDirectory` is on (S1).
+    public func rowDetail(showingDirectory: Bool) -> String? {
+        showingDirectory ? rowDetail : liveDetail
+    }
 }

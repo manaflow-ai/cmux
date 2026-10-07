@@ -136,3 +136,59 @@ test("page text holding U+FDD0 is not taken for a cut marker", async () => {
     assert.ok(r.tree.includes("head-AAAA"), `the snapshot keeps the text before U+FDD0:\n${r.tree.slice(0, 600)}`);
   });
 });
+
+// The bounded DOM readers (classic measureTree, boundedTextContent,
+// boundedInnerText, boundedHTML): a getter builds its whole string before
+// anything can cut it, so each reader first counts what the getter would
+// read and, past the budget, builds the string node by node and stops there.
+test("A.budget readers: textContent, innerText and HTML read whole within the budget, and stop at it past the budget", async () => {
+  await withRepl(async (run) => {
+    const r = await run(`console.log("@@" + JSON.stringify(${inAgent(`
+      const out = {};
+      document.body.innerHTML = '<div id="d"><p>alpha</p><p>beta <b>gamma</b> &amp; "q"</p><!--c--><br><span style="display:none">x</span></div>' +
+        '<div id="big"></div><div id="deep"></div>';
+      const d = document.getElementById("d");
+      const whole = A.budget({});
+      out.whole = [whole.textContent(d) === d.textContent, whole.innerText(d) === d.innerText, whole.innerHTML(d) === d.innerHTML, whole.outerHTML(d) === d.outerHTML];
+      out.wholeCut = whole.truncated || null;
+      const big = document.getElementById("big");
+      for (let i = 0; i < 2000; i++) { const p = document.createElement("p"); p.textContent = "w".repeat(49) + " "; big.appendChild(p); }
+      // 100,000 characters of text; a 60,000-character budget keeps what is
+      // left after the cut margin (53,248 characters) is dropped.
+      const sized = A.budget({ maxSize: 60000 });
+      // Settled as the reply would be.
+      const text = sized.settle(sized.textContent(big));
+      out.sizedLength = text.length;
+      out.sizedEnd = text.slice(-1);
+      out.sizedCut = sized.truncated;
+      for (const [name, read] of [["textContent", "textContent"], ["innerText", "innerText"], ["innerHTML", "innerHTML"], ["outerHTML", "outerHTML"]]) {
+        const b = A.budget({ maxNodes: 50 });
+        b[read](big);
+        out[name] = { cut: b.truncated, visited: b.report().visited };
+      }
+      const deep = document.getElementById("deep");
+      let cur = deep;
+      for (let i = 0; i < 20000; i++) { const c = document.createElement("i"); cur.appendChild(c); cur = c; }
+      cur.textContent = "bottom";
+      const nodes = A.budget({ maxNodes: 30000 });
+      out.deepHTML = nodes.innerHTML(deep).length;
+      out.deepCut = nodes.truncated || null;
+      const small = A.budget({ maxNodes: 100 });
+      out.deepText = small.textContent(deep);
+      out.deepTextCut = small.truncated;
+      return out;`)}));`);
+    assert.deepEqual(r.whole, [true, true, true, true], "a read within the budget is the getter's exact string");
+    assert.equal(r.wholeCut, null);
+    assert.equal(r.sizedLength, 60000 - 53248 + 1);
+    assert.equal(r.sizedEnd, "…");
+    assert.equal(r.sizedCut, "size");
+    for (const name of ["textContent", "innerText", "innerHTML", "outerHTML"]) {
+      assert.equal(r[name].cut, "nodes", `${name} stops at the node budget`);
+      assert.ok(r[name].visited <= 50, `${name} visited ${r[name].visited} nodes`);
+    }
+    assert.equal(r.deepHTML, 20000 * 7 + 6, "20,000 nested elements read without overflowing the stack");
+    assert.equal(r.deepCut, null);
+    assert.equal(r.deepText, "", "past the node budget the text read stops");
+    assert.equal(r.deepTextCut, "nodes");
+  });
+});
