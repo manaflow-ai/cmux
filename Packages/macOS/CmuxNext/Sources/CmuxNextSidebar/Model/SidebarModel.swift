@@ -64,6 +64,14 @@ public final class SidebarModel {
     /// The staged update card above the footer (UPDATE-CARD): set by the App
     /// only while an update is staged or installing; nil shows nothing.
     public var updateCard: SidebarUpdateCard?
+    /// The window shows a full-page destination: the footer band shows Back
+    /// (`onBack`) in its place.
+    public var showsBack = false
+    /// Back in the footer: return to where the window was.
+    @ObservationIgnored public var onBack: (() -> Void)?
+    /// The "Did you know" card (BOTTOM-LEFT-CARDS K1), shown only while
+    /// ``updateCard`` is nil.
+    public var tipCard: SidebarTipCard?
     /// A card's click, button or dismiss.
     @ObservationIgnored public var onCardAction: ((String, SidebarCardAction) -> Void)?
     /// Whether each workspace expands to show its intra-workspace tabs.
@@ -168,7 +176,7 @@ public final class SidebarModel {
             dropClosed(Set(ids))
         case let .switchProfile(id):
             activeProfileID = id
-        case .activateItem, .installUpdate, .setAutomaticUpdates, .openUpdateLink:
+        case .activateItem, .installUpdate, .setAutomaticUpdates, .openUpdateLink, .dropOnLayoutSection, .tryTip, .dismissTip:
             break
         case let .layout(op):
             if case .success(let next) = SidebarLayoutReducer.reduce(layout, op) { layout = next }

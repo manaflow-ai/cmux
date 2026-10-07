@@ -209,6 +209,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             )
         )
         settings.start()
+        ChatSettingsPush.start(settings: settings, environment: QuitAgents.environment(services))
+        services.chatsFeed?.keepCurrent()
         // The GitHub connection is deliberately off by default. Changes in
         // Settings apply to the one feed owner and never create a second
         // inbox store.
@@ -256,6 +258,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 control.registerInputMethods(services)
                 control.registerSettingsDebugMethods(services)
                 control.registerPageDebugMethods(services)
+                control.registerRemoteBrowserDebugMethods(services)
                 if let router = control.service?.router {
                     BrowserPageService(engine: AppBrowserPageEngine(services: services)).install(on: router)
                     services.apps.attach(router: router)

@@ -995,6 +995,10 @@ fn start_inspector(
     match started.and_then(|running| {
         crate::inspect::http::publish(&paths.inspector, &running).map(|()| running)
     }) {
+        Ok(running) if crate::inspect::http::PAGE_IS_PLACEHOLDER => log(format!(
+            "memory inspector on {} (placeholder page: this binary was built without the inspector bundle)",
+            running.url()
+        )),
         Ok(running) => log(format!("memory inspector on {}", running.url())),
         Err(e) => log(format!("memory inspector not started: {e}")),
     }

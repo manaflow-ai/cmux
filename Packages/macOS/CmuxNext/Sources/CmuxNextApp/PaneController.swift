@@ -140,6 +140,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
                 }
                 browserIcon(key: tab.id, recordFavicon: incognito ? nil : tab.faviconURL, recordURL: tab.url).apply(to: &item)
             }
+            TabItemMapping.shared.applyUserIcon(tab, to: &item)
             return item
         }
         for local in state?.localBrowserTabs[paneKey] ?? [] where !pendingClosed.contains(local.id) {
@@ -204,6 +205,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
             // A tab this window created: show it now (focus is the
             // coordinator's expectation, not decided here).
             showSelected()
+        } else if let selectedID, selectedID.rawValue != currentTabKey {
+            PaneSelectionPresenter(pane: self).present() // a close selected the neighbor
         } else {
             // Model-driven: show on the next frame, coalescing transient selections.
             services.presentation.setNeedsShowSelected(self)
@@ -254,6 +257,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         let content = key.flatMap(content(for:))
         currentTabKey = key
         if let key, content != nil { services.cache.present(key, by: self, presence: presence) }
+        if view.stripView.window != nil { view.stripView.sync(fromModel: true) } // strip + content: one transaction (L4)
         view.show(content?.view, overBackdrop: key.map(services.agentTabs.isNewTabPage) == true) // PaneContentView+NewTabBackdrop
         // Terminals come in on their first frame (`LaunchSettle`); other
         // content (a page, an agent) is ready once shown.

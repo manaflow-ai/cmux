@@ -706,6 +706,54 @@
         true,
         false
       ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.cmdWClosesPinnedTabs.help",
+        "text" : "When off, Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. Close a pinned tab from its menu."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.cmdWClosesPinnedTabs",
+      "keywords" : [
+        "pin",
+        "pinned",
+        "close",
+        "cmd-w",
+        "tab",
+        "keep"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "tabs",
+        "cmdWClosesPinnedTabs"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.tabs.cmdWClosesPinnedTabs",
+        "text" : "Cmd-W Closes Pinned Tabs"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
       "agent_refusal" : "destructive",
       "agent_settable" : false,
       "consumers" : [
@@ -3270,6 +3318,163 @@
         "text" : "Scope List Prefix"
       },
       "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.chats",
+        "text" : "Chats"
+      },
+      "help" : {
+        "key" : "settings.chats.enabled.help",
+        "text" : "Show chats stored on this device. Nothing is uploaded."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.chats.enabled",
+      "keywords" : [
+        "agents",
+        "chats",
+        "privacy"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "chats",
+        "enabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.chats.enabled",
+        "text" : "Enable Chats"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.chats",
+        "text" : "Chats"
+      },
+      "help" : {
+        "key" : "settings.chats.discovery.help",
+        "text" : "Find harness chat folders automatically. When off, only the listed folders are used."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.chats.discovery",
+      "keywords" : [
+        "agents",
+        "chats",
+        "discovery",
+        "privacy"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "chats",
+        "discovery"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.chats.discovery",
+        "text" : "Discover Chat Folders"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        [
+
+        ],
+        [
+          "/opt/cmux-chat-data"
+        ]
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : [
+
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.chats",
+        "text" : "Chats"
+      },
+      "help" : {
+        "key" : "settings.chats.roots.help",
+        "text" : "Add absolute paths to harness data folders. Protected folders are refused. Your organization can add locked folders."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.chats.roots",
+      "keywords" : [
+        "agents",
+        "chats",
+        "folders",
+        "roots",
+        "privacy"
+      ],
+      "kind" : "folder_list",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "chats",
+        "roots"
+      ],
+      "refuses" : [
+        "/opt/cmux-chat-data",
+        [
+          "~/chats"
+        ],
+        [
+          "/"
+        ],
+        [
+          "/Volumes/chats"
+        ],
+        [
+          1
+        ]
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.chats.roots",
+        "text" : "Chat Folders"
+      },
+      "validation" : "domain:chat_roots"
     },
     {
       "accepts" : [
@@ -7073,6 +7278,100 @@
         "text" : "Loading Indicator"
       },
       "help" : {
+        "key" : "settings.statusIndicator.showAgentWorkingOnTabs.help",
+        "text" : "Three dots take the tab's icon place while an agent works."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.statusIndicator.showAgentWorkingOnTabs",
+      "keywords" : [
+        "agent",
+        "working",
+        "thinking",
+        "dots"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "statusIndicator",
+        "showAgentWorkingOnTabs"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.statusIndicator.showAgentWorkingOnTabs",
+        "text" : "Show Agent Working on Tabs"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.statusIndicator",
+        "text" : "Loading Indicator"
+      },
+      "help" : {
+        "key" : "settings.statusIndicator.showPageLoading.help",
+        "text" : "A spinner takes a browser tab's icon place while its page loads."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.statusIndicator.showPageLoading",
+      "keywords" : [
+        "browser",
+        "loading",
+        "spinner",
+        "page"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "statusIndicator",
+        "showPageLoading"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.statusIndicator.showPageLoading",
+        "text" : "Show Page Loading on Tabs"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.statusIndicator",
+        "text" : "Loading Indicator"
+      },
+      "help" : {
         "key" : "settings.statusIndicator.honorStatusStyle.help",
         "text" : "A status that asks for a style (cmux status set --style) uses it."
       },
@@ -8028,6 +8327,52 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.showChats.help",
+        "text" : "Shows the device-wide Chats section in the sidebar."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.showChats",
+      "keywords" : [
+        "sidebar",
+        "chats",
+        "agents",
+        "conversations"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "showChats"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.sidebar.showChats",
+        "text" : "Show Chats"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "off",
         "bottom",
         "top",
@@ -8103,6 +8448,55 @@
       "title" : {
         "key" : "settings.sidebar.minimalMode",
         "text" : "Minimal Mode"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.cards.tips.help",
+        "text" : "A \"Did you know\" card above the account button shows one cmux feature a day that you have not used yet."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.cards.tips",
+      "keywords" : [
+        "sidebar",
+        "tips",
+        "did you know",
+        "cards",
+        "learn",
+        "features"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "cards",
+        "tips"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.sidebar.cards.tips",
+        "text" : "Show Tips"
       },
       "validation" : "portable"
     },
@@ -15499,7 +15893,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "9aab3f3de94cbad7c515b82df130c30389beb5a3ae6919101c9f576284a8ccd6",
+  "schema_hash" : "758795b46bbea91cc68453335566a5660086004e802bbaf9c3315764076c3ef1",
   "sections" : [
     {
       "id" : "general",

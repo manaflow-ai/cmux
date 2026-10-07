@@ -7261,6 +7261,269 @@
           }
         }
       }
+    },
+    "handlers.agent.addHarness.request": {
+      "comment": "Composer text of the chat Add Harness opens. Keep `cmux harness guide` exactly.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Integrate my harness into cmux. Run `cmux harness guide` and follow it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "私のハーネスを cmux に統合してください。`cmux harness guide` を実行して、その手順に従ってください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ادمج أداة التشغيل الخاصة بي في cmux. شغّل `cmux harness guide` واتبع خطواته."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Integriši moj harness u cmux. Pokreni `cmux harness guide` i slijedi upute."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Integrer min harness i cmux. Kør `cmux harness guide` og følg den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Integriere meinen Harness in cmux. Führe `cmux harness guide` aus und folge der Anleitung."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Integra mi harness en cmux. Ejecuta `cmux harness guide` y sigue sus pasos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Intègre mon harness dans cmux. Lance `cmux harness guide` et suis ses étapes."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Integra il mio harness in cmux. Esegui `cmux harness guide` e seguilo."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សូមបញ្ចូល harness របស់ខ្ញុំទៅក្នុង cmux។ ដំណើរការ `cmux harness guide` ហើយធ្វើតាមវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "내 하네스를 cmux에 통합해 줘. `cmux harness guide`를 실행하고 안내를 따라 줘."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Integrer min harness i cmux. Kjør `cmux harness guide` og følg den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zintegruj mój harness z cmux. Uruchom `cmux harness guide` i postępuj zgodnie z nim."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Integre meu harness ao cmux. Execute `cmux harness guide` e siga as instruções."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Интегрируй мой харнесс в cmux. Запусти `cmux harness guide` и следуй инструкциям."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ช่วยผสาน harness ของฉันเข้ากับ cmux เรียกใช้ `cmux harness guide` แล้วทำตามขั้นตอน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Harness'imi cmux'a entegre et. `cmux harness guide` komutunu çalıştır ve adımlarını izle."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Інтегруй мій харнес у cmux. Запусти `cmux harness guide` і дотримуйся інструкцій."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hãy tích hợp harness của tôi vào cmux. Chạy `cmux harness guide` và làm theo hướng dẫn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "将我的 harness 集成到 cmux。运行 `cmux harness guide` 并按其步骤操作。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "將我的 harness 整合到 cmux。執行 `cmux harness guide` 並依照步驟操作。"
+          }
+        }
+      }
+    },
+    "handlers.agent.addHarness.needsFocus": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add Harness… opens a chat from the palette, the menu or the New Tab page. Automation runs cmux harness guide instead."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「ハーネスを追加…」はパレット、メニュー、または新規タブページからチャットを開きます。自動化では代わりに cmux harness guide を実行してください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يفتح «إضافة أداة تشغيل…» محادثة من لوحة الأوامر أو القائمة أو صفحة علامة التبويب الجديدة. تشغّل الأتمتة cmux harness guide بدلًا من ذلك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dodaj harness… otvara razgovor iz palete, menija ili stranice nove kartice. Automatizacija umjesto toga pokreće cmux harness guide."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tilføj harness… åbner en chat fra paletten, menuen eller siden Ny fane. Automatisering kører cmux harness guide i stedet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "„Harness hinzufügen…“ öffnet einen Chat aus der Palette, dem Menü oder der Seite „Neuer Tab“. Automatisierung führt stattdessen cmux harness guide aus."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Añadir harness… abre un chat desde la paleta, el menú o la página de nueva pestaña. La automatización ejecuta cmux harness guide en su lugar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajouter un harness… ouvre une discussion depuis la palette, le menu ou la page Nouvel onglet. L’automatisation lance plutôt cmux harness guide."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aggiungi harness… apre una chat dalla palette, dal menu o dalla pagina Nuova scheda. L’automazione esegue invece cmux harness guide."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បន្ថែម harness… បើកការជជែកពីផ្ទាំងពាក្យបញ្ជា ម៉ឺនុយ ឬទំព័រផ្ទាំងថ្មី។ ស្វ័យប្រវត្តិកម្មដំណើរការ cmux harness guide ជំនួសវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "하네스 추가…는 팔레트, 메뉴 또는 새 탭 페이지에서 채팅을 엽니다. 자동화에서는 대신 cmux harness guide를 실행하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Legg til harness… åpner en chat fra paletten, menyen eller siden Ny fane. Automatisering kjører cmux harness guide i stedet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dodaj harness… otwiera czat z palety, menu lub strony nowej karty. Automatyzacja uruchamia zamiast tego cmux harness guide."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adicionar harness… abre um chat pela paleta, pelo menu ou pela página de nova aba. A automação executa cmux harness guide em vez disso."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«Добавить харнесс…» открывает чат из палитры, меню или страницы новой вкладки. Автоматизация вместо этого запускает cmux harness guide."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เพิ่ม harness… จะเปิดแชตจากพาเลต เมนู หรือหน้าแท็บใหม่ ระบบอัตโนมัติให้เรียกใช้ cmux harness guide แทน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Harness ekle… paletten, menüden veya Yeni Sekme sayfasından bir sohbet açar. Otomasyon bunun yerine cmux harness guide çalıştırır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«Додати харнес…» відкриває чат із палітри, меню або сторінки нової вкладки. Автоматизація натомість запускає cmux harness guide."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thêm harness… mở một cuộc trò chuyện từ bảng lệnh, menu hoặc trang Thẻ mới. Tự động hóa chạy cmux harness guide thay thế."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“添加 Harness…”从命令面板、菜单或新标签页打开聊天。自动化请改为运行 cmux harness guide。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「新增 Harness…」會從命令面板、選單或新分頁頁面開啟聊天。自動化請改為執行 cmux harness guide。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

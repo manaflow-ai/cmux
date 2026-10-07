@@ -12,21 +12,28 @@ extension AppControl {
         service?.router.register([
             .mainActor("updates.status") { _ in .value(Self.json(updater.status, log: updater.log.recent)) },
             // `{build?, check?}`: rolls back to a kept build, or with check
-            // only reports whether it would. The daemon's stored formats come
-            // with the cmux-tui store.schemas op; until then it refuses.
+            // only reports whether it would. Both daemons' stores count: the
+            // app's and the Chief conversation owner's.
             .mainActor("updates.rollback") { call in
                 let build = call.params["build"]?.stringValue
-                if call.params["check"]?.boolValue == true {
-                    switch updater.rollbackDecision(to: build, stored: nil) {
-                    case .success(let kept): return .value(.object(["allowed": true, "build": .string(kept.build)]))
-                    case .failure(let refusal): return .value(.object(["allowed": false, "reason": .string(refusal.message)]))
+                let check = call.params["check"]?.boolValue == true
+                let stateDirectories = appServices.environment.daemonStateDirectories
+                return .followUp {
+                    let inputs = await updater.rollbackInputs(stateDirectories: stateDirectories)
+                    return try await MainActor.run { () throws -> JSONValue in
+                        if check {
+                            switch updater.rollbackDecision(to: build, inputs: inputs) {
+                            case .success(let kept): return .object(["allowed": true, "build": .string(kept.build)])
+                            case .failure(let refusal): return .object(["allowed": false, "reason": .string(refusal.message)])
+                            }
+                        }
+                        do {
+                            let kept = try updater.rollback(to: build, inputs: inputs, relaunch: UpdaterService.relaunchAfterExit)
+                            return .object(["rolled_back_to": .string(kept.build)])
+                        } catch let refusal as RollbackRefusal {
+                            throw ControlError(code: "rollback_refused", message: refusal.message)
+                        }
                     }
-                }
-                do {
-                    let kept = try updater.rollback(to: build, stored: nil, relaunch: UpdaterService.relaunchAfterExit)
-                    return .value(.object(["rolled_back_to": .string(kept.build)]))
-                } catch let refusal as RollbackRefusal {
-                    throw ControlError(code: "rollback_refused", message: refusal.message)
                 }
             },
             .mainActor("updates.check") { call in

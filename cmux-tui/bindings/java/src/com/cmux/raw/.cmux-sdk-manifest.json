@@ -507,8 +507,8 @@
     },
     {
       "path": "ColumnPin.java",
-      "sha256": "9ce4adf9084766e8453bac3e5ab74f4edc865972090446f8413b6cb3afe2036d",
-      "size": 2433
+      "sha256": "0f51dd9469d96aafbee6b410b85f75254beb13eda57444816a2073c278f92a55",
+      "size": 3014
     },
     {
       "path": "CommandMetadata.java",
@@ -517,8 +517,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "466799e3e248703c5942e36b6f12344e8056add0360b85111fb2954b6d275ed7",
-      "size": 62621
+      "sha256": "1dd7ed8ff5e7378577f32f7fb9ed2bd9dab8a29919cdaf0ddb300bfc41281165",
+      "size": 62697
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -1607,7 +1607,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "6da4732f87c044470ecdb49e78afc6045b8553b0f5470af1dd54c64262467598",
+      "sha256": "ac93d733e7b70f4c83d9f830c41f95da8e113e9e885c504ac6713fc5ea60f571",
       "size": 5749
     },
     {
@@ -2027,8 +2027,8 @@
     },
     {
       "path": "SetColumnDockRequest.java",
-      "sha256": "5283e1c08db031a31a85d0921285088228aaadac9302a42296584f423c6ba2ef",
-      "size": 5209
+      "sha256": "b3846660bf1bada9417f811afaeaca9e929ff8066469b2d2c0dbe49c1ef30b77",
+      "size": 5801
     },
     {
       "path": "SetDefaultColorsRequest.java",
@@ -2782,7 +2782,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "528d9c980856a0b72c15fa21a5c3c9fcd61c54f8668db2585328113209d36d8b",
+  "ir_sha256": "904145e10c3686dc545c6ab7af8dfca4d7ad22bef852a6f49691943c25976c9d",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

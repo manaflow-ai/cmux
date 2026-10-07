@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 528d9c980856a0b72c15fa21a5c3c9fcd61c54f8668db2585328113209d36d8b. */
+/* cmux-tui mux protocol 12, IR 904145e10c3686dc545c6ab7af8dfca4d7ad22bef852a6f49691943c25976c9d. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "528d9c980856a0b72c15fa21a5c3c9fcd61c54f8668db2585328113209d36d8b" as const;
+export const SDK_IR_SHA256 = "904145e10c3686dc545c6ab7af8dfca4d7ad22bef852a6f49691943c25976c9d" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -2162,10 +2162,15 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 12,
     "capability": "dock-columns-v1",
-    "fields": {},
+    "fields": {
+      "role": {
+        "since": 12,
+        "capability": "dock-column-role-v1"
+      }
+    },
     "stream": null,
     "constraints": [
-      "edge is \"left\" or \"right\" (default \"right\"); mode is \"docked\" or \"overlay\" (default \"docked\").",
+      "edge is \"left\" or \"right\" (default \"right\"); mode is \"docked\" or \"overlay\" (default \"docked\"). role is \"agent_chat\" with dock-column-role-v1 (default none).",
       "permanent: true (permanent-dock-v1) marks the column permanent; false or omitted keeps the current value. An undock, edge change or replacement of a permanent column answers error_code \"dock-column-permanent\".",
       "See spec/commands.md for the result object."
     ]
@@ -4428,6 +4433,17 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "mode": {
         "nullable": false,
         "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "role": {
+        "capability": "dock-column-role-v1",
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
         "type": {
           "kind": "scalar",
           "name": "string"
@@ -20050,6 +20066,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "boolean"
+          }
+        },
+        "role": {
+          "capability": "dock-column-role-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "string"
           }
         },
         "transaction": {
