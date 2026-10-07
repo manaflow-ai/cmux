@@ -34,6 +34,7 @@ inline void RelayRevealedPassword(const char* bytes, size_t length, PasswordReve
   }
   std::vector<char> copy(bytes, bytes + length);
   done(ctx, copy.data(), copy.size());
+  ZeroSecret(copy.data(), copy.size());
   if (after_zero) after_zero(copy.data(), copy.size());
 }
 

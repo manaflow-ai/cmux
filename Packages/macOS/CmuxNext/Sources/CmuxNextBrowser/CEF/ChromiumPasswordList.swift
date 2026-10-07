@@ -49,6 +49,22 @@ public nonisolated struct ChromiumPasswordList: Sendable, Hashable {
 
     /// The fork's JSON `{"passwords": [...], "exceptions": [...]}`; nil when it is not that object.
     public static func parse(_ json: String) -> ChromiumPasswordList? {
-        nil
+        guard let object = (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [String: Any] else { return nil }
+        func date(_ value: Any?) -> Date? {
+            guard let ms = (value as? NSNumber)?.doubleValue, ms > 0 else { return nil }
+            return Date(timeIntervalSince1970: ms / 1000)
+        }
+        let rows = (object["passwords"] as? [[String: Any]] ?? []).compactMap { row -> Row? in
+            guard let id = row["id"] as? String, !id.isEmpty else { return nil }
+            return Row(id: id, site: row["site"] as? String ?? "", url: row["url"] as? String ?? "",
+                       username: row["username"] as? String ?? "", created: date(row["created"]), lastUsed: date(row["last_used"]),
+                       timesUsed: (row["times_used"] as? NSNumber)?.intValue ?? 0, weak: row["weak"] as? Bool ?? false,
+                       reused: row["reused"] as? Bool ?? false)
+        }
+        let exceptions = (object["exceptions"] as? [[String: Any]] ?? []).compactMap { row -> Exception? in
+            guard let id = row["id"] as? String, !id.isEmpty else { return nil }
+            return Exception(id: id, site: row["site"] as? String ?? "")
+        }
+        return ChromiumPasswordList(passwords: rows, exceptions: exceptions)
     }
 }
