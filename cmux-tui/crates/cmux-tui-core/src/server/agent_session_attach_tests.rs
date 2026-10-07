@@ -356,7 +356,7 @@ fn a_websocket_client_is_refused() {
     let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
     let client = mux.control_clients.register(ClientTransport::WebSocket, writer.clone());
     let frame = json!({"id":1,"cmd":"agent-session-attach","surface":surface}).to_string();
-    let handled = super::agent_session_attach::try_handle(&mux, client, &frame, &writer);
+    let handled = agent_session_attach::try_handle(&mux, client, &frame, &writer);
     assert_eq!(handled, Some(true));
     let reply: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
     assert_code(&reply, "agent_session.not_trusted");
@@ -564,7 +564,7 @@ fn a_prompt_is_one_text_block_on_the_pinned_session() {
     for bad in [
         json!({"prompt_id":"p 2","text":"x"}),
         json!({"prompt_id":"p2","text":"   "}),
-        json!({"prompt_id":"p2","text":"x".repeat(super::agent_session_attach::MAX_PROMPT_BYTES + 1)}),
+        json!({"prompt_id":"p2","text":"x".repeat(agent_session_attach::MAX_PROMPT_BYTES + 1)}),
         json!({"prompt_id":"p2","text":"x","prompt":[{"type":"resource_link","uri":"file:///etc"}]}),
     ] {
         let mut frame = json!({"cmd":"agent-session-prompt","surface":surface});
