@@ -378,6 +378,19 @@ fn executable(path: &Path) -> bool {
     std::fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
 }
 
+/// Why a session may not start a folder profile now.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FolderRefusal {
+    pub message: String,
+    /// `harness.needs_trust` or `harness.needs_enable`, so the app can offer
+    /// the folder's Trust question or its Enable harness sheet. None for a
+    /// Web or peer connection and for an invalid file.
+    pub reason: Option<&'static str>,
+    pub id: String,
+    /// The folder that holds `.cmux/harnesses`.
+    pub folder: String,
+}
+
 /// The profile a session named `id` with folder `cwd` may run: an enabled
 /// folder profile of the nearest folder (cwd or a parent) that has
 /// `.cmux/harnesses/<id>.toml`. None: no folder has that file (the caller
@@ -387,24 +400,40 @@ pub fn resolve_for_session(
     id: &str,
     cwd: &Path,
     remote: bool,
-) -> Option<Result<(HarnessProfile, PathBuf), String>> {
+) -> Option<Result<(HarnessProfile, PathBuf), FolderRefusal>> {
     let gate = cfg.folder_gate.as_ref()?;
     let folder = nearest_folder(cfg, id, cwd)?;
+    let shown = folder.to_string_lossy().into_owned();
+    let refuse = |message: String, reason: Option<&'static str>| FolderRefusal {
+        message,
+        reason,
+        id: id.to_owned(),
+        folder: shown.clone(),
+    };
     if remote {
-        return Some(Err(format!(
-            "harness {id} is a folder profile ({}); a Web or peer connection cannot start it",
-            folder.display()
+        return Some(Err(refuse(
+            format!(
+                "harness {id} is a folder profile ({}); a Web or peer connection cannot start it",
+                folder.display()
+            ),
+            None,
         )));
     }
     let fp = load_one(cfg, gate, &folder, id)?;
     Some(match (fp.state, fp.profile) {
         (FolderState::Enabled, Some(profile)) => Ok((profile, folder)),
-        (FolderState::NeedsTrust, _) => Err(needs_trust_message_parts(&fp.id, &fp.folder)),
-        (FolderState::NeedsEnable, _) => Err(format!(
-            "harness {id} is a folder profile in {} that is not enabled (or changed since it was enabled); run `cmux harness enable {id} --folder {}`",
-            fp.folder, fp.folder
+        (FolderState::NeedsTrust, _) => Err(refuse(
+            needs_trust_message_parts(&fp.id, &fp.folder),
+            Some("harness.needs_trust"),
         )),
-        _ => Err(first_error_parts(&fp.diagnostics, &fp.path)),
+        (FolderState::NeedsEnable, _) => Err(refuse(
+            format!(
+                "harness {id} is a folder profile in {} that is not enabled (or changed since it was enabled); run `cmux harness enable {id} --folder {}`",
+                fp.folder, fp.folder
+            ),
+            Some("harness.needs_enable"),
+        )),
+        _ => Err(refuse(first_error_parts(&fp.diagnostics, &fp.path), None)),
     })
 }
 
