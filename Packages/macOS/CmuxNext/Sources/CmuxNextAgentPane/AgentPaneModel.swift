@@ -137,10 +137,17 @@ public final class AgentPaneModel {
             guard let onConfirmMode = self?.onConfirmMode else { return answer(false) }
             onConfirmMode(asked, answer)
         }
+        transport.requestHarnessEnable = { [weak self] prompt, answer in
+            guard let onConfirmHarness = self?.onConfirmHarness else { return answer(false) }
+            onConfirmHarness(prompt, answer)
+        }
     }
 
     /// Asks the user to confirm a config option that is not free (the view's native sheet).
     @ObservationIgnored public var onConfirmMode: (@MainActor (_ asked: AgentPaneModeConfirmation, _ answer: @escaping @MainActor (Bool) -> Void) -> Void)?
+
+    /// Asks the user to enable a folder harness profile (the view's native Enable harness sheet).
+    @ObservationIgnored public var onConfirmHarness: (@MainActor (_ prompt: AgentPaneHarnessEnablePrompt, _ answer: @escaping @MainActor (Bool) -> Void) -> Void)?
 
     /// Cmd-T adopted this prewarmed new tab page: `page` is the context of
     /// the tab it became (plans/cmux-next/new-tab.md section 2.2). A page that
@@ -262,8 +269,10 @@ public final class AgentPaneModel {
             return AgentPaneReply.success()
         case .runAction(let id):
             // The page runs Import and Sync; any agent tab may open the New Tab page (a blank chat's New)
-            // and the command palette's chats page ("Show all", decision K1).
-            guard id == "newTab.page" || id == "agentPane.searchChats" || (id == "palette.welcomeChecklist" && newTab != nil),
+            // and the command palette's chats page ("Show all", decision K1). The New Tab page also
+            // runs Add Harness… ("Integrate a harness").
+            guard id == "newTab.page" || id == "agentPane.searchChats"
+                    || ((id == "palette.welcomeChecklist" || id == "palette.addHarness") && newTab != nil),
                   let onRunAction else {
                 return Self.unsupported("action.run")
             }

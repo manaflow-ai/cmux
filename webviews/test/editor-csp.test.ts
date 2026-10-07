@@ -1,4 +1,4 @@
-// The code editor page from the committed webviews-app bundle (Resources/markdown-viewer/webviews-app,
+// The code editor page from the built webviews-app bundle (Resources/markdown-viewer/webviews-app,
 // as cmux-page://cmux.editor/ serves it) under the CSP the app sends (PageCSP.swift, the strict
 // policy plus 'wasm-unsafe-eval', as the diff page has), in headless Chromium and WebKit: Monaco, its
 // module worker, Shiki with the Oniguruma WebAssembly engine and the codicon font run with no

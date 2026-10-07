@@ -76,6 +76,7 @@ extension AgentPaneTransport {
                 facts.foreignSource = true
                 facts.handoffId = params["handoffId"] as? String
             }
+            facts.harnessEnable = method == "_acpmux/harness_enable"
         }
         // A mode needs only the gesture rule (Lawrence 2026-10-07: no sheet for full access); another
         // option that is not free still asks.
@@ -166,8 +167,13 @@ extension AgentPaneTransport {
 
     /// The refusal of a session-scoped frame for a session that is not this pane's.
     nonisolated static func sessionRefusal(_ object: [String: Any], sessions: AcpmuxPaneSessions) -> AcpmuxPaneMethods.Decision? {
-        guard let method = object["method"] as? String, AcpmuxPaneMethods.sessionScoped.contains(method) else { return nil }
-        let session = (object["params"] as? [String: Any])?["sessionId"] as? String
+        guard let method = object["method"] as? String else { return nil }
+        let named = (object["params"] as? [String: Any])?["sessionId"]
+        // A frame that may name a session and names none is not session-scoped.
+        if AcpmuxPaneMethods.optionallySessionScoped.contains(method), named == nil { return nil }
+        guard AcpmuxPaneMethods.sessionScoped.contains(method) || AcpmuxPaneMethods.optionallySessionScoped.contains(method)
+        else { return nil }
+        let session = named as? String
         guard let session, sessions.contains(session) else {
             return .refuse(.sessionNotInPane, method: method, requestID: object["id"].flatMap(AcpmuxPaneMethods.rawID))
         }

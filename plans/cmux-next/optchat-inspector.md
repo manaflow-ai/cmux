@@ -2,7 +2,9 @@
 
 A debug page that shows how a Chief's OptChat memory works. Open it with Command-Shift-P, then
 "Chief: Open Memory Inspector" (DEV and nightly builds), or with "Show Memory" in the Chief
-settings sidebar. It opens as a browser tab in a new column to the right of the current column.
+settings sidebar. It opens as a browser tab in a new column to the right of the focused pane's
+column. From Home (no focused pane) the column goes right of the last column of the window's
+workspace, and the app shows that workspace with the new tab selected.
 
 ## The mental model it teaches
 
@@ -63,7 +65,7 @@ The brain host (`optchat-chief host`) serves a read-only JSON API and the page o
   header that is not this loopback address gets 403 (DNS rebinding).
 - One random 256-bit token per host start, in `optchat/inspector.json` (0600, with the URL). The
   app reads it, asks `GET /api/ticket` with `Authorization: Bearer`, and opens `/?ticket=T`.
-  A ticket works once within 60 s and buys an HttpOnly, SameSite=Strict session cookie, so no
+  A ticket works once within 60 s (a reload of the same URL within 10 s gets the same session) and buys an HttpOnly, SameSite=Strict session cookie, so no
   live secret appears in a URL or the browser history. GET and HEAD only; anything else is 405.
 - Endpoints: `status`, `turns`, `turn?key=K|now`, `node?name=id+n`, `level?l&from&limit`,
   `date?id`, `search?q`. `OPTCHAT_INSPECTOR=0` turns the server off.
@@ -82,3 +84,21 @@ loopback. The app will reach it through the existing trusted server path: the se
 existing server credential and the host with the token it holds. The page itself is in the app's
 own optchat-chief binary, so only JSON crosses the link. Until then the action opens the local
 Chief only and says so for a remote one.
+
+## Status (2026-10-07)
+
+- Landed on feat-cmux-next: d0a1d5603451 (red tests a069281246cd, feature 4862d71eece9, review
+  fixes 3e499312044c). Follow-ups gated at 5c6dc9ab7e68: open from Home into a user workspace
+  (the home workspace holds only the Chief conversation), a ticket reload within 10 s keeps its
+  session (the browser loads the URL again when the tab moves into its column), preflight script.
+- Gates on 5c6dc9ab: CmuxNext compile and catalog suites (fleet step 5f84... superseded by
+  the step on 5c6dc9ab, 31 tests), optchat-chief fmt, clippy and all tests on a Testbox (inspect
+  suite 6 tests), page tests under bun test with jsdom, bundle --check.
+- Preflight (`scripts/cmux-next/chief-inspector-preflight.py`, tag chinsp-v4, fleet build
+  355deb86570c70cee483ee84, M1 Max under ~/cmux-agent-work/hq-6d-inspector): 320 seeded notes,
+  a real claude-sr turn, Cmd-Shift-P "memory inspector" Return from Home opened the page in a new
+  column of workspace-2; the turn's prompt shows "Exact bytes", cache marks and our marker; Tree
+  zoom 0+8 > 0+4 > 0+2 > 0+1 (3 hops) with the agent's zoom answer at each hop. API: view,
+  system and message hashes equal the trace, first cache mark at byte 49929.
+- Not done: pixel screenshots of the page (window snapshots do not render Chromium content and
+  showed the workspace's first column, not the scrolled-in new one); remote brain path.

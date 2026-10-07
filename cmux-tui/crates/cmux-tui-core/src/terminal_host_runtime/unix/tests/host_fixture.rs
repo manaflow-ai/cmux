@@ -70,6 +70,7 @@ pub(super) fn test_host_shared_with(
         child_signal_lock: Mutex::new(()),
         child_reaped: AtomicBool::new(false),
         group_escalation_complete: AtomicBool::new(false),
+        adopted_session: None,
         fail_next_resize_publication: AtomicBool::new(false),
     });
     HostShared::start_exit_publisher(&host, exit_publish_receiver).unwrap();
