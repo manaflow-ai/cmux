@@ -106,7 +106,8 @@ impl Hub {
             || defaults.env.values().any(|v| v.contains("${model}"));
         // Adopting checks the id against the harness's own store before
         // anything is created, and takes the conversation's recorded cwd.
-        let recorded = match self.adoption(adopt.as_ref(), agent, &family).await? {
+        let env = [&defaults.env, &profile.env];
+        let recorded = match self.adoption(adopt.as_ref(), agent, &family, &env).await? {
             Adoption::Existing(existing) => return Ok(existing),
             Adoption::Found(recorded) => recorded,
         };
