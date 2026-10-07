@@ -20,11 +20,16 @@ public struct MobileFilesConfiguration: Sendable {
     public var freeSpaceMarginBytes: UInt64
     public var listDefaultLimit: Int
     public var listMaxLimit: Int
+    /// Concurrent `files.*` channels per device.
+    public var maxChannelsPerDevice: Int
+    /// How long a finished download waits for the phone to take its last bytes.
+    public var finishGrace: Duration
 
     public init(homeDirectory: URL, inbox: URL? = nil, stagingDirectory: URL? = nil,
                 maxUploadBytes: UInt64 = 1 << 30, maxDownloadBytes: UInt64 = 1 << 30, chunkBytes: Int = 128 * 1024,
                 stagingQuotaBytes: UInt64 = 2 << 30, partialLifetime: TimeInterval = 24 * 60 * 60,
-                freeSpaceMarginBytes: UInt64 = 1 << 30, listDefaultLimit: Int = 200, listMaxLimit: Int = 1000) {
+                freeSpaceMarginBytes: UInt64 = 1 << 30, listDefaultLimit: Int = 200, listMaxLimit: Int = 1000,
+                maxChannelsPerDevice: Int = 4, finishGrace: Duration = .seconds(30)) {
         self.homeDirectory = homeDirectory
         self.inbox = inbox ?? homeDirectory.appendingPathComponent("Downloads/cmux-phone", isDirectory: true)
         self.stagingDirectory = stagingDirectory
@@ -37,6 +42,8 @@ public struct MobileFilesConfiguration: Sendable {
         self.freeSpaceMarginBytes = freeSpaceMarginBytes
         self.listDefaultLimit = listDefaultLimit
         self.listMaxLimit = listMaxLimit
+        self.maxChannelsPerDevice = max(1, maxChannelsPerDevice)
+        self.finishGrace = finishGrace
     }
 
     /// The signed-in Mac user's locations.

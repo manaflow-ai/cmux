@@ -20,6 +20,7 @@ public final class FileSendCoordinator {
         self.attachments = attachments
         self.stager = stager
         model.onFinished = { [weak self] item in self?.finished(item) }
+        model.onEnded = { [weak self] item in self?.ended(item) }
     }
 
     /// Starts one upload per file; returns their ids in order.
@@ -37,6 +38,12 @@ public final class FileSendCoordinator {
             model.start(request)
             return request.id
         }
+    }
+
+    /// Cancelled or failed for good: drop the staged copy.
+    private func ended(_ item: TransferItem) {
+        guard item.progress.state != .finished, let entry = pending.removeValue(forKey: item.id) else { return }
+        stager.discard(entry.file)
     }
 
     private func finished(_ item: TransferItem) {

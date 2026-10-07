@@ -142,7 +142,11 @@ extension FilePickerCoordinator: PHPickerViewControllerDelegate {
 extension FilePickerCoordinator: UIDocumentPickerDelegate {
     public func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
         let stager = stager
-        finish(urls.compactMap { try? stager.stage(copying: $0, convertHEIC: false) })
+        // `asCopy` already made app-owned copies: move them, off the main actor.
+        Task {
+            let files = await Task.detached { urls.compactMap { try? stager.stage(moving: $0, convertHEIC: false) } }.value
+            self.finish(files)
+        }
     }
 
     public func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {

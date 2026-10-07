@@ -52,8 +52,19 @@ public actor MobileClientSession {
         let channelLink = try await link.openChannel(ChannelDescriptor(stream: "cmux.mobile/session", reliability: .reliableOrdered,
                                                                        priority: .control))
         let channel = MobileChannel(id: 0, link: channelLink)
-        try await channel.send(json: .object(object))
-        guard case .json(let reply) = await channel.receive(), let frame = try? MobileFrame(value: reply) else {
+        do {
+            try await channel.send(json: .object(object))
+        } catch {
+            await channel.abort()
+            throw MobileClientError.disconnected
+        }
+        let reply = await withTaskCancellationHandler {
+            await channel.receive()
+        } onCancel: {
+            Task { await channel.abort() }
+        }
+        guard case .json(let value) = reply, let frame = try? MobileFrame(value: value) else {
+            await channel.abort()
             throw MobileClientError.disconnected
         }
         switch frame {
@@ -61,8 +72,10 @@ public actor MobileClientSession {
             sessionChannel = channel
             return ok
         case .error(let error):
+            await channel.abort()
             throw MobileClientError(code: error.code, message: error.message, retryable: error.retryable)
         default:
+            await channel.abort()
             throw MobileClientError(code: "proto.hello_required", message: "unexpected answer to hello")
         }
     }
@@ -81,8 +94,20 @@ public actor MobileClientSession {
                                                                        priority: priority, budgetBytes: budgetBytes))
         let channel = MobileChannel(id: id, link: channelLink)
         let open = ChannelOpenFrame(channel: id, kind: kind, channelClass: channelClass, window: window, params: params)
-        try await channel.send(frame: .channelOpen(open))
-        guard case .json(let reply) = await channel.receive(), let frame = try? MobileFrame(value: reply) else {
+        do {
+            try await channel.send(frame: .channelOpen(open))
+        } catch {
+            await channel.abort()
+            throw MobileClientError.disconnected
+        }
+        // Cancelling while the Mac prepares (a download hashes first) closes the channel.
+        let answer = await withTaskCancellationHandler {
+            await channel.receive()
+        } onCancel: {
+            Task { await channel.abort() }
+        }
+        try Task.checkCancellation()
+        guard case .json(let reply) = answer, let frame = try? MobileFrame(value: reply) else {
             await channel.abort()
             throw MobileClientError.disconnected
         }
@@ -103,15 +128,23 @@ public actor MobileClientSession {
         let channel = try await rpcChannel()
         let id = nextReadID
         nextReadID += 1
-        return try await withCheckedThrowingContinuation { continuation in
-            pendingReads[id] = continuation
-            Task {
-                do {
-                    try await channel.send(frame: .read(ReadFrame(id: id, op: op, params: params)))
-                } catch {
-                    self.settle(id, .failure(MobileClientError.disconnected))
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                guard !Task.isCancelled else {
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+                pendingReads[id] = continuation
+                Task {
+                    do {
+                        try await channel.send(frame: .read(ReadFrame(id: id, op: op, params: params)))
+                    } catch {
+                        self.settle(id, .failure(MobileClientError.disconnected))
+                    }
                 }
             }
+        } onCancel: {
+            Task { await self.settle(id, .failure(CancellationError())) }
         }
     }
 

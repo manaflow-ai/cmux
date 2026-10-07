@@ -32,7 +32,7 @@ public actor MobileTransferManager {
                                     localPath: request.localURL.path, remotePath: request.remotePath, name: request.name,
                                     mime: request.mime, dest: request.dest)
         await journal.put(record)
-        return run(record.id)
+        return await run(record.id)
     }
 
     /// Resumes a paused or failed transfer from its journal record.
@@ -43,7 +43,7 @@ public actor MobileTransferManager {
         guard record.status != .finished, record.status != .cancelled else {
             throw MobileClientError(code: "validation.invalid", message: "the transfer already ended")
         }
-        return run(id)
+        return await run(id)
     }
 
     /// Cancels at once: the channel closes, a download's part is deleted.
@@ -67,9 +67,14 @@ public actor MobileTransferManager {
 
     // MARK: Run
 
-    private func run(_ id: String) -> AsyncStream<MobileTransferUpdate> {
+    /// Stops a previous run of `id` and waits for it, so two runs never
+    /// write the same part file or journal record.
+    private func run(_ id: String) async -> AsyncStream<MobileTransferUpdate> {
+        while let old = tasks[id] {
+            old.task.cancel()
+            await old.task.value
+        }
         let (stream, continuation) = AsyncStream.makeStream(of: MobileTransferUpdate.self, bufferingPolicy: .bufferingNewest(32))
-        tasks[id]?.task.cancel()
         let token = UUID()
         tasks[id] = (token, Task { await self.execute(id, token: token, continuation) })
         return stream
@@ -137,7 +142,9 @@ public actor MobileTransferManager {
             let source = URL(fileURLWithPath: record.localPath)
             var sha = record.sha256
             if sha == nil {
-                let digest = try LocalFileDigest(url: source).sha256()
+                // Hash off the actor so cancel and pauseAll stay responsive.
+                let digest = try await Task.detached { try LocalFileDigest(url: source).sha256() }.value
+                try Task.checkCancellation()
                 let size = (try? FileManager.default.attributesOfItem(atPath: source.path)[.size] as? NSNumber)?.uint64Value
                 await journal.update(id) {
                     $0.sha256 = digest
@@ -147,6 +154,7 @@ public actor MobileTransferManager {
             }
             let done = try await client.upload(source, name: record.name, mime: record.mime, sha256: sha ?? "",
                                                dest: record.dest ?? FilesUploadDestination(kind: .composer), progress: progress)
+            _ = progressBox.take(id)
             return await journal.update(id) {
                 $0.status = .finished
                 $0.resultPath = done.path
@@ -157,14 +165,13 @@ public actor MobileTransferManager {
             let journal = journal
             let part = URL(fileURLWithPath: record.partPath)
             let info = try await client.download(record.remotePath, into: part, expectedSHA256: record.sha256, opened: { info in
-                Task {
-                    await journal.update(id) {
-                        $0.sha256 = info.sha256
-                        $0.size = info.size
-                        $0.mime = info.mime
-                    }
+                await journal.update(id) {
+                    $0.sha256 = info.sha256
+                    $0.size = info.size
+                    $0.mime = info.mime
                 }
             }, progress: progress)
+            _ = progressBox.take(id)
             let final = URL(fileURLWithPath: record.localPath)
             try? FileManager.default.removeItem(at: final)
             try FileManager.default.moveItem(at: part, to: final)

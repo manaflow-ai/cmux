@@ -79,7 +79,7 @@ public struct MobileFileClient: Sendable {
     /// sha256 and returns the opened info. When `expectedSHA256` is set and
     /// the Mac's file changed, the part is discarded and the download restarts.
     public func download(_ path: String, into part: URL, expectedSHA256: String? = nil,
-                         opened: @Sendable (FilesDownloadOpenedParams) -> Void = { _ in },
+                         opened: @Sendable (FilesDownloadOpenedParams) async -> Void = { _ in },
                          progress: @Sendable (UInt64, UInt64) -> Void = { _, _ in }) async throws -> FilesDownloadOpenedParams {
         let writer = try FileWriter(url: part)
         var offset = writer.length
@@ -91,7 +91,7 @@ public struct MobileFileClient: Sendable {
             offset = 0
             (channel, info) = try await openDownload(path, offset: 0)
         }
-        opened(info)
+        await opened(info)
         let size = info.size
         let live = channel
         return try await withTaskCancellationHandler {

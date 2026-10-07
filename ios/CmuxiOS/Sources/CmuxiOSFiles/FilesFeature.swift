@@ -14,7 +14,6 @@ public final class FilesFeature {
     public let picker: FilePickerCoordinator
     public var viewer: (any FileViewerHook)?
     private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
-    private var pausedByBackground: Set<TransferID> = []
     private var lifecycle: [Task<Void, Never>] = []
 
     public init(transfer: any FileTransfer, paster: (any TerminalPathPaster)? = nil, attachments: (any FileAttachmentSink)? = nil,
@@ -54,14 +53,17 @@ public final class FilesFeature {
 
     private func observeLifecycle() {
         let center = NotificationCenter.default
+        // Each loop ends at the first notification after the feature is gone.
         lifecycle.append(Task { [weak self] in
             for await _ in center.notifications(named: UIApplication.didEnterBackgroundNotification) {
-                self?.didEnterBackground()
+                guard let self else { return }
+                self.didEnterBackground()
             }
         })
         lifecycle.append(Task { [weak self] in
             for await _ in center.notifications(named: UIApplication.willEnterForegroundNotification) {
-                self?.willEnterForeground()
+                guard let self else { return }
+                self.willEnterForeground()
             }
         })
     }
@@ -81,19 +83,17 @@ public final class FilesFeature {
 
     private func didEnterBackground() {
         guard model.hasRunning, backgroundTask == .invalid else { return }
-        let running = Set(model.items.filter(\.isRunning).map(\.id))
-        backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "cmux.files") { [weak self] in
+        let model = model
+        var identifier: UIBackgroundTaskIdentifier = .invalid
+        identifier = UIApplication.shared.beginBackgroundTask(withName: "cmux.files") { [weak self] in
+            // Expiry: pause best effort and end the task before returning, as UIKit requires.
+            Task { await model.pauseAll() }
+            UIApplication.shared.endBackgroundTask(identifier)
             MainActor.assumeIsolated {
-                guard let self else { return }
-                self.pausedByBackground = running
-                let task = self.backgroundTask
-                self.backgroundTask = .invalid
-                Task {
-                    await self.model.pauseAll()
-                    UIApplication.shared.endBackgroundTask(task)
-                }
+                if self?.backgroundTask == identifier { self?.backgroundTask = .invalid }
             }
         }
+        backgroundTask = identifier
     }
 
     private func willEnterForeground() {
@@ -101,7 +101,7 @@ public final class FilesFeature {
             UIApplication.shared.endBackgroundTask(backgroundTask)
             backgroundTask = .invalid
         }
-        for id in pausedByBackground { model.resume(id) }
-        pausedByBackground.removeAll()
+        // Paused covers both an expiry and a link lost in the background.
+        model.resumeInterrupted()
     }
 }

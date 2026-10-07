@@ -21,3 +21,29 @@ struct JournalTests {
         #expect(await reloaded.all().count == 2)
     }
 }
+
+@Suite("Transfer journal protection")
+struct JournalProtectionTests {
+    @Test func anUnreadableJournalIsNeverOverwritten() async throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("c4p-\(UUID().uuidString).json")
+        defer {
+            chmod(file.path, 0o600)
+            try? FileManager.default.removeItem(at: file)
+        }
+        let first = TransferJournal(fileURL: file)
+        await first.put(TransferRecord(id: "keep", hostID: "h", direction: .upload, localPath: "/tmp/k", remotePath: "",
+                                       name: "k", mime: "text/plain", status: .paused))
+        let before = try Data(contentsOf: file)
+        chmod(file.path, 0o000) // as if the device were locked
+        let locked = TransferJournal(fileURL: file)
+        await locked.put(TransferRecord(id: "new", hostID: "h", direction: .upload, localPath: "/tmp/n", remotePath: "",
+                                        name: "n", mime: "text/plain"))
+        chmod(file.path, 0o600)
+        #expect(try Data(contentsOf: file) == before)
+        // Once readable, the next write merges instead of replacing.
+        await locked.update("new") { $0.status = .paused }
+        let merged = TransferJournal(fileURL: file)
+        #expect(await merged.record("keep") != nil)
+        #expect(await merged.record("new") != nil)
+    }
+}

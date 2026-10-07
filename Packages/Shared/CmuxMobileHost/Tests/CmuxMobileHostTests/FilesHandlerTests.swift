@@ -104,6 +104,76 @@ struct FilesHandlerTests {
         #expect(done.path.hasSuffix("/src/proj/evil.sh"))
     }
 
+    @Test func parallelUploadsCannotOvercommitTheQuota() async throws {
+        let f = try FilesFixture(stagingQuotaBytes: 150_000)
+        defer { f.remove() }
+        let h = try await PhoneHarness(handlers: f.files.registering())
+        defer { Task { await h.shutdown() } }
+        try await h.hello()
+        let a = FilesFixture.bytes(100_000, seed: 1)
+        let b = FilesFixture.bytes(100_000, seed: 2)
+        let (_, first) = try await h.open(.filesUpload, id: 1, params: FilesFixture.uploadParams(a, name: "a.bin"))
+        #expect(first["t"] == "channel.opened")
+        let (_, second) = try await h.open(.filesUpload, id: 3, params: FilesFixture.uploadParams(b, name: "b.bin"))
+        #expect(second["code"] == "files.too_large")
+        #expect(second["details"]?["reason"] == "quota")
+    }
+
+    @Test func aReopenPreemptsAStaleChannelOfTheSameUpload() async throws {
+        let f = try FilesFixture()
+        defer { f.remove() }
+        let h = try await PhoneHarness(handlers: f.files.registering())
+        defer { Task { await h.shutdown() } }
+        try await h.hello()
+        let data = FilesFixture.bytes(100_000)
+        let params = FilesFixture.uploadParams(data)
+        let (stale, _) = try await h.open(.filesUpload, id: 1, params: params)
+        try await send(data.prefix(40_000), from: 0, on: stale)
+        try await stale.link.flush()
+        // The old channel is still open (its session looks alive to the Mac).
+        let (fresh, opened) = try await h.open(.filesUpload, id: 3, params: params)
+        #expect(opened["t"] == "channel.opened")
+        #expect(opened["params"]?["offset"] == .int(40_000))
+        try await send(data.suffix(from: 40_000), from: 40_000, on: fresh)
+        try await fresh.send(message: FilesUploadEnd(sha256: FilesFixture.sha256(data)).message)
+        let done = try #require(FilesUploadDone(try message(await PhoneHarness.nextJSON(fresh))))
+        #expect(try Data(contentsOf: URL(fileURLWithPath: done.path)) == data)
+    }
+
+    @Test func aReopenAfterALostDoneGetsTheSamePath() async throws {
+        let f = try FilesFixture()
+        defer { f.remove() }
+        let h = try await PhoneHarness(handlers: f.files.registering())
+        defer { Task { await h.shutdown() } }
+        try await h.hello()
+        let data = FilesFixture.bytes(30_000)
+        let params = FilesFixture.uploadParams(data)
+        let (channel, _) = try await h.open(.filesUpload, id: 1, params: params)
+        try await send(data, from: 0, on: channel)
+        try await channel.send(message: FilesUploadEnd(sha256: FilesFixture.sha256(data)).message)
+        let done = try #require(FilesUploadDone(try message(await PhoneHarness.nextJSON(channel))))
+        let (again, opened) = try await h.open(.filesUpload, id: 3, params: params)
+        #expect(opened["params"]?["offset"] == .int(30_000))
+        try await again.send(message: FilesUploadEnd(sha256: FilesFixture.sha256(data)).message)
+        let second = try #require(FilesUploadDone(try message(await PhoneHarness.nextJSON(again))))
+        #expect(second.path == done.path)
+        let inbox = try FileManager.default.contentsOfDirectory(atPath: (done.path as NSString).deletingLastPathComponent)
+        #expect(inbox == ["photo.jpg"])
+    }
+
+    @Test func concurrentFilesChannelsAreCappedPerDevice() async throws {
+        let f = try FilesFixture(maxChannelsPerDevice: 1)
+        defer { f.remove() }
+        let h = try await PhoneHarness(handlers: f.files.registering())
+        defer { Task { await h.shutdown() } }
+        try await h.hello()
+        let (_, first) = try await h.open(.filesUpload, id: 1, params: FilesFixture.uploadParams(FilesFixture.bytes(10)))
+        #expect(first["t"] == "channel.opened")
+        let (_, second) = try await h.open(.filesDownload, id: 3, params: ["path": "~/src/proj"])
+        #expect(second["t"] == "channel.refused")
+        #expect(second["retryable"] == .bool(true))
+    }
+
     // MARK: Download
 
     @Test func downloadStreamsFromTheOffsetAndEndsWithFin() async throws {

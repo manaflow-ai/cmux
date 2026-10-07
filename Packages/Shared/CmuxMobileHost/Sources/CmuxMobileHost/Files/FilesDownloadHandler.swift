@@ -1,3 +1,4 @@
+import CmuxLink
 import CmuxMobileWire
 import Foundation
 #if canImport(Darwin)
@@ -9,16 +10,22 @@ import Darwin
 /// regular file the policy resolved, answers size, mime and sha256, then
 /// streams chunks from the requested offset; the last carries `fin`. The
 /// link's credit throttles the loop, so a stalled phone holds at most one
-/// channel budget in flight.
+/// channel budget in flight; after `fin` the handler waits a bounded grace
+/// for the phone to take the tail, then closes.
 public struct FilesDownloadHandler: MobileChannelHandler {
     static let window: UInt32 = 4 * 1024 * 1024
 
     let configuration: MobileFilesConfiguration
     let roots: any MobileFileRootsProvider
+    let limiter: FilesChannelLimiter
+    let clock: LinkClock
 
-    init(configuration: MobileFilesConfiguration, roots: any MobileFileRootsProvider) {
+    init(configuration: MobileFilesConfiguration, roots: any MobileFileRootsProvider, limiter: FilesChannelLimiter,
+         clock: LinkClock) {
         self.configuration = configuration
         self.roots = roots
+        self.limiter = limiter
+        self.clock = clock
     }
 
     public func serve(_ channel: MobileChannel, open: ChannelOpenFrame, principal: MobileDevicePrincipal,
@@ -31,6 +38,16 @@ public struct FilesDownloadHandler: MobileChannelHandler {
             await channel.refuse(code: "validation.invalid", message: "bad files.download params")
             return
         }
+        guard await limiter.acquire(principal.install) else {
+            await channel.refuse(code: "validation.invalid", message: "too many transfers at once", retryable: true)
+            return
+        }
+        await serveAcquired(channel, params: params, principal: principal, gate: gate)
+        await limiter.release(principal.install)
+    }
+
+    private func serveAcquired(_ channel: MobileChannel, params: FilesDownloadParams, principal: MobileDevicePrincipal,
+                               gate: MobileSessionGate) async {
         let policy = MobileFilePolicy(configuration: configuration, roots: await roots.roots(for: principal))
         let fd: Int32
         let size: UInt64
@@ -43,26 +60,36 @@ public struct FilesDownloadHandler: MobileChannelHandler {
             await channel.refuse(code: error.code, message: error.message, retryable: error.retryable)
             return
         }
-        defer { close(fd) }
-        guard size <= configuration.maxDownloadBytes else {
-            await channel.refuse(code: "files.too_large", message: "file", details: .object(["reason": .string("file")]))
-            return
+        let streamed = await withFile(fd) {
+            guard size <= configuration.maxDownloadBytes else {
+                await channel.refuse(code: "files.too_large", message: "file", details: .object(["reason": .string("file")]))
+                return false
+            }
+            guard let digest = await BlockingIO.run({ FileDigest(descriptor: fd).sha256(length: size) }) else {
+                await channel.refuse(code: "owner.unreachable", message: "the file could not be read", retryable: true)
+                return false
+            }
+            let opened = FilesDownloadOpenedParams(size: size, mime: FileMime(name: path).value, sha256: digest)
+            guard let openedParams = try? JSONValue(encoding: opened).objectValue,
+                  (try? await channel.send(frame: .channelOpened(ChannelOpenedFrame(
+                      channel: channel.id, window: Self.window, params: openedParams, resumed: (params.offset ?? 0) > 0)))) != nil else {
+                return false
+            }
+            return await stream(channel, fd: fd, size: size, from: min(params.offset ?? 0, size), gate: gate)
         }
-        guard let digest = FileDigest(descriptor: fd).sha256(length: size) else {
-            await channel.refuse(code: "owner.unreachable", message: "the file could not be read", retryable: true)
-            return
+        guard streamed else { return }
+        // The descriptor is closed; give the phone a bounded grace to take the tail.
+        await OnceSignal.bounded(configuration.finishGrace, clock: clock) {
+            await channel.finish()
         }
-        let opened = FilesDownloadOpenedParams(size: size, mime: FileMime(name: path).value, sha256: digest)
-        guard let openedParams = try? JSONValue(encoding: opened).objectValue,
-              (try? await channel.send(frame: .channelOpened(ChannelOpenedFrame(
-                  channel: channel.id, window: Self.window, params: openedParams, resumed: (params.offset ?? 0) > 0)))) != nil else {
-            return
-        }
-        guard await stream(channel, fd: fd, size: size, from: min(params.offset ?? 0, size), gate: gate) else { return }
-        // The phone closes once it verified the file.
-        while true {
-            if case .closed = await channel.receive() { break }
-        }
+        await channel.abort()
+    }
+
+    /// Runs `body` and closes `fd` right after it, before any wait on the peer.
+    private func withFile(_ fd: Int32, _ body: () async -> Bool) async -> Bool {
+        let result = await body()
+        close(fd)
+        return result
     }
 
     /// Returns false when the channel ended early.

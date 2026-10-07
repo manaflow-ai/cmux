@@ -13,7 +13,7 @@ struct FilesFixture {
     let files: MobileFiles
 
     init(maxUploadBytes: UInt64 = 1 << 30, chunkBytes: Int = 64 * 1024, workspaceWritable: Bool = true,
-         extraRoots: [MobileFileRoot] = []) throws {
+         extraRoots: [MobileFileRoot] = [], stagingQuotaBytes: UInt64 = 2 << 30, maxChannelsPerDevice: Int = 4) throws {
         let base = FileManager.default.temporaryDirectory.appendingPathComponent("c4-\(UUID().uuidString)", isDirectory: true)
         home = base.appendingPathComponent("home", isDirectory: true)
         workspace = home.appendingPathComponent("src/proj", isDirectory: true)
@@ -21,7 +21,8 @@ struct FilesFixture {
         try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
         try Data("top secret".utf8).write(to: secret)
         configuration = MobileFilesConfiguration(homeDirectory: home, maxUploadBytes: maxUploadBytes, chunkBytes: chunkBytes,
-                                                 freeSpaceMarginBytes: 0)
+                                                 stagingQuotaBytes: stagingQuotaBytes, freeSpaceMarginBytes: 0,
+                                                 maxChannelsPerDevice: maxChannelsPerDevice)
         let root = MobileFileRoot(id: "ws_a1", name: "proj", url: workspace, writable: workspaceWritable)
         files = MobileFiles(configuration: configuration, roots: StaticFileRoots([root] + extraRoots))
     }

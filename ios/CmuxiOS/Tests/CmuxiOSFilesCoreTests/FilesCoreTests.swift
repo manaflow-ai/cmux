@@ -59,6 +59,19 @@ struct FilesCoreTests {
         try await waitUntil { model.items.first?.progress.state == .finished }
     }
 
+    @Test @MainActor func cancellingAStoppedTransferMarksItAndDropsTheStagedCopy() async throws {
+        let stager = FileStager(root: FileManager.default.temporaryDirectory.appendingPathComponent("c4c-\(UUID().uuidString)"))
+        defer { try? FileManager.default.removeItem(at: stager.root) }
+        let model = TransferListModel(transfer: MockFileTransfer(failAfterChunks: 2))
+        let coordinator = FileSendCoordinator(model: model, paster: nil, attachments: nil, stager: stager)
+        let file = try stager.stage(data: Data(repeating: 1, count: 800), name: "big.bin")
+        let id = try #require(coordinator.send([file], to: .inbox, host: MockFixtures.studio).first)
+        try await waitUntil { model.items.first?.canResume == true }
+        model.cancel(id)
+        try await waitUntil { model.items.first?.progress.state == .cancelled }
+        #expect(!FileManager.default.fileExists(atPath: file.url.path))
+    }
+
     @Test @MainActor func sendingToATerminalPastesTheMacPathAndComposerGetsAnAttachment() async throws {
         let stager = FileStager(root: FileManager.default.temporaryDirectory.appendingPathComponent("c4s-\(UUID().uuidString)"))
         defer { try? FileManager.default.removeItem(at: stager.root) }

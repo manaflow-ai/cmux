@@ -11,8 +11,11 @@ public final class TransferListModel {
     public private(set) var items: [TransferItem] = []
     /// Called once per transfer when it finishes (send-to-terminal, attach).
     @ObservationIgnored public var onFinished: ((TransferItem) -> Void)?
+    /// Called when a transfer ends for good: finished, cancelled or failed
+    /// without a retry (staging cleanup).
+    @ObservationIgnored public var onEnded: ((TransferItem) -> Void)?
     @ObservationIgnored private let transfer: any FileTransfer
-    @ObservationIgnored private var runs: [TransferID: Task<Void, Never>] = [:]
+    @ObservationIgnored private var runs: [TransferID: (token: UUID, task: Task<Void, Never>)] = [:]
     @ObservationIgnored private let clock = ContinuousClock()
 
     public init(transfer: any FileTransfer) {
@@ -42,7 +45,22 @@ public final class TransferListModel {
 
     public func cancel(_ id: TransferID) {
         let transfer = transfer
-        Task { await transfer.cancel(id) }
+        let live = runs[id] != nil
+        Task { [weak self] in
+            await transfer.cancel(id)
+            // A paused transfer has no stream to report it; mark it here.
+            guard !live, let self, let item = self.items.first(where: { $0.id == id }), item.canResume else { return }
+            var cancelled = item.progress
+            cancelled.state = .cancelled
+            self.apply(cancelled)
+        }
+    }
+
+    /// Resumes every transfer an interruption paused (back in the foreground).
+    public func resumeInterrupted() {
+        for item in items where item.progress.state == .paused && runs[item.id] == nil {
+            resume(item.id)
+        }
     }
 
     /// Drops a finished, failed or cancelled row.
@@ -58,9 +76,10 @@ public final class TransferListModel {
     // MARK: Private
 
     private func run(_ id: TransferID, _ open: @escaping @Sendable (any FileTransfer) async throws -> AsyncStream<TransferProgress>) {
-        runs[id]?.cancel()
+        runs[id]?.task.cancel()
         let transfer = transfer
-        runs[id] = Task { [weak self] in
+        let token = UUID()
+        runs[id] = (token, Task { [weak self] in
             do {
                 let stream = try await open(transfer)
                 for await progress in stream {
@@ -69,17 +88,19 @@ public final class TransferListModel {
             } catch {
                 self?.apply(TransferProgress(id: id, completedBytes: 0, totalBytes: nil, state: .failed(reason: "files.unavailable")))
             }
-            self?.runs[id] = nil
-        }
+            if self?.runs[id]?.token == token { self?.runs[id] = nil }
+        })
     }
 
     private func apply(_ progress: TransferProgress) {
         guard let index = items.firstIndex(where: { $0.id == progress.id }) else { return }
+        let wasEnded = items[index].progress.state.isTerminal
         let wasFinished = items[index].progress.state == .finished
         var next = progress
         if next.totalBytes == nil { next.totalBytes = items[index].progress.totalBytes }
         if next.remotePath == nil { next.remotePath = items[index].progress.remotePath }
         items[index].apply(next, at: clock.now)
         if next.state == .finished, !wasFinished { onFinished?(items[index]) }
+        if next.state.isTerminal, !wasEnded { onEnded?(items[index]) }
     }
 }

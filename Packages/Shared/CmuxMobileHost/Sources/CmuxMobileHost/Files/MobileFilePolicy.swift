@@ -26,14 +26,15 @@ public struct MobileFilePolicy: Sendable {
     /// Names never served below a root, at any depth, compared without case
     /// (APFS is usually case-insensitive, so `.SSH` opens `.ssh`).
     public static let deniedNames: Set<String> = [
-        ".ssh", ".gnupg", ".aws", ".kube", ".docker", ".netrc", ".pgpass", "keychains",
-        "id_rsa", "id_ecdsa", "id_ed25519", "id_dsa",
+        ".ssh", ".gnupg", ".aws", ".azure", ".kube", ".docker", ".netrc", ".pgpass", ".git-credentials", ".npmrc",
+        ".pypirc", ".password-store", ".vault-token", "keychains", "id_rsa", "id_ecdsa", "id_ed25519", "id_dsa",
     ]
 
     public static func isDenied(_ name: String) -> Bool {
         deniedNames.contains(name.lowercased())
     }
-    /// Trees under home that may never be (or contain) a root.
+    /// Trees under home that may never be, be inside, or contain a root.
+    /// Every dot-directory directly under home is refused as well.
     public static let protectedHomeTrees = ["Library", ".ssh", ".gnupg", ".aws", ".config/gcloud", ".kube", ".docker"]
     public static let inboxID = "inbox"
     static let maxPathBytes = 4096
@@ -172,7 +173,11 @@ public struct MobileFilePolicy: Sendable {
         let lowered = path.lowercased()
         let home = home.lowercased()
         guard lowered != home, lowered.hasPrefix(home + "/") else { return false }
-        return !protectedHomeTrees.contains { isInside(lowered, home + "/" + $0.lowercased()) }
+        guard !lowered.dropFirst(home.count + 1).hasPrefix(".") else { return false }
+        return !protectedHomeTrees.contains { tree in
+            let protected = home + "/" + tree.lowercased()
+            return isInside(lowered, protected) || isInside(protected, lowered)
+        }
     }
 
     /// `realpath(3)` of the longest existing prefix plus the missing tail.

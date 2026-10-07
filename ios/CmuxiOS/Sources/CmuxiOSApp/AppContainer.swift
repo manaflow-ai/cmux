@@ -227,8 +227,9 @@ final class AppContainer {
     private static func addingFiles(to factories: RealFeatureFactories) -> RealFeatureFactories {
         guard let connector = fileHostConnector() else { return factories }
         var factories = factories
-        let journal = LinkFileTransfer.defaultJournalURL
-        factories.files = { LinkFileTransfer(connector: connector, journalURL: journal) }
+        // One instance per process: one journal per file, whatever rebuilds the seams.
+        let transfer = LinkFileTransfer(connector: connector, journalURL: LinkFileTransfer.defaultJournalURL)
+        factories.files = { transfer }
         return factories
     }
 

@@ -13,6 +13,8 @@ struct FilePolicyTests {
             MobileFileRoot(id: "outside", name: "tmp", url: f.home.deletingLastPathComponent(), writable: true),
             MobileFileRoot(id: "lib", name: "lib", url: f.home.appendingPathComponent("Library/Foo"), writable: true),
             MobileFileRoot(id: "ssh", name: "ssh", url: f.home.appendingPathComponent(".ssh"), writable: true),
+            MobileFileRoot(id: "config", name: "config", url: f.home.appendingPathComponent(".config"), writable: true),
+            MobileFileRoot(id: "upper", name: "upper", url: f.home.appendingPathComponent("LIBRARY/x"), writable: true),
             MobileFileRoot(id: "ws_a1", name: "proj", url: f.workspace, writable: true),
         ]
         let policy = MobileFilePolicy(configuration: f.configuration, roots: candidates)

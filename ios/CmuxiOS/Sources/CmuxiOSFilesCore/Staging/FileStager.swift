@@ -16,11 +16,24 @@ public struct FileStager: Sendable {
 
     /// Copies `source` (reading it under its security scope when it has one).
     public func stage(copying source: URL, name: String? = nil, convertHEIC: Bool) throws -> StagedFile {
+        try stage(source, name: name, convertHEIC: convertHEIC, move: false)
+    }
+
+    /// Moves a file the app already owns (a document picker copy).
+    public func stage(moving source: URL, name: String? = nil, convertHEIC: Bool) throws -> StagedFile {
+        try stage(source, name: name, convertHEIC: convertHEIC, move: true)
+    }
+
+    private func stage(_ source: URL, name: String?, convertHEIC: Bool, move: Bool) throws -> StagedFile {
         let scoped = source.startAccessingSecurityScopedResource()
         defer { if scoped { source.stopAccessingSecurityScopedResource() } }
         let directory = try makeDirectory()
         var target = directory.appendingPathComponent(Self.cleanName(name ?? source.lastPathComponent))
-        try FileManager.default.copyItem(at: source, to: target)
+        if move, (try? FileManager.default.moveItem(at: source, to: target)) != nil {
+            // moved
+        } else {
+            try FileManager.default.copyItem(at: source, to: target)
+        }
         if convertHEIC, ImageTranscoder.isHEIC(target), let jpeg = try? transcoder.jpeg(from: target) {
             try? FileManager.default.removeItem(at: target)
             target = jpeg
