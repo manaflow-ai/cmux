@@ -177,7 +177,9 @@ def test_lint_matrix_runs_clippy_with_each_host_cfg() -> None:
 
 MACOS_RELAY_RUNNER = (
     "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
-    "github.run_attempt == 1 && 'glaeda-aws-std-xcode-26.6' || "
+    "vars.CI_PR_POOL_OWNED == '1' && "
+    "contains(fromJSON('[\"pull_request\",\"push\",\"schedule\",\"workflow_dispatch\"]'), github.event_name) && "
+    "github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || "
     "vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15' }}"
 )
 
@@ -187,9 +189,9 @@ def test_macos_runs_the_chatmux_relay_tests() -> None:
 
     9f4acf5b2787 (#17051) dropped the `test (macos)` matrix entry, and with it
     the only macOS run of `cargo test -p chatmux-relay` (full mode, and focused
-    mode with the chatmux_relay selector). The relay job takes the owned AWS
-    runners on attempt 1, as the cmux-tui-artifacts macOS legs do (7e6904a4),
-    and a rerun returns to the background lane.
+    mode with the chatmux_relay selector). The relay job takes the owned side
+    lane through CI_SIDE_LANE_RUNNER on attempt 1, and a rerun returns to the
+    background lane.
     """
     workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     job = workflow["jobs"]["macos-relay"]
