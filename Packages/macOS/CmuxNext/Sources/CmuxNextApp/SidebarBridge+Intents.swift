@@ -32,7 +32,7 @@ extension SidebarBridge {
                 if !leaving.isEmpty { sendPinned(leaving, false) }
             }
         }
-        if usesPersonalOrganization, handlePersonal(intent) { return }
+        if usesPersonalOrganization, PersonalGroupPin(bridge: self).handle(intent) || handlePersonal(intent) { return }
         switch intent {
         case .select(let id):
             // A placeholder row is no workspace: never claimed or shown.
