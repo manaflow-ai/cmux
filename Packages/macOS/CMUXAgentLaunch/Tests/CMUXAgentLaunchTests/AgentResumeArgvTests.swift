@@ -195,6 +195,39 @@ struct AgentResumeArgvTests {
         )
     }
 
+    @Test("Codex Teams remote resume and fork drop the unsupported permission override")
+    func codexTeamsRemoteResumeAndForkDropUnsupportedPermissionOverride() {
+        let appServerURL = "ws://127.0.0.1:4242"
+        let bypassFlag = "--dangerously-bypass-approvals-and-sandbox"
+        let builder = AgentResumeArgv()
+
+        #expect(
+            builder.codexTeamsRootArguments(
+                appServerURL: appServerURL,
+                commandArgs: ["resume", "THREAD", bypassFlag, "--model", "gpt-5"]
+            ) == ["resume", "--remote", appServerURL, "THREAD", "--model", "gpt-5"]
+        )
+        #expect(
+            builder.codexTeamsRootArguments(
+                appServerURL: appServerURL,
+                commandArgs: ["fork", "THREAD", "--model", "gpt-5", bypassFlag]
+            ) == ["fork", "--remote", appServerURL, "THREAD", "--model", "gpt-5"]
+        )
+    }
+
+    @Test("Codex Teams fresh remote launches preserve the permission override")
+    func codexTeamsFreshRemoteLaunchPreservesPermissionOverride() {
+        let appServerURL = "ws://127.0.0.1:4242"
+        let bypassFlag = "--dangerously-bypass-approvals-and-sandbox"
+
+        #expect(
+            AgentResumeArgv().codexTeamsRootArguments(
+                appServerURL: appServerURL,
+                commandArgs: ["--model", "gpt-5", bypassFlag]
+            ) == ["--remote", appServerURL, "--model", "gpt-5", bypassFlag]
+        )
+    }
+
     @Test(
         "A shell bootstrap snapshot falls back to the kind's executable and drops its argv",
         arguments: [
