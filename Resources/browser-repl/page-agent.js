@@ -1794,12 +1794,35 @@
     return found.slice(0, asked ? Math.min(limit, MAX_NODES) : MAX_NODES).map(handleFor);
   }
 
+  // Diagnostics name an element by its tag and role only, never by its
+  // text or attributes. Playwright's previews (previewNode) cut page text at
+  // 50 characters and attributes at 500, and its strict-mode "aka" locators
+  // cut text at word boundaries. Secrets are masked natively by whole value
+  // after the reply leaves the page, so a cut secret would pass as its
+  // unmasked prefix. A tag name is whole, and a role comes from a fixed list.
+  function staticPreview(node) {
+    if (!node || node.nodeType !== 1) return node && node.nodeType === 3 ? "#text" : `<${String((node && node.nodeName) || "").toLowerCase()} />`;
+    const role = roleOf(node);
+    return `<${tagOf(node)}>${role && role !== "generic" ? ` (${role})` : ""}`;
+  }
+  // The injected script whose diagnostics (expectHitTarget,
+  // strictModeViolationError) preview elements with staticPreview. With
+  // `matches`, each match's "aka" locator is the caller's own selector and
+  // its index among them, so no page text is in it either.
+  function diagnosticInjected(selector, matches) {
+    const props = { previewNode: { value: staticPreview } };
+    if (matches) props.generateSelectorSimple = { value: (el) => `${selector} >> nth=${matches.indexOf(el)}` };
+    return Object.create(requireInjected(), props);
+  }
+
   function describe(id) {
-    return requireInjected().previewNode(element(id));
+    return staticPreview(element(id));
   }
 
   function strictError(selector, ids) {
-    return requireInjected().strictModeViolationError(requireInjected().parseSelector(selector), ids.map(element)).message;
+    const matches = ids.map(element);
+    const inj = diagnosticInjected(selector, matches);
+    return inj.strictModeViolationError(inj.parseSelector(selector), matches).message;
   }
 
   // Playwright checks "stable" over animation frames. WebKit runs no
@@ -1892,7 +1915,7 @@
     const inj = requireInjected();
     const el = inj.retarget(element(id), behavior || "button-link");
     if (!el || !el.isConnected) return "error:notconnected";
-    const result = inj.expectHitTarget(point, el);
+    const result = inj.expectHitTarget.call(diagnosticInjected(), point, el);
     return result === "done" ? "done" : result.hitTargetDescription;
   }
 
