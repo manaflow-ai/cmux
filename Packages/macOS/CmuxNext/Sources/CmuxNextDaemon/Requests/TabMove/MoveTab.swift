@@ -38,6 +38,7 @@ public struct MoveTabToWorkspaceRequest: DaemonRequest {
 public struct MoveTabToNewWorkspaceRequest: DaemonRequest {
     public typealias Response = TabMoveResult
     public static let command = "move-tab-to-new-workspace"
+    public static let requiredCapability: String? = DaemonCapabilities.shared.tabDrag
     public var surface: SurfaceID
     public var group: WorkspaceGroupID?
     public var index: Int?
