@@ -17,6 +17,8 @@ import unittest
 ROOT = Path(__file__).resolve().parent.parent
 FIXTURE = ROOT / "tests/cloud_task_local"
 CLOUD = ROOT / "Packages/macOS/CmuxCloud/Sources/CmuxCloud"
+# The shared reference carrier, compiled as its own module like the app links it.
+TASK_LOCAL_REFERENCE = ROOT / "Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/Concurrency/TaskLocalReference.swift"
 
 
 @unittest.skipUnless(platform.system() == "Darwin", "requires the macOS Swift runtime")
@@ -33,6 +35,12 @@ class CloudTaskLocalLifecycleTests(unittest.TestCase):
             "-module-name", "CmuxAuthRuntime", str(FIXTURE / "AuthFixture.swift"),
             "-emit-module-path", str(directory / "CmuxAuthRuntime.swiftmodule"),
             "-o", str(directory / "auth.o"),
+        ], check=True)
+        subprocess.run([
+            "xcrun", "swiftc", "-target", target, "-swift-version", "6", "-warnings-as-errors", "-O",
+            "-emit-module", "-emit-object", "-parse-as-library", "-module-name", "CmuxFoundation",
+            str(TASK_LOCAL_REFERENCE), "-emit-module-path", str(directory / "CmuxFoundation.swiftmodule"),
+            "-o", str(directory / "foundation.o"),
         ], check=True)
         subprocess.run([
             "xcrun", "clang", "-target", target, "-Werror", "-c",
@@ -57,7 +65,7 @@ class CloudTaskLocalLifecycleTests(unittest.TestCase):
             "-module-name", "CloudTaskLocalRegression", "-I", str(directory),
             *[str(copies / Path(source).name) for source in production],
             str(FIXTURE / "Dependencies.swift"), str(FIXTURE / "Probe.swift"),
-            str(directory / "auth.o"), str(directory / "legacy.o"),
+            str(directory / "auth.o"), str(directory / "foundation.o"), str(directory / "legacy.o"),
             "-o", str(cls.binary),
         ], check=True)
 

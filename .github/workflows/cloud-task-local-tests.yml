@@ -9,6 +9,8 @@ on:
       - scripts/select-ci-xcode.sh
       - scripts/ci/xcode-pins.txt
       - .xcode-version
+      - Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/Concurrency/TaskLocalReference.swift
+      - Packages/macOS/CmuxCloud/Sources/CmuxCloud/Reads/CloudReadRequestCoordinator.swift
       - Sources/Surfaces/CloudMachineLoadingReservation.swift
       - tests/cloud_task_local/**
       - tests/surface_task_local/**

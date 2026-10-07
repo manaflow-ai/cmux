@@ -20,6 +20,8 @@ ROOT = Path(__file__).resolve().parent.parent
 FIXTURE = ROOT / "tests/surface_task_local"
 LEGACY = ROOT / "tests/cloud_task_local/LegacyAvailability.c"
 PRODUCTION = [ROOT / "Sources/Surfaces/CloudMachineLoadingReservation.swift"]
+# The shared reference carrier, compiled as its own module like the app links it.
+TASK_LOCAL_REFERENCE = ROOT / "Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/Concurrency/TaskLocalReference.swift"
 # Module imports the standalone stubs replace inside the probe module.
 STUBBED_IMPORTS = re.compile(r"^import (CmuxCloud|CmuxSurfaceCatalogModel)\n", re.MULTILINE)
 
@@ -34,6 +36,12 @@ class SurfaceTaskLocalReservationTests(unittest.TestCase):
         target = platform.machine() + "-apple-macos14.0"
         flags = ["-target", target, "-swift-version", "5", "-warnings-as-errors"]
         subprocess.run([
+            "xcrun", "swiftc", "-target", target, "-swift-version", "6", "-warnings-as-errors", "-O",
+            "-emit-module", "-emit-object", "-parse-as-library", "-module-name", "CmuxFoundation",
+            str(TASK_LOCAL_REFERENCE), "-emit-module-path", str(directory / "CmuxFoundation.swiftmodule"),
+            "-o", str(directory / "foundation.o"),
+        ], check=True)
+        subprocess.run([
             "xcrun", "clang", "-target", target, "-Werror", "-c",
             str(LEGACY), "-o", str(directory / "legacy.o"),
         ], check=True)
@@ -47,7 +55,7 @@ class SurfaceTaskLocalReservationTests(unittest.TestCase):
             "-module-name", "SurfaceTaskLocalRegression", "-I", str(directory),
             *[str(copies / source.name) for source in PRODUCTION],
             str(FIXTURE / "Dependencies.swift"), str(FIXTURE / "Probe.swift"),
-            str(directory / "legacy.o"), "-o", str(cls.binary),
+            str(directory / "foundation.o"), str(directory / "legacy.o"), "-o", str(cls.binary),
         ], check=True)
 
     def run_probe(self, legacy):

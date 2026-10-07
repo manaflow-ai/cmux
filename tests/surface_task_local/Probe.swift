@@ -34,12 +34,12 @@ struct SurfaceTaskLocalProbe {
     private static func loadingReservationCrossesActorHops() async throws {
         let (reservation, destination) = try loadingReservation()
         precondition(CloudMachineLoadingReservation.current == nil)
-        let panelID = try await CloudMachineLoadingReservation.$current.withValue(reservation) {
+        let panelID = try await CloudMachineLoadingReservation.withCurrent(reservation) {
             // Resume on another actor, then return to the main actor that owns
             // the workspace, as provider materialization does.
             let seen = await ReservationReader().loadingPanelID()
             precondition(seen == reservation.panelID)
-            let cleared = await CloudMachineLoadingReservation.$current.withValue(nil) {
+            let cleared = await CloudMachineLoadingReservation.withCurrent(nil) {
                 await ReservationReader().loadingPanelID() == nil
             }
             precondition(cleared)
@@ -57,9 +57,9 @@ struct SurfaceTaskLocalProbe {
     private static func failureRestoresParentScope() async throws {
         let (outer, _) = try loadingReservation()
         let (inner, _) = try loadingReservation()
-        try await CloudMachineLoadingReservation.$current.withValue(outer) {
+        try await CloudMachineLoadingReservation.withCurrent(outer) {
             do {
-                try await CloudMachineLoadingReservation.$current.withValue(inner) {
+                try await CloudMachineLoadingReservation.withCurrent(inner) {
                     _ = await ReservationReader().loadingPanelID()
                     try CloudMachineLoadingReservation.current?.validate(
                         materializedPlacement: SurfaceRemotePlacement(workspaceID: "other", tabID: "tab-1")
@@ -79,7 +79,7 @@ struct SurfaceTaskLocalProbe {
         let resume = AsyncStream<Void>.makeStream()
         let task = Task { @MainActor in
             defer { precondition(CloudMachineLoadingReservation.current == nil) }
-            try await CloudMachineLoadingReservation.$current.withValue(reservation) {
+            try await CloudMachineLoadingReservation.withCurrent(reservation) {
                 entered.continuation.yield(())
                 for await _ in resume.stream {}
                 let seen = await ReservationReader().loadingPanelID()
@@ -108,7 +108,7 @@ struct SurfaceTaskLocalProbe {
         let other = SurfaceResource(id: SurfaceResourceID(kind: .display, machine: SurfaceMachine(cloudMachineID: "vm-2"), name: "display-2"))
         let reservation = CloudDisplayPaneReservation(resource: display.id, workspaceID: workspace.id, panelID: panelID)
         precondition(CloudDisplayPaneReservation.current == nil)
-        try await CloudDisplayPaneReservation.$current.withValue(reservation) {
+        try await CloudDisplayPaneReservation.withCurrent(reservation) {
             let seen = await ReservationReader().displayPanelID()
             precondition(seen == panelID)
             let reserved = try CloudDisplayPaneReservation.current?.pane(for: display)
