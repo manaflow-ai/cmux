@@ -16,6 +16,8 @@ export interface Principal {
   readonly scopes: ReadonlySet<Scope>;
   /** When set, the caller may reach only these public resource ids, even within its tenant. */
   readonly resourceAllowlist: ReadonlySet<string> | null;
+  /** When the credential stops working: an API key's expiry; null for a session or a key without one. */
+  readonly credentialExpiresAt: Date | null;
 }
 
 export class CurrentPrincipal extends Context.Tag("cmux-vm/CurrentPrincipal")<CurrentPrincipal, Principal>() {}

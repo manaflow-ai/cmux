@@ -16,6 +16,10 @@ import { Entitlements } from "../../src/proofs/tenant-may-create.ts";
 import { UpstreamClient } from "../../src/upstream/client.ts";
 import { makeUpstreamClient } from "../../src/upstream/live.ts";
 import { makeFakeUpstream } from "./fake-upstream.ts";
+import { makeS3aFakes } from "./s3a-fakes.ts";
+import { TeamAdmin } from "../../src/auth/team-admin.ts";
+import { ApiKeyAdminStore } from "../../src/db/api-keys.ts";
+import { makeMeshFakes, type MeshFakeOptions } from "./mesh-fakes.ts";
 
 export const STACK_API_URL = "https://stack.test";
 export const STACK_PROJECT_ID = "project-test";
@@ -29,10 +33,14 @@ export interface HarnessOptions {
   readonly devTestTenants?: ReadonlyArray<string>;
   /** Live VMs per tenant. */
   readonly maxVms?: number;
+  /** Live snapshots per tenant. */
+  readonly maxSnapshots?: number;
   /** Requests per minute per tenant for each limit class. */
   readonly ratePerMinute?: Partial<Record<"read" | "write" | "exec" | "files", number>>;
   /** Largest file upload accepted, in bytes. */
   readonly maxUploadBytes?: number;
+  /** Mesh experiment (cx-0op): flag, allowlisted tenants (default team_alpha and team_bravo) and budgets. */
+  readonly mesh?: MeshFakeOptions;
 }
 
 /** One audit row as a test sees it. */
@@ -50,12 +58,19 @@ interface StoredKey extends ApiKeyRecord {
   readonly hash: string;
   readonly revoked: boolean;
   readonly expiresAt: Date | null;
+  /** Set by the API key management endpoints (cx-b4h.12). */
+  readonly name?: string;
+  readonly createdBy?: string;
+  readonly createdAt?: Date;
+  readonly revokedAt?: Date;
 }
 
 export async function makeHarness(options: HarnessOptions = {}) {
   const resources: OwnedResource[] = [];
   const keys: StoredKey[] = [];
   const members = new Map<string, Set<string>>();
+  /** Team admins (Stack team_admin), per tenant. */
+  const admins = new Map<string, Set<string>>();
   const upstream = makeFakeUpstream(UPSTREAM_KEY);
   const upstreamRequests = upstream.calls;
   const audit: AuditRow[] = [];
@@ -115,6 +130,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
     environment: options.environment ?? "local",
     ...(options.devTestTenants === undefined ? {} : { devTestTenantIds: options.devTestTenants }),
     ...(options.maxVms === undefined ? {} : { maxVms: options.maxVms }),
+    ...(options.maxSnapshots === undefined ? {} : { maxSnapshots: options.maxSnapshots }),
     ...(options.ratePerMinute === undefined ? {} : { ratePerMinute: options.ratePerMinute }),
     ...(options.maxUploadBytes === undefined ? {} : { maxUploadBytes: options.maxUploadBytes }),
   });
@@ -132,6 +148,13 @@ export async function makeHarness(options: HarnessOptions = {}) {
       ),
   });
 
+  /** Snapshot reads and terminals (slice S3a) are served by s3a-fakes.ts; everything else by fake-upstream.ts. */
+  const s3a = makeS3aFakes(resources, upstream);
+  /** Mesh networking routes (cx-0op) are served by mesh-fakes.ts first. */
+  const mesh = makeMeshFakes(upstream, options.mesh);
+  const upstreamFetch = async (request: Request): Promise<Response> =>
+    (await mesh.upstream(request)) ?? (await s3a.upstream(request)) ?? upstream.fetch(request);
+
   const services = Layer.mergeAll(
     ownership,
     apiKeys,
@@ -146,6 +169,53 @@ export async function makeHarness(options: HarnessOptions = {}) {
     Layer.succeed(SessionVerifier, makeStackSessionVerifier({ apiUrl: STACK_API_URL, projectId: STACK_PROJECT_ID, getKey })),
     Layer.succeed(TeamMembership, {
       isMember: (tenantId, userId) => Effect.sync(() => members.get(tenantId)?.has(userId) ?? false),
+    }),
+    s3a.layer(upstreamFetch),
+    mesh.layer(upstreamFetch),
+    Layer.succeed(TeamAdmin, {
+      isAdmin: (tenantId, userId) => Effect.sync(() => admins.get(tenantId)?.has(userId) ?? false),
+    }),
+    Layer.succeed(ApiKeyAdminStore, {
+      insert: (key) =>
+        Effect.sync(() => {
+          keys.push({
+            id: key.id,
+            tenantId: key.tenantId,
+            scopes: key.scopes,
+            resourceAllowlist: key.resourceAllowlist,
+            hash: key.keyHash,
+            revoked: false,
+            expiresAt: key.expiresAt,
+            name: key.name,
+            createdBy: key.createdBy,
+            createdAt: key.createdAt,
+          });
+        }),
+      list: (tenantId, limit) =>
+        Effect.sync(() =>
+          keys
+            .filter((key) => key.tenantId === tenantId)
+            .map((key) => ({
+              id: key.id,
+              name: key.name ?? "test key",
+              scopes: key.scopes,
+              resourceAllowlist: key.resourceAllowlist,
+              createdBy: key.createdBy ?? "user:test",
+              createdAt: key.createdAt ?? new Date(0),
+              expiresAt: key.expiresAt,
+              revokedAt: key.revokedAt ?? null,
+            }))
+            .reverse()
+            .slice(0, limit),
+        ),
+      revoke: (tenantId, id, at) =>
+        Effect.sync(() => {
+          const index = keys.findIndex((key) => key.tenantId === tenantId && key.id === id);
+          const found = keys[index];
+          if (found === undefined) return false;
+          keys[index] = { ...found, revoked: true, revokedAt: found.revokedAt ?? at };
+          return true;
+        }),
     }),
   );
 
@@ -165,6 +235,10 @@ export async function makeHarness(options: HarnessOptions = {}) {
       if (allowed) billed.add(tenant);
       else billed.delete(tenant);
     },
+    /** Snapshots and terminals (slice S3a): fake stores, audit log, entitlements and terminal sockets. */
+    s3a,
+    /** Mesh experiment (cx-0op): mesh tables and the provider's networking state. */
+    mesh,
     /** Records a VM owned by `tenant` and backed by a fake upstream VM. Returns its public id. */
     addVm(tenant: string, state = "running"): { readonly vmId: VmId; readonly upstreamId: string } {
       const vmId = newVmId();
@@ -218,6 +292,16 @@ export async function makeHarness(options: HarnessOptions = {}) {
         expiresAt: options.expiresAt ?? null,
       });
       return secret;
+    },
+    /** Makes `user` a team admin of `tenant` (Stack team_admin). */
+    addAdmin(tenant: string, user: string) {
+      const set = admins.get(tenant) ?? new Set<string>();
+      set.add(user);
+      admins.set(tenant, set);
+    },
+    /** Every stored API key record, as the database would hold it (hashes, never secrets). */
+    storedKeys(): ReadonlyArray<StoredKey> {
+      return keys;
     },
     addMember(tenant: string, user: string) {
       const set = members.get(tenant) ?? new Set<string>();
