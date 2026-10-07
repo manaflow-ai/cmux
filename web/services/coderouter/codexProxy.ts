@@ -1094,7 +1094,12 @@ type CodexModelsDependencies = {
   readonly credential: typeof freshCredential;
   readonly cooldown: typeof markAccountCooldown;
   readonly providerRead: typeof fetchProviderRead;
+  /** Same contract as the responses proxy: false only when no account is visible. */
+  readonly hasConfiguredAccount?: typeof hasConfiguredAccount;
 };
+
+/** Model discovery has no request deadline; bound the visibility lookup. */
+const MODELS_ACCOUNT_LOOKUP_TIMEOUT_MS = 5_000;
 
 export function createCodexModelsProxy(dependencies: CodexModelsDependencies) {
   return async (request: Request): Promise<Response> => {
@@ -1129,7 +1134,28 @@ export function createCodexModelsProxy(dependencies: CodexModelsDependencies) {
         startedAt: selectStartedAt,
         attributes: { provider: "codex", attempt: attempt + 1, healthy: account !== null },
       });
-      if (!account) break;
+      if (!account) {
+        if (
+          attempt === 0 &&
+          !await teamHasCodexAccount(
+            dependencies,
+            identity,
+            request.signal,
+            Date.now() + MODELS_ACCOUNT_LOOKUP_TIMEOUT_MS,
+            Date.now,
+          )
+        ) {
+          recordCoderouterOutcome({
+            outcome: "no_usable_account",
+            failureStage: "provider_config",
+            status: 403,
+            provider: "codex",
+            attempts: 0,
+          });
+          return noCodexAccountResponse();
+        }
+        break;
+      }
       attempted.push(account.id);
       let credential;
       try {
@@ -1239,6 +1265,7 @@ export const proxyCodexModels = createCodexModelsProxy({
   credential: freshCredential,
   cooldown: markAccountCooldown,
   providerRead: fetchProviderRead,
+  hasConfiguredAccount,
 });
 
 type ResponsesCredential = Extract<
@@ -1445,7 +1472,7 @@ function unauthorizedError(reason: RouteTokenAuthFailure): Response {
  * client to stop.
  */
 async function teamHasCodexAccount(
-  dependencies: Pick<CodexResponsesDependencies, "hasConfiguredAccount">,
+  dependencies: { readonly hasConfiguredAccount?: typeof hasConfiguredAccount },
   identity: RouteTokenIdentity,
   requestSignal: AbortSignal,
   deadlineAt: number,
@@ -1488,6 +1515,11 @@ function noCodexAccountConfigured(input: {
     failureStage: "provider_config",
     responseStreamed: false,
   });
+  return noCodexAccountResponse();
+}
+
+/** Shared by every Codex surface: a terminal 403 in the OpenAI error shape. */
+function noCodexAccountResponse(): Response {
   return Response.json({
     error: {
       message: "No Codex account is configured for this team or shared with this caller. Add one with `cr add codex` or at coderouter.dev.",
