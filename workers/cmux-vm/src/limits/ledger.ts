@@ -82,8 +82,12 @@ const checked = <T>(guard: (value: unknown) => value is T, value: unknown): T | 
 
 /** Idempotency records live for a day, as clients retry within minutes to hours. */
 export const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
-/** A pending claim whose request died is released after this long. */
-export const IDEMPOTENCY_LEASE_MS = 2 * 60 * 1000;
+/**
+ * A pending claim whose request died is released after this long. It exceeds
+ * the longest create or fork (snapshot, create and grow, 120 s upstream timeout
+ * each), so a live request never loses its claim to a retry.
+ */
+export const IDEMPOTENCY_LEASE_MS = 10 * 60 * 1000;
 /** A reservation whose create died is released after this long. */
 export const RESERVATION_TTL_MS = 5 * 60 * 1000;
 

@@ -82,7 +82,9 @@ const onVm =
 const onRead = (error: UpstreamError): NotFound | ServiceUnavailable => (error.status === 404 ? vmNotFound() : unavailable());
 
 /** Provider failures on a create. */
-const onCreate = (error: UpstreamError): BadRequest | Conflict | QuotaExceeded | ServiceUnavailable => {
+const onCreate = (error: UpstreamError): BadRequest | Conflict | NotFound | QuotaExceeded | ServiceUnavailable => {
+  // The source snapshot expired upstream after it was recorded.
+  if (error.status === 404) return snapshotNotFound();
   if (error.status === 400) return badRequest("The VM could not be created as asked (check its snapshot and sizes)");
   if (error.status === 409) return conflict("No capacity is available for a new VM right now; retry later");
   if (error.status === 429) return new QuotaExceeded({ message: "VM capacity is exhausted for now; retry later", retryAfterSeconds: 60 });
@@ -200,7 +202,9 @@ const createRecorded = <C, S>(
         Effect.mapError(() => unavailable()),
       );
     return toVm(cmuxId, spec, vm);
-  });
+    // Uninterruptible: a client that disconnects mid-create must not leave an
+    // upstream VM that is neither recorded nor discarded.
+  }).pipe(Effect.uninterruptible);
 
 /** Answers a replayed create or fork with the VM the first request made. */
 const replayVm = <C>(caller: Named<C, Principal>, scope: KeyHasScope<C, "vm:write">, rawVmId: string) =>
@@ -375,7 +379,11 @@ const forkVm = (rawVmId: string, payload: ForkVmRequest, idempotencyKey: string 
                     Effect.mapError(() => unavailable()),
                   );
                 if (keyed !== null) {
-                  yield* limits.advance(principal.tenantId, keyed, { phase: "snapshotted", snapshotId: cmuxId }).pipe(Effect.ignore);
+                  // Without this record a retry would take a second snapshot, so a failed write fails the fork;
+                  // the snapshot stays in the tenant's ownership rows.
+                  yield* limits
+                    .advance(principal.tenantId, keyed, { phase: "snapshotted", snapshotId: cmuxId })
+                    .pipe(Effect.mapError(() => unavailable()));
                 }
                 snapshotId = cmuxId;
               }
