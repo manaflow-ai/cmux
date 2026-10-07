@@ -110,6 +110,20 @@ Each lane is one agent, one branch `feat-cmux-next-ios-<id>` off `feat-cmux-next
   mode, Keep Mac Awake, StoreKit billing, deferred sign-in for SSH-only use. Needs A1 (remote
   flags and version gate also need B1, B5).
 
+### Wave E: gaps found by D3 (`d3-dogfood.md` sections 1 and 4)
+
+- **E1 `backpressure`**: bounded network ingress: replace unbounded `AsyncStream` buffers in
+  CmuxLinkWebRTC, CmuxLinkDirect, CmuxControlPlane, CmuxMobileLink, CmuxLinkWG and the browser
+  session with credit-driven or bounded delivery, with tests.
+- **E2 `ci`**: CI coverage for the new tree: point l10n, concurrency and package lints at
+  `ios/CmuxiOS` and the new Shared packages, run their `swift test` in CI, and add an iOS UI test
+  workflow for the `Next*UITests` classes (the old `test-e2e.yml` was removed).
+- **E3 `workspace-mgmt`**: workspace groups (collapse, rename, drag reorder), customize sheet, and
+  SSH workspaces (tmux, screen, cmux-tui sessions) in the Workspaces list.
+- **E4 `terminal-compose`**: terminal composer with image paste, drafts per terminal, todo surface.
+- **E5 `device-extras`**: SFTP for SSH hosts, haptics toggle, erase all data, Keep Mac Awake
+  onboarding card, deferred sign-in for SSH-only use.
+
 ### Wave 3: integration and choice
 
 - **D1 `terminal-ux`**: end-to-end terminal on a real carrier: workspace to terminal navigation, key
