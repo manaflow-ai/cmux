@@ -7,6 +7,8 @@ import { readFileSync as readSource } from "node:fs";
 import {
   AGENT_TOOLS_BIN,
   agentToolsDaemonEnv,
+  CUA_REFUSE_DIR,
+  cuaRefuseScript,
   agentToolsFiles,
   agentToolsLinkCommand,
   agentToolsProfileScript,
@@ -167,5 +169,37 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  test("cua-video stays off: the computer-use driver cannot install ffmpeg (install_ffmpeg runs `sudo -n apt-get install -y ffmpeg`)", async () => {
+    const cua = cuaUnit();
+    expect(cua).toContain("NoNewPrivileges=yes");
+    expect(cua).toMatch(new RegExp(`Environment=PATH=${CUA_REFUSE_DIR}:`));
+    const files = agentToolsFiles().filter((f) => f.path.startsWith(`${CUA_REFUSE_DIR}/`));
+    expect(files.map((f) => path.basename(f.path)).sort()).toEqual(["apt", "apt-get", "sudo"]);
+    const dir = mkdtempSync(path.join(os.tmpdir(), "cmux-cua-refuse-"));
+    try {
+      for (const name of ["sudo", "apt-get"]) {
+        writeFileSync(path.join(dir, name), cuaRefuseScript(name));
+        chmodSync(path.join(dir, name), 0o755);
+      }
+      const env = { ...process.env, PATH: `${dir}:${process.env.PATH ?? ""}` };
+      const found = await runChild("sh", ["-c", "command -v apt-get"], { env, timeout: 20_000 });
+      expect(found.stdout.trim()).toBe(path.join(dir, "apt-get"));
+      for (const argv of [["sudo", "-n", "apt-get", "install", "-y", "ffmpeg"], ["apt-get", "install", "-y", "ffmpeg"]]) {
+        const r = await runChild(argv[0], argv.slice(1), { env, timeout: 20_000 });
+        expect(r.status).not.toBe(0);
+        expect(r.stderr).toContain("cua-video");
+        expect(r.stderr).toContain("ffmpeg");
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("the agent tools bake installs only the browser role, never cua-video", () => {
+    const phases = browserRoleBakePhases(lock).map((p) => p.command).join("\n");
+    expect(phases).not.toContain("ffmpeg");
+    expect(phases).not.toContain("x264");
   });
 });
