@@ -125,13 +125,20 @@ extension ConversationViewController {
         drawer.onToggle = { [weak self] asset, selected in
             self?.photoSelectionChanged(asset: asset, selected: selected)
         }
-        let height: CGFloat = 330 + view.safeAreaInsets.bottom
-        drawer.frame = CGRect(x: 6, y: view.bounds.height, width: view.bounds.width - 12, height: height - 6)
+        // Measured on iOS 26 Messages (iPhone 17 Pro): a card inset 8 pt from
+        // the sides and bottom, as tall as the keyboard area (336 pt plus the
+        // home-indicator inset), with the field 24 pt above its top edge.
+        let inset: CGFloat = 8
+        let height: CGFloat = 336 + view.safeAreaInsets.bottom
+        let top = view.bounds.height - inset - height
+        drawer.frame = CGRect(x: inset, y: view.bounds.height, width: view.bounds.width - 2 * inset, height: height)
         view.addSubview(drawer)
         photoDrawer = drawer
+        // The composer's field sits 4 pt above its container's bottom.
+        let composerBottom = top - 20 - (view.bounds.height - view.safeAreaInsets.bottom)
         UIView.animate(withDuration: 0.42, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0) {
-            drawer.frame.origin.y = self.view.bounds.height - height
-            self.composerBottomConstraintConstant(-(height - self.view.safeAreaInsets.bottom) - 4)
+            drawer.frame.origin.y = top
+            self.composerBottomConstraintConstant(composerBottom)
             self.view.layoutIfNeeded()
         }
     }
