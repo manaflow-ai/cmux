@@ -21,8 +21,22 @@ final class WebRTCPeer: NSObject, @unchecked Sendable {
         var openWaiters: [ObjectIdentifier: [CheckedContinuation<Void, any Error>]] = [:]
         var drainWaiters: [ObjectIdentifier: [CheckedContinuation<Void, any Error>]] = [:]
         var closed = false
-        var lowWater: UInt64 = 0
         var closeOnControlClose = false
+        /// Lane messages waiting for the scheduler, by lane label.
+        var laneQueues: [String: LaneQueue] = [:]
+        /// `send` callers waiting for room in their lane's queue.
+        var roomWaiters: [String: [CheckedContinuation<Void, any Error>]] = [:]
+        /// `waitFlushed` callers (graceful close).
+        var flushWaiters: [CheckedContinuation<Void, Never>] = []
+        var nextFrameID: UInt32 = 0
+        /// Per receiving channel.
+        var reassembly: [ObjectIdentifier: MessageReassembly] = [:]
+        /// Reliable lane message bytes we sent, and the peer's last credit.
+        var sentBytes = 0
+        var creditedBytes = 0
+        /// Reliable lane message bytes we received, and what we credited.
+        var receivedBytes = 0
+        var receivedCredited = 0
     }
 
     // carve-out: libwebrtc calls the delegates synchronously on its own
@@ -31,6 +45,12 @@ final class WebRTCPeer: NSObject, @unchecked Sendable {
     let state = OSAllocatedUnfairLock(uncheckedState: State())
     let factory: WebRTCFactory
     let mode: PeerMode
+    let limits: PeerSendLimits
+    let chunker: MessageChunker
+    /// Wakes the lane scheduler: a send queued, a channel opened, a buffer
+    /// drained. Newest-one buffering, so a wake is never lost and never piles up.
+    let wakes: AsyncStream<Void>
+    let wakeSink: AsyncStream<Void>.Continuation
     /// Driver events.
     let events: AsyncStream<PeerEvent>
     let eventSink: AsyncStream<PeerEvent>.Continuation
@@ -41,11 +61,14 @@ final class WebRTCPeer: NSObject, @unchecked Sendable {
         factory: WebRTCFactory,
         mode: PeerMode = .lanes,
         ice: ICEConfiguration,
-        lowWater: UInt64,
+        limits: PeerSendLimits,
         frameSink: AsyncStream<TransportEvent>.Continuation
     ) throws {
         self.factory = factory
         self.mode = mode
+        self.limits = limits
+        chunker = MessageChunker(maxMessageBytes: limits.maxMessageBytes)
+        (wakes, wakeSink) = AsyncStream.makeStream(of: Void.self, bufferingPolicy: .bufferingNewest(1))
         self.frameSink = frameSink
         (events, eventSink) = AsyncStream.makeStream(of: PeerEvent.self, bufferingPolicy: .unbounded)
         super.init()
@@ -53,10 +76,8 @@ final class WebRTCPeer: NSObject, @unchecked Sendable {
         guard let connection = factory.factory.peerConnection(
             with: configuration, constraints: factory.constraints(), delegate: self
         ) else { throw WebRTCPeerError.channelUnavailable }
-        state.withLockUnchecked {
-            $0.connection = connection
-            $0.lowWater = lowWater
-        }
+        state.withLockUnchecked { $0.connection = connection }
+        if mode == .lanes { startScheduler() }
     }
 
     var connection: RTCPeerConnection? { state.withLockUnchecked { $0.connection } }
@@ -91,26 +112,26 @@ final class WebRTCPeer: NSObject, @unchecked Sendable {
         }
     }
 
-    /// Sends one frame on its lane's channel, creating the channel on first
-    /// use. Reliable lanes wait for the channel to open and for buffer room;
-    /// unreliable lanes drop when the buffer is above `highWater`.
-    func send(_ frame: TransportFrame, highWater: UInt64) async throws {
+    /// Queues one frame on its lane, split into messages of at most
+    /// `maxMessageBytes`; the lane scheduler sends them (see
+    /// WebRTCPeer+LaneScheduler). Reliable lanes suspend while their queue
+    /// is over `laneBudget`; unordered and partial lanes drop instead.
+    func send(_ frame: TransportFrame) async throws {
         let label = LaneLabel(lane: frame.lane)
-        let channel = try sendChannel(for: label)
-        try await waitOpen(channel)
+        _ = try sendChannel(for: label)
         let reliable = frame.lane.reliability.isReliable
-        if reliable {
-            while channel.bufferedAmount > highWater {
-                try await waitDrain(channel)
-            }
-        } else if channel.bufferedAmount > highWater {
-            return
+        if reliable { try await waitForRoom(label.label) }
+        let accepted = try state.withLockUnchecked { state -> Bool in
+            guard !state.closed else { throw WebRTCPeerError.closed }
+            var queue = state.laneQueues[label.label] ?? LaneQueue(label: label)
+            if !reliable, queue.queuedBytes + frame.bytes.count > limits.laneBudget { return false }
+            let id = state.nextFrameID
+            state.nextFrameID &+= 1
+            queue.append(chunker.split(frame.bytes, reliable: reliable, id: id))
+            state.laneQueues[label.label] = queue
+            return true
         }
-        guard !isClosed else { throw WebRTCPeerError.closed }
-        guard channel.sendData(RTCDataBuffer(data: frame.bytes, isBinary: true)) else {
-            throw isClosed ? WebRTCPeerError.closed : WebRTCPeerError.sendFailed
-        }
-        if reliable { state.withLockUnchecked { $0.sentCounts[label.label, default: 0] += 1 } }
+        if accepted { wakeSink.yield() }
     }
 
     func sendControl(_ message: CarrierControlMessage) -> Bool {
@@ -214,7 +235,7 @@ final class WebRTCPeer: NSObject, @unchecked Sendable {
             let (closed, lowWater) = state.withLockUnchecked { state -> (Bool, UInt64) in
                 guard !state.closed else { return (true, 0) }
                 state.drainWaiters[id, default: []].append(continuation)
-                return (false, state.lowWater)
+                return (false, limits.lowWater)
             }
             guard !closed else {
                 continuation.resume(throwing: WebRTCPeerError.closed)
@@ -266,6 +287,7 @@ final class WebRTCPeer: NSObject, @unchecked Sendable {
             return true
         }
         if registered, isControl, channel.readyState == .open { eventSink.yield(.controlOpen) }
+        if registered, !isControl { wakeSink.yield() }
     }
 
     func channelStateChanged(_ channel: RTCDataChannel) {
@@ -280,7 +302,9 @@ final class WebRTCPeer: NSObject, @unchecked Sendable {
             return (entry, entry?.label == nil && readyState == .closed && state.closeOnControlClose)
         }
         switch readyState {
-        case .open: resumeWaiters(open: id)
+        case .open:
+            resumeWaiters(open: id)
+            wakeSink.yield()
         case .closing, .closed: failWaiters(id)
         default: break
         }
@@ -299,26 +323,42 @@ final class WebRTCPeer: NSObject, @unchecked Sendable {
     func bufferedAmountChanged(_ channel: RTCDataChannel, amount: UInt64) {
         let id = ObjectIdentifier(channel)
         let waiters = state.withLockUnchecked { state -> [CheckedContinuation<Void, any Error>] in
-            guard amount <= state.lowWater else { return [] }
+            guard amount <= limits.lowWater else { return [] }
             return state.drainWaiters.removeValue(forKey: id) ?? []
         }
         for waiter in waiters { waiter.resume() }
+        if amount <= limits.channelHighWater { wakeSink.yield() }
     }
 
     func received(_ data: Data, on channel: RTCDataChannel) {
-        let (entry, satisfied) = state.withLockUnchecked { state -> (PeerChannelEntry?, Bool) in
-            guard !state.closed, let entry = state.entries[ObjectIdentifier(channel)] else { return (nil, false) }
-            guard let label = entry.label, label.lane.reliability.isReliable else { return (entry, false) }
+        let id = ObjectIdentifier(channel)
+        let maxFrame = TransportCapabilities.stream.maxFrameBytes
+        let (entry, frame, satisfied) = state.withLockUnchecked { state -> (PeerChannelEntry?, Data?, Bool) in
+            guard !state.closed, let entry = state.entries[id] else { return (nil, nil, false) }
+            guard let label = entry.label else { return (entry, data, false) }
+            if label.lane.reliability.isReliable { state.receivedBytes += data.count }
+            var reassembly = state.reassembly[id] ?? MessageReassembly(maxFrameBytes: maxFrame)
+            let frame = reassembly.receive(data)
+            state.reassembly[id] = reassembly
+            guard let frame, label.lane.reliability.isReliable else { return (entry, frame, false) }
             state.receivedCounts[label.label, default: 0] += 1
-            return (entry, Self.finSatisfied(&state))
+            return (entry, frame, Self.finSatisfied(&state))
         }
         guard let entry else { return }
+        // Credit on every message, not only on completed frames: a frame
+        // larger than the window would otherwise never complete.
+        if entry.label != nil { creditIfDue() }
+        guard let frame else { return }
         if let label = entry.label {
-            frameSink.yield(.frame(TransportFrame(lane: label.lane, bytes: data)))
+            frameSink.yield(.frame(TransportFrame(lane: label.lane, bytes: frame)))
         } else if mode == .datagram {
-            frameSink.yield(.frame(TransportFrame(lane: PeerMode.datagramLane, bytes: data)))
-        } else if let message = CarrierControlMessage(data: data) {
-            eventSink.yield(.control(message))
+            frameSink.yield(.frame(TransportFrame(lane: PeerMode.datagramLane, bytes: frame)))
+        } else if let message = CarrierControlMessage(data: frame) {
+            if case let .credit(received) = message {
+                credited(received)
+            } else {
+                eventSink.yield(.control(message))
+            }
         }
         if satisfied { eventSink.yield(.finSatisfied) }
     }
@@ -339,6 +379,11 @@ final class WebRTCPeer: NSObject, @unchecked Sendable {
             guard !state.closed else { return nil }
             state.closed = true
             let waiters = state.openWaiters.values.flatMap { $0 } + state.drainWaiters.values.flatMap { $0 }
+                + state.roomWaiters.values.flatMap { $0 }
+            for waiter in state.flushWaiters { waiter.resume() }
+            state.flushWaiters = []
+            state.roomWaiters = [:]
+            state.laneQueues = [:]
             let entries = Array(state.entries.values)
             let connection = state.connection
             state.openWaiters = [:]
@@ -352,6 +397,7 @@ final class WebRTCPeer: NSObject, @unchecked Sendable {
         guard let (connection, entries, waiters) = taken else { return }
         for waiter in waiters { waiter.resume(throwing: WebRTCPeerError.closed) }
         eventSink.finish()
+        wakeSink.finish()
         let teardown = Teardown(connection: connection, entries: entries)
         Self.teardownQueue.async { teardown.run() }
     }

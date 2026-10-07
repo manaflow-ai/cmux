@@ -387,6 +387,9 @@ actor WebRTCConnection {
         case let .track(descriptor):
             trackDescriptors[descriptor.id] = descriptor
             pairTracks()
+        case .credit:
+            // The peer handles credits itself (lane scheduler).
+            break
         }
     }
 
@@ -505,6 +508,8 @@ actor WebRTCConnection {
     /// then sees `.closed(.remote)`; bounded by `closeTimeout`.
     func close() async {
         guard !finished else { return }
+        if live, peer.mode == .lanes { await flushLanes() }
+        guard !finished else { return }
         guard live, finAckWaiter == nil, peer.sendControl(.fin(counts: peer.sentCounts)) else {
             // No close handshake (not live yet, or the datagram underlay):
             // `bye` tells the peer it is gone.
@@ -520,6 +525,27 @@ actor WebRTCConnection {
         await withCheckedContinuation { finAckWaiter = $0 }
         timeout.cancel()
         finish(.local, bye: nil)
+    }
+
+    /// Waits until the lane scheduler handed every queued reliable message
+    /// to libwebrtc, so the `fin` counts and follows them; bounded by
+    /// `closeTimeout` (a peer that stopped reading).
+    private func flushLanes() async {
+        let (first, sink) = AsyncStream.makeStream(of: Void.self, bufferingPolicy: .bufferingNewest(1))
+        let peer = peer
+        let clock = context.configuration.clock
+        let limit = context.configuration.closeTimeout
+        let flush = Task {
+            await peer.waitFlushed()
+            sink.yield()
+        }
+        let timer = Task {
+            try? await clock.sleep(for: limit)
+            sink.yield()
+        }
+        for await _ in first { break }
+        flush.cancel()
+        timer.cancel()
     }
 
     private func finAckTimedOut() {
