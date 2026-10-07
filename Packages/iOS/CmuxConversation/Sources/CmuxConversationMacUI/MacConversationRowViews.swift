@@ -579,6 +579,12 @@ final class MacMessageRowView: MacFlippedView {
             group.duration = 0.25
             group.timingFunction = CAMediaTimingFunction(name: .easeOut)
             badge.add(group, forKey: "failedPop")
+            // The row glides; the badge is born at its place.
+            if abs(dx) > 0.5, let slide = layer.animation(forKey: "failedShift") as? CASpringAnimation,
+               let counter = slide.copy() as? CASpringAnimation {
+                counter.fromValue = -dx
+                badge.add(counter, forKey: "failedHold")
+            }
         }
     }
 
