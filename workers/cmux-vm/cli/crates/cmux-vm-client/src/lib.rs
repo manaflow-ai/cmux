@@ -36,7 +36,7 @@ pub mod raw {
 mod generated_raw;
 
 /// The production cmux VM API.
-pub const DEFAULT_BASE_URL: &str = "https://vm.cmux.com";
+pub const DEFAULT_BASE_URL: &str = "https://vm.cmux.dev";
 
 /// The header that names the team a session token acts for. API keys belong
 /// to one team already, so it is optional for them.

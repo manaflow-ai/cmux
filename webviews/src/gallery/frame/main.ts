@@ -86,6 +86,21 @@ if (env.scale !== 1) root.style.zoom = String(env.scale);
 root.dataset.galleryEntry = entry.id;
 root.dataset.galleryVariant = variantName;
 
+// An experiment's arm (the compare view's cells, the matrix runner's experiment cases): the page
+// reads it through experimentArm(), and the harness controls every Web Animation it starts.
+const experiment =
+  entry.experiment && params.get("exp") === entry.experiment.definition.id ? entry.experiment : undefined;
+const arm =
+  experiment && params.get("arm") && Object.hasOwn(experiment.definition.arms, params.get("arm")!)
+    ? params.get("arm")!
+    : experiment?.definition.defaultArm;
+const experimentRunner = experiment ? await import("./experimentRunner") : undefined;
+if (experiment && arm) {
+  globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, [experiment.definition.id]: arm };
+  root.dataset.galleryArm = arm;
+  experimentRunner!.installAnimationControl();
+}
+
 const log: { method: string; params?: unknown }[] = [];
 (window as unknown as { cmuxGalleryLog: typeof log }).cmuxGalleryLog = log;
 const context: StageContext = {
@@ -113,7 +128,9 @@ async function playThenReady(): Promise<void> {
     window.cmuxGalleryPlayReport = report;
     parent.postMessage({ type: "cmux-gallery-play", report }, "*");
   }
+  if (experiment && experimentRunner && arm) await experimentRunner.prepareExperiment(experiment, params, arm);
   markReady();
+  if (experiment && experimentRunner) experimentRunner.announceReady(experiment);
 }
 
 /** Ready once the page has painted and its DOM has been still for a moment (fonts loaded). */
