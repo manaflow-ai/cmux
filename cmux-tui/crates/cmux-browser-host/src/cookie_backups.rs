@@ -13,11 +13,25 @@
 //!   source); a fresh 24-byte nonce per backup; the backup id is the
 //!   associated data, so a file renamed to another id does not open. Never
 //!   synced, never logged; summaries carry no cookie values.
+//! - Key trade-off: the key file sits next to the backups, in the same
+//!   directory and readable by the same user. The encryption protects a
+//!   backup that was copied away alone (a synced or archived file, a
+//!   backup of the backups), NOT against a local attacker who runs as the
+//!   same user: that attacker reads the key file too. A key held by the OS
+//!   (macOS Keychain, Linux Secret Service) is a later choice for the app's
+//!   profile owner (bead cx-pp5), not this host slice: a headless server or
+//!   Cloud VM often has no keyring at all.
 //! - Retention: until it is restored (`cookies.restore`), the person
 //!   deletes it with a confirmation (`browser.cookieBackups.purge`), or every
 //!   cookie in it has passed its own expiry (checked lazily at each clear,
 //!   restore and listing; no timer). A backup that holds a session cookie
 //!   (no expiry) stays until it is restored or purged.
+//! - Bound: at most [`MAX_BACKUPS`] backups or [`MAX_BACKUP_BYTES`] of
+//!   backup files per state directory, whichever comes first. A clear that
+//!   would pass the bound is refused before any cookie is deleted, with an
+//!   error that says to restore or purge backups; no backup is ever
+//!   dropped to make room (an agent could otherwise push the undo of an
+//!   earlier clear out with new clears).
 //!
 //! The restore id an agent gets is `host:<32 hex>` (128 bits from the OS
 //! random source).
@@ -143,17 +157,45 @@ impl CookieBackups {
         Ok(XChaCha20Poly1305::new((&key).into()))
     }
 
+    /// Why one more backup of `plain_len` bytes of JSON does not fit (the
+    /// bound), or None. Expired backups are not pruned here.
+    pub fn full(&self, plain_len: usize) -> Option<String> {
+        let ids = self.ids();
+        let used: u64 = ids
+            .iter()
+            .filter_map(|id| fs::metadata(self.path(stem(id)?)).ok())
+            .map(|meta| meta.len())
+            .sum();
+        // The file: magic, nonce, the sealed JSON and its 16-byte tag.
+        let file_len = (MAGIC.len() + NONCE_LEN + plain_len + 16) as u64;
+        if ids.len() < self.max_backups && used.saturating_add(file_len) <= self.max_bytes {
+            return None;
+        }
+        Some(format!(
+            "cookie backups are full ({} of {} backups, {used} of {} bytes), so nothing was cleared; \
+             restore a backup (context.restoreCookies(restoreId)) or ask the person to purge backups \
+             (browser.cookieBackups.purge) first",
+            ids.len(),
+            self.max_backups,
+            self.max_bytes,
+        ))
+    }
+
     fn path(&self, stem: &str) -> PathBuf {
         self.dir.join(BACKUPS).join(format!("{stem}.bin"))
     }
 
     /// Writes `record` (`{site, store, createdAt, cookies}`) and returns its
-    /// restore id. The file is complete before the id is returned.
+    /// restore id. The file is complete before the id is returned. Refused
+    /// (nothing written, nothing dropped) when the store is full.
     pub fn save(&self, record: &Value) -> Result<String, String> {
+        let plain = serde_json::to_vec(record).map_err(|e| e.to_string())?;
+        if let Some(full) = self.full(plain.len()) {
+            return Err(full);
+        }
         let cipher = self.cipher()?;
         let stem = hex(&random::<16>()?);
         let nonce = random::<NONCE_LEN>()?;
-        let plain = serde_json::to_vec(record).map_err(|e| e.to_string())?;
         let sealed = cipher
             .encrypt(XNonce::from_slice(&nonce), Payload { msg: &plain, aad: stem.as_bytes() })
             .map_err(|_| "cookie backup: encryption failed".to_owned())?;

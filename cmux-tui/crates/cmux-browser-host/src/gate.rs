@@ -472,6 +472,9 @@ impl VmHost for Gate {
         {
             self.note_configured(answer);
         }
+        if let Ok(Reply::Value(answer)) = &result {
+            self.note_private_data(method, &params, answer);
+        }
         if method == "tabs.close"
             && result.is_ok()
             && let Some(target) = target

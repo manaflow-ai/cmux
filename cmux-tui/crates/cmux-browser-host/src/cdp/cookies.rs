@@ -78,20 +78,27 @@ impl Inner {
             .cloned()
             .collect();
         if matched.is_empty() {
-            return Ok(json!({"cleared": 0, "restoreId": null}));
+            return Ok(json!({"cleared": 0, "restoreId": null, "site": site}));
         }
         // Undoable (private data P2): the backup is written before any
-        // cookie is deleted; no backup, no clear.
+        // cookie is deleted; no backup, no clear. A full store refuses the
+        // clear (never drops an older backup).
         let backups = crate::cookie_backups::shared().map_err(backup_failed)?;
         backups.prune_expired(crate::cookie_backups::now_secs());
-        let restore_id = backups
-            .save(&json!({
-                "site": site,
-                "store": store.get("browserContextId"),
-                "createdAt": (crate::cookie_backups::now_secs() * 1000.0).round(),
-                "cookies": matched,
-            }))
-            .map_err(backup_failed)?;
+        let record = json!({
+            "site": site,
+            "store": store.get("browserContextId"),
+            "createdAt": (crate::cookie_backups::now_secs() * 1000.0).round(),
+            "cookies": matched,
+        });
+        let plain_len = serde_json::to_vec(&record).map_or(0, |plain| plain.len());
+        if let Some(full) = backups.full(plain_len) {
+            return Err(DriverError::new(
+                crate::protocol::ErrorCode::Forbidden,
+                format!("cookies.clear: {full}"),
+            ));
+        }
+        let restore_id = backups.save(&record).map_err(backup_failed)?;
         for cookie in &matched {
             let field = |key: &str| cookie[key].as_str().unwrap_or("");
             self.send(
@@ -100,7 +107,7 @@ impl Inner {
                 json!({"name": field("name"), "domain": field("domain"), "path": field("path")}),
             )?;
         }
-        Ok(json!({"cleared": matched.len(), "restoreId": restore_id}))
+        Ok(json!({"cleared": matched.len(), "restoreId": restore_id, "site": site}))
     }
 
     /// `cookies.restore {restoreId}`: puts back the cookies a clear backed
@@ -158,7 +165,12 @@ impl Inner {
             self.conn.call(None, "Storage.setCookies", call, INTERNAL_TIMEOUT)?;
         }
         backups.remove(restore_id).map_err(backup_failed)?;
-        Ok(json!({"restored": restore.len(), "kept": kept, "expired": expired}))
+        Ok(json!({
+            "restored": restore.len(),
+            "kept": kept,
+            "expired": expired,
+            "site": record["site"],
+        }))
     }
 }
 

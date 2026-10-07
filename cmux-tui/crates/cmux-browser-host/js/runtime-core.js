@@ -2848,9 +2848,15 @@
           const r = await this._session.call("cookies.clear", params);
           if (r && typeof r.restoreId === "string") restoreIds.push(r.restoreId);
         } catch (e) {
-          if (driverErrorCode(e) !== "invalid") throw e;
+          // A clear of several cookies that stops part way (a full backup
+          // store) names the restore ids of what it already cleared.
+          const done = restoreIds.length ? ` (already cleared; undo with restoreCookies(${JSON.stringify(restoreIds)}))` : "";
+          if (driverErrorCode(e) !== "invalid") {
+            if (done && e && typeof e.message === "string") e.message += done;
+            throw e;
+          }
           const message = String(e.message || "").replace(/^cookies\.clear: /, "");
-          throw new Error(`${title}: ${message}`);
+          throw new Error(`${title}: ${message}${done}`);
         }
       };
       if (!Object.values(filters).some(isRegExp)) {

@@ -314,6 +314,7 @@ impl Host {
                 },
             )
             .with_tab_secrets(self.tab_secrets.clone())
+            .with_private_data_log(self.private_data.clone())
             // The session name is the lease session (LeaseCaller.session).
             .with_input_events(&name, sink),
         );

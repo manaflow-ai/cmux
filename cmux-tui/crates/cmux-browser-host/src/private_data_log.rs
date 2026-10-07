@@ -35,7 +35,11 @@ pub struct PrivateDataLog {
 impl PrivateDataLog {
     /// Appends an entry, dropping the oldest past [`MAX_ENTRIES`].
     pub fn push(&self, entry: Value) {
-        let _ = entry;
+        let mut entries = self.entries.lock().unwrap_or_else(PoisonError::into_inner);
+        if entries.len() >= MAX_ENTRIES {
+            entries.pop_front();
+        }
+        entries.push_back(entry);
     }
 
     /// The entries, oldest first.

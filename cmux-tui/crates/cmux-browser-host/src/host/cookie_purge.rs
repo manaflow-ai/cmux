@@ -8,7 +8,9 @@
 //! `confirm` deletes nothing: it answers what would go (no cookie values)
 //! and a one-time `confirm` token for exactly that request, valid for two
 //! minutes. The same request with that token deletes. A new request
-//! replaces the pending one.
+//! replaces the pending one. A purge that deleted is logged in the host's
+//! private-data log (crate::private_data_log), which `list` answers as
+//! `log`.
 
 use super::{Caller, Host};
 use crate::cookie_backups::{self, CookieBackups};
@@ -49,7 +51,10 @@ impl Host {
 
     pub(super) fn cookie_backups_list(&self, caller: &Caller) -> Result<Value, DriverError> {
         refuse_agent(caller, "browser.cookieBackups.list")?;
-        Ok(json!({"backups": self.backups()?.list(cookie_backups::now_secs())}))
+        Ok(json!({
+            "backups": self.backups()?.list(cookie_backups::now_secs()),
+            "log": self.private_data.entries(),
+        }))
     }
 
     pub(super) fn cookie_backups_purge(
@@ -92,14 +97,36 @@ impl Host {
                 "{OP}: the confirmation does not match this request or expired; ask again without confirm"
             )));
         }
-        let mut deleted = 0;
+        let mut removed = Vec::new();
+        let mut failed = None;
         for backup in &affected {
             if let Some(id) = backup["restoreId"].as_str() {
-                backups.remove(id).map_err(|e| DriverError::new(ErrorCode::Unsupported, e))?;
-                deleted += 1;
+                match backups.remove(id) {
+                    Ok(()) => removed.push(id.to_owned()),
+                    Err(error) => {
+                        failed = Some(error);
+                        break;
+                    }
+                }
             }
         }
-        Ok(json!({"deleted": deleted}))
+        // A purge is a host op with no session: its entry goes to the host
+        // log only the person reads (crate::private_data_log), also when it
+        // stopped part way.
+        self.private_data.push(json!({
+            "op": "cookieBackups.purge",
+            "restoreIds": removed,
+            "deleted": removed.len(),
+            "actor": caller.actor,
+            "origin": caller.origin,
+            "at": std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |elapsed| elapsed.as_millis() as u64),
+        }));
+        if let Some(error) = failed {
+            return Err(DriverError::new(ErrorCode::Unsupported, error));
+        }
+        Ok(json!({"deleted": removed.len()}))
     }
 }
 
