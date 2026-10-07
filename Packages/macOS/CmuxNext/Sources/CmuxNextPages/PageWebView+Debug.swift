@@ -50,7 +50,7 @@ extension PageWebView {
 
     /// Whether a real AppKit key or mouse event reached the page in the last second: the same
     /// `PageCallContext.userGesture` a page call gets. DEBUG verb only.
-    public var debugHasRecentUserGesture: Bool { (webView as? PageWKWebView)?.hasRecentUserGesture() ?? false }
+    public var debugHasRecentUserGesture: Bool { webView.hasRecentUserGesture() }
 
     /// Clicks the first element matching `selector` from page script (not a user gesture);
     /// `metaKey` makes it a Cmd-click (a markdown link follows on Cmd-click while editing).

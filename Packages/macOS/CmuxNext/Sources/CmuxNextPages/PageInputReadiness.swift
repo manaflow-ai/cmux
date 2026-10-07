@@ -25,11 +25,17 @@ public final class PageInputReadiness {
     private weak var webView: WKWebView?
 
     /// Installs the script and its message handler on `configuration`
-    /// before its web view loads anything.
-    public init(configuration: WKWebViewConfiguration) {
-        configuration.userContentController.addUserScript(
-            WKUserScript(source: Self.script, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
+    /// before its web view loads anything. `installsScript` false adds only the handler: the
+    /// caller installs ``userScript`` with its other scripts (``PageWebView``, whose pooled host
+    /// reinstalls every script on a retarget).
+    public init(configuration: WKWebViewConfiguration, installsScript: Bool = true) {
+        if installsScript { configuration.userContentController.addUserScript(Self.userScript) }
         configuration.userContentController.add(Handler(owner: self), contentWorld: .page, name: Self.handlerName)
+    }
+
+    /// The document-start script that reports readiness and focus.
+    static var userScript: WKUserScript {
+        WKUserScript(source: script, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page)
     }
 
     /// The web view the configuration made (``insert(_:)`` types into it).

@@ -23,7 +23,8 @@
   control method settings.open {section?, setting?, focus?}). Keyboard opens the Keyboard Shortcuts
   page. INTERIM: accounts, rooms, machines (and no main window) still open the Swift window.
   INTERIM owner: SettingsPageProvider over SettingsController until the daemon config actor
-  serves settings.*. One kept page view (no reload on reopen) until the R94 PageHostPool lands.
+  serves settings.*. One kept page view (no reload on reopen); Settings is not a shell page, so the
+  R94 PageHostPool does not host it.
 - Measured on cmux-lawrence-2 (scripts/cmux-next/bench-settings.py, 3 interleaved runs, median):
   open 339 -> 213 ms (main-thread stall 298 -> 102 ms); reopen 353 -> 28 ms (stall 278 -> 7 ms);
   search keystroke worst stall 2,159 -> 5 ms. NOT THE SAME METHOD: the React number is 8 real
@@ -31,7 +32,8 @@
   query through the model binding (`debug.settings {action: query}`), because the SwiftUI field
   took no synthesized keys in a window that is never key. Compare the two only as stall sizes.
 - Open items: live preview (`cmux.settings.preview`) is a no-op; tracked in commit 5 (theme levels).
-  The first-open stall (~100 ms) goes with the R94 PageHostPool prewarm; no second prewarm here.
+  The first-open stall (~100 ms) stays: the R94 PageHostPool hosts shell pages only (the icon picker),
+  and Settings needs its own document (its head loader does not run in the shell).
 - Next: commits 2-5 (accounts, rooms, machines, theme levels, backdrop, browser profiles, keymap
   import/export as native ops), then commit 6 deletes CmuxNextSettingsWindow UI (the settingsPage.
   strings catalog moves first; Debug Settings moves to a React tunables page).
@@ -49,6 +51,6 @@
   origin-claim-v1), 14085dabee5 (opid -> v2 idempotency_key), 76c31ba3bd9 (strings per locale).
 - First open after the strings split (cmux-lawrence-2, 3 interleaved runs, median; the new build
   also waits for `painted`): 365 -> 233 ms; main-thread gap ~100 ms remains (WKWebView creation),
-  which the R94 PageHostPool removes. Reopen ~25-34 ms; keystroke worst gap ~2.5 ms.
+  which the R94 PageHostPool removes only for shell pages. Reopen ~25-34 ms; keystroke worst gap ~2.5 ms.
 - Before commit 6: keymap import/export on the keybindings page (keybindings lead), the folder_list
   editor (picker.pinned, R89) and schema rows for editor.* / markdown.remoteImages (mine).

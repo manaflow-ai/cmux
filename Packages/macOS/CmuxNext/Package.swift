@@ -33,7 +33,7 @@ import PackageDescription
 //     vendored code over the shared HomeStore; no daemon; plans/cmux-next/home-mac.md),
 //     MessagesLabSidebar (MessagesLab's conversation list, the v1 sidebar seam)
 //   CmuxNextHistory -> Design (history model, SQLite visit log, cmux://history page; no daemon)
-//   CmuxNextPages -> Design, Settings (the one host for React pages: PageWebView, cmux-page://<id>/
+//   CmuxNextPages -> Design, Settings, Wakeups (the one host for React pages: PageWebView, cmux-page://<id>/
 //     scheme, engine-neutral bridge, PageRouter + PageProvider; no daemon; the App supplies providers;
 //     plans/cmux-next/react-pages.md)
 //   CmuxNextCodeRouter -> CmuxNextCloud (provider sign-in detection, the CodeRouter control-plane
@@ -351,7 +351,7 @@ let package = Package(
         // index.html each under Resources/pages (scripts/cmux-next/build-pages-web.sh).
         .target(
             name: "CmuxNextPages",
-            dependencies: ["CmuxNextDesign", "CmuxNextSettings"],
+            dependencies: ["CmuxNextDesign", "CmuxNextSettings", "CmuxNextWakeups"],
             resources: [.copy("Resources/pages"), .process("Localizable.xcstrings")],
             swiftSettings: uiSwiftSettings
         ),

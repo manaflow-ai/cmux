@@ -1,0 +1,1 @@
+function e(e,t){return e.dataset.probe=`mounted`,globalThis.__cmuxShellProbe=t,{unmount:()=>void 0}}export{e as mount};

@@ -1,6 +1,7 @@
 #if DEBUG
 import AppKit
 import CmuxNextBrowser
+import CmuxNextPages
 import CmuxNextSettings
 
 /// `debug.popups` (DEBUG builds): the open popup panels, for checks without
@@ -8,8 +9,8 @@ import CmuxNextSettings
 /// (AppKit screen coordinates), key and visible state, the cmux window it
 /// floats over, the opener tab, and the panel's child windows (a Chromium
 /// page window must sit inside the panel). `{"action": "close"}` closes
-/// every panel. `icon_picker` is the open icon picker (page, target, anchor,
-/// panel frame, key/visible, parent window), or null.
+/// every panel. `icon_picker` is the open icon picker (page, pooled host and claim, target,
+/// anchor, panel frame, key/visible, parent window), or null.
 @MainActor
 enum DebugPopups {
     static func report(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
@@ -28,6 +29,12 @@ enum DebugPopups {
         let parent = open.parent.flatMap { parent in services.windows.controllers.first { $0.window === parent } }
         return .object([
             "page": .string(open.page.pageID),
+            // Opened in the prewarmed page host (R94), with the claim's main-thread time and whether
+            // the picker was mounted ahead of it.
+            "pooled": .bool(open.pooled),
+            "claim": open.pooled ? services.iconPicker.pageHosts.claims.last.map { claim in
+                .object(["ms": .number(claim.milliseconds), "prepared": .bool(claim.prepared)])
+            } ?? .null : .null,
             "target": .string(open.target),
             "anchor": rect(open.anchor),
             "frame": rect(open.panel.frame),

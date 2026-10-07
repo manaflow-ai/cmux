@@ -4,10 +4,14 @@ import CmuxNextPages
 import CmuxNextSidebar
 
 /// Shows the one icon picker (R94) in a floating panel beside its anchor and
-/// reports the outcome. The page loads in a new page view per open for now;
-/// the shared prewarmed page host (plans/cmux-next/icons.md, step c) replaces
-/// that cold load. One picker at a time: a new open cancels the previous one.
-/// ``debugState`` is what `debug.popups` lists, so preflights prove it opened.
+/// reports the outcome. The picker opens in the app's prewarmed page host
+/// (``PageHostPool``, plans/cmux-next/react-pages.md 1.4): the host was loaded
+/// and the picker mounted ahead of the open, so an open only hands it the
+/// session. With no ready host (the first open of a run, or a host still
+/// warming) the page loads in its own view. Closing gives the host back to the
+/// pool, which retires a used host and parks an untouched one again. One picker
+/// at a time: a new open cancels the previous one. ``open`` is what
+/// `debug.popups` lists, so preflights prove it opened.
 @MainActor
 final class IconPickerService {
     static let size = NSSize(width: 420, height: 460)
@@ -24,6 +28,8 @@ final class IconPickerService {
         let panel: IconPickerPanel
         let provider: IconPickerProvider
         let page: PageWebView
+        /// The page is the pool's host (else a view of its own).
+        let pooled: Bool
         /// `workspace:<id>`, `screen:<id>`, `space:<id>`, `browserProfile:<id>`.
         let target: String
         /// The anchor in screen coordinates.
@@ -38,6 +44,11 @@ final class IconPickerService {
     private var symbolNames: [String]?
     private lazy var maxEmojiVersion = IconPickerSymbols.maxEmojiVersion()
     private(set) var open: OpenPicker?
+    /// The app's one prewarmed page host for shell pages (R94, react-pages.md 1.4). The icon picker
+    /// is the only shell page today, so its service owns the pool (AppServices is at its size limit).
+    let pageHosts = PageHostPool()
+    /// Serves the picker mounted in the parked host before its open: prefs only, no session.
+    private lazy var preparedProvider = IconPickerProvider(session: nil, prefs: prefs) { _ in }
 
     init(services: AppServices) {
         self.services = services
@@ -65,16 +76,23 @@ final class IconPickerService {
             completion(result)
         }
         let routes = [PageRoute(prefix: "cmux.iconPicker.", provider: provider)]
-        guard let page = PageWebView(descriptor: .iconPicker, routes: routes, dynamicResources: symbols) else {
+        let parent = anchor.view.window
+        let warm = pageHosts.claim(.iconPicker, routes: routes, context: session.event, dynamicResources: symbols, window: parent)
+        // The next open finds the picker mounted in a parked host at the panel's size.
+        pageHosts.prepare(.iconPicker, routes: [PageRoute(prefix: "cmux.iconPicker.", provider: preparedProvider)],
+                          dynamicResources: symbols, size: Self.size)
+        guard let page = warm ?? PageWebView(descriptor: .iconPicker, routes: routes, dynamicResources: symbols) else {
             completion(.cancel)
             return
         }
-        let parent = anchor.view.window
         let screenAnchor = parent.map { $0.convertToScreen(anchor.view.convert(anchor.rect, to: nil)) } ?? anchor.rect
         let panel = IconPickerPanel(content: page, size: Self.size)
         panel.setFrame(IconPickerPanel.frame(size: Self.size, anchor: screenAnchor, visible: parent?.screen?.visibleFrame), display: false)
         panel.onDismiss = { [weak provider] in provider?.finish(.cancel) }
-        open = OpenPicker(panel: panel, provider: provider, page: page, target: target, anchor: screenAnchor, parent: parent)
+        // A pooled host that crashes reloads the bare shell, not the picker: end the session.
+        if warm != nil { page.onCrash = { [weak provider] _, _ in provider?.finish(.cancel) } }
+        open = OpenPicker(panel: panel, provider: provider, page: page, pooled: warm != nil, target: target,
+                          anchor: screenAnchor, parent: parent)
         // Shown over its window (a child moves with it); never on screen for a window that is not
         // (tests, windows not ordered in).
         guard let parent, parent.isVisible else { return }
@@ -113,6 +131,10 @@ final class IconPickerService {
         open.panel.onDismiss = nil
         open.parent?.removeChildWindow(open.panel)
         open.panel.orderOut(nil)
-        open.page.close()
+        if open.pooled {
+            pageHosts.release(open.page)
+        } else {
+            open.page.close()
+        }
     }
 }

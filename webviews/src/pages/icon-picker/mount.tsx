@@ -18,6 +18,8 @@ export interface MountedPicker {
   readonly store: PickerStore;
   /** Starts a session (the host's stream calls this; the bench calls it directly). */
   open(session: PickerSession): void;
+  /** Unmounts the picker and ends its session stream (the page shell's reset). */
+  unmount(): void;
 }
 
 export function mountIconPicker(
@@ -25,6 +27,8 @@ export function mountIconPicker(
   client: PageClient | null,
   strings: Strings = createStrings(table),
   makeRoot: typeof createRoot = createRoot,
+  /** A session to show from the first render (the page shell's claim): one render, no remount. */
+  initial?: PickerSession,
 ): MountedPicker {
   const emoji = decodeEmojiTable(rawEmoji as RawEmojiTable);
   const store = new PickerStore({
@@ -34,13 +38,16 @@ export function mountIconPicker(
     titles: (id) => strings.t(`iconPicker.section.${id}`),
   });
   let session: PickerSession = { id: "" };
+  // The React key: a new session remounts the picker (fresh scroll and fields), except the first
+  // session of a picker that never showed one (a page shell spare prepared ahead of its claim).
+  let renderKey = "";
   const finish = (result: { value?: string; clear?: true; cancel?: true }) =>
     void client?.call(IconPickerOps.finish, { session: session.id, ...result }).catch(() => undefined);
   const reactRoot = makeRoot(root);
   const render = () =>
     reactRoot.render(
       <IconPicker
-        key={session.id}
+        key={renderKey}
         store={store}
         strings={strings}
         onPick={(value: IconValue) => finish({ value: encodeIcon(value) })}
@@ -51,7 +58,11 @@ export function mountIconPicker(
       />,
     );
   const open = (next: PickerSession) => {
+    // The session it shows already (a page shell claim passes it as context, and the host's
+    // session stream sends it again): no remount, which would drop the typing that started.
+    if (next.id && next.id === session.id) return;
     if (next.symbols) store.configure(next.symbols, next.maxEmojiVersion);
+    if (session.id) renderKey = next.id;
     session = next;
     store.reset(next.tab ?? "emoji");
     // Synchronous so the host can show the popover right after this event without a stale frame.
@@ -60,10 +71,27 @@ export function mountIconPicker(
   };
   document.documentElement.lang = strings.language;
   document.title = strings.t("iconPicker.title");
+  if (initial?.id) {
+    if (initial.symbols) store.configure(initial.symbols, initial.maxEmojiVersion);
+    session = initial;
+    store.reset(initial.tab ?? "emoji");
+  }
   flushSync(render);
+  if (initial?.id) root.querySelector<HTMLInputElement>(".icon-picker-search")?.focus();
   // The search text is built after the first frame, so it is ready before the first keystroke
   // without slowing the page's first paint.
   if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => setTimeout(() => warmSearch(emoji), 0));
-  if (client) void client.subscribe<PickerSession>(IconPickerOps.session, (data) => open(data)).catch(() => undefined);
-  return { store, open };
+  let unsubscribe: (() => void) | undefined;
+  let mounted = true;
+  if (client)
+    void client
+      .subscribe<PickerSession>(IconPickerOps.session, (data) => open(data))
+      .then((stop) => (mounted ? (unsubscribe = stop) : stop()))
+      .catch(() => undefined);
+  const unmount = () => {
+    mounted = false;
+    unsubscribe?.();
+    reactRoot.unmount();
+  };
+  return { store, open, unmount };
 }

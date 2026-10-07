@@ -142,3 +142,44 @@ test("no results shows the empty state", async () => {
   await press("Enter");
   expect(host.calls.some((call) => call.op === IconPickerOps.finish)).toBe(false);
 });
+
+test("unmount (the page shell's reset) empties the root and ends the session stream", async () => {
+  await act(async () => picker.unmount());
+  expect(doc().getElementById("root")?.childElementCount).toBe(0);
+  // A later open from the host reaches no picker.
+  await act(async () => host.open({ id: "s2" }));
+  expect(doc().querySelector(".icon-picker")).toBeNull();
+});
+
+test("a first session (the page shell's claim context) shows from the first render", async () => {
+  await act(async () => picker.unmount());
+  const second = new MockIconPickerHost();
+  await act(async () => {
+    picker = mountIconPicker(doc().getElementById("root")!, second, createStrings(table, ["en"]), freshCreateRoot(), {
+      id: "claim-1",
+      tab: "symbol",
+      symbols: MOCK_SYMBOLS,
+    });
+  });
+  expect(doc().querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe("Symbols");
+  expect(doc().activeElement).toBe(search());
+});
+
+test("the claim's session sent again by the host's stream does not remount the picker", async () => {
+  await act(async () => picker.unmount());
+  const second = new MockIconPickerHost();
+  await act(async () => {
+    picker = mountIconPicker(doc().getElementById("root")!, second, createStrings(table, ["en"]), freshCreateRoot(), {
+      id: "claim-2",
+      symbols: MOCK_SYMBOLS,
+    });
+  });
+  await type("cat");
+  const field = search();
+  await act(async () => second.open({ id: "claim-2", symbols: MOCK_SYMBOLS }));
+  expect(search()).toBe(field);
+  expect(search().value).toBe("cat");
+  // A new session still starts fresh.
+  await act(async () => second.open({ id: "claim-3", symbols: MOCK_SYMBOLS }));
+  expect(search().value).toBe("");
+});
