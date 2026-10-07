@@ -13,8 +13,8 @@ public import Foundation
 /// - events of one subscription are numbered from 1; an unsubscribe or ``close()`` cancels.
 @MainActor
 public final class PageRouter {
-    public let descriptor: PageDescriptor
-    private let routes: [PageRoute]
+    public private(set) var descriptor: PageDescriptor
+    private var routes: [PageRoute]
     /// Runs one envelope in the page (`window.__cmuxPageReceive(<json>)`).
     public var send: ((JSONValue) -> Void)?
     private var subscriptions: [UInt64: PageSubscription] = [:]
@@ -33,6 +33,13 @@ public final class PageRouter {
     public private(set) var connected = true
 
     public init(descriptor: PageDescriptor, routes: [PageRoute]) {
+        self.descriptor = descriptor
+        self.routes = routes.sorted { $0.prefix.count > $1.prefix.count }
+    }
+
+    /// Rebinds a pooled router to a new document and ends every operation owned by the old page.
+    func rebind(descriptor: PageDescriptor, routes: [PageRoute]) {
+        reset()
         self.descriptor = descriptor
         self.routes = routes.sorted { $0.prefix.count > $1.prefix.count }
     }
