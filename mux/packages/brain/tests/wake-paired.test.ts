@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { AGENT_MUX, type Message, type Participant, type Summary, USER_LOCAL } from "../src/core/conversation.ts";
 import { wakes } from "../src/core/rules.ts";
 
-// The paired-device rules of server-remote-conversations.md section 5 (D-C), the
-// same as the Rust cmux_chief::rules::wakes test a_paired_device_does_not_change_the_wake_rule.
+// The paired-device rules of server-remote-conversations.md sections 5 and 6
+// (D-C and the remote-origin gate), the same as cmux_chief::rules::wakes.
 
 const person = (id: string, kind: Participant["kind"], extra: Partial<Participant> = {}): Participant => ({
   id,
@@ -38,11 +38,15 @@ describe("wake rule with a paired device", () => {
     expect(wakes(paired, message(USER_LOCAL), () => false)).toBe(true);
   });
 
-  test("a device message never wakes the mux", () => {
+  test("a device message the owner stamped as relayed from it wakes the mux (the remote-origin gate)", () => {
+    expect(wakes(paired, message("remote_inst_1", { origin: { kind: "remote", install: "inst_1" } }), () => false)).toBe(true);
+  });
+
+  test("an unstamped device message never wakes the mux", () => {
     expect(wakes(paired, message("remote_inst_1"), () => false)).toBe(false);
   });
 
-  test("a remote-origin message never wakes the mux", () => {
+  test("a message stamped as relayed from another author never wakes the mux", () => {
     expect(wakes(paired, message(USER_LOCAL, { origin: { kind: "remote", install: "inst_1" } }), () => false)).toBe(false);
   });
 
