@@ -21,6 +21,12 @@ _NO_FREEZE.close()
 os.environ["GH_MERGE_GREEN_WINDOW_FILE"] = _NO_FREEZE.name
 # No helper run reaches the real repository: merged-head checks use a fixture clone.
 os.environ["GH_MERGE_GREEN_REPO_DIR"] = os.path.join(tempfile.gettempdir(), "gh-merge-green-no-repo")
+# No helper run reaches the coordinator's mailbox: GH_MERGE_GREEN_TEST makes the
+# helper refuse a token merge unless RELEASE mail goes to this temp mailbox.
+_MAILBOX = tempfile.mkdtemp(prefix="gh-merge-green-mailbox-")
+os.makedirs(os.path.join(_MAILBOX, "inbox", "lawrence-coordinator"))
+os.environ["GH_MERGE_GREEN_MAILBOX_DIR"] = _MAILBOX
+os.environ["GH_MERGE_GREEN_TEST"] = "1"
 HEAD = "a" * 40
 MERGED_SHA = "d" * 40
 BASE = "b" * 40

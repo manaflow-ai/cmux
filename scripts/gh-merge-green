@@ -563,6 +563,8 @@ window=''
 if [ "$base" = feat-cmux-next ] || [ -n "$freeze_token" ] || [ "${#window_tokens[@]}" -gt 0 ]; then
   if [ -n "${GH_MERGE_GREEN_WINDOW_FILE:-}" ]; then
     window=$(cat -- "$GH_MERGE_GREEN_WINDOW_FILE" 2>/dev/null) || window=''
+  elif [ -n "${GH_MERGE_GREEN_TEST:-}" ]; then
+    window=''
   else
     window=$(timeout 30 ssh -o BatchMode=yes -o ConnectTimeout=10 cmux-lawrence 'cat ~/agent-mailbox/WINDOW' 2>/dev/null) || window=''
   fi
@@ -610,7 +612,21 @@ fi
 # merge a RELEASE <AREA> mail with the landed SHA goes to
 # inbox/lawrence-coordinator (Lawrence's coordinator missed a manual one).
 releases=''
+# The real mailbox is reachable only from a real run: under test
+# (GH_MERGE_GREEN_TEST) or with a local WINDOW file, the RELEASE mail needs
+# GH_MERGE_GREEN_MAILBOX_DIR, so a test can never mail a fake RELEASE that
+# frees a real token.
+mailbox_is_local() {
+  [ -n "${GH_MERGE_GREEN_MAILBOX_DIR:-}" ] && return 0
+  [ -z "${GH_MERGE_GREEN_TEST:-}" ] && [ -z "${GH_MERGE_GREEN_WINDOW_FILE:-}" ] && return 0
+  return 1
+}
 if [ -n "$freeze_token" ] || [ "${#window_tokens[@]}" -gt 0 ]; then
+  if ! mailbox_is_local; then
+    refuse \
+      "not merged: a test or local-WINDOW run must set GH_MERGE_GREEN_MAILBOX_DIR before a token merge of $ref" \
+      'set GH_MERGE_GREEN_MAILBOX_DIR to a temp mailbox; only a real run mails the coordinator'
+  fi
   if [ -z "$window" ]; then
     refuse \
       "not merged: cannot read the coordinator's WINDOW to check the tokens for $ref" \
@@ -790,6 +806,8 @@ while IFS=$'\t' read -r area token; do
   if [ -n "${GH_MERGE_GREEN_MAILBOX_DIR:-}" ]; then
     dir="$GH_MERGE_GREEN_MAILBOX_DIR/inbox/lawrence-coordinator"
     printf '%s\n' "$body" > "$dir/$name.tmp" && mv "$dir/$name.tmp" "$dir/$name" || mail_failed=1
+  elif ! mailbox_is_local; then
+    mail_failed=1
   else
     printf '%s\n' "$body" | timeout 30 ssh -o BatchMode=yes -o ConnectTimeout=10 cmux-lawrence \
       "f=~/agent-mailbox/inbox/lawrence-coordinator/$name; cat > \"\$f.tmp\" && mv \"\$f.tmp\" \"\$f\"" || mail_failed=1
