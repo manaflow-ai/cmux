@@ -26,6 +26,11 @@ test("gallery-only resource strings pass the ownership guard while retired CLI k
     expect(check().status).toBe(1);
     writeFileSync(catalog, "invalid json");
     expect(check().status).toBe(1);
+    copyFileSync(join(repo, "Resources/Localizable.xcstrings"), catalog);
+    mkdirSync(join(fixture, "CLI"));
+    writeFileSync(join(fixture, "CLI/main.swift"), "// Retired CLI fixture.\n");
+    expect(spawnSync("git", ["-C", fixture, "add", "CLI/main.swift"]).status).toBe(0);
+    expect(check().status).toBe(1);
   } finally {
     rmSync(fixture, { recursive: true, force: true });
   }
