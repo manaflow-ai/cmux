@@ -258,7 +258,7 @@ public final class SidebarView: NSView {
         // Amendment 3: at the bottom the dots share the footer band's row
         // (after the profile control), so the dots row takes no height of
         // its own unless the band is empty.
-        let footerHeight: CGFloat = SidebarStyle.footerHeight
+        let footerHeight: CGFloat = spacesPosition == .bottom && dotsShareBandRow ? 0 : SidebarStyle.footerHeight
         let cardsHeight = attachFooterCards(), updateHeight = updateCardSlotHeight
         // From the bottom up (R112/R114): the footer band (the profile
         // control, then the dots), the staged update card (UPDATE-CARD),

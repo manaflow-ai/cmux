@@ -34,7 +34,7 @@ extension SidebarView {
             if profileBar.superview !== self { addSubview(profileBar) }
             profileBar.leadingInset = nil
             profileBar.frame = NSRect(x: 0, y: top, width: bounds.width, height: height)
-        } else if false, let row = bandFirstRow {
+        } else if let row = bandFirstRow {
             if profileBar.superview !== self { addSubview(profileBar) }
             // The dots start right after the control; their slots carry the gap.
             profileBar.leadingInset = 0

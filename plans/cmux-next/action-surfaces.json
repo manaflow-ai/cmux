@@ -14616,6 +14616,58 @@
     },
     {
       "cli" : "guiOnly",
+      "cli_name" : "sidebar profile-menu",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "sidebar.profileMenu",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.sidebar",
+        "order" : 107,
+        "title" : "Sidebar",
+        "title_key" : "category.sidebar",
+        "title_table" : "Localizable"
+      },
+      "title" : "Show Profile Menu",
+      "title_key" : "action.sidebar.profileMenu",
+      "title_table" : "ProfileActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "browser downloads-folder",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "browser.downloads.showFolder",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Open Downloads Folder",
+      "title_key" : "action.browser.downloads.showFolder",
+      "title_table" : "ProfileActions"
+    },
+    {
+      "cli" : "guiOnly",
       "cli_name" : "sidebar toggle-left",
       "context_menu" : "offered",
       "context_menus" : [

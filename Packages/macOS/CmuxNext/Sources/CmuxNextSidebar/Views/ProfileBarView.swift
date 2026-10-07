@@ -54,7 +54,7 @@ final class ProfileBarView: NSView {
     /// footer row the bar starts right after the profile control, so its
     /// dots follow the avatar (amendment 3).
     var leadingInset: CGFloat? { didSet { if leadingInset != oldValue { needsDisplay = true; rebuildToolTips() } } }
-    var slotsLeading: CGFloat { (bounds.width - slot * CGFloat(model.profiles.count)) / 2 }
+    var slotsLeading: CGFloat { leadingInset ?? Self.leadingX }
 
     /// Slot rects: one per room from the leading edge, then the "+" slot
     /// trailing the last dot (it never shifts the dots).
@@ -227,23 +227,10 @@ final class ProfileBarView: NSView {
     // No drag: a dot cannot be dragged to reorder, and nothing drops on
     // the dots (SIDEBAR-FOOTER-AND-SPACE-MENU amendment 3, for now). The
     // space menu's Move Left / Move Right reorder spaces.
-    override func mouseDragged(with event: NSEvent) {
-        guard let pressed, pressed != Self.plusIndex, model.profiles.count > 1 else { return }
-        dragTo = (pressed, convert(event.locationInWindow, from: nil).x)
-    }
-
-    private var dragTo: (index: Int, x: CGFloat)?
-
     override func mouseUp(with event: NSEvent) {
         defer {
             pressed = nil
-            dragTo = nil
             needsDisplay = true
-        }
-        if let dragTo {
-            let insertion = ProfileBarLogic.insertionIndex(forX: Double(dragTo.x), centers: slotRects().prefix(model.profiles.count).map { Double($0.midX) })
-            model.send(.reorderProfile(model.profiles[dragTo.index].id, index: insertion))
-            return
         }
         guard let pressed, pressed == index(at: convert(event.locationInWindow, from: nil)) else { return }
         activate(pressed)
