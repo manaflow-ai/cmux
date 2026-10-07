@@ -71,8 +71,14 @@ current() {
   [ "$(python3 "$KEY" "$ROOT" --stamp)" = "$(cat "$STAMP")" ]
 }
 
+# --verify ignores the bun field: the Xcode phase's PATH may lack bun.
+verified() {
+  [ -f "$STAMP" ] || return 1
+  [ "$(python3 "$KEY" "$ROOT" --verify-stamp)" = "$(cut -d' ' -f1-2 "$STAMP")" ]
+}
+
 if [ "$MODE" = verify ]; then
-  if current; then
+  if verified; then
     echo "web bundles are current"
     exit 0
   fi

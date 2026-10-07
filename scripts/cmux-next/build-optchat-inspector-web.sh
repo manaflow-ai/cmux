@@ -11,7 +11,7 @@ command -v bun >/dev/null 2>&1 || { echo "error: bun is required" >&2; exit 1; }
 WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
 cd "$ROOT/webviews"
 [ -d node_modules ] || bun install --frozen-lockfile >/dev/null
-bunx esbuild src/optchat-inspector/main.tsx --bundle --format=esm --platform=browser --target=es2022 --minify \
+bun x esbuild src/optchat-inspector/main.tsx --bundle --format=esm --platform=browser --target=es2022 --minify \
   --define:process.env.NODE_ENV='"production"' --outfile="$WORK/app.js" --log-level=warning
 CSP="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'self'"
 {

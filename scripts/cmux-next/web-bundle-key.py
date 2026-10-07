@@ -2,13 +2,14 @@
 """The source key and output digest of the cmux-next web bundles.
 
 build-web-bundles.sh stores `--stamp` in .web-bundles.key after a build and
-skips the next build while it still matches. The source key hashes every file
-git sees (tracked and untracked, not ignored) under the inputs below, with the
-version of bun on PATH; the output digest hashes every file the build wrote.
-A changed input, another bun, or an edited or deleted output therefore makes
-the stamp differ.
+skips the next build while it still matches. The stamp is three fields: the
+source key (every file git sees, tracked and untracked but not ignored, under
+the inputs below), the output digest (every file the build wrote) and the
+version of bun on PATH. A changed input, an edited or deleted output or
+another bun therefore makes it differ. `--verify-stamp` prints the first two
+fields only: the Xcode verify phase runs with a PATH that may lack bun.
 
-Usage: web-bundle-key.py ROOT [--stamp | --source | --outputs]
+Usage: web-bundle-key.py ROOT [--stamp | --verify-stamp | --source | --outputs]
 """
 import hashlib
 import os
@@ -65,12 +66,14 @@ def source_key(root):
         # A tracked file deleted in the worktree is listed but absent.
         if os.path.isfile(path) and not os.path.islink(path):
             h.update(rel + b"\0" + file_digest(path).encode() + b"\n")
-    try:
-        bun = subprocess.run(["bun", "--version"], capture_output=True, text=True).stdout.strip()
-    except FileNotFoundError:
-        bun = "none"
-    h.update(f"bun {bun}\n".encode())
     return h.hexdigest()
+
+
+def bun_version():
+    try:
+        return subprocess.run(["bun", "--version"], capture_output=True, text=True).stdout.strip() or "none"
+    except FileNotFoundError:
+        return "none"
 
 
 def output_digest(root):
@@ -105,6 +108,8 @@ def main(argv):
     elif mode == "--outputs":
         print(output_digest(root))
     elif mode == "--stamp":
+        print(f"{source_key(root)} {output_digest(root)} bun-{bun_version()}")
+    elif mode == "--verify-stamp":
         print(f"{source_key(root)} {output_digest(root)}")
     else:
         print(f"unknown mode {mode}", file=sys.stderr)

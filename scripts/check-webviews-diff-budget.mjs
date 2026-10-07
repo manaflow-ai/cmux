@@ -9,7 +9,7 @@
 // (TextMate grammars, themes, the Oniguruma WASM blob) must stay a dynamic
 // import so it is fetched only for the languages in the diff, and the worker
 // must never evaluate the main-thread renderer or React. This script walks
-// the committed bundle under `Resources/markdown-viewer/webviews-app`, sums
+// the built bundle under `Resources/markdown-viewer/webviews-app` (build-web-bundles.sh), sums
 // each eager closure and fails when one grows past its budget or when a
 // forbidden chunk is reachable statically.
 import { readdirSync, readFileSync, statSync } from "node:fs";
