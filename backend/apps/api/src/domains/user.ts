@@ -2,7 +2,8 @@ import { createHash } from "node:crypto"
 import type { Domain, Principal, ReduceResult } from "@cmux/ownership"
 import { InstallRegister, InstallRename, InstallRevoke, type CloudOpDef, type Grant, type Install, type UserProfile as UserProfileSchema } from "@cmux/protocol"
 import { admit, decodeParams, InstallRegisterServerParams, reject } from "./common.ts"
-import { reducePushTarget, type PushTargetsState } from "./user-push.ts"
+import { reducePushTarget } from "./user-push.ts"
+import { dropInstallNotify, NOTIFY_OPS, reduceNotify, type NotifyState } from "./user-notify.ts"
 import { user as homeUser } from "@cmux/home-core"
 import { confirmEnv, reduceConfirm, revokePresenceKey, USER_CONFIRM_OPS } from "./user-confirm.ts"
 import { chiefActive, CHIEF_OPS, reduceChief, type ChiefsState } from "./user-chief.ts"
@@ -15,7 +16,7 @@ export const MAX_TEAM_INDEX = 1_000
 const TEAM_ROLES: ReadonlySet<string> = new Set(["owner", "admin", "member"])
 const TEAM_KINDS: ReadonlySet<string> = new Set(["personal", "stack"])
 
-export interface UserState extends PushTargetsState, ChiefsState {
+export interface UserState extends NotifyState, ChiefsState {
   readonly user: UserProfile | null
   /** Text confirmation level and presence keys (home-core user/), absent until first used. */
   readonly confirm?: homeUser.UserConfirmState
@@ -111,7 +112,8 @@ const revokeInstall = (state: UserState, cur: typeof Install.Type, now: number):
   return {
     ok: true,
     state: {
-      ...revokePresenceKey(state, cur.id, now),
+      // Its Live Activities and push preferences go with its push targets (user-notify.ts).
+      ...dropInstallNotify(revokePresenceKey(state, cur.id, now), cur.id),
       ...(pending ? { ssh_revoke_pending: pending } : {}),
       push_targets: Object.fromEntries(Object.entries(state.push_targets ?? {}).filter(([, t]) => t.install !== cur.id)),
       installs: { ...state.installs, [cur.id]: next },
@@ -157,6 +159,7 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
   reduce: (state, op, params, ctx) => {
     const p = ctx.principal
     if (CHIEF_OPS.has(op)) return reduceChief(state, op, (params ?? {}) as Record<string, unknown>, ctx)
+    if (NOTIFY_OPS.has(op)) return reduceNotify(state, op, params, ctx)
     if (USER_CONFIRM_OPS.has(op)) return reduceConfirm(state, op, params, { ...ctx, principal: withInstallKind(state, p) }, appIdHash)
     switch (op) {
       case "user.ensure": {

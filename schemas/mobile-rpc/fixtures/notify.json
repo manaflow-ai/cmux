@@ -3,7 +3,8 @@
   "cases": [
     { "message": "push.target.register", "frame": { "t": "op", "op": "push.target.register", "params": { "token": "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90", "topic": "dev.cmux.ios", "environment": "production", "device_name": "iPhone" }, "idempotency_key": "01JB7Q2W8M0000PUSHREG1", "origin": "user" } },
     { "message": "push.target.remove", "frame": { "t": "op", "op": "push.target.remove", "params": { "token": "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90" }, "idempotency_key": "01JB7Q2W8M0000PUSHRM01", "origin": "user" } },
-    { "message": "notify.activity.register", "frame": { "t": "op", "op": "notify.activity.register", "params": { "activity": "act_9QzR", "push_token": "00ff00ff00ff00ff00ff00ff00ff00ff", "subject": { "host": "h_mac1A2b", "task": "task_k01" } }, "idempotency_key": "01JB7Q2W8M0000ACTREG01", "origin": "user" } },
+    { "message": "push.prefs.set", "frame": { "t": "op", "op": "push.prefs.set", "params": { "kinds": ["permission", "question"], "sound": true, "time_sensitive": false }, "idempotency_key": "01JB7Q2W8M0000PREFS001", "origin": "user" } },
+    { "message": "notify.activity.register", "frame": { "t": "op", "op": "notify.activity.register", "params": { "activity": "act_9QzR", "push_token": "00ff00ff00ff00ff00ff00ff00ff00ff", "subject": { "host": "h_mac1A2b", "task": "task_k01" }, "title": "Fix login", "started_at": 1791331200000 }, "idempotency_key": "01JB7Q2W8M0000ACTREG01", "origin": "user" } },
     { "message": "notify.activity.end", "frame": { "t": "op", "op": "notify.activity.end", "params": { "activity": "act_9QzR" }, "idempotency_key": "01JB7Q2W8M0000ACTEND01", "origin": "user" } },
     { "message": "notify.badge.set", "frame": { "t": "event", "stream": "user:u_7f3a", "seq": 88, "tx": "tx_21", "op": "notify.badge.set", "params": { "unread": 4, "at": 1791331207000 }, "actor": { "identity": "system" }, "origin": "remote", "at": 1791331207000 } }
   ]

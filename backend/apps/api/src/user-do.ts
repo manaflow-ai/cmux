@@ -16,6 +16,7 @@ import { CLOSE_RETRY_MS, flushInstallCloses, markAgentClosing, markInstallClosin
 import { OwnerDO, type Attachment, type ReadResult, type SubmitResult } from "./owner-do.ts"
 import { SecondaryStream } from "./secondary-stream.ts"
 import { sshDomain, type SshState } from "./domains/user-ssh.ts"
+import { notifyTargetsOf, type NotifyTargets } from "./domains/user-notify.ts"
 const earliestOf = (a: number | null, b: number | null) => (a === null ? b : b === null ? a : Math.min(a, b))
 import { readInboxOp } from "./user-inbox.ts"
 import { checkPresenceKey, type PresenceKeyBody } from "./user-presence-key.ts"
@@ -430,12 +431,9 @@ export class UserDO extends OwnerDO<UserState> {
   }
 
   /** For FeedDO and Home push: the user's push targets whose install is still active (feed.md 7.3). */
-  async pushTargets(entity: string): Promise<ReadonlyArray<PushTarget>> {
-    const engine = this.existing()
-    if (!engine || engine.stream !== `user:${entity}`) return []
-    const state = engine.currentState
-    return Object.values(state.push_targets ?? {}).filter((t) => state.installs[t.install]?.revoked_at === null)
-  }
+  async pushTargets(entity: string): Promise<ReadonlyArray<PushTarget>> { return (await this.notifyTargets(entity)).push }
+  /** For FeedDO (c7-notify.md): push targets with each install's preferences, and live Activity registrations. */
+  async notifyTargets(entity: string): Promise<NotifyTargets> { const e = this.existing(); return notifyTargetsOf(e && e.stream === `user:${entity}` ? e.currentState : undefined, Date.now()) }
 
   /** For FeedDO and Home push: APNs rejected this token (unregistered or bad); the owner drops it in its own op. */
   async dropPushTarget(entity: string, token: string, reason: string): Promise<void> {
