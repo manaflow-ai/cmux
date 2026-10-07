@@ -33,7 +33,7 @@ function ChangesSection({
     <section className="acpmux-summary-section" aria-label={t("header.changes")}>
       <h3 className="acpmux-summary-title">{t("header.changes")}</h3>
       <ul className="acpmux-summary-list">
-        {onOpenChanges && changes && (
+        {onOpenChanges && changes && files.length > 0 && (
           <li>
             <button
               type="button"
@@ -47,7 +47,7 @@ function ChangesSection({
             </button>
           </li>
         )}
-        {files.length === 0 && !changes ? (
+        {files.length === 0 ? (
           <li className="acpmux-summary-row acpmux-summary-none">{t("summary.none")}</li>
         ) : (
           (all ? files : files.slice(0, 5)).map((file) => (
