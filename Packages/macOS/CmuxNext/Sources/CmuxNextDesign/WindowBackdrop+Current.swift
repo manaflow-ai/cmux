@@ -1,4 +1,3 @@
-public import AppKit
 
 public extension WindowBackdrop {
     /// The backdrop a pane or page decides its own painting from: `tokens` with the app's art
