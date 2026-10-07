@@ -87,6 +87,18 @@ export class RotateKeyRequest extends Schema.Class<RotateKeyRequest>("RotateKeyR
   { description: `The device's new WireGuard public key. ${SIGNED} The install key must be the one the device enrolled with.` },
 ) {}
 
+export class SignedDeviceRequest extends Schema.Class<SignedDeviceRequest>("SignedDeviceRequest")(
+  {
+    signedAt: SignedAt,
+    nonce: Nonce,
+    signature: Signature,
+  },
+  {
+    description:
+      "A device's own request, authenticated only by its install key: the cmux-mesh-v1 message with purpose peers or tunnel, the device id as target, an empty WireGuard key and name, and the device's recorded install public key. Fresh (120 s) and single use.",
+  },
+) {}
+
 export class Device extends Schema.Class<Device>("Device")({
   id: DeviceId,
   meshId: MeshId,
@@ -208,11 +220,77 @@ export class MeshEnrollGroupDefinition extends HttpApiGroup.make("meshEnroll").a
     .annotateContext(
       OpenApi.annotations({
         summary: "Enroll a headless device with a one-time code",
-        description: `Enroll a headless device with a one-time code. No credential: the code is single use and valid for 10 minutes, and the device belongs to the principal that created the code. An unknown, used, expired or other mesh's code is 404 and is not used up by a refused request. ${EXPERIMENT}`,
+        description: `Enroll a headless device with a one-time code. No credential: the code is single use and valid for 10 minutes, and the device belongs to the principal that created the code. An unknown, used, expired or other mesh's code is 404, and so is a code whose creator left the team or whose API key was revoked. Any authentication failure (a forged or stale signature, a replayed request, another mesh's path) burns the code. A device budget or provider failure after the code was accepted gives it back, so the same code can be used again. ${EXPERIMENT}`,
       }),
     ),
 ) {}
 const DevicePath = Schema.Struct({ deviceId: Schema.String });
+
+const DEVICE_SIGNED =
+  "No credential: the device's install-key signature authenticates it for this one device only. An unknown or deleted device, a signature by another key, for another device or for another request, a device whose owner left the team or whose API key was revoked, and a team without the experiment are all 404; a stale signedAt (more than 120 s off) is 403, a replayed request 409.";
+
+/**
+ * Unauthenticated: the device's install-key signature is the credential (mesh
+ * M3, cx-0op.5). A device enrolled with a one-time code has no API key or
+ * session; these are the only calls it can make. src/api.ts adds this group
+ * without the Authentication middleware.
+ */
+export class MeshDeviceGroupDefinition extends HttpApiGroup.make("meshDevice")
+  .add(
+    HttpApiEndpoint.post("signedDevicePeers", "/v1/devices/:deviceId/signed/peers")
+      .setPath(DevicePath)
+      .setPayload(SignedDeviceRequest)
+      .addSuccess(PeerMap)
+      .addError(BadRequest)
+      .addError(Forbidden)
+      .addError(NotFound)
+      .addError(Conflict)
+      .addError(QuotaExceeded)
+      .addError(ServiceUnavailable)
+      .annotateContext(
+        OpenApi.annotations({
+          summary: "A device reads its own peer map",
+          description: `What this device may reach, compiled from the current ACL; signed with purpose peers. ${DEVICE_SIGNED} ${EXPERIMENT}`,
+        }),
+      ),
+  )
+  .add(
+    HttpApiEndpoint.post("signedDeviceTunnel", "/v1/devices/:deviceId/signed/tunnel")
+      .setPath(DevicePath)
+      .setPayload(SignedDeviceRequest)
+      .addSuccess(TunnelConfig)
+      .addError(BadRequest)
+      .addError(Forbidden)
+      .addError(NotFound)
+      .addError(Conflict)
+      .addError(QuotaExceeded)
+      .addError(ServiceUnavailable)
+      .annotateContext(
+        OpenApi.annotations({
+          summary: "A device reads its own tunnel config",
+          description: `Never includes a private key; signed with purpose tunnel. ${DEVICE_SIGNED} ${EXPERIMENT}`,
+        }),
+      ),
+  )
+  .add(
+    HttpApiEndpoint.post("signedDeviceRotateKey", "/v1/devices/:deviceId/signed/rotate-key")
+      .setPath(DevicePath)
+      .setPayload(RotateKeyRequest)
+      .addSuccess(TunnelConfig)
+      .addError(BadRequest)
+      .addError(Forbidden)
+      .addError(NotFound)
+      .addError(Conflict)
+      .addError(QuotaExceeded)
+      .addError(ServiceUnavailable)
+      .annotateContext(
+        OpenApi.annotations({
+          summary: "A device rotates its own WireGuard key",
+          description: `The same signed body as POST /v1/devices/{deviceId}/rotate-key (purpose rotate-key), without a credential. Switch to the returned config at once. ${DEVICE_SIGNED} ${EXPERIMENT}`,
+        }),
+      ),
+  ) {}
+
 const TunnelPath = Schema.Struct({ tunnelId: Schema.String });
 const MemberPath = Schema.Struct({ meshId: Schema.String, vmId: Schema.String });
 
@@ -371,6 +449,7 @@ export class MeshGroupDefinition extends HttpApiGroup.make("mesh")
       .setHeaders(GroupTeamHeaders)
       .addSuccess(HttpApiSchema.NoContent)
       .addError(NotFound)
+      .addError(Conflict)
       .addError(QuotaExceeded)
       .annotateContext(describe("Remove a VM from a mesh", "mesh:write", `Also needs vm:write. ${EXPERIMENT}`)),
   )

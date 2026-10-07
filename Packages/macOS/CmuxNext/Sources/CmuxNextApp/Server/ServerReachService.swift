@@ -32,6 +32,8 @@ final class ServerReachService {
     private let paths: SSHPaths
     private let binary: URL?
     private let local: @MainActor () -> ServerReachPlan.LocalServer?
+    /// This Mac's running link and its paired installs, or nil (no link).
+    private let linkPeers: @MainActor () async -> ServerReachPlan.LinkPeers?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.server-reach")
     private var observers: [Task<Void, Never>] = []
     private var reading: Task<Void, Never>?
@@ -44,13 +46,15 @@ final class ServerReachService {
     private(set) var policyDisabled = false
 
     init(machines: MachineRegistry, call: @escaping Call, signedInUser: @escaping @MainActor () -> String?, paths: SSHPaths,
-         binary: URL?, local: @escaping @MainActor () -> ServerReachPlan.LocalServer? = { nil }) {
+         binary: URL?, local: @escaping @MainActor () -> ServerReachPlan.LocalServer? = { nil },
+         linkPeers: @escaping @MainActor () async -> ServerReachPlan.LinkPeers? = { nil }) {
         self.machines = machines
         self.call = call
         self.signedInUser = signedInUser
         self.paths = paths
         self.binary = binary
         self.local = local
+        self.linkPeers = linkPeers
     }
 
     func start() {
@@ -144,7 +148,9 @@ final class ServerReachService {
             let hosts = try await readHosts()
             // A read that a sign-out or an account switch overtook applies nothing.
             guard !Task.isCancelled, signedInUser() == user else { return }
-            let plan = ServerReachPlan.make(chiefs: chiefs, hosts: hosts, local: local())
+            let link = await linkPeers()
+            guard !Task.isCancelled, signedInUser() == user else { return }
+            let plan = ServerReachPlan.make(chiefs: chiefs, hosts: hosts, local: local(), link: link)
             lastPlan = plan
             for name in plan.unroutable { logger.error("server \(name, privacy: .public): no route to its chief session") }
             await apply(plan.desired)
@@ -257,6 +263,22 @@ final class ServerReachService {
         if let computer = SCDynamicStoreCopyComputerName(nil, nil) as String? { names.append(computer) }
         let short = names.compactMap { $0.split(separator: ".").first.map(String.init) }.filter { !$0.isEmpty }
         return short.isEmpty ? nil : ServerReachPlan.LocalServer(hostNames: short, brainSocket: socket)
+    }
+
+    /// This Mac's link through the bundled CLI (`cmux link show`, `cmux link
+    /// peer list`): nil when the CLI is missing, the link is not running,
+    /// or a read fails.
+    nonisolated static func readLinkPeers(binary: URL?) async -> ServerReachPlan.LinkPeers? {
+        guard let binary else { return nil }
+        func run(_ arguments: [String]) async -> Data? {
+            guard let result = try? await ProcessRunner.run(executable: binary, arguments: arguments, environment: nil,
+                                                            timeout: .seconds(10), clock: ContinuousClock()),
+                  result.status == 0 else { return nil }
+            return result.stdout
+        }
+        guard let show = await run(["link", "show"]), let socket = ServerReachPlan.parseLinkShow(show),
+              let peers = await run(["link", "peer", "list"]) else { return nil }
+        return ServerReachPlan.LinkPeers(socket: socket, installs: ServerReachPlan.parsePeerList(peers))
     }
 
     /// The registry transport for `session`: the reach plus whether it connects at launch.

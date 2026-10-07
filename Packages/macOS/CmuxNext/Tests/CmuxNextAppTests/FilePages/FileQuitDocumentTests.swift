@@ -336,6 +336,44 @@ struct FileQuitDocumentTests {
         #expect(try String(contentsOf: folder.appending(path: "main.swift"), encoding: .utf8) == "let x = 1\n")
     }
 
+    /// D11: a recovered markdown draft opens in the markdown page, the viewer of its file type,
+    /// not in the code editor. The launch notice's Open runs the bound restore handler; the handler
+    /// is read at once after binding, so no other suite's binding replaces it.
+    @Test func aRecoveredMarkdownDraftOpensInTheMarkdownPage() async throws {
+        let services = ActionBindingCoverageTests.boundServices()
+        let restore = try #require(RecoveryDraftStore.shared.restoreHandler)
+        services.windows.ordersWindowsIn = false
+        services.daemon.store.apply(snapshot: try BrowserTabTests.tree())
+        let workspace = try #require(services.daemon.store.workspaces.first)
+        let window = try #require(services.windows.openWindow(workspaces: [workspace.id]))
+        services.windows.didActivate(window)
+        await BrowserTabTests.settle { window.content?.panes.isEmpty == false }
+        let pane = try #require(window.content?.panes.values.first)
+        let url = try Self.file()
+        restore(RecoveryDraft(id: QuitParticipantID.file(path: url.path), title: "notes.md", savedAt: Date(),
+                              contents: Data("mine\n".utf8), filePath: url.path))
+        // The restore reads the file off the main actor, so wait on the tab, bounded.
+        for _ in 0..<400 where services.pages.tabIDs(in: pane.paneKey).isEmpty {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        let keys = services.pages.tabIDs(in: pane.paneKey)
+        #expect(keys.compactMap(LocalPageTab.page(of:)) == [.markdown])
+        let key = try #require(keys.first)
+        #expect(services.viewers.markdownPages.file(key)?.path == url.resolvingSymlinksInPath().path)
+        #expect(try String(contentsOf: url, encoding: .utf8) == "v1\n", "opening never writes the file")
+    }
+
+    /// D11: the markdown page takes a recovered draft as the editor page does, once, as an unsaved edit.
+    @Test func theMarkdownPageTakesARecoveredDraftOnce() async throws {
+        let (provider, _, folder, _) = try FilePageProviderTests.world(.markdown, text: "# Title\n")
+        provider.recoveredText = "# Mine\n"
+        let config = try await FilePageProviderTests.call(provider, "cmux.markdown.config")
+        #expect(config["recoveredText"]?.stringValue == "# Mine\n")
+        #expect(config["text"]?.stringValue == "# Title\n")
+        #expect(try await FilePageProviderTests.call(provider, "cmux.markdown.config")["recoveredText"] == nil)
+        #expect(try String(contentsOf: folder.appending(path: "README.md"), encoding: .utf8) == "# Title\n")
+    }
+
     /// A recovered draft opens in the code editor page as an unsaved edit.
     @Test func aRecoveredDraftOpensAsAnUnsavedEdit() async throws {
         let (provider, _, _, _) = try FilePageProviderTests.world(.editor, file: "main.swift", text: "let x = 1\n")

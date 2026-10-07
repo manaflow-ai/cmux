@@ -50,7 +50,7 @@ fn the_value_never_goes_into_a_command_line() {
     // `security -i` reads one command line; quotes and backslashes are escaped
     // (checked against /usr/bin/security on a fleet Mac: it stores s3cr"et\x yz).
     assert_eq!(
-        mac.stdin,
+        mac.stdin.as_str(),
         "add-generic-password -U -s cmux-harness -a \"acme/ACME_API_KEY\" -l \"cmux harness acme ACME_API_KEY\" -w \"s3cr\\\"et\\\\x yz\"\n"
     );
     let linux = store_command("linux", "acme", "ACME_API_KEY", SECRET).unwrap();
@@ -67,7 +67,8 @@ fn the_value_never_goes_into_a_command_line() {
             "acme/ACME_API_KEY"
         ]
     );
-    assert_eq!(linux.stdin, SECRET);
+    assert_eq!(linux.stdin.as_str(), SECRET);
+    assert!(!format!("{linux:?}").contains("s3cr"), "Debug shows the value");
 }
 
 #[test]
@@ -139,4 +140,18 @@ fn a_failed_store_writes_nothing_and_bad_names_are_refused() {
     assert!(secret_set("acme", "1BAD-KEY", SECRET, &cfg, &|_| Ok(())).is_err());
     let other = secret_set("nope", "K", SECRET, &cfg, &|_| Ok(())).unwrap();
     assert!(matches!(other, FileChange::Manual { path: None, .. }), "{other:?}");
+}
+
+#[test]
+fn a_piped_value_is_read_into_one_buffer_sized_before_the_read() {
+    let mut input: &[u8] = b"s3cret-value\r\n";
+    let value = read_secret_from(&mut input).unwrap();
+    assert_eq!(value.as_str(), "s3cret-value");
+    // Sized for the largest value before the read: no reallocation left a
+    // copy of the secret in freed memory that the zeroing cannot reach.
+    assert!(value.capacity() > MAX_SECRET_BYTES, "capacity {}", value.capacity());
+    let mut long: &[u8] = &[b'a'; MAX_SECRET_BYTES + 1];
+    assert!(read_secret_from(&mut long).is_err());
+    let mut bad: &[u8] = &[0xff, 0xfe];
+    assert!(read_secret_from(&mut bad).is_err());
 }
