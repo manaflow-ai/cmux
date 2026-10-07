@@ -120,11 +120,13 @@ describe("links", () => {
     "does not nest GitHub references inside labels with repository %s",
     (githubRepository) => {
       const out = renderToStaticMarkup(
-        createElement(Markdown, {
-          githubRepository,
-          children:
-            "[Fix #1234 and upstream/cmux#56](https://example.com) ![upstream/cmux#5678](https://example.com/image.png)",
-        }),
+        createElement(
+          Markdown,
+          {
+            githubRepository,
+          },
+          "[Fix #1234 and upstream/cmux#56](https://example.com) ![upstream/cmux#5678](https://example.com/image.png)",
+        ),
       );
       expect(out.match(/href="https:\/\/github\.com/g) ?? []).toHaveLength(0);
       expect(out).toContain('href="https://example.com/"');
@@ -133,10 +135,13 @@ describe("links", () => {
 
   test("linkifies bare and qualified GitHub references in prose", () => {
     const out = renderToStaticMarkup(
-      createElement(Markdown, {
-        githubRepository: "manaflow-ai/cmux",
-        children: "Fix #1234 and upstream/cmux#56.",
-      }),
+      createElement(
+        Markdown,
+        {
+          githubRepository: "manaflow-ai/cmux",
+        },
+        "Fix #1234 and upstream/cmux#56.",
+      ),
     );
     expect(out).toContain('href="https://github.com/manaflow-ai/cmux/issues/1234"');
     expect(out).toContain('href="https://github.com/upstream/cmux/issues/56"');
