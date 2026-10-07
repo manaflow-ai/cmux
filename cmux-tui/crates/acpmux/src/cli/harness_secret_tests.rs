@@ -138,8 +138,21 @@ fn a_failed_store_writes_nothing_and_bad_names_are_refused() {
     assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
     assert!(secret_set("Acme!", "K", SECRET, &cfg, &|_| Ok(())).is_err());
     assert!(secret_set("acme", "1BAD-KEY", SECRET, &cfg, &|_| Ok(())).is_err());
-    let other = secret_set("nope", "K", SECRET, &cfg, &|_| Ok(())).unwrap();
-    assert!(matches!(other, FileChange::Manual { path: None, .. }), "{other:?}");
+}
+
+/// nxdog65-v2: an id that names no harness is refused before the secret
+/// store is touched (no stray Keychain item for a typo).
+#[test]
+fn an_unknown_harness_is_refused_before_the_secret_store() {
+    let (cfg, _) = config_with("unknown", &format!("{BASE}\n[env]\n"));
+    let touched = std::cell::Cell::new(false);
+    let err = secret_set("nope", "K", SECRET, &cfg, &|_| {
+        touched.set(true);
+        Ok(())
+    })
+    .unwrap_err();
+    assert!(err.to_string().contains("unknown harness"), "{err}");
+    assert!(!touched.get(), "the secret store was called for an unknown harness");
 }
 
 #[test]
