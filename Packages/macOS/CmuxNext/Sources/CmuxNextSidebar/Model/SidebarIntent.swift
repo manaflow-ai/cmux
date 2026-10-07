@@ -1,5 +1,5 @@
 public import CmuxNextDesign
-import Foundation
+public import Foundation
 
 /// User intents emitted by the sidebar. The App layer forwards them to the
 /// owning daemon; `SidebarModel.apply(_:)` applies them locally (optimistic
@@ -53,9 +53,13 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     /// Run an item of a pinned section (a built-in's action, a pinned
     /// workspace). plans/cmux-next/sidebar-sections.md
     case activateItem(LayoutItemID, opensWorkspace: Bool = false)
-    /// The footer's update pill: install the staged update and relaunch
-    /// (`SidebarModel.updatePill`).
+    /// The update card's button: install the staged update and relaunch
+    /// (`SidebarModel.updateCard`).
     case installUpdate
+    /// The update card's Automatic Updates checkbox.
+    case setAutomaticUpdates(Bool)
+    /// A link in the update card's popover (a pull request, the release notes).
+    case openUpdateLink(URL)
     /// Change the section layout; the App sends it to the workspace store.
     case layout(SidebarLayoutOp)
     /// Collapse or expand a titled section (client view state).
