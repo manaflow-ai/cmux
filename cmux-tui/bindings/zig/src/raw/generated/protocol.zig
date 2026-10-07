@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "574ef12717291a1170f2fdd5a2fe27916a8af26ab9e64b532916dbb0fbee870e";
+pub const ir_sha256 = "df95b9a19f96ded20b7035b1e5330c88ef2fed3a398a60c67fc31d355fa511fa";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -332,6 +332,7 @@ pub const ColorHex = []const u8;
 pub const ColumnPin = struct {
     edge: []const u8,
     mode: []const u8,
+    role: wire.Field([]const u8) = .absent,
 };
 
 pub const ConversationChange = struct {
@@ -6879,6 +6880,7 @@ pub const SetColumnDockRequest = struct {
     edge: wire.Field([]const u8) = .absent,
     mode: wire.Field([]const u8) = .absent,
     pane: Id,
+    role: wire.Field([]const u8) = .absent,
     transaction: wire.Field(u64) = .absent,
 };
 
@@ -6892,6 +6894,9 @@ pub fn setColumnDock(client: anytype, request: SetColumnDockRequest) !wire.Decod
             .authority = "control",
             .since = 12,
             .capability = "dock-columns-v1",
+            .fields = &.{
+                .{ .name = "role", .since = 12, .capability = "dock-column-role-v1" },
+            },
         },
         request,
     );

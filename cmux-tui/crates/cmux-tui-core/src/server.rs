@@ -192,6 +192,9 @@ pub const DOCK_COLUMNS_CAPABILITY: &str = "dock-columns-v1";
 /// Top and bottom docks: `set-column-dock` and `move-tab-to-column` accept
 /// edges `top` and `bottom`, sent back as `Screen.columns[].dock`.
 pub const EDGE_DOCKS_CAPABILITY: &str = "edge-docks-v1";
+/// `set-column-dock` and `move-tab-to-column` accept `role` (`agent_chat`),
+/// kept with the pin and sent back as `Screen.columns[].dock.role`.
+pub const DOCK_COLUMN_ROLE_CAPABILITY: &str = "dock-column-role-v1";
 /// `new-row`, `set-row-heights` and `Screen.columns[].rows` (rows.md).
 pub const ROWS_CAPABILITY: &str = "rows-v1";
 /// `kind` (`pty` | `browser`) and `url` on `split` and `new-pane-right`.
@@ -1656,8 +1659,9 @@ enum Command {
         transaction: Option<u64>,
     },
     /// `dock-columns-v1`: pin or unpin the viewport column containing
-    /// `pane`. `edge` and `mode` stay strings so a bad value answers with
-    /// `error_code:"invalid-argument"` instead of a decode error.
+    /// `pane`. `edge`, `mode` and `role` (`dock-column-role-v1`) stay strings
+    /// so a bad value answers with `error_code:"invalid-argument"` instead of
+    /// a decode error.
     SetColumnDock {
         pane: PaneId,
         dock: bool,
@@ -1665,6 +1669,8 @@ enum Command {
         edge: Option<String>,
         #[serde(default)]
         mode: Option<String>,
+        #[serde(default)]
+        role: Option<String>,
         #[serde(default)]
         transaction: Option<u64>,
     },
@@ -13833,8 +13839,13 @@ fn handle_command_with_cancellation(
             )?;
             Ok(json!({}))
         }
-        Command::SetColumnDock { pane, dock, edge, mode, transaction } => {
-            let dock = crate::mux::parse_column_dock(dock, edge.as_deref(), mode.as_deref())?;
+        Command::SetColumnDock { pane, dock, edge, mode, role, transaction } => {
+            let dock = crate::mux::parse_column_dock(
+                dock,
+                edge.as_deref(),
+                mode.as_deref(),
+                role.as_deref(),
+            )?;
             let outcome = mux.set_column_dock(
                 pane,
                 dock,

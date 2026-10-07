@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 574ef12717291a1170f2fdd5a2fe27916a8af26ab9e64b532916dbb0fbee870e.
+// cmux-tui mux protocol 12, IR df95b9a19f96ded20b7035b1e5330c88ef2fed3a398a60c67fc31d355fa511fa.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -323,6 +323,8 @@ pub struct CloseTerminalResult {
 pub struct ColumnPin {
     pub edge: String,
     pub mode: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub role: Optional<String>,
 }
 
 #[rustfmt::skip]
