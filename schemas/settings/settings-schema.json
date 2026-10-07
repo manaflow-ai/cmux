@@ -3161,6 +3161,163 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.chats",
+        "text" : "Chats"
+      },
+      "help" : {
+        "key" : "settings.chats.enabled.help",
+        "text" : "Show chats stored on this device. Nothing is uploaded."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.chats.enabled",
+      "keywords" : [
+        "agents",
+        "chats",
+        "privacy"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "chats",
+        "enabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.chats.enabled",
+        "text" : "Enable Chats"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.chats",
+        "text" : "Chats"
+      },
+      "help" : {
+        "key" : "settings.chats.discovery.help",
+        "text" : "Find harness chat folders automatically. When off, only the listed folders are used."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.chats.discovery",
+      "keywords" : [
+        "agents",
+        "chats",
+        "discovery",
+        "privacy"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "chats",
+        "discovery"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.chats.discovery",
+        "text" : "Discover Chat Folders"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        [
+
+        ],
+        [
+          "/opt/cmux-chat-data"
+        ]
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : [
+
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.chats",
+        "text" : "Chats"
+      },
+      "help" : {
+        "key" : "settings.chats.roots.help",
+        "text" : "Add absolute paths to harness data folders. Protected folders are refused. Your organization can add locked folders."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.chats.roots",
+      "keywords" : [
+        "agents",
+        "chats",
+        "folders",
+        "roots",
+        "privacy"
+      ],
+      "kind" : "folder_list",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "chats",
+        "roots"
+      ],
+      "refuses" : [
+        "/opt/cmux-chat-data",
+        [
+          "~/chats"
+        ],
+        [
+          "/"
+        ],
+        [
+          "/Volumes/chats"
+        ],
+        [
+          1
+        ]
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.chats.roots",
+        "text" : "Chat Folders"
+      },
+      "validation" : "domain:chat_roots"
+    },
+    {
+      "accepts" : [
         [
 
         ],
@@ -7911,6 +8068,52 @@
       "title" : {
         "key" : "settings.sidebar.showWorkspaceTabs",
         "text" : "Show Workspace Tabs"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.showChats.help",
+        "text" : "Shows the device-wide Chats section in the sidebar."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.showChats",
+      "keywords" : [
+        "sidebar",
+        "chats",
+        "agents",
+        "conversations"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "showChats"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.sidebar.showChats",
+        "text" : "Show Chats"
       },
       "validation" : "portable"
     },
@@ -15387,7 +15590,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "d42f6a54a875fa516195509eccfc25b964c41493daf5ed3de477445ded8952ab",
+  "schema_hash" : "fd2e51b5f0ae0ac1b3fb307363e58948c51bb6b6d9d6e9c37b1e1c20a666855c",
   "sections" : [
     {
       "id" : "general",
