@@ -140,7 +140,7 @@ enum RoomHandlers {
         let name = invocation["name"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 } ?? RoomStrings.defaultName(store.profileIDs.count + 1)
         let used = Set(store.profiles.compactMap(\.color))
         let color = invocation["color"]?.stringValue.flatMap(GroupColor.init(rawValue:))
-            ?? GroupColor.allCases.first { !used.contains($0.rawValue) && $0 != .grey } ?? .grey
+            ?? GroupColor.automatic(used: used) ?? .grey
         let icon = invocation["icon"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
         let active = context.activeWindow?.state
         // A new room shares the current room's browser profile, so logins
