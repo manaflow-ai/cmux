@@ -18,7 +18,15 @@ public nonisolated final class AgentActivityLineConnection: @unchecked Sendable 
     /// Largest line accepted (a full frame is base64 PNG).
     static let maxLine = 64 * 1024 * 1024
 
-    public init(path: String) {
+    /// The uid the socket's server must run as before anything is sent
+    /// (nil: no check). The CUA helper's clients pass this user's uid, so an
+    /// impostor server never receives a token.
+    let expectedServerUID: uid_t?
+    let path: String
+
+    public init(path: String, expectedServerUID: uid_t? = nil) {
+        self.path = path
+        self.expectedServerUID = expectedServerUID
         connection = NWConnection(to: .unix(path: path), using: .tcp)
     }
 
@@ -102,8 +110,8 @@ public nonisolated final class AgentActivityLineConnection: @unchecked Sendable 
 
     /// Sends one request line and returns the first reply line, or throws
     /// after `deadline`.
-    static func oneShot(path: String, send: Data, deadline: Duration) async throws -> Data {
-        let connection = AgentActivityLineConnection(path: path)
+    static func oneShot(path: String, send: Data, deadline: Duration, expectedServerUID: uid_t? = nil) async throws -> Data {
+        let connection = AgentActivityLineConnection(path: path, expectedServerUID: expectedServerUID)
         let once = OnceBox()
         let timeout = DemandTimer(owner: "agent-activity.request-deadline")
         defer { timeout.cancel() }
