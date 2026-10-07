@@ -43,6 +43,12 @@ struct RecordingConnector: SSHShellConnector {
     func openShell(cols: Int, rows: Int) async throws -> any SSHShellChannel { shell }
 }
 
+struct RejectingConnector: SSHShellConnector {
+    func openShell(cols: Int, rows: Int) async throws -> any SSHShellChannel {
+        throw SSHSessionFailure.shellRejected
+    }
+}
+
 actor TargetLog {
     private(set) var targets: [SSHSessionTarget] = []
     func add(_ target: SSHSessionTarget) { targets.append(target) }
@@ -158,6 +164,19 @@ actor TargetLog {
         var events = opened.events.makeAsyncIterator()
         shell.end()
         while await events.next() != nil {}
+        #expect(await endings.next() == host)
+    }
+
+    @Test func staleModernTmuxAttachTriggersCatalogRefresh() async throws {
+        let catalog = SSHSessionCatalog()
+        let discovery = SSHSessionDiscovery()
+        let listing = "@tmux2\t/usr/bin/tmux\nS\twork\t1\t0\t1\nW2\twork\t0\t1\t$1\t@9\t42\t100\tshell\nP2\t@9\t%3\t1\n"
+        await catalog.record(discovery.parse(listing), for: host)
+        var endings = await catalog.endings().makeAsyncIterator()
+        let connector = SSHCatalogAttachConnector(hostID: host, surfaceID: "ssh:tmux:42-100:$1:@9", catalog: catalog) { _, _ in
+            RejectingConnector()
+        }
+        await #expect(throws: SSHSessionFailure.shellRejected) { try await connector.openShell(cols: 80, rows: 24) }
         #expect(await endings.next() == host)
     }
 

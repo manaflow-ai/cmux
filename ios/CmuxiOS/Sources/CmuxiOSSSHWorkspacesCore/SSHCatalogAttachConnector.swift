@@ -23,7 +23,17 @@ public struct SSHCatalogAttachConnector: SSHShellConnector {
 
     public func openShell(cols: Int, rows: Int) async throws -> any SSHShellChannel {
         guard let target = await catalog.target(host: hostID, surfaceID: surfaceID) else { throw SSHSessionFailure.sessionGone }
-        let shell = try await make(hostID, target).openShell(cols: cols, rows: rows)
-        return SSHEndingShellChannel(base: shell) { [catalog, hostID] in await catalog.sessionEnded(on: hostID) }
+        do {
+            let shell = try await make(hostID, target).openShell(cols: cols, rows: rows)
+            return SSHEndingShellChannel(base: shell) { [catalog, hostID] in await catalog.sessionEnded(on: hostID) }
+        } catch let failure as SSHSessionFailure {
+            // A modern tmux pane can disappear or change while a reconnect is
+            // opening. Refresh the host catalog before surfacing the refusal so
+            // the next user retry gets a fresh stable pane identity.
+            if case .tmuxControl = target, failure == .shellRejected || failure == .sessionGone {
+                await catalog.sessionEnded(on: hostID)
+            }
+            throw failure
+        }
     }
 }

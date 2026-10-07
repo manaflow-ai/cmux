@@ -137,11 +137,11 @@ public struct SSHSessionDiscovery: Sendable {
         for i in tmuxSessions.indices {
             var discovered = (windows[tmuxSessions[i].name.rawValue] ?? []).sorted { $0.index < $1.index }
             if modernSessions.contains(tmuxSessions[i].name.rawValue) {
-                discovered = discovered.map { item in
+                discovered = discovered.compactMap { item in
                     guard case .tmuxControl(let binary, let window) = item.target,
                           !ambiguousPanes.contains(window.windowID),
                           let paneID = activePanes[window.windowID],
-                          let targeted = window.targetingPane(paneID) else { return item }
+                          let targeted = window.targetingPane(paneID) else { return nil }
                     var item = item
                     item.target = .tmuxControl(binary: binary, window: targeted)
                     return item

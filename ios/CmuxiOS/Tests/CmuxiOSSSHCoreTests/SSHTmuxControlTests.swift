@@ -60,6 +60,16 @@ import Testing
         #expect(window.paneID == "%3")
     }
 
+    @Test func modernDiscoveryDropsWindowsWithoutOneActivePane() {
+        let discovery = SSHSessionDiscovery()
+        let prefix = "@tmux2\t/usr/bin/tmux\nS\twork\t1\t0\t1\nW2\twork\t0\t1\t$1\t@9\t42\t100\tshell\n"
+        #expect(discovery.parse(prefix).isEmpty)
+        #expect(discovery.parse(prefix + "P2\t@9\t%2\t1\nP2\t@9\t%3\t1\n").isEmpty)
+        // A sole pane that happens to match the phone grid is still not
+        // authoritative when modern discovery did not report an active pane.
+        #expect(discovery.parse(prefix + "P2\t@9\t%2\t0\n").isEmpty)
+    }
+
     @Test func hydrationThenLiveOutputAndHexInputStayOnTheDiscoveredPane() async throws {
         let base = TmuxTestChannel()
         let window = try #require(SSHTmuxWindow(sessionID: "$1", windowID: "@9", serverPID: 42, serverStart: 100))
