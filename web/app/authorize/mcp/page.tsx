@@ -1,4 +1,5 @@
 import { headers } from "next/headers";
+import { Suspense } from "react";
 import { redirect } from "next/navigation";
 
 import { directDevBackendOrigin } from "../../lib/direct-dev-backend-origin";
@@ -11,8 +12,6 @@ import {
   MCP_SCOPE_DESCRIPTIONS,
   validateConsentRequest,
 } from "../../../services/mcp/oauthConsent";
-
-export const dynamic = "force-dynamic";
 
 type McpAuthorizePageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -58,7 +57,7 @@ function ErrorCard({ message }: { message: string }) {
   );
 }
 
-export default async function McpAuthorizePage({ searchParams }: McpAuthorizePageProps) {
+async function McpAuthorizeContent({ searchParams }: McpAuthorizePageProps) {
   const origin = mcpIssuerFor(await pageOrigin());
   const params = searchParamsFrom(await searchParams);
   const validated = await validateConsentRequest(params, origin);
@@ -147,5 +146,15 @@ export default async function McpAuthorizePage({ searchParams }: McpAuthorizePag
         </form>
       </section>
     </main>
+  );
+}
+
+// Everything above reads the request (cookies, headers, query), so it renders
+// at request time inside this boundary.
+export default function McpAuthorizePage(props: McpAuthorizePageProps) {
+  return (
+    <Suspense fallback={<main className="min-h-screen bg-black" />}>
+      <McpAuthorizeContent {...props} />
+    </Suspense>
   );
 }
