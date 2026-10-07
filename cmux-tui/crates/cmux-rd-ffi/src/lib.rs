@@ -8,6 +8,7 @@
 //! runtime. Every entry point catches panics; a panic poisons the receiver
 //! and every later call on it returns `CMUX_RD_ERR_PANIC`.
 
+mod bulk_ffi;
 mod input;
 mod input_ffi;
 mod rb_client_ffi;
@@ -21,6 +22,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use cmux_rd_core::reassembly::CompleteFrame;
 use cmux_rd_proto::{STREAM_BULK, STREAM_CONTROL, STREAM_DATAGRAM, encode_stream_frame};
 
+pub use bulk_ffi::*;
 pub use input::InputChannel;
 pub use input_ffi::*;
 pub use rb_client_ffi::*;
@@ -30,7 +32,7 @@ pub use session_ffi::*;
 pub use upstream_ffi::*;
 
 /// Version of the C ABI (`CMUX_RD_FFI_ABI_VERSION`).
-pub const ABI_VERSION: u32 = 3;
+pub const ABI_VERSION: u32 = 4;
 
 pub const CMUX_RD_OK: i32 = 0;
 pub const CMUX_RD_ERR_NULL: i32 = -1;
@@ -450,6 +452,8 @@ pub unsafe extern "C" fn cmux_rd_encode_stream_frame(
     .unwrap_or(CMUX_RD_ERR_PANIC)
 }
 
+#[cfg(test)]
+mod bulk_tests;
 #[cfg(test)]
 mod input_tests;
 #[cfg(test)]

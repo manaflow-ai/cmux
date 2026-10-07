@@ -26,6 +26,10 @@ pub enum Service {
     /// The host's sshd on loopback (scp, sftp and rsync with `cmux link`
     /// as ProxyCommand). Cloud hosts only, when their policy allows it.
     Ssh,
+    /// The trusted local socket of a paired server's Chief brain daemon
+    /// (full tree). Only the server's owner (`owner_session`); every other
+    /// peer is refused.
+    OwnerSession,
 }
 
 /// How the stream reaches the peer. Lane 10's UI shows "same network only"

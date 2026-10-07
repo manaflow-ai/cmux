@@ -139,6 +139,7 @@ extension SettingsSchema {
         "notifications.mutedWorkspaces",
         "labs.previewFeatures",
         "updates.notify",
+        "updates.showWhatsNew",
         "announcements.enabled",
     ]
 
