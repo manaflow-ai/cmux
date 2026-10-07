@@ -117,6 +117,45 @@ struct BillingPlanTests {
         #expect(details.isPro)
         #expect(details.canManageBilling)
     }
+
+    @Test("team fields do not make an unscoped personal response Pro")
+    func teamFieldsDoNotMakePersonalResponsePro() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [BillingPlanStubURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let teamURL = URL(string: "https://cmux.test/api/billing/plan?teamId=team-a")!
+        let personalURL = URL(string: "https://cmux.test/api/billing/plan")!
+        BillingPlanStubURLProtocol.responseDataByURL = [
+            teamURL.absoluteString: Data(#"{"authenticated":true,"teamPlanId":"free","teamBillingManagement":"none","canManageBilling":false}"#.utf8),
+            personalURL.absoluteString: Data(#"{"authenticated":true,"isPro":false,"planId":"free","subscriptionPlanId":"free","billingManagement":"none","teamPlanId":"pro"}"#.utf8),
+        ]
+        defer { BillingPlanStubURLProtocol.responseDataByURL = [:] }
+
+        let details = try await BillingPlanClient(session: session).fetch(
+            from: teamURL,
+            accessToken: "access"
+        )
+
+        #expect(!details.isPro)
+        #expect(!details.canManageBilling)
+    }
+
+    @Test("unscoped response retains personal billing management")
+    func unscopedResponseRetainsPersonalBillingManagement() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [BillingPlanStubURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        BillingPlanStubURLProtocol.responseData = Data(#"{"authenticated":true,"isPro":true,"planId":"pro","subscriptionPlanId":"pro","billingManagement":"stripe","teamPlanId":"free","teamBillingManagement":"none"}"#.utf8)
+        defer { BillingPlanStubURLProtocol.responseData = nil }
+
+        let details = try await BillingPlanClient(session: session).fetch(
+            from: URL(string: "https://cmux.test/api/billing/plan")!,
+            accessToken: "access"
+        )
+
+        #expect(details.isPro)
+        #expect(details.canManageBilling)
+    }
 }
 
 private final class BillingPlanStubURLProtocol: URLProtocol, @unchecked Sendable {

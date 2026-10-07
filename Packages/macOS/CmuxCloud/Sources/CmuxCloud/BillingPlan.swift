@@ -97,6 +97,9 @@ public struct BillingPlanClient: Sendable {
         if var components = URLComponents(url: url, resolvingAgainstBaseURL: false),
            components.queryItems?.contains(where: { $0.name == "teamId" }) == true {
             components.queryItems?.removeAll { $0.name == "teamId" }
+            if components.queryItems?.isEmpty == true {
+                components.queryItems = nil
+            }
             guard let personalURL = components.url else { throw URLError(.badURL) }
             let response = try await fetchResponse(
                 from: personalURL,
@@ -111,10 +114,11 @@ public struct BillingPlanClient: Sendable {
             personalResponse = nil
         }
 
-        let personalIsPro = personalResponse.map(isPro(_:)) ?? false
+        let personalIsPro = personalResponse.map { isPro($0, includeTeam: false) }
+            ?? isPro(scopedResponse, includeTeam: false)
         let teamIsPro = isPro(scopedResponse)
-        let personalCanManageBilling = personalResponse?.billingManagement == "stripe"
-            || personalResponse?.teamBillingManagement == "stripe"
+        let personalCanManageBilling = personalResponse.map { $0.billingManagement == "stripe" }
+            ?? (scopedResponse.billingManagement == "stripe")
         let teamCanManageBilling = scopedResponse.canManageBilling == true
             || scopedResponse.teamBillingManagement == "stripe"
         return BillingPlanDetails(
@@ -145,7 +149,7 @@ public struct BillingPlanClient: Sendable {
         return try JSONDecoder().decode(Response.self, from: data)
     }
 
-    private func isPro(_ response: Response) -> Bool {
+    private func isPro(_ response: Response, includeTeam: Bool = true) -> Bool {
         // The default endpoint returns both personal and active-team plans.
         // A paid team grants Cloud access even when the personal subscription
         // is free, which is the normal path for team-owned machines.
@@ -153,7 +157,7 @@ public struct BillingPlanClient: Sendable {
         return response.isPro == true
             || paidPlanIDs.contains(response.planId?.lowercased() ?? "")
             || paidPlanIDs.contains(response.subscriptionPlanId?.lowercased() ?? "")
-            || paidPlanIDs.contains(response.teamPlanId?.lowercased() ?? "")
+            || (includeTeam && paidPlanIDs.contains(response.teamPlanId?.lowercased() ?? ""))
     }
 
     private let session: URLSession
