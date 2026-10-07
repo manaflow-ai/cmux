@@ -26,6 +26,9 @@ process and keep growing.
 | `edit` | `{messageId, text}` | `{message: Message}` |
 | `typing` | `{isTyping: Bool}` | `{}` |
 | `markRead` | `{upToSeq: Int}` | `{}` |
+| `searchContacts` | `{query, limit?, excludeIds?}` | `{contacts: [Contact]}` |
+| `lookupHandles` | `{handles: [String]}` | `{results: [{handle, service: Service?, contact?}]}` |
+| `createConversation` | `{recipients: [{participantId} \| {handle}]}` | `{conversation, created: Bool}` |
 
 `history` with `beforeSeq: null` returns the newest page. Messages are sorted
 ascending by `seq`. `send` is idempotent on `clientMessageId`: a retry returns
@@ -35,6 +38,20 @@ When `resumeAfterEventSeq` is given, the server replays every event after it
 as `event` notifications, in order, then sends `replayDone`. If the gap exceeds
 500 events it sends nothing and returns `lagged: true`; the client must refetch
 the newest page and rebase.
+
+New Message uses the last three on any subscribed socket (they are not
+scoped to the socket's conversation). `searchContacts` matches a word prefix
+of the name or a substring of a handle, name-prefix matches first, and skips
+`excludeIds` (recipients already added). `lookupHandles` resolves typed
+addresses after a 0.25 to 0.9 s availability delay: a known handle reports its
+contact and service, an unknown email is iMessage, an unknown phone number is
+SMS, anything else is invalid (`service: null`). `createConversation` returns
+the existing conversation whose other members are exactly the recipients (me
+is ignored, a contact given by id and by handle counts once) with `created:
+false`, or creates one (`new_<n>`, empty, reachable at
+`/ws?conversation=new_<n>`, bots active) with `created: true`. An invalid
+address fails with `-32005`. Conversation creation does not post a message;
+the client sends the first message on the new socket.
 
 ## Notifications (server to client)
 
@@ -54,6 +71,9 @@ dedupes on `eventSeq` and on message `id`.
 ```
 Conversation { id, title, kind: "group"|"direct", participants: [Participant] }
 Participant  { id, name, initials, colorHex, isMe }
+Contact      { id, name, initials, colorHex, isMe: false, handles: [{value, label, service}] }
+Service      = "iMessage"|"SMS"
+// Conversation.service: present on created conversations ("SMS" when any member is SMS-only)
 Message {
   id, seq, clientMessageId?, senderId, sentAt (epoch ms), text,
   replyToId?, replyCount, editedAt?,

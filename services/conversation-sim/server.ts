@@ -3,6 +3,7 @@
 import type { ServerWebSocket } from "bun";
 import { mulberry32, proceduralPNG, sniffImageSize } from "./png";
 import { editedText, imageSize, messageText, pick, randInt, replyText, type Rng } from "./corpus";
+import { CONTACTS, handleKey, lookupHandle, searchContacts, type Contact, type Service } from "./directory";
 
 // ---------------------------------------------------------------- types
 
@@ -21,6 +22,7 @@ interface Conversation {
   title: string;
   kind: "group" | "direct";
   participants: Participant[];
+  service?: "iMessage" | "SMS"; // absent means iMessage
 }
 interface AttachmentRef {
   id: string;
@@ -489,6 +491,12 @@ async function handleRpc(conn: Conn, rpcId: unknown, method: string, p: any): Pr
       if (!Number.isInteger(p?.upToSeq)) throw invalid("upToSeq");
       store.lastReadSeq = Math.max(store.lastReadSeq, Math.min(p.upToSeq, store.headSeq));
       return {};
+    case "searchContacts":
+      return handleSearchContacts(p);
+    case "lookupHandles":
+      return handleLookupHandles(p);
+    case "createConversation":
+      return handleCreateConversation(p);
     default:
       throw new RpcError(-32601, `method not found: ${method}`);
   }
@@ -551,6 +559,101 @@ function afterMySend(store: Store, m: Message) {
       store.emit("message.updated", m);
     })();
   }
+}
+
+// ---------------------------------------------------------------- New Message
+
+function wireContact(c: Contact) {
+  return { id: c.id, name: c.name, initials: c.initials, colorHex: c.colorHex, isMe: false, handles: c.handles };
+}
+
+async function handleSearchContacts(p: any) {
+  if (typeof p?.query !== "string") throw invalid("query");
+  const limit = p?.limit ?? 20;
+  if (!Number.isInteger(limit) || limit < 1) throw invalid("limit");
+  const exclude = new Set<string>(Array.isArray(p?.excludeIds) ? p.excludeIds.filter((x: unknown) => typeof x === "string") : []);
+  await sleep(lat(20, 120));
+  return { contacts: searchContacts(p.query, Math.min(limit, 50), exclude).map(wireContact) };
+}
+
+async function handleLookupHandles(p: any) {
+  const handles: unknown = p?.handles;
+  if (!Array.isArray(handles) || !handles.every((h) => typeof h === "string")) throw invalid("handles");
+  // Availability lookups take a moment (Messages shows the token as "Searching").
+  await sleep(lat(250, 900));
+  return {
+    results: (handles as string[]).map((h) => {
+      const r = lookupHandle(h);
+      return { handle: r.handle, service: r.service, ...(r.contact ? { contact: wireContact(r.contact) } : {}) };
+    }),
+  };
+}
+
+/** Participants created for typed addresses that match no contact, by handle key. */
+const handleParticipants = new Map<string, Participant & { service: Service }>();
+let createdConversations = 0;
+
+function participantFor(r: any): Participant & { service: Service } {
+  if (typeof r?.participantId === "string") {
+    if (r.participantId === ME.id) return { ...ME, service: "iMessage" };
+    const contact = CONTACTS.find((c) => c.id === r.participantId);
+    if (contact) return { id: contact.id, name: contact.name, initials: contact.initials, colorHex: contact.colorHex, isMe: false, service: contact.handles[0].service };
+    for (const p of handleParticipants.values()) if (p.id === r.participantId) return p;
+    throw invalid(`unknown participantId ${r.participantId}`);
+  }
+  if (typeof r?.handle === "string") {
+    const found = lookupHandle(r.handle);
+    if (!found.service) throw new RpcError(-32005, `not a valid address: ${r.handle}`);
+    if (found.contact) return participantFor({ participantId: found.contact.id });
+    const key = handleKey(r.handle)!;
+    let p = handleParticipants.get(key);
+    if (!p) {
+      p = { id: `h_${key.replace(/[^a-z0-9]/g, "_")}`, name: found.handle, initials: "", colorHex: "#8E8E93", isMe: false, service: found.service };
+      handleParticipants.set(key, p);
+    }
+    return p;
+  }
+  throw invalid("recipient needs participantId or handle");
+}
+
+function groupTitle(people: Participant[]) {
+  const first = people.map((p) => (p.initials ? p.name.split(/\s+/)[0] : p.name));
+  return first.length <= 2 ? first.join(" & ") : `${first.slice(0, -1).join(", ")} & ${first[first.length - 1]}`;
+}
+
+/**
+ * New Message: opens the conversation with exactly these recipients, creating
+ * it when none exists (Messages reuses an existing 1:1 or same-member group).
+ */
+async function handleCreateConversation(p: any) {
+  const recipients: unknown = p?.recipients;
+  if (!Array.isArray(recipients) || !recipients.length) throw invalid("recipients");
+  const people: (Participant & { service: Service })[] = [];
+  for (const r of recipients) {
+    const person = participantFor(r);
+    if (person.id !== ME.id && !people.some((x) => x.id === person.id)) people.push(person);
+  }
+  if (!people.length) throw invalid("recipients");
+  await sleep(lat(80, 400));
+  const key = people.map((x) => x.id).sort().join(",");
+  for (const s of stores.values()) {
+    const others = s.conv.participants.filter((x) => !x.isMe).map((x) => x.id).sort().join(",");
+    if (others === key) return { conversation: s.conv, created: false };
+  }
+  const service: Service = people.some((x) => x.service === "SMS") ? "SMS" : "iMessage";
+  const participants: Participant[] = [ME, ...people.map(({ service: _s, ...rest }) => rest)];
+  const conv: Conversation = {
+    id: `new_${++createdConversations}`,
+    title: people.length === 1 ? people[0].name : groupTitle(people),
+    kind: people.length === 1 ? "direct" : "group",
+    participants,
+    service,
+  };
+  const store = new Store(conv);
+  stores.set(conv.id, store);
+  void botLoop(store);
+  log(`createConversation id=${conv.id} kind=${conv.kind} participants=${key} service=${service}`);
+  return { conversation: conv, created: true };
 }
 
 // ---------------------------------------------------------------- bots
