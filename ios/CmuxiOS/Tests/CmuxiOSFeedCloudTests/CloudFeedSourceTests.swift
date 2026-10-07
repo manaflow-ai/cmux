@@ -1,0 +1,149 @@
+@testable import CmuxiOSFeedCloud
+import CmuxiOSFeatureKit
+import Foundation
+import Testing
+
+@Suite struct CloudFeedSourceTests {
+    func makeSource(_ connections: [FakeFeedConnection]) -> (CloudFeedSource, FakeFeedTransport) {
+        let transport = FakeFeedTransport(connections)
+        let source = CloudFeedSource(apiBaseURL: URL(string: "https://api.example.test")!, device: "iPhone",
+                                     clientVersion: "1.2", transport: transport, clock: ImmediateClock(),
+                                     token: { "tok" })
+        return (source, transport)
+    }
+
+    /// Waits for the next snapshot that satisfies `match`.
+    func next(_ iterator: inout AsyncStream<SourceSnapshot<[FeedItem]>>.AsyncIterator,
+              where match: (SourceSnapshot<[FeedItem]>) -> Bool) async -> SourceSnapshot<[FeedItem]>? {
+        while let snapshot = await iterator.next() {
+            if match(snapshot) { return snapshot }
+        }
+        return nil
+    }
+
+    func nextFrame(_ iterator: inout AsyncStream<[String: Any]>.AsyncIterator, t: String) async -> [String: Any]? {
+        while let frame = await iterator.next() {
+            if frame["t"] as? String == t { return frame }
+        }
+        return nil
+    }
+
+    @Test func connectsSubscribesAndMirrorsSnapshotAndEvents() async throws {
+        let socket = FakeFeedConnection()
+        let (source, transport) = makeSource([socket])
+        var updates = await source.updates().makeAsyncIterator()
+        var sent = socket.outbound.makeAsyncIterator()
+        socket.push(OwnerJSON.welcome)
+        let subscribe = try #require(await nextFrame(&sent, t: "subscribe"))
+        #expect(subscribe["stream"] as? String == "feed:usr_1")
+        socket.push(OwnerJSON.snapshot(seq: 4, items: [OwnerJSON.item("fi_1")]))
+        let live = try #require(await next(&updates) { $0.connection.isLive })
+        #expect(live.revision == 4)
+        #expect(live.value.map(\.id) == ["fi_1"])
+        socket.push(OwnerJSON.event(seq: 5, items: [OwnerJSON.item("fi_2")]))
+        let after = try #require(await next(&updates) { $0.revision == 5 })
+        #expect(Set(after.value.map(\.id)) == ["fi_1", "fi_2"])
+
+        let request = try #require(await transport.requests.first)
+        #expect(request.url?.absoluteString == "wss://api.example.test/v1/wire/feed")
+        #expect(request.value(forHTTPHeaderField: "Sec-WebSocket-Protocol") == "cmux.wire.v1, bearer.tok")
+        #expect(request.value(forHTTPHeaderField: "x-cmux-client-version") == "1.2")
+    }
+
+    @Test func performSendsAnOpFrameAndReturnsAtTheSettle() async throws {
+        let socket = FakeFeedConnection()
+        let (source, _) = makeSource([socket])
+        var updates = await source.updates().makeAsyncIterator()
+        var sent = socket.outbound.makeAsyncIterator()
+        socket.push(OwnerJSON.welcome)
+        socket.push(OwnerJSON.snapshot(seq: 1, items: [OwnerJSON.item("fi_1")]))
+        _ = await next(&updates) { $0.connection.isLive }
+
+        let key = IntentKey(rawValue: "idem_1")
+        async let receipt = source.perform(.answer(itemID: "fi_1", reply: .permission(allow: true, scope: .session)), key: key)
+        let op = try #require(await nextFrame(&sent, t: "op"))
+        #expect(op["op"] as? String == "feed.answer")
+        #expect(op["origin"] as? String == "user")
+        #expect((op["params"] as? NSDictionary) == ["item": "fi_1", "answer": ["decision": "allow", "scope": "session"], "device": "iPhone"])
+        socket.push(OwnerJSON.event(seq: 2, items: [OwnerJSON.item("fi_1", state: "answered", revision: 2)]))
+        socket.push(["t": "request-settled", "tx": "t", "idempotency_key": "idem_1", "stream": "feed:usr_1", "sequence": 2, "ok": true])
+        #expect(try await receipt == .committed(key: key, revision: 2))
+    }
+
+    @Test func rejectThenSettleIsARefusalWithTheCode() async throws {
+        let socket = FakeFeedConnection()
+        let (source, _) = makeSource([socket])
+        var updates = await source.updates().makeAsyncIterator()
+        var sent = socket.outbound.makeAsyncIterator()
+        socket.push(OwnerJSON.welcome)
+        socket.push(OwnerJSON.snapshot(seq: 1, items: [OwnerJSON.item("fi_1", state: "answered")]))
+        _ = await next(&updates) { $0.connection.isLive }
+        let key = IntentKey(rawValue: "idem_2")
+        async let receipt = source.perform(.decline(itemID: "fi_1"), key: key)
+        _ = await nextFrame(&sent, t: "op")
+        socket.push(["t": "reject", "tx": "t", "idempotency_key": "idem_2", "code": "feed.closed", "message": "closed", "retryable": false, "replayed": false])
+        socket.push(["t": "request-settled", "tx": "t", "idempotency_key": "idem_2", "stream": "feed:usr_1", "sequence": 0, "ok": false])
+        #expect(try await receipt == .refused(key: key, reason: "feed.closed: closed"))
+    }
+
+    @Test func revisionGapRequestsASnapshotAndIgnoresEventsUntilThen() async throws {
+        let socket = FakeFeedConnection()
+        let (source, _) = makeSource([socket])
+        var updates = await source.updates().makeAsyncIterator()
+        var sent = socket.outbound.makeAsyncIterator()
+        socket.push(OwnerJSON.welcome)
+        _ = await nextFrame(&sent, t: "subscribe")
+        socket.push(OwnerJSON.snapshot(seq: 1, items: [OwnerJSON.item("fi_1")]))
+        _ = await next(&updates) { $0.connection.isLive }
+        socket.push(OwnerJSON.event(seq: 3, items: [OwnerJSON.item("fi_3")]))
+        let request = try #require(await nextFrame(&sent, t: "snapshot.request"))
+        #expect(request["stream"] as? String == "feed:usr_1")
+        socket.push(OwnerJSON.event(seq: 4, items: [OwnerJSON.item("fi_4")]))
+        socket.push(OwnerJSON.snapshot(seq: 4, items: [OwnerJSON.item("fi_1"), OwnerJSON.item("fi_3"), OwnerJSON.item("fi_4")]))
+        let repaired = try #require(await next(&updates) { $0.revision == 4 })
+        #expect(Set(repaired.value.map(\.id)) == ["fi_1", "fi_3", "fi_4"])
+    }
+
+    @Test func dropGoesOfflineAndPerformRefusesToQueue() async throws {
+        let first = FakeFeedConnection()
+        let (source, _) = makeSource([first])
+        var updates = await source.updates().makeAsyncIterator()
+        first.push(OwnerJSON.welcome)
+        first.push(OwnerJSON.snapshot(seq: 1, items: [OwnerJSON.item("fi_1")]))
+        _ = await next(&updates) { $0.connection.isLive }
+        first.drop()
+        _ = await next(&updates) { if case .offline = $0.connection { true } else { false } }
+        await #expect(throws: FeatureSourceError.offline) {
+            try await source.perform(.readAll, key: IntentKey())
+        }
+    }
+
+    @Test func reconnectSettlesDecidedKeysAndResendsTheRest() async throws {
+        let first = FakeFeedConnection(), second = FakeFeedConnection()
+        let (source, _) = makeSource([first, second])
+        var updates = await source.updates().makeAsyncIterator()
+        var sentFirst = first.outbound.makeAsyncIterator()
+        first.push(OwnerJSON.welcome)
+        first.push(OwnerJSON.snapshot(seq: 1, items: [OwnerJSON.item("fi_1"), OwnerJSON.item("fi_2")]))
+        _ = await next(&updates) { $0.connection.isLive }
+
+        let decided = IntentKey(rawValue: "idem_a"), undecided = IntentKey(rawValue: "idem_b")
+        async let a = source.perform(.answer(itemID: "fi_1", reply: .permission(allow: false, scope: nil)), key: decided)
+        _ = await nextFrame(&sentFirst, t: "op")
+        async let b = source.perform(.read(itemIDs: ["fi_2"]), key: undecided)
+        _ = await nextFrame(&sentFirst, t: "op")
+        first.drop()
+
+        var sentSecond = second.outbound.makeAsyncIterator()
+        second.push(OwnerJSON.welcome)
+        let subscribe = try #require(await nextFrame(&sentSecond, t: "subscribe"))
+        #expect(subscribe["pending"] as? [String] == ["idem_a", "idem_b"])
+        second.push(OwnerJSON.snapshot(seq: 3, items: [OwnerJSON.item("fi_1", state: "answered"), OwnerJSON.item("fi_2")],
+                                       decided: [["idempotency_key": "idem_a", "ok": true, "sequence": 2]]))
+        #expect(try await a == .committed(key: decided, revision: 2))
+        let resent = try #require(await nextFrame(&sentSecond, t: "op"))
+        #expect(resent["idempotency_key"] as? String == "idem_b")
+        second.push(["t": "request-settled", "tx": "t", "idempotency_key": "idem_b", "stream": "feed:usr_1", "sequence": 4, "ok": true])
+        #expect(try await b == .committed(key: undecided, revision: 4))
+    }
+}
