@@ -67200,6 +67200,268 @@
         "zh-Hans": { "stringUnit": { "state": "needs_review", "value": "页面加载时，浏览器标签页图标位置显示旋转指示器。" } },
         "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "頁面載入時，瀏覽器分頁圖示位置顯示旋轉指示器。" } }
       }
+    },
+    "settings.sidebar.cards.tips" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show Tips"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ヒントを表示"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "إظهار النصائح"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Prikaži savjete"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vis tips"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tipps anzeigen"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mostrar consejos"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Afficher les astuces"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mostra suggerimenti"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បង្ហាញគន្លឹះ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "팁 표시"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vis tips"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pokaż wskazówki"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mostrar Dicas"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Показывать советы"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "แสดงเคล็ดลับ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "İpuçlarını Göster"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Показувати поради"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hiển thị mẹo"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "显示提示"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "顯示提示"
+          }
+        }
+      }
+    },
+    "settings.sidebar.cards.tips.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A \"Did you know\" card above the account button shows one cmux feature a day that you have not used yet."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "アカウントボタンの上の「ご存知でしたか」カードに、まだ使っていない cmux の機能を 1 日に 1 つ表示します。"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تعرض بطاقة \"هل تعلم\" فوق زر الحساب ميزة واحدة من cmux يوميًا لم تستخدمها بعد."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kartica \"Jeste li znali\" iznad dugmeta računa prikazuje jednu cmux funkciju dnevno koju još niste koristili."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Et \"Vidste du\"-kort over kontoknappen viser én cmux-funktion om dagen, som du ikke har brugt endnu."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Eine „Schon gewusst?“-Karte über der Kontotaste zeigt täglich eine cmux-Funktion, die du noch nicht genutzt hast."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Una tarjeta «¿Sabías que?» sobre el botón de cuenta muestra cada día una función de cmux que aún no has usado."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Une carte « Le saviez-vous ? » au-dessus du bouton du compte présente chaque jour une fonctionnalité de cmux que vous n’avez pas encore utilisée."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Una scheda «Lo sapevi?» sopra il pulsante dell’account mostra ogni giorno una funzione di cmux che non hai ancora usato."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "កាត \"តើអ្នកដឹងទេ\" នៅលើប៊ូតុងគណនី បង្ហាញមុខងារ cmux មួយក្នុងមួយថ្ងៃ ដែលអ្នកមិនទាន់បានប្រើ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "계정 버튼 위의 \"알고 계셨나요\" 카드가 아직 사용하지 않은 cmux 기능을 하루에 하나씩 보여 줍니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Et «Visste du»-kort over kontoknappen viser én cmux-funksjon om dagen som du ikke har brukt ennå."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Karta „Czy wiesz, że” nad przyciskiem konta pokazuje codziennie jedną funkcję cmux, której jeszcze nie używasz."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Um cartão \"Você sabia?\" acima do botão da conta mostra, por dia, um recurso do cmux que você ainda não usou."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Карточка «А вы знали?» над кнопкой учётной записи раз в день показывает функцию cmux, которой вы ещё не пользовались."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "การ์ด \"รู้หรือไม่\" เหนือปุ่มบัญชีจะแสดงฟีเจอร์ของ cmux ที่คุณยังไม่เคยใช้วันละหนึ่งอย่าง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hesap düğmesinin üstündeki \"Biliyor muydunuz?\" kartı, henüz kullanmadığınız bir cmux özelliğini günde bir kez gösterir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Картка «А ви знали?» над кнопкою облікового запису раз на день показує функцію cmux, якою ви ще не користувалися."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Thẻ \"Bạn có biết\" phía trên nút tài khoản mỗi ngày giới thiệu một tính năng cmux bạn chưa dùng."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "账户按钮上方的“你知道吗”卡片每天介绍一项你还没用过的 cmux 功能。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "帳號按鈕上方的「你知道嗎」卡片每天介紹一項你還沒用過的 cmux 功能。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
