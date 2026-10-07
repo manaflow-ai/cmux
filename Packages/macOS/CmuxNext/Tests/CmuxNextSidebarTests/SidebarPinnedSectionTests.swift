@@ -64,7 +64,7 @@ import Testing
         #expect(unpinned.isOnTop(alpha), "the top row of the same workspace stays")
         let restored = try apply(unpinned, undo)
         #expect(restored.sections == doc.sections, "undo restores the tile with its id at its index")
-        let redo = try #require(restored.inverse(of: undo))
+        let redo = try #require(unpinned.inverse(of: undo), "the inverse of the undo, planned on the layout it applies to")
         #expect(try apply(restored, redo).sections == unpinned.sections)
     }
 
