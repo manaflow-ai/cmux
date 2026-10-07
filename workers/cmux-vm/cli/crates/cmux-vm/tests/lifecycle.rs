@@ -26,7 +26,32 @@ struct Output {
     stderr: String,
 }
 
+/// A terminal that answers every question with `answer`.
+struct Tty {
+    answer: &'static str,
+    asked: usize,
+}
+
+impl cmux_vm::Prompt for Tty {
+    fn is_interactive(&self) -> bool {
+        true
+    }
+
+    fn ask(&mut self, _question: &str) -> std::io::Result<String> {
+        self.asked += 1;
+        Ok(format!("{}\n", self.answer))
+    }
+}
+
 async fn cli_with_env(args: &[&str], env: &[(&str, &str)]) -> Output {
+    cli_with_prompt(args, env, &mut cmux_vm::NoPrompt).await
+}
+
+async fn cli_with_prompt(
+    args: &[&str],
+    env: &[(&str, &str)],
+    prompt: &mut dyn cmux_vm::Prompt,
+) -> Output {
     let env: Vec<(String, String)> = env
         .iter()
         .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
@@ -35,7 +60,7 @@ async fn cli_with_env(args: &[&str], env: &[(&str, &str)]) -> Output {
     let mut stdout = Vec::new();
     let mut stderr = Vec::new();
     let argv = std::iter::once("cmux-vm").chain(args.iter().copied());
-    let code = cmux_vm::run(argv, &lookup, &mut stdout, &mut stderr).await;
+    let code = cmux_vm::run(argv, &lookup, prompt, &mut stdout, &mut stderr).await;
     Output {
         code,
         stdout: String::from_utf8(stdout).expect("utf-8 stdout"),
@@ -202,7 +227,7 @@ async fn delete_reports_the_deleted_id() {
         .mount(&server)
         .await;
 
-    let out = cli(&server, &["--json", "delete", VM_ID]).await;
+    let out = cli(&server, &["--json", "delete", VM_ID, "--yes"]).await;
 
     assert_eq!(out.code, exit::OK, "stderr: {}", out.stderr);
     assert_eq!(json_stdout(&out), json!({ "id": VM_ID, "deleted": true }));
@@ -570,10 +595,8 @@ async fn a_broken_default_config_only_warns_when_env_gives_every_value() {
         .respond_with(ResponseTemplate::new(200).set_body_json(vm("running")))
         .mount(&server)
         .await;
-    let dir = std::env::temp_dir().join(format!(
-        "cmux-vm-broken-config-test-{}",
-        std::process::id()
-    ));
+    let dir =
+        std::env::temp_dir().join(format!("cmux-vm-broken-config-test-{}", std::process::id()));
     std::fs::create_dir_all(dir.join("cmux")).expect("create temp dir");
     std::fs::write(dir.join("cmux").join("vm.json"), "{ not json").expect("write config");
     let xdg = dir.to_string_lossy().into_owned();
@@ -601,5 +624,80 @@ async fn a_broken_default_config_only_warns_when_env_gives_every_value() {
         "stderr: {}",
         complete.stderr
     );
-    assert_eq!(incomplete.code, exit::USAGE, "stderr: {}", incomplete.stderr);
+    assert_eq!(
+        incomplete.code,
+        exit::USAGE,
+        "stderr: {}",
+        incomplete.stderr
+    );
+}
+
+#[tokio::test]
+async fn delete_without_a_terminal_needs_yes() {
+    let server = MockServer::start().await;
+    Mock::given(wiremock::matchers::any())
+        .respond_with(ResponseTemplate::new(204))
+        .expect(0)
+        .mount(&server)
+        .await;
+
+    let out = cli(&server, &["--json", "delete", VM_ID]).await;
+
+    assert_eq!(out.code, exit::USAGE, "stderr: {}", out.stderr);
+    let error: Value = serde_json::from_str(out.stderr.trim()).expect("JSON error");
+    assert!(
+        error["error"]["message"]
+            .as_str()
+            .is_some_and(|m| m.contains("--yes")),
+        "stderr: {}",
+        out.stderr
+    );
+}
+
+#[tokio::test]
+async fn delete_at_a_terminal_needs_the_typed_vm_id() {
+    let server = MockServer::start().await;
+    Mock::given(method("DELETE"))
+        .and(path(format!("/v1/vms/{VM_ID}")))
+        .respond_with(ResponseTemplate::new(204))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let uri = server.uri();
+    let env = [("CMUX_VM_API_KEY", KEY), ("CMUX_VM_BASE_URL", uri.as_str())];
+
+    let mut wrong = Tty {
+        answer: "yes",
+        asked: 0,
+    };
+    let refused = cli_with_prompt(&["delete", VM_ID], &env, &mut wrong).await;
+    let mut right = Tty {
+        answer: VM_ID,
+        asked: 0,
+    };
+    let confirmed = cli_with_prompt(&["delete", VM_ID], &env, &mut right).await;
+
+    assert_eq!(refused.code, exit::CANCELLED, "stderr: {}", refused.stderr);
+    assert_eq!(wrong.asked, 1);
+    assert_eq!(confirmed.code, exit::OK, "stderr: {}", confirmed.stderr);
+    assert_eq!(right.asked, 1);
+}
+
+/// The real binary with stdin that is not a terminal refuses a bare delete.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_binary_refuses_delete_without_yes_when_stdin_is_not_a_terminal() {
+    let output = tokio::task::spawn_blocking(|| {
+        std::process::Command::new(env!("CARGO_BIN_EXE_cmux-vm"))
+            .args(["delete", VM_ID])
+            .env_clear()
+            .env("CMUX_VM_API_KEY", KEY)
+            .env("CMUX_VM_BASE_URL", "http://127.0.0.1:9")
+            .stdin(std::process::Stdio::null())
+            .output()
+            .expect("run cmux-vm")
+    })
+    .await
+    .expect("join");
+
+    assert_eq!(output.status.code(), Some(exit::USAGE));
 }

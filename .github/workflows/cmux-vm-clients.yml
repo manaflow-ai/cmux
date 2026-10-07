@@ -76,7 +76,7 @@ jobs:
           ./scripts/regenerate.sh
           if [[ -n "$(git status --porcelain -- .)" ]]; then
             git --no-pager diff --stat -- .
-            echo "::error::crates/cmux-vm-client/src/generated.rs is stale: run workers/cmux-vm/cli/scripts/regenerate.sh and commit the result"
+            echo "::error::the generated client (crates/cmux-vm-client/src/generated*.rs) is stale: run workers/cmux-vm/cli/scripts/regenerate.sh and commit the result"
             exit 1
           fi
 
@@ -85,7 +85,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-vm-client-generated
-          path: workers/cmux-vm/cli/crates/cmux-vm-client/src/generated.rs
+          path: workers/cmux-vm/cli/crates/cmux-vm-client/src/generated*.rs
           retention-days: 7
 
       - name: No upstream provider name in the clients

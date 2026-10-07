@@ -10,6 +10,8 @@ pub const UNEXPECTED: i32 = 1;
 pub const USAGE: i32 = 2;
 /// The API could not be reached (DNS, connection, TLS or timeout).
 pub const NETWORK: i32 = 3;
+/// `delete` was not confirmed; nothing was changed.
+pub const CANCELLED: i32 = 4;
 /// HTTP 400: the request did not match the API schema.
 pub const BAD_REQUEST: i32 = 10;
 /// HTTP 401, or no API key configured.

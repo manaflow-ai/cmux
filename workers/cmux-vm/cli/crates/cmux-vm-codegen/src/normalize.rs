@@ -64,6 +64,37 @@ pub fn normalize(doc: &mut Value) {
     }
 }
 
+/// Makes every 2xx response body raw bytes (`*/*`). Applied after
+/// [`normalize`] for the raw client variant.
+pub fn raw_success_bodies(doc: &mut Value) {
+    let Some(paths) = doc.get_mut("paths").and_then(Value::as_object_mut) else {
+        return;
+    };
+    for item in paths.values_mut().filter_map(Value::as_object_mut) {
+        for (method, operation) in item.iter_mut() {
+            if !is_http_method(method) {
+                continue;
+            }
+            let Some(responses) = operation
+                .get_mut("responses")
+                .and_then(Value::as_object_mut)
+            else {
+                continue;
+            };
+            for (status, response) in responses.iter_mut() {
+                if status.starts_with('2')
+                    && let Some(response) = response.as_object_mut()
+                    && response.contains_key("content")
+                {
+                    let mut raw = Map::new();
+                    raw.insert("*/*".to_owned(), Value::Object(Map::new()));
+                    response.insert("content".to_owned(), Value::Object(raw));
+                }
+            }
+        }
+    }
+}
+
 fn is_http_method(key: &str) -> bool {
     matches!(
         key,
@@ -378,5 +409,24 @@ mod tests {
             doc["paths"]["/v1/things"]["get"]["parameters"][0]["schema"],
             json!({ "type": "string", "enum": ["a", "b"] })
         );
+    }
+
+    #[test]
+    fn raw_success_bodies_only_touch_2xx_content() {
+        let mut doc = json!({
+            "paths": { "/v1/things": { "get": {
+                "responses": {
+                    "200": { "description": "ok", "content": { "application/json": {
+                        "schema": { "type": "object" } } } },
+                    "204": { "description": "empty" },
+                    "404": { "description": "nf", "content": { "*/*": {} } }
+                }
+            } } }
+        });
+        super::raw_success_bodies(&mut doc);
+        let responses = &doc["paths"]["/v1/things"]["get"]["responses"];
+        assert_eq!(responses["200"]["content"], json!({ "*/*": {} }));
+        assert!(responses["204"].get("content").is_none());
+        assert_eq!(responses["404"]["content"], json!({ "*/*": {} }));
     }
 }

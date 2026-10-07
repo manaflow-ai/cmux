@@ -12,6 +12,8 @@ pub struct Settings {
     pub api_key: String,
     pub base_url: String,
     pub team_id: Option<String>,
+    /// Problems that did not stop the command, for stderr.
+    pub warnings: Vec<String>,
 }
 
 /// `vm.json`. Unknown keys are ignored so newer files work with older CLIs.
@@ -31,7 +33,23 @@ impl Settings {
         env: &dyn Fn(&str) -> Option<String>,
     ) -> Result<Self, CliError> {
         let env = |name: &str| env(name).filter(|v| !v.is_empty());
-        let file = load_config(config_flag, &env)?;
+        let mut warnings = Vec::new();
+        let file = match load_config(config_flag, &env) {
+            Ok(file) => file,
+            // A broken file at the default location only matters when it is
+            // needed: if the flags and environment already give the key and
+            // the base URL, warn and go on without it.
+            Err(ConfigError::Default(message))
+                if env("CMUX_VM_API_KEY").is_some()
+                    && (base_url_flag.is_some() || env("CMUX_VM_BASE_URL").is_some()) =>
+            {
+                warnings.push(format!("ignoring the config file: {message}"));
+                ConfigFile::default()
+            }
+            Err(ConfigError::Default(message) | ConfigError::Explicit(message)) => {
+                return Err(CliError::usage(message));
+            }
+        };
 
         let api_key = env("CMUX_VM_API_KEY").or(file.api_key).ok_or_else(|| {
             CliError::unauthenticated(
@@ -56,8 +74,16 @@ impl Settings {
             api_key,
             base_url,
             team_id,
+            warnings,
         })
     }
+}
+
+enum ConfigError {
+    /// The file named by `--config` or `CMUX_VM_CONFIG` is missing or broken.
+    Explicit(String),
+    /// The file at the default location exists but cannot be read or parsed.
+    Default(String),
 }
 
 /// An explicitly named file (flag or `CMUX_VM_CONFIG`) must exist; the
@@ -65,21 +91,20 @@ impl Settings {
 fn load_config(
     config_flag: Option<&Path>,
     env: &dyn Fn(&str) -> Option<String>,
-) -> Result<ConfigFile, CliError> {
+) -> Result<ConfigFile, ConfigError> {
     let explicit = config_flag
         .map(Path::to_path_buf)
         .or_else(|| env("CMUX_VM_CONFIG").map(PathBuf::from));
-    let path = match explicit {
-        Some(path) => path,
+    let (path, wrap): (PathBuf, fn(String) -> ConfigError) = match explicit {
+        Some(path) => (path, ConfigError::Explicit),
         None => match default_config_path(env) {
-            Some(path) if path.is_file() => path,
+            Some(path) if path.is_file() => (path, ConfigError::Default),
             _ => return Ok(ConfigFile::default()),
         },
     };
     let text = std::fs::read_to_string(&path)
-        .map_err(|e| CliError::usage(format!("read config {}: {e}", path.display())))?;
-    serde_json::from_str(&text)
-        .map_err(|e| CliError::usage(format!("parse config {}: {e}", path.display())))
+        .map_err(|e| wrap(format!("read config {}: {e}", path.display())))?;
+    serde_json::from_str(&text).map_err(|e| wrap(format!("parse config {}: {e}", path.display())))
 }
 
 fn default_config_path(env: &dyn Fn(&str) -> Option<String>) -> Option<PathBuf> {

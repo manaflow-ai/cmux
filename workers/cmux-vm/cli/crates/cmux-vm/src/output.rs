@@ -1,5 +1,6 @@
-//! Human and JSON output. JSON mode prints the API response unchanged in
-//! shape, one document per command, so it can be piped to `jq`.
+//! Human and JSON output. JSON mode prints the server's response body itself
+//! (pretty-printed, keys in the server's order), so fields newer than this CLI
+//! still reach the caller. Human mode decodes the body into the generated types.
 
 use std::io::Write;
 
@@ -19,10 +20,11 @@ impl<'a> Printer<'a> {
         Self { json, out }
     }
 
-    pub fn vm(&mut self, vm: &Vm) -> Result<(), CliError> {
+    pub fn vm(&mut self, body: &[u8]) -> Result<(), CliError> {
         if self.json {
-            return self.json_value(vm);
+            return self.raw_json(body);
         }
+        let vm: Vm = decode(body)?;
         let idle = match vm.idle_timeout_seconds {
             Some(s) if s < 0.0 => "never".to_owned(),
             Some(s) => format!("{s} s"),
@@ -44,10 +46,11 @@ impl<'a> Printer<'a> {
         Ok(())
     }
 
-    pub fn vm_list(&mut self, page: &VmList) -> Result<(), CliError> {
+    pub fn vm_list(&mut self, body: &[u8]) -> Result<(), CliError> {
         if self.json {
-            return self.json_value(page);
+            return self.raw_json(body);
         }
+        let page: VmList = decode(body)?;
         if page.items.is_empty() {
             self.line("no VMs")?;
         } else {
@@ -79,11 +82,17 @@ impl<'a> Printer<'a> {
         self.line(&format!("deleted {vm_id}"))
     }
 
+    /// Pretty-prints a response body without decoding it into the generated
+    /// types, so unknown fields survive.
+    fn raw_json(&mut self, body: &[u8]) -> Result<(), CliError> {
+        let value: serde_json::Value = serde_json::from_slice(body).map_err(|e| {
+            CliError::unexpected(format!("the cmux VM API sent a body that is not JSON: {e}"))
+        })?;
+        self.json_value(&value)
+    }
+
     fn json_value(&mut self, value: &impl Serialize) -> Result<(), CliError> {
-        let mut value = serde_json::to_value(value)
-            .map_err(|e| CliError::unexpected(format!("encode JSON output: {e}")))?;
-        integral_numbers(&mut value);
-        let text = serde_json::to_string_pretty(&value)
+        let text = serde_json::to_string_pretty(value)
             .map_err(|e| CliError::unexpected(format!("encode JSON output: {e}")))?;
         self.line(&text)
     }
@@ -93,26 +102,10 @@ impl<'a> Printer<'a> {
     }
 }
 
-/// The API declares counts such as `vcpus` as JSON numbers, so the generated
-/// types hold them as `f64` and would print `2.0` for the server's `2`. Print
-/// whole numbers the way the server sent them.
-fn integral_numbers(value: &mut serde_json::Value) {
-    use serde_json::Value;
-    const EXACT: f64 = 9_007_199_254_740_992.0; // 2^53
-    match value {
-        Value::Number(n) => {
-            if let Some(f) = n.as_f64()
-                && n.is_f64()
-                && f.fract() == 0.0
-                && f.abs() < EXACT
-            {
-                #[allow(clippy::cast_possible_truncation)]
-                let whole = f as i64;
-                *value = Value::from(whole);
-            }
-        }
-        Value::Array(items) => items.iter_mut().for_each(integral_numbers),
-        Value::Object(fields) => fields.values_mut().for_each(integral_numbers),
-        _ => {}
-    }
+fn decode<T: serde::de::DeserializeOwned>(body: &[u8]) -> Result<T, CliError> {
+    serde_json::from_slice(body).map_err(|e| {
+        CliError::unexpected(format!(
+            "the cmux VM API sent a response this CLI cannot read: {e}"
+        ))
+    })
 }

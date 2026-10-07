@@ -32,11 +32,29 @@ impl CliError {
         Self::local(exit::UNAUTHENTICATED, message)
     }
 
+    pub fn network(message: impl Into<String>) -> Self {
+        Self::local(exit::NETWORK, message)
+    }
+
+    pub fn cancelled(message: impl Into<String>) -> Self {
+        Self::local(exit::CANCELLED, message)
+    }
+
+    /// An error raised by the CLI itself, before or without an HTTP status.
+    /// Its tag names the kind, so `--json` callers can branch on `tag` for
+    /// every failure, not only API errors.
     fn local(code: i32, message: impl Into<String>) -> Self {
+        let tag = match code {
+            exit::USAGE => "UsageError",
+            exit::NETWORK => "NetworkError",
+            exit::UNAUTHENTICATED => "MissingCredentials",
+            exit::CANCELLED => "Cancelled",
+            _ => "UnexpectedError",
+        };
         Self {
             code,
             status: None,
-            tag: None,
+            tag: Some(tag.to_owned()),
             message: message.into(),
         }
     }
@@ -76,10 +94,9 @@ impl CliError {
                 }
                 Self::from_status(status, &body)
             }
-            Error::CommunicationError(e) | Error::ResponseBodyError(e) => Self::local(
-                exit::NETWORK,
-                format!("could not reach the cmux VM API: {e}"),
-            ),
+            Error::CommunicationError(e) | Error::ResponseBodyError(e) => {
+                Self::network(format!("could not reach the cmux VM API: {e}"))
+            }
             Error::InvalidRequest(message) => Self::usage(message),
             Error::InvalidResponsePayload(_, e) => Self::local(
                 exit::UNEXPECTED,
@@ -148,6 +165,16 @@ impl CliError {
             }
         };
     }
+}
+
+/// Prints a non-fatal warning: a JSON line `{"warning": ...}` with `--json`,
+/// otherwise a `cmux-vm: warning:` line.
+pub fn report_warning(message: &str, json: bool, stderr: &mut dyn Write) {
+    let _ = if json {
+        writeln!(stderr, "{}", json!({ "warning": message }))
+    } else {
+        writeln!(stderr, "cmux-vm: warning: {message}")
+    };
 }
 
 async fn read_stream(stream: ByteStream) -> Vec<u8> {

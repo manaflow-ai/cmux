@@ -1,9 +1,11 @@
 //! Rust client for the cmux VM API.
 //!
 //! [`Client`] and the [`types`] module are generated from the cmux VM OpenAPI
-//! document by `cmux-vm-codegen` (see `scripts/regenerate.sh`). This file adds
-//! only what the document cannot express: the default host and bearer
-//! authentication.
+//! document by `cmux-vm-codegen` (see `scripts/regenerate.sh`). [`raw`] is the
+//! same client with every success body returned as raw bytes, for callers that
+//! must pass a response through unchanged (fields this version does not know
+//! included). This file adds only what the document cannot express: the
+//! default host and bearer authentication.
 
 #[allow(
     clippy::all,
@@ -16,6 +18,22 @@
 mod generated;
 
 pub use generated::*;
+
+/// The generated client with success bodies as raw bytes ([`ByteStream`]).
+/// Request types live in `raw::types`; they match [`types`] field for field.
+pub mod raw {
+    pub use super::generated_raw::*;
+}
+
+#[allow(
+    clippy::all,
+    clippy::pedantic,
+    unused_imports,
+    unused_mut,
+    dead_code,
+    missing_docs
+)]
+mod generated_raw;
 
 /// The production cmux VM API.
 pub const DEFAULT_BASE_URL: &str = "https://vm.cmux.com";
@@ -65,6 +83,27 @@ pub fn authenticated_client(
     team_id: Option<&str>,
     user_agent: &str,
 ) -> Result<Client, ClientBuildError> {
+    let (base_url, http) = authenticated_http(base_url, api_key, team_id, user_agent)?;
+    Ok(Client::new_with_client(&base_url, http))
+}
+
+/// [`authenticated_client`] for the [`raw`] client.
+pub fn authenticated_raw_client(
+    base_url: &str,
+    api_key: &str,
+    team_id: Option<&str>,
+    user_agent: &str,
+) -> Result<raw::Client, ClientBuildError> {
+    let (base_url, http) = authenticated_http(base_url, api_key, team_id, user_agent)?;
+    Ok(raw::Client::new_with_client(&base_url, http))
+}
+
+fn authenticated_http(
+    base_url: &str,
+    api_key: &str,
+    team_id: Option<&str>,
+    user_agent: &str,
+) -> Result<(String, reqwest::Client), ClientBuildError> {
     let base_url = base_url.trim_end_matches('/');
     match reqwest::Url::parse(base_url) {
         Ok(url) if matches!(url.scheme(), "http" | "https") && url.has_host() => {}
@@ -87,5 +126,5 @@ pub fn authenticated_client(
         .timeout(std::time::Duration::from_secs(120))
         .build()
         .map_err(ClientBuildError::Http)?;
-    Ok(Client::new_with_client(base_url, http))
+    Ok((base_url.to_owned(), http))
 }

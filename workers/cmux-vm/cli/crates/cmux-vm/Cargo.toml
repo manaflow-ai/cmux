@@ -16,7 +16,7 @@ clap.workspace = true
 cmux-vm-client = { path = "../cmux-vm-client" }
 futures.workspace = true
 serde.workspace = true
-serde_json.workspace = true
+serde_json = { workspace = true, features = ["preserve_order"] }
 tokio.workspace = true
 
 [dev-dependencies]

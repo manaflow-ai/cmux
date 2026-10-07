@@ -1,21 +1,28 @@
 //! The `cmux-vm` command-line client for the cmux VM API.
 //!
-//! Every verb calls one operation of the generated [`cmux_vm_client::Client`].
-//! [`run`] takes its environment as a lookup function so tests can drive it
-//! without touching the process environment.
+//! Every verb calls one operation of the generated client. The CLI uses its
+//! raw variant ([`cmux_vm_client::raw::Client`]) so `--json` prints the server's
+//! response body unchanged, fields newer than this CLI included; human output
+//! decodes the same bytes into the typed [`cmux_vm_client::types`].
+//! [`run`] takes its environment and its confirmation prompt as parameters so
+//! tests can drive it without touching the process environment or a terminal.
 
 pub mod exit;
 
 mod config;
 mod error;
 mod output;
+mod prompt;
+
+pub use prompt::{NoPrompt, Prompt, StdinPrompt};
 
 use std::ffi::OsString;
 use std::io::Write;
 use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand};
-use cmux_vm_client::{ByteStream, Client, types};
+use cmux_vm_client::raw::{ByteStream, Client, types};
+use futures::StreamExt;
 use serde_json::{Value, json};
 
 use crate::config::Settings;
@@ -33,6 +40,7 @@ Exit codes:
   1  unexpected error (undocumented HTTP status or unreadable response)
   2  usage error
   3  network error (the API could not be reached)
+  4  cancelled (delete was not confirmed)
   10 bad request (400)          11 not authenticated (401, or no API key)
   12 payment required (402)     13 forbidden, missing scope (403)
   14 not found (404)            15 conflict (409)
@@ -85,14 +93,23 @@ enum Command {
     Resume(VmArg),
     /// Fork a VM into a new VM with the same memory and disk
     Fork(ForkArgs),
-    /// Delete a VM permanently
-    Delete(VmArg),
+    /// Delete a VM permanently (asks to type the VM id, or needs --yes without a terminal)
+    Delete(DeleteArgs),
 }
 
 #[derive(Args, Debug)]
 struct VmArg {
     /// VM id (vm_...)
     vm_id: String,
+}
+
+#[derive(Args, Debug)]
+struct DeleteArgs {
+    /// VM id (vm_...)
+    vm_id: String,
+    /// Delete without asking; required when stdin is not a terminal
+    #[arg(long)]
+    yes: bool,
 }
 
 #[derive(Args, Debug)]
@@ -140,10 +157,12 @@ struct ListArgs {
 }
 
 /// Runs the CLI with `args` (including the program name), reading
-/// configuration through `env`, and returns the process exit code.
+/// configuration through `env` and confirmations through `prompt`, and
+/// returns the process exit code.
 pub async fn run<I, T>(
     args: I,
     env: &dyn Fn(&str) -> Option<String>,
+    prompt: &mut dyn Prompt,
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
 ) -> i32
@@ -151,25 +170,26 @@ where
     I: IntoIterator<Item = T>,
     T: Into<OsString> + Clone,
 {
-    let cli = match Cli::try_parse_from(args) {
+    let args: Vec<OsString> = args.into_iter().map(Into::into).collect();
+    let cli = match Cli::try_parse_from(&args) {
         Ok(cli) => cli,
+        Err(e) if !e.use_stderr() => {
+            // --help and --version.
+            let _ = stdout.write_all(e.render().to_string().as_bytes());
+            return exit::OK;
+        }
         Err(e) => {
-            let code = if e.use_stderr() {
-                exit::USAGE
-            } else {
-                exit::OK
-            };
             let rendered = e.render().to_string();
-            let _ = if e.use_stderr() {
-                stderr.write_all(rendered.as_bytes())
+            if json_requested(&args) {
+                CliError::usage(rendered.trim_end()).report(true, stderr);
             } else {
-                stdout.write_all(rendered.as_bytes())
-            };
-            return code;
+                let _ = stderr.write_all(rendered.as_bytes());
+            }
+            return exit::USAGE;
         }
     };
     let json = cli.json;
-    match execute(cli, env, stdout).await {
+    match execute(cli, env, prompt, stdout, stderr).await {
         Ok(()) => exit::OK,
         Err(error) => {
             error.report(json, stderr);
@@ -178,10 +198,21 @@ where
     }
 }
 
+/// Whether `--json` appears before any `--`, so a parse failure can still be
+/// reported as JSON.
+fn json_requested(args: &[OsString]) -> bool {
+    args.iter()
+        .skip(1)
+        .take_while(|a| a.as_os_str() != "--")
+        .any(|a| a.as_os_str() == "--json")
+}
+
 async fn execute(
     cli: Cli,
     env: &dyn Fn(&str) -> Option<String>,
+    prompt: &mut dyn Prompt,
     stdout: &mut dyn Write,
+    stderr: &mut dyn Write,
 ) -> Result<(), CliError> {
     let settings = Settings::resolve(
         cli.base_url.as_deref(),
@@ -189,7 +220,10 @@ async fn execute(
         cli.config.as_deref(),
         env,
     )?;
-    let client = cmux_vm_client::authenticated_client(
+    for warning in &settings.warnings {
+        error::report_warning(warning, cli.json, stderr);
+    }
+    let client = cmux_vm_client::authenticated_raw_client(
         &settings.base_url,
         &settings.api_key,
         settings.team_id.as_deref(),
@@ -197,12 +231,13 @@ async fn execute(
     )
     .map_err(|e| CliError::usage(e.to_string()))?;
     let out = output::Printer::new(cli.json, stdout);
-    dispatch(&client, cli.command, out).await
+    dispatch(&client, cli.command, prompt, out).await
 }
 
 async fn dispatch(
     client: &Client,
     command: Command,
+    prompt: &mut dyn Prompt,
     mut out: output::Printer<'_>,
 ) -> Result<(), CliError> {
     match command {
@@ -214,13 +249,13 @@ async fn dispatch(
             }))?;
             let key_text = args.idempotency_key.unwrap_or_else(new_idempotency_key);
             let key = parse_key::<types::VmsCreateVmIdempotencyKey>(&key_text)?;
-            let vm = call(client.vms_create_vm(Some(&key), None, &body))
+            let vm = fetch_body(client.vms_create_vm(Some(&key), None, &body))
                 .await
                 .map_err(|e| e.with_idempotency_hint(&key_text))?;
             out.vm(&vm)
         }
         Command::Get(VmArg { vm_id }) => {
-            let vm = call(client.vms_get_vm(&vm_id, None)).await?;
+            let vm = fetch_body(client.vms_get_vm(&vm_id, None)).await?;
             out.vm(&vm)
         }
         Command::List(args) => {
@@ -228,23 +263,24 @@ async fn dispatch(
             let state = parse_opt::<types::VmsListVmsState>("--state", args.state)?;
             let limit = args.limit.map(|n| n.to_string());
             let page =
-                call(client.vms_list_vms(cursor.as_ref(), limit.as_deref(), state, None)).await?;
+                fetch_body(client.vms_list_vms(cursor.as_ref(), limit.as_deref(), state, None))
+                    .await?;
             out.vm_list(&page)
         }
         Command::Start(VmArg { vm_id }) => {
-            let vm = call(client.vms_start_vm(&vm_id, None)).await?;
+            let vm = fetch_body(client.vms_start_vm(&vm_id, None)).await?;
             out.vm(&vm)
         }
         Command::Stop(VmArg { vm_id }) => {
-            let vm = call(client.vms_stop_vm(&vm_id, None)).await?;
+            let vm = fetch_body(client.vms_stop_vm(&vm_id, None)).await?;
             out.vm(&vm)
         }
         Command::Pause(VmArg { vm_id }) => {
-            let vm = call(client.vms_pause_vm(&vm_id, None)).await?;
+            let vm = fetch_body(client.vms_pause_vm(&vm_id, None)).await?;
             out.vm(&vm)
         }
         Command::Resume(VmArg { vm_id }) => {
-            let vm = call(client.vms_resume_vm(&vm_id, None)).await?;
+            let vm = fetch_body(client.vms_resume_vm(&vm_id, None)).await?;
             out.vm(&vm)
         }
         Command::Fork(args) => {
@@ -254,22 +290,80 @@ async fn dispatch(
             }))?;
             let key_text = args.idempotency_key.unwrap_or_else(new_idempotency_key);
             let key = parse_key::<types::VmsForkVmIdempotencyKey>(&key_text)?;
-            let vm = call(client.vms_fork_vm(&args.vm_id, Some(&key), None, &body))
+            let vm = fetch_body(client.vms_fork_vm(&args.vm_id, Some(&key), None, &body))
                 .await
                 .map_err(|e| e.with_idempotency_hint(&key_text))?;
             out.vm(&vm)
         }
-        Command::Delete(VmArg { vm_id }) => {
+        Command::Delete(DeleteArgs { vm_id, yes }) => {
+            if !yes {
+                confirm_delete(prompt, &vm_id)?;
+            }
             call(client.vms_delete_vm(&vm_id, None)).await?;
             out.deleted(&vm_id)
         }
     }
 }
 
+/// Asks a person at a terminal to type the VM id. Without a terminal the
+/// caller (usually an agent or a script) must pass `--yes` instead.
+fn confirm_delete(prompt: &mut dyn Prompt, vm_id: &str) -> Result<(), CliError> {
+    if !prompt.is_interactive() {
+        return Err(CliError::usage(format!(
+            "refusing to delete {vm_id} without confirmation: stdin is not a terminal, so pass --yes"
+        )));
+    }
+    let answer = prompt
+        .ask(&format!(
+            "Delete {vm_id} permanently? This cannot be undone. Type the VM id to confirm: "
+        ))
+        .map_err(|e| CliError::cancelled(format!("could not read the confirmation: {e}")))?;
+    if answer.trim() == vm_id {
+        Ok(())
+    } else {
+        Err(CliError::cancelled(format!(
+            "the typed id did not match {vm_id}; nothing was deleted"
+        )))
+    }
+}
+
+/// Success bodies larger than this are refused rather than buffered.
+const MAX_RESPONSE_BODY: usize = 16 * 1024 * 1024;
+
+/// Awaits one raw API call and returns its whole success body.
+async fn fetch_body(
+    request: impl std::future::Future<
+        Output = Result<
+            cmux_vm_client::raw::ResponseValue<ByteStream>,
+            cmux_vm_client::raw::Error<ByteStream>,
+        >,
+    >,
+) -> Result<Vec<u8>, CliError> {
+    let mut stream = call(request).await?.into_inner();
+    let mut bytes = Vec::new();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| {
+            CliError::network(format!(
+                "the response from the cmux VM API was cut off: {e}"
+            ))
+        })?;
+        if bytes.len() + chunk.len() > MAX_RESPONSE_BODY {
+            return Err(CliError::unexpected(
+                "the cmux VM API response is larger than 16 MiB",
+            ));
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    Ok(bytes)
+}
+
 /// Awaits one API call and maps its failure to a [`CliError`].
 async fn call<T>(
     request: impl std::future::Future<
-        Output = Result<cmux_vm_client::ResponseValue<T>, cmux_vm_client::Error<ByteStream>>,
+        Output = Result<
+            cmux_vm_client::raw::ResponseValue<T>,
+            cmux_vm_client::raw::Error<ByteStream>,
+        >,
     >,
 ) -> Result<T, CliError> {
     match request.await {
@@ -298,8 +392,15 @@ where
         .map_err(|e| CliError::usage(format!("invalid --idempotency-key {key:?}: {e}")))
 }
 
-/// A fresh idempotency key for one create or fork. `RandomState` is seeded
-/// from the OS once per process and then advanced, so keys do not repeat.
+/// A fresh idempotency key for one create or fork.
+///
+/// The randomness comes from the standard library's `RandomState`, whose
+/// SipHash keys are seeded from the OS once per process and advanced for each
+/// new state, mixed with the clock. That gives at least 64 unpredictable bits
+/// per process, which is enough here: the key only has to differ from this
+/// team's other recent keys so that a retry is recognized and a new request is
+/// not. It is not a secret and needs no cryptographic generator, so the CLI
+/// does not add a UUID or RNG dependency for it.
 fn new_idempotency_key() -> String {
     use std::hash::{BuildHasher, Hasher};
     let mut words = [0_u64; 2];

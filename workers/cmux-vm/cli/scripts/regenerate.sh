@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Regenerates crates/cmux-vm-client/src/generated.rs from the cmux VM OpenAPI
+# Regenerates crates/cmux-vm-client/src/generated.rs and generated_raw.rs from the cmux VM OpenAPI
 # document. CI runs this and fails if the checked-in file changes.
 #
 # The document is workers/cmux-vm/openapi.json, which the Worker generates
@@ -11,4 +11,5 @@ spec="../openapi.json"
 cargo run --locked --quiet -p cmux-vm-codegen -- \
   --spec "$spec" \
   --out crates/cmux-vm-client/src/generated.rs \
+  --raw-out crates/cmux-vm-client/src/generated_raw.rs \
   --label "workers/cmux-vm/openapi.json"

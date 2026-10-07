@@ -4,6 +4,7 @@ async fn main() {
     let code = cmux_vm::run(
         std::env::args_os(),
         &env,
+        &mut cmux_vm::StdinPrompt,
         &mut std::io::stdout().lock(),
         &mut std::io::stderr().lock(),
     )
