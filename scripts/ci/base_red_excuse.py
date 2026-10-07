@@ -4,9 +4,11 @@
 Run via scripts/gh-merge-green before it refuses a red cmux-next run or a red
 required check. A failed job on the PR head is excused only when the same job
 of the same workflow, on the latest completed run of the base branch that has
-a verdict, also failed, and the head's failed steps, failing test names and
-error lines are all among the base's. Names are compared, not counts: the base
-may fail more. A runner refusal (no steps, a failed setup step, or the glaeda
+a verdict, also failed, and the head's failed steps and failing test names are
+all among the base's. Error lines are compared only when no test failed (a
+compile error, say), and warnings never are: they vary run to run (SwiftPM's
+cache warnings refused #18147 on 2026-10-07). Names are compared, not counts:
+the base may fail more. A runner refusal (no steps, a failed setup step, or the glaeda
 hook's refusal), a cancelled or timed-out job, and a failure with no test or
 error line to compare are never excused. One base red then no longer freezes
 every pull request into that base (2026-10-07: four base reds, and the PRs
@@ -38,6 +40,7 @@ TESTS = (
     re.compile(r"^FAILED (\S+::\S+)"),  # pytest
 )
 ERROR = re.compile(r"##\[error\]|\berror:")
+WARNING = re.compile(r"##\[warning\]|\bwarning:")
 # Summaries carry counts, and a test's own lines already name it.
 GENERIC = re.compile(r"Process completed with exit code|red tests?:|✘ Test |Test Case '|\.\.\. FAILED$")
 STAMP = re.compile(r"^\d{4}-\d\d-\d\dT[\d:.]+Z ?")
@@ -62,7 +65,7 @@ def signature(job: dict, log: str) -> tuple[set[str], set[str], set[str]]:
         for pattern in TESTS:
             if match := pattern.search(text):
                 tests.add(match.group(1))
-        if ERROR.search(text) and not GENERIC.search(text):
+        if ERROR.search(text) and not GENERIC.search(text) and not WARNING.search(text):
             errors.add(re.sub(r"\d+", "#", text.replace("##[error]", "").strip()))
     return steps, tests, errors
 
@@ -148,8 +151,10 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         if not head_tests and not head_errors:
             raise Refused(f"'{name}': no failing test or error line to match; nothing to compare with the base")
         base_steps, base_tests, base_errors = signature(base_job, github.log(repo, base_job))
-        for kind, head, seen in (("failed steps", head_steps, base_steps), ("failing tests", head_tests, base_tests),
-                                 ("errors", head_errors, base_errors)):
+        compared = [("failed steps", head_steps, base_steps), ("failing tests", head_tests, base_tests)]
+        if not head_tests:
+            compared.append(("errors", head_errors, base_errors))
+        for kind, head, seen in compared:
             if missing := sorted(head - seen):
                 raise Refused(f"'{name}': {kind} not on {base} run {base_run['id']}: {'; '.join(missing)[:600]}")
         what = "; ".join(sorted(head_tests)) or "; ".join(sorted(head_errors))

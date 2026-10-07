@@ -114,6 +114,28 @@ class Excusing(unittest.TestCase):
                               "Sources/App/Onboarding.swift:30:7: error: type 'ActionSurfaces' has no member 'cli'")
         self.assertIn(SCHEME, "\n".join(self.judge()))
 
+    def test_warning_lines_that_differ_between_runs_do_not_block(self):
+        # #18147 at 6b8ec44652f against base run 37564446089: the same red test,
+        # refused over SwiftPM cache warnings only the head printed.
+        self.gh.logs[1] = log(SWIFT, TEST_STEP, ISSUE,
+                              "warning: 'swift-collections': skipping cache due to an error: "
+                              "The file \u201cmaintenance.lock\u201d doesn\u2019t exist.",
+                              "##[warning]'swift-system': skipping cache due to an error: lock")
+        self.assertIn(SWIFT, "\n".join(self.judge()))
+
+    def test_failing_tests_decide_and_error_lines_beside_them_are_not_compared(self):
+        self.gh.logs[1] = log(SWIFT, TEST_STEP, ISSUE, "##[error]error: the swift test run exited with signal 6")
+        self.assertIn(SWIFT, "\n".join(self.judge()))
+
+    def test_a_compile_error_with_a_warning_only_the_head_printed_is_excused(self):
+        self.gh.jobs[1] = failed_job(1, 10, HEAD, name=SCHEME, step="Compile the cmux scheme")
+        self.gh.jobs[2] = failed_job(2, 20, BASE_SHA, name=SCHEME, step="Compile the cmux scheme")
+        error = "Sources/App/Onboarding.swift:30:7: error: type 'ActionSurfaces' has no member 'cli'"
+        self.gh.logs[1] = log(SCHEME, "Compile the cmux scheme", error,
+                              "Sources/App/Other.swift:9:1: warning: an error: in a warning is noise")
+        self.gh.logs[2] = log(SCHEME, "Compile the cmux scheme", error)
+        self.assertIn(SCHEME, "\n".join(self.judge()))
+
     def test_a_job_green_on_the_base_blocks(self):
         self.gh.jobs[2]["conclusion"] = "success"
         with self.assertRaisesRegex(excuse.Refused, "not red on feat-cmux-next"):
