@@ -259,7 +259,8 @@ describe("localized pricing page", () => {
     stackConfigured = false;
     currentUser = proUser;
     stripeSubscriptionRows = [];
-    getUser.mockClear();
+    getUser.mockReset();
+    getUser.mockImplementation(async () => currentUser);
     proUser.update.mockClear();
   });
 

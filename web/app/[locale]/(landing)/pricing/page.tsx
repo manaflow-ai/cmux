@@ -243,12 +243,10 @@ function PricingContent({
     attribution,
   );
   // Max is monthly only: one checkout link, no interval parameter.
-  const maxCheckoutHref = withCheckoutAttribution(
-    snapshot.authenticated && snapshot.isPro && !isMax
-      ? "/api/billing/portal?flow=switch_plan&plan=max"
-      : MAX_CHECKOUT_URL,
-    attribution,
-  );
+  // The checkout endpoint decides whether this is a new purchase or an
+  // existing-subscription plan switch. Pro entitlement alone does not imply
+  // that a Stripe customer exists (for example, manually granted Pro access).
+  const maxCheckoutHref = withCheckoutAttribution(MAX_CHECKOUT_URL, attribution);
   const proCheckoutHref = withCheckoutInterval(proCheckoutURL, "month");
   const teamCheckoutHref = withCheckoutInterval(teamCheckoutURL, "month");
   const maxComparePrice = `$${MAX_PRICING_USD.month.billedAmount} ${t("perMonth")}`;
