@@ -197,16 +197,23 @@ import Testing
         try await rig.start()
         defer { rig.server.stop() }
         let sheets = Sheets(on: rig.transport, reply: nil)
-        // Two options in different slots: the second asks while the first's sheet is open.
-        let effort: [String: Any] = ["method": "session/set_config_option", "params": ["configId": "effort", "value": "high"]]
-        let first = Task { await rig.send("session/set_config_option", Self.fastParams, ticket: await rig.ticket(Self.fastIntent)) }
+        // Two options that are not free, in different slots (a second ticket for the same slot would
+        // replace the first). The pane's frames go in order, so the second asks once the first is answered.
+        let sandbox: [String: Any] = ["method": "session/set_config_option", "params": ["configId": "sandbox", "value": "off"]]
+        let firstTicket = await rig.ticket(Self.fastIntent)
+        let secondTicket = await rig.ticket(sandbox)
+        let first = Task { await rig.send("session/set_config_option", Self.fastParams, ticket: firstTicket) }
         #expect(await eventually { sheets.asked.count == 1 })
-        let second = await rig.send("session/set_config_option", ["sessionId": "s", "configId": "effort", "value": "high"],
-                                    ticket: await rig.ticket(effort))
-        #expect(second == .modeNotConfirmed, "no second sheet while one is open")
+        let second = Task {
+            await rig.send("session/set_config_option", ["sessionId": "s", "configId": "sandbox", "value": "off"], ticket: secondTicket)
+        }
         #expect(sheets.asked == ["fast = true"])
         sheets.answer(true)
+        #expect(await eventually { sheets.asked.count == 2 })
+        #expect(sheets.asked.last == "sandbox = off")
+        sheets.answer(false)
         #expect(await first.value == nil)
+        #expect(await second.value == .modeNotConfirmed)
         #expect(sheets.maxOpen == 1)
     }
 }
