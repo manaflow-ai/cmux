@@ -160,6 +160,7 @@ export type AcpmuxSnapshot = {
     name: string;
     models: AcpmuxCatalogModel[];
     unavailable?: string;
+    pickable?: boolean;
     /** acpmux's family for the harness (`_acpmux/harnesses` `family`): joins it to a catalog harness. */
     family?: string;
     /** `_acpmux/harnesses` `icon`: a brand id, or a file the host serves. */

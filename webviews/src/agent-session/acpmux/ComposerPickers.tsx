@@ -129,6 +129,15 @@ export function ComposerPickers({
 }: Props) {
   const t = useT();
   const summary = snapshot.summary;
+  const pickerEntries = pickerCatalog
+    ? pickerCatalog.harnesses.map((entry) => ({
+        id: entry.acpmuxHarness ?? entry.id,
+        name: entry.name,
+        models: entry.models,
+        ...(entry.unavailable ? { unavailable: entry.unavailable } : {}),
+        pickable: entry.pickable && entry.acpmuxHarness !== null,
+      }))
+    : snapshot.catalog;
   // An agent's own default reads "Default", never its "(Claude Code's choice)" phrasing.
   const models: Choice[] = sessionModels(snapshot.catalog, summary).map((choice) =>
     isDefaultChoice(choice) ? { ...choice, name: t("picker.default") } : choice,
@@ -256,7 +265,7 @@ export function ComposerPickers({
     <div className="acpmux-chips">
       {(models.length > 0 || snapshot.catalog.length > 0 || harness) && (
         <ModelPicker
-          catalog={pickerCatalog ?? snapshot.catalog}
+          catalog={pickerEntries}
           harness={harness}
           model={shown}
           label={modelName ?? t(PICKER_LABELS.model)}

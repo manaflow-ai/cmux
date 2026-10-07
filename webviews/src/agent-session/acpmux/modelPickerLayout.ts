@@ -4,13 +4,11 @@ import type React from "react";
 import { useLayoutEffect } from "react";
 import type { AcpmuxSnapshot } from "./model";
 import type { Choice, Combo } from "./ComposerPickers";
-import type { PickerCatalog } from "./modelCatalogData";
 
 /// What the picker gets from ComposerPickers. Picks go through `onLand` (model, then its effort
 /// once the agent reports that model) and `onEffort`.
 export type ModelPickerProps = {
-  /** The joined host catalog in the app; tests and gallery may still provide the daemon catalog. */
-  catalog: AcpmuxSnapshot["catalog"] | PickerCatalog;
+  catalog: AcpmuxSnapshot["catalog"];
   harness?: string;
   model?: string;
   /// The chip's text: the current model's name, or its id when the catalog doesn't list it.

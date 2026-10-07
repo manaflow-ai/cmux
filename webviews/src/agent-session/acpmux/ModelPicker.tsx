@@ -15,7 +15,6 @@ import { CheckIcon, ChevronIcon, PICKER_LABELS, SearchIcon } from "./ComposerPic
 import { Icon } from "./icons/Icon";
 import { currentLanguage, useT } from "./i18n";
 import type { ModelPickerProps } from "./modelPickerLayout";
-import type { PickerCatalog, PickerHarness } from "./modelCatalogData";
 import { registerPicker } from "./pickerOpeners";
 import { useUiAnchor } from "../../ui/anchor";
 import { usePopoverTrigger } from "./popoverTrigger";
@@ -76,25 +75,15 @@ function choicesFor(entry: HarnessChoice | undefined): ModelChoice[] {
 }
 
 function uniqueHarnesses(catalog: ModelPickerProps["catalog"]): HarnessChoice[] {
-  const entries: HarnessChoice[] = Array.isArray(catalog)
-    ? catalog.map((entry) => ({
-        id: entry.id,
-        ids: [entry.id],
-        name: entry.name,
-        models: entry.models,
-        unavailable: entry.unavailable,
-        acpmuxHarness: entry.id,
-        pickable: true,
-      }))
-    : (catalog as PickerCatalog).harnesses.map((entry: PickerHarness) => ({
-        id: entry.id,
-        ids: [entry.id, ...(entry.acpmuxHarness ? [entry.acpmuxHarness] : [])],
-        name: entry.name,
-        models: entry.models,
-        unavailable: entry.unavailable,
-        acpmuxHarness: entry.acpmuxHarness ?? undefined,
-        pickable: entry.pickable,
-      }));
+  const entries: HarnessChoice[] = catalog.map((entry) => ({
+    id: entry.id,
+    ids: [entry.id],
+    name: entry.name,
+    models: entry.models,
+    unavailable: entry.unavailable,
+    acpmuxHarness: entry.id,
+    pickable: entry.pickable !== false,
+  }));
   const result: HarnessChoice[] = [];
   const byName = new Map<string, HarnessChoice>();
   for (const entry of entries) {
@@ -107,6 +96,8 @@ function uniqueHarnesses(catalog: ModelPickerProps["catalog"]): HarnessChoice[] 
         name,
         models: [...entry.models],
         unavailable: entry.unavailable,
+        acpmuxHarness: entry.acpmuxHarness,
+        pickable: entry.pickable,
       };
       result.push(next);
       byName.set(name, next);
