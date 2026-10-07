@@ -88,3 +88,14 @@ fn the_host_listens_on_loopback_only() {
         assert!(loopback_only(bad.parse().expect("addr")).is_err(), "{bad}");
     }
 }
+
+/// The secret never reaches a refusal reason (the host logs and sends those).
+#[test]
+fn refusals_never_carry_the_secret() {
+    let good = "ef".repeat(32);
+    let wrong = "01".repeat(32);
+    for hello in [hello(Some(&wrong)), hello(None), RdControl::Stop] {
+        let reason = authorize(Some(&good), &hello).expect_err("refused");
+        assert!(!reason.contains(&good) && !reason.contains(&wrong), "{reason}");
+    }
+}

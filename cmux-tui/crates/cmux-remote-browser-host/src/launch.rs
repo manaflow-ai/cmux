@@ -54,14 +54,14 @@ pub fn authorize(
     let cmux_rd_proto::control::Control::Hello { token: Some(token), .. } = hello else {
         return Err("the viewer's hello carries no session token");
     };
-    let key = &token.0;
-    // Constant time over the secret's length, so timing does not leak it.
-    let (a, b) = (secret.as_bytes(), key.as_bytes());
-    let mut diff = u8::from(a.len() != b.len());
-    for (i, x) in a.iter().enumerate() {
-        diff |= x ^ b.get(i).copied().unwrap_or(0);
+    // Constant time (subtle), so timing does not leak the secret. A length
+    // mismatch returns early; the length (64 hex characters) is public.
+    use subtle::ConstantTimeEq;
+    if bool::from(secret.as_bytes().ct_eq(token.0.as_bytes())) {
+        Ok(())
+    } else {
+        Err("the viewer's session token is not the host's secret")
     }
-    if diff == 0 { Ok(()) } else { Err("the viewer's key is not the host's secret") }
 }
 
 /// `--listen` must be a loopback address: a host never serves other machines.
