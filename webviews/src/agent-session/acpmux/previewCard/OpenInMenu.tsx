@@ -35,7 +35,10 @@ export function OpenInMenu({ url, onOpenInPane }: { url: string; onOpenInPane: (
           {t("preview.cmuxBrowser")}
         </MenuItem>
         {browsers?.map((browser) => (
-          <MenuItem key={browser.id} onSelect={() => void callChipHost("browser.openIn", { url, browserId: browser.id })}>
+          <MenuItem
+            key={browser.id}
+            onSelect={() => void callChipHost("browser.openIn", { url, browserId: browser.id })}
+          >
             {browser.icon?.startsWith("data:image/") ? (
               <img className="acpmux-open-in__icon" src={browser.icon} alt="" width={16} height={16} />
             ) : (

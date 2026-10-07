@@ -125,6 +125,8 @@ type EntryBase<V> = {
   anchors?: PlayTarget[];
   /** Looser play checks than the strict defaults, each with its written reason. */
   checks?: PlayChecks;
+  /** Opt into viewer choices tied to a tracker item. */
+  pick?: { beadId: string; recommendedId: string };
   variants: Record<string, V>;
 };
 
@@ -197,6 +199,10 @@ export function validateEntries(entries: readonly GalleryEntry[]): string[] {
     if (variants.length === 0) problems.push(`${entry.id}: no variants`);
     for (const name of variants)
       if (!VARIANT_NAME.test(name)) problems.push(`${entry.id}#${name}: variant names are lower kebab case`);
+    if (entry.pick) {
+      if (!/^cx-[a-z0-9.]+$/.test(entry.pick.beadId)) problems.push(`${entry.id}: invalid pick bead id`);
+      if (!variants.includes(entry.pick.recommendedId)) problems.push(`${entry.id}: recommended variant is missing`);
+    }
     if (entry.covers.length === 0) problems.push(`${entry.id}: covers nothing`);
     for (const problem of checkReasons(entry.checks)) problems.push(`${entry.id}: ${problem}`);
   }
