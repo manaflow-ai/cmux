@@ -184,7 +184,12 @@ extension MessageCellLayout {
             y += size.height
         } else if !message.text.isEmpty {
             let hPad = t.bubbleHorizontalPadding, vPad = t.bubbleVerticalPadding
-            let size = measure(text, maxWidth: maxBubbleWidth - 2 * hPad)
+            // Unrounded, as ChatKit sizes balloons ("Hello there" is 110.83 pt wide).
+            let size = text.boundingRect(
+                with: CGSize(width: maxBubbleWidth - 2 * hPad, height: .greatestFiniteMagnitude),
+                options: [.usesLineFragmentOrigin, .usesFontLeading],
+                context: nil
+            ).size
             let textHeight = max(size.height, t.bubbleFont.lineHeight)
             let bodyWidth = max(size.width + 2 * hPad, t.minBubbleWidth)
             let h = textHeight + 2 * vPad
@@ -287,7 +292,7 @@ extension MessageCellLayout {
         }
 
         return MessageCellLayout(
-            height: ceil(y),
+            height: y,
             senderNameFrame: senderNameFrame,
             quoteFrame: quoteFrame,
             quoteTextFrame: quoteTextFrame,
