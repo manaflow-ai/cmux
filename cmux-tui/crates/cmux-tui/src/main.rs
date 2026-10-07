@@ -1765,6 +1765,7 @@ fn run_main() {
     // `server start` is the canonical spelling for the existing foreground
     // headless owner. Keep startup in the established Args/run_server path so
     // lifecycle aliases cannot drift into a second server launcher.
+    cli::rewrite_deprecated_server_lifecycle(&mut raw_args);
     rewrite_server_start(&mut raw_args);
     if is_cli_invocation(&raw_args) {
         discard_provider_secret_environment();

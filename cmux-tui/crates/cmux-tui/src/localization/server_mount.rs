@@ -7,20 +7,20 @@ pub(crate) struct ServerMountText {
     pub server_is_machine_server: &'static str,
     /// `{option}`: the refused global option.
     pub server_global_option_refused: &'static str,
-    /// `{verb}`: the old lifecycle verb.
-    pub daemon_lifecycle_moved: &'static str,
+    /// `{verb}`: the old lifecycle verb, run as `cmux daemon {verb}`.
+    pub daemon_lifecycle_deprecated: &'static str,
 }
 
 static ENGLISH: ServerMountText = ServerMountText {
     server_is_machine_server: "`cmux server` runs this machine as a cmux server (`cmux server --help`); the session daemon is `cmux daemon`",
     server_global_option_refused: "`cmux server` does not take {option}; its only global options are --json and --idempotency-key",
-    daemon_lifecycle_moved: "the daemon lifecycle moved: run `cmux daemon {verb}`",
+    daemon_lifecycle_deprecated: "`cmux server {verb}` for the session daemon is deprecated; running `cmux daemon {verb}` (use that from now on)",
 };
 
 static JAPANESE: ServerMountText = ServerMountText {
     server_is_machine_server: "`cmux server` はこのマシンを cmux サーバーとして動かします（`cmux server --help`）。セッションデーモンは `cmux daemon` です",
     server_global_option_refused: "`cmux server` は {option} を受け付けません。使えるグローバルオプションは --json と --idempotency-key だけです",
-    daemon_lifecycle_moved: "デーモンの操作は移動しました。`cmux daemon {verb}` を実行してください",
+    daemon_lifecycle_deprecated: "セッションデーモンの `cmux server {verb}` は非推奨です。`cmux daemon {verb}` として実行します (今後はこちらを使ってください)",
 };
 
 /// The messages in the language of [`super::catalog`].
@@ -43,8 +43,8 @@ mod tests {
     fn every_language_has_the_mount_messages() {
         let en = super::server_mount_for_locale("en_US.UTF-8");
         let ja = super::server_mount_for_locale("ja_JP.UTF-8");
-        assert!(en.daemon_lifecycle_moved.contains("cmux daemon {verb}"));
-        assert!(ja.daemon_lifecycle_moved.contains("cmux daemon {verb}"));
+        assert!(en.daemon_lifecycle_deprecated.contains("cmux daemon {verb}"));
+        assert!(ja.daemon_lifecycle_deprecated.contains("cmux daemon {verb}"));
         assert!(ja.server_global_option_refused.contains("{option}"));
         assert_ne!(en.server_is_machine_server, ja.server_is_machine_server);
     }

@@ -21,6 +21,8 @@ mod extra_help;
 mod federation;
 mod lifecycle;
 mod machine_server;
+#[cfg(test)]
+use machine_server::ServerRoute;
 pub(crate) use machine_server::is_lifecycle_scope;
 #[cfg(unix)]
 mod mcp;
@@ -194,11 +196,26 @@ pub(super) fn canonical_scope(value: &str) -> &str {
     shorthand::scope(value)
 }
 
+/// Rewrites a pre-D1 `cmux server <lifecycle verb>` to `cmux daemon <verb>`
+/// (with the deprecation hint), so `main` routes `server start` to the
+/// headless startup like `daemon start`. No-op elsewhere.
+pub(crate) fn rewrite_deprecated_server_lifecycle(args: &mut Vec<String>) {
+    if let Some(rewritten) = machine_server::deprecated_lifecycle(args, Surface::current()) {
+        *args = rewritten;
+    }
+}
+
 pub fn run(args: &[String], startup_usage: &str) -> i32 {
     let surface = Surface::current();
-    if let Some(code) = machine_server::run_if_requested(args, surface) {
-        return code;
-    }
+    let lifecycle_args;
+    let args = match machine_server::run_if_requested(args, surface) {
+        Some(machine_server::Mount::Exit(code)) => return code,
+        Some(machine_server::Mount::Lifecycle(rewritten)) => {
+            lifecycle_args = rewritten;
+            lifecycle_args.as_slice()
+        }
+        None => args,
+    };
     #[cfg(unix)]
     if let Some(code) = mcp::run_if_requested(args)
         .or_else(|| coderouter::run_if_requested(args))

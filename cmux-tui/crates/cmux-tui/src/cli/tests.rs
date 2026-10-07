@@ -364,9 +364,10 @@ fn cmux_server_option_values_and_old_lifecycle_routing() {
         }
     );
     // A machine server verb with --session is refused, without a daemon hint.
-    let Some(Err((error, _))) =
-        machine_server::args_for(&strings(&["--session", "agents", "server", "install"]), Surface::Cmux)
-    else {
+    let Some(Err((error, _))) = machine_server::args_for(
+        &strings(&["--session", "agents", "server", "install"]),
+        Surface::Cmux,
+    ) else {
         panic!("server install with --session was accepted");
     };
     assert!(error.0.contains("--session") && !error.0.contains("cmux daemon"), "{}", error.0);
@@ -442,7 +443,11 @@ fn old_lifecycle_verbs_under_cmux_server_still_run_the_daemon_lifecycle() {
             })),
             "server {verb}"
         );
-        // The rewritten words parse as the daemon lifecycle on `cmux`.
+        // The rewritten words parse as the daemon lifecycle on `cmux`
+        // (`daemon start` is the headless startup, routed by main.rs).
+        if verb == "start" {
+            continue;
+        }
         let parsed = parse(&strings(&["--session", "s", "daemon", verb]), Surface::Cmux);
         assert!(
             matches!(parsed, Ok(ParsedCommand::Command { plan: CommandPlan::Server(_), .. })),

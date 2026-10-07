@@ -359,8 +359,16 @@ fn old_cmux_server_lifecycle_spellings_still_run_the_daemon_lifecycle() {
     assert_eq!(value["status"], "not_running");
     assert!(json.stderr.is_empty(), "{}", text(&json.stderr));
 
+    // `server start` reaches the headless startup like `daemon start`: an
+    // unknown startup option is the startup's usage error, not the mount's.
+    let start = cmux(&dir, &["server", "start", "--no-such-startup-option"]);
+    let stderr = text(&start.stderr);
+    assert!(stderr.contains("cmux daemon start"), "{stderr}");
+    assert!(stderr.contains("--no-such-startup-option"), "{stderr}");
+
     // `status` with --session or --socket is the daemon's status.
-    let status = cmux(&dir, &["--json", "server", "status", "--session", "absent", "--socket", socket]);
+    let status =
+        cmux(&dir, &["--json", "server", "status", "--session", "absent", "--socket", socket]);
     assert_eq!(status.status.code(), Some(3), "{}", text(&status.stderr));
     let error: Value = serde_json::from_slice(&status.stderr).unwrap();
     assert_eq!(error["code"], "server.unavailable");
