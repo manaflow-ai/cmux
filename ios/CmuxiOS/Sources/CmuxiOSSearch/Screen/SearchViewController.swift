@@ -72,6 +72,8 @@ final class SearchViewController: UIViewController, UICollectionViewDelegate, UI
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         session.start()
+        // Recents may have changed while the screen was away.
+        render()
     }
 
     override func viewDidAppear(_ animated: Bool) {

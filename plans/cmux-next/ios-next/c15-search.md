@@ -135,3 +135,19 @@ and the subsequence switch, ranking order and grouping, per-group cap, boosts, p
 (workspaces and tabs, feed, hosts), recent searches (dedupe, cap, order, clear), session debounce on a
 test clock. They run with `swift test` on macOS through a scratch package that links the same
 sources, and compile for the simulator.
+
+## 9. Status (2026-10-06)
+
+Done: `CmuxiOSSearchCore` and `CmuxiOSSearch` as above, the Search tab (`searchTab` flag, DEBUG on,
+`UISearchTab` on iOS 18), Cmd-K (`ShellRootController.onSearchCommand`, skipped while the selected
+screen hides the tab bar so terminals keep Cmd-K), `cmux://search?q=`, `SSHFeature.openHost` and
+`presentAddHost`, `ShellSettingsModel.openedPage`, and `.workspace` routes now opening the workspace
+detail. 38 Swift Testing tests in `CmuxiOSSearchCoreTests` pass on macOS through a scratch package;
+`CmuxiOSApp`, `CmuxiOSSearchCoreTests`, `CmuxiOSPlatformTests` (new search route cases) and
+`CmuxiOSShellTests` compile for `arm64-apple-ios17.0-simulator` with SwiftPM.
+
+Unverified: everything visual (no simulator run), VoiceOver and Dynamic Type, hardware-keyboard
+arrows over the focused search field, Cmd-K with no first responder after a field resigns (the
+shell becomes first responder only on appear), and the `CmuxiOSPlatformTests` route cases at run
+time. Tagged build `nxc15` not attempted (known blockers: no fleet manifest on this Mac, dev backend
+VM unreachable, 14 GiB free).
