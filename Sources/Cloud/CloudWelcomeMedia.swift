@@ -88,7 +88,7 @@ struct CloudWelcomeMediaCarousel: View {
     /// Short draft clips still need enough time for the title and caption to be
     /// read. They loop until this dwell has elapsed, then advance on a loop
     /// boundary so the transition never cuts through a frame.
-    private static let minimumReadableMovieDwell: Double = 4
+    private nonisolated static let minimumReadableMovieDwell: Double = 4
     private static let pillWidth: CGFloat = 36
     private static let dotSize: CGFloat = 6
 
