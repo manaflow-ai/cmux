@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import time
 from urllib.parse import quote
 from xml.dom import minidom
 
@@ -16,9 +17,22 @@ SPARKLE = "http://www.andymatuschak.org/xml-namespaces/sparkle"
 REPAIR = "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/REPAIR.md"
 # Pages of 100 associated PRs read for one commit before giving up.
 ASSOCIATION_PAGES = 20
+# Association queries read only these membership fields; titles, labels and
+# files are read afterwards for the kept PRs only. Reading them for every PR a
+# main commit is associated with timed out (HTTP 504, run 37593192286).
+MEMBERSHIP_FIELDS = "number mergedAt baseRefName mergeCommit { oid }"
 PR_FIELDS = """number title url mergedAt baseRefName mergeCommit { oid }
                 labels(first: 100) { nodes { name } }
                 files(first: 100) { totalCount nodes { path } }"""
+
+
+class TransientGitHubError(RuntimeError):
+    """A GitHub 5xx or timeout that persisted through the request retries."""
+
+
+# A 4xx is a real access or request error. Anything else (a 5xx, a timeout,
+# an empty or cut-off body: "unexpected end of JSON input") is retried.
+CLIENT_ERROR = re.compile(r"HTTP 4\d\d")
 
 
 class GitHub:
@@ -27,9 +41,20 @@ class GitHub:
 
     @staticmethod
     def request(args: list[str]) -> dict:
-        result = subprocess.run(["gh", "api", *args], capture_output=True, text=True, timeout=90)
-        if result.returncode:
-            raise RuntimeError("GitHub metadata request failed; check Actions token contents/pull-requests read access and API availability")
+        for attempt in range(3):
+            try:
+                result = subprocess.run(["gh", "api", *args], capture_output=True, text=True, timeout=90)
+            except subprocess.TimeoutExpired:
+                result = None
+            if result is not None and not result.returncode:
+                break
+            transient = result is None or not CLIENT_ERROR.search(result.stderr or "")
+            if not transient:
+                raise RuntimeError("GitHub metadata request failed; check Actions token contents/pull-requests read access and API availability")
+            if attempt < 2:
+                time.sleep(5 * (attempt + 1))
+        else:
+            raise TransientGitHubError("GitHub metadata request kept failing with a server error or timeout; retry later")
         value = json.loads(result.stdout)
         if isinstance(value, dict) and value.get("errors"):
             raise RuntimeError("GitHub GraphQL metadata query returned errors; retry after checking API access")
@@ -75,13 +100,22 @@ def collect_prs(github: GitHub, base: str, head: str, branch: str) -> list[dict]
                 prs[pr["number"]] = pr
 
     overflow = []
-    for offset in range(0, len(commits), 25):
-        batch = commits[offset:offset + 25]
+
+    def associations(batch: list[str]) -> list[tuple[str, dict | None]]:
+        """Query a batch; a persistent 5xx (an expensive batch timing out) splits it."""
         objects = [f'c{index}: object(oid: "{sha}") {{ ... on Commit {{ associatedPullRequests(first: 10) {{ '
-                   f'pageInfo {{ hasNextPage }} nodes {{ {PR_FIELDS} }} }} }} }}' for index, sha in enumerate(batch)]
-        result = github.graphql("query { " + repository + " { " + " ".join(objects) + " } }")
-        for index, sha in enumerate(batch):
-            obj = result.get(f"c{index}")
+                   f'pageInfo {{ hasNextPage }} nodes {{ {MEMBERSHIP_FIELDS} }} }} }} }}' for index, sha in enumerate(batch)]
+        try:
+            result = github.graphql("query { " + repository + " { " + " ".join(objects) + " } }")
+        except TransientGitHubError:
+            if len(batch) == 1:
+                raise RuntimeError("GitHub kept timing out on one commit's associated PRs; retry the publish job") from None
+            middle = len(batch) // 2
+            return associations(batch[:middle]) + associations(batch[middle:])
+        return [(sha, result.get(f"c{index}")) for index, sha in enumerate(batch)]
+
+    for offset in range(0, len(commits), 25):
+        for sha, obj in associations(commits[offset:offset + 25]):
             if obj is None:
                 raise RuntimeError("GitHub could not resolve a compared commit; retry metadata generation")
             associated = obj["associatedPullRequests"]
@@ -98,7 +132,7 @@ def collect_prs(github: GitHub, base: str, head: str, branch: str) -> list[dict]
             result = github.graphql(
                 "query { " + repository + f' {{ c0: object(oid: "{sha}") {{ ... on Commit {{ '
                 f"associatedPullRequests(first: 100{after}) {{ pageInfo {{ hasNextPage endCursor }} "
-                f"nodes {{ {PR_FIELDS} }} }} }} }} }} }}")
+                f"nodes {{ {MEMBERSHIP_FIELDS} }} }} }} }} }} }}")
             obj = result.get("c0")
             if obj is None:
                 raise RuntimeError("GitHub could not resolve a compared commit; retry metadata generation")
@@ -111,7 +145,18 @@ def collect_prs(github: GitHub, base: str, head: str, branch: str) -> list[dict]
                 raise RuntimeError("GitHub associated PRs pagination returned no cursor; retry metadata generation")
         else:
             raise RuntimeError(f"A commit has more than {ASSOCIATION_PAGES * 100} associated PRs; inspect its associations before retrying")
-    return list(prs.values())
+    numbers = sorted(prs)
+    details = {}
+    for offset in range(0, len(numbers), 25):
+        batch = numbers[offset:offset + 25]
+        objects = [f"p{index}: pullRequest(number: {number}) {{ {PR_FIELDS} }}" for index, number in enumerate(batch)]
+        result = github.graphql("query { " + repository + " { " + " ".join(objects) + " } }")
+        for index, number in enumerate(batch):
+            pr = result.get(f"p{index}")
+            if pr is None or pr.get("number") != number:
+                raise RuntimeError("GitHub could not resolve a merged PR; retry metadata generation")
+            details[number] = pr
+    return [details[number] for number in numbers]
 
 
 def infrastructure(pr: dict) -> bool:
