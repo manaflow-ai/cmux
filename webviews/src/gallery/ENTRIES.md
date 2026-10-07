@@ -195,7 +195,6 @@ chat). Do not write those entries yourself.
   `scripts/gallery-matrix/runner.ts --freestyle-vms N` renders it on Freestyle VMs. Never run a
   browser on a developer laptop.
 
-
 ## Viewer picks
 
 An entry opts into tracker comments with
