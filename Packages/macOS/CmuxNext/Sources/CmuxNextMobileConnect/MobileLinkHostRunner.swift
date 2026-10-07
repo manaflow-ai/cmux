@@ -29,6 +29,7 @@ public actor MobileLinkHostRunner {
     private var userClient: ControlPlaneClient?
     private var mirror: TrustStoreMirror?
     private var assembly: MobileHostAssembly?
+    private var tasks: AcpmuxMobileTaskRunner?
     private let socket = HostSocketBox()
     private var uplinkTask: Task<Void, Never>?
     private var publishTask: Task<Void, Never>?
@@ -76,13 +77,21 @@ public actor MobileLinkHostRunner {
         // TURN credentials ride a `read` on the host socket the uplink owns.
         let ice = HostSocketICEServers { op, params in try await box.read(op, params: params) }
         let signaling = MobileHostSignaling(router: SignalRouter(channel: channel), iceServers: ice, close: { channel.finish() })
+        let names: MobileLinkServices.DeviceNames = { install in
+            guard let state = await mirror.state else { return nil }
+            if let device = state.devices[install] { return device.name }
+            return state.guests.values.first { $0.device.install == install }?.device.name
+        }
+        let features = MobileLinkFeatureFactory.features(options.services, daemon: daemon, hostID: principal.hostID, names: names)
+        tasks = features.taskRunner as? AcpmuxMobileTaskRunner
         let assembly = MobileHostAssembly(
             credentials: MobileHostCredentials(hostID: principal.hostID, accountUserID: principal.accountUserID, direct: direct,
                                                webrtc: account.webrtcIdentity, wireGuard: wireGuard),
             trust: MobileHostTrust(mirror: mirror, environment: principal.environment, accountUserID: principal.accountUserID),
             daemon: daemon, signaling: signaling,
             options: MobileHostAssemblyOptions(listen: DirectListenConfiguration(bonjourName: options.macName),
-                                               wireGuardOverWebRTC: options.wireGuardOverWebRTC))
+                                               wireGuardOverWebRTC: options.wireGuardOverWebRTC),
+            features: features)
         self.assembly = assembly
         let port = try await assembly.start()
         logger.info("phone link: listening on \(port, privacy: .public)")
@@ -111,6 +120,8 @@ public actor MobileLinkHostRunner {
         uplinkTask = nil
         publishTask = nil
         await assembly?.stop()
+        await tasks?.close()
+        tasks = nil
         await socket.close()
         await mirror?.stop()
         await userClient?.stop()
