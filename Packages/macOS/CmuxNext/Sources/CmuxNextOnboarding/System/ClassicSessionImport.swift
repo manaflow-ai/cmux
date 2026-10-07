@@ -43,16 +43,20 @@ public nonisolated struct ClassicSessionImporter: Sendable {
     /// Decodes only topology, names, directories, and titles from a classic snapshot.
     public func decode(_ data: Data) throws -> [ClassicSessionWorkspace] {
         let root = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
-        let windows = (root["windows"] as? [[String: Any]]) ?? []
-        return windows.flatMap { window in
+        let workspaces = ((root["windows"] as? [[String: Any]]) ?? []).flatMap { window in
             let manager = window["tabManager"] as? [String: Any] ?? window["tab_manager"] as? [String: Any] ?? [:]
-            let workspaces = (manager["workspaces"] as? [[String: Any]]) ?? []
-            return workspaces.compactMap(Self.workspace)
+            return (manager["workspaces"] as? [[String: Any]]) ?? []
         }
+        let names = Self.names(workspaces.map(Self.clues))
+        return zip(workspaces, names).map { Self.workspace($0, name: $1) }
     }
 
-    private static func workspace(_ value: [String: Any]) -> ClassicSessionWorkspace? {
-        let cwd = (value["currentDirectory"] as? String) ?? (value["current_directory"] as? String) ?? NSHomeDirectory()
+    private static func directory(_ value: [String: Any]) -> String {
+        (value["currentDirectory"] as? String) ?? (value["current_directory"] as? String) ?? NSHomeDirectory()
+    }
+
+    private static func workspace(_ value: [String: Any], name: String) -> ClassicSessionWorkspace {
+        let cwd = Self.directory(value)
         let panels = (value["panels"] as? [[String: Any]]) ?? []
         let panelEntries = panels.compactMap { panel -> (String, ClassicSessionTab)? in
             guard let id = panel["id"] as? String else { return nil }
@@ -63,8 +67,6 @@ public nonisolated struct ClassicSessionImporter: Sendable {
                                           ?? panel["working_directory"] as? String,
                                           title: panel["customTitle"] as? String ?? panel["title"] as? String))
         }
-        let name = Self.name(custom: value["customTitle"] as? String, process: value["processTitle"] as? String,
-                             firstTab: panelEntries.first?.1.title, directory: cwd)
         // A snapshot can name a panel twice; the first wins.
         let panelMap = Dictionary(panelEntries, uniquingKeysWith: { first, _ in first })
         guard let layoutValue = value["layout"] as? [String: Any] else {
@@ -76,17 +78,49 @@ public nonisolated struct ClassicSessionImporter: Sendable {
         return ClassicSessionWorkspace(name: name, workingDirectory: cwd, layout: layout)
     }
 
-    /// The user's own title; else classic's process title or the first
-    /// tab's, unless it is only a path ("~" for every home-folder shell);
-    /// else the folder's name.
-    static func name(custom: String?, process: String?, firstTab: String?, directory: String) -> String {
-        if let custom, !custom.isEmpty { return custom }
-        for title in [process, firstTab] {
-            guard let title = title?.trimmingCharacters(in: .whitespaces), !title.isEmpty else { continue }
-            if title != "~", !title.hasPrefix("~/"), !title.hasPrefix("/") { return title }
+    /// What can tell a classic workspace apart, most telling first.
+    nonisolated struct NameClues: Equatable {
+        var custom: String?
+        /// Its process and tab titles that are more than a path ("~" for
+        /// every home-folder shell): a running command or a tab's title.
+        var titles: [String]
+        var agent: String?
+        var branch: String?
+        var folder: String
+    }
+
+    static func clues(_ value: [String: Any]) -> NameClues {
+        let panels = (value["panels"] as? [[String: Any]]) ?? []
+        let titles = ([value["processTitle"]] + panels.flatMap { [$0["customTitle"], $0["title"]] })
+            .compactMap { ($0 as? String)?.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty && $0 != "~" && !$0.hasPrefix("~/") && !$0.hasPrefix("/") }
+        let agent = panels.lazy
+            .compactMap { (($0["terminal"] as? [String: Any])?["agent"] as? [String: Any])?["kind"] as? String }
+            .first { !$0.isEmpty }
+        let branch = ([value] + panels).lazy
+            .compactMap { ($0["gitBranch"] as? [String: Any])?["branch"] as? String }
+            .first { !$0.isEmpty }
+        let folder = URL(fileURLWithPath: Self.directory(value)).lastPathComponent
+        return NameClues(custom: (value["customTitle"] as? String).flatMap { $0.isEmpty ? nil : $0 },
+                         titles: titles, agent: agent, branch: branch,
+                         folder: folder.isEmpty || folder == "/" ? "Imported workspace" : folder)
+    }
+
+    /// The user's own title; else a running command or tab title, the
+    /// agent it ran, or the folder's name. Names several workspaces share
+    /// take each one's branch, and a number only as the last resort.
+    static func names(_ clues: [NameClues]) -> [String] {
+        var names = clues.map { $0.custom ?? $0.titles.first ?? $0.agent ?? $0.folder }
+        let counts = Dictionary(names.map { ($0, 1) }, uniquingKeysWith: +)
+        for index in names.indices where counts[names[index], default: 0] > 1 && clues[index].custom == nil {
+            if let branch = clues[index].branch, branch != names[index] { names[index] += " · \(branch)" }
         }
-        let folder = URL(fileURLWithPath: directory).lastPathComponent
-        return folder.isEmpty || folder == "/" ? "Imported workspace" : folder
+        var seen: [String: Int] = [:]
+        return names.map { name in
+            seen[name, default: 0] += 1
+            let count = seen[name, default: 1]
+            return count == 1 ? name : "\(name) \(count)"
+        }
     }
 
     private static func layout(_ value: [String: Any], panels: [String: ClassicSessionTab]) -> ClassicSessionLayout {
