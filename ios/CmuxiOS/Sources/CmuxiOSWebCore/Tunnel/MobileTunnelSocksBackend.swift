@@ -20,7 +20,7 @@ public struct MobileTunnelSocksBackend: SocksConnectBackend {
     }
 
     public func open(host: String, port: Int) async throws -> any TunnelByteStream {
-        guard (1...UInt16.max).contains(port), let remotePort = UInt16(exactly: port) else {
+        guard port > 0, port <= Int(UInt16.max), let remotePort = UInt16(exactly: port) else {
             throw TunnelOpenError.notAllowed
         }
         if host.isTunnelLoopbackHost {
