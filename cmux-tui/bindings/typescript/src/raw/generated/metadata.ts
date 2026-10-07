@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 0ac2f8a0eec33678efe807bbd012a36df89a4ada9031680fea5bd42839913afd. */
+/* cmux-tui mux protocol 12, IR 176aa0cece7a9c80c8dd811192b161cf3264a86b77297ab88990744aa457bafc. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "0ac2f8a0eec33678efe807bbd012a36df89a4ada9031680fea5bd42839913afd" as const;
+export const SDK_IR_SHA256 = "176aa0cece7a9c80c8dd811192b161cf3264a86b77297ab88990744aa457bafc" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -8988,6 +8988,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     "kind": "object"
   },
   "SizeDeviceKind": {
+    "fallback": "unknown",
     "kind": "enum",
     "values": [
       "mac",
@@ -8995,6 +8996,8 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "ipad",
       "tui",
       "browser",
+      "linux",
+      "windows",
       "unknown"
     ]
   },
@@ -9241,7 +9244,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       },
       "device_kind": {
         "constraints": [
-          "mac, iphone, ipad, tui, browser; anything else is unknown."
+          "mac, iphone, ipad, tui, browser, linux, windows; anything else is unknown."
         ],
         "default": null,
         "nullable": true,
@@ -19982,7 +19985,7 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
         "device_kind": {
           "capability": "shared-sizing-v1",
           "constraints": [
-            "mac, iphone, ipad, tui, browser; anything else is unknown; defaults to kind."
+            "mac, iphone, ipad, tui, browser, linux, windows; anything else is unknown; defaults to kind."
           ],
           "default": null,
           "nullable": true,

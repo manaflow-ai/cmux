@@ -618,7 +618,10 @@ def _decode(expression: Mapping[str, Any], value: Any, path: str) -> Any:
         return value
     if kind == "enum":
         if value not in expression["values"]:
-            raise ProtocolDecodeError(f"unknown enum value {value!r}")
+            # A string value this SDK does not know decodes as the fallback.
+            if "fallback" not in expression or not isinstance(value, str):
+                raise ProtocolDecodeError(f"unknown enum value {value!r}")
+            value = expression["fallback"]
         enum_type = ENUM_BY_PATH.get(path)
         return enum_type(value) if enum_type is not None else value
     if kind == "ref":

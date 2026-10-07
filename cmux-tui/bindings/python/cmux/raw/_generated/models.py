@@ -127,6 +127,8 @@ class SizeDeviceKind(str, Enum):
     IPAD = 'ipad'
     TUI = 'tui'
     BROWSER = 'browser'
+    LINUX = 'linux'
+    WINDOWS = 'windows'
     UNKNOWN = 'unknown'
 
 class SizeMode(str, Enum):
