@@ -52,8 +52,9 @@ Roots. A request path is accepted only under a root from `MobileFileRootsProvide
   download and list.
 
 A root is refused when it is `/`, the home directory itself, an ancestor of home, outside home,
-or inside a protected tree (`~/Library`, `~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.config/gcloud`,
-`~/.kube`, `~/.docker`). So a terminal whose cwd is `~` exposes nothing.
+a dot-directory directly under home (`~/.config`, `~/.local`, ...), or inside or containing a
+protected tree (`~/Library`, `~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.config/gcloud`, `~/.kube`,
+`~/.docker`), compared without case. So a terminal whose cwd is `~` or `~/.config` exposes nothing.
 
 Resolution (`MobileFilePolicy.resolve`):
 
@@ -63,8 +64,11 @@ Resolution (`MobileFilePolicy.resolve`):
    when it exists, else its parent is canonicalized and the last component is appended (uploads).
    The canonical result must equal a canonical root or start with `root + "/"`. A symlink anywhere
    in the path that points outside every root therefore fails; a symlink that stays inside is fine.
-3. No component of the canonical path below the root may be a denied name: `.ssh`, `.gnupg`, `.aws`,
-   `.kube`, `.docker`, `.netrc`, `.pgpass`, `Keychains`, `id_rsa`, `id_ecdsa`, `id_ed25519`.
+3. No component of the canonical path below the root may be a denied name, compared without case:
+   `.ssh`, `.gnupg`, `.aws`, `.azure`, `.kube`, `.docker`, `.netrc`, `.pgpass`, `.git-credentials`,
+   `.npmrc`, `.pypirc`, `.password-store`, `.vault-token`, `Keychains`, `id_rsa`, `id_ecdsa`,
+   `id_ed25519`, `id_dsa`. Hard links into a root are not detected (a phone cannot create one;
+   residual risk noted).
 4. Download opens the canonical path with `O_RDONLY | O_NOFOLLOW` and `fstat`s the descriptor: it
    must be a regular file (no FIFOs or devices), and its device and inode must match the resolved
    path's `lstat`, which closes the final-component swap race. A swap of an intermediate directory
@@ -80,8 +84,13 @@ Resolution (`MobileFilePolicy.resolve`):
 
 Caps (`MobileFilesConfiguration`, defaults): upload 1 GiB per file, download 1 GiB per file, chunk
 128 KiB (below `hello.ok.max_frame` 256 KiB and the A0 1 MiB record cap), staged partials 2 GiB per
-device, a partial expires 24 h after its last write, free disk must stay above size + 1 GiB.
-Violations: `files.too_large` (`details.reason`: `file`, `quota`, `disk`).
+device counting bytes that live claims will still write (parallel opens cannot overcommit), a
+partial of any device expires 24 h after its last write, free disk must stay above the reserved
+bytes + 1 GiB (re-checked every 64 MiB received), 4 concurrent files channels per device (more are
+refused retryable). Violations: `files.too_large` (`details.reason`: `file`, `quota`, `disk`).
+Whole-file hashing and the cross-volume copy run on a dispatch queue, never on a cooperative thread.
+After the last download chunk the handler closes its descriptor and gives the phone 30 s (injected
+clock) to take the tail, then closes the channel.
 
 Destinations. `dest.kind`:
 
@@ -100,14 +109,19 @@ Upload (phone -> Mac):
    `~/Library/Caches/cmux/phone-uploads/<install-hash>/<sha256>-<size>.part` (outside TCC-protected
    folders until the final move). `channel.opened {upload: up_<16 hex of sha256(install|sha|size)>,
    offset: partial length}`; `resumed` is true when offset > 0.
+   A new open of the same upload aborts a still-open older channel (a dead session the Mac has not
+   noticed) and waits for it to release the partial, so a resume is never refused as busy. A reopen
+   of an upload the Mac already placed answers `offset = size` and, on `files.upload.end`, the same
+   `files.upload.done` path (a lost `done` never creates a duplicate).
 3. The phone reads from `offset` and sends `files.chunk` records. The Mac accepts a chunk only at the
    exact current length (else `channel.closed {code: proto.bad_record}`), and never past `size`.
    `fsync` happens once, at the end; a crash loses at most the unsynced tail, and the next open
    reports the real length.
 4. `files.upload.end {sha256}`: the Mac checks length == size, hashes the partial, compares with both
    the open's and the end's digest. Mismatch: delete the partial, `channel.closed {code:
-   files.digest_mismatch}`; the phone restarts from 0 once, then fails. Match: move into the
-   destination (exclusive create, then rename), `files.upload.done {upload, path, size}`, close.
+   files.digest_mismatch}`; the phone restarts from 0 once, then fails. Match: re-check the session
+   gate and re-resolve the destination against the current roots, move into it (exclusive create,
+   then rename), `files.upload.done {upload, path, size}`, close.
 
 Download (Mac -> phone):
 
@@ -141,11 +155,14 @@ with the app. Behavior:
 
 - On `sceneDidEnterBackground` the transfer list asks for `UIApplication.beginBackgroundTask`
   (about 30 s) while any transfer runs, so short transfers finish.
-- When the task expires (or the app is suspended), running transfers are marked `paused` in the
-  journal and their channels closed. The Mac keeps the upload partial (24 h).
-- On foreground, paused transfers resume automatically from the journal (`resume(id)`), from the
-  Mac's offset or the local part length. A relaunch after the app was killed shows them paused with
-  Resume.
+- When the task expires, the expiry handler starts `pauseAll` and ends the background task before
+  it returns (UIKit's rule); running transfers become `paused` in the journal and their channels
+  close. A link lost in the background also leaves its transfer `paused` (retryable failure). The
+  Mac keeps the upload partial (24 h).
+- On foreground, every paused transfer resumes from the journal (`resume(id)`), from the Mac's
+  offset or the local part length. A relaunch after the app was killed shows them paused with
+  Resume. The journal uses `completeUntilFirstUserAuthentication` and is never written while an
+  existing file cannot be read (a locked background launch), so it cannot be wiped.
 
 A later option (not built): hand large uploads to the shipping web upload path through a background
 `URLSession` into a Mac-pulled bucket. It needs a server-side store and is out of scope.
