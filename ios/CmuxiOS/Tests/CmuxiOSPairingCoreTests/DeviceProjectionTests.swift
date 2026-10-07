@@ -29,6 +29,8 @@ import Testing
         let records = projection.records(state: state, presence: [:], now: PairingFixtures.now)
         let remote = try #require(records.first { $0.id == "remote:host_b1/inst_p1" })
         #expect(remote.platform == .mac && remote.trust == .trusted)
+        // Workspaces, control sockets and links address a Mac by its host id.
+        #expect(remote.hostID == "host_b1")
         let req = try #require(records.first { $0.id == "request:q" })
         #expect(req.trust == .discovered && req.platform == .iPhone && req.name.contains("Bea"))
         #expect(projection.hosts(state: state, team: "team_a1") == ["host_b1": "team_b1"])

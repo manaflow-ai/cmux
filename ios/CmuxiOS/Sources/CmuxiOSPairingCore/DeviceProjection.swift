@@ -24,7 +24,8 @@ public struct DeviceProjection: Sendable {
             let platform = Self.platform(kind: device.kind, platform: device.platform)
             let trust: DeviceTrust = isThis || platform != .mac || selfPublished ? .trusted : .discovered
             out.append(DeviceRecord(id: DeviceRecordID.install(device.install).rawValue, name: device.name, platform: platform,
-                                    trust: trust, isThisDevice: isThis, lastSeen: Self.seen(device.host, presence, fallback: device.updatedAt)))
+                                    trust: trust, isThisDevice: isThis, lastSeen: Self.seen(device.host, presence, fallback: device.updatedAt),
+                                    hostID: device.host))
         }
         if state.devices[account.install] == nil {
             // This install before its first publish: still listed as this device.
@@ -33,7 +34,8 @@ public struct DeviceProjection: Sendable {
         }
         for entry in state.remote.values where entry.install == account.install {
             out.append(DeviceRecord(id: DeviceRecordID.remote(host: entry.host, install: entry.install).rawValue, name: entry.name,
-                                    platform: .mac, trust: .trusted, lastSeen: Self.seen(entry.host, presence, fallback: entry.acceptedAt)))
+                                    platform: .mac, trust: .trusted, lastSeen: Self.seen(entry.host, presence, fallback: entry.acceptedAt),
+                                    hostID: entry.host))
         }
         for guest in state.guests.values {
             out.append(DeviceRecord(id: DeviceRecordID.guest(host: guest.host, install: guest.device.install).rawValue,
