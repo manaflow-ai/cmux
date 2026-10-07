@@ -76,6 +76,7 @@ const knobs = {
   duplicateRate: 0.02,
   disconnectEverySeconds: 240,
   botIntervalScale: 1,
+  unsendFailRate: 0,
 };
 type Knobs = typeof knobs;
 
@@ -493,11 +494,8 @@ async function handleRpc(conn: Conn, rpcId: unknown, method: string, p: any): Pr
       if (m.senderId !== ME.id) throw invalid("can only unsend my messages");
       if (Date.now() - m.sentAt > 2 * 60_000) throw new RpcError(-32003, "undo send window closed");
       await sleep(lat(120, 600));
-      m.unsentAt = Date.now();
-      m.text = "";
-      m.attachments = [];
-      m.reactions = [];
-      store.emit("message.updated", m);
+      if (R() < knobs.unsendFailRate) throw new RpcError(-32005, "not unsent");
+      retract(store, m);
       return { message: wireMessage(m, conn.base) };
     }
     case "typing":
@@ -590,8 +588,35 @@ async function botSay(store: Store, bot: Participant, text: string, opts: Partia
       m.editedAt = Date.now();
       store.emit("message.updated", m);
     })();
+  } else if (R() < 0.03) {
+    // Undo Send, a few seconds to a minute later.
+    void (async () => {
+      await botSleep(uniform(3000, 60_000));
+      if (!m.unsentAt) retract(store, m);
+    })();
   }
   return m;
+}
+
+/** Undo Send: the message stays in place as a notice; content is gone. */
+function retract(store: Store, m: Message) {
+  m.unsentAt = Date.now();
+  m.text = "";
+  m.attachments = [];
+  m.reactions = [];
+  store.emit("message.updated", m);
+}
+
+/** A participant takes back its newest message (as Messages allows within 2 minutes). */
+function botUnsendLatest(store: Store): Message | undefined {
+  for (let i = store.messages.length - 1; i >= 0 && i >= store.messages.length - 30; i--) {
+    const m = store.messages[i];
+    if (m.senderId !== ME.id && !m.unsentAt) {
+      retract(store, m);
+      return m;
+    }
+  }
+  return undefined;
 }
 
 async function botReply(store: Store, mine: Message) {
@@ -673,7 +698,7 @@ function json(body: unknown, status = 200) {
 }
 
 function applyKnobs(input: Record<string, unknown>): Knobs {
-  const unitRange = ["failRate", "historyFailRate", "duplicateRate"];
+  const unitRange = ["failRate", "historyFailRate", "duplicateRate", "unsendFailRate"];
   for (const [k, v] of Object.entries(input)) {
     if (!(k in knobs)) throw new Error(`unknown knob ${k}`);
     const n = Number(v);
@@ -763,6 +788,14 @@ async function handleHttp(req: Request, server: ReturnType<typeof Bun.serve>): P
     if (intervalMs === 0) await burst(store, count, 0);
     else void burst(store, count, intervalMs);
     return json({ ok: true, conversation: conv, count, headSeq: store.headSeq, headEventSeq: store.headEventSeq });
+  }
+  if (path === "/admin/unsend" && req.method === "POST") {
+    const conv = url.searchParams.get("conversation") ?? "group";
+    const store = stores.get(conv);
+    if (!store) return json({ error: `unknown conversation ${conv}` }, 404);
+    const m = botUnsendLatest(store);
+    log(`admin unsend conv=${conv} id=${m?.id ?? "-"}`);
+    return m ? json({ ok: true, messageId: m.id }) : json({ error: "no participant message to unsend" }, 409);
   }
   if (path === "/admin/disconnect" && req.method === "POST") {
     return json({ ok: true, dropped: dropAll("admin disconnect") });

@@ -24,7 +24,7 @@ process and keep growing.
 | `send` | `{clientMessageId, text, replyToId?, attachmentIds?}` | `{message: Message}` |
 | `react` | `{messageId, reaction: Reaction?}` | `{message: Message}` |
 | `edit` | `{messageId, text}` | `{message: Message}` (at most 5 edits per message; then error `-32004`) |
-| `unsend` | `{messageId}` | `{message: Message}` (Undo Send: text and attachments cleared, `unsentAt` set; error `-32003` after 2 minutes) |
+| `unsend` | `{messageId}` | `{message: Message}` (Undo Send: text and attachments cleared, `unsentAt` set; error `-32003` after 2 minutes, `-32005` at `unsendFailRate`) |
 | `typing` | `{isTyping: Bool}` | `{}` |
 | `markRead` | `{upToSeq: Int}` | `{}` |
 
@@ -42,7 +42,7 @@ the newest page and rebase.
 `event` with params `{eventSeq, kind, ...}`:
 
 - `message.created {message}`
-- `message.updated {message}` (edit, reaction, delivery status, reply count)
+- `message.updated {message}` (edit, unsend, reaction, delivery status, reply count)
 
 `typing {participantId, isTyping}` is ephemeral and carries no `eventSeq`.
 `replayDone {}` ends a resume replay.
@@ -74,9 +74,12 @@ Reaction = "heart"|"thumbsup"|"thumbsdown"|"haha"|"exclamation"|"question"
 - `GET /healthz`: `ok`.
 - `POST /admin/burst?conversation=<id>&count=<n>`: make participants send `n`
   messages rapidly (pressure testing).
+- `POST /admin/unsend?conversation=<id>`: a participant unsends its newest
+  message now (incoming "<Name> unsent a message").
 - `POST /admin/disconnect`: drop every socket (reconnect testing).
 - `POST /admin/knobs` JSON `{latencyScale, failRate, historyFailRate,
-  duplicateRate, disconnectEverySeconds, botIntervalScale}`.
+  duplicateRate, disconnectEverySeconds, botIntervalScale, unsendFailRate}`.
+  `unsendFailRate` (default 0) makes `unsend` refuse with `-32005 "not unsent"`.
 
 ## Simulated traffic
 
@@ -94,4 +97,4 @@ Reaction = "heart"|"thumbsup"|"thumbsdown"|"haha"|"exclamation"|"question"
   message length (sometimes stops without sending), then sends. Occasional
   bursts of 3 to 6 quick messages. Replies to my messages within 3 to 12 s
   most of the time, tapbacks my messages ~30% of the time, edits its own last
-  message ~5% of the time.
+  message ~5% of the time, and unsends it ~3% of the time (3 to 60 s later).
