@@ -23,5 +23,15 @@ enum TerminalText {
     static var keycapTab: String { String(localized: "terminal.keycap.tab", defaultValue: "tab", bundle: .module) }
     static var keycapControl: String { String(localized: "terminal.keycap.control", defaultValue: "ctrl", bundle: .module) }
     static var keycapAlternate: String { String(localized: "terminal.keycap.alternate", defaultValue: "alt", bundle: .module) }
+    static var menuCopy: String { String(localized: "terminal.menu.copy", defaultValue: "Copy", bundle: .module) }
+    static var menuSelectAll: String { String(localized: "terminal.menu.selectAll", defaultValue: "Select All", bundle: .module) }
+    static var benchTitle: String { String(localized: "terminal.bench.title", defaultValue: "Renderer Benchmark", bundle: .module) }
+    static var benchWorkload: String { String(localized: "terminal.bench.workload", defaultValue: "Workload", bundle: .module) }
+    static var benchUnavailable: String { String(localized: "terminal.bench.unavailable", defaultValue: "This workload is not bundled.", bundle: .module) }
+    static var benchRunning: String { String(localized: "terminal.bench.running", defaultValue: "Running %@…", bundle: .module) }
+    static var benchSummary: String {
+        String(localized: "terminal.bench.summary",
+               defaultValue: "%1$@: %2$@ frames, p50 %3$@ ms, p99 %4$@ ms, %5$@ hitches, %6$@ MiB/s", bundle: .module)
+    }
     static var terminalLabel: String { String(localized: "terminal.a11y.label", defaultValue: "Terminal", bundle: .module) }
 }

@@ -18,10 +18,13 @@ public final class ShellSettingsModel {
     @ObservationIgnored public let developer: (@MainActor () -> DevSourcesModel)?
     /// Rows added by the composition root (platform screens), in order.
     @ObservationIgnored public let links: [ShellSettingsLink]
+    /// Replays the welcome tour (lane C10); nil hides the row.
+    @ObservationIgnored public let replayTour: (@MainActor () -> Void)?
 
     public init(
         account: ShellAccount, about: ShellAbout, registry: any DeviceRegistry,
         developer: (@MainActor () -> DevSourcesModel)?, links: [ShellSettingsLink] = [],
+        replayTour: (@MainActor () -> Void)? = nil,
         signOut: @escaping @MainActor () async -> Void
     ) {
         self.account = account
@@ -29,6 +32,7 @@ public final class ShellSettingsModel {
         self.registry = registry
         self.developer = developer
         self.links = links
+        self.replayTour = replayTour
         signOutAction = signOut
     }
 

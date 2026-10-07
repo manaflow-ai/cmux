@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "families/notify.schema.json",
+  "title": "cmux.mobile/1 notify family (control; UserDO)",
+  "description": "push.target.* are existing cloud ops (backend/packages/protocol/src/push.ts).",
+  "$defs": {
+    "PushToken": { "type": "string", "pattern": "^[a-f0-9]{32,200}$" },
+    "push.target.register": {
+      "type": "object", "additionalProperties": false, "required": ["token", "topic", "environment"],
+      "properties": {
+        "token": { "$ref": "#/$defs/PushToken" },
+        "topic": { "type": "string", "pattern": "^[A-Za-z0-9.-]{3,200}$" },
+        "environment": { "enum": ["development", "production"] },
+        "device_name": { "type": "string", "maxLength": 80 }
+      }
+    },
+    "push.target.remove": { "type": "object", "additionalProperties": false, "required": ["token"], "properties": { "token": { "$ref": "#/$defs/PushToken" } } },
+    "notify.activity.register": {
+      "type": "object", "additionalProperties": false, "required": ["activity", "push_token", "subject"],
+      "properties": {
+        "activity": { "type": "string", "pattern": "^act_[A-Za-z0-9]{2,64}$" },
+        "push_token": { "$ref": "#/$defs/PushToken" },
+        "subject": {
+          "type": "object", "additionalProperties": false, "required": ["host"],
+          "properties": { "host": { "$ref": "../common.schema.json#/$defs/HostId" }, "task": { "$ref": "../common.schema.json#/$defs/TaskId" }, "terminal": { "$ref": "../common.schema.json#/$defs/TerminalId" } }
+        }
+      }
+    },
+    "notify.activity.end": { "type": "object", "additionalProperties": false, "required": ["activity"], "properties": { "activity": { "type": "string", "pattern": "^act_[A-Za-z0-9]{2,64}$" } } },
+    "notify.badge.set": {
+      "type": "object", "additionalProperties": false, "required": ["unread", "at"],
+      "properties": { "unread": { "type": "integer", "minimum": 0 }, "at": { "$ref": "../common.schema.json#/$defs/Timestamp" } }
+    }
+  }
+}

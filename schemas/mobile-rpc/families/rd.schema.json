@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "families/rd.schema.json",
+  "title": "cmux.mobile/1 rd family (stream; owner the Mac rd host)",
+  "description": "The channel carries one cmux.rd/1 session (cmux-tui/crates/cmux-rd-proto) with service desktop; record payload = u8 rd stream type + payload.",
+  "$defs": {
+    "rd": {
+      "type": "object", "additionalProperties": false, "required": ["service"],
+      "properties": { "service": { "const": "desktop" }, "display": { "type": "integer", "minimum": 0 } }
+    },
+    "rd:opened": {
+      "type": "object", "additionalProperties": false, "required": ["media"],
+      "properties": {
+        "media": { "enum": ["rd_datagrams", "webrtc_track"] },
+        "datagram_channel": { "$ref": "../common.schema.json#/$defs/ChannelId" },
+        "media_track": { "type": "string", "maxLength": 128 }
+      }
+    }
+  }
+}

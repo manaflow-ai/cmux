@@ -15,6 +15,7 @@ enum SettingsText {
     static var revoked: String { String(localized: "shell.settings.revoked", defaultValue: "Removed", bundle: .module) }
     static var developer: String { String(localized: "shell.settings.developer", defaultValue: "Developer", bundle: .module) }
     static var about: String { String(localized: "shell.settings.about", defaultValue: "About", bundle: .module) }
+    static var replayTour: String { String(localized: "shell.settings.replayTour", defaultValue: "Replay Welcome Tour", bundle: .module) }
     static var version: String { String(localized: "shell.settings.version", defaultValue: "Version", bundle: .module) }
     static var signOut: String { String(localized: "shell.settings.signOut", defaultValue: "Sign Out", bundle: .module) }
     static var signOutConfirm: String {

@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "families/session.schema.json",
+  "title": "cmux.mobile/1 session family",
+  "description": "The rpc channel: cmux.wire/1 JSON frames (op, read, result, reject, request-settled, event, snapshot, subscribe) to the Mac owner over CmuxLink.",
+  "$defs": {
+    "rpc": { "type": "object", "additionalProperties": false, "properties": { "streams": { "type": "array", "items": { "$ref": "../common.schema.json#/$defs/StreamId" } } } },
+    "rpc:opened": { "type": "object", "additionalProperties": false, "required": ["owner"], "properties": { "owner": { "$ref": "../common.schema.json#/$defs/HostId" } } }
+  }
+}

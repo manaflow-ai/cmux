@@ -1,0 +1,12 @@
+{
+  "family": "signal",
+  "cases": [
+    { "message": "signal.turn_credentials", "frame": { "t": "read", "id": 6, "op": "signal.turn_credentials", "params": { "host": "h_mac1A2b" } } },
+    { "message": "signal.turn_credentials", "phase": "result", "frame": { "t": "read.result", "id": 6, "revision": "0", "value": { "ice_servers": [{ "urls": ["stun:stun.cloudflare.com:3478"] }, { "urls": ["turn:turn.cloudflare.com:3478?transport=udp", "turns:turn.cloudflare.com:5349?transport=tcp"], "username": "u-1791331800", "credential": "c2VjcmV0" }], "expires_at": 1791331800000 } } },
+    { "message": "signal.offer", "frame": { "t": "signal", "kind": "offer", "session": "sess_Ab12", "to": "h_mac1A2b", "body": { "sdp": "v=0\r\no=- 1 2 IN IP4 127.0.0.1\r\n", "ice_restart": false, "carrier": "webrtc" } } },
+    { "message": "signal.answer", "frame": { "t": "signal", "kind": "answer", "session": "sess_Ab12", "to": "in_phone01", "from": "h_mac1A2b", "body": { "sdp": "v=0\r\no=- 3 4 IN IP4 127.0.0.1\r\n" } } },
+    { "message": "signal.ice", "frame": { "t": "signal", "kind": "ice", "session": "sess_Ab12", "to": "h_mac1A2b", "body": { "candidate": "candidate:1 1 udp 2122260223 192.168.1.20 54321 typ host", "sdp_mid": "0", "sdp_mline_index": 0 } } },
+    { "message": "signal.ice.end", "frame": { "t": "signal", "kind": "ice.end", "session": "sess_Ab12", "to": "h_mac1A2b", "body": {} } },
+    { "message": "signal.bye", "frame": { "t": "signal", "kind": "bye", "session": "sess_Ab12", "to": "in_phone01", "from": "h_mac1A2b", "body": { "reason": "superseded" } } }
+  ]
+}

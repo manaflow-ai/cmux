@@ -7,6 +7,8 @@ import CmuxiOSCrashReporting
 import CmuxiOSFeatureKit
 import CmuxiOSIdentity
 import CmuxiOSPlatform
+import CmuxiOSOnboarding
+import CmuxiOSOnboardingCore
 import CmuxiOSPush
 import CmuxiOSShell
 import Foundation
@@ -59,6 +61,11 @@ final class AppContainer {
     /// DEV: the mock owners' simulated connection.
     private(set) var mockOffline = false
     let push: PushRegistration
+    /// Onboarding (plans/cmux-next/ios-next/c10-onboarding.md): whether this
+    /// launch runs it, where its progress lives, and the system prompts.
+    let onboardingPolicy: OnboardingLaunchPolicy
+    let onboardingStore: any OnboardingProgressPersisting
+    let permissions: SystemPermissionCenter
     /// The install principal (nil when no API origin is configured).
     let identity: InstallIdentity?
     /// Account changes apply in order (sign-in, sign-out, switch).
@@ -101,6 +108,11 @@ final class AppContainer {
         flags = FeatureFlagStore(environment: environment, isDebug: isDebug)
         sourceModes = FeatureSourceModeStore(environment: environment, isDebug: isDebug)
         demo = DemoModePolicy(environment: environment, isDebug: isDebug)
+        onboardingPolicy = OnboardingLaunchPolicy(environment: environment, isDebug: isDebug)
+        switch onboardingPolicy.decision {
+        case .stored: onboardingStore = OnboardingProgressStore(defaults: .standard)
+        case .fresh, .skip: onboardingStore = InMemoryProgressStore()
+        }
         // Feed pushes (plans/cmux-next/feed.md 7.3) go through the API Worker as
         // this install's principal (identity D5, InstallIdentity).
         let base = Self.cloudAPIBaseURL()
@@ -120,6 +132,10 @@ final class AppContainer {
         let environment: CloudOp.APNsEnvironment = .production
         #endif
         push = PushRegistration(ops: ops, topic: Bundle.main.bundleIdentifier ?? "", environment: environment)
+        let pushForPermissions = push
+        permissions = SystemPermissionCenter(defaults: .standard, clock: ContinuousClock()) {
+            Task { await pushForPermissions.authorizationChanged() }
+        }
         feedResponder = FeedNotificationResponder(ops: ops)
         notificationDelegate = NotificationDelegate(responder: feedResponder, router: router)
         UNUserNotificationCenter.current().delegate = notificationDelegate
@@ -266,8 +282,9 @@ final class AppContainer {
         await features?.setMockConnection(offline ? .offline(reason: nil) : .live(path: "mock"))
     }
 
-    /// Signing out drops the account's Home mirror.
-    func signedIn(account: SignedInAccount) {
+    /// Signing out drops the account's Home mirror. `requestPushPermission`
+    /// is false while onboarding will prime the notifications prompt.
+    func signedIn(account: SignedInAccount, requestPushPermission: Bool = true) {
         diagnostics.info("auth", "signed in")
         startRemoteConfig()
         let coordinator = auth.coordinator
@@ -282,7 +299,7 @@ final class AppContainer {
                 await push.signOut(of: replaced)
                 await identity?.signedOut(of: replaced)
             }
-            await push.start(for: account.userID)
+            await push.start(for: account.userID, requestPermission: requestPushPermission)
         }
     }
 

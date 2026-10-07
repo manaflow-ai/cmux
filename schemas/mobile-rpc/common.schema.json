@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "common.schema.json",
+  "title": "cmux.mobile/1 shared definitions",
+  "$defs": {
+    "IdempotencyKey": { "type": "string", "pattern": "^[A-Za-z0-9._:-]{8,128}$" },
+    "StreamId": { "type": "string", "pattern": "^[a-z][a-z_]*:[A-Za-z0-9._:-]+$" },
+    "Seq": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+    "Revision": { "type": "string", "pattern": "^[0-9]+$" },
+    "ErrorCode": { "type": "string", "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$" },
+    "Origin": { "enum": ["user", "cli", "mcp", "script", "remote"] },
+    "Capability": { "type": "string", "pattern": "^[a-z][a-z0-9.-]{0,63}$" },
+    "Platform": { "enum": ["ios", "ipados", "mac", "linux", "web"] },
+    "HostId": { "type": "string", "pattern": "^h_[A-Za-z0-9]{2,64}$" },
+    "InstallId": { "type": "string", "pattern": "^in_[A-Za-z0-9]{2,64}$" },
+    "WorkspaceId": { "type": "string", "pattern": "^ws_[A-Za-z0-9]{2,64}$" },
+    "PaneId": { "type": "string", "pattern": "^pane_[A-Za-z0-9]{2,64}$" },
+    "TabId": { "type": "string", "pattern": "^tab_[A-Za-z0-9]{2,64}$" },
+    "TerminalId": { "type": "string", "pattern": "^term_[A-Za-z0-9]{2,64}$" },
+    "TaskId": { "type": "string", "pattern": "^task_[A-Za-z0-9]{2,64}$" },
+    "SshHostId": { "type": "string", "pattern": "^ssh_[A-Za-z0-9]{2,64}$" },
+    "SignalSessionId": { "type": "string", "pattern": "^sess_[A-Za-z0-9]{2,64}$" },
+    "Sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "Name": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "Timestamp": { "type": "integer", "minimum": 0, "description": "Unix milliseconds" },
+    "ChannelId": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+    "ChannelClass": { "enum": ["interactive", "bulk", "datagram"] },
+    "ChannelKind": { "enum": ["rpc", "terminal", "browser", "rd", "files.upload", "files.download"] },
+    "Viewport": {
+      "type": "object",
+      "required": ["cols", "rows"],
+      "additionalProperties": false,
+      "properties": {
+        "cols": { "type": "integer", "minimum": 2, "maximum": 10000 },
+        "rows": { "type": "integer", "minimum": 1, "maximum": 10000 },
+        "px_width": { "type": "integer", "minimum": 0 },
+        "px_height": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "TabKind": { "enum": ["terminal", "browser", "agent", "other"] },
+    "TabStatus": { "enum": ["idle", "running", "needs_input", "error"] },
+    "Tab": {
+      "type": "object",
+      "required": ["id", "kind", "title"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/TabId" },
+        "kind": { "$ref": "#/$defs/TabKind" },
+        "title": { "type": "string", "maxLength": 400 },
+        "terminal": { "$ref": "#/$defs/TerminalId" },
+        "url": { "type": "string", "maxLength": 4096 },
+        "status": { "$ref": "#/$defs/TabStatus" },
+        "unread": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "Pane": {
+      "type": "object",
+      "required": ["id", "tabs"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/PaneId" },
+        "tabs": { "type": "array", "items": { "$ref": "#/$defs/Tab" } }
+      }
+    },
+    "Workspace": {
+      "type": "object",
+      "required": ["id", "name", "order", "panes"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/WorkspaceId" },
+        "name": { "type": "string", "maxLength": 200 },
+        "color": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" },
+        "pinned": { "type": "boolean" },
+        "order": { "type": "integer" },
+        "panes": { "type": "array", "items": { "$ref": "#/$defs/Pane" } }
+      }
+    },
+    "HostSummary": {
+      "type": "object",
+      "required": ["id", "name", "platform", "presence", "caps"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/HostId" },
+        "name": { "$ref": "#/$defs/Name" },
+        "platform": { "$ref": "#/$defs/Platform" },
+        "presence": { "$ref": "#/$defs/HostPresence" },
+        "caps": { "type": "array", "items": { "$ref": "#/$defs/Capability" } },
+        "cmux_version": { "type": "string", "maxLength": 64 },
+        "last_seen": { "$ref": "#/$defs/Timestamp" }
+      }
+    },
+    "HostPresence": { "enum": ["online", "offline", "sleeping", "paused"] },
+    "TaskState": { "enum": ["queued", "running", "needs_input", "done", "failed", "cancelled"] }
+  }
+}
