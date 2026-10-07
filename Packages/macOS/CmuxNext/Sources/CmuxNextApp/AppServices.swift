@@ -42,6 +42,9 @@ final class AppServices {
     private(set) lazy var feedPage = FeedPageService(services: self)
     /// SSH machines (Connect to Machine…).
     private(set) var ssh: SSHService!
+    /// Paired servers whose Chief brain session shows in the sidebar.
+    private(set) lazy var serverReach = ServerReachService.app(machines: machines, feed: feed, auth: cloud.auth,
+                                                               bundleID: environment.launch.bundleID)
     /// Phone access; started by the account layer once signed in.
     let mobile = MobileHostService()
     let registry = ActionRegistry.standard()
@@ -94,7 +97,7 @@ final class AppServices {
     private(set) lazy var viewers = ViewerService(services: self)
     /// The cmux server menu bar item (DEV and NIGHTLY prototype; plans/cmux-next/server.md 14).
     private(set) lazy var serverMenuBar = ServerMenuBarController(makeSource: { [unowned self] in
-        CloudPairingSource.app(feed: feed, auth: cloud.auth, chiefPlaced: { [weak self] in self?.home.refreshChiefTab() }) })
+        CloudPairingSource.app(feed: feed, auth: cloud.auth, chiefPlaced: { [weak self] in self?.chiefPlaced() }) })
     /// Home: local conversations with the mux (plans/cmux-next/home.md).
     private(set) lazy var home = HomeService(services: self)
     /// `cmux://bookmarks`: the manager pages.
