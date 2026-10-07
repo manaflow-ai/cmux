@@ -48,6 +48,9 @@ public final class SidebarModel {
         transientTopItems.isEmpty ? nil : LayoutSection(id: LayoutSectionID(LayoutItemID.transientPrefix + "top"), showsTitle: false,
                                                         region: .top, look: .builtIn, items: transientTopItems.map(\.item))
     }
+    /// The current profile's avatar: the account item draws it as the
+    /// profile control (`resolvedItemInfo`; SIDEBAR-FOOTER-AND-SPACE-MENU amendment 2).
+    public var profileAvatar: SidebarAvatar?
     /// Apps whose sections and items draw nothing (installed but hidden or
     /// disabled, D55); the App fills it from its one presence rule
     /// (`AppsService.presence`). The layout keeps their places.
