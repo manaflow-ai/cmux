@@ -96,3 +96,30 @@ test("Select exposes one shared menu and reports the chosen value", async () => 
   await act(async () => light.click());
   expect(chosen).toEqual(["light"]);
 });
+
+// Real pointer capture retargets move/up to the trigger, not to the row under the cursor.
+// Hit testing is supplied by jsdom here; the same path runs in the remote browser harness.
+test("captured pointer release hit-tests the row and activates exactly once", async () => {
+  const chosen: string[] = [];
+  const root = await render(menu((value) => chosen.push(value)));
+  const trigger = root.querySelector<HTMLButtonElement>("button")!;
+  const captured: number[] = [];
+  trigger.setPointerCapture = (id) => { captured.push(id); };
+  trigger.releasePointerCapture = () => {};
+  trigger.hasPointerCapture = () => true;
+  const previous = document.elementFromPoint;
+  try {
+    await act(async () => trigger.dispatchEvent(pointer("pointerdown", 27, 10, 10)));
+    await settle();
+    const row = document.querySelectorAll<HTMLElement>('[role="menuitem"]')[1]!;
+    document.elementFromPoint = () => row;
+    await act(async () => trigger.dispatchEvent(pointer("pointermove", 27, 35, 60)));
+    await act(async () => trigger.dispatchEvent(pointer("pointerup", 27, 35, 60)));
+    await settle();
+    expect(captured).toEqual([27]);
+    expect(chosen).toEqual(["two"]);
+    expect(document.querySelector('[role="menu"]') === null).toBe(true);
+  } finally {
+    document.elementFromPoint = previous;
+  }
+});
