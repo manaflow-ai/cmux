@@ -88,6 +88,161 @@ mod runtime {
     }
 }
 
+/// The host installer's OpenH264 step: download from Cisco, pinned SHA-256,
+/// per-user storage, atomic write (feature `openh264-download`).
+#[cfg(feature = "openh264-download")]
+mod cisco_install {
+    use std::cell::Cell;
+    use std::ffi::OsString;
+    use std::io::Write;
+    use std::path::{Path, PathBuf};
+
+    use cmux_encode::cisco::{self, InstallError, dir_from, install_with};
+    use cmux_encode::openh264::{CiscoBinary, Platform};
+    use sha2::Digest;
+
+    fn bz2(bytes: &[u8]) -> Vec<u8> {
+        let mut enc = bzip2::write::BzEncoder::new(Vec::new(), bzip2::Compression::best());
+        enc.write_all(bytes).expect("compress");
+        enc.finish().expect("finish")
+    }
+
+    fn fake(library: &[u8]) -> CiscoBinary {
+        let sha: String =
+            sha2::Sha256::digest(library).iter().map(|b| format!("{b:02x}")).collect();
+        CiscoBinary {
+            url: "http://ciscobinary.openh264.org/libfake.so.bz2",
+            file_name: "libfake.so",
+            sha256: Box::leak(sha.into_boxed_str()),
+        }
+    }
+
+    fn temp(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("cmux-cisco-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        dir
+    }
+
+    fn files(dir: &Path) -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(dir)
+            .map(|d| d.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect())
+            .unwrap_or_default();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn installs_the_verified_library_from_ciscos_url() {
+        let dir = temp("ok");
+        let library = b"pretend this is libopenh264".repeat(100);
+        let bin = fake(&library);
+        let asked = Cell::new(None);
+        let path = install_with(&dir, &bin, |url| {
+            asked.set(Some(url.to_owned()));
+            Ok(bz2(&library))
+        })
+        .expect("install");
+        assert_eq!(asked.take().as_deref(), Some(bin.url), "downloads Cisco's URL");
+        assert_eq!(path, dir.join("libfake.so"));
+        assert_eq!(std::fs::read(&path).expect("read"), library);
+        assert_eq!(files(&dir), vec!["libfake.so"], "no temporary file is left");
+        // Installed: a second run does not download again.
+        let again = install_with(&dir, &bin, |_| panic!("no second download")).expect("again");
+        assert_eq!(again, path);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_wrong_hash_writes_nothing() {
+        let dir = temp("hash");
+        let bin = fake(b"the pinned library");
+        match install_with(&dir, &bin, |_| Ok(bz2(b"something else"))) {
+            Err(InstallError::HashMismatch { expected, .. }) => assert_eq!(expected, bin.sha256),
+            other => panic!("expected a hash mismatch, got {other:?}"),
+        }
+        assert!(files(&dir).is_empty(), "nothing written: {:?}", files(&dir));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_corrupt_or_oversized_download_is_refused() {
+        let dir = temp("bad");
+        let bin = fake(b"lib");
+        assert!(matches!(
+            install_with(&dir, &bin, |_| Ok(b"not bzip2".to_vec())),
+            Err(InstallError::Decompress(_))
+        ));
+        let huge = vec![0u8; cisco::MAX_COMPRESSED_BYTES + 1];
+        assert!(matches!(install_with(&dir, &bin, |_| Ok(huge)), Err(InstallError::TooLarge)));
+        let bomb = bz2(&vec![0u8; cisco::MAX_LIBRARY_BYTES + 1]);
+        assert!(matches!(install_with(&dir, &bin, |_| Ok(bomb)), Err(InstallError::TooLarge)));
+        assert!(files(&dir).is_empty());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_tampered_installed_file_is_replaced() {
+        let dir = temp("tamper");
+        let library = b"cisco".repeat(50);
+        let bin = fake(&library);
+        std::fs::create_dir_all(&dir).expect("dir");
+        std::fs::write(dir.join(bin.file_name), b"tampered").expect("write");
+        let path = install_with(&dir, &bin, |_| Ok(bz2(&library))).expect("reinstall");
+        assert_eq!(std::fs::read(path).expect("read"), library);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn the_library_lives_in_a_per_user_data_directory() {
+        let env = |pairs: &'static [(&'static str, &'static str)]| {
+            move |key: &str| pairs.iter().find(|(k, _)| *k == key).map(|(_, v)| OsString::from(*v))
+        };
+        assert_eq!(
+            dir_from("linux", env(&[("HOME", "/home/u"), ("XDG_DATA_HOME", "/data")])),
+            Some(PathBuf::from("/data/cmux/openh264"))
+        );
+        assert_eq!(
+            dir_from("linux", env(&[("HOME", "/home/u"), ("XDG_DATA_HOME", "rel")])),
+            Some(PathBuf::from("/home/u/.local/share/cmux/openh264")),
+            "a relative XDG_DATA_HOME is ignored"
+        );
+        assert_eq!(
+            dir_from("macos", env(&[("HOME", "/Users/u")])),
+            Some(PathBuf::from("/Users/u/Library/Application Support/cmux/openh264"))
+        );
+        assert_eq!(dir_from("linux", env(&[])), None);
+        assert_eq!(
+            cisco::library_path(Path::new("/d"), Platform::LinuxX64),
+            PathBuf::from("/d/libopenh264-2.6.0-linux64.8.so")
+        );
+    }
+
+    /// The real download from Cisco's server and a verified load (network;
+    /// run on a Testbox: cargo test -p cmux-encode --features
+    /// openh264-download -- --ignored cisco_install).
+    #[test]
+    #[ignore = "downloads from ciscobinary.openh264.org"]
+    fn downloads_ciscos_library_and_loads_it() {
+        let dir = temp("real");
+        let platform = Platform::current().expect("a platform Cisco publishes for");
+        let path = cisco::install(&dir, platform).expect("download from Cisco");
+        let api = cmux_encode::openh264::load_verified(&path, platform).expect("verified load");
+        let cfg = cmux_encode::EncCfg {
+            width: 64,
+            height: 64,
+            fps: 30,
+            kbps: 500,
+            threads: 1,
+            screen_content: true,
+        };
+        use cmux_encode::H264Encoder;
+        let mut enc = cmux_encode::openh264::OpenH264::new(&cfg, api).expect("encoder");
+        let mut au = Vec::new();
+        assert!(enc.encode(&cmux_encode::I420::new(64, 64), true, 0, &mut au).expect("encode"));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+}
+
 /// VideoToolbox (macOS hosts; hardware encoder). Runs on a fleet Mac through
 /// cmux-ci (scripts/ci/cmux-tui-rust-check.sh), never on a developer Mac.
 #[cfg(target_os = "macos")]
