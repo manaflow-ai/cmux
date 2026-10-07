@@ -23,6 +23,8 @@ export interface TenantPolicyService {
   readonly isDevTest: (tenantId: TenantId) => boolean;
   /** Live VMs a tenant may hold. */
   readonly maxVms: (tenantId: TenantId) => number;
+  /** Live snapshots per tenant; a budget separate from VMs. */
+  readonly maxSnapshots: (tenantId: TenantId) => number;
   readonly rate: (rateClass: RateClass) => RateRule;
   /** Largest file upload accepted, in bytes. */
   readonly maxUploadBytes: number;
@@ -37,6 +39,8 @@ export interface PolicyConfig {
   readonly maxVms?: number;
   /** Per-tenant live VM limits, by Stack team id, from TENANT_VM_QUOTAS. */
   readonly vmQuotas?: Readonly<Record<string, number>>;
+  /** Live snapshots per tenant, for every tenant (tests and overrides). */
+  readonly maxSnapshots?: number;
   readonly ratePerMinute?: Partial<Record<RateClass, number>>;
   readonly maxUploadBytes?: number;
 }
@@ -48,6 +52,8 @@ export interface PolicyConfig {
  */
 export const DEFAULT_MAX_VMS = 20;
 export const DEFAULT_DEV_TEST_MAX_VMS = 20;
+/** Warm-start pools keep many snapshots per team; snapshots cost storage, not compute. */
+export const DEFAULT_MAX_SNAPSHOTS = 100;
 export const DEFAULT_RATE_PER_MINUTE: Readonly<Record<RateClass, number>> = { read: 600, write: 60, exec: 300, files: 300 };
 /** Workers accept request bodies up to 100 MB on most plans; stay under it. */
 export const DEFAULT_MAX_UPLOAD_BYTES = 96 * 1024 * 1024;
@@ -60,6 +66,7 @@ export const makeTenantPolicy = (config: PolicyConfig): TenantPolicyService => {
     isDevTest,
     maxVms: (tenantId) =>
       config.maxVms ?? config.vmQuotas?.[tenantId] ?? (isDevTest(tenantId) ? DEFAULT_DEV_TEST_MAX_VMS : DEFAULT_MAX_VMS),
+    maxSnapshots: () => config.maxSnapshots ?? DEFAULT_MAX_SNAPSHOTS,
     rate: (rateClass) => ({ perMinute: config.ratePerMinute?.[rateClass] ?? DEFAULT_RATE_PER_MINUTE[rateClass] }),
     maxUploadBytes: config.maxUploadBytes ?? DEFAULT_MAX_UPLOAD_BYTES,
   };

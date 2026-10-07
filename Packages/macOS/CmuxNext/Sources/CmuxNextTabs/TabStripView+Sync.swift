@@ -3,9 +3,9 @@ import CmuxNextDesign
 import QuartzCore
 // Model sync: diffs `TabStripModel` into tab cells and spring targets.
 extension TabStripView {
-    // MARK: - Model sync
+    // MARK: - Model sync (`animating: false`: Cmd-T's tab at full width now, one commit with its page)
 
-    func sync(fromModel: Bool) {
+    public func sync(fromModel: Bool, animating: Bool = true) {
         let modelOrdered = model.orderedTabs
         groups.byID = Dictionary(model.groups.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         if fromModel {
@@ -44,7 +44,7 @@ extension TabStripView {
             }
         }
 
-        let animated = hasSynced && !reduceMotion
+        let animated = hasSynced && !reduceMotion && animating
         let ids = Set(ordered.map(\.id))
         for (id, cell) in cells where !ids.contains(id) && !dying.contains(id) {
             if animated {
