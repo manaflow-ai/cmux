@@ -92,7 +92,7 @@ export function staticCheckCommand(): string {
   ].join("; ");
 }
 
-const kv = (text: string) => Object.fromEntries(text.split("\n").filter((l) => /^[a-zA-Z0-9_-]+=/.test(l)).map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1)]));
+const kv = (text: string) => Object.fromEntries(text.split("\n").filter((l) => /^[a-zA-Z0-9_.-]+=/.test(l)).map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1)]));
 
 export type Check = { ok: boolean; detail: string };
 export type ProbeResult = { checks: Record<string, Check>; timings: Record<string, number>; files: string[] };
@@ -104,9 +104,13 @@ async function inTerminal(vm: Vm, name: string, script: string, waitSeconds: num
   const C = `${CURRENT_BIN}/cmux-tui --session cloud`;
   const start = await run(vm, `${C} workspace name:${WORKSPACE} run --on-exit keep shell ${sq(`. ${PROBE_DIR}/${name}.sh`)} >/dev/null`, 60_000, DEVBOX_WORK_USER);
   if (start.code !== 0) throw new Error(`terminal run ${name}: ${start.stderr.slice(-300)}`);
-  const wait = await run(vm, `for i in $(seq 1 ${waitSeconds}); do [ -e ${PROBE_DIR}/${name}.done ] && exit 0; sleep 1; done; exit 1`, (waitSeconds + 20) * 1000, DEVBOX_WORK_USER);
-  if (wait.code !== 0) throw new Error(`terminal script ${name} did not finish within ${waitSeconds} s`);
-  return Date.now() - t0;
+  // One exec may last at most 5 minutes: wait in slices of at most 240 s.
+  for (let left = waitSeconds; left > 0; left -= 240) {
+    const slice = Math.min(left, 240);
+    const wait = await run(vm, `for i in $(seq 1 ${slice}); do [ -e ${PROBE_DIR}/${name}.done ] && exit 0; sleep 1; done; exit 1`, (slice + 20) * 1000, DEVBOX_WORK_USER);
+    if (wait.code === 0) return Date.now() - t0;
+  }
+  throw new Error(`terminal script ${name} did not finish within ${waitSeconds} s`);
 }
 
 async function readGuest(vm: Vm, file: string): Promise<string> {
@@ -147,7 +151,7 @@ export async function agentToolsProbe(vm: Vm, options: { token: string; outDir: 
   const listReply = await readGuest(vm, `${PROBE_DIR}/list.txt`);
   writeFileSync(path.join(options.outDir, "list.txt"), listReply);
   const problems = toolListProblems(listReply);
-  const toolCount = listReply.split("\n").filter((l) => l.trim().startsWith("mcp__")).length;
+  const toolCount = new Set(listReply.match(/mcp__[A-Za-z0-9_-]+/g) ?? []).size;
   check("agent-lists-tools", problems.length === 0, problems.join("; ") || `${toolCount} mcp__ tools named, including ${[...REQUIRED_TOOLS, ...REQUIRED_SKILLS].join(", ")}`);
   const units = await run(vm, `systemctl is-active ${DISPLAY_UNIT} ${CUA_UNIT} | tr '\\n' ' '`);
   check("display-and-cua-started-by-the-session", units.stdout.trim() === "active active", units.stdout.trim());
@@ -158,9 +162,10 @@ export async function agentToolsProbe(vm: Vm, options: { token: string; outDir: 
     `export DISPLAY=${AGENT_DISPLAY} XAUTHORITY=${AGENT_XAUTHORITY} $(tr '\\0' '\\n' < /proc/$(pgrep -f 'cmux-tui server [s]tart' | head -1)/environ | grep '^CMUX_BROWSER_HOST_CHROMIUM=')`,
     `setsid "$CMUX_BROWSER_HOST_CHROMIUM" --no-first-run --user-data-dir=${PROBE_DIR}/chrome-profile --window-position=0,0 --window-size=1280,800 --app=${page} >${PROBE_DIR}/chrome.log 2>&1 < /dev/null &`,
     "echo launched",
-  ].join("; "), 30_000, DEVBOX_WORK_USER);
-  check("display-window", chrome.code === 0, chrome.stdout.trim() || chrome.stderr.slice(-300));
+  ].join("\n"), 30_000, DEVBOX_WORK_USER);
   await sleep(5000);
+  const window = await run(vm, `pgrep -u ${DEVBOX_WORK_USER} -f -- '--app=${page}' >/dev/null && echo running || { echo not-running; tail -5 ${PROBE_DIR}/chrome.log; }`, 30_000, DEVBOX_WORK_USER);
+  check("display-window", chrome.code === 0 && window.stdout.startsWith("running"), `${chrome.stdout.trim()} ${window.stdout.trim()} ${chrome.stderr.slice(-200)}`);
 
   const shots = terminalScript("shots", `{ timeout ${TURN_SECONDS} ${CURRENT_BIN}/cmux-tui acp send ${SESSION} ${sq(screenshotPrompt(`http://127.0.0.1:${PAGE_PORT}/`))}; echo "exit $?"; } > ${PROBE_DIR}/shots.txt 2>&1`);
   result.timings.shotsMs = await inTerminal(vm, "shots", shots, TURN_SECONDS + 30);

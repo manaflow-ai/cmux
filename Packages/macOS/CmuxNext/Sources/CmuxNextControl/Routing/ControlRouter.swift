@@ -20,14 +20,32 @@ public final class ControlRouter: Sendable {
         /// (``ControlMethod/Deadline/terminalStart``).
         public var terminalStartDeadline: Duration
         public var queueLimits: MainActorWorkQueue.Limits
+        /// Whether `debug.*` methods may be registered: only in DEBUG builds
+        /// (``ControlRouter/debugMethodsAllowed``). A release router drops
+        /// every `debug.*` registration, so no release build serves one.
+        public var allowsDebugMethods: Bool
 
         public init(requestDeadline: Duration = .seconds(2), terminalStartDeadline: Duration = ControlRouter.terminalStartDeadline,
-                    queueLimits: MainActorWorkQueue.Limits = MainActorWorkQueue.Limits()) {
+                    queueLimits: MainActorWorkQueue.Limits = MainActorWorkQueue.Limits(),
+                    allowsDebugMethods: Bool = ControlRouter.debugMethodsAllowed) {
             self.requestDeadline = requestDeadline
             self.terminalStartDeadline = terminalStartDeadline
             self.queueLimits = queueLimits
+            self.allowsDebugMethods = allowsDebugMethods
         }
     }
+
+    /// True in DEBUG builds only: release builds serve no `debug.*` method.
+    public static var debugMethodsAllowed: Bool {
+        #if DEBUG
+        true
+        #else
+        false
+        #endif
+    }
+
+    /// A `debug.*` method: diagnostics and automation for tagged DEV builds.
+    public static func isDebugMethod(_ name: String) -> Bool { name.hasPrefix("debug.") }
 
     /// Default deadline for a request that starts a terminal: the daemon's
     /// own terminal start deadline (`DaemonConnection.defaultSpawnTimeout`)
@@ -93,10 +111,13 @@ public final class ControlRouter: Sendable {
     // MARK: - Registration
 
     /// Adds methods. A later registration with the same name replaces the
-    /// earlier one (the App or compat layer may refine a built-in).
+    /// earlier one (the App or compat layer may refine a built-in). A
+    /// `debug.*` method is dropped unless the configuration allows debug
+    /// methods (DEBUG builds), whichever code path registers it.
     public func register(_ methods: [ControlMethod]) {
+        let allowsDebug = configuration.allowsDebugMethods
         state.withLock { state in
-            for method in methods {
+            for method in methods where allowsDebug || !Self.isDebugMethod(method.name) {
                 if state.methods.updateValue(method, forKey: method.name) == nil { state.order.append(method.name) }
             }
         }
