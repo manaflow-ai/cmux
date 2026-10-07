@@ -42,28 +42,33 @@
     },
     "evaluate_firewall": {
       "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "bead": "cx-0op",
+      "reason": "planned in cx-0op"
     },
     "list_firewall_rules": {
       "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "bead": "cx-0op",
+      "reason": "planned in cx-0op"
     },
     "create_firewall_rule": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": [
+        "mesh.putMeshAcl",
+        "mesh.enrollDevice",
+        "mesh.attachMeshVm"
+      ]
     },
     "delete_firewall_rule": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": [
+        "mesh.putMeshAcl",
+        "mesh.detachMeshVm"
+      ]
     },
     "get_firewall_rule": {
       "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "bead": "cx-0op",
+      "reason": "planned in cx-0op"
     },
     "list_hardware": {
       "status": "denied",
@@ -213,43 +218,47 @@
     },
     "list_tunnels": {
       "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "bead": "cx-0op",
+      "reason": "planned in cx-0op"
     },
     "create_tunnel": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": [
+        "mesh.enrollDevice"
+      ]
     },
     "delete_tunnel": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": [
+        "mesh.deleteDevice",
+        "mesh.enrollDevice"
+      ]
     },
     "get_tunnel": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": [
+        "mesh.getTunnel"
+      ]
     },
     "update_tunnel": {
       "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "bead": "cx-0op",
+      "reason": "planned in cx-0op"
     },
     "rotate_tunnel_key": {
       "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "bead": "cx-0op",
+      "reason": "planned in cx-0op"
     },
     "detach_vpc_from_tunnel": {
       "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "bead": "cx-0op",
+      "reason": "planned in cx-0op"
     },
     "attach_vpc_to_tunnel": {
       "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "bead": "cx-0op",
+      "reason": "planned in cx-0op"
     },
     "list_verifications": {
       "status": "planned",
@@ -377,9 +386,11 @@
       ]
     },
     "update_vm_networks": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": [
+        "mesh.attachMeshVm",
+        "mesh.detachMeshVm"
+      ]
     },
     "pause_vm": {
       "status": "wrapped",
@@ -432,38 +443,40 @@
     },
     "list_vpcs": {
       "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "bead": "cx-0op",
+      "reason": "planned in cx-0op"
     },
     "create_vpc": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": [
+        "mesh.createMesh"
+      ]
     },
     "delete_vpc": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": [
+        "mesh.deleteMesh"
+      ]
     },
     "get_vpc": {
       "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "bead": "cx-0op",
+      "reason": "planned in cx-0op"
     },
     "update_vpc": {
       "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "bead": "cx-0op",
+      "reason": "planned in cx-0op"
     },
     "list_vpc_ips": {
       "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "bead": "cx-0op",
+      "reason": "planned in cx-0op"
     },
     "list_vpc_tunnels": {
       "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "bead": "cx-0op",
+      "reason": "planned in cx-0op"
     }
   },
   "sdk": {
