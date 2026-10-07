@@ -102,7 +102,7 @@ test("an output opens the changes view at that file and closes the popover", asy
 
 test("Sources opens the last turn's Changes and closes the popover", async () => {
   const opened: string[] = [];
-  let opener: Element | null = null;
+  let opener: HTMLButtonElement | null = null;
   const container = dom.window.document.getElementById("root")!;
   const root = createRoot(container);
   await act(async () =>
@@ -112,7 +112,7 @@ test("Sources opens the last turn's Changes and closes the popover", async () =>
         changes: { additions: 3, deletions: 1 },
         onOpenChanges: () => {
           opened.push("changes");
-          opener = dom.window.document.activeElement;
+          opener = dom.window.document.activeElement as HTMLButtonElement | null;
         },
       }),
     ),
