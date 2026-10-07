@@ -46,11 +46,13 @@ extension SidebarView {
         let hidden = Set(model.itemInfo.filter(\.value.isHidden).keys)
         let (above, below) = model.layout.bands(room: model.activeProfileID?.rawValue)
         let apps = model.suppressedApps
-        let bands = (above: above.presenting(hidingItems: hidden, apps: apps), below: below.presenting(hidingItems: hidden, apps: apps))
+        let bands = (above: (model.transientTopSection.map { [$0] } ?? []) + above.presenting(hidingItems: hidden, apps: apps),
+                     below: below.presenting(hidingItems: hidden, apps: apps))
         let look = SidebarSectionTunables.currentLook
         let metrics = SidebarRegionMetrics.standard
         // The one selection marks its top item active (its glyph, accessibility).
         var selectedInfos = model.itemInfo
+        for transient in model.transientTopItems { selectedInfos[transient.item.id] = transient.info }
         for id in selectedInfos.keys { selectedInfos[id]?.isActive = model.selectedItem == .topItem(id) }
         func content(_ sections: [LayoutSection]) -> SidebarRegionView.Content {
             SidebarRegionView.Content(sections: sections.map(titled), infos: selectedInfos, collapsed: model.collapsedLayoutSections,

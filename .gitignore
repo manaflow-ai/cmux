@@ -81,3 +81,7 @@ tmux-*.log
 /.cloudflare/
 # Locally downloaded prebuilt client for Packages/Shared/CmuxTerminalClient
 Packages/Shared/CmuxTerminalClient/CmuxTerminalClient.xcframework/
+
+# The cmux-next web bundle stamp (scripts/cmux-next/build-web-bundles.sh).
+/.web-bundles.key
+/.web-bundles.key.tmp

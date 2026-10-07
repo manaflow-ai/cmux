@@ -309,6 +309,7 @@ public final class SidebarView: NSView {
         var filter: String
         var layout: SidebarLayoutDocument
         var itemInfo: [LayoutItemID: SidebarItemInfo]
+        var transientTopItems: [SidebarTransientItem]
         var collapsedSections: Set<LayoutSectionID>
         var look: SectionsLookVariant
         var drawsLines: Bool
@@ -335,6 +336,7 @@ public final class SidebarView: NSView {
                     filter: model.filterText,
                     layout: model.layout,
                     itemInfo: model.itemInfo,
+                    transientTopItems: model.transientTopItems,
                     collapsedSections: model.collapsedLayoutSections,
                     look: SidebarSectionTunables.currentLook,
                     drawsLines: Borders.drawsLines,
@@ -358,6 +360,7 @@ public final class SidebarView: NSView {
         let profileChanged = lastState?.activeProfile != state.activeProfile
         let profilesChanged = lastState?.profiles != state.profiles || profileChanged
             || lastState?.layout != state.layout || lastState?.itemInfo != state.itemInfo || lastState?.selected != state.selected
+            || lastState?.transientTopItems != state.transientTopItems
             || lastState?.collapsedSections != state.collapsedSections || lastState?.look != state.look
             || lastState?.drawsLines != state.drawsLines || lastState?.preferences != state.preferences || lastState?.suppressedApps != state.suppressedApps
         let listChanged = lastState?.sections != state.sections || lastState?.selection != state.selection

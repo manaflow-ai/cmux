@@ -127,7 +127,9 @@ final class SidebarItemRowView: NSView {
         // Icons and tiles have no room for a count: unread items show a dot
         // at the glyph's top trailing corner (the rail, like the Codex app's).
         let unread: UnreadState
-        if style == .favorite {
+        if info.unreadDot {
+            unread = .dot
+        } else if style == .favorite {
             unread = (info.badge ?? 0) > 0 ? UnreadState.dot : UnreadState.none
         } else if style.isIconOnly {
             unread = isRailButton && (info.badge ?? 0) > 0 ? UnreadState.dot : UnreadState.none
@@ -136,7 +138,7 @@ final class SidebarItemRowView: NSView {
         }
         badge.configure(unread)
         // VoiceOver hears the count even where no badge draws (icons).
-        setAccessibilityValue(info.badge.map { String($0) })
+        setAccessibilityValue(info.unreadDot ? Strings.unreadDot : info.badge.map { String($0) })
         // An icon names itself (and its shortcut) in its tooltip; a tile's
         // caption can truncate, so it keeps the full title.
         toolTip = style.isIconOnly ? info.toolTip : style == .favorite ? info.title : nil
@@ -220,7 +222,9 @@ final class SidebarItemRowView: NSView {
         let badgeX = style == .chip
             ? (badge.isHidden ? trailing : trailing - Metrics.space2 - badgeWidth)
             : b.width - inset * 2 - badgeWidth
-        badge.frame = NSRect(x: badgeX, y: (b.height - bh) / 2, width: badgeWidth, height: bh)
+        // A dot is round: as tall as it is wide, centered on the row.
+        let badgeHeight = badge.state == .dot ? badgeWidth : bh
+        badge.frame = NSRect(x: badgeX, y: (b.height - badgeHeight) / 2, width: badgeWidth, height: badgeHeight)
         let th = ceil(title.intrinsicContentSize.height)
         let textX = iconFrame.maxX + (style == .chip ? Metrics.space2 : Metrics.space3)
         title.frame = NSRect(x: textX, y: (b.height - th) / 2, width: max(0, badgeX - Metrics.space2 - textX), height: th)
