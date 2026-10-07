@@ -206,7 +206,11 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         if Self.rendersWhenCovered(ProcessInfo.processInfo.environment) { keepRenderingWhenCovered() }
         #endif
         PagePaintProbe.install(in: webView.configuration.userContentController) { [weak self] in
-            self?.paintedUptime = ProcessInfo.processInfo.systemUptime
+            guard let self else { return }
+            paintedUptime = ProcessInfo.processInfo.systemUptime
+            let waiters = paintWaiters
+            paintWaiters = []
+            waiters.forEach { $0() }
         }
         bridge.install { [weak self] message in
             await self?.receive(message)
@@ -302,6 +306,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// `ProcessInfo.systemUptime` seconds; nil until it has.
     public private(set) var paintedUptime: TimeInterval?
     public var hasPainted: Bool { paintedUptime != nil }
+    /// Callbacks for the current document's first frame (`whenPainted`).
+    var paintWaiters: [() -> Void] = []
 
     private func receive(_ message: PageHostMessage) async -> Any? {
         guard PageHostTrust.isTrusted(message, page: descriptor) else {
