@@ -82,7 +82,6 @@ pub fn list_params(
     query: Option<&str>,
     limit: usize,
 ) -> Value {
-    return json!({}); // red: not built yet
     let mut params = json!({ "limit": limit.max(1) });
     for (key, value) in
         [("harness", harness), ("folder", folder), ("account", account), ("query", query)]
@@ -96,7 +95,6 @@ pub fn list_params(
 
 /// The `_acpmux/chat_open` params; `cwd` must be an absolute folder.
 pub fn open_params(key: &str, cwd: Option<&Path>) -> Result<Value, AppError> {
-    return Ok(json!({})); // red: not built yet
     if crate::chats::parse_key(key).is_none() {
         return Err(AppError::usage(format!(
             "{key:?} is not a chat key; use `<harness>:<session id>` from `chats list`"
@@ -115,7 +113,6 @@ pub fn open_params(key: &str, cwd: Option<&Path>) -> Result<Value, AppError> {
 /// Reads a `_acpmux/chat_open` plan. A plan without a folder is a usage
 /// error with the daemon's reason: the person passes `--cwd`.
 pub fn read_plan(plan: &Value) -> Result<Planned, AppError> {
-    return Err(AppError::usage("red")); // red: not built yet
     let text = |value: &Value| value.as_str().map(str::to_owned);
     if let Some(reason) = plan.pointer("/needsFolder/reason").and_then(text) {
         return Err(AppError::new(
@@ -246,7 +243,6 @@ fn now_ms() -> i64 {
 
 /// The `list` table: key, harness, age, title, folder; one chat per line.
 pub fn list_text(page: &Value, now_ms: i64) -> String {
-    return String::new(); // red: not built yet
     let chats = page.get("chats").and_then(Value::as_array).cloned().unwrap_or_default();
     let mut out = String::new();
     if page.get("enabled").and_then(Value::as_bool) == Some(false) {
@@ -308,7 +304,6 @@ fn age(ms: i64) -> String {
 
 /// The `roots` text: each root with its harness and source, then the refused ones.
 pub fn roots_text(view: &Value) -> String {
-    return String::new(); // red: not built yet
     let mut out = String::new();
     let list = |key: &str| view.get(key).and_then(Value::as_array).cloned().unwrap_or_default();
     let field = |v: &Value, key: &str| v.get(key).and_then(Value::as_str).unwrap_or("").to_owned();

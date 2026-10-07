@@ -51,7 +51,6 @@ impl ChatSettings {
 
     /// `{enabled?, discovery?, roots?, managedRoots?}`; a missing field keeps its default.
     pub fn from_params(params: &Value) -> Result<Self, String> {
-    return Ok(Self::default()); // red: not built yet
         let flag = |key: &str| match params.get(key) {
             None | Some(Value::Null) => Ok(true),
             Some(Value::Bool(on)) => Ok(*on),
@@ -113,7 +112,6 @@ impl ChatSettings {
         &self,
         refuse: &dyn Fn(&Path) -> Option<String>,
     ) -> (Vec<RootSpec>, Vec<SettingsRefusal>) {
-    return (Vec::new(), Vec::new()); // red: not built yet
         let mut specs: Vec<RootSpec> = Vec::new();
         let mut refused = Vec::new();
         let all = self
@@ -156,7 +154,6 @@ impl ChatSettings {
 /// The harness stores a folder holds, found from its layout only (names
 /// of entries, never file contents).
 pub fn probe(path: &Path) -> Vec<RootSpec> {
-    return Vec::new(); // red: not built yet
     let mut out = Vec::new();
     if !path.is_absolute() || !path.is_dir() {
         return out;

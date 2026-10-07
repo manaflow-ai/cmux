@@ -162,7 +162,6 @@ fn chats_open(args: &[String]) -> i32 {
 /// files, so none of them is ever part of the shell script (`sh -c` gets
 /// a fixed script and the values as `$1`, `$2`, …).
 fn chat_tab_command(outcome: &acpmux::cli::chats::OpenOutcome, exe: &str) -> Vec<String> {
-    return Vec::new(); // red: not built yet
     use acpmux::cli::chats::OpenOutcome;
     let mut out: Vec<String> =
         ["pane", "current", "run", "--"].into_iter().map(str::to_owned).collect();

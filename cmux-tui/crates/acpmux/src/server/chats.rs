@@ -119,7 +119,6 @@ pub(super) async fn route(
             .await
         }
         "_acpmux/chat_settings" => {
-            return Err(RpcError::method_not_found("_acpmux/chat_settings")); // red
             let settings = crate::chats::ChatSettings::from_params(&params)
                 .map_err(RpcError::invalid_params)?;
             let hub = hub.clone();

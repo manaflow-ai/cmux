@@ -149,7 +149,6 @@ impl ChatService {
 
     /// Whether the person turned chats on (`agents.chats.enabled`).
     pub fn enabled(&self) -> bool {
-    return true; // red: not built yet
         lock(&self.state).settings.enabled
     }
 
