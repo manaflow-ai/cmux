@@ -96,7 +96,7 @@ describe("VM defaults and pricing copy", () => {
   test("VM creation defaults are separate from advertised plan limits", () => {
     expect(PAID_MAX_ACTIVE_VMS_DEFAULT).toBe(5);
     expect(memoryGb).toBe(8);
-    expect(startingDiskGb).toBe(64);
+    expect(startingDiskGb).toBe(32);
   });
 
   test("a size-less plan reservation follows requested memory", () => {
@@ -116,7 +116,7 @@ describe("VM defaults and pricing copy", () => {
     })).toEqual({ vcpus: 8, memoryMb: 32768, diskMb: 65536 });
   });
 
-  test("a 4 GB image still reserves the documented 64 GB starting disk", () => {
+  test("a 4 GB image still reserves the documented 32 GB starting disk", () => {
     expect(vmResourceReservationForCreate({
       imageSize: { cpu: 1, memoryMb: 4096, storageMb: 16384 },
     })).toEqual({ vcpus: 1, memoryMb: 4096, diskMb: VM_DISK_MB_DEFAULT });

@@ -37,7 +37,7 @@ describe("size ladder", () => {
     expect(VM_IMAGE_SIZE_NAMES).toEqual(["sm", "md", "lg", "lgx", "xl", "2xl"]);
     expect(VM_IMAGE_SIZES.map((s) => [s.name, s.cpu, s.memoryMb, s.storageMb, s.freestyleBase])).toEqual([
       ["sm", 2, 4096, 16384, "freestyle/ubuntu-sm"],
-      ["md", 4, 8192, 65536, "freestyle/ubuntu"],
+      ["md", 4, 8192, 32768, "freestyle/ubuntu"],
       ["lg", 8, 16384, 65536, "freestyle/ubuntu-lg"],
       ["lgx", 12, 24576, 98304, undefined],
       ["xl", 16, 32768, 131072, "freestyle/ubuntu-xl"],

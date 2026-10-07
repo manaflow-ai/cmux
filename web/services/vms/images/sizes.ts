@@ -1,10 +1,12 @@
 /**
- * Machine sizes follow Freestyle's CPU and memory ladder, plus cmux's
- * validated 24 GiB intermediate snapshot. The default 8 GiB `md` row grows
- * its disk to 64 GiB for headroom; cmux derives that row and `lgx` by resize
- * + snapshot from the smallest bake (`scripts/derive-devbox-sizes.ts`). A
- * Freestyle VM always boots at its snapshot's size, so each exposed row has
- * one validated snapshot in the manifest.
+ * Machine sizes: Freestyle's t-shirt ladder, plus cmux's validated 24 GiB
+ * intermediate snapshot. Freestyle's catalog provides the named base images;
+ * cmux derives `lgx` by resize + snapshot from the same bake
+ * (`scripts/derive-devbox-sizes.ts`). A Freestyle VM always boots at its
+ * snapshot's size, so each exposed row has one validated snapshot in the
+ * manifest. Freestyle pins catalog shapes to plan caps (Free `md`, Hobby
+ * `lg`, Pro `2xl`), and a size a plan cannot boot is simply not creatable by
+ * it.
  *
  * `md` is Freestyle's bare default slug (`freestyle/ubuntu`); the others keep
  * Freestyle's suffixes.
@@ -25,7 +27,7 @@ export type VmImageSize = {
 
 export const VM_IMAGE_SIZES: readonly VmImageSize[] = [
   { name: "sm", cpu: 2, memoryMb: 4096, storageMb: 16384, freestyleBase: "freestyle/ubuntu-sm" },
-  { name: "md", cpu: 4, memoryMb: 8192, storageMb: 65536, freestyleBase: "freestyle/ubuntu" },
+  { name: "md", cpu: 4, memoryMb: 8192, storageMb: 32768, freestyleBase: "freestyle/ubuntu" },
   { name: "lg", cpu: 8, memoryMb: 16384, storageMb: 65536, freestyleBase: "freestyle/ubuntu-lg" },
   // Derived by cmux because Freestyle has no named 24 GiB catalog base.
   { name: "lgx", cpu: 12, memoryMb: 24576, storageMb: 98304 },

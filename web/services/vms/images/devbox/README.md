@@ -326,15 +326,15 @@ bake happens once on the ladder floor (`freestyle/ubuntu-sm`, 2 vCPU / 4 GiB /
 16 GB) and `derive-devbox-sizes.ts` turns it into one snapshot per size:
 boot the bake, `vm.resize`, snapshot, delete, then boot the derived snapshot
 once more and check `nproc`, memory, the grown root filesystem and the
-daemon/desktop units. CPU and memory follow Freestyle's ladder
-(`web/services/vms/images/sizes.ts`); cmux's default `md` row intentionally
-uses a 64 GB disk and is derived from the smallest bake. Every exposed row
-uses provider-supported dimensions:
+daemon/desktop units. Sizes are Freestyle's own ladder
+(`web/services/vms/images/sizes.ts`, verbatim from freestyle-vms
+`catalog/snapshots.json`), so every cmux machine is a shape Freestyle already
+bills and caps:
 
 | name | vCPU | memory | disk | Freestyle base |
 |---|---|---|---|---|
 | `sm` | 2 | 4 GiB | 16 GB | `freestyle/ubuntu-sm` |
-| `md` | 4 | 8 GiB | 64 GB | `freestyle/ubuntu` → derived |
+| `md` | 4 | 8 GiB | 32 GB | `freestyle/ubuntu` |
 | `lg` | 8 | 16 GiB | 64 GB | `freestyle/ubuntu-lg` |
 | `lgx` | 12 | 24 GiB | 96 GB | derived snapshot |
 | `xl` | 16 | 32 GiB | 128 GB | `freestyle/ubuntu-xl` |
@@ -462,10 +462,9 @@ the image is committed):
 docker build --platform linux/amd64 -t cmux-devbox:dev services/vms/images/devbox
 ```
 
-Freestyle bakes on `freestyle/ubuntu` (4 vCPU / 8 GiB / 32 GB) and derives the
-64 GB `md` snapshot from the smallest bake: VMs always boot at their snapshot's
-size and resizing is grow-only, so the recorded snapshot shape is what every
-cmux Cloud machine gets. Freestyle snapshot slugs are
+Freestyle bakes on `freestyle/ubuntu` (4 vCPU / 8 GiB / 32 GB): VMs always
+boot at their snapshot's size and resizing is grow-only, so the builder's
+shape is what every cmux Cloud machine gets. Freestyle snapshot slugs are
 reassignable; the printed `sh-…` id is the pointer to pin. Agent pins live
 only in the Dockerfile ARG defaults; bump them together with
 `CMUX_IMAGE_EPOCH` and the chatmux template. The cmux-tui pin comes from
