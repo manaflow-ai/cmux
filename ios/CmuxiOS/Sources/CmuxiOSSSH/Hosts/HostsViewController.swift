@@ -181,7 +181,13 @@ final class HostsViewController: UIViewController, UICollectionViewDelegate {
 
     private func swipeActions(at indexPath: IndexPath) -> UISwipeActionsConfiguration? {
         guard let id = dataSource.itemIdentifier(for: indexPath), let row = rows[id] else { return nil }
-        if case .pairedMac = row.record.kind { return nil }
+        let browser = feature.browsers == nil ? nil : UIContextualAction(style: .normal, title: SSHText.browser) { [weak self] _, _, done in
+            guard let self else { return done(false) }
+            self.feature.openBrowser(row.record, records: self.records, from: self)
+            done(true)
+        }
+        browser?.backgroundColor = .systemGray2
+        if case .pairedMac = row.record.kind { return browser.map { UISwipeActionsConfiguration(actions: [$0]) } }
         let delete = UIContextualAction(style: .destructive, title: SSHText.delete) { [weak self] _, _, done in
             self?.confirmDelete(row.record)
             done(true)
@@ -192,6 +198,9 @@ final class HostsViewController: UIViewController, UICollectionViewDelegate {
             done(true)
         }
         edit.backgroundColor = .systemGray
+        if case .ssh = row.record.kind, let browser {
+            return UISwipeActionsConfiguration(actions: [delete, edit, browser])
+        }
         return UISwipeActionsConfiguration(actions: [delete, edit])
     }
 

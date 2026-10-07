@@ -79,6 +79,8 @@ let package = Package(
                 "CmuxiOSBrowser",
                 "CmuxiOSBrowserCore",
                 .product(name: "CmuxBrowserStream", package: "CmuxBrowserStream"),
+                "CmuxiOSWeb",
+                "CmuxiOSWebCore",
                 "CmuxiOSWorkspaces",
                 "CmuxiOSWorkspacesCore",
                 "CmuxiOSTerminalLink",
@@ -412,6 +414,13 @@ let package = Package(
                 .product(name: "CmuxLink", package: "CmuxLink"),
                 .product(name: "CmuxLinkTesting", package: "CmuxLink"),
             ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // The Dev Servers list and the WKWebView tunnel browser.
+        .target(
+            name: "CmuxiOSWeb",
+            dependencies: ["CmuxiOSWebCore", "CmuxiOSFeatureKit", "CmuxiOSDesign", "CmuxiOSBrowser", "CmuxiOSBrowserCore"],
+            resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .target(
