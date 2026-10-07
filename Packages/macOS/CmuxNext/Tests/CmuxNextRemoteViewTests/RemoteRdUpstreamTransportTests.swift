@@ -134,11 +134,11 @@ nonisolated final class StreamRecorder<Element: Sendable>: Sendable {
     private let state = Mutex<(items: [Element], cursor: Int, finished: Bool)>(([], 0, false))
 
     init(_ stream: AsyncStream<Element>) {
-        Task.detached { [state] in
+        Task.detached { [self] in
             for await element in stream {
-                state.withLock { $0.items.append(element) }
+                self.state.withLock { $0.items.append(element) }
             }
-            state.withLock { $0.finished = true }
+            self.state.withLock { $0.finished = true }
         }
     }
 
