@@ -287,6 +287,9 @@ step_timeout = int(step_timeout.group(1))
 wait = re.search(r"^          CMUX_NOTARY_WAIT_TIMEOUT: (\d+)m$", step, re.M)
 assert wait, "the notarize step must set CMUX_NOTARY_WAIT_TIMEOUT"
 wait = int(wait.group(1))
+# Run 37648507383: Apple had not finished any of the 3 DMGs after 25m, so
+# nothing published. A healthy submission returns in minutes; wait 40m.
+assert wait >= 40, f"the {wait}m notary wait gives up before Apple usually finishes a stalled DMG"
 assert step_timeout >= wait + 10, f"step {step_timeout}m must cover the {wait}m wait plus 10m of DMG work and verification"
 assert job_timeout >= step_timeout + 20, f"job {job_timeout}m must cover the {step_timeout}m notarize step plus 20m of other steps"
 PY

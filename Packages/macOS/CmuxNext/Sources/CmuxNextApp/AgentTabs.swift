@@ -119,6 +119,8 @@ final class AgentTabStore {
     /// What each new chat inherits from the tab it was opened from, until
     /// its view reads it.
     var seeds: [String: AgentPaneSeedSource] = [:]
+    /// A new workspace's chat seed until its tab is known (`seedFirstChat`).
+    var firstChats: [WorkspaceHandle: AgentPaneSeedSource] = [:]
     /// The tab resuming each outside chat (`harness:agentSessionId`), so
     /// picking the same chat again shows that tab instead of a second one.
     var adoptions: [String: String] = [:]
@@ -238,7 +240,7 @@ final class AgentTabStore {
         let model = AgentPaneModel(
             host: host,
             sessionId: sessions[key] ?? record.session,
-            seed: seeds.removeValue(forKey: key),
+            seed: seeds.removeValue(forKey: key) ?? firstChatSeed(of: key, in: store),
             newTab: newTabPages[key]?.page,
             allowsTabConversion: true
         )
@@ -288,10 +290,10 @@ final class AgentTabStore {
         model.onEditShortcut = { [weak self] kind in self?.newTabPage(provisional)?.handler.editShortcut(kind) }
         model.onSetDefaultKind = { [weak self] kind in self?.newTabPage(provisional)?.handler.setDefaultKind(kind) }
         model.onRunAction = { [weak self] id in
-            guard let self else { return }
+            guard let self else { return false }
             // On this tab's pane: the New Tab page opens beside the tab that asked.
             let target = ActionTargetRef(kind: .tab, id: resolve(provisional))
-            _ = actionRegistry?.perform(ActionID(rawValue: id), invocation: ActionInvocation(target: target, origin: .user))
+            return actionRegistry?.perform(ActionID(rawValue: id), invocation: ActionInvocation(target: target, origin: .user)) ?? false
         }
         wireHeader(model, key: provisional)
         model.onBrowseProject = { [weak self] in

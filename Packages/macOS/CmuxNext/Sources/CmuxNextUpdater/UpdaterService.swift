@@ -68,6 +68,16 @@ public final class UpdaterService {
     public internal(set) var automaticUpdates = true
     /// Writes `updates.downloadAutomatically` (set by the App).
     @ObservationIgnored public var writeAutomaticUpdates: ((Bool) -> Void)?
+    /// BOTTOM-LEFT-CARDS K1: today's "Did you know" tip (nil: none, or
+    /// `sidebar.cards.tips` off) and what the tips remember on this Mac.
+    public internal(set) var tip: Tip?
+    @ObservationIgnored var tipState = TipState()
+    /// `sidebar.cards.tips` (set by the App).
+    public var tipsEnabled = true { didSet { if oldValue != tipsEnabled { refreshTip() } } }
+    /// Runs a tip's action as the user's own (set by the App: the registry).
+    @ObservationIgnored public var runTipAction: ((String) -> Void)?
+    /// Re-picks the tip when the app becomes active (set by the App).
+    @ObservationIgnored public var activationObservation: Task<Void, Never>?
     /// The test feed in use ("Use Test Update Feed"), or nil.
     public internal(set) var testFeedURL: String?
     /// The `updates.*` settings the gate reads (set by the App).
@@ -145,6 +155,7 @@ public final class UpdaterService {
         }
         restorePinnedTestFeed()
         restoreRollbackSkip()
+        tipState = TipState(defaults: defaults)
     }
 
     /// Why Sparkle does not run right now, or nil.
@@ -162,6 +173,7 @@ public final class UpdaterService {
         started = true
         observeFlowPhase()
         refreshAnnouncements()
+        refreshTip()
         guard let controller else {
             log.append("sparkle not started (\(disabledReason?.rawValue ?? "no driver"), track=\(identity.track.rawValue))")
             return

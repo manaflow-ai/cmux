@@ -63,7 +63,9 @@ export function ImageViewer({
   const drag = useRef<{ id: number; x: number; y: number } | undefined>(undefined);
   const count = images.length;
 
+  const shownSrc = useRef(image?.src);
   useEffect(() => {
+    shownSrc.current = image?.src;
     setView(FIT);
     setCopied(undefined);
   }, [image?.src]);
@@ -180,12 +182,17 @@ export function ImageViewer({
             className="acpmux-image-viewer-action"
             aria-label={copyLabel}
             title={copyLabel}
-            onClick={() =>
-              void copyImage(image.src).then(
-                () => setCopied("copied"),
-                () => setCopied("failed"),
-              )
-            }
+            onClick={() => {
+              // The result belongs to the image copied; the viewer may have moved on by then.
+              const copiedSrc = image.src;
+              const show = (result: "copied" | "failed") => {
+                if (shownSrc.current === copiedSrc) setCopied(result);
+              };
+              void copyImage(copiedSrc).then(
+                () => show("copied"),
+                () => show("failed"),
+              );
+            }}
           >
             {copied === "copied" ? <Check /> : <Copy />}
           </button>

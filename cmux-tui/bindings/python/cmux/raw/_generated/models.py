@@ -127,6 +127,8 @@ class SizeDeviceKind(str, Enum):
     IPAD = 'ipad'
     TUI = 'tui'
     BROWSER = 'browser'
+    LINUX = 'linux'
+    WINDOWS = 'windows'
     UNKNOWN = 'unknown'
 
 class SizeMode(str, Enum):
@@ -2192,6 +2194,25 @@ class CloudInboxUnsubscribeRequest:
 
 
 @dataclass(frozen=True)
+class CloudMuxAckRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cloud-mux-ack/request'
+    conversation: str
+    seq: int
+
+
+@dataclass(frozen=True)
+class CloudMuxSubscribeRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cloud-mux-subscribe/request'
+    pass
+
+
+@dataclass(frozen=True)
+class CloudMuxUnsubscribeRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cloud-mux-unsubscribe/request'
+    pass
+
+
+@dataclass(frozen=True)
 class CloudSessionClearRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/cloud-session-clear/request'
     pass
@@ -4196,6 +4217,26 @@ class CloudInboxResetEvent(EventBase):
 
 
 @dataclass(frozen=True)
+class CloudMuxResyncedEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/cloud-mux-resynced/payload'
+    event: Literal['cloud-mux-resynced']
+    pending: Union[JsonValue, None]
+    seq: int
+    account: Union[str, MissingType] = field(default=MISSING)
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
+class CloudMuxWakeEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/cloud-mux-wake/payload'
+    event: Literal['cloud-mux-wake']
+    seq: int
+    wakes: Union[JsonValue, None]
+    account: Union[str, MissingType] = field(default=MISSING)
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
 class CloudSessionNeededEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/cloud-session-needed/payload'
     event: Literal['cloud-session-needed']
@@ -4815,7 +4856,7 @@ PaneRef = Any
 TabRef = Any
 TerminalExitOutcome = Union[TerminalExitOutcomeExit, TerminalExitOutcomeSignal, TerminalExitOutcomeUnknown]
 
-KnownEvent = Union[ActivityChangedEvent, AgentChangedEvent, BellEvent, BookmarksChangedEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, CloudConversationChangedEvent, CloudConversationResyncedEvent, CloudInboxChangedEvent, CloudInboxResetEvent, CloudSessionNeededEvent, CloudSubscriptionStateEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, ConversationChangedEvent, ConversationTypingEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, PersonalChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, SizeStateEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalClipboardReadEvent, TerminalClipboardReadCancelledEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
+KnownEvent = Union[ActivityChangedEvent, AgentChangedEvent, BellEvent, BookmarksChangedEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, CloudConversationChangedEvent, CloudConversationResyncedEvent, CloudInboxChangedEvent, CloudInboxResetEvent, CloudMuxResyncedEvent, CloudMuxWakeEvent, CloudSessionNeededEvent, CloudSubscriptionStateEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, ConversationChangedEvent, ConversationTypingEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, PersonalChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, SizeStateEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalClipboardReadEvent, TerminalClipboardReadCancelledEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
 AnyEvent = Union[KnownEvent, UnknownEvent]
 
 __all__ = [
@@ -5053,6 +5094,9 @@ __all__ = [
     'CloudInboxListRequest',
     'CloudInboxSubscribeRequest',
     'CloudInboxUnsubscribeRequest',
+    'CloudMuxAckRequest',
+    'CloudMuxSubscribeRequest',
+    'CloudMuxUnsubscribeRequest',
     'CloudSessionClearRequest',
     'CloudSessionSetRequest',
     'CloudSessionStatusRequest',
@@ -5286,6 +5330,8 @@ __all__ = [
     'CloudConversationResyncedEvent',
     'CloudInboxChangedEvent',
     'CloudInboxResetEvent',
+    'CloudMuxResyncedEvent',
+    'CloudMuxWakeEvent',
     'CloudSessionNeededEvent',
     'CloudSubscriptionStateEvent',
     'ColorsChangedEvent',
