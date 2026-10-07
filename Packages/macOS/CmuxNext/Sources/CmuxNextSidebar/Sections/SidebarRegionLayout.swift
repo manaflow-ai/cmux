@@ -201,12 +201,14 @@ extension SidebarLayoutDocument {
         return Array(middle[(split + 1)...])
     }
 
-    /// `bands(room:)` with the list's trail (`listTrail`) taken out of the band below.
-    public nonisolated func bandsAroundList(room: String?) -> (above: [LayoutSection], trail: [LayoutSection], below: [LayoutSection]) {
+    /// `bands(room:)` with the list's trail (`listTrail`) taken out of the band below, and the
+    /// sections in `hiding` drawn nowhere below the list.
+    public nonisolated func bandsAroundList(room: String?, hiding: Set<LayoutSectionID> = [])
+        -> (above: [LayoutSection], trail: [LayoutSection], below: [LayoutSection]) {
         let (above, below) = bands(room: room)
-        let trail = listTrail(room: room)
+        let trail = listTrail(room: room).filter { !hiding.contains($0.id) }
         let trailIDs = Set(trail.map(\.id))
-        return (above, trail, below.filter { !trailIDs.contains($0.id) })
+        return (above, trail, below.filter { !trailIDs.contains($0.id) && !hiding.contains($0.id) })
     }
 }
 
