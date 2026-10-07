@@ -18,8 +18,19 @@ import {
 } from "../env";
 import { stageHeight, type GalleryEntry } from "../format";
 import { themeIsDark } from "../theme/ghostty";
+import type { PlayReport } from "../play";
 import { fitScale, PANE_LAYOUTS, WINDOW_PRESETS, windowSize, type PaneLayout } from "../window";
 import themes from "virtual:cmux-gallery/themes";
+
+const sum = (report: PlayReport, value: (step: PlayReport["steps"][number]) => number) =>
+  report.steps.reduce((total, step) => total + value(step), 0);
+
+/** One line per step: what it did and what it found (the play result's tooltip). */
+function playDetail(report: PlayReport): string {
+  return report.steps
+    .map((step) => `${step.status} ${step.step}${step.problems.length ? `: ${step.problems.join("; ")}` : ""}`)
+    .join("\n");
+}
 
 export const LOCALE_NAMES: Record<string, string> = {
   en: "English",
@@ -114,6 +125,19 @@ export function Stage({
   thumbnail: boolean;
 }) {
   const query = frameQuery({ entry: entry.id, variant: state }, env);
+  // Replay mounts the stage again, so its play steps run from the start.
+  const [run, setRun] = useState(0);
+  const [report, setReport] = useState<PlayReport | undefined>();
+  const hasPlay = Boolean(entry.variants[state]?.play);
+  const frameRef = useCallback((iframe: HTMLIFrameElement | null) => {
+    if (!iframe) return;
+    const receive = (event: MessageEvent) => {
+      const data = event.data as { type?: string; report?: PlayReport } | null;
+      if (event.source === iframe.contentWindow && data?.type === "cmux-gallery-play") setReport(data.report);
+    };
+    addEventListener("message", receive);
+    return () => removeEventListener("message", receive);
+  }, []);
   const note = entry.variants[state]?.note;
   const windowed = env.frame === "window" && entry.host !== "native";
   let frame: { width: number; height: number };
@@ -139,9 +163,30 @@ export function Stage({
         <a href={`frame.html?${query}`} target="_blank" rel="noreferrer">
           open
         </a>
+        {hasPlay && (
+          <button
+            type="button"
+            className="gallery-replay"
+            onClick={() => {
+              setReport(undefined);
+              setRun((count) => count + 1);
+            }}
+          >
+            Replay
+          </button>
+        )}
+        {report && (
+          <span className={`gallery-play gallery-play--${report.status}`} title={playDetail(report)}>
+            play {report.status} · CLS {sum(report, (step) => step.layoutShift).toFixed(3)} · long frames{" "}
+            {sum(report, (step) => step.longFrames.length)}
+            {report.error ? ` · ${report.error}` : ""}
+          </span>
+        )}
       </figcaption>
       <div className="gallery-window" style={{ width: frame.width * scale, height: frame.height * scale }}>
         <iframe
+          key={run}
+          ref={frameRef}
           title={`${entry.id} ${state}`}
           src={`frame.html?${query}`}
           style={{ width: frame.width, height: frame.height, transform: `scale(${scale})` }}

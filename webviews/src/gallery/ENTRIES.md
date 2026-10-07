@@ -96,6 +96,51 @@ window down with one transform. A full-page surface (settings, a page tab) uses 
 size comes from the app's metrics (`MetricTunables.swift` for each density), so you add nothing
 for window mode. `component` mode shows the entry alone at a pane width, for close work.
 
+## Play steps and checks
+
+A variant can drive the mounted page into an interactive state with `play` (`src/gallery/play.ts`).
+The steps run after mount and before the stage is ready, so the screenshot and the shell show the
+played state. The shell runs them when a variant opens and has a Replay button; the matrix runner
+runs the same function before each screenshot, with trusted Playwright input.
+
+```ts
+"slash-menu": {
+  snapshot: chat(rows, { commands }),
+  play: async (ctx) => {
+    await ctx.click({ selector: "[contenteditable='true']" });
+    await ctx.type("/");
+    await ctx.waitFor(() => ctx.document.querySelector("[role='listbox'], [role='menu']"));
+  },
+},
+```
+
+`ctx` has `click`, `hover`, `focus`, `type(text, target?)`, `press("Meta+k")`,
+`pointer.down/move/up` (the macOS press-drag-release menus), `waitFor(condition, { capMs })` and
+`find`. A target is `{ role, name }` (name is a string or a RegExp), `{ testId }`, `{ text }` or
+`{ selector }`. `waitFor` checks again on each DOM mutation, animation end, transition end and
+frame. It never waits for a fixed time; its cap only fails a wait that never comes true.
+
+Each action is one step, and the stage measures it:
+
+- anchors: the entry's `anchors` (targets). An anchor the step did not target must not move or
+  resize (0 px).
+- layout shift: the step's CLS sum and each shift with its source node (0 allowed).
+- long frames: Long Animation Frames (Chromium), else rAF intervals. A frame over 16.7 ms is
+  reported (warn); a frame over 33 ms fails.
+
+To loosen a check, the entry writes the value and the reason, and `validateEntries` refuses a
+check without a reason:
+
+```ts
+checks: { longFrameFailMs: { value: 50, reason: "The first Shiki highlight compiles its grammar." } },
+```
+
+The report is `window.cmuxGalleryPlayReport` (and `data-gallery-play` on the stage's root). The
+matrix index shows a layout shift cell and a long frames cell (pass, warn or fail, with the
+numbers) for each case; click a cell for each step's details. A failing play fails the run. The
+checks are real only in the matrix runner (Freestyle or CI). The shell shows the same report as a
+live line for the person who opens it.
+
 ## Coverage
 
 `test/gallery-coverage.test.ts` fails when an exported component or a `PageDescriptor` has no entry
