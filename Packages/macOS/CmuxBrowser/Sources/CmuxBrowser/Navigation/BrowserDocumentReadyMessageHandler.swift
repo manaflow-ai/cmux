@@ -43,10 +43,16 @@ public final class BrowserDocumentReadyMessageHandler: NSObject, WKScriptMessage
         self.onDocumentReady = onDocumentReady
     }
 
-    public func userContentController(
+    public nonisolated func userContentController(
         _ userContentController: WKUserContentController,
         didReceive message: WKScriptMessage
     ) {
+        Task { @MainActor [weak self] in
+            self?.handle(message: message)
+        }
+    }
+
+    private func handle(message: WKScriptMessage) {
         guard message.name == Self.name,
               message.frameInfo.isMainFrame,
               message.webView === webView,
