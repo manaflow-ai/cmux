@@ -440,6 +440,9 @@
       "cloud-inbox-unsubscribe",
       "cloud-conversation-subscribe",
       "cloud-conversation-unsubscribe",
+      "cloud-mux-subscribe",
+      "cloud-mux-unsubscribe",
+      "cloud-mux-ack",
       "conversation-attachment-upload",
       "conversation-attachment-read"
     ],
@@ -849,6 +852,18 @@
     },
     {
       "name": "cloud-inbox-reset",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "cloud-mux-wake",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "cloud-mux-resynced",
       "streams": [
         "subscribe"
       ]

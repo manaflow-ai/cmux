@@ -476,6 +476,31 @@
       "size": 1445
     },
     {
+      "path": "CloudMuxAckRequest.java",
+      "sha256": "cb5337c0f840665cf97ddfb3218bd8ec20ddf00d56a2eb4bb0d9dcf7d44187a4",
+      "size": 2762
+    },
+    {
+      "path": "CloudMuxResyncedEvent.java",
+      "sha256": "8244cfaa4a0a2cb8d35e2c0c32ac9befdfbea4289efc10d62fc4ba4e5bb9d554",
+      "size": 3610
+    },
+    {
+      "path": "CloudMuxSubscribeRequest.java",
+      "sha256": "3b38bcdf5be639d48b8eb482cd1dfd8f105cb877d7a746408c3c1202b1626a3d",
+      "size": 1409
+    },
+    {
+      "path": "CloudMuxUnsubscribeRequest.java",
+      "sha256": "f3743658f7e06ed225abba894694c8f18927d0d886523e03608dc326f80f6808",
+      "size": 1427
+    },
+    {
+      "path": "CloudMuxWakeEvent.java",
+      "sha256": "3e187de5940f1b7a19f135e8fbf3014f67ea364e15c78793483509ecb763df29",
+      "size": 3504
+    },
+    {
       "path": "CloudSessionClearRequest.java",
       "sha256": "1abc73226ded01960a5f0f3d4a76a159b8963c32c117601dab0c2930a9fa89c4",
       "size": 1409
@@ -517,8 +542,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "1dd7ed8ff5e7378577f32f7fb9ed2bd9dab8a29919cdaf0ddb300bfc41281165",
-      "size": 62697
+      "sha256": "e7820e5b7ff35c713ae7dca0ea978ab61d15d127e9f0a58b1d0798069efc474f",
+      "size": 63461
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -917,8 +942,8 @@
     },
     {
       "path": "Events.java",
-      "sha256": "a5bc517c111ec2fe257e92b643ca517c05b3e0a817985c8c5ea1a0a2e19abc75",
-      "size": 13651
+      "sha256": "25d5a62883df41e4e038a364378292bade1fe6590516b986b746b4780daf62e7",
+      "size": 14075
     },
     {
       "path": "ExportLayoutRequest.java",
@@ -997,8 +1022,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "f4c1f6ba960b0dd95b7b09bd865f5592d4f6b20e726be0c46bdacd24d264c06b",
-      "size": 55115
+      "sha256": "dba0cfb9c8a4951d8d464284e64ec2ef5ae8817a1186eb3159914ec736400eb4",
+      "size": 55711
     },
     {
       "path": "GetBrowserProviderRequest.java",
@@ -1607,8 +1632,8 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "ac93d733e7b70f4c83d9f830c41f95da8e113e9e885c504ac6713fc5ea60f571",
-      "size": 5749
+      "sha256": "443b4e2883d620d9fbb1374250c1f1da80e2f87fce8e859f37d6cabf98f2e82d",
+      "size": 5901
     },
     {
       "path": "ProtocolEvent.java",
@@ -2782,7 +2807,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "904145e10c3686dc545c6ab7af8dfca4d7ad22bef852a6f49691943c25976c9d",
+  "ir_sha256": "0ac2f8a0eec33678efe807bbd012a36df89a4ada9031680fea5bd42839913afd",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

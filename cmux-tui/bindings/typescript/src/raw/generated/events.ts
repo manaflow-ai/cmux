@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 904145e10c3686dc545c6ab7af8dfca4d7ad22bef852a6f49691943c25976c9d. */
+/* cmux-tui mux protocol 12, IR 0ac2f8a0eec33678efe807bbd012a36df89a4ada9031680fea5bd42839913afd. */
 
 
 import type * as T from "./types.js";
@@ -101,6 +101,20 @@ export type CloudInboxChangedEvent = { event: "cloud-inbox-changed" } & {
 export type CloudInboxResetEvent = { event: "cloud-inbox-reset" } & {
   "account"?: string;
   "seq": bigint;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type CloudMuxResyncedEvent = { event: "cloud-mux-resynced" } & {
+  "account"?: string;
+  "pending": (T.JsonValue) | null;
+  "seq": bigint;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type CloudMuxWakeEvent = { event: "cloud-mux-wake" } & {
+  "account"?: string;
+  "seq": bigint;
+  "wakes": (T.JsonValue) | null;
 };
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
@@ -567,6 +581,8 @@ export type KnownCmuxEvent =
   | CloudConversationResyncedEvent
   | CloudInboxChangedEvent
   | CloudInboxResetEvent
+  | CloudMuxResyncedEvent
+  | CloudMuxWakeEvent
   | CloudSessionNeededEvent
   | CloudSubscriptionStateEvent
   | ColorsChangedEvent
@@ -638,6 +654,8 @@ export type KnownSubscribeEvent =
   | CloudConversationResyncedEvent
   | CloudInboxChangedEvent
   | CloudInboxResetEvent
+  | CloudMuxResyncedEvent
+  | CloudMuxWakeEvent
   | CloudSessionNeededEvent
   | CloudSubscriptionStateEvent
   | ConfigReloadRequestedEvent

@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '904145e10c3686dc545c6ab7af8dfca4d7ad22bef852a6f49691943c25976c9d'
+IR_SHA256 = '0ac2f8a0eec33678efe807bbd012a36df89a4ada9031680fea5bd42839913afd'
 
 
 @dataclass(frozen=True)
@@ -564,6 +564,38 @@ COMMANDS = {
     ),
     'cloud-inbox-unsubscribe': CommandMetadata(
         'cloud-inbox-unsubscribe',
+        'local-admin',
+        12,
+        'cloud-conversations-v1',
+        ('local-admin',),
+        None,
+        {
+        },
+    ),
+    'cloud-mux-ack': CommandMetadata(
+        'cloud-mux-ack',
+        'local-admin',
+        12,
+        'cloud-conversations-v1',
+        ('local-admin',),
+        None,
+        {
+            'conversation': CommandFieldMetadata(None, None),
+            'seq': CommandFieldMetadata(None, None),
+        },
+    ),
+    'cloud-mux-subscribe': CommandMetadata(
+        'cloud-mux-subscribe',
+        'local-admin',
+        12,
+        'cloud-conversations-v1',
+        ('local-admin',),
+        None,
+        {
+        },
+    ),
+    'cloud-mux-unsubscribe': CommandMetadata(
+        'cloud-mux-unsubscribe',
         'local-admin',
         12,
         'cloud-conversations-v1',
@@ -3177,6 +3209,8 @@ EVENTS = {
     'cloud-conversation-resynced': EventMetadata('cloud-conversation-resynced', 12, 'cloud-conversations-v1', ('subscribe',), 'emitted'),
     'cloud-inbox-changed': EventMetadata('cloud-inbox-changed', 12, 'cloud-conversations-v1', ('subscribe',), 'emitted'),
     'cloud-inbox-reset': EventMetadata('cloud-inbox-reset', 12, 'cloud-conversations-v1', ('subscribe',), 'emitted'),
+    'cloud-mux-resynced': EventMetadata('cloud-mux-resynced', 12, 'cloud-conversations-v1', ('subscribe',), 'emitted'),
+    'cloud-mux-wake': EventMetadata('cloud-mux-wake', 12, 'cloud-conversations-v1', ('subscribe',), 'emitted'),
     'cloud-session-needed': EventMetadata('cloud-session-needed', 12, 'cloud-conversations-v1', ('subscribe',), 'emitted'),
     'cloud-subscription-state': EventMetadata('cloud-subscription-state', 12, 'cloud-conversations-v1', ('subscribe',), 'emitted'),
     'colors-changed': EventMetadata('colors-changed', 6, None, ('attach-byte',), 'emitted'),

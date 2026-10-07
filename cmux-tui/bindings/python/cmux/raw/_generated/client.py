@@ -135,6 +135,15 @@ class GeneratedClientMixin:
     def cloud_inbox_unsubscribe(self) -> JsonValue:
         return self._invoke_command('cloud-inbox-unsubscribe', CloudInboxUnsubscribeRequest())
 
+    def cloud_mux_ack(self, conversation: str, seq: int) -> JsonValue:
+        return self._invoke_command('cloud-mux-ack', CloudMuxAckRequest(conversation=conversation, seq=seq))
+
+    def cloud_mux_subscribe(self) -> JsonValue:
+        return self._invoke_command('cloud-mux-subscribe', CloudMuxSubscribeRequest())
+
+    def cloud_mux_unsubscribe(self) -> JsonValue:
+        return self._invoke_command('cloud-mux-unsubscribe', CloudMuxUnsubscribeRequest())
+
     def cloud_session_clear(self) -> JsonValue:
         return self._invoke_command('cloud-session-clear', CloudSessionClearRequest())
 
@@ -753,6 +762,9 @@ GeneratedClientMixin.cloud_conversation_unsubscribe.__cmux_command__ = COMMANDS[
 GeneratedClientMixin.cloud_inbox_list.__cmux_command__ = COMMANDS['cloud-inbox-list']
 GeneratedClientMixin.cloud_inbox_subscribe.__cmux_command__ = COMMANDS['cloud-inbox-subscribe']
 GeneratedClientMixin.cloud_inbox_unsubscribe.__cmux_command__ = COMMANDS['cloud-inbox-unsubscribe']
+GeneratedClientMixin.cloud_mux_ack.__cmux_command__ = COMMANDS['cloud-mux-ack']
+GeneratedClientMixin.cloud_mux_subscribe.__cmux_command__ = COMMANDS['cloud-mux-subscribe']
+GeneratedClientMixin.cloud_mux_unsubscribe.__cmux_command__ = COMMANDS['cloud-mux-unsubscribe']
 GeneratedClientMixin.cloud_session_clear.__cmux_command__ = COMMANDS['cloud-session-clear']
 GeneratedClientMixin.cloud_session_set.__cmux_command__ = COMMANDS['cloud-session-set']
 GeneratedClientMixin.cloud_session_status.__cmux_command__ = COMMANDS['cloud-session-status']
