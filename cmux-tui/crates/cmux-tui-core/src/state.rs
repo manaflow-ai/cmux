@@ -27,6 +27,8 @@ pub(crate) mod ephemeral_moves;
 #[cfg(test)]
 mod ephemeral_moves_tests;
 pub(crate) mod frontend_browser_keys;
+#[cfg(test)]
+mod group_icon_tests;
 pub(crate) mod home;
 pub(crate) mod home_store;
 #[cfg(test)]
