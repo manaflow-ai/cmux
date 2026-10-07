@@ -54,6 +54,25 @@ import Testing
         #expect(pane.selectedTab == 1)
     }
 
+    /// Classic titles a home-folder shell "~": a name that is only a path
+    /// gives way to the first tab's title, else the folder's name.
+    @Test func aPathTitleGivesWayToTheTabOrTheFolder() throws {
+        let json = """
+        {"windows":[{"tabManager":{"workspaces":[
+          {"customTitle":"Mine","processTitle":"~","currentDirectory":"/Users/me",
+           "panels":[{"id":"a","title":"vim","terminal":{"workingDirectory":"/Users/me"}}]},
+          {"processTitle":"~","currentDirectory":"/Users/me",
+           "panels":[{"id":"a","title":"npm run dev","terminal":{"workingDirectory":"/Users/me"}}]},
+          {"processTitle":"~/code/app","currentDirectory":"/Users/me/code/app",
+           "panels":[{"id":"a","title":"~/code/app","terminal":{"workingDirectory":"/Users/me/code/app"}}]},
+          {"processTitle":"/tmp","currentDirectory":"/tmp","panels":[]},
+          {"processTitle":"codex","currentDirectory":"/Users/me/x","panels":[]}
+        ]}}]}
+        """.data(using: .utf8)!
+        let names = try ClassicSessionImporter(fileURL: URL(fileURLWithPath: "/tmp/fixture")).decode(json).map(\.name)
+        #expect(names == ["Mine", "npm run dev", "app", "tmp", "codex"])
+    }
+
     /// Classic stable and classic NIGHTLY each keep their own snapshot; the
     /// one saved last is the session to bring over.
     @Test func readsTheNewestOfStableAndNightly() throws {
