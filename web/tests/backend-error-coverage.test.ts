@@ -106,7 +106,8 @@ function scheduleFor(cron: string): string | undefined {
 
 /** Sentry sends from a deferred task outside a request; wait for it. */
 async function eventsSettled(count: number): Promise<void> {
-  for (let attempt = 0; attempt < 100 && events.length < count; attempt += 1) {
+  const deadline = performance.now() + 1_000;
+  while (events.length < count && performance.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
   expect(events.length).toBe(count);
@@ -251,6 +252,16 @@ describe("cron routes report failures and check in", () => {
     expect(await response.json()).toEqual({ ok: true, deleted: 4 });
     expect(checkIns.map((entry) => entry.checkIn.status)).toEqual(["in_progress", "ok"]);
     expect(checkIns[0]!.config?.schedule.value).toBe(scheduleFor("push-token-revocations")!);
+    expect(events).toEqual([]);
+  });
+
+  test("an intentionally unconfigured diagnostics job answers 503 but keeps its monitor healthy", async () => {
+    diagnosticsOutcome = async () => ({ configured: false, delivered: 0 } as never);
+    const response = await cloudDiagnostics.GET(cronRequest("cloud-diagnostics"));
+    expect(response.status).toBe(503);
+    expect(checkIns.map((entry) => entry.checkIn.status)).toEqual(["in_progress", "ok"]);
+    // Give a deferred send the same chance a real report gets.
+    await new Promise((resolve) => setTimeout(resolve, 50));
     expect(events).toEqual([]);
   });
 
