@@ -1489,6 +1489,36 @@ def test_large_settings_file_is_merged_without_argv_growth(failures: list[str]) 
     )
 
 
+def test_settings_artifact_survives_tmpdir_purge(failures: list[str]) -> None:
+    """Claude's persisted --settings path must live outside the purged TMPDIR."""
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-settings-purge-") as td:
+        session_tmpdir = Path(td) / "session-tmp"
+        session_tmpdir.mkdir()
+        cases = (
+            ("generated", ["hello"]),
+            ("merged", ["--settings", '{"effortLevel":"max"}', "hello"]),
+        )
+        for label, argv in cases:
+            code, real_argv, _cmux_log, stderr, *_ = run_wrapper(
+                socket_state="live",
+                argv=argv,
+                tmpdir=str(session_tmpdir),
+            )
+            expect(code == 0, f"{label} settings purge: wrapper exited {code}: {stderr}", failures)
+            if "--settings" not in real_argv:
+                failures.append(f"{label} settings purge: missing settings path: {real_argv}")
+                continue
+            settings_path = Path(real_argv[real_argv.index("--settings") + 1])
+            expect(
+                settings_path.is_absolute()
+                and settings_path.parent.name == "claude-settings"
+                and settings_path.parent.parent.name == ".cmuxterm"
+                and not str(settings_path).startswith(str(session_tmpdir) + os.sep),
+                f"{label} settings purge: path must be durable and outside TMPDIR, got {settings_path}",
+                failures,
+            )
+
+
 def test_plain_claude_launch_argv_has_no_empty_argument(failures: list[str]) -> None:
     code, _, _, stderr, _, _, _, _, _, launch_argv_b64 = run_wrapper(
         socket_state="live",
@@ -3580,6 +3610,7 @@ def main() -> int:
     test_large_settings_argument_is_rejected_without_hanging(failures)
     test_multibyte_settings_argument_uses_byte_limit(failures)
     test_large_settings_file_is_merged_without_argv_growth(failures)
+    test_settings_artifact_survives_tmpdir_purge(failures)
     test_plain_claude_launch_argv_has_no_empty_argument(failures)
     test_command_like_invocations_bypass_hook_injection(failures)
     test_hidden_attach_subcommand_bypasses_hook_injection(failures)
