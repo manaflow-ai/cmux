@@ -15,10 +15,11 @@ final class SSHTerminalViewController: UIViewController {
     private var observation: Task<Void, Never>?
     private var foreground: Task<Void, Never>?
 
-    init(source: SSHTerminalByteSource, title: String, editLogin: @escaping () -> Void) {
+    init(source: SSHTerminalByteSource, title: String, appearance: (any TerminalAppearanceProviding)?,
+         editLogin: @escaping () -> Void) {
         self.source = source
         self.editLogin = editLogin
-        terminal = TerminalViewController(source: source, title: title)
+        terminal = TerminalViewController(source: source, title: title, appearance: appearance)
         super.init(nibName: nil, bundle: nil)
         self.title = title
         navigationItem.largeTitleDisplayMode = .never
