@@ -885,7 +885,7 @@ async fn dispatch_request(
             };
             Ok(json!({"endAgents": end_agents, "keptSessions": kept}))
         }
-        method::MUX_HANDOFF_PREPARE => hub.handoff_prepare(&params).await,
+        method::MUX_HANDOFF_PREPARE => hub.handoff_prepare(&params, conn.origin.web_class()).await,
         method::MUX_HANDOFF_GET => hub.handoff_get(&params),
         method::MUX_HANDOFF_DRAFT => hub.handoff_draft(&params).await,
         method::MUX_HANDOFF_START => {
