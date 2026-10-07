@@ -98,3 +98,29 @@ async fn folder_answered(
     Err(RpcError::invalid_params(format!("{reason}: {why} ({cwd})"))
         .with_data(json!({"reason": reason, "cwd": cwd})))
 }
+
+/// `acp.trust.get {cwd}` and `acp.trust.set {cwd, level}`: read off the
+/// runtime threads, from the gate's files when it is on, so the answer and the
+/// gate read one record.
+pub(super) async fn answer(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcError> {
+    let cwd = params.get("cwd").and_then(Value::as_str).unwrap_or_default().to_owned();
+    let level = params.get("level").and_then(Value::as_str).map(str::to_owned);
+    let setting = m == method::ACP_TRUST_SET;
+    let gate = hub.trust_gate();
+    let reply = tokio::task::spawn_blocking(move || {
+        let paths = gate
+            .or_else(crate::trust::Paths::current)
+            .ok_or_else(|| crate::trust::Failure::Record("no home directory".into()))?;
+        if setting {
+            crate::trust::set(&paths, &cwd, level.as_deref().unwrap_or_default())
+        } else {
+            crate::trust::get(&paths, &cwd)
+        }
+    })
+    .await
+    .map_err(|e| RpcError::internal(e.to_string()))?;
+    reply.map_err(|failure| match failure {
+        crate::trust::Failure::Invalid(message) => RpcError::invalid_params(message),
+        crate::trust::Failure::Record(message) => RpcError::internal(message),
+    })
+}
