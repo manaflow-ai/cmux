@@ -41,6 +41,7 @@ mod personal_terminals;
 pub(crate) mod presentation_store;
 mod public_fold;
 mod public_projection_store;
+pub(crate) mod relaunch_store;
 mod resource_effect_commit;
 pub(crate) mod resource_store;
 pub(crate) mod screen_store;
@@ -4002,6 +4003,7 @@ fn create_terminal_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     )?;
     idle_policy_store::create_terminal_idle_policy_schema(transaction)?;
     terminal_keep_store::create_terminal_keep_schema(transaction)?;
+    relaunch_store::create_schema(transaction)?;
     Ok(())
 }
 

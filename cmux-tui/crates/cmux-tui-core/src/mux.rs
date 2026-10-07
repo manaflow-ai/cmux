@@ -49,6 +49,7 @@ mod terminal_exit;
 mod terminal_move_topology;
 mod terminal_progress;
 mod terminal_reap;
+mod terminal_relaunch;
 mod terminal_work;
 mod topology_result;
 
@@ -8209,6 +8210,9 @@ impl Mux {
             if reserve_replayed {
                 anyhow::bail!("terminal_create_replayed");
             }
+            let launched =
+                prelaunched.as_ref().map_or(&opts, |prelaunched| prelaunched.launch_opts());
+            self.record_terminal_relaunch(&terminal_hex, launched);
             let spawned = match prelaunched {
                 Some(prelaunched) => {
                     Surface::spawn_prelaunched(prelaunched.into_host(), Arc::downgrade(self))
@@ -8327,6 +8331,7 @@ impl Mux {
                 }
                 self.emit_terminal_registry_changed(&registry, commit.revision);
             }
+            self.record_terminal_relaunch(&terminal_hex, &opts);
             #[cfg(test)]
             if let Some(hook) =
                 self.terminal_create_after_terminal_reservation.lock().unwrap().clone()
