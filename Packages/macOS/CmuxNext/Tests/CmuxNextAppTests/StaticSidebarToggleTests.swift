@@ -92,7 +92,11 @@ import Testing
 
         root.cornerReveal.setPointerInside(true)
         #expect(!root.windowControlsCollapsed)
-        #expect(stripFrame.minX + strip.computeWindowControlsInset() >= toggle.maxX)
+        // Revealing the controls fades them in without reflowing the hidden
+        // sidebar's strip. This keeps the tab positions stable while the
+        // pointer crosses the corner (WindowControlsInsetTests).
+        #expect(strip.computeWindowControlsInset() == 0)
+        #expect(stripFrame.minX < toggle.maxX)
         root.cornerReveal.setPointerInside(false)
     }
 
