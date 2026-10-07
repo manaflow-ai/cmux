@@ -4,7 +4,7 @@ import Foundation
 /// JSON-RPC 2.0 over a WebSocket, media over HTTP. Reconnects with capped
 /// backoff and resumes from the last delivered event.
 public final class ConversationSimBackend: ConversationBackend, @unchecked Sendable {
-    private let core: Core
+    let core: Core
 
     /// `endpoint` is the WebSocket URL, e.g. `ws://127.0.0.1:4870/ws?conversation=group`.
     public init(endpoint: URL, clientID: String = UUID().uuidString) {

@@ -40,6 +40,9 @@ process and keep growing.
 | `reschedule` | `{id, scheduledAt}` | `{scheduled: Scheduled}` |
 | `cancelScheduled` | `{id}` | `{}` |
 | `sendScheduledNow` | `{id}` | `{message: Message}` |
+| `searchContacts` | `{query, limit?, excludeIds?}` | `{contacts: [Contact]}` |
+| `lookupHandles` | `{handles: [String]}` | `{results: [{handle, service: Service?, contact?}]}` |
+| `createConversation` | `{recipients: [{participantId} \| {handle}]}` | `{conversation, created: Bool}` |
 
 `keepAudio` keeps an audio message (clears `expiresAt`, sets `kept`).
 `audioPlayed` reports that I listened to someone's recording; it starts that
@@ -82,6 +85,21 @@ conversations (env `MAX_PINNED`) are pinned, and one more fails with `-32004
 new message from someone else, or `deleted: false`, brings it back. Every
 change is pushed to the conversation's subscribed clients as `conversation`.
 
+New Message uses the last three on any subscribed socket (they are not
+scoped to the socket's conversation). `searchContacts` matches a word prefix
+of the name or a substring of a handle, name-prefix matches first (a blank
+query lists every contact alphabetically, for + Add Contact), and skips
+`excludeIds` (recipients already added). `lookupHandles` resolves typed
+addresses after a 0.25 to 0.9 s availability delay: a known handle reports its
+contact and service, an unknown email is iMessage, an unknown phone number is
+SMS, anything else is invalid (`service: null`). `createConversation` returns
+the existing conversation whose other members are exactly the recipients (me
+is ignored, a contact given by id and by handle counts once) with `created:
+false`, or creates one (`new_<n>`, empty, reachable at
+`/ws?conversation=new_<n>`, bots active) with `created: true`. An invalid
+address fails with `-32005`. Conversation creation does not post a message;
+the client sends the first message on the new socket.
+
 ## Notifications (server to client)
 
 `event` with params `{eventSeq, kind, ...}`:
@@ -118,6 +136,9 @@ Conversation {
   pinned, pinOrder?, muted, markedUnread, deleted   // list state; pinOrder only when pinned
 }
 Participant  { id, name, initials, colorHex, isMe }
+Contact      { id, name, initials, colorHex, isMe: false, handles: [{value, label, service}] }
+Service      = "iMessage"|"SMS"
+// Conversation.service: present on created conversations ("SMS" when any member is SMS-only)
 Message {
   id, seq, clientMessageId?, senderId, sentAt (epoch ms), text,
   replyToId?, replyCount, editedAt?, editCount?, unsentAt?,

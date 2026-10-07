@@ -9,14 +9,21 @@ final class MacConversationEntry {
     let store: ConversationStore
     lazy var controller = MacConversationViewController(store: store)
 
+    /// The simulator session, also New Message's directory (nil around a bare store).
+    let backend: ConversationSimBackend?
+
     init(id: String, endpoint: URL) {
         self.id = id
-        store = ConversationStore(backend: ConversationSimBackend(endpoint: endpoint), pageSize: ConversationStore.macPageSize)
+        let backend = ConversationSimBackend(endpoint: endpoint)
+        self.backend = backend
+        store = ConversationStore(backend: backend, pageSize: ConversationStore.macPageSize)
     }
 
+    /// Around an existing store (tests); there is no New Message directory.
     init(id: String, store: ConversationStore) {
         self.id = id
         self.store = store
+        backend = nil
     }
 }
 
@@ -25,7 +32,7 @@ final class MacConversationEntry {
 /// the composer as the content item's bottom accessory.
 @MainActor
 final class MacConversationSplitController: NSSplitViewController, NSToolbarDelegate {
-    let entries: [MacConversationEntry]
+    private(set) var entries: [MacConversationEntry]
     let sidebar: MacConversationListViewController
     private let content = MacConversationContainerController()
     /// The bottom accessory hosting the composer (macOS 26); earlier systems pin it in the content view.
@@ -38,6 +45,9 @@ final class MacConversationSplitController: NSSplitViewController, NSToolbarDele
     private(set) var selected: MacConversationEntry?
     /// Total unread across conversations (the Dock badge).
     private(set) lazy var unreadBadge = ConversationUnreadBadge(stores: entries.map(\.store))
+    /// The New Message draft while one is open (see MacComposeDraft.swift).
+    private(set) var draft: MacComposeDraftController?
+    private var isShowingDraft = false
 
     init(entries: [MacConversationEntry]) {
         self.entries = entries
@@ -151,6 +161,7 @@ final class MacConversationSplitController: NSSplitViewController, NSToolbarDele
     }
 
     func select(_ entry: MacConversationEntry, focusComposer: Bool = true) {
+        leaveDraft()
         selected = entry
         updateViewing()
         sidebar.markSelected(entry.id)
@@ -211,8 +222,13 @@ final class MacConversationSplitController: NSSplitViewController, NSToolbarDele
         select(entry, focusComposer: !focusInSidebar)
     }
 
+    /// The composer in the bottom accessory: the draft's while composing.
+    private var activeComposer: MacComposerView? {
+        isShowingDraft ? draft?.composer : selected?.controller.composer
+    }
+
     private func layoutComposer() {
-        guard let composer = selected?.controller.composer else { return }
+        guard let composer = activeComposer else { return }
         let height = composer.preferredHeight
         composerHeight.constant = height
         composerHost.frame.size.height = height
@@ -234,9 +250,70 @@ final class MacConversationSplitController: NSSplitViewController, NSToolbarDele
 
     override func viewDidLayout() {
         super.viewDidLayout()
-        if let composer = selected?.controller.composer {
+        if let composer = activeComposer {
             composer.frame = CGRect(x: 0, y: 0, width: composerHost.bounds.width, height: composer.preferredHeight)
         }
+    }
+
+    // MARK: New Message
+
+    /// The toolbar's New Message: a draft conversation at the top of the
+    /// sidebar with the To: field across the transcript pane. Reopens the
+    /// current draft if there is one.
+    @objc func newMessage(_ sender: Any?) {
+        guard let directory = entries.lazy.compactMap(\.backend).first else { return }
+        if draft == nil {
+            let draft = MacComposeDraftController(directory: directory)
+            draft.onOpenConversation = { [weak self] creation, message in
+                self?.openCreated(creation, message: message, via: directory)
+            }
+            draft.onRecipientsChange = { [weak self, weak draft] in
+                self?.sidebar.draftRow.configure(names: draft?.session.draft.recipients.map(\.name) ?? [])
+            }
+            draft.onComposerHeightChange = { [weak self] in self?.layoutComposer() }
+            self.draft = draft
+        }
+        guard let draft else { return }
+        isShowingDraft = true
+        sidebar.setDraftRow(shown: true, selected: true)
+        sidebar.draftRow.onClick = { [weak self] in self?.newMessage(nil) }
+        content.show(draft)
+        composerHost.subviews.forEach { $0.removeFromSuperview() }
+        composerHost.addSubview(draft.composer)
+        layoutComposer()
+        titleView.isHidden = true
+        titleNameLabel.stringValue = String(localized: "conversation.compose.title", defaultValue: "New Message", bundle: .module)
+        draft.focusRecipients()
+    }
+
+    /// Selecting a conversation leaves the draft; an untouched draft goes away.
+    private func leaveDraft() {
+        guard isShowingDraft || draft != nil else { return }
+        isShowingDraft = false
+        titleView.isHidden = false
+        if let draft, draft.session.draft.recipients.isEmpty, draft.composer.text.isEmpty, draft.session.draft.text.isEmpty {
+            self.draft = nil
+            sidebar.setDraftRow(shown: false, selected: false)
+        } else {
+            sidebar.setDraftRow(shown: draft != nil, selected: false)
+        }
+    }
+
+    /// The first send: show the conversation it opened (adding it to the
+    /// sidebar when new) and send the message there.
+    private func openCreated(_ creation: ConversationCreation, message: ConversationComposeMessage, via directory: ConversationSimBackend) {
+        draft = nil
+        let entry: MacConversationEntry
+        if let existing = entries.first(where: { $0.id == creation.info.id }) {
+            entry = existing
+        } else {
+            entry = MacConversationEntry(id: creation.info.id, endpoint: directory.endpoint(forConversation: creation.info.id))
+            entries.append(entry)
+            entry.store.start()
+            sidebar.add(entry)
+        }
+        select(entry)
+        entry.store.sendWhenConnected(message)
     }
 
     // MARK: Toolbar
@@ -297,6 +374,9 @@ final class MacConversationSplitController: NSSplitViewController, NSToolbarDele
         case Self.composeItem:
             item.label = String(localized: "conversation.toolbar.compose", defaultValue: "New Message", bundle: .module)
             item.view = Self.circleButton("square.and.pencil", label: item.label)
+            (item.view as? NSButton)?.target = self
+            (item.view as? NSButton)?.action = #selector(newMessage(_:))
+            (item.view as? NSButton)?.setAccessibilityIdentifier("conversation.toolbar.compose")
         case Self.videoItem:
             item.label = String(localized: "conversation.header.action", defaultValue: "Call", bundle: .module)
             item.view = Self.circleButton("video", label: item.label)
@@ -443,7 +523,7 @@ final class MacTitleNameAccessoryView: MacFlippedView {
 /// conversations as large avatars on top, then everything else newest first.
 @MainActor
 final class MacConversationListViewController: NSViewController, NSTableViewDataSource, NSTableViewDelegate, NSSearchFieldDelegate, NSMenuDelegate {
-    private let entries: [MacConversationEntry]
+    private var entries: [MacConversationEntry]
     /// List rows as shown: unpinned conversations newest first, or every match while searching.
     private var visible: [MacConversationEntry] = []
     /// Pinned conversations in pin order (none while searching).
@@ -463,6 +543,9 @@ final class MacConversationListViewController: NSViewController, NSTableViewData
     private let noResults = makeMacLabel()
     private var lastTableWidth: CGFloat = 0
     var onSelect: ((MacConversationEntry) -> Void)?
+    /// New Message's draft row, above the list while composing.
+    let draftRow = MacComposeDraftRow()
+    private lazy var draftRowHeight = draftRow.heightAnchor.constraint(equalToConstant: 0)
 
     init(entries: [MacConversationEntry]) {
         self.entries = entries
@@ -518,7 +601,14 @@ final class MacConversationListViewController: NSViewController, NSTableViewData
         scroll.autohidesScrollers = true
         scroll.translatesAutoresizingMaskIntoConstraints = false
         root.addSubview(scroll)
+        draftRow.translatesAutoresizingMaskIntoConstraints = false
+        draftRow.isHidden = true
+        root.addSubview(draftRow)
         NSLayoutConstraint.activate([
+            draftRow.topAnchor.constraint(equalTo: searchPill.bottomAnchor, constant: 8),
+            draftRow.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            draftRow.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            draftRowHeight,
             searchPill.topAnchor.constraint(equalTo: root.safeAreaLayoutGuide.topAnchor, constant: 0),
             searchPill.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 10),
             searchPill.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -10),
@@ -526,7 +616,7 @@ final class MacConversationListViewController: NSViewController, NSTableViewData
             search.leadingAnchor.constraint(equalTo: searchPill.leadingAnchor, constant: 10),
             search.trailingAnchor.constraint(equalTo: searchPill.trailingAnchor, constant: -10),
             search.centerYAnchor.constraint(equalTo: searchPill.centerYAnchor),
-            scroll.topAnchor.constraint(equalTo: searchPill.bottomAnchor, constant: 8),
+            scroll.topAnchor.constraint(equalTo: draftRow.bottomAnchor),
             scroll.leadingAnchor.constraint(equalTo: root.leadingAnchor),
             scroll.trailingAnchor.constraint(equalTo: root.trailingAnchor),
             scroll.bottomAnchor.constraint(equalTo: root.bottomAnchor),
@@ -662,6 +752,37 @@ final class MacConversationListViewController: NSViewController, NSTableViewData
     /// Every listed conversation in order: pins, then list rows.
     var visibleIDs: [String] { pinned.map(\.id) + visible.map(\.id) }
     var pinnedIDs: [String] { pinned.map(\.id) }
+
+    /// A conversation New Message created.
+    func add(_ entry: MacConversationEntry) {
+        entries.append(entry)
+        entry.store.addObserver { [weak self] change in
+            guard let self, change != .typing else { return }
+            self.refresh(changed: entry)
+        }
+        refresh()
+    }
+
+    /// Lab: the table's geometry and row count while debugging the draft row.
+    var labGeometry: String {
+        guard let scroll = table.enclosingScrollView else { return "rows=\(table.numberOfRows)" }
+        let frame: String = NSStringFromRect(scroll.frame)
+        let clip: String = NSStringFromRect(scroll.contentView.bounds)
+        let draft: String = NSStringFromRect(draftRow.frame)
+        return "rows=\(table.numberOfRows) scroll=\(frame) clip=\(clip) insets=\(scroll.contentInsets.top) draft=\(draft)"
+    }
+
+    /// Shows the draft row (85 pt, like a conversation row); while it is
+    /// selected no list row is.
+    func setDraftRow(shown: Bool, selected: Bool) {
+        draftRow.isHidden = !shown
+        draftRowHeight.constant = shown ? 85 : 0
+        draftRow.isEmphasized = selected
+        if selected {
+            selectedID = nil
+            table.deselectAll(nil)
+        }
+    }
 
     override func viewDidLayout() {
         super.viewDidLayout()
@@ -1285,6 +1406,44 @@ public enum MacConversationLab {
         guard let split = windows.last?.window?.contentViewController as? MacConversationSplitController else { return [] }
         split.sidebar.setSearch(query)
         return split.sidebar.visibleIDs
+    }
+
+    /// Opens New Message in the frontmost lab window, optionally prefilled
+    /// (Forward hands its draft here); the To: field takes focus.
+    public static func newMessage(prefill: ConversationComposeMessage? = nil) {
+        guard let split = windows.last?.window?.contentViewController as? MacConversationSplitController else { return }
+        split.newMessage(nil)
+        if let prefill { split.draft?.setDraft(prefill) }
+    }
+
+    /// New Message from the lab: `compose` opens the draft, `c <command>`
+    /// drives it (see MacComposeDraftController.labCommand), `composepng
+    /// <path>` renders the window in-process. Nil for other lines.
+    public static func composeCommand(_ line: String) -> String? {
+        guard let split = windows.last?.window?.contentViewController as? MacConversationSplitController else { return nil }
+        if line == "compose" {
+            split.newMessage(nil)
+            return "ok"
+        }
+        if line.hasPrefix("c ") {
+            return split.draft?.labCommand(String(line.dropFirst(2))) ?? "error no draft"
+        }
+        if line.hasPrefix("composepng ") {
+            guard let content = windows.last?.window?.contentView else { return "error" }
+            content.layoutSubtreeIfNeeded()
+            guard let rep = content.bitmapImageRepForCachingDisplay(in: content.bounds) else { return "error" }
+            content.cacheDisplay(in: content.bounds, to: rep)
+            let path = String(line.dropFirst(11))
+            guard let data = rep.representation(using: .png, properties: [:]), (try? data.write(to: URL(fileURLWithPath: path))) != nil else { return "error" }
+            return "ok \(path)"
+        }
+        if line == "sidebar" {
+            let titles = split.entries.map { "\($0.id):\($0.store.info?.title ?? "-")" }.joined(separator: ",")
+            let ids: String = split.sidebar.visibleIDs.joined(separator: ",")
+            let selected: String = split.selected?.id ?? "-"
+            return "ids=\(ids) selected=\(selected) titles=\(titles) \(split.sidebar.labGeometry)"
+        }
+        return nil
     }
 
     /// Selects a conversation (`group` / `direct`) in the frontmost lab window.

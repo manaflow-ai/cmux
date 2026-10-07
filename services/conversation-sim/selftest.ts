@@ -576,6 +576,46 @@ async function main() {
   await sc.call("cancelScheduled", { id: sr2.id });
   sc.close();
   await post("/admin/knobs", { failRate: savedKnobs.failRate, scheduledFailRate: savedKnobs.scheduledFailRate });
+  console.log("new message: contacts, lookup, create");
+  {
+    const c = await Client.connect("group");
+    await c.call("hello", { clientId: "compose" });
+    const ka = await c.call("searchContacts", { query: "ka" });
+    check(ka.contacts[0]?.name === "Kate Bell" && ka.contacts[0].handles.length === 2, "searchContacts 'ka' -> Kate Bell first, with handles");
+    const ha = await c.call("searchContacts", { query: "ha" });
+    check(ha.contacts.map((x: any) => x.name).join("|") === "Hank M. Zakroff|Anna Haro", "name prefix ranks before a later-word prefix");
+    const ex = await c.call("searchContacts", { query: "ha", excludeIds: ["hank"] });
+    check(ex.contacts.length === 1 && ex.contacts[0].id === "anna", "excludeIds drops already-added recipients");
+    const byPhone = await c.call("searchContacts", { query: "564-85" });
+    check(byPhone.contacts[0]?.id === "kate", "handle substring matches");
+    const all = await c.call("searchContacts", { query: "  ", limit: 50, excludeIds: ["kate"] });
+    check(all.contacts.length === 8 && all.contacts[0].name === "Anna Haro" && !all.contacts.some((x: any) => x.id === "kate"), "blank query lists every contact alphabetically, minus excludeIds");
+    const look = await c.call("lookupHandles", { handles: ["kate-bell@mac.com", "+1 555 766 4823", "someone@example.com", "(555) 123-4567", "Apple"] });
+    check(
+      look.results.map((r: any) => `${r.service}:${r.contact?.id ?? "-"}`).join(",") === "iMessage:kate,SMS:hank,iMessage:-,SMS:-,null:-",
+      "lookupHandles reports service per address, contact when known, null when invalid",
+    );
+    const direct = await c.call("createConversation", { recipients: [{ participantId: "john" }] });
+    check(direct.created === false && direct.conversation.id === "direct", "creating with John opens the existing 1:1");
+    const group = await c.call("createConversation", { recipients: [{ participantId: "leo" }, { participantId: "lawrence" }, { participantId: "austin" }, { participantId: "aziz" }] });
+    check(group.created === false && group.conversation.id === "group", "same members in any order (me ignored) open the existing group");
+    const fresh = await c.call("createConversation", { recipients: [{ participantId: "kate" }, { handle: "kate-bell@mac.com" }, { handle: "+1 555 766 4823" }] });
+    check(fresh.created === true && fresh.conversation.kind === "group" && fresh.conversation.participants.length === 3, "new group dedupes a contact given by id and by handle");
+    check(fresh.conversation.title === "Kate & Hank" && fresh.conversation.service === "SMS", "group title from first names; any SMS member makes it SMS");
+    const again = await c.call("createConversation", { recipients: [{ handle: "+1 (555) 766-4823" }, { participantId: "kate" }] });
+    check(again.created === false && again.conversation.id === fresh.conversation.id, "creating the same group again reopens it");
+    const raw = await c.call("createConversation", { recipients: [{ handle: "(555) 123-4567" }] });
+    check(raw.created === true && raw.conversation.kind === "direct" && raw.conversation.title === "(555) 123-4567", "unknown phone number makes an SMS 1:1 titled by the number");
+    const bad = await c.raw("createConversation", { recipients: [{ handle: "Apple" }] });
+    check(bad.error?.code === -32005, "invalid address -> -32005");
+    c.close();
+    const n = await Client.connect(fresh.conversation.id);
+    const nh = await n.call("hello", { clientId: "compose-2" });
+    check(nh.conversation.id === fresh.conversation.id && nh.headSeq === 0, "the created conversation is reachable over /ws and starts empty");
+    const first = await n.call("send", { clientMessageId: `first-${crypto.randomUUID()}`, text: "hi both" });
+    check(first.message.seq === 1, "first send starts the conversation at seq 1");
+    n.close();
+  }
 
   console.log("admin disconnect");
   await post("/admin/disconnect");
