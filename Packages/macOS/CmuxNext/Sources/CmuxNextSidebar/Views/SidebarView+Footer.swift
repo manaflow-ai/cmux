@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 import CmuxNextDesign
 
 // The footer: its accessory slots, and Back. Leo (T3 Code ref, 2026-10-07):
