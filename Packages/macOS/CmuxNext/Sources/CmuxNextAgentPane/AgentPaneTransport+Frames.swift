@@ -169,7 +169,7 @@ extension AgentPaneTransport {
     }
 
     /// The frame's paths against the pane's roots and the folders the user added.
-    private func checkPaths(_ box: FrameBox) async -> Result<[String], PathRefusal> {
+    private func checkPathsInScope(_ box: FrameBox) async -> Result<[String], AcpmuxPathPolicy.Refusal> {
         let scope = AcpmuxPathPolicy.Scope(roots: roots(), gestureRoots: gestureRoots(), fillCwd: primaryRoot(),
                                            agentHome: agentHome(), home: homeFolder, granted: addedRoots)
         return await Self.checkPaths(box, scope: scope)
@@ -178,14 +178,14 @@ extension AgentPaneTransport {
     /// The main actor's part of one frame: small values only (the frame stays in its box).
     private func decide(_ facts: Facts, _ box: FrameBox, connection id: Int, socket: AcpmuxPaneSocket, ids: AcpmuxRequestIds) async -> Step {
         if facts.needsPathCheck {
-            var result = await checkPaths(box)
+            var result = await checkPathsInScope(box)
             guard id == current, self.socket === socket else { return .stop(.staleConnection) }
             // A folder outside every root that the user typed: their gesture adds it as a root, at
             // once and without a sheet (Lawrence 2026-10-07, "Remove dialogues.").
             if case .failure(let refusal) = result, refusal.error == .pathOutsideRoots, let folder = refusal.outsidePath,
                gestures.consume() {
                 if !addedRoots.contains(folder) { addedRoots.append(folder) }
-                result = await checkPaths(box)
+                result = await checkPathsInScope(box)
                 guard id == current, self.socket === socket else { return .stop(.staleConnection) }
             }
             switch result {
