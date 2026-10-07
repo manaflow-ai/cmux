@@ -29,7 +29,6 @@
   "agent-session/acpmux/PermissionCard.tsx": 1,
   "agent-session/acpmux/ProjectChooser.tsx": 5,
   "agent-session/acpmux/prototype/WorkspaceShell.tsx": 7,
-  "agent-session/acpmux/SearchChats.tsx": 3,
   "agent-session/acpmux/SessionSidebar.tsx": 1,
   "agent-session/acpmux/summary/usePopover.ts": 1,
   "App.tsx": 10,

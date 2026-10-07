@@ -11671,7 +11671,7 @@
     },
     {
       "cli" : "guiOnly",
-      "cli_name" : "browser import-data",
+      "cli_name" : "action import-from-browser",
       "context_menu" : "noObject",
       "context_menus" : [
 
@@ -21973,6 +21973,32 @@
       },
       "title" : "Import Bookmarks…",
       "title_key" : "action.bookmark.import",
+      "title_table" : "BookmarkActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "bookmark import-from-browser",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "bookmark.importFromBrowser",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Import Bookmarks from Browser…",
+      "title_key" : "action.bookmark.importFromBrowser",
       "title_table" : "BookmarkActions"
     },
     {

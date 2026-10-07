@@ -1,3 +1,4 @@
+import Foundation
 import CmuxNextBrowser
 import CmuxNextSettings
 
@@ -73,5 +74,14 @@ nonisolated enum BrowserEngineResolver {
     /// opener's engine: `window.opener` and cookies live in one engine).
     static func tag(for kind: BrowserEngineKind) -> BrowserEngineTag {
         kind == .cef ? .cef : .webkit
+    }
+}
+
+extension BrowserEngineTag {
+    /// The engine a URL needs: Chromium for its internal pages
+    /// (ChromiumInternalURL), else nil (the default engine decides).
+    nonisolated static func engine(for url: URL?) -> String? {
+        guard let url, ChromiumInternalURL.needsChromium(url) else { return nil }
+        return BrowserEngineTag.cef.rawValue
     }
 }
