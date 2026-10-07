@@ -42,7 +42,7 @@ public struct StatusMapping {
     /// An acpmux turn or an OSC 7501 program waits for the user (the tab's
     /// still attention badge).
     public func needsInput(_ tab: TabModel) -> Bool {
-        turn(tab) == .needsInput
+        turn(tab) == .needsInput || ProgramStatusRecord.strongest(tab.programStatus)?.state == .blocked
     }
 
     /// One tab's merged status.

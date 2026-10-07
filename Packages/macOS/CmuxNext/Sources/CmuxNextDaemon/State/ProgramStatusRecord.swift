@@ -55,14 +55,17 @@ public struct ProgramStatusRecord: Sendable, Hashable {
 
     /// `extra.program_status` of a terminal; absent and `[]` are the same.
     static func records(_ extra: [String: JSONValue]?) -> [ProgramStatusRecord] {
-        []
+        guard case .array(let values)? = extra?["program_status"] else { return [] }
+        return values.compactMap { ProgramStatusRecord($0) }
     }
 
     /// The terminal's strongest record (the contract's aggregate):
     /// blocked > error > working > done; idle counts as none. Among equal
     /// states the newest report wins.
     public static func strongest(_ records: [ProgramStatusRecord]) -> ProgramStatusRecord? {
-        nil
+        records.filter { $0.state != .idle }.max { a, b in
+            (a.state.strength, a.updatedSeq) < (b.state.strength, b.updatedSeq)
+        }
     }
 }
 
