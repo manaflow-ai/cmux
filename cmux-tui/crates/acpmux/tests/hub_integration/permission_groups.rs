@@ -310,12 +310,23 @@ async fn the_chat_allowance_never_answers_in_a_web_turn() {
 
 /// ACP-REMOTE-GUARD (f): a Web answer allows once or denies once; an
 /// always option or the chat allowance is a lasting grant and is refused.
+/// REMOTE-FLOOR: once the local user gives the agent a lasting grant, Web
+/// control ends (the agent may run that tool without a request).
 #[tokio::test]
 async fn a_web_answer_never_makes_a_lasting_grant() {
     let (hub, mut c) = setup(PermissionPolicy::Ask).await;
     let id = new_session(&mut c, "lasting").await;
     let mut web = web_client(&hub).await;
     let mut r = connect(&hub).await;
+    // "Allow for this chat" from the Web is refused; allow once is not.
+    let rid = c.send(method::SESSION_PROMPT, prompt(&id, "permission-batch: single", None)).await;
+    let g = ready(&mut c).await;
+    let e = web.request(RESPOND, decision(&id, &g, "web-chat", "allow_chat")).await.unwrap_err();
+    assert!(e.contains("lasting grant"), "{e}");
+    let state = r.request(GROUPS, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(state["chatAllowance"]["active"], false, "{state}");
+    web.request(RESPOND, decision(&id, &g, "web-once", "allow_once")).await.unwrap();
+    assert!(c.response(rid).await.0.is_ok());
     // Only an allow_always option is offered.
     let rid =
         c.send(method::SESSION_PROMPT, prompt(&id, "permission-batch: unsafe-option", None)).await;
@@ -326,16 +337,9 @@ async fn a_web_answer_never_makes_a_lasting_grant() {
     assert_eq!(item["request"]["options"][0]["kind"], "allow_always", "{item}");
     let e = web.request(method::MUX_PERMISSION_RESPOND, always.clone()).await.unwrap_err();
     assert!(e.contains("lasting grant"), "{e}");
-    // The unix socket may still choose it.
+    // The unix socket may still choose it; then Web control ends.
     r.request(method::MUX_PERMISSION_RESPOND, always).await.unwrap();
     assert!(c.response(rid).await.0.is_ok());
-    // "Allow for this chat" from the Web is refused; allow once is not.
-    let rid = c.send(method::SESSION_PROMPT, prompt(&id, "permission-batch: single", None)).await;
-    let g = ready(&mut c).await;
-    let e = web.request(RESPOND, decision(&id, &g, "web-chat", "allow_chat")).await.unwrap_err();
+    let e = web.request(method::SESSION_PROMPT, prompt(&id, "hi", None)).await.unwrap_err();
     assert!(e.contains("lasting grant"), "{e}");
-    let state = r.request(GROUPS, json!({"sessionId": id})).await.unwrap();
-    assert_eq!(state["chatAllowance"]["active"], false, "{state}");
-    web.request(RESPOND, decision(&id, &g, "web-once", "allow_once")).await.unwrap();
-    assert!(c.response(rid).await.0.is_ok());
 }

@@ -232,7 +232,9 @@ describe("async page boot", () => {
     const rendered: { config: any; languages: unknown }[] = [];
     await bootPageDiff(
       page,
-      (config, languages) => rendered.push({ config, languages }),
+      (config, languages) => {
+        rendered.push({ config, languages });
+      },
       () => undefined,
     );
     expect(calls[0]).toEqual({ op: "cmux.diff.config", params: {} });
@@ -241,6 +243,37 @@ describe("async page boot", () => {
     expect(rendered[0]?.config.payload.transport).toEqual({ kind: "page", endpoint: "", protocolVersion: 1 });
     expect(warn).not.toHaveBeenCalled();
     expect(error).not.toHaveBeenCalled();
+  });
+
+  test("boot awaits the locale-ready render before accessing the viewer API", async () => {
+    const { page } = fakePage((op) =>
+      op === "cmux.diff.config" ? { payload: { title: "Diff", capabilityToken: "t" } } : unknownOp(op),
+    );
+    let begin!: () => void;
+    const started = new Promise<void>((resolve) => {
+      begin = resolve;
+    });
+    let finish!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    let installed = false;
+    const boot = bootPageDiff(
+      page,
+      async () => {
+        begin();
+        await ready;
+      },
+      () => {
+        installed = true;
+        return undefined;
+      },
+    );
+    await started;
+    expect(installed).toBe(false);
+    finish();
+    await boot;
+    expect(installed).toBe(true);
   });
 
   test("a host transport in the config is kept", async () => {
@@ -252,7 +285,11 @@ describe("async page boot", () => {
   test("a config that is not an object fails the boot before rendering", async () => {
     const { page } = fakePage(() => "nope");
     let rendered = false;
-    await expect(bootPageDiff(page, () => (rendered = true))).rejects.toThrow("not an object");
+    await expect(
+      bootPageDiff(page, () => {
+        rendered = true;
+      }),
+    ).rejects.toThrow("not an object");
     expect(rendered).toBe(false);
   });
 

@@ -12,6 +12,17 @@ fn attach(hub: &Hub, conn: &Conn, id: &str) {
     }
 }
 
+fn resolved_session(
+    hub: &Hub,
+    resolved: Option<&Arc<crate::hub::Session>>,
+    params: &Value,
+) -> Result<Arc<crate::hub::Session>, RpcError> {
+    match resolved {
+        Some(session) => Ok(session.clone()),
+        None => hub.resolve(session_key(params)?),
+    }
+}
+
 pub(super) async fn handle_notification(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, params: Value) {
     match m {
         method::SESSION_CANCEL => {
@@ -67,8 +78,10 @@ pub(super) async fn handle_request(
     if conn.origin != Origin::Local {
         super::remote_guard::check(hub, conn.origin, m, &mut params).await?;
     }
+    let resolved = super::session_key(&params).ok().and_then(|key| hub.resolve(key).ok());
+    super::trust_gate::check(hub, conn.origin, m, &params, resolved.as_ref()).await?; // the folder-trust gate
     let key = super::session_key(&params).ok().map(str::to_owned);
-    let mut reply = dispatch_request(hub, conn, m, params).await;
+    let mut reply = dispatch_request(hub, conn, m, params, resolved).await;
     super::remote_guard::after(hub, conn.origin, m, key.as_deref(), &mut reply);
     reply
 }
@@ -78,13 +91,37 @@ async fn dispatch_request(
     conn: &Arc<Conn>,
     m: &str,
     params: Value,
+    resolved: Option<Arc<crate::hub::Session>>,
 ) -> Result<Value, RpcError> {
+    // Trust answers for a remote session belong to the daemon that owns it.
+    if matches!(m, method::ACP_TRUST_GET | method::ACP_TRUST_SET)
+        && let Ok(key) = session_key(&params)
+        && hub.resolve(key).is_err()
+        && let Some((peer, id, _)) = hub.resolve_remote(key)
+    {
+        if super::trust_gate::gated(conn.origin, &params) && !peer.supports_trust_gate() {
+            return Err(super::trust_gate::peer_unsupported(&peer.name));
+        }
+        let mut forwarded = params.clone();
+        if let Some(object) = forwarded.as_object_mut() {
+            object.insert("sessionId".into(), Value::String(id));
+        }
+        super::remote_guard::mark_forwarded(conn.origin, &params, &mut forwarded);
+        let mut result = peer.request(m, forwarded).await?;
+        if let Some(object) = result.as_object_mut() {
+            object.insert("peer".into(), Value::String(peer.name.clone()));
+        }
+        return Ok(result);
+    }
     // A session that lives on a peer: forward the whole request there.
     if !SESSION_SCOPED_EXCLUDED.contains(&m)
         && let Ok(key) = session_key(&params)
         && hub.resolve(key).is_err()
         && let Some((peer, id, _)) = hub.resolve_remote(key)
     {
+        if super::trust_gate::gated(conn.origin, &params) && !peer.supports_trust_gate() {
+            return Err(super::trust_gate::peer_unsupported(&peer.name));
+        }
         let mut p = if params.is_null() { json!({}) } else { params.clone() };
         if let Some(obj) = p.as_object_mut() {
             obj.remove("session");
@@ -158,7 +195,7 @@ async fn dispatch_request(
                     method::MUX_INFO, method::MUX_EVENTS, method::MUX_PERMISSION_RESPOND,
                     method::MUX_SET_POLICY, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_SHUTDOWN,
                 ], "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
-                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups"]}}
+                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate"], "trustGate": true}}
             }))
         }
         method::AUTHENTICATE => Ok(json!({})),
@@ -171,10 +208,14 @@ async fn dispatch_request(
                 let peer = hub
                     .peer_by_name(peer_name)
                     .ok_or_else(|| RpcError::not_found(format!("no peer {peer_name:?}")))?;
+                if super::trust_gate::gated(conn.origin, &params) && !peer.supports_trust_gate() {
+                    return Err(super::trust_gate::peer_unsupported(&peer.name));
+                }
                 let mut p = params.clone();
                 if let Some(m) = p.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
                     m.remove("peer");
                 }
+                super::remote_guard::mark_forwarded(conn.origin, &params, &mut p);
                 let mut result = peer.request(method::SESSION_NEW, p).await?;
                 if let Some(id) = result.get("sessionId").and_then(Value::as_str) {
                     attach(hub, conn, id);
@@ -218,6 +259,7 @@ async fn dispatch_request(
                 model: pick("model"),
                 effort: pick("effort"),
                 adopt,
+                env: crate::session_env::parse(meta)?,
                 // LocalApp = same-user secret, equal to the unix socket for STARTING presets; writes stay unix-socket only.
                 remote: conn.origin.web_class(),
             };
@@ -235,7 +277,7 @@ async fn dispatch_request(
             }))
         }
         method::SESSION_LOAD | method::SESSION_RESUME => {
-            let s = hub.resolve(session_key(&params)?)?;
+            let s = resolved_session(hub, resolved.as_ref(), &params)?;
             attach(hub, conn, &s.id);
             // Replay history as ACP updates, then answer.
             let events =
@@ -282,7 +324,7 @@ async fn dispatch_request(
             Ok(json!({"sessions": sessions}))
         }
         method::SESSION_PROMPT => {
-            let s = hub.resolve(session_key(&params)?)?;
+            let s = resolved_session(hub, resolved.as_ref(), &params)?;
             attach(hub, conn, &s.id);
             let blocks = params
                 .get("prompt")
@@ -319,6 +361,7 @@ async fn dispatch_request(
                 })),
                 resend,
                 control: super::remote_guard::control_of(conn.origin, &params),
+                trust_gate: super::trust_gate::gated(conn.origin, &params),
             };
             hub.prompt_with(&s, blocks, &conn.label(), steer, opts).await
         }
@@ -333,14 +376,15 @@ async fn dispatch_request(
             Ok(json!({}))
         }
         method::SESSION_FORK => {
-            let s = hub.resolve(session_key(&params)?)?;
+            let s = resolved_session(hub, resolved.as_ref(), &params)?;
             let cwd = str_param(&params, "cwd").map(PathBuf::from);
             let name = mux_meta(&params)
                 .and_then(|m| m.get("name"))
                 .and_then(Value::as_str)
                 .or_else(|| params.get("name").and_then(Value::as_str))
                 .map(str::to_owned);
-            let new = hub.fork(&s, name, cwd).await?;
+            let env = crate::session_env::parse(mux_meta(&params))?;
+            let new = hub.fork(&s, name, cwd, env).await?;
             attach(hub, conn, &new.id);
             let meta = new.meta();
             Ok(
@@ -348,13 +392,13 @@ async fn dispatch_request(
             )
         }
         method::SESSION_SET_MODE => {
-            let s = hub.resolve(session_key(&params)?)?;
+            let s = resolved_session(hub, resolved.as_ref(), &params)?;
             let mode = str_param(&params, "modeId")
                 .ok_or_else(|| RpcError::invalid_params("modeId is required"))?;
             hub.set_mode(&s, mode).await
         }
         method::SESSION_SET_CONFIG_OPTION => {
-            let s = hub.resolve(session_key(&params)?)?;
+            let s = resolved_session(hub, resolved.as_ref(), &params)?;
             let id = str_param(&params, "configId")
                 .ok_or_else(|| RpcError::invalid_params("configId is required"))?;
             let value = params
@@ -406,6 +450,7 @@ async fn dispatch_request(
                 wait: params.get("wait").and_then(Value::as_bool) == Some(true),
                 // LocalApp = same-user secret, equal to the unix socket for STARTING presets; writes stay unix-socket only.
                 remote: conn.origin.web_class(),
+                trust_gate: super::trust_gate::gated(conn.origin, &params),
             })
             .await
         }
@@ -746,7 +791,16 @@ async fn dispatch_request(
         }
         method::MUX_INFO => {
             let s = hub.resolve(session_key(&params)?)?;
-            Ok(hub.session_detail(&s))
+            let mut detail = hub.session_detail(&s);
+            // The session env reaches the unix socket only: no summary or
+            // event carries it, so a key added to the allowlist later never
+            // reaches another origin by default (session_env.rs).
+            if conn.origin == Origin::Local
+                && let Some(obj) = detail.as_object_mut()
+            {
+                obj.insert("sessionEnv".into(), json!(s.meta().session_env));
+            }
+            Ok(detail)
         }
         method::MUX_WAIT => wait::wait(hub, &params).await,
         method::MUX_SCHEMA => {
@@ -773,25 +827,7 @@ async fn dispatch_request(
             Ok(hub.session_summary(&s))
         }
         method::ACP_TRUST_GET | method::ACP_TRUST_SET => {
-            let cwd = params.get("cwd").and_then(Value::as_str).unwrap_or_default().to_owned();
-            let level = params.get("level").and_then(Value::as_str).map(str::to_owned);
-            let setting = m == method::ACP_TRUST_SET;
-            // Small files, read and written off the runtime threads.
-            let reply = tokio::task::spawn_blocking(move || {
-                let paths = crate::trust::Paths::current()
-                    .ok_or_else(|| crate::trust::Failure::Record("no home directory".into()))?;
-                if setting {
-                    crate::trust::set(&paths, &cwd, level.as_deref().unwrap_or_default())
-                } else {
-                    crate::trust::get(&paths, &cwd)
-                }
-            })
-            .await
-            .map_err(|e| RpcError::internal(e.to_string()))?;
-            reply.map_err(|failure| match failure {
-                crate::trust::Failure::Invalid(message) => RpcError::invalid_params(message),
-                crate::trust::Failure::Record(message) => RpcError::internal(message),
-            })
+            super::trust_gate::answer(hub, m, &params).await
         }
         method::MUX_SET_RULES => {
             let s = hub.resolve(session_key(&params)?)?;
@@ -953,7 +989,10 @@ async fn dispatch_request(
         method::MUX_HANDOFF_PREPARE => hub.handoff_prepare(&params).await,
         method::MUX_HANDOFF_GET => hub.handoff_get(&params),
         method::MUX_HANDOFF_DRAFT => hub.handoff_draft(&params).await,
-        method::MUX_HANDOFF_START => hub.handoff_start(&params).await,
+        method::MUX_HANDOFF_START => {
+            let control = super::remote_guard::control_of(conn.origin, &params);
+            hub.handoff_start(&params, control).await
+        }
         method::MUX_HANDOFF_DISCARD => hub.handoff_discard(&params).await,
         // Anything else that names a session goes to the agent untouched, from the
         // unix socket only: an extension method may spawn or read (`remote_guard.rs`).

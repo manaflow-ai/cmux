@@ -78,7 +78,8 @@ import Testing
     static var paletteKeys: [NSEvent] {
         [key(36, "\r"), key(76, "\u{3}"), key(36, "\r", .command), key(48, "\t"), key(48, "\t", .shift),
          key(126, "\u{F700}"), key(125, "\u{F701}"), key(116, "\u{F72C}"), key(121, "\u{F72D}"),
-         key(51, "\u{7F}"), key(40, "k", .command), key(53, "\u{1B}")]
+         // Cmd-K is no palette key since decision K1 (it clears the terminal).
+         key(51, "\u{7F}"), key(53, "\u{1B}")]
     }
 
     // MARK: Every input action

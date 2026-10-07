@@ -22,6 +22,7 @@ mod inputs;
 mod mixed_order;
 #[cfg(test)]
 mod mixed_order_tests;
+pub(crate) mod room_archive;
 pub use inputs::{PersonalWorkspaceUpdate, ProfileDeletion, ProfileInput, ProfileUpdate};
 
 pub fn new_profile_id() -> String {
