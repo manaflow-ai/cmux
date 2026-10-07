@@ -34,7 +34,13 @@ import Testing
         #expect(view.belowFade.isHidden, "the footer's items give way to Back")
         let back = view.backButton.frame
         #expect(back.width >= view.bounds.width - Metrics.space3 * 2, "one wide button, not an icon")
-        #expect(abs(back.midY - footer.midY) <= Metrics.space2, "in the footer's spot: back \(back), footer \(footer)")
+        // In the footer's spot: centred on the bottom band, or at the bottom
+        // edge when the band is empty (the minimal footer of a bare sidebar).
+        if footer.height >= back.height {
+            #expect(abs(back.midY - footer.midY) <= Metrics.space2, "in the footer's spot: back \(back), footer \(footer)")
+        } else {
+            #expect(abs(back.maxY - (view.bounds.height - Metrics.space2)) <= 1, "at the bottom edge: back \(back), bounds \(view.bounds)")
+        }
         #expect(view.backButton.accessibilityLabel()?.isEmpty == false)
         view.model.showsBack = false
         await settle(view)

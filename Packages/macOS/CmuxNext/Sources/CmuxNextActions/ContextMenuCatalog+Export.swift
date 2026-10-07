@@ -11,7 +11,8 @@ nonisolated extension ContextMenuCatalog {
     public static let exportRenderRules: [String] = [
         "A row shows only when its visible_when holds: every name in requires is true in the effective context (the window's context plus the menu's implied names), debug_only rows need developer tools, and a row whose feature an administrator turned off is left out.",
         "enabled_when can_perform: the row is enabled when its action is bound and its handler allows it for the clicked target; a disabled row may carry a reason as subtitle and tooltip.",
-        "A submenu takes its action's title without a trailing ellipsis; a folder takes its own title. A submenu or folder without a shown row is left out.",
+        "A row with a label shows that label instead of its action's title: menu-only wording (Change Space Icon… for Set Space Icon…); the palette and CLI keep the title.",
+        "A submenu takes its label, else its action's title, without a trailing ellipsis; a folder takes its own title. A submenu or folder without a shown row is left out.",
         "A separator shows only after a shown row and before another shown row: runs collapse to one, and leading and trailing separators drop.",
         "A choices row is a submenu with one item per value in choices.values (then a separator and More… when more_opens_palette). It shows by the same visible_when as every row, and only when its action is bound and enabled (otherwise it is left out, not disabled).",
         "context_menus_not_exported lists the menus built by hand in their views; they are not in context_menus. Whoever adds a new hand-built menu adds it to that list (ContextMenuCatalog.exportHandBuiltMenus).",
