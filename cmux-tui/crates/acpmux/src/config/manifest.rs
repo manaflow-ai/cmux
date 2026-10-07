@@ -458,6 +458,8 @@ pub fn load_dir(root: &Path) -> (BTreeMap<String, Loaded>, BTreeMap<String, Vec<
     let mut dirs: Vec<PathBuf> = entries
         .filter_map(|e| e.ok().map(|e| e.path()))
         .filter(|p| p.is_dir() && p.join(MANIFEST_FILE).exists())
+        // `.<id>.installing-…` folders are `install`'s staging.
+        .filter(|p| !p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with('.')))
         .collect();
     dirs.sort();
     for dir in dirs {
@@ -504,6 +506,135 @@ pub fn all() -> (BTreeMap<String, Loaded>, BTreeMap<String, Vec<Problem>>) {
     let (user, failed) = user_dir().map(|d| load_dir(&d)).unwrap_or_default();
     manifests.extend(user);
     (manifests, failed)
+}
+
+/// The folder a project ships harnesses in: `.cmux/harnesses/` in `cwd` or
+/// the nearest parent that has one, stopping at the repository root (a
+/// folder with `.git`) and never above the home folder.
+pub fn project_dir(cwd: &Path) -> Option<PathBuf> {
+    let home = dirs::home_dir();
+    let mut dir = Some(cwd);
+    while let Some(d) = dir {
+        let candidate = d.join(".cmux").join("harnesses");
+        if candidate.is_dir() {
+            return Some(candidate);
+        }
+        if d.join(".git").exists() || Some(d) == home.as_deref() {
+            return None;
+        }
+        dir = d.parent();
+    }
+    None
+}
+
+/// A harness a project ships. Nothing in a project runs until the user
+/// installs it into their own folder (`acpmux harness add --from`), the same
+/// explicit step as any other harness; the app offers that step.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Offer {
+    pub id: String,
+    pub name: String,
+    pub dir: PathBuf,
+    pub icon: Option<String>,
+    /// The user's folder has a harness with this id.
+    pub installed: bool,
+    /// ... and its harness.json differs from the project's.
+    pub differs: bool,
+    /// Why the project's manifest cannot be installed, when it fails `check`.
+    pub problems: Vec<Problem>,
+}
+
+pub fn offers(cwd: &Path) -> Vec<Offer> {
+    let Some(root) = project_dir(cwd) else {
+        return Vec::new();
+    };
+    let user = user_dir();
+    let (loaded, failed) = load_dir(&root);
+    let mut out = Vec::new();
+    for (id, m) in loaded {
+        let mine = user.as_ref().map(|u| u.join(&id));
+        let installed = mine.as_ref().is_some_and(|d| d.join(MANIFEST_FILE).exists());
+        let differs = installed
+            && mine.as_ref().and_then(|d| std::fs::read(d.join(MANIFEST_FILE)).ok())
+                != m.dir.as_ref().and_then(|d| std::fs::read(d.join(MANIFEST_FILE)).ok());
+        out.push(Offer {
+            id: id.clone(),
+            name: m.manifest.name.clone(),
+            dir: m.dir.clone().unwrap_or_default(),
+            icon: m.icon_svg.clone(),
+            installed,
+            differs,
+            problems: vec![],
+        });
+    }
+    for (id, problems) in failed {
+        out.push(Offer {
+            id: id.clone(),
+            name: id.clone(),
+            dir: root.join(&id),
+            icon: None,
+            installed: false,
+            differs: false,
+            problems,
+        });
+    }
+    out
+}
+
+/// Copy a checked harness folder into `dest_root/<id>`: only harness.json
+/// and its icon, written beside the target and renamed into place.
+pub fn install(src: &Loaded, dest_root: &Path, replace: bool) -> std::io::Result<PathBuf> {
+    let id = &src.manifest.id;
+    let from =
+        src.dir.as_ref().ok_or_else(|| std::io::Error::other("bundled harnesses are built in"))?;
+    let dest = dest_root.join(id);
+    if dest.exists() && !replace {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            format!("{} already exists (--replace to overwrite it)", dest.display()),
+        ));
+    }
+    std::fs::create_dir_all(dest_root)?;
+    let staging = dest_root.join(format!(".{id}.installing-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&staging);
+    std::fs::create_dir_all(&staging)?;
+    let mut files = vec![MANIFEST_FILE.to_string()];
+    files.extend(src.manifest.icon.clone());
+    for file in &files {
+        std::fs::copy(from.join(file), staging.join(file))?;
+    }
+    if dest.exists() {
+        let old = dest_root.join(format!(".{id}.replaced-{}", std::process::id()));
+        std::fs::rename(&dest, &old)?;
+        std::fs::rename(&staging, &dest)?;
+        let _ = std::fs::remove_dir_all(&old);
+    } else {
+        std::fs::rename(&staging, &dest)?;
+    }
+    Ok(dest)
+}
+
+/// Harness folders in a source tree: the folder itself, or the ones under
+/// `.cmux/harnesses/`, `harnesses/` or directly inside it.
+pub fn find_in(src: &Path) -> Vec<PathBuf> {
+    if src.join(MANIFEST_FILE).exists() {
+        return vec![src.to_path_buf()];
+    }
+    for sub in [src.join(".cmux").join("harnesses"), src.join("harnesses"), src.to_path_buf()] {
+        let Ok(entries) = std::fs::read_dir(&sub) else {
+            continue;
+        };
+        let mut dirs: Vec<PathBuf> = entries
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| p.is_dir() && p.join(MANIFEST_FILE).exists())
+            .collect();
+        if !dirs.is_empty() {
+            dirs.sort();
+            return dirs;
+        }
+    }
+    Vec::new()
 }
 
 #[cfg(test)]

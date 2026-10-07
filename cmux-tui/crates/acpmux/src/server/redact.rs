@@ -25,6 +25,7 @@ pub(super) fn redact_for_remote(method: &str, reply: &mut Value) {
         && let Some(obj) = reply.as_object_mut()
     {
         obj.remove("manifestProblems");
+        obj.remove("projectHarnesses");
         if let Some(harnesses) = obj.get_mut("harnesses").and_then(Value::as_object_mut) {
             for h in harnesses.values_mut() {
                 if let Some(m) = h.get_mut("manifest").and_then(Value::as_object_mut) {

@@ -453,8 +453,19 @@ pub enum DaemonCmd {
 pub enum HarnessCmd {
     /// Validate manifests: all of yours, one id, or a folder. Exits 1 on a problem.
     Check { target: Option<String> },
-    /// Create ~/.config/cmux/harnesses/ID/ with a harness.json and icon to fill in.
-    Add { id: String },
+    /// Create ~/.config/cmux/harnesses/ID/ with a harness.json and icon to
+    /// fill in, or with --from install a shared one from a git repository or
+    /// folder (its .cmux/harnesses/, harnesses/ or the folder itself).
+    Add {
+        /// The harness to create, or which one to take from --from.
+        id: Option<String>,
+        /// A git URL or a local folder that ships harness manifests.
+        #[arg(long)]
+        from: Option<String>,
+        /// Overwrite a harness of the same id.
+        #[arg(long)]
+        replace: bool,
+    },
 }
 
 #[derive(Subcommand)]

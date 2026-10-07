@@ -478,6 +478,16 @@ async fn dispatch_request(
             Ok(json!({"peers": hub.peers()}))
         }
         method::MUX_HARNESSES => {
+            // With `cwd`, also the harnesses that project ships (offered to
+            // install, never run from the project folder).
+            let offers = match str_param(&params, "cwd").map(std::path::PathBuf::from) {
+                Some(cwd) if cwd.is_absolute() => {
+                    tokio::task::spawn_blocking(move || crate::config::manifest::offers(&cwd))
+                        .await
+                        .unwrap_or_default()
+                }
+                _ => Vec::new(),
+            };
             let cfg = hub.config.read().await;
             let mut agents = serde_json::Map::new();
             for (name, p) in &cfg.harnesses {
@@ -501,7 +511,7 @@ async fn dispatch_request(
                 agents.insert(name.clone(), v);
             }
             Ok(
-                json!({"harnesses": agents, "defaultHarness": cfg.default_harness, "families": cfg.families(), "defaults": cfg.defaults, "presets": cfg.presets, "manifestProblems": cfg.manifest_problems,
+                json!({"harnesses": agents, "defaultHarness": cfg.default_harness, "families": cfg.families(), "defaults": cfg.defaults, "presets": cfg.presets, "manifestProblems": cfg.manifest_problems, "projectHarnesses": offers,
                     "catalogVersion": hub.catalog_version.load(std::sync::atomic::Ordering::SeqCst)}),
             )
         }

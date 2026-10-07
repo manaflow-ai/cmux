@@ -1694,6 +1694,14 @@ fn run_main() {
         let args = std::env::args_os().skip(2).collect();
         client_log::exit(acp::run(args));
     }
+    // `cmux harness check|add …` is `cmux acp harness …`: harness manifests
+    // are acpmux's, and this is where users and their agents look for them.
+    #[cfg(unix)]
+    if raw_args.first().map(String::as_str) == Some("harness") {
+        discard_provider_secret_environment();
+        let args = std::env::args_os().skip(1).collect();
+        client_log::exit(acp::run(args));
+    }
     #[cfg(unix)]
     if raw_args.first().map(String::as_str) == Some("link") {
         discard_provider_secret_environment();
