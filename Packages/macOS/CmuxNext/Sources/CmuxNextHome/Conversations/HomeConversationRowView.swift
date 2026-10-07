@@ -35,6 +35,9 @@ final class HomeConversationCellView: NSTableCellView {
         addSubview(avatarGlyph)
         avatar.alignment = .center
         time.lineBreakMode = .byClipping
+        time.setContentCompressionResistancePriority(.required, for: .horizontal)
+        time.setContentHuggingPriority(.required, for: .horizontal)
+        title.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         badge.alignment = .center
         badge.wantsLayer = true
         mention.alignment = .center
