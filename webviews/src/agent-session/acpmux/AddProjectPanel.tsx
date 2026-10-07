@@ -200,7 +200,7 @@ export function AddProjectPanel({
         }}
         inline
       />
-      <div className="acpmux-add-project-status" role="status">
+      <output className="acpmux-add-project-status">
         {loading ? (
           t("project.loading")
         ) : error ? (
@@ -213,7 +213,7 @@ export function AddProjectPanel({
         ) : shown.length === 0 ? (
           t("project.emptyFolder")
         ) : null}
-      </div>
+      </output>
       <div className="acpmux-add-project-actions">
         {step === "directory" && (
           <>
