@@ -47,10 +47,19 @@ where
             wake_headless();
         });
     }
+    // DEV builds only: stop an orphaned app owner; its terminals keep
+    // running (dev_orphan_exit.rs).
+    #[cfg(unix)]
+    let orphan_exit = dev_orphan_exit::start_for_owner(mux);
     let (lock, wake) = &HEADLESS_WAKE;
     let mut generation = lock.lock().unwrap();
     while !(shutdown_requested() || mux.daemon_shutdown_requested() || remote_runtime_finished()) {
         generation = wake.wait(generation).unwrap();
+    }
+    drop(generation);
+    #[cfg(unix)]
+    if let Some(orphan_exit) = orphan_exit {
+        orphan_exit.stop();
     }
     Ok(())
 }
