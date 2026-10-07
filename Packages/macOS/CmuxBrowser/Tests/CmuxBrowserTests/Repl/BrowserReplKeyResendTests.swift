@@ -201,60 +201,120 @@ struct BrowserReplKeyResendTests {
         return (window, webView)
     }
 
-    /// Holds a block for a later main run-loop turn.
-    private final class HeldCompletion: @unchecked Sendable {
-        let run: () -> Void
-        init(_ run: @escaping () -> Void) { self.run = run }
-    }
+    /// A slow input method for one web view. In editable content of a web
+    /// view in a window, WebKit gives each key to the window's input method
+    /// first and queues it for the page when the input method answers, in
+    /// order. Here the answer for a Command key-down comes only once every
+    /// key WebKit queued before it has been handled, and on a later turn;
+    /// the keys after it wait behind it. In the app that answer races the
+    /// page's handling of the earlier key; this makes the losing order
+    /// certain.
+    @MainActor
+    private final class SlowInputMethod {
+        private struct Answer {
+            let event: NSEvent
+            let deliver: () -> Void
+            var waitsForQueue: Bool
+        }
 
-    /// Runs `body` with a slow input method on `webView`: WebKit gives a
-    /// key-down in editable content to the window's input method first and
-    /// queues it for the page when the input method answers. Here the
-    /// answer comes only once every key WebKit queued before has been
-    /// handled, and on a later turn, so a key still in WebKit's queue when
-    /// the next key goes out always drains before that key is queued. In
-    /// the app the input method's answer races the page's handling of the
-    /// earlier key; this makes the losing order certain.
-    private static func withSlowInputMethod(on webView: WKWebView, _ body: () async throws -> Void) async throws {
-        let selector = NSSelectorFromString("handleEventByInputMethod:completionHandler:")
-        let method = try #require(class_getInstanceMethod(NSTextInputContext.self, selector))
-        let previous = method_getImplementation(method)
-        typealias Completion = @convention(block) (Bool) -> Void
-        typealias Handle = @convention(c) (NSTextInputContext, Selector, NSEvent, @escaping Completion) -> Void
-        let original = unsafeBitCast(previous, to: Handle.self)
-        let pending = NSSelectorFromString("_doAfterProcessingAllPendingKeyEvents:")
-        let replacement: @convention(block) (NSTextInputContext, NSEvent, @escaping Completion) -> Void = { [weak webView] context, event, completion in
-            original(context, selector, event) { handled in
-                let held = HeldCompletion { completion(handled) }
-                let answer: @convention(block) () -> Void = {
-                    RunLoop.main.perform { held.run() }
-                }
-                guard let webView else { return answer() }
-                _ = webView.perform(pending, with: answer)
+        private weak var webView: WKWebView?
+        private var answers: [Answer] = []
+        private var waiting = false
+        /// The keys WebKit has been given back, in order.
+        private(set) var answered: [NSEvent] = []
+        private var answerWaiters: [CheckedContinuation<Void, Never>] = []
+
+        /// Returns once WebKit has been given back at least `count` keys.
+        func waitForAnswers(_ count: Int) async {
+            while answered.count < count {
+                await withCheckedContinuation { answerWaiters.append($0) }
             }
         }
-        method_setImplementation(method, imp_implementationWithBlock(replacement))
-        defer { method_setImplementation(method, previous) }
-        try await body()
+
+        init(webView: WKWebView) { self.webView = webView }
+
+        func answer(_ event: NSEvent, _ deliver: @escaping () -> Void) {
+            answers.append(Answer(event: event, deliver: deliver, waitsForQueue: event.type == .keyDown && event.modifierFlags.contains(.command)))
+            pump()
+        }
+
+        private func pump() {
+            while let first = answers.first {
+                if first.waitsForQueue {
+                    guard !waiting else { return }
+                    waiting = true
+                    let release: @convention(block) () -> Void = { [weak self] in
+                        RunLoop.main.perform {
+                            MainActor.assumeIsolated {
+                                guard let self else { return }
+                                self.waiting = false
+                                self.answers[0].waitsForQueue = false
+                                self.pump()
+                            }
+                        }
+                    }
+                    if let webView { _ = webView.perform(NSSelectorFromString("_doAfterProcessingAllPendingKeyEvents:"), with: release) } else { release() }
+                    return
+                }
+                answers.removeFirst()
+                answered.append(first.event)
+                first.deliver()
+                let waiters = answerWaiters
+                answerWaiters = []
+                waiters.forEach { $0.resume() }
+            }
+        }
+
+        /// Runs `body` with this input method answering for every text input context.
+        func install(_ body: () async throws -> Void) async throws {
+            let selector = NSSelectorFromString("handleEventByInputMethod:completionHandler:")
+            let method = try #require(class_getInstanceMethod(NSTextInputContext.self, selector))
+            let previous = method_getImplementation(method)
+            typealias Completion = @convention(block) (Bool) -> Void
+            typealias Handle = @convention(c) (NSTextInputContext, Selector, NSEvent, @escaping Completion) -> Void
+            let original = unsafeBitCast(previous, to: Handle.self)
+            let replacement: @convention(block) (NSTextInputContext, NSEvent, @escaping Completion) -> Void = { [weak self] context, event, completion in
+                original(context, selector, event) { handled in
+                    MainActor.assumeIsolated {
+                        guard let self else { return completion(handled) }
+                        self.answer(event) { completion(handled) }
+                    }
+                }
+            }
+            method_setImplementation(method, imp_implementationWithBlock(replacement))
+            defer { method_setImplementation(method, previous) }
+            try await body()
+        }
     }
 
     /// `cmux browser press` Meta+A into a focused field of a web view in a
-    /// window, as in the app, while the key before it (Meta's) is still in
-    /// WebKit's key queue. The end of that earlier key must not be taken
-    /// for Meta+A's own outcome (the press must wait for that queue, as the
-    /// REPL does), or Meta+A counts as handled and Select All is silently
-    /// skipped.
+    /// window, as in the app, while the key before it (Meta's key-down,
+    /// which the page takes a while to handle) is still in WebKit's key
+    /// queue. The end of that earlier key must not be taken for Meta+A's
+    /// own outcome (the press must wait for that queue, as the REPL does),
+    /// or Meta+A counts as handled and Select All is silently skipped.
     @Test func cmuxBrowserPressRunsSelectAllWhileAnEarlierKeyIsQueuedInAWindowsEditableField() async throws {
-        let (window, webView) = try await loadInWindow("<input id=i value=abc><script>\(Self.countKeys)</script>")
+        let (window, webView) = try await loadInWindow("""
+            <input id=i value=abc><script>\(Self.countKeys)
+            addEventListener('keydown', e => { if (e.key === 'Meta') { const t = performance.now(); while (performance.now() - t < 300) {} } });</script>
+            """)
         defer { window.close() }
+        let meta = try #require(BrowserKeyboardEvent(rawKey: "Meta"))
+        let a = try #require(BrowserKeyboardEvent(rawKey: "a"))
+        let inputMethod = SlowInputMethod(webView: webView)
         try await Self.withAppDroppingResends {
-            try await Self.withSlowInputMethod(on: webView) {
-                try await press(["x"], in: webView)
-                try await press(["Meta", "a"], in: webView)
-                try await settle(webView, keys: 3)
+            try await inputMethod.install {
+                #expect(await webView.replayBrowserKeyboardEvent(meta, action: .keyDown) == .delivered)
+                // Each `cmux browser press` is its own socket call: the
+                // input method has answered for Meta (WebKit queued it)
+                // before Meta+A goes out.
+                await inputMethod.waitForAnswers(1)
+                #expect(await webView.replayBrowserKeyboardEvent(a, action: .press) == .delivered)
+                #expect(await webView.replayBrowserKeyboardEvent(meta, action: .keyUp) == .delivered)
+                try await settle(webView, keys: 2)
             }
         }
-        #expect(try await webView.evaluateJavaScript("window.keys") as? Int == 3, "the page did not get x, Meta and a")
+        #expect(try await webView.evaluateJavaScript("window.keys") as? Int == 2, "the page did not get Meta and a")
         #expect(webView.commands == ["selectAll:"], "Meta+A no page handled ran \(webView.commands)")
     }
 
