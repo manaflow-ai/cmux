@@ -234,6 +234,38 @@ impl HostShared {
 mod tests {
     use super::*;
 
+    /// A shell that died a moment before its host must not get a
+    /// replacement: an exited, unreaped process is a zombie on every
+    /// platform, never a live session leader (L1.3).
+    #[test]
+    fn an_exited_unreaped_process_is_a_zombie_and_no_longer_leads_its_session() {
+        let mut leader = Command::new("/bin/sh");
+        leader.args(["-c", "exit 0"]);
+        // SAFETY: setsid is async-signal-safe in the forked child.
+        unsafe {
+            leader.pre_exec(|| {
+                if libc::setsid() < 0 { Err(std_io::Error::last_os_error()) } else { Ok(()) }
+            });
+        }
+        let mut child = leader.spawn().unwrap();
+        let pid = libc::pid_t::try_from(child.id()).unwrap();
+        // Wait for the exit without reaping, so the PID stays a zombie.
+        let mut info = std::mem::MaybeUninit::<libc::siginfo_t>::zeroed();
+        // SAFETY: waitid writes one siginfo_t for this exact child.
+        let waited = unsafe {
+            libc::waitid(
+                libc::P_PID,
+                pid as libc::id_t,
+                info.as_mut_ptr(),
+                libc::WEXITED | libc::WNOWAIT,
+            )
+        };
+        assert_eq!(waited, 0, "{}", std_io::Error::last_os_error());
+        assert!(is_zombie(pid), "an exited, unreaped child is not reported as a zombie");
+        assert!(!leads_session(pid, pid), "a zombie still counts as a live session leader");
+        child.wait().unwrap();
+    }
+
     /// Wait (up to 5 s) until `pid` runs `name`, so a signal reaches the
     /// final program and not a process still between fork and exec. Linux
     /// reads `/proc/<pid>/comm`; elsewhere it waits a fixed short time.
