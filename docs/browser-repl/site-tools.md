@@ -477,6 +477,14 @@ fails on an unmapped member.
 
 ## Tests
 
+Live-site status: the site tools are not yet tested against the real sites
+with signed-in accounts. Every write checks the page it acts on (signed-in
+account, author or account id, audience, origin and the confirmed fields)
+and fails closed with `target_unverified`, `target_mismatch` or
+`account_unverified` when the real page differs from what the tool expects.
+A tool that meets an unknown page layout therefore refuses the write; it
+does not guess.
+
 `tests/browser-parity/sites/` runs every tool on the Playwright WebKit dev
 driver against `mock-sites.mjs`: one handler per host that answers the
 endpoints and page structure each tool relies on, with shapes from each
