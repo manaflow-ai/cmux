@@ -6,7 +6,6 @@ import { join } from "node:path";
 
 const here = import.meta.dir;
 const rules: [string, string][] = [
-  ["agent-session/acpmux/searchChats.css", ".acpmux-search-scrim"],
   ["agent-session/acpmux/styles.css", ".acpmux-shell[data-sidebar=open] .acpmux-sidebar-scrim"],
   ["pages/cloud/styles.css", ".cloud-sheet-backdrop"],
   ["ui/ui.css", ".ui-backdrop"],
