@@ -123,7 +123,7 @@ host is not in the trust store the app explains that the Mac must show a pairing
    `trust.request.add` (claimant user and display name, device name, platform, key fingerprint,
    expiry). The phone gets `{status: "pending"}` and waits on its `trust:` stream (no polling).
 5. Owner accepts on the Mac or any signed-in device of the owner (never an agent):
-   `trust.request.accept {offer}` → PairingDO `complete` (single use) → TeamDO `host.guest.set`
+   `trust.request.accept {offer_id}` → PairingDO `complete` (single use) → TeamDO `host.guest.set`
    (admission) → owner `trust.guest.add` (key trust, request removed) → guest's UserDO
    `trust.remote.add` (index with the host cert). Each step is keyed by the offer, so a retry
    finishes a partial acceptance. `trust.request.decline` removes the request and spends the offer.
@@ -152,9 +152,9 @@ On `/v1/wire/user` (UserDO). `trust:<user>` is a UserDO secondary stream like `s
 | Message | Kind | Params → result |
 | --- | --- | --- |
 | `trust.key.publish` | op (install) | `{cert: LinkCertificate, host?}` → `{install, purpose}` |
-| `pairing.offer` | op (host install) | `{host, team}` → `{offer, expires_at, link}` |
-| `pairing.claim` | op (install) | `{offer, host, host_key}` → `{status: trusted\|pending, host, host_cert?, host_jwk?}` |
-| `trust.request.accept` / `.decline` | op (owner session or install) | `{offer}` → `{host, install}` |
+| `pairing.offer` | op (host install) | `{host, team}` → `{offer, offer_id, expires_at, link}` |
+| `pairing.claim` | op (install) | `{offer, host, host_key}` → `{status: trusted\|pending, offer_id, host, team, name, owner_user, host_install, host_jwk, host_cert}` |
+| `trust.request.accept` / `.decline` | op (owner session or install) | `{offer_id}` → `{host, install}` / `{offer_id}` |
 | `pairing.revoke` | op | `{host, install}` → `{host, install}` |
 | `pairing.hosts` | read | `{}` → own and remote hosts with trust |
 | `trust.*` events | owner | `trust.key.set`, `trust.install.revoked`, `trust.request.add/remove`, `trust.guest.add/remove`, `trust.remote.add/remove` |

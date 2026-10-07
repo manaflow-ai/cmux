@@ -1,5 +1,6 @@
 import type { ReduceContext } from "@cmux/ownership"
 import { describe, expect, it } from "vitest"
+import { verifyInstallSignature } from "../src/auth.ts"
 import { linkCertMessage, parseLinkCert } from "../src/domains/link-cert.ts"
 import { reduceHostGuest } from "../src/domains/team-guests.ts"
 import { trustDomain, type TrustState } from "../src/domains/user-trust.ts"
@@ -49,6 +50,13 @@ describe("link certs and offers", () => {
   it("builds the canonical message the Swift side signs", () => {
     expect(linkCertMessage("test", { user: "user_a", install: "inst_a", purpose: "direct", key, issued_at: 1, expires_at: 2 })).toBe(`cmux-link-cert/1\ntest\nuser_a\ninst_a\ndirect\n${key}\n1\n2`)
     expect(parseLinkCert({ ...cert("inst_a", "user_a", 10), expires_at: 10 })).toMatch(/lifetime/)
+  })
+
+  it("verifies the Swift vector (CmuxPairingTests CrossLanguageVector)", async () => {
+    const jwk = { kty: "EC", crv: "P-256", x: "UVw9brnjlrkE0_7Kf1T9zQzB6Ze_N13KUVrQpsO0A18", y: "RTa-OlDzGPv5pUdZAqIhUCvvDVfgjFOyzApW8X2fk1Q" }
+    const message = linkCertMessage("test", { user: "user_a", install: "inst_a", purpose: "direct", key, issued_at: 1_800_000_000_000, expires_at: 1_800_086_400_000 })
+    expect(await verifyInstallSignature(jwk, message, "lFAR1qbkx_BmFC_YBYnFEoBF1NOjjVxLXgS-LmCCYRc23kiN_85-KmeADmU8mR3-Iexsnzb32CTuhM_cxcedDw")).toBe(true)
+    expect(await verifyInstallSignature(jwk, message.replace("direct", "wg"), "lFAR1qbkx_BmFC_YBYnFEoBF1NOjjVxLXgS-LmCCYRc23kiN_85-KmeADmU8mR3-Iexsnzb32CTuhM_cxcedDw")).toBe(false)
   })
 
   it("mints 26-symbol codes and percent-encoded links", () => {
