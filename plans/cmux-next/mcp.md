@@ -67,6 +67,12 @@ when `cmux` is not on the client's `PATH`. Global options go before `mcp`:
     on `events.stream` (the router does it when its actions change) or comes back after
     it quit or restarted; a thread reads the stream with blocking reads and retries an
     unreachable app with a doubling delay (0.5 s to 30 s).
+- One local tool, `render` (`cli/mcp/render_tool.rs`), comes from no catalog: it owns no
+  state and calls no owner. It checks `{html, title}` and answers that the page is shown;
+  the agent pane draws the call from its input as a sandboxed card with no network
+  (`RenderCard.tsx`). Since it can reach nothing, `serve --render-only` offers it alone
+  without `mcp.enabled`, and acpmux gives that server (`cmux-render`) to every agent session
+  it starts (`acpmux/src/render_mcp.rs`). The rest of the tools stay behind `mcp.enabled`.
 - Calls go through `cli/mcp/transport.rs`, built from the CLI's own pieces (`resolve`
   route, encode and response reads, `app` discovery, read barrier, busy retry and
   `action_run_params`, `federation::qualified`): the same route

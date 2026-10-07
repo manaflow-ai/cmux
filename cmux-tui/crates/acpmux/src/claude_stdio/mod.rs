@@ -91,7 +91,9 @@ pub struct SpawnPlan {
 /// `mode` is pinned with `--permission-mode` so the user's Claude settings
 /// (often `auto`) cannot silently bypass acpmux's permission policy; the
 /// mode chip then always tells the truth. `model` is the session's chosen
-/// model, passed as `--model` so forks and respawns keep it.
+/// model, passed as `--model` so forks and respawns keep it. `render` is the
+/// render server's `--mcp-config` (`render_mcp::claude_config`).
+#[allow(clippy::too_many_arguments)]
 pub fn spawn_plan(
     profile: &HarnessProfile,
     resume: Option<&str>,
@@ -100,6 +102,7 @@ pub fn spawn_plan(
     effort: Option<&str>,
     mode: &str,
     model: Option<&str>,
+    render: Option<&str>,
 ) -> SpawnPlan {
     let program = profile.argv.first().cloned().unwrap_or_else(|| "claude".into());
     // Everything after the program in argv comes first: a wrapper such as
@@ -139,6 +142,17 @@ pub fn spawn_plan(
     if !profile.argv.iter().any(|a| a == "--permission-mode") && !mode.is_empty() {
         args.push("--permission-mode".into());
         args.push(mode.into());
+    }
+    // The render server (render_mcp.rs), unless the profile wants no MCP servers, with its one
+    // tool allowed: it reaches nothing, so a permission card per page would only be noise. Last,
+    // since each flag takes every word after it until the next flag.
+    if !profile.argv.iter().any(|a| a == "--strict-mcp-config")
+        && let Some(config) = render
+    {
+        args.push("--allowedTools".into());
+        args.push(crate::render_mcp::CLAUDE_TOOL.into());
+        args.push("--mcp-config".into());
+        args.push(config);
     }
     SpawnPlan { program, args }
 }

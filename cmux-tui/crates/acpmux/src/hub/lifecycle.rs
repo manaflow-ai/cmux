@@ -387,6 +387,7 @@ impl Hub {
                 Some(&effort),
                 &mode,
                 Some(&model),
+                crate::render_mcp::claude_config().as_deref(),
             );
             // A fresh process was given its id; a resumed one already has it.
             let known = if fork { None } else { fresh_id.clone().or_else(|| existing_sid.clone()) };
@@ -557,7 +558,7 @@ impl Hub {
                 let res = child
                     .request(
                         method::SESSION_LOAD,
-                        json!({"sessionId": sid, "cwd": meta.cwd, "mcpServers": []}),
+                        json!({"sessionId": sid, "cwd": meta.cwd, "mcpServers": crate::render_mcp::acp_servers()}),
                     )
                     .await;
                 session.loading.store(false, Ordering::SeqCst);
@@ -580,7 +581,7 @@ impl Hub {
         if !loaded {
             let had_history = session.meta().agent_session_id.is_some();
             let res = child
-                .request(method::SESSION_NEW, json!({"cwd": meta.cwd, "mcpServers": []}))
+                .request(method::SESSION_NEW, json!({"cwd": meta.cwd, "mcpServers": crate::render_mcp::acp_servers()}))
                 .await?;
             let sid = res
                 .get("sessionId")

@@ -678,3 +678,61 @@ fn keybinding_read_tools_call_the_app_and_refuse_bad_arguments() {
     );
     assert_eq!(call(&mut server, "context_keys", json!({"nope": "x"}))["isError"], true);
 }
+
+#[test]
+fn render_only_offers_render_alone_and_reaches_nothing() {
+    let mut server = Server::render_only(Fake::with_actions());
+    let init = server
+        .handle(&json!({"jsonrpc": "2.0", "id": "i", "method": "initialize", "params": {}}))
+        .unwrap();
+    assert!(init["result"]["instructions"].as_str().unwrap().starts_with("render "));
+    let listed =
+        server.handle(&json!({"jsonrpc": "2.0", "id": "l", "method": "tools/list"})).unwrap();
+    let names = listed["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|tool| tool["name"].as_str().unwrap().to_owned())
+        .collect::<Vec<_>>();
+    assert_eq!(names, ["render"]);
+    let result = call(&mut server, "render", json!({"html": "<p>hi</p>", "title": "Mock"}));
+    assert_eq!(result["isError"], false, "{result}");
+    assert_eq!(result["structuredContent"], json!({"shown": true, "bytes": 9}));
+    assert!(server.backend.sent.borrow().is_empty(), "render sends nothing to any owner");
+    let other = server
+        .handle(&json!({
+            "jsonrpc": "2.0", "id": "c", "method": "tools/call",
+            "params": {"name": "window_list", "arguments": {}},
+        }))
+        .unwrap();
+    assert_eq!(other["error"]["code"], -32602, "{other}");
+}
+
+#[test]
+fn render_checks_the_page_and_is_offered_by_the_full_server() {
+    let mut server = Server::new(Fake::with_actions(), None);
+    let listed =
+        server.handle(&json!({"jsonrpc": "2.0", "id": "l", "method": "tools/list"})).unwrap();
+    let tool = listed["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|tool| tool["name"] == "render")
+        .cloned()
+        .expect("render is listed");
+    assert_eq!(tool["inputSchema"]["required"], json!(["html"]));
+    assert_eq!(tool["annotations"]["readOnlyHint"], true);
+    assert_eq!(call(&mut server, "render", json!({"html": "<p>x</p>"}))["isError"], false);
+    let refused = |server: &mut Server<Fake>, arguments: Value| {
+        let result = call(server, "render", arguments);
+        assert_eq!(result["isError"], true, "{result}");
+        assert_eq!(result["structuredContent"]["state"], "not_run");
+    };
+    refused(&mut server, json!({}));
+    refused(&mut server, json!({"html": "  "}));
+    refused(&mut server, json!({"html": 3}));
+    refused(&mut server, json!({"html": "<p>x</p>", "title": 4}));
+    refused(&mut server, json!({"html": "<p>x</p>", "title": "t".repeat(121)}));
+    refused(&mut server, json!({"html": "<p>x</p>", "url": "https://example.com"}));
+    refused(&mut server, json!({"html": "x".repeat(render_tool::MAX_HTML_BYTES + 1)}));
+}

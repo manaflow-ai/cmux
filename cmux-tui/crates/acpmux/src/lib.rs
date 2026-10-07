@@ -29,6 +29,7 @@ pub mod login_env;
 pub mod native;
 pub mod peer;
 pub mod protected_folders;
+pub mod render_mcp;
 pub mod rpc;
 pub mod schema;
 pub mod server;

@@ -8,13 +8,15 @@
 //! public ids, idempotency keys, read barriers and deadlines. Off by default:
 //! `serve` refuses unless cmux.json sets `"mcp": {"enabled": true}`, it
 //! speaks only on stdin and stdout, and nothing listens on the network
-//! (plans/cmux-next/mcp.md).
+//! (plans/cmux-next/mcp.md). `serve --render-only` offers just `render`
+//! (`render_tool`), which owns nothing and needs no setting.
 
 mod action_tools;
 mod browser_tools;
 mod config;
 mod keybinding_tools;
 mod messages;
+mod render_tool;
 mod schema;
 #[cfg(test)]
 mod tests;
@@ -46,6 +48,8 @@ const INSTRUCTIONS: &str = "These tools drive the cmux terminal app and its sess
     A change takes idempotency_key: when a call fails with state in_progress, retry it with the \
     key from the error so it cannot apply twice. Tools never move the user's focus unless the \
     call passes focus: true or the tool's purpose is focus.";
+const RENDER_INSTRUCTIONS: &str = "render shows the user a live HTML page (a mock, chart, diagram \
+    or table) in the cmux thread, above your reply. Use it when a picture says more than text.";
 
 /// A catalog entry that is not a tool, and why.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -147,6 +151,7 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
             0
         }
         [command] if command == "serve" => serve(global),
+        [command, flag] if command == "serve" && flag == "--render-only" => serve_render(global),
         [command] if command == "tools" => list_tools(global),
         _ => {
             eprintln!("cmux: {usage}");
@@ -179,6 +184,15 @@ fn serve(global: GlobalArgs) -> i32 {
     watch::spawn(global.clone(), output.clone());
     let mut server = Server::new(LiveBackend { global }, Some(path));
     server.list_changed = true;
+    server.run(io::stdin().lock(), &output)
+}
+
+/// `cmux mcp serve --render-only`: only `render`, which reaches nothing, so it
+/// runs whatever cmux.json says and touches no socket.
+fn serve_render(global: GlobalArgs) -> i32 {
+    let _ = crate::restore_default_termination_signals();
+    let output = watch::Output::new(io::stdout());
+    let mut server = Server::render_only(LiveBackend { global });
     server.run(io::stdin().lock(), &output)
 }
 
@@ -243,6 +257,8 @@ pub(super) struct Server<B> {
     list_changed: bool,
     /// The client sent `notifications/initialized`.
     initialized: bool,
+    /// Offers only `render` (`serve --render-only`).
+    render_only: bool,
 }
 
 impl<B: Backend> Server<B> {
@@ -255,7 +271,13 @@ impl<B: Backend> Server<B> {
             actions_loaded: false,
             list_changed: false,
             initialized: false,
+            render_only: false,
         }
+    }
+
+    /// A server that offers only `render` and reads no settings.
+    pub(super) fn render_only(backend: B) -> Self {
+        Self { render_only: true, ..Self::new(backend, None) }
     }
 
     /// Answers each line of `input` on `output` until stdin closes.
@@ -314,7 +336,7 @@ impl<B: Backend> Server<B> {
         let id = id?;
         let params = object.get("params").cloned().unwrap_or_else(|| json!({}));
         let result = match method {
-            "initialize" => Ok(initialize(&params, self.list_changed)),
+            "initialize" => Ok(initialize(&params, self.list_changed, self.render_only)),
             "ping" => Ok(json!({})),
             "tools/list" => Ok(json!({ "tools": self.list() })),
             "tools/call" => self.call(&params),
@@ -329,12 +351,16 @@ impl<B: Backend> Server<B> {
     /// Every tool: the daemon operations, the browser host's REPL ops,
     /// `window_list`, and the app's CLI actions when the app answers.
     pub(super) fn list(&mut self) -> Vec<Value> {
+        if self.render_only {
+            return vec![render_tool::descriptor_json()];
+        }
         self.refresh_actions();
         let mut tools =
             v2_tools::tools().iter().map(v2_tools::V2Tool::descriptor_json).collect::<Vec<_>>();
         tools
             .extend(browser_tools::tools().iter().map(browser_tools::BrowserTool::descriptor_json));
         tools.push(action_tools::window_list_tool());
+        tools.push(render_tool::descriptor_json());
         tools.extend(
             keybinding_tools::TOOLS.iter().map(keybinding_tools::KeybindingTool::descriptor_json),
         );
@@ -364,6 +390,12 @@ impl<B: Backend> Server<B> {
             Some(Value::Object(arguments)) => arguments.clone(),
             Some(_) => return Err((-32602, "tools/call arguments must be an object".into())),
         };
+        if self.render_only {
+            return match name {
+                render_tool::NAME => Ok(render_tool::call(&arguments)),
+                _ => Err((-32602, format!("unknown tool: {name}"))),
+            };
+        }
         if let Some(path) = &self.config
             && let Some(message) = refusal(path)
         {
@@ -386,6 +418,9 @@ impl<B: Backend> Server<B> {
                 },
                 Err(error) => tool_error(envelope(error, "not_run", None)),
             });
+        }
+        if name == render_tool::NAME {
+            return Ok(render_tool::call(&arguments));
         }
         if name == action_tools::WINDOW_LIST {
             return Ok(self.call_window_list(&arguments));
@@ -455,7 +490,7 @@ impl<B: Backend> Server<B> {
     }
 }
 
-fn initialize(params: &Value, list_changed: bool) -> Value {
+fn initialize(params: &Value, list_changed: bool, render_only: bool) -> Value {
     let requested = params["protocolVersion"].as_str();
     let version = PROTOCOL_VERSIONS
         .iter()
@@ -465,7 +500,7 @@ fn initialize(params: &Value, list_changed: bool) -> Value {
         "protocolVersion": version,
         "capabilities": {"tools": {"listChanged": list_changed}},
         "serverInfo": {"name": "cmux", "title": "cmux", "version": env!("CARGO_PKG_VERSION")},
-        "instructions": INSTRUCTIONS,
+        "instructions": if render_only { RENDER_INSTRUCTIONS } else { INSTRUCTIONS },
     })
 }
 

@@ -453,6 +453,7 @@ impl Hub {
                 Some(&effort),
                 &mode,
                 Some(&model),
+                crate::render_mcp::claude_config().as_deref(),
             );
             (
                 Some((plan.program, plan.args)),
@@ -543,7 +544,7 @@ impl Hub {
             } else {
                 Some(
                     child
-                        .request(method::SESSION_NEW, json!({"cwd": draft.cwd, "mcpServers": []}))
+                        .request(method::SESSION_NEW, json!({"cwd": draft.cwd, "mcpServers": crate::render_mcp::acp_servers()}))
                         .await?,
                 )
             };

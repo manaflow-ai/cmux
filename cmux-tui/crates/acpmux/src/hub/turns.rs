@@ -755,7 +755,7 @@ impl Hub {
             let res = child
                 .request(
                     method::SESSION_FORK,
-                    json!({"sessionId": sid, "cwd": cwd, "mcpServers": []}),
+                    json!({"sessionId": sid, "cwd": cwd, "mcpServers": crate::render_mcp::acp_servers()}),
                 )
                 .await?;
             let new_sid = res
