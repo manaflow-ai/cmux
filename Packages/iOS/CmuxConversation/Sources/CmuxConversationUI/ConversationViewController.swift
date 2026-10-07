@@ -388,6 +388,7 @@ public final class ConversationViewController: UIViewController {
     // MARK: Rows
 
     private func storeDidChange(_ change: ConversationStoreChange) {
+        detailsOverlay?.storeDidChange(change)
         switch change {
         case .connection:
             header.setConnectionStatus(store.connection == .connected ? nil : String(localized: "conversation.header.connecting", defaultValue: "Connecting…", bundle: .module))
@@ -395,6 +396,8 @@ public final class ConversationViewController: UIViewController {
             return
         case .readState:
             updateCatchUp()
+            return
+        case .draft:
             return
         default:
             rebuild(change: change)
@@ -809,9 +812,9 @@ public final class ConversationViewController: UIViewController {
     }
 
     func openInfo() {
-        guard let info = store.info, detailsOverlay == nil else { return }
+        guard store.info != nil, detailsOverlay == nil else { return }
         view.endEditing(true)
-        let overlay = ConversationDetailsOverlay(info: info, meID: store.meID)
+        guard let overlay = ConversationDetailsOverlay(store: store) else { return }
         overlay.frame = view.bounds
         overlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         view.insertSubview(overlay, belowSubview: header)

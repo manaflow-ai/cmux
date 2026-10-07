@@ -94,6 +94,7 @@ public final class ConversationSimBackend: ConversationBackend, @unchecked Senda
         if let muted = change.muted { params["muted"] = muted }
         if let markedUnread = change.markedUnread { params["markedUnread"] = markedUnread }
         if let deleted = change.deleted { params["deleted"] = deleted }
+        if let sendReadReceipts = change.sendReadReceipts { params["sendReadReceipts"] = sendReadReceipts }
         let result = try await core.request("updateConversation", params: JSONBox(params), timeout: .seconds(15)).value
         guard let info = WireDecoding.conversation(result["conversation"] as? [String: Any] ?? [:]) else {
             throw ConversationBackendError(code: -4, message: "bad conversation")
@@ -413,7 +414,8 @@ enum WireDecoding {
             pinOrder: pinned ? raw["pinOrder"] as? Int : nil,
             muted: raw["muted"] as? Bool ?? false,
             markedUnread: raw["markedUnread"] as? Bool ?? false,
-            deleted: raw["deleted"] as? Bool ?? false
+            deleted: raw["deleted"] as? Bool ?? false,
+            sendReadReceipts: raw["sendReadReceipts"] as? Bool ?? true
         )
     }
 

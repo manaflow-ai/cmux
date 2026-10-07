@@ -13,13 +13,17 @@ public struct ConversationListState: Sendable, Hashable {
     public var markedUnread: Bool
     /// Moved to Recently Deleted. A new incoming message brings it back.
     public var deleted: Bool
+    /// The details panel's Send Read Receipts for this conversation. While
+    /// off, reading still clears unread here but others are not told.
+    public var sendReadReceipts: Bool
 
-    public init(pinned: Bool = false, pinOrder: Int? = nil, muted: Bool = false, markedUnread: Bool = false, deleted: Bool = false) {
+    public init(pinned: Bool = false, pinOrder: Int? = nil, muted: Bool = false, markedUnread: Bool = false, deleted: Bool = false, sendReadReceipts: Bool = true) {
         self.pinned = pinned
         self.pinOrder = pinOrder
         self.muted = muted
         self.markedUnread = markedUnread
         self.deleted = deleted
+        self.sendReadReceipts = sendReadReceipts
     }
 
     /// The state after `change`, with the same invariants the server keeps:
@@ -33,6 +37,7 @@ public struct ConversationListState: Sendable, Hashable {
         if let pinOrder = change.pinOrder, next.pinned { next.pinOrder = pinOrder }
         if let muted = change.muted { next.muted = muted }
         if let markedUnread = change.markedUnread { next.markedUnread = markedUnread }
+        if let sendReadReceipts = change.sendReadReceipts { next.sendReadReceipts = sendReadReceipts }
         if let deleted = change.deleted {
             next.deleted = deleted
             if deleted {
@@ -52,17 +57,19 @@ public struct ConversationListStateChange: Sendable, Hashable {
     public var muted: Bool?
     public var markedUnread: Bool?
     public var deleted: Bool?
+    public var sendReadReceipts: Bool?
 
-    public init(pinned: Bool? = nil, pinOrder: Int? = nil, muted: Bool? = nil, markedUnread: Bool? = nil, deleted: Bool? = nil) {
+    public init(pinned: Bool? = nil, pinOrder: Int? = nil, muted: Bool? = nil, markedUnread: Bool? = nil, deleted: Bool? = nil, sendReadReceipts: Bool? = nil) {
         self.pinned = pinned
         self.pinOrder = pinOrder
         self.muted = muted
         self.markedUnread = markedUnread
         self.deleted = deleted
+        self.sendReadReceipts = sendReadReceipts
     }
 
     public var isEmpty: Bool {
-        pinned == nil && pinOrder == nil && muted == nil && markedUnread == nil && deleted == nil
+        pinned == nil && pinOrder == nil && muted == nil && markedUnread == nil && deleted == nil && sendReadReceipts == nil
     }
 }
 

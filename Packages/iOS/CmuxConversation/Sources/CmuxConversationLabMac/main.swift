@@ -1,7 +1,8 @@
 // Dev runner for the macOS conversation surface:
 //   swift run CmuxConversationLabMac ws://127.0.0.1:4870/ws?conversation=group [light|dark] [control-fifo]
 // With a control FIFO, each line is a lab command (type/send/top/bottom/scroll/
-// rows/menu/tapback/reply/edit/react/escape/resize WxH/window); replies go to stdout.
+// rows/menu/tapback/reply/edit/react/escape/resize WxH/window; details, detailsbutton,
+// detailsinfo, detailspress <control>, settext <text>, composertext); replies go to stdout.
 import AppKit
 import CmuxConversationMacUI
 
@@ -102,6 +103,18 @@ if arguments.count > 3 {
                             let sidebarOnly = line.hasPrefix("sidebarpng ")
                             let path = String(line.split(separator: " ", maxSplits: 1)[1])
                             reply = MacConversationLab.renderPNG(to: path, sidebarOnly: sidebarOnly) ? "ok \(path)" : "error render"
+                        } else if line == "details" || line == "detailsbutton" {
+                            reply = "shown=\(MacConversationLab.toggleDetails(viaButton: line == "detailsbutton"))"
+                        } else if line == "detailsinfo" {
+                            let data = (try? JSONSerialization.data(withJSONObject: MacConversationLab.detailsSnapshot(), options: [.sortedKeys])) ?? Data()
+                            reply = String(decoding: data, as: UTF8.self)
+                        } else if line.hasPrefix("detailspress ") {
+                            reply = MacConversationLab.pressDetails(String(line.dropFirst(13))) ? "ok" : "error no control"
+                        } else if line.hasPrefix("settext") {
+                            MacConversationLab.setComposerText(String(line.dropFirst(7)).trimmingCharacters(in: .whitespaces))
+                            reply = "ok"
+                        } else if line == "composertext" {
+                            reply = "text \(MacConversationLab.composerText.debugDescription)"
                         } else if line == "sheet" {
                             reply = MacConversationLab.sheetSummary() ?? "none"
                         } else if line.hasPrefix("sheetpress ") {

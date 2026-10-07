@@ -130,6 +130,17 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
     /// Messages' "Go Up" button (see the catch-up extension below).
     private let catchUpButton = NSButton()
 
+    /// Shows and hides the details panel (the window's inspector).
+    weak var detailsHost: (any MacConversationDetailsHost)?
+
+    /// Toolbar (i), Conversation > Show Details (⌥⌘I): toggles the details panel.
+    @objc public func toggleConversationDetails(_ sender: Any?) {
+        guard let detailsHost else { return NSSound.beep() }
+        detailsHost.toggleConversationDetails()
+    }
+
+    var isConversationDetailsShown: Bool { detailsHost?.isConversationDetailsShown ?? false }
+
     public init(store: ConversationStore, serviceTitle: String = "iMessage") {
         self.store = store
         self.serviceTitle = serviceTitle
@@ -174,6 +185,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         view.addSubview(scrollView)
 
         composer.delegate = self
+        restoreDraft()
         installKeyboardSupport()
         installMentions()
         composer.linkPreview.fetch = { [weak store] url in await store?.fetchLinkPreview(for: url) }
@@ -426,6 +438,10 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         // Focus, which adds or removes the "has notifications silenced" row.
         if case .listState = change, store.info?.silencedRecipient?.id == shownSilencedID { return }
         shownSilencedID = store.info?.silencedRecipient?.id
+        if case .draft = change {
+            restoreDraft()
+            return
+        }
         defer { updateCatchUp() }
 
         var newRows = MacConversationRowBuilder.rows(store: store)
@@ -995,6 +1011,15 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
 
     func composerDidChangeText(_ composer: MacComposerView) {
         store.composerTextChanged(isEmpty: composer.text.isEmpty)
+        // A message being edited is not a draft.
+        if editingMessageID == nil { store.setDraft(composer.text) }
+    }
+
+    /// Puts a saved draft back in an empty composer (after relaunch, or once
+    /// an edit ends).
+    func restoreDraft() {
+        guard editingMessageID == nil, composer.text.isEmpty, !store.draft.isEmpty else { return }
+        composer.text = store.draft
     }
 
     func composerDidChangeHeight(_ composer: MacComposerView) {
@@ -1007,8 +1032,8 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         tapbackPopover?.close()
         if let messageID = editingMessageID {
             store.edit(messageID: messageID, text: composer.text, textRuns: composer.textRuns)
+            // Ending the edit clears the composer and brings the draft back.
             exitReplyOrEdit()
-            composer.clearAfterSend()
             return
         }
         if scheduleIfSendLater(composer) {
@@ -1214,10 +1239,12 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         dismissReplyFocus(sent: sent)
         if editingMessageID != nil { composer.clearAfterSend() }
         replyTarget = nil
+        let wasEditing = editingMessageID != nil
         editingMessageID = nil
         composer.isReplyMode = false
         composer.isEditMode = false
         replyBanner.isHidden = true
+        if wasEditing { restoreDraft() }
         updateInsets()
     }
 

@@ -96,6 +96,10 @@ extension MacConversationViewController: MacConversationCommandValidating, NSMen
     public func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         guard let action = menuItem.action else { return false }
         if action == #selector(toggleShowTimes(_:)) { menuItem.state = showsTimes ? .on : .off }
+        if action == #selector(toggleConversationDetails(_:)) {
+            menuItem.title = isConversationDetailsShown ? MacDetailsStrings.hideDetails : MacDetailsStrings.showDetails
+            return detailsHost != nil
+        }
         updateMenuState(menuItem)
         return canPerform(action)
     }

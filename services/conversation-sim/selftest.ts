@@ -85,6 +85,9 @@ class Client {
   }
 }
 
+async function getState() {
+  return fetch(base + "/admin/state").then((x) => x.json());
+}
 async function post(path: string, body?: unknown) {
   const r = await fetch(base + path, { method: "POST", body: body === undefined ? undefined : JSON.stringify(body) });
   if (!r.ok) throw new Error(`${path} -> ${r.status} ${await r.text()}`);
@@ -469,6 +472,20 @@ async function main() {
   const rehello = await (await Client.connect("group")).call("hello", { clientId: "list-c" });
   check(rehello.conversation.deleted === false && rehello.conversation.muted === true, "hello after reconnect carries the current list state");
   await ga.call("updateConversation", { muted: false });
+  check(gh.conversation.sendReadReceipts === true, "hello carries Send Read Receipts on by default");
+  const receiptsOff = await ga.call("updateConversation", { sendReadReceipts: false });
+  check(receiptsOff.conversation.sendReadReceipts === false && receiptsOff.conversation.muted === false, "Send Read Receipts turns off without touching Hide Alerts");
+  const beforeOff = (await getState()).conversations.group.receiptSeq;
+  await post("/admin/burst?conversation=group&count=1&intervalMs=0");
+  const quietHead = (await getState()).conversations.group.headSeq;
+  await ga.call("markRead", { upToSeq: quietHead });
+  const quiet = (await getState()).conversations.group;
+  check(quiet.lastReadSeq === quietHead && quiet.receiptSeq === beforeOff, "markRead with receipts off reads without telling others");
+  await ga.call("updateConversation", { sendReadReceipts: true });
+  await post("/admin/burst?conversation=group&count=1&intervalMs=0");
+  const loudHead = (await getState()).conversations.group.headSeq;
+  await ga.call("markRead", { upToSeq: loudHead });
+  check((await getState()).conversations.group.receiptSeq === loudHead, "markRead with receipts on sends the receipt");
   ga.close();
   gb.close();
   da.close();
