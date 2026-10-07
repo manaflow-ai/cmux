@@ -39,7 +39,7 @@ final class WorkspaceRowView: SidebarRowView {
     private var grouped = false
     private var groupColor: GroupColor?
     private var iconKind: WorkspaceIcon?
-    /// Selected but not active (the active row sits on the shared pill).
+    /// Selected but not active (the active row paints the selection fill).
     var isSecondarySelected = false { didSet { if isSecondarySelected != oldValue { needsDisplay = true } } }
     /// A tab dragged from a pane would move into this workspace.
     var isDropTarget = false { didSet { if isDropTarget != oldValue { needsDisplay = true } } }
@@ -207,8 +207,8 @@ final class WorkspaceRowView: SidebarRowView {
             subtitle.textColor = Palette.textSecondary
             tabCount.textColor = Palette.textTertiary
             agentMark.contentTintColor = activityState == .waiting ? Palette.attention : Palette.textSecondary
-            // Fills only, no borders: drop target, multi-selection, hover.
-            paintFill(isDropTarget ? Palette.selectionFill
+            // Fills only, no borders: drop target, selection, multi-selection, hover.
+            paintFill(isDropTarget || isSelected ? Palette.selectionFill
                 : isSecondarySelected ? Palette.secondarySelectionFill
                 : isHovered && !isShowingPlaceholder ? Palette.hoverFill : nil)
             // The sidebar's own tonal step, once more: a bar a step apart.
