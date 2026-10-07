@@ -35,6 +35,8 @@ export interface PickerSession {
   /** The system categories with their members (indices into `symbols`). */
   readonly symbolCategories?: readonly SymbolCategory[];
   readonly maxEmojiVersion?: number;
+  /** Changes when the host's symbol drawing changes (accent color, light or dark); every session. */
+  readonly symbolStyle?: string;
 }
 
 /** The session's symbol catalog, or null when the session carries none (a later session). */

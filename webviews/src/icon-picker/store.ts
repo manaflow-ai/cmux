@@ -15,6 +15,7 @@ import {
   type SymbolCatalog,
   type SymbolCategory,
   type SymbolItem,
+  type SymbolMode,
 } from "./symbols";
 
 export type PickerTab = IconKind;
@@ -46,6 +47,8 @@ export interface PickerSnapshot {
   readonly query: string;
   readonly tone: SkinTone;
   readonly layout: GridLayout<PickerCell>;
+  /** How the Symbols tab draws symbols. */
+  readonly symbolMode: SymbolMode;
   /** The jump bar's targets (none while searching). */
   readonly jumps: readonly JumpTarget[];
   /** Index into layout.items; -1 when nothing is active. */
@@ -247,12 +250,16 @@ export class PickerStore {
     return this.jump(target.id);
   }
 
-  private update(change: Partial<Omit<PickerSnapshot, "layout" | "jumps">>) {
+  setSymbolMode(_mode: SymbolMode) {}
+
+  private update(change: Partial<Omit<PickerSnapshot, "layout" | "jumps" | "symbolMode">>) {
     this.snapshot = this.compute({ ...this.snapshot, ...change });
     for (const listener of this.listeners) listener();
   }
 
-  private compute(state: Omit<PickerSnapshot, "layout" | "jumps"> & { layout?: unknown }): PickerSnapshot {
+  private compute(
+    state: Omit<PickerSnapshot, "layout" | "jumps" | "symbolMode"> & { layout?: unknown },
+  ): PickerSnapshot {
     // Moving the active cell reuses the grid; only tab, query, tone, width or recents rebuild it.
     const key = [state.tab, state.query, state.tone, this.columns, this.prefsVersion].join("\u0000");
     if (this.cache?.key !== key) {
@@ -263,7 +270,16 @@ export class PickerStore {
     }
     const { layout, jumps } = this.cache;
     const active = layout.items.length === 0 ? -1 : Math.min(Math.max(0, state.active), layout.items.length - 1);
-    return { tab: state.tab, query: state.query, tone: state.tone, active, reveal: state.reveal, layout, jumps };
+    return {
+      tab: state.tab,
+      query: state.query,
+      tone: state.tone,
+      active,
+      reveal: state.reveal,
+      layout,
+      jumps,
+      symbolMode: "monochrome",
+    };
   }
 
   /** One target per titled section; search results (an untitled section) have none. */

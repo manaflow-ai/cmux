@@ -49,3 +49,12 @@ export function symbolItems(names: readonly string[], keywords: readonly string[
 export function asCatalog(symbols: SymbolCatalog | readonly string[]): SymbolCatalog {
   return "names" in symbols ? symbols : { names: symbols };
 }
+
+/** How the Symbols tab draws symbols (remembered with the prefs). */
+export type SymbolMode = "monochrome" | "hierarchical" | "multicolor";
+export const SYMBOL_MODES: readonly SymbolMode[] = ["monochrome", "hierarchical", "multicolor"];
+
+/** The mode a symbol is drawn in under `mode`: multicolor needs a symbol that has colors. */
+export function symbolRendering(_mode: SymbolMode, _multicolor: boolean): SymbolMode {
+  return "monochrome";
+}

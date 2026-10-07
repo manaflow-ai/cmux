@@ -2,6 +2,7 @@
 // one small `PickerPrefs` record through `PickerPrefsStore`; the host decides where it lives
 // (the app's personal state, so every window shares it). Pure functions, unit tested.
 import type { SkinTone } from "./emojiData";
+import type { SymbolMode } from "./symbols";
 
 export interface RecentEntry {
   /** iconKey() of the icon, base (untoned) form for emoji. */
@@ -14,6 +15,8 @@ export interface RecentEntry {
 export interface PickerPrefs {
   readonly tone: SkinTone;
   readonly recents: readonly RecentEntry[];
+  /** The Symbols tab's rendering mode; absent is monochrome. */
+  readonly symbolMode?: SymbolMode;
 }
 
 export interface PickerPrefsStore {
