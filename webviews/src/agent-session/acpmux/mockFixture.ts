@@ -334,7 +334,7 @@ export const mockSessions: MockSession[] = [
   },
   {
     sessionId: "mock-light-theme",
-    title: "Add light theme screenshots",
+    title: "Make sample images for the docs",
     harness: "claude",
     model: "claude-sonnet-5-5",
     status: "idle",
@@ -342,11 +342,11 @@ export const mockSessions: MockSession[] = [
     ago: 2900,
     host: LOCAL_HOST,
     hostKind: "local",
-    reply: "Captured 12 light-theme screens next to their dark versions.",
+    reply: "Made three sample images for the docs: a chart, a gradient and a diagram.",
     images: [
-      { alt: "Settings, light", svg: screenMock("light", "Settings") },
-      { alt: "Settings, dark", svg: screenMock("dark", "Settings") },
-      { alt: "Billing, light", svg: screenMock("light", "Billing") },
+      { alt: "Weekly builds", svg: sampleChart() },
+      { alt: "Dusk gradient", svg: sampleGradient() },
+      { alt: "Request flow", svg: sampleDiagram() },
     ],
   },
   {
@@ -612,34 +612,50 @@ function replyWithImages(session: MockSession): string {
   return [session.reply ?? "Done.", ...images].join("\n\n");
 }
 
-/// A small app screen in `theme`: a sidebar, a title and a few settings rows.
-export function screenMock(theme: "light" | "dark", title: string): string {
-  const [bg, side, line, text, muted, accent] =
-    theme === "light"
-      ? ["#ffffff", "#f3f3f5", "#e4e4e8", "#1d1d1f", "#86868b", "#0a84ff"]
-      : ["#1c1c1e", "#2c2c2e", "#3a3a3c", "#f5f5f7", "#98989d", "#0a84ff"];
-  const rows = [0, 1, 2, 3]
+/// Neutral sample images (no app UI): a bar chart, a photo-like gradient and a box diagram.
+export function sampleChart(): string {
+  const bars = [42, 58, 51, 73, 66, 88, 79]
     .map(
-      (index) =>
-        `<rect x="196" y="${108 + index * 56}" width="404" height="44" rx="8" fill="${side}"/>` +
-        `<rect x="212" y="${125 + index * 56}" width="${120 + index * 24}" height="10" rx="5" fill="${muted}"/>` +
-        `<rect x="548" y="${120 + index * 56}" width="36" height="20" rx="10" fill="${index % 2 ? line : accent}"/>`,
-    )
-    .join("");
-  const nav = [0, 1, 2, 3, 4]
-    .map(
-      (index) =>
-        `<rect x="20" y="${60 + index * 30}" width="${100 - index * 8}" height="10" rx="5" fill="${index === 1 ? accent : muted}"/>`,
+      (value, index) =>
+        `<rect x="${60 + index * 76}" y="${340 - value * 3}" width="48" height="${value * 3}" rx="4" fill="#3b82f6"/>`,
     )
     .join("");
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="400" viewBox="0 0 640 400">` +
-    `<rect width="640" height="400" rx="12" fill="${bg}"/>` +
-    `<path d="M12 0h156v400H12a12 12 0 0 1-12-12V12A12 12 0 0 1 12 0z" fill="${side}"/>` +
-    `<circle cx="22" cy="22" r="6" fill="#ff5f57"/><circle cx="42" cy="22" r="6" fill="#febc2e"/><circle cx="62" cy="22" r="6" fill="#28c840"/>` +
-    nav +
-    `<text x="196" y="72" font-family="-apple-system, system-ui, sans-serif" font-size="22" font-weight="600" fill="${text}">${title}</text>` +
-    rows +
+    `<rect width="640" height="400" fill="#f8fafc"/>` +
+    `<path d="M48 340h560M48 240h560M48 140h560" stroke="#cbd5e1" stroke-width="1"/>` +
+    bars +
+    `</svg>`
+  );
+}
+
+export function sampleGradient(): string {
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="400" viewBox="0 0 640 400">` +
+    `<defs><linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">` +
+    `<stop offset="0" stop-color="#1e3a8a"/><stop offset="0.55" stop-color="#c2410c"/><stop offset="1" stop-color="#fbbf24"/>` +
+    `</linearGradient></defs>` +
+    `<rect width="640" height="400" fill="url(#sky)"/>` +
+    `<circle cx="420" cy="300" r="46" fill="#fde68a" opacity="0.9"/>` +
+    `<path d="M0 330 Q160 280 320 320 T640 300 V400 H0Z" fill="#1f2937"/>` +
+    `</svg>`
+  );
+}
+
+export function sampleDiagram(): string {
+  const box = (x: number, label: string) =>
+    `<rect x="${x}" y="160" width="140" height="72" rx="10" fill="#ffffff" stroke="#64748b" stroke-width="2"/>` +
+    `<text x="${x + 70}" y="202" text-anchor="middle" font-family="system-ui, sans-serif" font-size="18" fill="#0f172a">${label}</text>`;
+  const arrow = (x: number) =>
+    `<path d="M${x} 196h44" stroke="#64748b" stroke-width="2"/><path d="M${x + 44} 196l-10-6v12z" fill="#64748b"/>`;
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="400" viewBox="0 0 640 400">` +
+    `<rect width="640" height="400" fill="#f1f5f9"/>` +
+    box(28, "Client") +
+    arrow(176) +
+    box(250, "Queue") +
+    arrow(398) +
+    box(472, "Worker") +
     `</svg>`
   );
 }

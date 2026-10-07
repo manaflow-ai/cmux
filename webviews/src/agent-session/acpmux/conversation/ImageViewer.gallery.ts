@@ -4,10 +4,9 @@
 // states wait for play steps; these show what a reader clicks.
 import { agentPaneEntry } from "../../../gallery/format";
 import { assistant, chat, summary, user } from "../../../gallery/fixtures/acpmux";
-import { screenMock } from "../mockFixture";
+import { sampleChart, sampleDiagram, sampleGradient } from "../mockFixture";
 
-const image = (alt: string, theme: "light" | "dark", title: string) =>
-  `![${alt}](data:image/svg+xml;base64,${btoa(screenMock(theme, title))})`;
+const image = (alt: string, svg: string) => `![${alt}](data:image/svg+xml;base64,${btoa(svg)})`;
 
 export default agentPaneEntry({
   id: "agent-pane.image-viewer",
@@ -16,36 +15,36 @@ export default agentPaneEntry({
   covers: ["agent-session/acpmux/conversation/ImageViewer.tsx"],
   variants: {
     "reply-images": {
-      note: "A reply with three screenshots; each opens the viewer.",
+      note: "A reply with three images; each opens the viewer.",
       snapshot: chat(
         [
-          user("Add light theme screenshots", 8),
+          user("Make sample images for the docs", 8),
           assistant(
             [
-              "Captured the settings and billing screens in both themes.",
-              image("Settings, light", "light", "Settings"),
-              image("Settings, dark", "dark", "Settings"),
-              image("Billing, light", "light", "Billing"),
+              "Made three sample images: a chart, a gradient and a diagram.",
+              image("Weekly builds", sampleChart()),
+              image("Dusk gradient", sampleGradient()),
+              image("Request flow", sampleDiagram()),
             ].join("\n\n"),
             7,
           ),
           summary(7, { status: "completed" }),
         ],
-        { title: "Add light theme screenshots" },
+        { title: "Make sample images for the docs" },
       ),
     },
     "across-turns": {
       note: "Images in two replies: the viewer's arrows go through both.",
       snapshot: chat(
         [
-          user("Show the settings screen before the change", 12),
-          assistant(`Before:\n\n${image("Settings, before", "dark", "Settings")}`, 11),
+          user("Chart this week's builds", 12),
+          assistant(`Builds per day:\n\n${image("Weekly builds", sampleChart())}`, 11),
           summary(11, { status: "completed" }),
-          user("And after", 6),
-          assistant(`After, with the new rows:\n\n${image("Settings, after", "light", "Settings")}`, 5),
+          user("Now draw the request flow", 6),
+          assistant(`The request path:\n\n${image("Request flow", sampleDiagram())}`, 5),
           summary(5, { status: "completed" }),
         ],
-        { title: "Settings before and after" },
+        { title: "Build charts" },
       ),
     },
   },
