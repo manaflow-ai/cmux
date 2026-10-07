@@ -20,16 +20,33 @@ import Testing
         return model
     }
 
-    /// The chat header's Terminal split (`pane.action splitRight`) names the chat's folder: an
-    /// agent-home folder does not reach the split, a project folder does.
-    @Test func theHeaderTerminalSplitDoesNotStartInAgentHome() async {
+    /// The chat header's Terminal button (`pane.action splitRight`) names the chat's folder: for an
+    /// agent-home folder the split opens in the home folder (temporary, until the shared resolver
+    /// NEW-TERMINAL-INHERITS-CWD lands), never in agent-home and never with no folder (`/` after a
+    /// Dock launch); a project folder passes unchanged.
+    @Test func theHeaderTerminalOpensInTheHomeFolderNeverInAgentHome() async {
         let model = Self.model()
+        model.transport.homeFolder = "/Users/me"
         var ran: [String] = []
-        model.header = AgentPaneHeaderHooks(run: { id, cwd in ran.append("\(id)@\(cwd ?? "default")") }, tabState: { [:] })
+        model.header = AgentPaneHeaderHooks(run: { id, cwd in ran.append("\(id)@\(cwd ?? "none")") }, tabState: { [:] })
         _ = await model.respond(to: .paneAction("splitRight", cwd: Self.folder))
         _ = await model.respond(to: .paneAction("splitRight", cwd: Self.folder + "/notes"))
         _ = await model.respond(to: .paneAction("splitRight", cwd: "/Users/me/project"))
-        #expect(ran == ["splitRight@default", "splitRight@default", "splitRight@/Users/me/project"])
+        #expect(ran == ["splitRight@/Users/me", "splitRight@/Users/me", "splitRight@/Users/me/project"])
+    }
+
+    /// New Terminal Tab from the chat starts in the chat's `pane.context` cwd (#16620), which
+    /// passes through the same gate: the home folder for agent-home, never agent-home, never `/`.
+    @Test func newTerminalTabFromTheChatGetsTheHomeFolderNeverAgentHome() {
+        let model = Self.model()
+        model.transport.homeFolder = "/Users/me"
+        for cwd in [Self.folder, Self.folder + "/notes", Self.home.base] {
+            let start = model.folderForOtherTabs(cwd)
+            #expect(start == "/Users/me", "\(cwd) gave \(start ?? "no folder")")
+            #expect(start != "/")
+        }
+        #expect(model.folderForOtherTabs("/Users/me/project") == "/Users/me/project")
+        #expect(model.folderForOtherTabs(nil) == nil)
     }
 
     /// A terminal that is in agent-home anyway (the user went there) is no workspace folder: the
