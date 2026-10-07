@@ -1,0 +1,35 @@
+[package]
+name = "cmux-local-socket"
+# In lockstep with cmux-sdk (bindings/rust), which depends on it and is
+# published from the same release workflow.
+version = "1.0.0"
+edition.workspace = true
+rust-version = "1.88"
+license.workspace = true
+description = "The local socket transport of cmux: AF_UNIX streams on Unix and Windows, with the same-user checks the cmux daemon and cmux-sdk share"
+repository = "https://github.com/manaflow-ai/cmux"
+homepage = "https://github.com/manaflow-ai/cmux/tree/main/cmux-tui/crates/cmux-local-socket"
+publish = true
+
+[lints]
+workspace = true
+
+[target.'cfg(windows)'.dependencies]
+uds_windows = { workspace = true }
+windows-sys = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_Networking_WinSock",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Threading",
+] }
+
+[target.'cfg(windows)'.dev-dependencies]
+windows-sys = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_System_SystemServices",
+    "Win32_System_Threading",
+] }
