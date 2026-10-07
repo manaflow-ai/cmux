@@ -31,6 +31,15 @@ describe("coderouter Sentry privacy", () => {
     ).toBe(false);
   });
 
+  test("billing reports pass the filter", () => {
+    expect(
+      shouldSendCoderouterSentryEvent({
+        tags: { subsystem: "billing" },
+        exception: { values: [{ value: "Stripe webhook processing failed" }] },
+      }),
+    ).toBe(true);
+  });
+
   test("cloud VM operator-fault reports pass the filter", () => {
     expect(
       shouldSendCoderouterSentryEvent({

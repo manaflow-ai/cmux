@@ -1,4 +1,5 @@
 import * as Sentry from "@sentry/nextjs";
+import { after } from "next/server";
 
 import { env } from "../app/env";
 
@@ -17,6 +18,21 @@ export function captureBillingError(
     },
     extra: cleanContext(context),
   });
+  flushSentryAfterResponse();
+}
+
+/**
+ * The SDK queues events, and a serverless function freezes right after its
+ * response. Flush past the response, as services/observability/report.ts
+ * does, so the envelope leaves the process without adding latency.
+ */
+function flushSentryAfterResponse(): void {
+  const flush = () => Sentry.flush(2_000).then(() => undefined, () => undefined);
+  try {
+    after(flush);
+  } catch {
+    void flush();
+  }
 }
 
 export function captureAscError(
