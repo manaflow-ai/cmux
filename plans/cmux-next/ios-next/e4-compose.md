@@ -1,6 +1,6 @@
 # E4 `terminal-compose`: terminal composer, drafts per terminal, todo surface
 
-Status: in progress, 2026-10-07. Lane E4 of [PLAN.md](PLAN.md) wave E, branch
+Status: landed on branch (local), 2026-10-07. Lane E4 of [PLAN.md](PLAN.md) wave E, branch
 `feat-cmux-next-ios-e4-compose` off `feat-cmux-next-ios`. Closes the D3 parity rows
 ([d3-dogfood.md](d3-dogfood.md) 1.9 "Todo surface", 1.10 "Terminal composer with attachments, image
 paste", 1.10 "Drafts per terminal"). Binding: [a1-shell.md](a1-shell.md) 1.10 and 2.3 (drafts are client
@@ -104,7 +104,18 @@ empty removes, send clears, persistence round trip, corrupt file, sign-out), his
 walk with stash), composer model (upload chips, path insertion at caret, can-send). `CmuxiOSViewersCore`:
 locator priority and the todo model over the mock source.
 
-## 7. Not here
+## 7. Verification (2026-10-07)
+
+On macOS through a scratch package (the iOS package declares no macOS platform): 97 Swift Testing
+tests green across `CmuxiOSTerminalComposeCoreTests` (25 new), `CmuxiOSFilesCoreTests` (+2 upload),
+`CmuxiOSViewersCoreTests` (+3 todo) and `CmuxiOSSettingsCoreTests` (+1 composer setting), three full
+runs; C4's `cancellingAStoppedTransferMarksItAndDropsTheStagedCopy` timed out once under load and passed
+on every rerun (pre-existing race, not touched here). `CmuxiOSApp` and `CmuxiOSTerminalTests` (with
+`TerminalComposedInputTests`) compile for `arm64-apple-ios17.0-simulator` with SwiftPM. Not verified:
+the bar on a simulator or device (no tagged build per lane rules), keyboard docking with the key bar,
+dictation on device, paste of a real screenshot.
+
+## 8. Not here
 
 A daemon checklist op and editing todos; per-agent submit keys (Ctrl-Enter for some agents) until the
 tree reports the agent per terminal; `@` file and `$` skill completion (needs a files search op); the

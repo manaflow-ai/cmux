@@ -68,7 +68,7 @@ seam with no real owner yet), **seam only** (protocol or hook, no UI or no owner
 | 1.9 | In-app WKWebView browser, mode picker, Mac/SSH tunnel | C14 | missing (C14 pending) |
 | 1.9 | Simulator stream surface | C14 | missing (C14 pending) |
 | 1.9 | Markdown and file-preview surfaces | C13 | done |
-| 1.9 | Todo surface | C13 | missing |
+| 1.9 | Todo surface | C13, E4 | done (E4: workspace todo file, read only; no daemon checklist op) |
 | 1.9 | Changes hint banner, action toasts | C13, C16 | done |
 | 1.10 | Ghostty Metal surface, render recovery, background suspend | A2 | done |
 | 1.10 | Snapshot output path, exactly-once input, send status | C1 | done |
@@ -78,9 +78,9 @@ seam with no real owner yet), **seam only** (protocol or hook, no UI or no owner
 | 1.10 | Gestures: tap to focus, pinch zoom HUD, pixel scroll | A2, D1 | done |
 | 1.10 | Selection and copy, links | A2, D1 | done |
 | 1.10 | Keyboard docking and safe areas | D1 | done (unverified; audit found Home composer failures) |
-| 1.10 | Terminal composer with attachments, image paste | C8, C4 | missing (task composer only; its attach button is hidden: no `ComposerAttachmentUploading` wired) |
+| 1.10 | Terminal composer with attachments, image paste | C8, C4, E4 | done (E4 composer bar; task composer attach still unwired) |
 | 1.10 | Theme sync from the Mac, font, scrollback | C11, A2 | done (Match Mac uses the host theme) |
-| 1.10 | Drafts per terminal | D1 | missing |
+| 1.10 | Drafts per terminal | D1, E4 | done (E4) |
 | 1.10 | Files chip and transfer list | C4 | done (artifact gallery missing) |
 | 1.11 | Artifact viewer: highlight, go to line, search, Markdown, images, PDF, share | C13 | done |
 | 1.12 | Changes chip, file tree, diff pager, copy line/hunk | C13 | done (Refresh only, no git change stream) |
