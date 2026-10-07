@@ -47,7 +47,7 @@ change within a few seconds; open chats keep running on what they started with.
 | Field | Required | Meaning |
 | --- | --- | --- |
 | `schema` | yes | `1`. |
-| `id` | yes | Same as the folder name: 1-32 lowercase letters, digits and dashes, starting with a letter. It is the name in `acpmux new -u acme` and in config.json. |
+| `id` | yes | Same as the folder name: 1-32 lowercase letters, digits and dashes, starting with a letter. It is the name in `acpmux new -m acme` and in config.json. |
 | `name` | yes | What the picker and New Tab show (up to 40 characters). |
 | `description`, `homepage` | no | Shown in the harness's details. |
 | `icon` | no | An `.svg` file in the folder. Draw it in `currentColor` so it follows light and dark themes. No scripts, event handlers, `<image>`, `<use>`, `<foreignObject>` or outside URLs; `check` names what it refused. Without one, pickers show the name's initials. |
