@@ -41,7 +41,6 @@ import { harnessProfiles } from "./harnessProfiles";
 import { MockAcpmuxSocket, mockHost, type MockScript } from "./mock";
 import { BridgeSocket } from "./bridgeSocket";
 import { useComposerKeyboard } from "./composerFocus";
-import { installTooltips } from "../../ui/titleTooltips";
 import { createAcpmuxDebug, type AcpmuxDebug } from "./debug";
 import { acpWire } from "./wire";
 import { acpmuxPerf } from "./perf";
@@ -871,7 +870,6 @@ function DefaultComposerChips({ snapshot }: { snapshot: AcpmuxSnapshot }) {
 
 export function AcpmuxApp() {
   const [queryClient] = useState(createPaneQueryClient);
-  useEffect(() => installTooltips(document), []);
   return (
     <QueryClientProvider client={queryClient}>
       <AcpmuxPane />
