@@ -49,13 +49,17 @@ struct IconPickerCatalogTests {
         ])
     }
 
-    /// The Symbols tab is never empty: the bundled snapshot when the system catalog is missing.
-    @Test func aMissingSystemCatalogLeavesTheBundledSnapshot() async {
+    /// The catalog is only ever read from the running system (SF Symbols license: the app ships
+    /// no copy of Apple's names, categories or keywords). With no system files the Symbols tab
+    /// is empty, and the page shows its empty state.
+    @Test func aMissingSystemCatalogIsEmpty() async {
         let catalog = await IconPickerSymbolCatalog.load(resources: URL(fileURLWithPath: "/nonexistent", isDirectory: true))
-        #expect(catalog.names.count > 5_000)
-        #expect(catalog.names.contains("star.fill") && catalog.names == catalog.names.sorted())
-        #expect(catalog.keywords.count == catalog.names.count && catalog.keywords.allSatisfy(\.isEmpty))
-        #expect(catalog.categories.isEmpty)
+        #expect(catalog.names.isEmpty && catalog.keywords.isEmpty && catalog.categories.isEmpty)
+    }
+
+    /// The built app bundle carries no extracted symbol name list.
+    @Test func theAppShipsNoSymbolNameSnapshot() {
+        #expect(Bundle.module.url(forResource: "IconPickerSymbols", withExtension: "txt") == nil)
     }
 
     /// The running system's files (macOS 13 and later ship all five).
