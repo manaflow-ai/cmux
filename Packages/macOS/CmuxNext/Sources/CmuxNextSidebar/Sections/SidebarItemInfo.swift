@@ -65,6 +65,7 @@ extension SidebarBuiltIn {
         case .newBrowser: "globe"
         case .newAgentChat: "bubble.left.and.text.bubble.right"
         case .customize: "paintbrush"
+        case .searchChats: "magnifyingglass"
         }
     }
 
@@ -82,6 +83,7 @@ extension SidebarBuiltIn {
         case .newBrowser: .browserNew
         case .newAgentChat: .agentChatNew
         case .customize: .theme
+        case .searchChats: .search
         }
     }
 
@@ -104,6 +106,7 @@ extension SidebarBuiltIn {
         case .newBrowser: SectionStrings.newBrowser
         case .newAgentChat: SectionStrings.newAgentChat
         case .customize: SectionStrings.customize
+        case .searchChats: SectionStrings.searchChats
         }
     }
 

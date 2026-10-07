@@ -26,6 +26,7 @@ extension SidebarBridge {
         .newBrowser: "openBrowser",
         .newAgentChat: "palette.newAgentChat",
         .customize: "appearance.customize",
+        .searchChats: "agentPane.searchChats",
     ]
 
     /// Runs item `id` as a click does: a top-section item that stands for a
@@ -37,8 +38,7 @@ extension SidebarBridge {
         activate(item.ref, opensWorkspace: opensWorkspace)
     }
 
-    /// Runs a sidebar item (sidebar-sections.md 2): pinned tabs, pages and
-    /// spaces are in SidebarBridge+PinnedItems.
+    /// Runs a sidebar item (sidebar-sections.md 2); pinned tabs, pages, spaces: SidebarBridge+PinnedItems.
     func activate(_ ref: LayoutItemRef, opensWorkspace: Bool = false) {
         if let builtIn = ref.builtIn, let action = Self.builtInActions[builtIn] {
             var invocation = ActionInvocation(origin: .user)

@@ -2161,6 +2161,118 @@
     },
     {
       "accepts" : [
+        "tab",
+        "split"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.newPaneTab",
+            "text" : "Open a Tab"
+          },
+          "value" : "tab"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.newPaneSplit",
+            "text" : "Split Automatically"
+          },
+          "value" : "split"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "tab",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.columns",
+        "text" : "Columns"
+      },
+      "help" : {
+        "key" : "settings.layout.newPanePlacement.help",
+        "text" : "Open a Tab adds a tab to the focused pane. Split Automatically splits the largest pane, like New Pane (Auto Layout)."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "layout.newPanePlacement",
+      "keywords" : [
+        "tab",
+        "split",
+        "pane",
+        "auto layout",
+        "smart arrange",
+        "zellij",
+        "tile"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "layout",
+        "newPanePlacement"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.layout.newPanePlacement",
+        "text" : "New Terminals and Browsers"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.columns",
+        "text" : "Columns"
+      },
+      "help" : {
+        "key" : "settings.layout.tileBrowsers.help",
+        "text" : "With Split Automatically, new browsers also get their own pane instead of a tab."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "layout.tileBrowsers",
+      "keywords" : [
+        "browser",
+        "tile",
+        "split",
+        "pane",
+        "tab"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "layout",
+        "tileBrowsers"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.layout.tileBrowsers",
+        "text" : "Split for Browsers Too"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "@",
         "#",
         ">",
@@ -7956,7 +8068,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "off",
+      "default" : "bottom",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
@@ -15387,7 +15499,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "bb8062f68bbe94fb1e8e40d17c0693c05197ff73dfde160570495f1ceddfc363",
+  "schema_hash" : "9aab3f3de94cbad7c515b82df130c30389beb5a3ae6919101c9f576284a8ccd6",
   "sections" : [
     {
       "id" : "general",
