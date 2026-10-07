@@ -81,7 +81,6 @@ import { TurnActionsContext, type TurnActions } from "./conversation/turnActions
 import { DATE, PREVIEW, THINKING, WORKED, WORKING, isFoldedCopy, turnView } from "./conversation/turns";
 import { PreviewCard } from "./conversation/PreviewCard";
 import { DateLine } from "./conversation/DateLine";
-import { nextSearchState, SearchChats, searchAnimates, type SearchState } from "./SearchChats";
 import { SHORTCUT_ACTIONS, ShortcutsContext, readShortcuts, type ShortcutLabels } from "./shortcuts";
 import { FALLBACK_LINK_SCHEME, revealTurnWhenShown, setLinkScheme } from "./links";
 import { copyText } from "./conversation/clipboard";
@@ -130,7 +129,7 @@ declare global {
         registryJS?: string;
         layout?: Record<string, unknown>;
       }): void;
-      /// An app action for the page (CmuxNextAgentPane AgentPaneView): "searchChats" toggles Search chats.
+      /// An app action for the page (CmuxNextAgentPane AgentPaneView), such as "continueIn".
       command?(name: string): void;
       /// The app's shortcuts as the user bound them, keyed by action id (shortcuts.ts).
       applyShortcuts?(labels: Record<string, string>): void;
@@ -1141,12 +1140,9 @@ function AcpmuxPane() {
     openDiff,
     diff: { open: diffOpen, paths: (diffFiles ?? []).map((file) => file.path) },
   };
-  // Search chats opens from the app's agentPane.searchChats action (Cmd-K by default, editable in
-  // Settings and cmux.json), which calls the bridge's command("searchChats"). The host pushes the
-  // live bindings through applyShortcuts, so labels follow a rebind.
-  const [search, setSearch] = useState<SearchState>("closed");
-  const searchEvent = (event: "toggle" | "close" | "exited") =>
-    setSearch((state) => nextSearchState(state, event, searchAnimates()));
+  // Show all chats opens the command palette's chats page (agentPane.searchChats, decision K1:
+  // one palette). The host pushes the live bindings through applyShortcuts, so labels follow a rebind.
+  const showAllChats = () => void callNative("action.run", { id: "agentPane.searchChats" }).catch(() => undefined);
   const [shortcuts, setShortcuts] = useState<ShortcutLabels>({});
   const [preview, setPreview] = useState(false);
   /// The Quick Composer panel (`"surface": "quick"` in the host's ready reply) or a tab's pane.
@@ -1204,18 +1200,6 @@ function AcpmuxPane() {
     prompt.current.focus();
     return true;
   });
-  const freshChatRef = useRef(freshChat);
-  freshChatRef.current = freshChat;
-  // New chat always lands in a focused composer. An empty chat is already a new chat, so
-  // another click focuses it instead of starting a duplicate session.
-  const newChat = useCallback(() => {
-    const focusPrompt = () => requestAnimationFrame(() => prompt.current?.focus());
-    if (freshChatRef.current) {
-      focusPrompt();
-      return;
-    }
-    void callNative("chat.new").then(focusPrompt, () => undefined);
-  }, []);
   const dictation = useDictation(prompt, callNative);
   /// Why the host could not hand this pane acpmux (not installed, a daemon that will not start),
   /// in the host's words; cleared once a handshake succeeds.
@@ -1280,8 +1264,6 @@ function AcpmuxPane() {
     };
     window.cmuxAcpmuxBridge = {
       command(name) {
-        // The Quick Composer has no chat list to search or switch to.
-        if (name === "searchChats" && surfaceRef.current !== "quick") searchEvent("toggle");
         if (name === "createCheckpoint") showCheckpoint.current();
         if (
           [
@@ -2128,7 +2110,7 @@ function AcpmuxPane() {
                 cwd: newTab.cwd,
                 leave: () => setNewTab(undefined),
                 selectSession,
-                showAllChats: () => searchEvent("toggle"),
+                showAllChats,
                 runShell: (command, cwd) => {
                   if (cwd) setProjectDraft(cwd);
                   shellRuns.start(command, cwd ? { cwd } : {});
@@ -2153,7 +2135,7 @@ function AcpmuxPane() {
                 setNewTab(undefined);
                 selectSession(sessionId);
               }}
-              onShowAll={() => searchEvent("toggle")}
+              onShowAll={showAllChats}
               onBrowseProject={() => void callNative("action.run", { id: "palette.welcomeChecklist" })}
               onEditShortcut={(kind) => void callNative("shortcut.edit", { kind })}
             />
@@ -2249,22 +2231,6 @@ function AcpmuxPane() {
             </>
           )}
         </div>
-        {search !== "closed" && (
-          <SearchChats
-            sessions={snapshot.sessions}
-            closing={search === "closing"}
-            onExited={() => searchEvent("exited")}
-            onClose={() => searchEvent("close")}
-            onSelect={(sessionId) => {
-              searchEvent("close");
-              selectSession(sessionId);
-            }}
-            onNewChat={() => {
-              searchEvent("close");
-              newChat();
-            }}
-          />
-        )}
       </section>
     </ShortcutsContext.Provider>
   );
