@@ -94,7 +94,14 @@ fn spawn(s: &mut Setup, tasks: &[&str], cwd: Option<&str>) -> String {
 
 fn sub_cwds(s: &Setup) -> Vec<PathBuf> {
     // The fake agents saw no turn here, so every session is a subagent.
-    s.h.agents.inner.lock().unwrap().specs.iter().map(|spec| spec.cwd.clone()).collect()
+    s.h.agents
+        .inner
+        .lock()
+        .unwrap()
+        .specs
+        .iter()
+        .map(|spec| spec.cwd.clone())
+        .collect()
 }
 
 #[test]
@@ -142,7 +149,10 @@ fn subagents_start_in_the_directory_asked_for() {
     std::fs::create_dir_all(&repo).unwrap();
     let answer = spawn(&mut s, &["summarize"], Some(repo.to_str().unwrap()));
     assert_eq!(sub_cwds(&s), vec![repo.clone()]);
-    assert!(answer.contains(&format!("in {}", repo.display())), "{answer}");
+    assert!(
+        answer.contains(&format!("in {}", repo.display())),
+        "{answer}"
+    );
 }
 
 #[test]
@@ -152,7 +162,10 @@ fn a_missing_directory_is_reported_and_the_default_is_used() {
     let answer = spawn(&mut s, &["summarize"], Some(missing.to_str().unwrap()));
     assert_eq!(sub_cwds(&s), vec![s.h.dir.path().join("subagent")]);
     assert!(
-        answer.contains(&format!("{} does not exist on this host", missing.display())),
+        answer.contains(&format!(
+            "{} does not exist on this host",
+            missing.display()
+        )),
         "{answer}"
     );
 }

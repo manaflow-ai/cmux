@@ -70,6 +70,10 @@ impl Workspaces for FakeWorkspaces {
         Ok(format!("ws-{}", opened.len()))
     }
 
+    fn place(&self) -> String {
+        "the test app".to_owned()
+    }
+
     fn rename(&self, key: &str, name: &str) -> Result<(), String> {
         self.renamed
             .lock()
@@ -143,7 +147,7 @@ fn call(
 
 fn spawn(s: &mut Setup, tasks: &[&str]) -> Result<String, String> {
     let tasks: Vec<String> = tasks.iter().map(|t| t.to_string()).collect();
-    call(s, move |sp| sp.spawn(tasks))
+    call(s, move |sp| sp.spawn(tasks, None))
 }
 
 fn summary(id: &str, status: &str, tags: Value) -> SessionSummary {
