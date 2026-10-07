@@ -105,3 +105,32 @@ pub fn keychain_lookup(service: &str, account: Option<&str>) -> Result<String, S
     }
     Ok(value)
 }
+
+/// The password in `security find-generic-password -g` output (stderr):
+/// `password: "text"` for printable ASCII, `password: 0x<HEX>  "<escaped>"`
+/// for anything else (UTF-8 included), `password: ` for an empty one. The
+/// `0x` form is the only one decoded, so an ASCII secret that looks like hex
+/// stays as it is. (`-w` prints bare hex for non-ASCII and cannot be told
+/// apart from such a secret.)
+pub fn parse_security_password(_stderr: &str) -> Option<String> {
+    None
+}
+
+#[cfg(test)]
+mod security_output_tests {
+    use super::parse_security_password;
+
+    #[test]
+    fn reads_every_form_security_prints() {
+        let p = |s: &str| parse_security_password(s);
+        assert_eq!(p("password: \"plainvalue123\"\n").as_deref(), Some("plainvalue123"));
+        assert_eq!(p("password: \"dq\"inside\"x\"\n").as_deref(), Some("dq\"inside\"x"));
+        // Printed by security for `unicode-é-日本` (UTF-8, not printable ASCII).
+        let hex = "password: 0x756E69636F64652DC3A92DE697A5E69CAC  \"unicode-\\303\\251-\\346\\227\\245\\346\\234\\254\"\n";
+        assert_eq!(p(hex).as_deref(), Some("unicode-é-日本"));
+        // An ASCII secret made of hex digits is not decoded.
+        assert_eq!(p("password: \"deadbeef\"\n").as_deref(), Some("deadbeef"));
+        assert_eq!(p("password: \n").as_deref(), Some(""));
+        assert_eq!(p("keychain: \"/x\"\n"), None);
+    }
+}
