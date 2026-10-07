@@ -57,6 +57,7 @@ struct BrowserViewportRuntimeTests {
         slot.addSubview(inspector)
         host.pinHostedWebView(page, in: slot)
         host.setHostedInspectorFrontendWebView(inspector)
+        host.viewDidMoveToWindow()
         contentView.layoutSubtreeIfNeeded()
         #expect(host.promoteHostedInspectorSideDockFromCurrentLayoutIfNeeded())
         let container = try #require(page.superview)
