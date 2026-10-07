@@ -47,10 +47,12 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         self.panelId = panelId
         let workspaceChanged = self.workspaceId != workspaceId
         self.workspaceId = workspaceId
-        if self.rendererKind != rendererKind || workspaceChanged {
+        if self.rendererKind != rendererKind {
             loadedRendererKind = nil
             trustedShellURL = nil
             hasFinishedNavigation = false
+            resetVisiblePaintState()
+        } else if workspaceChanged {
             resetVisiblePaintState()
         }
         self.rendererKind = rendererKind
