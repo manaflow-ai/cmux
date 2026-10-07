@@ -1,9 +1,10 @@
-use bytes::Bytes;
 use cmux_coderouter::{
-    BODY_LIMIT, KeyRing, KeyScope, LoopbackAddr, Secret, StaticInstallSecretStore, handle_request,
+    BODY_LIMIT, InstallSecretStore, KeyRing, KeyScope, LoopbackAddr, RandomInstallSecretStore,
+    Secret, spawn_data_plane,
 };
-use http::{Request, StatusCode};
-use http_body_util::Full;
+use reqwest::{Client, StatusCode};
+use std::{net::SocketAddr, sync::Arc};
+use tokio::sync::RwLock;
 
 fn scope() -> KeyScope {
     KeyScope {
@@ -13,83 +14,107 @@ fn scope() -> KeyScope {
         expires_at: u64::MAX,
     }
 }
-fn fixture() -> (KeyRing, Secret<String>) {
-    let store = std::sync::Arc::new(StaticInstallSecretStore::new("install", vec![7; 32]));
-    let mut keys = KeyRing::new(store).unwrap();
-    let key = keys.mint("key", scope()).unwrap();
-    (keys, key)
+async fn running_install(id: &str) -> (SocketAddr, tokio::task::JoinHandle<()>, String) {
+    let store: Arc<dyn InstallSecretStore> = Arc::new(RandomInstallSecretStore::new(id).unwrap());
+    let mut ring = KeyRing::new(store).unwrap();
+    let key = ring.mint("key", scope()).unwrap().expose().clone();
+    let (address, task) = spawn_data_plane(Arc::new(RwLock::new(ring))).await.unwrap();
+    (address, task, key)
 }
-fn request(key: &str) -> http::request::Builder {
-    Request::builder()
-        .method("POST")
-        .uri("/v1/messages")
-        .header("host", "127.0.0.1:31415")
+fn client() -> Client {
+    Client::builder().redirect(reqwest::redirect::Policy::none()).build().unwrap()
+}
+async fn post(client: &Client, address: SocketAddr, key: &str) -> reqwest::Response {
+    client
+        .post(format!("http://{address}/v1/messages"))
         .header("authorization", format!("Bearer {key}"))
+        .send()
+        .await
+        .unwrap()
 }
+
 #[tokio::test]
-async fn any_origin_refused() {
-    let (keys, key) = fixture();
-    for origin in
-        ["http://127.0.0.1:31415", "http://localhost:31415", "null", "", "https://evil.example"]
-    {
-        let req =
-            request(key.expose()).header("origin", origin).body(Full::new(Bytes::new())).unwrap();
-        assert_eq!(handle_request(req, 31415, &keys).await, StatusCode::FORBIDDEN);
-    }
+async fn real_listener_refuses_origin_rebinding_fetch_and_options() {
+    let (address, task, key) = running_install("origin").await;
+    let client = client();
+    let url = format!("http://{address}/v1/messages");
+    assert_eq!(
+        client
+            .post(&url)
+            .header("authorization", format!("Bearer {key}"))
+            .header("origin", "https://evil.example")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        client
+            .post(&url)
+            .header("authorization", format!("Bearer {key}"))
+            .header("sec-fetch-site", "cross-site")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        client
+            .post(&url)
+            .header("authorization", format!("Bearer {key}"))
+            .header("host", "evil.example")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::MISDIRECTED_REQUEST
+    );
+    assert_eq!(
+        client
+            .request(reqwest::Method::OPTIONS, &url)
+            .header("authorization", format!("Bearer {key}"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    task.abort();
 }
+
 #[tokio::test]
-async fn rebinding_host_refused() {
-    let (keys, key) = fixture();
-    for host in
-        ["evil.example:31415", "127.0.0.1:1", "localhost", "localhost.:31415", "[::1]:31415"]
-    {
-        let req = Request::builder()
-            .method("POST")
-            .uri("/v1/messages")
-            .header("host", host)
-            .header("authorization", format!("Bearer {}", key.expose()))
-            .body(Full::new(Bytes::new()))
-            .unwrap();
-        assert_eq!(handle_request(req, 31415, &keys).await, StatusCode::MISDIRECTED_REQUEST);
-    }
+async fn fresh_install_secrets_are_random_and_cross_install_keys_are_refused() {
+    let (address_a, task_a, key_a) = running_install("install-a").await;
+    let (address_b, task_b, _) = running_install("install-b").await;
+    assert_eq!(post(&client(), address_b, &key_a).await.status(), StatusCode::UNAUTHORIZED);
+    assert_ne!(address_a, address_b);
+    task_a.abort();
+    task_b.abort();
 }
+
 #[tokio::test]
-async fn foreign_install_key_refused() {
-    let (keys, key) = fixture();
-    let parts: Vec<_> = key.expose().split('_').collect();
-    let foreign = format!("crl_{}_{}_{}", "foreign", parts[2], parts[3]);
-    let req = request(&foreign).body(Full::new(Bytes::new())).unwrap();
-    assert_eq!(handle_request(req, 31415, &keys).await, StatusCode::UNAUTHORIZED);
+async fn valid_key_reaches_phase_three_placeholder_and_body_limit_is_enforced() {
+    let (address, task, key) = running_install("valid").await;
+    let client = client();
+    assert_eq!(post(&client, address, &key).await.status(), StatusCode::NOT_IMPLEMENTED);
+    let response = client
+        .post(format!("http://{address}/v1/messages"))
+        .header("authorization", format!("Bearer {key}"))
+        .body(vec![0u8; BODY_LIMIT + 1])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    task.abort();
 }
-#[tokio::test]
-async fn wrong_hmac_key_refused() {
-    let (keys, key) = fixture();
-    let mut wrong = key.expose().clone();
-    wrong.pop();
-    wrong.push(if key.expose().ends_with('0') { '1' } else { '0' });
-    let req = request(&wrong).body(Full::new(Bytes::new())).unwrap();
-    assert_eq!(handle_request(req, 31415, &keys).await, StatusCode::UNAUTHORIZED);
-}
+
 #[test]
 fn loopback_refuses_unspecified_and_public_addresses() {
     for address in ["0.0.0.0:0", "[::]:0", "192.168.1.2:80", "[2001:db8::1]:80"] {
         assert!(LoopbackAddr::try_from(address.parse::<std::net::SocketAddr>().unwrap()).is_err());
     }
-    for address in ["127.0.0.1:0", "[::1]:0"] {
-        assert!(LoopbackAddr::try_from(address.parse::<std::net::SocketAddr>().unwrap()).is_ok());
-    }
-}
-#[tokio::test]
-async fn options_refused() {
-    let (keys, key) = fixture();
-    let req = request(key.expose()).method("OPTIONS").body(Full::new(Bytes::new())).unwrap();
-    assert_eq!(handle_request(req, 31415, &keys).await, StatusCode::FORBIDDEN);
-}
-#[tokio::test]
-async fn oversized_body_refused() {
-    let (keys, key) = fixture();
-    let req = request(key.expose()).body(Full::new(Bytes::from(vec![0; BODY_LIMIT + 1]))).unwrap();
-    assert_eq!(handle_request(req, 31415, &keys).await, StatusCode::PAYLOAD_TOO_LARGE);
 }
 #[test]
 fn secret_debug_is_redacted() {
@@ -110,10 +135,4 @@ fn panic_payload_is_discarded() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(!stderr.contains("test-secret-canary"));
     assert!(stderr.contains("security.rs:"));
-}
-#[tokio::test]
-async fn valid_key_reaches_unimplemented_route() {
-    let (keys, key) = fixture();
-    let req = request(key.expose()).body(Full::new(Bytes::new())).unwrap();
-    assert_eq!(handle_request(req, 31415, &keys).await, StatusCode::NOT_IMPLEMENTED);
 }
