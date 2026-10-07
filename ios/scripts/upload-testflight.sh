@@ -1776,13 +1776,10 @@ PY
   plutil -replace keychain-access-groups \
     -json "[\"$DEVELOPMENT_TEAM.$PRODUCT_BUNDLE_IDENTIFIER\"]" \
     "$MERGED_ENTITLEMENTS"
-  if [[ "$LANE" == "appstore" ]]; then
-    # The production profile also carries the newer hotspot-provider value,
-    # which Apple rejects for this app's current iOS package. Remove only that
-    # value; packet-tunnel-provider and Personal VPN allow-vpn remain available
-    # for the upcoming VPN feature.
-    python3 "$SCRIPT_DIR/filter-ios-appstore-entitlements.py" "$MERGED_ENTITLEMENTS"
-  fi
+  # Distribution profiles can authorize hotspot-provider even though Apple
+  # rejects it in iOS uploads, including TestFlight. Preserve packet-tunnel
+  # and Personal VPN permissions while filtering unsupported host values.
+  python3 "$SCRIPT_DIR/filter-ios-appstore-entitlements.py" "$MERGED_ENTITLEMENTS"
   plutil -lint "$MERGED_ENTITLEMENTS" >/dev/null
 
   # The archive is built unsigned, so $(AppIdentifierPrefix) in Info.plist
@@ -1899,12 +1896,12 @@ if [[ "$LANE" == "appstore" ]]; then
     exit 1
   fi
   echo "App Store IPA verified to omit external purchase/enrollment links: $IPA_PATH"
-  if ! verify_ipa_app_store_main_entitlements "$IPA_PATH"; then
-    echo "error: App Store IPA contains unsupported iOS main-app entitlements; refusing to upload" >&2
-    exit 1
-  fi
-  echo "App Store IPA verified to omit unsupported iOS main-app entitlements: $IPA_PATH"
 fi
+if ! verify_ipa_app_store_main_entitlements "$IPA_PATH"; then
+  echo "error: IPA contains unsupported iOS main-app entitlements; refusing to upload" >&2
+  exit 1
+fi
+echo "IPA verified to omit unsupported iOS main-app entitlements: $IPA_PATH"
 if [[ "$CLOUD_VPN_REQUIRED" -eq 1 ]]; then
   if ! verify_ipa_cloud_vpn_extension "$IPA_PATH"; then
     echo "error: IPA CloudVPN extension is not signed with its packet-tunnel profile and host keychain group; refusing to upload" >&2

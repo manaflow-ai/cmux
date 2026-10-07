@@ -31,7 +31,7 @@ export function retainCloudServerError(input: VmErrorResponseInput, context: VmR
   try {
     after(async () => {
       try {
-        await acceptCloudTelemetry(userId, { version: 1, client, spans: [span] }, code);
+        await acceptCloudTelemetry(userId, { version: 1, client, spans: [span] }, { serverErrorCode: code });
         await drainCloudDiagnostics();
       } catch {
         console.error("cmux.cloud.error_retention_failed", { code, trace_id: span.traceId });
