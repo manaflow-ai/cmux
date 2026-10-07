@@ -199,6 +199,34 @@ describe("edited-files card settings (agentPane.editedFiles)", () => {
     await unmount();
   });
 
+  test("collapsed that arrives after the card mounts (the host's editedFiles event) folds the rows", async () => {
+    // nxdog65-v2: the page mounts the card, then the host's event sets collapsed; the rows stayed open.
+    const { container, unmount } = await render(seven());
+    expect(container.querySelectorAll("button.acpmux-edited-file")).toHaveLength(5);
+    await act(async () => setEditedFilesSettings({ show: "collapsed" }));
+    expect(container.querySelectorAll("button.acpmux-edited-file")).toHaveLength(0);
+    expect(container.querySelector(".acpmux-edited-title")).not.toBeNull();
+    expect(container.querySelector(".acpmux-review-changes")).not.toBeNull();
+    await click(container.querySelector('button[aria-label="Show files"]')!);
+    expect(container.querySelectorAll("button.acpmux-edited-file")).toHaveLength(5);
+    await unmount();
+  });
+
+  test("a card the user opened stays open when it mounts again (the transcript is virtualized)", async () => {
+    setEditedFilesSettings({ show: "collapsed" });
+    const row = seven();
+    const first = await render(row);
+    await click(first.container.querySelector('button[aria-label="Show files"]')!);
+    expect(first.container.querySelectorAll("button.acpmux-edited-file")).toHaveLength(5);
+    await first.unmount();
+    const again = await render(row);
+    expect(again.container.querySelectorAll("button.acpmux-edited-file")).toHaveLength(5);
+    await again.unmount();
+    const other = await render(seven());
+    expect(other.container.querySelectorAll("button.acpmux-edited-file")).toHaveLength(0);
+    await other.unmount();
+  });
+
   test("never leaves the plain tool rows, with no card", async () => {
     setEditedFilesSettings({ show: "never" });
     const { container, unmount } = await render(seven());

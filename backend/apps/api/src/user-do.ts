@@ -132,8 +132,7 @@ export class UserDO extends OwnerDO<UserState> {
     }
   }
 
-  /** Retry time of a socket close that failed (socket-registry.ts); memory only. */
-  private closeRetryAt: number | null = null
+  private closeRetryAt: number | null = null // Retry time of a socket close that failed (socket-registry.ts); memory only.
 
   /** Closes a revoked install's sockets on every other owner (instant revocation). */
   private async flushCloses(now: number): Promise<void> {
@@ -444,6 +443,7 @@ export class UserDO extends OwnerDO<UserState> {
     this.submitSystem("push.target.drop", { token, reason }, `drop:${token}:${engine.currentSeq}`)
   }
 
+  async stackUserOf(entity: string): Promise<string | null> { const u = this.existing()?.currentState.user; return u && u.id === entity ? u.stack_user_id : null } // CloudDO: the owner's Stack user id (cloud-coderouter-edge.ts)
   /** For other owners (TeamDO): is this install active, and what does its grant allow? */
   async installGrant(entity: string, install: string, grant: string, agent?: string): Promise<{ ok: true; op_classes: ReadonlyArray<string>; kind: string; email: string | null; email_verified: boolean; bound_machine?: string } | { ok: false }> {
     const engine = this.existing()
