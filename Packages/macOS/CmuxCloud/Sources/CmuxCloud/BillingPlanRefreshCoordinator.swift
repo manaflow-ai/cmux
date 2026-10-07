@@ -52,6 +52,7 @@ public struct BillingPlanRefreshCoordinator: Sendable {
         guard let scope else { return }
         guard scope.accountID == accountID, scope.teamID == teamID else {
             reset()
+            return
         }
     }
 
