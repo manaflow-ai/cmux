@@ -16,15 +16,19 @@ public final class ShellSettingsModel {
     @ObservationIgnored private let signOutAction: @MainActor () async -> Void
     /// DEBUG builds pass the DEV screen; nil hides the Developer section.
     @ObservationIgnored public let developer: (@MainActor () -> DevSourcesModel)?
+    /// Rows added by the composition root (platform screens), in order.
+    @ObservationIgnored public let links: [ShellSettingsLink]
 
     public init(
         account: ShellAccount, about: ShellAbout, registry: any DeviceRegistry,
-        developer: (@MainActor () -> DevSourcesModel)?, signOut: @escaping @MainActor () async -> Void
+        developer: (@MainActor () -> DevSourcesModel)?, links: [ShellSettingsLink] = [],
+        signOut: @escaping @MainActor () async -> Void
     ) {
         self.account = account
         self.about = about
         self.registry = registry
         self.developer = developer
+        self.links = links
         signOutAction = signOut
     }
 

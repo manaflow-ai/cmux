@@ -1,1448 +1,1317 @@
 {
   "sourceLanguage": "en",
   "strings": {
-    "dev.compose.contactsFirst": {
+    "platform.diagnostics.clear": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Compose: Contacts First"
+            "value": "Clear Log"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Compose: Contacts First"
+            "value": "Clear Log"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Compose: Contacts First"
+            "value": "Clear Log"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Compose: Contacts First"
+            "value": "Clear Log"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Compose: Contacts First"
+            "value": "Clear Log"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Compose: Contacts First"
+            "value": "Clear Log"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Compose: Contacts First"
+            "value": "Clear Log"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Compose: Contacts First"
+            "value": "Clear Log"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "作成: 連絡先から"
+            "value": "ログを消去"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Compose: Contacts First"
+            "value": "Clear Log"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Compose: Contacts First"
+            "value": "Clear Log"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Compose: Contacts First"
+            "value": "Clear Log"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Compose: Contacts First"
+            "value": "Clear Log"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Compose: Contacts First"
+            "value": "Clear Log"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Compose: Contacts First"
+            "value": "Clear Log"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Compose: Contacts First"
+            "value": "Clear Log"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Compose: Contacts First"
+            "value": "Clear Log"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Compose: Contacts First"
+            "value": "Clear Log"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Compose: Contacts First"
+            "value": "Clear Log"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Compose: Contacts First"
+            "value": "Clear Log"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Compose: Contacts First"
+            "value": "Clear Log"
           }
         }
       }
     },
-    "dev.compose.inlineTo": {
+    "platform.diagnostics.clearConfirm": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Compose: To Field"
+            "value": "Clear the diagnostic log on this device?"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Compose: To Field"
+            "value": "Clear the diagnostic log on this device?"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Compose: To Field"
+            "value": "Clear the diagnostic log on this device?"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Compose: To Field"
+            "value": "Clear the diagnostic log on this device?"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Compose: To Field"
+            "value": "Clear the diagnostic log on this device?"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Compose: To Field"
+            "value": "Clear the diagnostic log on this device?"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Compose: To Field"
+            "value": "Clear the diagnostic log on this device?"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Compose: To Field"
+            "value": "Clear the diagnostic log on this device?"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "作成: 宛先フィールド"
+            "value": "このデバイスの診断ログを消去しますか？"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Compose: To Field"
+            "value": "Clear the diagnostic log on this device?"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Compose: To Field"
+            "value": "Clear the diagnostic log on this device?"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Compose: To Field"
+            "value": "Clear the diagnostic log on this device?"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Compose: To Field"
+            "value": "Clear the diagnostic log on this device?"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Compose: To Field"
+            "value": "Clear the diagnostic log on this device?"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Compose: To Field"
+            "value": "Clear the diagnostic log on this device?"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Compose: To Field"
+            "value": "Clear the diagnostic log on this device?"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Compose: To Field"
+            "value": "Clear the diagnostic log on this device?"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Compose: To Field"
+            "value": "Clear the diagnostic log on this device?"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Compose: To Field"
+            "value": "Clear the diagnostic log on this device?"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Compose: To Field"
+            "value": "Clear the diagnostic log on this device?"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Compose: To Field"
+            "value": "Clear the diagnostic log on this device?"
           }
         }
       }
     },
-    "dev.compose.inviteSheet": {
+    "platform.diagnostics.copied": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Compose: Invite Sheet"
+            "value": "Support Info Copied"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Compose: Invite Sheet"
+            "value": "Support Info Copied"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Compose: Invite Sheet"
+            "value": "Support Info Copied"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Compose: Invite Sheet"
+            "value": "Support Info Copied"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Compose: Invite Sheet"
+            "value": "Support Info Copied"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Compose: Invite Sheet"
+            "value": "Support Info Copied"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Compose: Invite Sheet"
+            "value": "Support Info Copied"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Compose: Invite Sheet"
+            "value": "Support Info Copied"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "作成: 招待シート"
+            "value": "サポート情報をコピーしました"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Compose: Invite Sheet"
+            "value": "Support Info Copied"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Compose: Invite Sheet"
+            "value": "Support Info Copied"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Compose: Invite Sheet"
+            "value": "Support Info Copied"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Compose: Invite Sheet"
+            "value": "Support Info Copied"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Compose: Invite Sheet"
+            "value": "Support Info Copied"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Compose: Invite Sheet"
+            "value": "Support Info Copied"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Compose: Invite Sheet"
+            "value": "Support Info Copied"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Compose: Invite Sheet"
+            "value": "Support Info Copied"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Compose: Invite Sheet"
+            "value": "Support Info Copied"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Compose: Invite Sheet"
+            "value": "Support Info Copied"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Compose: Invite Sheet"
+            "value": "Support Info Copied"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Compose: Invite Sheet"
+            "value": "Support Info Copied"
           }
         }
       }
     },
-    "dev.density.comfortable": {
+    "platform.diagnostics.copy": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "List: Comfortable"
+            "value": "Copy Support Info"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "List: Comfortable"
+            "value": "Copy Support Info"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "List: Comfortable"
+            "value": "Copy Support Info"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "List: Comfortable"
+            "value": "Copy Support Info"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "List: Comfortable"
+            "value": "Copy Support Info"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "List: Comfortable"
+            "value": "Copy Support Info"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "List: Comfortable"
+            "value": "Copy Support Info"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "List: Comfortable"
+            "value": "Copy Support Info"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "リスト: ゆったり"
+            "value": "サポート情報をコピー"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "List: Comfortable"
+            "value": "Copy Support Info"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "List: Comfortable"
+            "value": "Copy Support Info"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "List: Comfortable"
+            "value": "Copy Support Info"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "List: Comfortable"
+            "value": "Copy Support Info"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "List: Comfortable"
+            "value": "Copy Support Info"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "List: Comfortable"
+            "value": "Copy Support Info"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "List: Comfortable"
+            "value": "Copy Support Info"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "List: Comfortable"
+            "value": "Copy Support Info"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "List: Comfortable"
+            "value": "Copy Support Info"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "List: Comfortable"
+            "value": "Copy Support Info"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "List: Comfortable"
+            "value": "Copy Support Info"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "List: Comfortable"
+            "value": "Copy Support Info"
           }
         }
       }
     },
-    "dev.density.compact": {
+    "platform.diagnostics.crashReports": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "List: Compact"
+            "value": "Share Crash Reports"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "List: Compact"
+            "value": "Share Crash Reports"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "List: Compact"
+            "value": "Share Crash Reports"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "List: Compact"
+            "value": "Share Crash Reports"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "List: Compact"
+            "value": "Share Crash Reports"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "List: Compact"
+            "value": "Share Crash Reports"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "List: Compact"
+            "value": "Share Crash Reports"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "List: Compact"
+            "value": "Share Crash Reports"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "リスト: コンパクト"
+            "value": "クラッシュレポートを共有"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "List: Compact"
+            "value": "Share Crash Reports"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "List: Compact"
+            "value": "Share Crash Reports"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "List: Compact"
+            "value": "Share Crash Reports"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "List: Compact"
+            "value": "Share Crash Reports"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "List: Compact"
+            "value": "Share Crash Reports"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "List: Compact"
+            "value": "Share Crash Reports"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "List: Compact"
+            "value": "Share Crash Reports"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "List: Compact"
+            "value": "Share Crash Reports"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "List: Compact"
+            "value": "Share Crash Reports"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "List: Compact"
+            "value": "Share Crash Reports"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "List: Compact"
+            "value": "Share Crash Reports"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "List: Compact"
+            "value": "Share Crash Reports"
           }
         }
       }
     },
-    "dev.density.pinnedGrid": {
+    "platform.diagnostics.crashReportsFooter": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "List: Pinned Grid"
+            "value": "Sends crash and hang reports without your name, email or terminal contents."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "List: Pinned Grid"
+            "value": "Sends crash and hang reports without your name, email or terminal contents."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "List: Pinned Grid"
+            "value": "Sends crash and hang reports without your name, email or terminal contents."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "List: Pinned Grid"
+            "value": "Sends crash and hang reports without your name, email or terminal contents."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "List: Pinned Grid"
+            "value": "Sends crash and hang reports without your name, email or terminal contents."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "List: Pinned Grid"
+            "value": "Sends crash and hang reports without your name, email or terminal contents."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "List: Pinned Grid"
+            "value": "Sends crash and hang reports without your name, email or terminal contents."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "List: Pinned Grid"
+            "value": "Sends crash and hang reports without your name, email or terminal contents."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "リスト: ピン留めグリッド"
+            "value": "名前、メールアドレス、ターミナルの内容を含めずに、クラッシュとフリーズのレポートを送信します。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "List: Pinned Grid"
+            "value": "Sends crash and hang reports without your name, email or terminal contents."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "List: Pinned Grid"
+            "value": "Sends crash and hang reports without your name, email or terminal contents."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "List: Pinned Grid"
+            "value": "Sends crash and hang reports without your name, email or terminal contents."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "List: Pinned Grid"
+            "value": "Sends crash and hang reports without your name, email or terminal contents."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "List: Pinned Grid"
+            "value": "Sends crash and hang reports without your name, email or terminal contents."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "List: Pinned Grid"
+            "value": "Sends crash and hang reports without your name, email or terminal contents."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "List: Pinned Grid"
+            "value": "Sends crash and hang reports without your name, email or terminal contents."
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "List: Pinned Grid"
+            "value": "Sends crash and hang reports without your name, email or terminal contents."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "List: Pinned Grid"
+            "value": "Sends crash and hang reports without your name, email or terminal contents."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "List: Pinned Grid"
+            "value": "Sends crash and hang reports without your name, email or terminal contents."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "List: Pinned Grid"
+            "value": "Sends crash and hang reports without your name, email or terminal contents."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "List: Pinned Grid"
+            "value": "Sends crash and hang reports without your name, email or terminal contents."
           }
         }
       }
     },
-    "dev.menu.cancel": {
+    "platform.diagnostics.lines": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "إلغاء"
+            "value": "Lines"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Otkaži"
+            "value": "Lines"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Annuller"
+            "value": "Lines"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Abbrechen"
+            "value": "Lines"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cancel"
+            "value": "Lines"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cancelar"
+            "value": "Lines"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Annuler"
+            "value": "Lines"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Annulla"
+            "value": "Lines"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "キャンセル"
+            "value": "行数"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បោះបង់"
+            "value": "Lines"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "취소"
+            "value": "Lines"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Avbryt"
+            "value": "Lines"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Anuluj"
+            "value": "Lines"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cancelar"
+            "value": "Lines"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Отмена"
+            "value": "Lines"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ยกเลิก"
+            "value": "Lines"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Vazgeç"
+            "value": "Lines"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Скасувати"
+            "value": "Lines"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hủy"
+            "value": "Lines"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "取消"
+            "value": "Lines"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "取消"
+            "value": "Lines"
           }
         }
       }
     },
-    "dev.menu.message": {
+    "platform.diagnostics.logFooter": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "اختر نسخة من الشاشة الرئيسية."
+            "value": "Secrets, emails and file paths are removed before anything is saved."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Odaberite varijantu Početne."
+            "value": "Secrets, emails and file paths are removed before anything is saved."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Vælg en Hjem-variant."
+            "value": "Secrets, emails and file paths are removed before anything is saved."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Wähle eine Home-Variante."
+            "value": "Secrets, emails and file paths are removed before anything is saved."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pick a Home variant."
+            "value": "Secrets, emails and file paths are removed before anything is saved."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Elige una variante de Inicio."
+            "value": "Secrets, emails and file paths are removed before anything is saved."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Choisissez une variante d’Accueil."
+            "value": "Secrets, emails and file paths are removed before anything is saved."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Scegli una variante di Home."
+            "value": "Secrets, emails and file paths are removed before anything is saved."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ホームのバリエーションを選択します。"
+            "value": "保存する前に、シークレット、メールアドレス、ファイルパスを削除します。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ជ្រើសរើសកំណែទំព័រដើម។"
+            "value": "Secrets, emails and file paths are removed before anything is saved."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "홈 변형을 선택하세요."
+            "value": "Secrets, emails and file paths are removed before anything is saved."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Velg en Hjem-variant."
+            "value": "Secrets, emails and file paths are removed before anything is saved."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Wybierz wariant ekranu Główna."
+            "value": "Secrets, emails and file paths are removed before anything is saved."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Escolha uma variante da Início."
+            "value": "Secrets, emails and file paths are removed before anything is saved."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Выберите вариант экрана «Главная»."
+            "value": "Secrets, emails and file paths are removed before anything is saved."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เลือกรูปแบบหน้าหลัก"
+            "value": "Secrets, emails and file paths are removed before anything is saved."
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bir Ana Sayfa çeşidi seçin."
+            "value": "Secrets, emails and file paths are removed before anything is saved."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Виберіть варіант екрана «Головна»."
+            "value": "Secrets, emails and file paths are removed before anything is saved."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pick a Home variant."
+            "value": "Secrets, emails and file paths are removed before anything is saved."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "选择一个主页变体。"
+            "value": "Secrets, emails and file paths are removed before anything is saved."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "選擇一個主頁變體。"
+            "value": "Secrets, emails and file paths are removed before anything is saved."
           }
         }
       }
     },
-    "dev.menu.sources": {
+    "platform.diagnostics.logSection": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Feature Sources and Flags"
+            "value": "Log"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Feature Sources and Flags"
+            "value": "Log"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Feature Sources and Flags"
+            "value": "Log"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Feature Sources and Flags"
+            "value": "Log"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Feature Sources and Flags"
+            "value": "Log"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Feature Sources and Flags"
+            "value": "Log"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Feature Sources and Flags"
+            "value": "Log"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Feature Sources and Flags"
+            "value": "Log"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "機能ソースとフラグ"
+            "value": "ログ"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Feature Sources and Flags"
+            "value": "Log"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Feature Sources and Flags"
+            "value": "Log"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Feature Sources and Flags"
+            "value": "Log"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Feature Sources and Flags"
+            "value": "Log"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Feature Sources and Flags"
+            "value": "Log"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Feature Sources and Flags"
+            "value": "Log"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Feature Sources and Flags"
+            "value": "Log"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Feature Sources and Flags"
+            "value": "Log"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Feature Sources and Flags"
+            "value": "Log"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Feature Sources and Flags"
+            "value": "Log"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Feature Sources and Flags"
+            "value": "Log"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Feature Sources and Flags"
+            "value": "Log"
           }
         }
       }
     },
-    "dev.menu.title": {
+    "platform.diagnostics.share": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "نماذج أولية"
+            "value": "Share Diagnostics"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Prototipovi"
+            "value": "Share Diagnostics"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Prototyper"
+            "value": "Share Diagnostics"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Prototypen"
+            "value": "Share Diagnostics"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Prototypes"
+            "value": "Share Diagnostics"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Prototipos"
+            "value": "Share Diagnostics"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Prototypes"
+            "value": "Share Diagnostics"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Prototipi"
+            "value": "Share Diagnostics"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "プロトタイプ"
+            "value": "診断情報を共有"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "គំរូដើម"
+            "value": "Share Diagnostics"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "프로토타입"
+            "value": "Share Diagnostics"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Prototyper"
+            "value": "Share Diagnostics"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Prototypy"
+            "value": "Share Diagnostics"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Protótipos"
+            "value": "Share Diagnostics"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Прототипы"
+            "value": "Share Diagnostics"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ต้นแบบ"
+            "value": "Share Diagnostics"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Prototipler"
+            "value": "Share Diagnostics"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Прототипи"
+            "value": "Share Diagnostics"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nguyên mẫu"
+            "value": "Share Diagnostics"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "原型"
+            "value": "Share Diagnostics"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "原型"
+            "value": "Share Diagnostics"
           }
         }
       }
     },
-    "dev.textConfirm.reason": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Lower text protection"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Lower text protection"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Lower text protection"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Lower text protection"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Lower text protection"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Lower text protection"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Lower text protection"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Lower text protection"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "テキストの保護を下げる"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Lower text protection"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Lower text protection"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Lower text protection"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Lower text protection"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Lower text protection"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Lower text protection"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Lower text protection"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Lower text protection"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Lower text protection"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Lower text protection"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Lower text protection"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Lower text protection"
-          }
-        }
-      }
-    },
-    "platform.settings.diagnostics": {
+    "platform.diagnostics.title": {
       "extractionState": "manual",
       "localizations": {
         "ar": {

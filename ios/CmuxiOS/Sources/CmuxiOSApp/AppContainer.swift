@@ -1,9 +1,12 @@
 import CmuxFeedPushCore
 import CmuxHomeCore
 import CmuxHomeUI
+import CMUXMobileCore
 import CmuxiOSAuth
+import CmuxiOSCrashReporting
 import CmuxiOSFeatureKit
 import CmuxiOSIdentity
+import CmuxiOSPlatform
 import CmuxiOSPush
 import CmuxiOSShell
 import Foundation
@@ -17,6 +20,10 @@ import UserNotifications
 final class AppContainer {
     let auth: StackAuthGate
     let devOptions: DevOptions
+    /// The scrubbed diagnostic log (c16-platform.md section 3).
+    let diagnostics: DiagnosticLogSink
+    /// Sentry under the shared telemetry consent.
+    let crashReporter: CrashReporter
     /// Root tab and surface flags (plans/cmux-next/ios-next/a1-shell.md).
     let flags: FeatureFlagStore
     /// Mock or real per feature seam (DEV switch).
@@ -49,6 +56,17 @@ final class AppContainer {
             environment: environment,
             reachability: PathReachability()
         )
+        diagnostics = DiagnosticLogSink(directory: Self.diagnosticsDirectory())
+        crashReporter = CrashReporter(consent: UserDefaultsAnalyticsConsentProvider(defaults: .standard),
+                                      environment: environment)
+        crashReporter.activate()
+        let sink = diagnostics
+        Task {
+            await sink.setTap { line in
+                CrashReporter.breadcrumb(level: line.level.rawValue, category: line.category, message: line.message)
+            }
+        }
+        diagnostics.info("app", "launch")
         auth = StackAuthGate(composition: composition)
         devOptions = DevOptions(environment: environment)
         #if DEBUG
@@ -111,6 +129,12 @@ final class AppContainer {
         updateRequired = requirement
     }
 
+    /// `Application Support/cmux-next`; nil keeps the log in memory.
+    private static func diagnosticsDirectory() -> URL? {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("cmux-next", isDirectory: true)
+    }
+
     /// `CMUXCloudAPIBaseURL` from Info.plist (set per configuration in the
     /// xcconfigs). Missing or not https: no ops at all (fail closed), never a
     /// fallback origin that could receive a production credential.
@@ -158,6 +182,7 @@ final class AppContainer {
 
     /// Signing out drops the account's Home mirror.
     func signedIn(account: SignedInAccount) {
+        diagnostics.info("auth", "signed in")
         let coordinator = auth.coordinator
         let identity = self.identity
         let push = self.push
@@ -175,6 +200,7 @@ final class AppContainer {
     }
 
     func signedOut() {
+        diagnostics.info("auth", "signed out")
         let identity = self.identity
         let push = self.push
         let previous = accountChanges

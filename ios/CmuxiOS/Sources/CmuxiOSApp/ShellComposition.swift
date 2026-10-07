@@ -14,6 +14,7 @@ enum ShellComposition {
             about: ShellAbout.current(),
             registry: sources.devices,
             developer: developerScreen(container: container),
+            links: PlatformComposition.settingsLinks(container: container),
             signOut: { [weak container] in await container?.auth.signOut() }
         )
         let content = ShellContent(sources: sources, home: home, settings: settings)
