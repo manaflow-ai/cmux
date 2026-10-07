@@ -138,6 +138,10 @@ interface Scheduled {
   text: string;
   replyToId?: string;
   attachments: AttachmentRef[];
+  // Carried to the message it becomes.
+  mentions?: Mention[];
+  textRuns?: TextRun[];
+  effect?: Effect;
   state: "scheduled" | "failed";
   error?: string;
 }
@@ -1090,6 +1094,9 @@ function wireScheduled(s: Scheduled, base: string) {
     state: s.state,
   };
   if (s.replyToId) out.replyToId = s.replyToId;
+  if (s.mentions?.length) out.mentions = s.mentions;
+  if (s.textRuns?.length) out.textRuns = s.textRuns;
+  if (s.effect) out.effect = s.effect;
   if (s.error) out.error = s.error;
   return out;
 }
@@ -1396,6 +1403,10 @@ async function handleScheduleSend(conn: Conn, p: any): Promise<Scheduled> {
   if (!text && !attachmentIds.length) throw invalid("empty message");
   if (p?.replyToId && !store.byId.get(p.replyToId)) throw invalid("unknown replyToId");
   const scheduledAt = validScheduledAt(p?.scheduledAt);
+  const mentions = validMentions(p?.mentions, text, store.conv);
+  const textRuns = parseTextRuns(p?.textRuns, text);
+  const effect = p?.effect ?? undefined;
+  if (effect !== undefined && effect !== null && !EFFECTS.includes(effect)) throw invalid("effect");
 
   await sleep(lat(120, 900));
   const existing = store.scheduledByClientId.get(cmid);
@@ -1414,6 +1425,9 @@ async function handleScheduleSend(conn: Conn, p: any): Promise<Scheduled> {
       const e = media.get(id)!;
       return { id, kind: "image" as const, width: e.width, height: e.height };
     }),
+    ...(mentions.length ? { mentions } : {}),
+    ...(textRuns?.length ? { textRuns } : {}),
+    ...(effect ? { effect } : {}),
     state: "scheduled",
   };
   store.scheduled.set(s.id, s);
@@ -1427,7 +1441,14 @@ async function handleScheduleSend(conn: Conn, p: any): Promise<Scheduled> {
 function fireScheduled(store: Store, s: Scheduled): Message {
   store.scheduled.delete(s.id);
   store.scheduledByClientId.delete(s.clientMessageId);
-  const m = store.create(ME.id, s.text, { clientMessageId: s.clientMessageId, replyToId: s.replyToId, attachments: s.attachments });
+  const m = store.create(ME.id, s.text, {
+    clientMessageId: s.clientMessageId,
+    replyToId: s.replyToId,
+    attachments: s.attachments,
+    ...(s.mentions ? { mentions: s.mentions } : {}),
+    ...(s.textRuns ? { textRuns: s.textRuns } : {}),
+    ...(s.effect ? { effect: s.effect } : {}),
+  });
   store.emitScheduledRemoved({ id: s.id, clientMessageId: s.clientMessageId, reason: "sent", messageId: m.id });
   afterMySend(store, m);
   log(`scheduled sent conv=${store.conv.id} id=${s.id} -> ${m.id}`);

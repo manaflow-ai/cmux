@@ -56,10 +56,15 @@ extension ConversationStore {
         text: String,
         at date: Date,
         images: [(data: Data, width: Int, height: Int, mimeType: String)] = [],
-        replyToID: String? = nil
+        replyToID: String? = nil,
+        mentions: [ConversationMention] = [],
+        textRuns: [ConversationTextRun] = [],
+        effect: ConversationMessageEffect? = nil
     ) -> String? {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Trimmed like a send, with mentions and formatting shifted to match.
+        let (trimmed, runs) = ConversationRichText.trimmed(text, runs: textRuns)
         guard (!trimmed.isEmpty || !images.isEmpty), let meID else { return nil }
+        let leading = text.prefix { $0.isWhitespace || $0.isNewline }.utf16.count
         let clientID = makeClientMessageID()
         let attachments = images.enumerated().map { offset, image in
             ConversationAttachment(
@@ -81,6 +86,9 @@ extension ConversationStore {
             replyToID: replyToID,
             attachments: attachments,
             delivery: .sending,
+            mentions: ConversationMentionEditing.trimmed(mentions, removedPrefix: leading, textLength: trimmed.utf16.count),
+            textRuns: runs,
+            effect: effect,
             scheduledAt: date
         )
         upsert(pending)
@@ -222,7 +230,10 @@ extension ConversationStore {
                     clientMessageID: clientID,
                     text: current.text,
                     replyToID: current.replyToID,
-                    attachmentIDs: attachmentIDs
+                    attachmentIDs: attachmentIDs,
+                    mentions: current.mentions,
+                    textRuns: current.textRuns,
+                    effect: current.effect
                 )
                 // A time picked in the past (or reached while uploading) sends at once.
                 let acked = try await self.backend.scheduleSend(draft, at: max(date, Date()))

@@ -359,12 +359,14 @@ extension ConversationViewController {
             (data: attachment.data, width: Int(attachment.image.size.width * attachment.image.scale), height: Int(attachment.image.size.height * attachment.image.scale), mimeType: attachment.mimeType)
         }
         let text = composer.text
+        let mentions = composer.mentions
+        let textRuns = composer.textRuns
         let replyTo = replyTarget?.id
         // Send Later stays on (the chip remains) until it is closed.
         composer.clearAfterSend()
         photoDrawer?.clearSelection()
         pickedAssets = [:]
-        store.scheduleSend(text: text, at: date, images: images, replyToID: replyTo)
+        store.scheduleSend(text: text, at: date, images: images, replyToID: replyTo, mentions: mentions, textRuns: textRuns)
         if replyTarget != nil { exitReplyMode() }
         return true
     }

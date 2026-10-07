@@ -37,7 +37,7 @@ All live for the life of the process and keep growing.
 | `keepAudio` | `{messageId}` | `{message: Message}` |
 | `notifyAnyway` | `{messageId}` | `{message: Message}` (my `deliveredQuietly` message only, else `-32602`; sets `notifiedAnyway`) |
 | `audioPlayed` | `{messageId}` | `{}` |
-| `scheduleSend` | `{clientMessageId, text, replyToId?, attachmentIds?, scheduledAt}` | `{scheduled: Scheduled}` |
+| `scheduleSend` | `{clientMessageId, text, replyToId?, attachmentIds?, mentions?, textRuns?, effect?, scheduledAt}` | `{scheduled: Scheduled}` |
 | `scheduled` | `{}` | `{scheduled: [Scheduled]}` |
 | `reschedule` | `{id, scheduledAt}` | `{scheduled: Scheduled}` |
 | `cancelScheduled` | `{id}` | `{}` |
@@ -192,6 +192,7 @@ Scheduled {
   id ("sched_<conversation>_<n>"), clientMessageId, senderId, createdAt (epoch ms),
   scheduledAt (epoch ms), text, replyToId?,
   attachments: [{id, kind: "image", width, height, url}],
+  mentions?, textRuns?, effect?,   // as on send; the sent message carries them
   state: "scheduled"|"failed", error?
 }
 ```

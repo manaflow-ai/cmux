@@ -344,9 +344,11 @@ extension MacConversationViewController {
             (data: attachment.data, width: Int(attachment.image.size.width), height: Int(attachment.image.size.height), mimeType: attachment.mimeType)
         }
         let text = composer.text
+        let mentions = composer.mentions
+        let textRuns = composer.textRuns
         let replyTo = replyTarget?.id
         composer.clearAfterSend()
-        store.scheduleSend(text: text, at: date, images: images, replyToID: replyTo)
+        store.scheduleSend(text: text, at: date, images: images, replyToID: replyTo, mentions: mentions, textRuns: textRuns)
         return true
     }
 

@@ -587,6 +587,14 @@ async function main() {
   await post("/admin/knobs", { scheduledFailRate: 0 });
   const retried = (await sc.call("sendScheduledNow", { id: willFail.id })).message;
   check(retried.clientMessageId === failCmid && retried.seq > 0, "sendScheduledNow sends a failed scheduled message");
+  const fmtSched = (await sc.call("scheduleSend", {
+    clientMessageId: `sf-${crypto.randomUUID()}`, text: "hey Leo look", scheduledAt: Date.now() + 3600_000,
+    mentions: [{ participantId: "leo", location: 4, length: 3 }], textRuns: [{ start: 8, length: 4, styles: ["bold"] }], effect: "gentle",
+  })).scheduled;
+  check(fmtSched.mentions?.length === 1 && fmtSched.textRuns?.length === 1 && fmtSched.effect === "gentle", "scheduleSend keeps mentions, formatting and effect");
+  const firedFmt = await post(`/admin/scheduled/fire?conversation=group&id=${fmtSched.id}`);
+  const firedMsg = (await sc.call("history", { beforeSeq: null, limit: 20 })).messages.find((m: any) => m.id === firedFmt.messageId);
+  check(firedMsg?.mentions?.[0]?.participantId === "leo" && firedMsg?.textRuns?.[0]?.styles?.[0] === "bold" && firedMsg?.effect === "gentle", "a fired scheduled message carries them");
   const sr2 = (await sc.call("scheduleSend", { clientMessageId: `r-${crypto.randomUUID()}`, text: "x", scheduledAt: Date.now() + 3600_000 })).scheduled;
   const state = await fetch(base + "/admin/state").then((x) => x.json());
   check(state.conversations.group.scheduled >= 1, "/admin/state counts scheduled messages");

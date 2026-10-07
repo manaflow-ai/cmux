@@ -136,6 +136,9 @@ public final class ConversationSimBackend: ConversationBackend, @unchecked Senda
         ]
         if let replyTo = draft.replyToID { params["replyToId"] = replyTo }
         if !draft.attachmentIDs.isEmpty { params["attachmentIds"] = draft.attachmentIDs }
+        if !draft.mentions.isEmpty { params["mentions"] = draft.mentions.map(WireDecoding.wireMention) }
+        if !draft.textRuns.isEmpty { params["textRuns"] = WireDecoding.wireRuns(draft.textRuns) }
+        if let effect = draft.effect { params["effect"] = effect.rawValue }
         let result = try await core.request("scheduleSend", params: JSONBox(params), timeout: .seconds(15)).value
         return try await core.decodeScheduled(JSONBox(result["scheduled"] as? [String: Any] ?? [:]))
     }
@@ -559,6 +562,9 @@ enum WireDecoding {
             replyToID: raw["replyToId"] as? String,
             attachments: (raw["attachments"] as? [[String: Any]] ?? []).compactMap { attachment($0, base: base) },
             delivery: failed ? .failed(raw["error"] as? String ?? "not delivered") : .sent,
+            mentions: (raw["mentions"] as? [[String: Any]] ?? []).compactMap(mention),
+            textRuns: textRuns(raw["textRuns"], text: raw["text"] as? String ?? ""),
+            effect: (raw["effect"] as? String).flatMap(ConversationMessageEffect.init(rawValue:)),
             scheduledAt: scheduledAt
         )
     }
