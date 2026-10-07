@@ -27,7 +27,13 @@ type HarnessChoice = {
   unavailable?: string;
 };
 
-type ModelChoice = { id: string; name: string; unavailable?: string; version: number[]; order: number };
+type ModelChoice = {
+  id: string;
+  name: string;
+  unavailable?: string;
+  version: number[];
+  order: number;
+};
 
 function versionOf(model: { id: string; name?: string }): number[] {
   const text = model.name ?? model.id;
@@ -73,7 +79,13 @@ function uniqueHarnesses(catalog: ModelPickerProps["catalog"]): HarnessChoice[] 
     const name = agentName(entry.id, entry.name);
     const existing = byName.get(name);
     if (!existing) {
-      const next = { id: entry.id, ids: [entry.id], name, models: [...entry.models], unavailable: entry.unavailable };
+      const next = {
+        id: entry.id,
+        ids: [entry.id],
+        name,
+        models: [...entry.models],
+        unavailable: entry.unavailable,
+      };
       result.push(next);
       byName.set(name, next);
       continue;
@@ -100,7 +112,8 @@ function matches(model: ModelChoice, query: string): boolean {
 /// The real search field receives focus immediately, and the selected harness's fixed model order
 /// keeps keyboard muscle memory intact between openings.
 export function ModelPicker(props: ModelPickerProps) {
-  const { catalog, harness, label, onLand, onHarness, onHarnessHint, fastMode, catalogRefresh } = props;
+  const { catalog, harness, label, onLand, onHarness, onHarnessHint, fastMode, catalogRefresh } =
+    props;
   const t = useT();
   const modelText = t(PICKER_LABELS.model);
   const searchText = t("picker.search");
@@ -123,11 +136,17 @@ export function ModelPicker(props: ModelPickerProps) {
   const current = harnesses.find((entry) => entry.ids.includes(harness ?? "")) ?? harnesses[0];
   const selected = harnesses.find((entry) => entry.ids.includes(selectedHarness ?? "")) ?? current;
   const models = useMemo(() => choicesFor(selected), [selected]);
-  const visible = useMemo(() => (query ? models.filter((model) => matches(model, query)) : models), [models, query]);
+  const visible = useMemo(
+    () => (query ? models.filter((model) => matches(model, query)) : models),
+    [models, query],
+  );
   const refreshStatus = localRefreshStatus ?? catalogRefresh?.status ?? "idle";
   const refreshDate = catalogRefresh?.date;
   const formattedRefreshDate = refreshDate
-    ? new Intl.DateTimeFormat(currentLanguage(), { dateStyle: "medium", timeStyle: "short" }).format(new Date(refreshDate))
+    ? new Intl.DateTimeFormat(currentLanguage(), {
+        dateStyle: "medium",
+        timeStyle: "short",
+      }).format(new Date(refreshDate))
     : undefined;
   const refreshTitle = (() => {
     const label =
@@ -145,7 +164,8 @@ export function ModelPicker(props: ModelPickerProps) {
   useEffect(() => {
     // A host event is authoritative: let its fetching, updated, or error state replace
     // the local promise state from the previous click.
-    if (catalogRefresh?.status && catalogRefresh.status !== "idle") setLocalRefreshStatus(undefined);
+    if (catalogRefresh?.status && catalogRefresh.status !== "idle")
+      setLocalRefreshStatus(undefined);
   }, [catalogRefresh?.date, catalogRefresh?.status]);
   const menuStyle = useUiAnchor(trigger, menu, open, { side: "above", align: "start" });
   const close = useCallback(
@@ -251,7 +271,9 @@ export function ModelPicker(props: ModelPickerProps) {
       move(-1);
     } else if (event.key === "ArrowLeft" && !query) {
       event.preventDefault();
-      menu.current?.querySelector<HTMLElement>(`.acpmux-mp-harness:nth-child(${activeHarness + 1})`)?.focus();
+      menu.current
+        ?.querySelector<HTMLElement>(`.acpmux-mp-harness:nth-child(${activeHarness + 1})`)
+        ?.focus();
     } else if (event.key === "Enter") {
       event.preventDefault();
       const model = visible[active];
@@ -351,7 +373,9 @@ export function ModelPicker(props: ModelPickerProps) {
                       setActiveHarness(next);
                       setSelectedHarness(harnesses[next]?.id);
                       setQuery("");
-                      (event.currentTarget.parentElement?.children[next] as HTMLElement | undefined)?.focus();
+                      (
+                        event.currentTarget.parentElement?.children[next] as HTMLElement | undefined
+                      )?.focus();
                     } else if (event.key === "ArrowRight" || event.key === "Enter") {
                       event.preventDefault();
                       search.current?.focus();
@@ -397,7 +421,9 @@ export function ModelPicker(props: ModelPickerProps) {
                     onClick={() => selectModel(model)}
                   >
                     <span className="acpmux-menu-label">{model.name}</span>
-                    {model.unavailable && <span className="acpmux-menu-description">{unavailableText}</span>}
+                    {model.unavailable && (
+                      <span className="acpmux-menu-description">{unavailableText}</span>
+                    )}
                     {model.id === props.model && <CheckIcon />}
                   </button>
                 ))
@@ -412,12 +438,18 @@ export function ModelPicker(props: ModelPickerProps) {
                   className="acpmux-mp-fast"
                   aria-pressed={fastMode.currentValue === fastMode.onValue}
                   onClick={() =>
-                    fastMode.onPick(fastMode.currentValue === fastMode.onValue ? fastMode.offValue : fastMode.onValue)
+                    fastMode.onPick(
+                      fastMode.currentValue === fastMode.onValue
+                        ? fastMode.offValue
+                        : fastMode.onValue,
+                    )
                   }
                 >
                   <span>{fastMode.name}</span>
                   <span className="acpmux-menu-description">
-                    {fastMode.currentValue === fastMode.onValue ? fastMode.onLabel : fastMode.offLabel}
+                    {fastMode.currentValue === fastMode.onValue
+                      ? fastMode.onLabel
+                      : fastMode.offLabel}
                   </span>
                 </button>
               )}

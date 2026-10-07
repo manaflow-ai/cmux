@@ -15,7 +15,10 @@ const catalog: ModelPickerProps["catalog"] = [
   { id: "codex", name: "Codex", models: [{ id: "gpt-6-astra", name: "GPT-6-Astra" }] },
 ];
 
-const refresh = (status: "idle" | "fetching" | "updated" | "error", date?: string): ModelPickerProps["catalogRefresh"] => ({
+const refresh = (
+  status: "idle" | "fetching" | "updated" | "error",
+  date?: string,
+): ModelPickerProps["catalogRefresh"] => ({
   status,
   date,
   refresh: () => undefined,
