@@ -54,8 +54,10 @@ struct SidebarWorkspaceItems {
     static func workspaceInfo(_ workspace: WorkspaceModel) -> SidebarItemInfo {
         let row = SidebarMapping.shared.row(workspace, machine: .local, showsUnread: false)
         let color = SidebarMapping.shared.color(workspace.color)
-        if case .symbol(let name, let tint)? = row.icon {
-            return SidebarItemInfo(title: row.title, symbol: name, color: tint)
+        switch row.icon {
+        case .symbol(let name, let tint)?: return SidebarItemInfo(title: row.title, symbol: name, color: tint)
+        case .emoji(let text, let chip)?: return SidebarItemInfo(title: row.title, symbol: "face.smiling", color: chip, emoji: text)
+        default: break
         }
         let icon = row.kind.iconName
         let symbol = IconCatalog.bundled.entry(for: icon)?.sf ?? "square.stack"
