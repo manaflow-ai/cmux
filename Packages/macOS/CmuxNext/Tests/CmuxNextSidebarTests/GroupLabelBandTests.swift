@@ -50,4 +50,13 @@ import Testing
         }
         #expect(loose.groupBandFrame == .zero || loose.isGroupBandHidden)
     }
+
+    @Test func aNameThatFitsIsNeverCutShort() throws {
+        var sections = fixture()
+        sections[1].nodes[1] = .group(SidebarGroup(id: g1, name: "New Group", color: .blue, workspaces: [w("g1")]))
+        let h = MinimalChromeTests.Harness(sections: sections)
+        let header = try #require(h.sidebar.list.rowViews[.group(g1)] as? GroupHeaderRowView)
+        header.layoutSubtreeIfNeeded()
+        #expect(header.titleFrame.width >= header.titleIntrinsicWidth, "\(header.titleFrame.width) < \(header.titleIntrinsicWidth): the live capture showed “New Gro…”")
+    }
 }

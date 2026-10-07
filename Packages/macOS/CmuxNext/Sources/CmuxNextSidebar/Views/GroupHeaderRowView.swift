@@ -89,6 +89,8 @@ final class GroupHeaderRowView: SidebarRowView {
     override var titleFrame: NSRect { name.frame }
     /// The name's colored label (`GroupLabelBandTests`).
     var labelFrame: NSRect { pill.frame }
+    /// The width the name needs to draw whole (`GroupLabelBandTests`).
+    var titleIntrinsicWidth: CGFloat { ceil(name.intrinsicContentSize.width) }
     var labelFill: CGColor? { pill.isHidden ? nil : pill.backgroundColor }
     override var titleFont: NSFont { SidebarStyle.headerFont }
     private var renaming = false
