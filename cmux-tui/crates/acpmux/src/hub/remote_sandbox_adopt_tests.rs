@@ -51,9 +51,24 @@ fn an_adopted_remote_chain_host_without_a_sandbox_record_refuses_web_control() {
     assert_eq!(reason(&r).as_deref(), Some("remote.unsandboxed_agent"), "{r:?}");
     let message = r.err().map(|e| e.message).unwrap_or_default();
     assert!(message.contains("Restart this chat to control it remotely"), "{message}");
-    // A host the sandbox started (its canary passed just before) is not.
+    // A host an older profile started (another profile identity) is too.
+    let older = remote_claude(&hub, "older");
+    hub.append(&older, "mux", "remote_sandbox", json!({"canary": "passed", "profile": "old"}));
+    hub.append(&older, "mux", "host_started", json!({"incarnation": "inc-1"}));
+    adopt(&hub, &older);
+    let r = hub.web_control_check(&older, Control::Web);
+    assert_eq!(reason(&r).as_deref(), Some("remote.unsandboxed_agent"), "{r:?}");
+    // A host whose own start is missing from the log (fail closed) too.
+    let lost = remote_claude(&hub, "lost");
+    let canary = json!({"canary": "passed", "profile": super::remote_sandbox::profile_id()});
+    hub.append(&lost, "mux", "remote_sandbox", canary.clone());
+    hub.append(&lost, "mux", "host_started", json!({"incarnation": "inc-0"}));
+    adopt(&hub, &lost);
+    let r = hub.web_control_check(&lost, Control::Web);
+    assert_eq!(reason(&r).as_deref(), Some("remote.unsandboxed_agent"), "{r:?}");
+    // A host the current sandbox started (its canary passed just before) is not.
     let new = remote_claude(&hub, "new");
-    hub.append(&new, "mux", "remote_sandbox", json!({"canary": "passed"}));
+    hub.append(&new, "mux", "remote_sandbox", canary);
     hub.append(&new, "mux", "host_started", json!({"incarnation": "inc-1"}));
     adopt(&hub, &new);
     let r = hub.web_control_check(&new, Control::Web);

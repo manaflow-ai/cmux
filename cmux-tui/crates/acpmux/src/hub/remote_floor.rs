@@ -69,6 +69,9 @@ impl Hub {
         {
             return Some("remote.turn_cancelled");
         }
+        if session.floor.unsandboxed.load(Ordering::SeqCst) {
+            return Some("remote.unsandboxed_agent");
+        }
         if session.web_control_ended.load(Ordering::SeqCst) {
             return Some("remote.mode_left_asking_table");
         }

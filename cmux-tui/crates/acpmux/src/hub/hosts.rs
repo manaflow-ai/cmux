@@ -313,7 +313,10 @@ impl Hub {
                 .collect()
         };
         // The canary passes, then the host starts: that host is sandboxed.
+        // Only the adopted incarnation's own start counts, with the canary of
+        // the current profile right before it; missing: unsandboxed.
         let remote_claude = self.remote_claude(session);
+        work.unsandboxed = remote_claude;
         let mut canary_passed = false;
         let _ = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
             if e.dir == "mux" {
@@ -322,12 +325,16 @@ impl Hub {
                     "host_started" => {
                         lasting.clear();
                         work.harness_grant = false;
-                        work.unsandboxed = remote_claude && !canary_passed;
+                        if text("incarnation").as_deref() == Some(incarnation) {
+                            work.unsandboxed = remote_claude && !canary_passed;
+                        }
                         canary_passed = false;
                     }
                     "remote_sandbox" => {
-                        canary_passed =
-                            e.msg.get("canary").and_then(Value::as_str) == Some("passed");
+                        canary_passed = e.msg.get("canary").and_then(Value::as_str)
+                            == Some("passed")
+                            && text("profile").as_deref()
+                                == Some(super::remote_sandbox::profile_id().as_str());
                     }
                     "permission_request" => {
                         if let Some(pid) = text("permissionId") {
@@ -501,6 +508,11 @@ impl Hub {
                         control,
                     });
                     session.floor.last_turn_web.store(control == Control::Web, Ordering::SeqCst);
+                    // A Web turn in flight in an agent the sandbox did not
+                    // start does not go on (tools that do not ask).
+                    if control == Control::Web && session.floor.unsandboxed.load(Ordering::SeqCst) {
+                        self.remote_floor_cancel(session, "remote.unsandboxed_agent");
+                    }
                     self.set_status(session, SessionStatus::Running);
                     // The answer is either logged already, or still to come
                     // (`await_response` also takes one that arrived first).
