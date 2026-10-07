@@ -35,13 +35,14 @@ struct AgentSessionWebRendererTests {
     @MainActor
     func testRetainedCoordinatorReopensPaintGateForNewHost() {
         let coordinator = AgentSessionWebRendererCoordinator()
-        let firstHost = AgentSessionWebHostView()
+        var firstHost: AgentSessionWebHostView? = AgentSessionWebHostView()
         let secondHost = AgentSessionWebHostView()
         let initialGeneration = coordinator.visiblePaintGeneration
 
-        coordinator.attach(to: firstHost)
+        coordinator.attach(to: firstHost!)
         #expect(coordinator.visiblePaintGeneration == initialGeneration)
 
+        firstHost = nil
         coordinator.attach(to: secondHost)
         #expect(coordinator.visiblePaintGeneration == initialGeneration + 1)
 

@@ -8,7 +8,8 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
     var webView: AgentSessionWebView?
     private var panelId = UUID()
     private var workspaceId = UUID()
-    private var attachedHostID: ObjectIdentifier?
+    private weak var attachedHost: AgentSessionWebHostView?
+    private var hasAttachedHost = false
     private var rendererKind: AgentSessionRendererKind = .react
     private var initialProviderID: AgentSessionProviderID = .codex
     private var workingDirectory: String?
@@ -74,13 +75,12 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
 
     /// Records the host currently displaying this retained renderer session.
     func attach(to host: AgentSessionWebHostView) {
-        let hostID = ObjectIdentifier(host)
-        guard attachedHostID != hostID else { return }
-        let hadAttachedHost = attachedHostID != nil
-        attachedHostID = hostID
-        if hadAttachedHost {
+        guard attachedHost !== host else { return }
+        attachedHost = host
+        if hasAttachedHost {
             invalidateVisiblePaintAfterReattachment()
         }
+        hasAttachedHost = true
     }
 
     func ensureWebView(onPointerDown: @escaping () -> Void) -> AgentSessionWebView {
@@ -174,7 +174,8 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         loadedRendererKind = nil
         trustedShellURL = nil
         hasFinishedNavigation = false
-        attachedHostID = nil
+        attachedHost = nil
+        hasAttachedHost = false
         resetVisiblePaintState()
     }
 
