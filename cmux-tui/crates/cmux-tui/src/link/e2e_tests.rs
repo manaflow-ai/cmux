@@ -191,12 +191,15 @@ async fn a_revoke_closes_the_owner_session_on_the_dialing_side() {
     let session = directory.path().join("s.sock");
     let listener = overlay_a.listen(cmux_link::LINK_PORT).await.unwrap();
     let peers = Arc::new(Peers::load(peers_path.clone()).unwrap());
-    let server = tokio::spawn(serve_overlay(listener, peers.clone(), Some(session), Some(Arc::new(owner))));
+    let server =
+        tokio::spawn(serve_overlay(listener, peers.clone(), Some(session), Some(Arc::new(owner))));
 
     let (mut caller, link_side) = tokio::io::duplex(64 * 1024);
     let dial = tokio::spawn(async move { serve_dial(link_side, &overlay_b, &pairings_b).await });
     caller
-        .write_all(b"{\"op\":\"link.dial\",\"host\":\"inst_a\",\"service\":\"owner_session\"}\nhello\n")
+        .write_all(
+            b"{\"op\":\"link.dial\",\"host\":\"inst_a\",\"service\":\"owner_session\"}\nhello\n",
+        )
         .await
         .unwrap();
     let mut caller = BufReader::new(caller);
@@ -212,7 +215,10 @@ async fn a_revoke_closes_the_owner_session_on_the_dialing_side() {
     within(peers.reload(&*overlay_a)).await.unwrap();
     let mut tail = String::new();
     let closed = tokio::time::timeout(Duration::from_secs(3), caller.read_line(&mut tail)).await;
-    assert!(matches!(closed, Ok(Ok(0))), "the dialing side must see the session end, got {closed:?} {tail:?}");
+    assert!(
+        matches!(closed, Ok(Ok(0))),
+        "the dialing side must see the session end, got {closed:?} {tail:?}"
+    );
     drop(caller);
     let _ = within(dial).await;
     brain_task.abort();
