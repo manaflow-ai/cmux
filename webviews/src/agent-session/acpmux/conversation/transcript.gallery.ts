@@ -43,6 +43,49 @@ const MATH = [
   "With $d_0 = 250\\,\\text{ms}$, $d_{\\max} = 4\\,\\text{s}$ and $N = 3$ that is $E[W] = 1000\\,\\text{ms}$.",
 ].join("\n");
 
+const BUILD_CHART = [
+  "The app target dominates the build. Per-target wall time from the last 20 CI runs on main:",
+  "",
+  "```vega-lite",
+  JSON.stringify(
+    {
+      $schema: "https://vega.github.io/schema/vega-lite/v5.json",
+      width: 420,
+      height: 180,
+      data: {
+        values: [
+          { target: "app", p50: 312, p90: 371 },
+          { target: "api", p50: 204, p90: 229 },
+          { target: "worker", p50: 171, p90: 190 },
+          { target: "ui-kit", p50: 122, p90: 140 },
+          { target: "docs", p50: 88, p90: 97 },
+          { target: "e2e", p50: 64, p90: 82 },
+          { target: "lint", p50: 41, p90: 45 },
+        ],
+      },
+      layer: [
+        {
+          mark: { type: "bar", color: "#3b6fd8" },
+          encoding: {
+            y: { field: "target", type: "nominal", sort: "-x", title: null },
+            x: { field: "p50", type: "quantitative", title: "seconds (p50, tick = p90)" },
+            tooltip: [{ field: "target" }, { field: "p50" }, { field: "p90" }],
+          },
+        },
+        {
+          mark: { type: "tick", color: "#e8a33d", thickness: 2 },
+          encoding: { y: { field: "target", type: "nominal", sort: "-x" }, x: { field: "p90", type: "quantitative" } },
+        },
+      ],
+    },
+    null,
+    2,
+  ),
+  "```",
+  "",
+  "Splitting the app target's type check (41% of its time) is the biggest win.",
+].join("\n");
+
 const MARKDOWN_MIX = [
   "## What changed",
   "",
@@ -128,6 +171,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/Markdown.tsx",
     "agent-session/acpmux/conversation/RevealedMarkdown.tsx",
     "agent-session/acpmux/conversation/CodeBlock.tsx",
+    "agent-session/acpmux/conversation/DiagramBlock.tsx",
     "agent-session/acpmux/conversation/StreamingCode.tsx",
     "agent-session/acpmux/conversation/Math.tsx",
     "agent-session/acpmux/conversation/ToolRow.tsx",
@@ -352,6 +396,11 @@ export default agentPaneEntry({
         assistant("All six login tests pass; the recording is ready to attach.", 3.6),
         summary(3.6, { status: "completed", toolCount: 1 }),
       ]),
+    },
+    "vega-lite-chart": {
+      note: "A vega-lite fence in a reply draws as a chart (the markdown viewer's bundled Vega); Code shows the spec.",
+      height: 520,
+      snapshot: chat([user("Which build targets are slowest?", 3), assistant(BUILD_CHART, 2.9), summary(2.9)]),
     },
     "long-code": {
       note: "Long code blocks: wide lines, many lines, two languages.",

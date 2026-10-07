@@ -2,12 +2,13 @@
 // A small GFM-subset Markdown renderer for assistant messages. It produces the same
 // DOM shape for every transcript: headings, paragraphs (single newlines are line
 // breaks), nested ordered/bullet/task lists, blockquotes, rules, aligned tables, fenced
-// code blocks rendered by @pierre/diffs (see CodeBlock.tsx), and `$…$`, `$$…$$`, `\(…\)`
+// code blocks rendered by @pierre/diffs (see CodeBlock.tsx), vega-lite charts (DiagramBlock.tsx), and `$…$`, `$$…$$`, `\(…\)`
 // and `\[…\]` math typeset by KaTeX (see Math.tsx).
 import { Fragment, memo, useId, useMemo, useRef, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { safeHref } from "../model";
 import { CodeBlock } from "./CodeBlock";
+import { DiagramBlock, isChart } from "./DiagramBlock";
 import { CodeHandoff, PlainCode } from "./StreamingCode";
 import type { Reveal } from "./RevealedMarkdown";
 import { ArxivMark, FileDoc, GitHubMark, Globe, ImageIcon } from "./icons";
@@ -585,6 +586,7 @@ function Block({
     }
     case "code":
       if (code === "open") return <PlainCode code={block.code} lang={block.lang} open />;
+      if (isChart(block.lang, block.code)) return <DiagramBlock lang={block.lang} code={block.code} />;
       if (code === "handoff") return <CodeHandoff code={block.code} lang={block.lang} />;
       return <CodeBlock code={block.code} lang={block.lang} />;
     case "math":
