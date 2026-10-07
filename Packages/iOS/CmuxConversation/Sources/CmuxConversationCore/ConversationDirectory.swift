@@ -83,6 +83,7 @@ public struct ConversationCreation: Sendable, Hashable {
 /// without a directory needs no changes.
 public protocol ConversationDirectory: AnyObject, Sendable {
     /// Recipient autocomplete; `excluding` holds contact ids already added.
+    /// A blank query lists every contact (the + Add Contact picker).
     func searchContacts(_ query: String, limit: Int, excluding: [String]) async throws -> [ConversationContact]
     /// iMessage/SMS availability of typed addresses, in order.
     func lookupHandles(_ handles: [String]) async throws -> [ConversationHandleLookup]

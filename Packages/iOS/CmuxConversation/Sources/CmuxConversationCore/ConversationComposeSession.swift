@@ -139,19 +139,48 @@ public final class ConversationComposeSession {
     }
 }
 
+/// An image in New Message's first message (or a forwarded draft).
+public struct ConversationComposeImage: Sendable, Hashable {
+    public var data: Data
+    public var width: Int
+    public var height: Int
+    public var mimeType: String
+
+    public init(data: Data, width: Int, height: Int, mimeType: String) {
+        self.data = data
+        self.width = width
+        self.height = height
+        self.mimeType = mimeType
+    }
+}
+
+/// The first message New Message sends into the conversation it opens.
+public struct ConversationComposeMessage: Sendable, Hashable {
+    public var text: String
+    public var images: [ConversationComposeImage]
+
+    public init(text: String, images: [ConversationComposeImage] = []) {
+        self.text = text
+        self.images = images
+    }
+
+    public var isEmpty: Bool { text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && images.isEmpty }
+}
+
 extension ConversationStore {
-    /// Sends `text` as soon as the session is connected: the first message of
-    /// a conversation New Message just opened.
-    public func sendWhenConnected(_ text: String) {
+    /// Sends `message` as soon as the session is connected: the first message
+    /// of a conversation New Message just opened.
+    public func sendWhenConnected(_ message: ConversationComposeMessage) {
+        let images = message.images.map { (data: $0.data, width: $0.width, height: $0.height, mimeType: $0.mimeType) }
         if meID != nil {
-            send(text: text)
+            send(text: message.text, images: images)
             return
         }
         var sent = false
         addObserver { [weak self] change in
             guard !sent, change == .connection, let self, self.meID != nil else { return }
             sent = true
-            self.send(text: text)
+            self.send(text: message.text, images: images)
         }
     }
 }

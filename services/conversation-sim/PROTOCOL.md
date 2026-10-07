@@ -41,7 +41,8 @@ the newest page and rebase.
 
 New Message uses the last three on any subscribed socket (they are not
 scoped to the socket's conversation). `searchContacts` matches a word prefix
-of the name or a substring of a handle, name-prefix matches first, and skips
+of the name or a substring of a handle, name-prefix matches first (a blank
+query lists every contact alphabetically, for + Add Contact), and skips
 `excludeIds` (recipients already added). `lookupHandles` resolves typed
 addresses after a 0.25 to 0.9 s availability delay: a known handle reports its
 contact and service, an unknown email is iMessage, an unknown phone number is

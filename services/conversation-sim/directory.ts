@@ -61,10 +61,12 @@ export function handleKey(raw: string): string | null {
  * Messages' recipient autocomplete: a contact matches when a word of the name
  * starts with the query, or a handle contains it. Name-prefix matches first,
  * then word-prefix, then handle matches; alphabetical within each tier.
+ * A blank query returns every contact, alphabetical.
  */
 export function searchContacts(query: string, limit: number, exclude: Set<string> = new Set()): Contact[] {
   const q = fold(query.trim());
-  if (!q) return [];
+  // A blank query lists everyone (the + Add Contact picker).
+  if (!q) return CONTACTS.filter((c) => !exclude.has(c.id)).sort((a, b) => a.name.localeCompare(b.name)).slice(0, limit);
   const qDigits = digits(q);
   const ranked: { c: Contact; tier: number }[] = [];
   for (const c of CONTACTS) {

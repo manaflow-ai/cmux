@@ -258,7 +258,8 @@ async function main() {
     check(ex.contacts.length === 1 && ex.contacts[0].id === "anna", "excludeIds drops already-added recipients");
     const byPhone = await c.call("searchContacts", { query: "564-85" });
     check(byPhone.contacts[0]?.id === "kate", "handle substring matches");
-    check((await c.call("searchContacts", { query: "  " })).contacts.length === 0, "blank query returns nothing");
+    const all = await c.call("searchContacts", { query: "  ", limit: 50, excludeIds: ["kate"] });
+    check(all.contacts.length === 8 && all.contacts[0].name === "Anna Haro" && !all.contacts.some((x: any) => x.id === "kate"), "blank query lists every contact alphabetically, minus excludeIds");
     const look = await c.call("lookupHandles", { handles: ["kate-bell@mac.com", "+1 555 766 4823", "someone@example.com", "(555) 123-4567", "Apple"] });
     check(
       look.results.map((r: any) => `${r.service}:${r.contact?.id ?? "-"}`).join(",") === "iMessage:kate,SMS:hank,iMessage:-,SMS:-,null:-",
