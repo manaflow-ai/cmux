@@ -189,6 +189,11 @@ describe("acpmux composer pickers", () => {
     expect(model.querySelectorAll("svg")).toHaveLength(1);
     expect(button("Effort")).toBeNull();
     expect(button("Mode")).toBeNull();
+    const chipRow = model.closest(".acpmux-chips")!;
+    const controls = [...chipRow.children];
+    expect(controls.indexOf(model.closest(".acpmux-model")!)).toBeLessThan(
+      controls.indexOf(doc.querySelector(".acpmux-context")!),
+    );
     await act(async () => model.click());
     const menu = doc.querySelector(".acpmux-mp[role=menu]")!;
     const astra = [...menu.querySelectorAll("[role=menuitemradio]")].find(
