@@ -219,7 +219,9 @@ public final class AgentPaneModel {
                    workspaceAgentHome?() != nil {
                     handshake.chooseFolder = true
                 }
-                handshake.githubRepository = handshake.cwd.flatMap(AgentPaneGitHubRepository.read(at:))
+                if let cwd = handshake.cwd {
+                    handshake.githubRepository = await AgentPaneGitHubRepository.read(at: cwd)
+                }
                 handshake.revealTurn = pendingRevealTurn
                 pendingRevealTurn = nil
                 hasHandshake = true
@@ -356,7 +358,7 @@ public final class AgentPaneModel {
         case .invalidGit:
             return Self.gitFailure(.invalidRequest)
         case .githubRepository(let cwd):
-            return AgentPaneReply.success(["repository": AgentPaneGitHubRepository.read(at: cwd) ?? NSNull()])
+            return AgentPaneReply.success(["repository": await AgentPaneGitHubRepository.read(at: cwd) ?? NSNull()])
         case .turnUndo(let undo): return await respondToTurnUndo(undo)
         case .invalidTurnUndo: return AgentPaneReply.failure(code: "native.invalid_request", message: Self.turnUndoInvalidMessage)
         case .transportOpen:

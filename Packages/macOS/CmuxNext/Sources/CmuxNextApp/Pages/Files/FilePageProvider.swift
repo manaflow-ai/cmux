@@ -221,17 +221,17 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         }
         host?.record(opened.url)
         host?.opened(opened.url)
-        return config(opened)
+        return await config(opened)
     }
 
     private func config(for url: URL) async throws -> JSONValue {
         let file = try await snapshot(url)
         // A tab made with its file starts watching on its first config.
         if file.url == self.file, watch == nil { restartWatch(known: file.hash) }
-        return config(file)
+        return await config(file)
     }
 
-    private func config(_ file: FileSnapshot) -> JSONValue {
+    private func config(_ file: FileSnapshot) async -> JSONValue {
         var config: [String: JSONValue] = ["path": .string(file.url.path), "text": .string(file.text), "hash": .string(file.hash)]
         writable = file.readOnlyReason == nil
         if let recovered = recoveredText, file.url == self.file {
@@ -247,7 +247,7 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
             config["assetBase"] = .string("\(origin)/\(MarkdownPageResource.asset)/\(assetToken)/")
             config["libBase"] = .string("\(origin)/\(MarkdownPageResource.library)/")
             if host?.remoteImages ?? false { config["remoteImageBase"] = .string("\(origin)/\(MarkdownPageResource.remoteImage)/") }
-            if let repository = AgentPaneGitHubRepository.read(at: file.url.deletingLastPathComponent().path) {
+            if let repository = await AgentPaneGitHubRepository.read(at: file.url.deletingLastPathComponent().path) {
                 config["githubRepository"] = .string(repository)
             }
         case .editor:
