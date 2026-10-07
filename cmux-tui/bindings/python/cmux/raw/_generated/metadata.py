@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '9496d58d88de892658e496b46730c12074b0354928aae971cf4da945b712e4b5'
+IR_SHA256 = 'a12acc481313eced97f8c489168cac258fd1b9c8b5b4fde33476bcaeaaf0e11b'
 
 
 @dataclass(frozen=True)
@@ -2429,6 +2429,7 @@ COMMANDS = {
             'edge': CommandFieldMetadata(None, None),
             'mode': CommandFieldMetadata(None, None),
             'pane': CommandFieldMetadata(None, None),
+            'permanent': CommandFieldMetadata(None, None),
             'role': CommandFieldMetadata(12, 'dock-column-role-v1'),
             'transaction': CommandFieldMetadata(None, None),
         },

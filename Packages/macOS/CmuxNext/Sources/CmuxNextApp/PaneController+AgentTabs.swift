@@ -24,37 +24,13 @@ extension PaneController {
     /// An agent chat tab in this pane on the workspace store, shown and selected at once
     /// (``AgentTabStore/openTab(in:session:seed:newTab:spare:linked:select:then:)``). False when
     /// the pane cannot hold one (refused with the reason).
-    /// A new chat opens in the chat dock (``NewChatPlacement``), except a New Tab page that
-    /// becomes a chat where it is (`newTab`).
+    /// A new chat opens in the chat dock (``NewChatPlacement/opening(from:placed:select:then:)``).
     @discardableResult
     func openAgentTab(session: String? = nil, seed: AgentPaneSeedSource? = nil,
                       newTab: (page: AgentPaneNewTab, handler: NewTabPageHandler)? = nil, spare: AgentPaneView? = nil,
                       linked: Bool = false, select: Bool = true, then: (@MainActor (String) -> Void)? = nil) -> Bool {
-        var target = self
-        var then = then
-        var select = select
-        var hidden = false
-        if newTab == nil {
-            switch NewChatPlacement.resolve(from: self) {
-            case .here:
-                break
-            case .dock(let pane):
-                if let dock = workspace?.panes[pane] {
-                    target = dock
-                    if select, let content = workspace { PaneHandlers.focus(pane, in: content) }
-                }
-            case .newDock:
-                // Not shown here: the chat appears once, in its dock, focused.
-                hidden = true
-                select = false
-                let opened = then
-                then = { [weak self] key in
-                    if let self { NewChatPlacement.dock(key, from: self) }
-                    opened?(key)
-                }
-            }
-        }
-        return services.agentTabs.openTab(in: target, session: session, seed: seed, newTab: newTab, spare: spare,
-                                          linked: linked, select: select, hidden: hidden, then: then)
+        let open = NewChatPlacement.opening(from: self, placed: newTab == nil, select: select, then: then)
+        return services.agentTabs.openTab(in: open.target, session: session, seed: seed, newTab: newTab, spare: spare,
+                                          linked: linked, select: open.select, hidden: open.hidden, then: open.then)
     }
 }

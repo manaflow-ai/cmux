@@ -37,6 +37,38 @@ extension NewChatPlacement {
                        isLoneChat: ChatColumnPlacement.resolve(from: controller, services: controller.services) == .dockChat)
     }
 
+    /// How `controller`'s new chat opens: the pane it opens in, and for a new
+    /// dock hidden and unselected, docked by `then` (shown once, in its dock).
+    /// `placed` false (a New Tab page becoming a chat) keeps it in `controller`.
+    struct Opening {
+        var target: PaneController
+        var select: Bool
+        var hidden = false
+        var then: (@MainActor (String) -> Void)?
+    }
+
+    @MainActor static func opening(from controller: PaneController, placed: Bool, select: Bool,
+                                   then: (@MainActor (String) -> Void)?) -> Opening {
+        var opening = Opening(target: controller, select: select, then: then)
+        guard placed else { return opening }
+        switch resolve(from: controller) {
+        case .here:
+            break
+        case .dock(let pane):
+            guard let content = controller.workspace, let dock = content.panes[pane] else { break }
+            opening.target = dock
+            if select { PaneHandlers.focus(pane, in: content) }
+        case .newDock:
+            opening.hidden = true
+            opening.select = false
+            opening.then = { [weak controller] key in
+                if let controller { NewChatPlacement.dock(key, from: controller) }
+                then?(key)
+            }
+        }
+        return opening
+    }
+
     /// Moves new chat `key`, opened hidden in `controller`'s pane, into a new
     /// left chat dock once the store shows it, then focuses it there. A
     /// failed move shows it where it is.

@@ -23745,6 +23745,11 @@ Result<Json> Codec<SetColumnDockRequest>::encode(const SetColumnDockRequest& val
     auto encoded_pane = encode_value(value.pane);
     if (!encoded_pane) return std::move(encoded_pane).error();
     object.emplace("pane", std::move(encoded_pane).value());
+    if (!value.permanent.is_absent()) {
+        auto encoded = encode_value(value.permanent);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("permanent", std::move(encoded).value());
+    }
     if (!value.role.is_absent()) {
         auto encoded = encode_value(value.role);
         if (!encoded) return std::move(encoded).error();
@@ -23799,6 +23804,16 @@ Result<SetColumnDockRequest> Codec<SetColumnDockRequest>::decode(const Json& val
         auto decoded = decode_value<Id>(*field_pane);
         if (!decoded) return std::move(decoded).error();
         result.pane = std::move(decoded).value();
+    }
+    const Json* field_permanent = value.find("permanent");
+    if (field_permanent) {
+        if (field_permanent->is_null()) {
+            result.permanent = Field<bool>::null();
+        } else {
+            auto decoded = decode_value<bool>(*field_permanent);
+            if (!decoded) return std::move(decoded).error();
+            result.permanent = Field<bool>(std::move(decoded).value());
+        }
     }
     const Json* field_role = value.find("role");
     if (field_role) {
