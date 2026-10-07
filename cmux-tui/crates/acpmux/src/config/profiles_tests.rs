@@ -313,21 +313,53 @@ fn a_sessions_block_is_validated() {
     let base = "command = \"x\"\n[sessions]\n";
     let cases = [
         ("unknown-adapter", "adapter = \"zip\"\nroots = [\"/r\"]\n", "adapter"),
-        ("builtin-fields", "adapter = \"codex\"\n[sessions.fields]\nid = \"file.stem\"\n", "built-in"),
-        ("no-files", "adapter = \"jsonl\"\nroots = [\"/r\"]\n[sessions.fields]\nid = \"file.stem\"\n", "files"),
-        ("bad-selector", "adapter = \"jsonl\"\nroots = [\"/r\"]\nfiles = \"*.jsonl\"\n[sessions.fields]\nid = \"stem\"\n", "selector"),
-        ("sql-write", "adapter = \"sqlite\"\nroots = [\"/r\"]\nfiles = \"*.db\"\nquery = \"ATTACH 'x' AS y\"\n", "read-only"),
-        ("resume-both", "adapter = \"claude-code\"\n[sessions.resume]\nargv = [\"c\"]\nadopt = true\n", "resume"),
+        (
+            "builtin-fields",
+            "adapter = \"codex\"\n[sessions.fields]\nid = \"file.stem\"\n",
+            "built-in",
+        ),
+        (
+            "no-files",
+            "adapter = \"jsonl\"\nroots = [\"/r\"]\n[sessions.fields]\nid = \"file.stem\"\n",
+            "files",
+        ),
+        (
+            "bad-selector",
+            "adapter = \"jsonl\"\nroots = [\"/r\"]\nfiles = \"*.jsonl\"\n[sessions.fields]\nid = \"stem\"\n",
+            "selector",
+        ),
+        (
+            "sql-write",
+            "adapter = \"sqlite\"\nroots = [\"/r\"]\nfiles = \"*.db\"\nquery = \"ATTACH 'x' AS y\"\n",
+            "read-only",
+        ),
+        (
+            "resume-both",
+            "adapter = \"claude-code\"\n[sessions.resume]\nargv = [\"c\"]\nadopt = true\n",
+            "resume",
+        ),
     ];
     for (id, body, _) in cases {
         write(&dir, &format!("{id}.toml"), &format!("id = \"{id}\"\n{base}{body}"));
     }
-    write(&dir, "ok-builtin.toml", "id = \"ok-builtin\"\ncommand = \"x\"\n[sessions]\nadapter = \"claude-code\"\nlayouts = [\"~/.subrouter/codex/claude/*/projects\"]\n");
+    write(
+        &dir,
+        "ok-builtin.toml",
+        "id = \"ok-builtin\"\ncommand = \"x\"\n[sessions]\nadapter = \"claude-code\"\nlayouts = [\"~/.subrouter/codex/claude/*/projects\"]\n",
+    );
     let loaded = load(&user_only(&dir));
-    assert_eq!(loaded.profiles.keys().collect::<Vec<_>>(), ["ok-builtin"], "{:?}", loaded.diagnostics);
+    assert_eq!(
+        loaded.profiles.keys().collect::<Vec<_>>(),
+        ["ok-builtin"],
+        "{:?}",
+        loaded.diagnostics
+    );
     for (id, _, needle) in cases {
         assert!(
-            loaded.diagnostics.iter().any(|d| d.id.as_deref() == Some(id) && d.message.contains(needle)),
+            loaded
+                .diagnostics
+                .iter()
+                .any(|d| d.id.as_deref() == Some(id) && d.message.contains(needle)),
             "{id}: {:?}",
             loaded.diagnostics
         );
