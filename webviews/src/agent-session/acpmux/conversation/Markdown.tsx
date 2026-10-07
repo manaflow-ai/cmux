@@ -10,7 +10,7 @@ import { safeHref } from "../model";
 import { CodeBlock } from "./CodeBlock";
 import { CodeHandoff, PlainCode } from "./StreamingCode";
 import type { Reveal } from "./RevealedMarkdown";
-import { ArxivMark, Check, FileDoc, GitHubMark, Globe, ImageIcon } from "./icons";
+import { ArxivMark, FileDoc, GitHubMark, Globe, ImageIcon } from "./icons";
 import { MathDisplay, MathInline } from "./Math";
 import { normalizeMath } from "./mathDelimiters";
 import { IncrementalMarkdown, type KeyedBlock } from "./incrementalMarkdown";
@@ -18,6 +18,7 @@ import { linkedText, PathChip, UrlChip } from "../chips/LinkChips";
 import { codePath, linkPath } from "../chips/paths";
 import { ReplyImage } from "../chips/ReplyImage";
 import "../../../markdown-task-checkbox.css";
+import { TaskCheckbox } from "../../../ui/TaskCheckbox";
 
 export type Align = "left" | "center" | "right" | null;
 
@@ -515,18 +516,7 @@ function Block({
             <li key={i} className={it.task ? "cv-task" : undefined}>
               {block.ordered && <span className="cv-li__num">{block.start + i}.</span>}
               {!block.ordered && !it.task && <span className={`cv-li__bullet cv-li__bullet--${depth % 3}`} />}
-              {it.task && (
-                <span
-                  className={`cv-checkbox${it.checked ? " is-checked" : ""} cmux-markdown-checkbox`}
-                  // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a read-only visual checkbox must contain the SVG check mark.
-                  role="checkbox"
-                  aria-checked={it.checked ? "true" : "false"}
-                  aria-readonly="true"
-                  data-checked={it.checked ? "true" : "false"}
-                >
-                  {it.checked && <Check className="cv-checkbox__check" size={10} strokeWidth={1.8} />}
-                </span>
-              )}
+              {it.task && <TaskCheckbox checked={Boolean(it.checked)} className="cv-checkbox" />}
               <span className="cv-li__text">
                 {i === block.items.length - 1 && !it.children.length ? inline(it.text) : renderInline(it.text, opts)}
               </span>

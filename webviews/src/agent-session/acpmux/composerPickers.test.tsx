@@ -874,17 +874,18 @@ describe("acpmux composer context", () => {
       await ready();
     };
     try {
-      await render({ cwd: "/Users/me/code/cmux", host: "hearty-beige-elk", hostKind: "cloud" });
+      await render({ cwd: "/Users/me/code/cmux", host: "hearty-beige-elk", hostKind: "cloud", branch: "main" });
       expect(doc.querySelectorAll(".acpmux-context-chip")).toHaveLength(0);
       expect([...doc.querySelectorAll(".acpmux-location-readonly")].map((node) => node.textContent)).toEqual([
-        "hearty-beige-elk",
         "cmux",
+        "hearty-beige-elk",
       ]);
-      await render({ cwd: "/Users/me/code/cmux", host: "hearty-beige-elk", hostKind: "cloud" }, [
+      await render({ cwd: "/Users/me/code/cmux", host: "hearty-beige-elk", hostKind: "cloud", branch: "main" }, [
         { id: "u", version: 1, at: 0, kind: "user", text: "hello" },
       ]);
       expect(doc.querySelector(".acpmux-composer-context")?.getAttribute("data-readonly")).toBe("true");
-      expect(doc.querySelectorAll(".acpmux-location-button")).toHaveLength(0);
+      expect(doc.querySelectorAll(".acpmux-location-button")).toHaveLength(1);
+      expect(doc.querySelector('.acpmux-location-button[aria-label="Branch"]')).not.toBeNull();
     } finally {
       await act(async () => root.unmount());
     }
@@ -918,7 +919,7 @@ describe("acpmux composer queue", () => {
         "first",
         "second\nline",
       ]);
-      expect(list.nextElementSibling!.classList.contains("acpmux-composer-context")).toBe(true);
+      expect(doc.querySelector(".acpmux-composer-context")).not.toBeNull();
       // The slash menu anchors to the field, so the queue never pushes it up.
       await act(async () => typeInto(promptField(doc), "/"));
       expect(doc.querySelector(".acpmux-composer-box > .acpmux-slash-menu")).not.toBeNull();
@@ -946,10 +947,8 @@ describe("acpmux composer queue", () => {
           }),
         ),
       );
-      const queue = doc.querySelector("ol.acpmux-composer-queue")!;
-      const tray = queue.nextElementSibling!;
-      expect(tray.classList.contains("acpmux-composer-context")).toBe(true);
-      expect(tray.nextElementSibling!.classList.contains("acpmux-composer-box")).toBe(true);
+      const tray = doc.querySelector(".acpmux-composer-context")!;
+      expect(tray.previousElementSibling!.classList.contains("acpmux-composer-box")).toBe(true);
     } finally {
       await act(async () => root.unmount());
     }

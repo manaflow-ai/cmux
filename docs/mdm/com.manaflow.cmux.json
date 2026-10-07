@@ -2035,6 +2035,12 @@
       "title" : "When an Update Is Ready",
       "type" : "string"
     },
+    "updates.showWhatsNew" : {
+      "default" : true,
+      "description" : "After an update, a What's New item shows at the top of the sidebar until you open it.",
+      "title" : "Show What's New After Updates",
+      "type" : "boolean"
+    },
     "window.titlebar" : {
       "default" : "minimal",
       "description" : "Minimal has no titlebar strip; the top row moves the window.",

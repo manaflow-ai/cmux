@@ -147,6 +147,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.observeBorders()
         if !services.crashRecovery.recovery.skipsBrowserPages { services.startChromiumWarmup() }
         services.newTabSpares.start()
+        services.pageHostPool.start(
+            isMainWindow: { [weak services] window in
+                services?.windows.controllers.contains { $0.window === window } == true
+            },
+            fallback: { [weak services] window in
+                services?.windows.controllers.compactMap(\.window).first { $0 !== window && $0.isVisible }
+            })
+        services.pageHostPool.noteLikely()
         AgentTabImport.start(services)
         NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(handleURLEvent(_:reply:)),
                                                      forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))
