@@ -1,4 +1,5 @@
 import CmuxiOSAuth
+import CmuxiOSComposer
 import CmuxiOSFeatureKit
 import CmuxiOSFeed
 import CmuxiOSSettingsCore
@@ -52,21 +53,44 @@ enum ShellComposition {
         let workspaces = WorkspacesFeature(
             source: sources.workspaces, terminalSources: terminalSources ?? MockWorkspaceTerminalSourceFactory(),
             isMock: !workspacesAreReal)
+        // Lane C8: the Compose tab and the floating compose button over Feed
+        // and Workspaces. The picker and "open workspace" are C5's, passed as
+        // closures so the composer never imports the Workspaces feature.
+        let shellBox = WeakControllerBox()
+        let composer = ComposerFeature(
+            sink: sources.composer,
+            makePicker: { request, completion in workspaces.makePicker(request: request, completion: completion) },
+            openWorkspace: { hostID, workspaceID in
+                guard let shell = shellBox.controller as? ShellRootController, shell.select(.workspaces) else { return }
+                workspaces.open(hostID: hostID, workspaceID: workspaceID)
+            },
+            isMock: sources.resolved[.composer] != .real)
+        let floatingCompose = container.flags.isEnabled(.composeTab)
         let content = ShellContent(sources: sources, home: home, settings: settings, screens: [
             .hosts: { ssh.makeHostsScreen() },
-            .workspaces: { workspaces.makeWorkspacesScreen() },
+            .workspaces: {
+                let screen = workspaces.makeWorkspacesScreen()
+                if floatingCompose, let navigation = screen as? UINavigationController {
+                    composer.installFloatingButton(on: navigation)
+                }
+                return screen
+            },
+            .compose: { composer.makeComposeScreen() },
             .feed: {
                 let feed = FeedViewController(source: feedSource, navigator: feedNavigator, isMock: feedIsMock, device: deviceName)
                 let navigation = UINavigationController(rootViewController: feed)
                 navigation.navigationBar.prefersLargeTitles = true
+                if floatingCompose { composer.installFloatingButton(on: navigation) }
                 return navigation
             },
         ])
-        return ShellRootController(
+        let shell = ShellRootController(
             tabs: container.flags.visibleTabs,
             sidebar: container.flags.isEnabled(.iPadSidebar),
             content: { content.controller(for: $0) }
         )
+        shellBox.controller = shell
+        return shell
     }
 
     /// Live link badges per device: the real owner once B5/D1 register it;

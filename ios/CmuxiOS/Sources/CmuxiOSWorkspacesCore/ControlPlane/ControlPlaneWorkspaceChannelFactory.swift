@@ -12,6 +12,8 @@ public struct ControlPlaneWorkspaceChannelFactory: WorkspaceChannelFactory {
     let reconnect: ReconnectPolicy
     let install: @Sendable () async throws -> String
     let token: @Sendable () async throws -> String
+    /// The Mac-owned stream each channel subscribes (`workspace` or `task`).
+    public var streamKind = "workspace"
 
     /// `install` resolves this device's install id for `hello`; `token`
     /// mints its bearer (both from `InstallIdentity`).
@@ -27,6 +29,13 @@ public struct ControlPlaneWorkspaceChannelFactory: WorkspaceChannelFactory {
         self.reconnect = reconnect
         self.install = install
         self.token = token
+    }
+
+    /// The same sockets for another Mac-owned stream (C8: `task`).
+    public func streaming(_ kind: String) -> ControlPlaneWorkspaceChannelFactory {
+        var copy = self
+        copy.streamKind = kind
+        return copy
     }
 
     /// `wss://<api>/v1/wire/host/<host>` (`ws` for a plain-http dev origin).
@@ -46,7 +55,7 @@ public struct ControlPlaneWorkspaceChannelFactory: WorkspaceChannelFactory {
         let reconnect = self.reconnect
         let install = self.install
         let token = self.token
-        return ControlPlaneWorkspaceChannel(hostID: host.id, reasons: reasons) {
+        return ControlPlaneWorkspaceChannel(hostID: host.id, reasons: reasons, streamKind: streamKind) {
             let client = HelloClient(install: try await install(), platform: "ios", appVersion: appVersion)
             let configuration = ControlPlaneConfiguration(url: url, client: client, reconnect: reconnect)
             return ControlPlaneClient(configuration: configuration, transport: transport, tokenProvider: token)
