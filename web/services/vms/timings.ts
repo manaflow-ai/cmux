@@ -3,7 +3,9 @@ import * as Effect from "effect/Effect";
 
 export type VmTimingStage =
   | "auth"
+  | "connection_init"
   | "request_parse"
+  | "admission"
   | "entitlements"
   | "begin_create"
   | "begin_base_open"
@@ -14,13 +16,14 @@ export type VmTimingStage =
   | "resolve_network"
   | "model_plane_provision"
   | "provider_create"
+  | "provider_snapshot"
   | "mark_running"
   | "mark_base_running"
   | "usage_events"
   | "total";
 
 export type VmTimingSink = {
-  readonly record: (stage: VmTimingStage, durationMs: number) => void;
+  readonly record: (stage: VmTimingStage, durationMs: number, options?: { readonly endedAtMs?: number }) => void;
 };
 
 export class VmTimingRecorder implements VmTimingSink {
@@ -39,11 +42,11 @@ export class VmTimingRecorder implements VmTimingSink {
     this.debugTimings = options.debugTimings ?? process.env.CMUX_VM_DEBUG_TIMINGS === "1";
   }
 
-  record(stage: VmTimingStage, durationMs: number): void {
+  record(stage: VmTimingStage, durationMs: number, options: { readonly endedAtMs?: number } = {}): void {
     const duration = roundedMs(durationMs);
     // Keep wall-clock boundaries alongside monotonic durations so an operator
     // can line up a slow create with provider logs and request IDs in Axiom.
-    const endedAtMs = Date.now();
+    const endedAtMs = options.endedAtMs ?? Date.now();
     const startedAtMs = endedAtMs - Math.max(0, Math.round(duration));
     const startKey = `cmux.vm.timing.${stage}_started_at_ms`;
     const endKey = `cmux.vm.timing.${stage}_ended_at_ms`;
