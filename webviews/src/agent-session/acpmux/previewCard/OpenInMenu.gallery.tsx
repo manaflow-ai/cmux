@@ -29,8 +29,8 @@ export default componentEntry<OpenInMenuProps>({
   styles: () => Promise.all([import("../styles.css"), import("../chips/chips.css"), import("./previewCard.css")]),
   checks: {
     longFrameFailMs: {
-      value: 60,
-      reason: "Opening the real Base UI menu positions its portal and browser rows in one frame.",
+      value: 120,
+      reason: "Opening the real Base UI menu positions its portal and browser rows in one software-VM frame.",
     },
   },
   variants: {

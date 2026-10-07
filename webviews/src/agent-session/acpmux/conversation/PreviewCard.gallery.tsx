@@ -48,8 +48,8 @@ export default componentEntry<PreviewCardProps>({
     ]),
   checks: {
     longFrameFailMs: {
-      value: 60,
-      reason: "Opening the real Base UI menu positions its portal and browser rows in one frame.",
+      value: 120,
+      reason: "Opening the real Base UI menu positions its portal and browser rows in one software-VM frame.",
     },
   },
   widths: { narrow: 420, normal: 720, wide: 960 },
