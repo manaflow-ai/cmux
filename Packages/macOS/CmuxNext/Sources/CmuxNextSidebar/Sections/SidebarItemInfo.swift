@@ -57,7 +57,8 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
 public nonisolated struct SidebarAvatar: Hashable, Sendable {
     /// The profile's name (tooltip and VoiceOver).
     public var name: String
-    /// One user-visible character drawn in the circle.
+    /// What the circle draws without a picture: the profile's initial, or up to
+    /// two initials for the signed-in user.
     public var initial: String
     /// The profile's color; nil draws the neutral text color.
     public var color: GroupColor?
@@ -72,13 +73,20 @@ public nonisolated struct SidebarAvatar: Hashable, Sendable {
 
     /// The signed-in cmux user: their picture, else their initials.
     public static func account(name: String, imageData: Data? = nil) -> SidebarAvatar {
-        SidebarAvatar(name: name)
+        var avatar = SidebarAvatar(name: name)
+        avatar.initial = initials(for: name)
+        avatar.imageData = imageData
+        return avatar
     }
 
     /// Up to two initials: the first letters of the first and last words ("Leo Li" is "LL"), of an
     /// email's local part, else "?".
     public static func initials(for name: String) -> String {
-        initial(of: name)
+        let local = name.contains("@") ? String(name.prefix { $0 != "@" }) : name
+        let words = local.split(whereSeparator: \.isWhitespace).compactMap(\.first)
+        guard let first = words.first else { return "?" }
+        let letters = words.count > 1 ? [first, words[words.count - 1]] : [first]
+        return String(letters).uppercased()
     }
 
     /// The first letter or digit of `name`, uppercased; "?" when it has none.
