@@ -642,12 +642,12 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
         case let .message(model):
             let cell = collectionView.dequeueReusableCell(withReuseIdentifier: MessageCell.reuseID, for: indexPath) as! MessageCell
             let cellLayout = layoutCache.layout(for: model, width: collectionView.bounds.width, margin: layoutMargin)
+            cell.audioDelegate = self
             cell.configure(model: model, layout: cellLayout, text: layoutCache.attributedText(for: model))
             cell.contentView.alpha = flyingRowIDs.contains(model.rowID) ? 0 : 1
             cell.timestampReveal = timestampReveal
             cell.setSelectionMode(isSelecting, selected: selectedRowIDs.contains(model.rowID), animated: false)
             cell.accessibilityIdentifier = "conversation.message.\(model.message.id)"
-            cell.audioDelegate = self
             return cell
         case let .timestamp(_, date):
             let cell = collectionView.dequeueReusableCell(withReuseIdentifier: TimestampCell.reuseID, for: indexPath) as! TimestampCell
