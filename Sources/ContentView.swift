@@ -13206,9 +13206,15 @@ struct VerticalTabsSidebar: View, Equatable {
         extensionSidebarUpdateToken &+= 1
     }
 
+    /// Gated on this instance's own `isPresented`, never on the window's
+    /// `sidebarState.isVisible`: the floating card is a second instance that
+    /// is presented while the docked sidebar is hidden, so a window-level gate
+    /// froze the card's rows (an inline rename never repainted). The docked
+    /// instance gets `occupiesLayout` here, and leaving presentation cancels
+    /// the coalescer, so a hidden docked list still does no work.
     private func scheduleWorkspaceSnapshotRefresh(workspaceId: UUID) {
-        workspaceSnapshotRefreshCoalescer.schedule(workspaceId: workspaceId) { [sidebarState] workspaceIds in
-            guard sidebarState.isVisible else { return }
+        guard isPresented else { return }
+        workspaceSnapshotRefreshCoalescer.schedule(workspaceId: workspaceId) { workspaceIds in
             refreshWorkspaceSnapshots(workspaceIds: workspaceIds)
         }
     }
