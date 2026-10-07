@@ -633,6 +633,7 @@ jobs:
           bash scripts/cmux-next/tests/tree-key-v2.test.sh
           bash scripts/cmux-next/tests/tree-publish-v2.test.sh
           bash scripts/cmux-next/tests/embed-cef.test.sh
+          bash scripts/cmux-next/tests/check-app-ffi-pin.test.sh
           bash scripts/cmux-next/tests/check-fleet-only.test.sh
           bash scripts/cmux-next/tests/release-compile-derived-data.test.sh
           bash scripts/cmux-next/tests/scheme-compile-derived-data.test.sh
@@ -688,6 +689,16 @@ jobs:
         continue-on-error: true
         run: python3 tests/test_cmux_next_route.py
 
+      # Package.swift links the app FFI from one pinned release; the pin must
+      # match the FFI sources (every crate cmux-app-ffi reaches through Cargo
+      # path dependencies) and the release must be built from them. Here on
+      # Linux it runs on every push and pull request: in swift test a newer
+      # push replaced the waiting job, so tip runs rarely reached it.
+      - name: Check the app FFI pin
+        id: app-ffi-pin
+        continue-on-error: true
+        run: scripts/cmux-next/check-app-ffi-pin.sh --verify-release
+
       # `outcome`, not `conclusion`: continue-on-error makes every conclusion success.
       - name: Fail on any red check
         if: always()
@@ -708,6 +719,7 @@ jobs:
             ${{ steps.package-conventions.outcome }}|Package conventions lint
             ${{ steps.checks-structure.outcome }}|Checks job structure
             ${{ steps.tier-routing.outcome }}|Tier routing
+            ${{ steps.app-ffi-pin.outcome }}|Check the app FFI pin
         run: |
           failed=()
           # `outcome|name`: an empty outcome (a check that never ran) still names its step.
