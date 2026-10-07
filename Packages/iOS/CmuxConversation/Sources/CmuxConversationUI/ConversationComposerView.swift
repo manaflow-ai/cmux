@@ -393,7 +393,7 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
     static func emojiPointSize(for text: String) -> CGFloat? {
         guard text == text.trimmingCharacters(in: .whitespacesAndNewlines),
               ConversationRowBuilder.isEmojiOnly(text) else { return nil }
-        return text.count == 1 ? 72 : 48
+        return ConversationTheme.emojiOnlyFontSize(count: text.count)
     }
 
     private func updateEmojiScale() {

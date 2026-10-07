@@ -96,7 +96,8 @@ enum ConversationTheme {
     /// A lone emoji shows at 72 pt, two or three at 48 pt.
     static let singleEmojiFontSize: CGFloat = 72
     static let emojiOnlyFontSize: CGFloat = 48
-    static func emojiOnlyFontSize(count: Int) -> CGFloat { count == 1 ? singleEmojiFontSize : emojiOnlyFontSize }
+    /// ChatKit's sizes at Large, scaled with Dynamic Type like body text.
+    static func emojiOnlyFontSize(count: Int) -> CGFloat { scaled(count == 1 ? singleEmojiFontSize : emojiOnlyFontSize) }
     static let maxImageWidthFraction: CGFloat = 0.63
     /// Measured: a 9:16 photo in Messages (iPhone 17 Pro) stops at 337 pt.
     static let maxImageHeight: CGFloat = 337

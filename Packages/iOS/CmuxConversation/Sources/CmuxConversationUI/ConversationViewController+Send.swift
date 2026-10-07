@@ -111,6 +111,9 @@ extension ConversationViewController: ConversationComposerViewDelegate {
             bubble.side = .trailing
             bubble.hasTail = model.showsTail
             bubble.fillColor = ConversationTheme.outgoingBubble
+            // The landed bubble's screen-fixed gradient, sampled where it lands,
+            // so the color doesn't change at the hand-off to the cell.
+            bubble.screenGradient = ConversationTheme.iMessageGradient
             let label = ConversationEffectLabel()
             label.numberOfLines = 0
             label.attributedText = layoutCache.attributedText(for: model)
@@ -151,14 +154,17 @@ extension ConversationViewController: ConversationComposerViewDelegate {
             // size to the large emoji.
             let to = emojiFrame.offsetBy(dx: cellOrigin.x, dy: cellOrigin.y)
             let label = UILabel()
-            label.font = .systemFont(ofSize: ConversationTheme.emojiOnlyFontSize)
+            let landedSize = ConversationTheme.emojiOnlyFontSize(count: MessageCellLayout.emojiCount(model.message.text))
+            label.font = .systemFont(ofSize: landedSize)
             label.numberOfLines = 0
             label.text = model.message.text
             let mover = UIView(frame: to)
             mover.isUserInteractionEnabled = false
             mover.addSubview(label)
             container.addSubview(mover)
-            let ratio = ConversationTheme.bodyFont.pointSize / ConversationTheme.emojiOnlyFontSize
+            // The composer already shows an emoji-only draft large (same sizes).
+            let draftSize = ConversationComposerView.emojiPointSize(for: model.message.text) ?? ConversationTheme.bodyFont.pointSize
+            let ratio = draftSize / landedSize
             let start = CGSize(width: to.width * ratio, height: to.height * ratio)
             let lineMidY = flight.textFrame.minY + ConversationTheme.bubbleVerticalPadding + ConversationTheme.bodyFont.lineHeight / 2
             let from = CGRect(x: flight.textFrame.minX, y: lineMidY - start.height / 2, width: start.width, height: start.height)
