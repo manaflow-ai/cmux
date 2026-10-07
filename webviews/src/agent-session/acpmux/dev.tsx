@@ -18,7 +18,7 @@ import "./markdownField.css";
 import "./modelPicker.css";
 import "./keys.css";
 import "./newtab/screen.css";
-import { devHostParams, installDevHost } from "./devHost";
+import { devHostParams, installDevHost } from "../../dev-host/host";
 import { seedDevRecents } from "./devRecents";
 
 // `?mock` runs the page in a plain browser against the in-page mock daemon (no cmux host), the

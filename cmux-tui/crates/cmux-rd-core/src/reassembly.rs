@@ -107,7 +107,7 @@ impl Reassembler {
             && header.frame > self.finished_through.saturating_add(MAX_FRAME_LEAD);
         let no_room =
             self.pending.len() >= MAX_PENDING_FRAMES && !self.pending.contains_key(&header.frame);
-        if !matches!(header.kind, DatagramKind::Video | DatagramKind::Fec)
+        if !matches!(header.kind, DatagramKind::Video | DatagramKind::Fec | DatagramKind::UpMedia)
             || header.frame <= self.finished_through
             || too_far
             || no_room
