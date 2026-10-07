@@ -84,7 +84,7 @@ enum RemoteBrowserPages {
                 guard let window = pane?.view.window else { return }
                 let alert = NSAlert()
                 alert.messageText = RemoteBrowserStrings.hostDidNotStart
-                alert.informativeText = String(describing: error)
+                alert.informativeText = RemoteBrowserStrings.hostFailure(error)
                 alert.beginSheetModal(for: window, completionHandler: nil)
             }
         }
@@ -104,9 +104,10 @@ enum RemoteBrowserPages {
     /// address: the history fallback is not used for these records).
     @MainActor
     static func makePage(url: URL, key: String, profile: BrowserProfileID, services: AppServices) -> (any BrowserTab)? {
+        // A host this app started serves only the viewer with its secret.
         guard let record = RemoteBrowserTabRecord(url: url),
               let tab = RemoteBrowserSession.makeTab(record: record, id: BrowserTabID(rawValue: key), profile: profile,
-                                                     viewer: "cmux-next"),
+                                                     viewer: "cmux-next", token: localHosts[record.endpoint.port]?.secret),
               let session = RemoteBrowserSession.session(of: tab) else { return nil }
         let localHost = localHosts[record.endpoint.port]
         session.openTab = { [weak services] target, disposition, answer in

@@ -525,6 +525,137 @@
         }
       }
     },
+    "remoteBrowser.localHost.exited": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "توقف المضيف قبل أن يصبح جاهزًا. سجله في %@."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Host se zaustavio prije nego što je bio spreman. Njegov dnevnik je u %@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Værten stoppede, før den var klar. Dens log ligger i %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Host wurde beendet, bevor er bereit war. Sein Protokoll liegt unter %@."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The host stopped before it was ready. Its log is at %@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El host se detuvo antes de estar listo. Su registro está en %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’hôte s’est arrêté avant d’être prêt. Son journal se trouve dans %@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’host si è arrestato prima di essere pronto. Il suo log è in %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホストは準備が完了する前に終了しました。ログ: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ាស៊ីនបានឈប់មុនពេលរួចរាល់។ កំណត់ហេតុរបស់វានៅ %@។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "호스트가 준비되기 전에 종료되었습니다. 로그 위치: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Verten stoppet før den var klar. Loggen ligger i %@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Host zatrzymał się, zanim był gotowy. Jego dziennik jest w %@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O host parou antes de ficar pronto. O log está em %@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Хост остановился до готовности. Его журнал: %@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โฮสต์หยุดก่อนพร้อมใช้งาน บันทึกอยู่ที่ %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ana bilgisayar hazır olmadan durdu. Günlüğü: %@."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Хост зупинився до готовності. Його журнал: %@."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máy chủ đã dừng trước khi sẵn sàng. Nhật ký ở %@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "主机在就绪前已停止。日志位于 %@。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "主機在就緒前已停止。記錄位於 %@。"
+          }
+        }
+      }
+    },
     "remoteBrowser.localHost.failed": {
       "extractionState": "manual",
       "localizations": {
@@ -783,6 +914,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "此版本沒有遠端瀏覽器主機。請將 %@ 設定為 cmux-remote-browser-host 應用程式。"
+          }
+        }
+      }
+    },
+    "remoteBrowser.localHost.timedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم يصبح المضيف جاهزًا خلال %1$d ثانية وتم إيقافه. سجله في %2$@."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Host nije bio spreman u roku od %1$d sekundi i zaustavljen je. Njegov dnevnik je u %2$@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Værten blev ikke klar inden for %1$d sekunder og blev stoppet. Dens log ligger i %2$@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Host war nicht innerhalb von %1$d Sekunden bereit und wurde beendet. Sein Protokoll liegt unter %2$@."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The host did not get ready within %1$d seconds and was stopped. Its log is at %2$@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El host no estuvo listo en %1$d segundos y se detuvo. Su registro está en %2$@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’hôte n’était pas prêt dans les %1$d secondes et a été arrêté. Son journal se trouve dans %2$@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’host non era pronto entro %1$d secondi ed è stato arrestato. Il suo log è in %2$@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホストが %1$d 秒以内に準備できなかったため停止しました。ログ: %2$@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ាស៊ីនមិនបានរួចរាល់ក្នុង %1$d វិនាទី ហើយត្រូវបានបញ្ឈប់។ កំណត់ហេតុរបស់វានៅ %2$@។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "호스트가 %1$d초 안에 준비되지 않아 중지했습니다. 로그 위치: %2$@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Verten ble ikke klar innen %1$d sekunder og ble stoppet. Loggen ligger i %2$@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Host nie był gotowy w ciągu %1$d s i został zatrzymany. Jego dziennik jest w %2$@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O host não ficou pronto em %1$d segundos e foi parado. O log está em %2$@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Хост не был готов в течение %1$d с и был остановлен. Его журнал: %2$@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โฮสต์ไม่พร้อมภายใน %1$d วินาทีและถูกหยุด บันทึกอยู่ที่ %2$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ana bilgisayar %1$d saniye içinde hazır olmadı ve durduruldu. Günlüğü: %2$@."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Хост не був готовий протягом %1$d с і його зупинено. Його журнал: %2$@."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máy chủ không sẵn sàng trong %1$d giây và đã bị dừng. Nhật ký ở %2$@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "主机未在 %1$d 秒内就绪，已停止。日志位于 %2$@。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "主機未在 %1$d 秒內就緒，已停止。記錄位於 %2$@。"
           }
         }
       }

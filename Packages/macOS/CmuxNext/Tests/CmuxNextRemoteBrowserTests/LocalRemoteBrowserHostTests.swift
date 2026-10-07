@@ -67,6 +67,9 @@ struct LocalRemoteBrowserHostTests {
         let record = root.appending(path: "record")
         let host = root.appending(path: "host")
         try Self.makeExecutable(host, script: """
+        read -r secret
+        printf '%s' "$secret" > "\(record.path).secret"
+        env > "\(record.path).env"
         printf '%s\\n' "$@" > "\(record.path).args"
         printf '%s' "$CMUX_RB_CACHE_DIR" > "\(record.path).cache"
         echo 'serve: starting' >&2
@@ -79,6 +82,12 @@ struct LocalRemoteBrowserHostTests {
         let page = try #require(URL(string: "https://example.com/"))
         let started = try await LocalRemoteBrowserHost.start(executable: host, pageURL: page, workRoot: root)
         #expect(started.endpoint.port == 52144)
+        // The secret is the lifeline's first line: 64 hex characters, never in argv or the environment.
+        let secret = try String(contentsOf: URL(fileURLWithPath: record.path + ".secret"), encoding: .utf8)
+        #expect(secret == started.secret)
+        #expect(secret.count == 64 && secret.allSatisfy(\.isHexDigit))
+        let environment = try String(contentsOf: URL(fileURLWithPath: record.path + ".env"), encoding: .utf8)
+        #expect(!environment.contains(secret))
         let arguments = try String(contentsOf: URL(fileURLWithPath: record.path + ".args"), encoding: .utf8)
         #expect(arguments == "--serve\n--listen\n127.0.0.1:0\n--lifeline\n--url\nhttps://example.com/\n")
         let cache = try String(contentsOf: URL(fileURLWithPath: record.path + ".cache"), encoding: .utf8)
@@ -95,6 +104,7 @@ struct LocalRemoteBrowserHostTests {
         #expect(!FileManager.default.fileExists(atPath: cache))
         let log = try String(contentsOf: started.logURL, encoding: .utf8)
         #expect(log.contains("serve: starting"))
+        #expect(!arguments.contains(secret) && !log.contains(secret))
     }
 
     @Test func aHostThatExitsBeforeListeningFailsWithItsLog() async throws {
@@ -113,6 +123,49 @@ struct LocalRemoteBrowserHostTests {
             let text = try String(contentsOf: log, encoding: .utf8)
             #expect(text.contains("CEF init failed"))
         }
+    }
+
+    @Test func secretsAreFreshCSPRNGHex() throws {
+        let first = try #require(LocalRemoteBrowserHost.makeSecret())
+        let second = try #require(LocalRemoteBrowserHost.makeSecret())
+        #expect(first.count == 64 && first.allSatisfy(\.isHexDigit) && first != second)
+    }
+
+    /// A hung host (never listens) is stopped at the start deadline and the
+    /// caller gets a timeout naming its log; the tab never waits forever.
+    @Test func aHostThatNeverListensTimesOutAndIsStopped() async throws {
+        let root = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let host = root.appending(path: "host")
+        try Self.makeExecutable(host, script: """
+        echo 'serve: hung in CEF init' >&2
+        exec sleep 600
+        """)
+        do {
+            _ = try await LocalRemoteBrowserHost.start(executable: host, pageURL: nil, workRoot: root, timeout: .milliseconds(300))
+            Issue.record("start returned for a host that never listened")
+        } catch let LocalRemoteBrowserHost.Failure.timedOut(_, log) {
+            let text = try String(contentsOf: log, encoding: .utf8)
+            #expect(text.contains("hung in CEF init"))
+        }
+    }
+
+    /// A host that listens before the deadline keeps running after it.
+    @Test func aHostThatListensInTimeOutlivesTheDeadline() async throws {
+        let root = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let host = root.appending(path: "host")
+        try Self.makeExecutable(host, script: """
+        read -r secret
+        echo '{"listening":"127.0.0.1:52145"}'
+        cat > /dev/null
+        exit 5
+        """)
+        let started = try await LocalRemoteBrowserHost.start(executable: host, pageURL: nil, workRoot: root, timeout: .milliseconds(200))
+        try await Task.sleep(for: .milliseconds(500))
+        #expect(kill(started.processIdentifier, 0) == 0, "the deadline stopped a listening host")
+        started.stop()
+        #expect(await started.exitStatus() == 5)
     }
 
     @Test func aMissingExecutableFailsToLaunch() async throws {

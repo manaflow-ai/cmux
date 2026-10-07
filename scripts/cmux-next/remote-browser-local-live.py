@@ -176,6 +176,48 @@ try:
          first and len(hosts) == 1, {"open": report["open"], "session": first, "hosts": hosts})
     tab1 = first and first["tab"]
 
+    # Another local process without the per-launch secret is refused before the welcome.
+    def raw_hello(port, token):
+        body = {"t": "hello", "user": "intruder", "install": "raw", "class": "c", "interactive": True,
+                "udp_port": None, "max_datagram": 1200, "token": token, "service": "rb/1", "caps": ["input.service"]}
+        payload = json.dumps(body).encode()
+        conn = socket.create_connection(("127.0.0.1", port), timeout=10)
+        conn.sendall(bytes([1]) + len(payload).to_bytes(4, "little") + payload)
+        data = b""
+        try:
+            while len(data) < 5 or len(data) < 5 + int.from_bytes(data[1:5], "little"):
+                chunk = conn.recv(65536)
+                if not chunk:
+                    break
+                data += chunk
+        except OSError:
+            pass
+        conn.close()
+        return json.loads(data[5:5 + int.from_bytes(data[1:5], "little")]) if len(data) >= 5 else None
+
+    # The host takes one viewer at a time, so the refusal is checked on a second host started the
+    # way the app starts one (secret as the first lifeline line).
+    exe = os.path.join(os.path.abspath(opts.host_app), "Contents/MacOS/cmux-remote-browser-host")
+    secret = os.urandom(32).hex()
+    cache = tempfile.mkdtemp(prefix="rb-live-cache-")
+    probe_host = subprocess.Popen([exe, "--serve", "--listen", "127.0.0.1:0", "--lifeline"], stdin=subprocess.PIPE,
+                                  stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
+                                  env=dict(os.environ, CMUX_RB_CACHE_DIR=cache))
+    try:
+        probe_host.stdin.write(secret + "\n")
+        probe_host.stdin.flush()
+        port = int(json.loads(probe_host.stdout.readline())["listening"].rsplit(":", 1)[1])
+        replies = {"none": raw_hello(port, None), "wrong": raw_hello(port, "00" * 32), "right": raw_hello(port, secret)}
+    finally:
+        probe_host.stdin.close()
+        try:
+            probe_host.wait(30)
+        except subprocess.TimeoutExpired:
+            probe_host.kill()
+    step("a local connection without the host's secret is refused; the secret is welcomed",
+         (replies["none"] or {}).get("t") == "refused" and (replies["wrong"] or {}).get("t") == "refused"
+         and (replies["right"] or {}).get("t") == "welcome", {"replies": replies})
+
     # Hover over the pointer link: rb.cursor.
     rb("move", tab=tab1, x=60, y=24)
     hover = wait(lambda: session_where(lambda s: s["tab"] == tab1 and s.get("cursor") == "pointer"), 15)

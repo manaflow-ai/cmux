@@ -41,10 +41,10 @@ public final class RemoteBrowserSession: RemoteBrowserPageChannel {
     /// `endpoint`; `url` is the first page to load. Nil when the core cannot
     /// allocate the transport or the client. Call `session(of:)?.start()`.
     public static func makeTab(
-        record: RemoteBrowserTabRecord, id: BrowserTabID, profile: BrowserProfileID, viewer: String
+        record: RemoteBrowserTabRecord, id: BrowserTabID, profile: BrowserProfileID, viewer: String, token: String? = nil
     ) -> RemoteBrowserTab? {
         guard let session = RemoteBrowserSession(endpoint: record.endpoint, tabKey: id.rawValue, viewer: viewer,
-                                                 initialURL: record.initialURL) else { return nil }
+                                                 initialURL: record.initialURL, token: token) else { return nil }
         let tab = RemoteBrowserTab(id: id, profile: profile, url: record.initialURL ?? record.url, pane: session.pane, channel: session)
         session.tab = tab
         return tab
@@ -55,8 +55,8 @@ public final class RemoteBrowserSession: RemoteBrowserPageChannel {
         tab.channel as? RemoteBrowserSession
     }
 
-    private init?(endpoint: RemoteRdLoopbackEndpoint, tabKey: String, viewer: String, initialURL: URL?) {
-        guard let transport = RemoteRdStreamTransport.remoteBrowser(endpoint: endpoint, user: NSUserName(), install: viewer),
+    private init?(endpoint: RemoteRdLoopbackEndpoint, tabKey: String, viewer: String, initialURL: URL?, token: String?) {
+        guard let transport = RemoteRdStreamTransport.remoteBrowser(endpoint: endpoint, user: NSUserName(), install: viewer, token: token),
               let client = RbClient() else { return nil }
         self.transport = transport
         self.client = client
