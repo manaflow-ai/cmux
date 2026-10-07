@@ -18,8 +18,6 @@ nonisolated extension ReleaseNotes {
         /// A commit subject: "Title (#1234)" gives the title and PR 1234;
         /// a subject without that suffix is the whole title (no author).
         public init(subject: String) {
-            self.init(title: subject)
-            return  // red: UPDATE-CARD not implemented
             let text = subject.trimmingCharacters(in: .whitespaces)
             guard text.hasSuffix(")"), let open = text.range(of: "(#", options: .backwards) else {
                 self.init(title: text)

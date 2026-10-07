@@ -9,7 +9,9 @@ import CmuxNextDesign
 extension SidebarView {
     func installUpdateCard() {
         let card = updateCardView
-        // red: UPDATE-CARD not implemented
+        card.onInstall = { [weak self] in self?.model.send(.installUpdate) }
+        card.onAutomaticUpdates = { [weak self] on in self?.model.send(.setAutomaticUpdates(on)) }
+        card.onOpenLink = { [weak self] url in self?.model.send(.openUpdateLink(url)) }
         addSubview(card)
     }
 

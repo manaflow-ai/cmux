@@ -8,13 +8,17 @@ import CmuxNextDesign
 // network.
 extension SidebarUpdateCardView {
     /// Opens the popover beside the card (toward the content, away from
-    /// the window edge). No-op without a card or a window.
+    /// the window edge). No-op without a card or a window. A popover that
+    /// is still closing (the pointer left and came back) opens again.
     func showNotes() {
-        guard card != nil, window != nil, !isHiddenOrHasHiddenAncestor, popover?.isShown != true else { return }
+        guard card != nil, window != nil, !isHiddenOrHasHiddenAncestor else { return }
         let popover = popover ?? makePopover()
         self.popover = popover
         popover.appearance = effectiveAppearance
         notesView.applyColors()
+        notesView.layoutSubtreeIfNeeded()
+        // The content's own size: a zero first size would show nothing.
+        popover.contentSize = notesView.fittingSize
         popover.show(relativeTo: bounds, of: self, preferredEdge: .maxX)
     }
 

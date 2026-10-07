@@ -16,8 +16,8 @@ nonisolated public struct UpdateReadyCard: Equatable, Sendable {
     public var notes: UpdateReadyNotes
 
     public init(version: String?, isInstalling: Bool, automaticUpdates: Bool, notes: UpdateReadyNotes) {
-        title = UpdaterStrings.readyToInstall  // red: UPDATE-CARD not implemented
-        buttonTitle = UpdaterStrings.readyToInstall
+        title = version.map(UpdaterStrings.cardReady) ?? UpdaterStrings.cardReadyNoVersion
+        buttonTitle = isInstalling ? UpdaterStrings.installing : UpdaterStrings.restartToUpdate
         self.isInstalling = isInstalling
         automaticUpdatesTitle = UpdaterStrings.automaticUpdates
         self.automaticUpdates = automaticUpdates
@@ -49,7 +49,7 @@ nonisolated public struct UpdateReadyNotes: Equatable, Sendable {
     public init(version: String?, notes: ReleaseNotes?, fullNotesURL: URL?, limit: Int = UpdateReadyNotes.shownChanges) {
         headline = version.map(UpdaterStrings.downloadedHeadline) ?? UpdaterStrings.downloadedHeadlineNoVersion
         keepsRunning = UpdaterStrings.keepsRunning
-        let all: [ReleaseNotes.ChangeItem] = []  // red: UPDATE-CARD not implemented
+        let all = notes?.changeItems ?? []
         changes = Array(all.prefix(max(0, limit)))
         whatsChangedTitle = changes.isEmpty ? nil : UpdaterStrings.whatsChanged
         moreCount = all.count - changes.count
