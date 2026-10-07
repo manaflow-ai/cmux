@@ -175,5 +175,6 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         unread: false,
         last_turn: None,
         remote_origin: d.remote,
+        harness_roots: vec![],
     }
 }
