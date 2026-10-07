@@ -198,3 +198,19 @@ after its subscription is acknowledged. `pending` holds named replies for a load
 `failures` sends typed host errors, and `hash` sets the page's real route. The frame installs
 the bridge before importing the page's own `main.tsx`. Use `play` for controls and readiness
 checks, including the editor's lazy syntax renderer.
+
+## Viewer picks
+
+An entry opts into tracker comments with
+`pick: { beadId: "cx-czd", recommendedId: "a" }`. In **All variants**, the gallery
+uses `ui/variant-pick/VariantPick` for side-by-side previews, one Recommended
+badge, and Pick buttons. Arrow keys move between buttons; Return records the
+choice. The optional note is limited to 500 characters. Other gallery views keep
+their existing stage behavior. Entries without a related bead remain read-only.
+
+`ui.variant-pick` demonstrates gallery, thread, and five-option layouts. Picks
+inside its fixture previews are local, including its play step. Only the outer
+gallery comparison writes a real comment to `cx-czd` through `/api/pick`.
+The gallery cannot confirm a pick until the lead installs the reviewed endpoint.
+The feed sink is a no-op pending Leo's integration; no feed post is claimed.
+See `src/ui/variant-pick/README.md` for the common API and in-thread adapter.
