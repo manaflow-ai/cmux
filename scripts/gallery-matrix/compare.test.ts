@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeAfterThumb, changedBoxes, compareRuns, diffMask, type Outcome } from "./compare";
-import { COMMENT_MARKER, commentMarkdown, diffPage, feedSummary, summaryLine } from "./report";
+import { COMMENT_MARKER, commentMarkdown, diffPage, feedSummary, liveBase, summaryLine } from "./report";
 
 const root = mkdtempSync(join(tmpdir(), "gallery-pr-"));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -214,6 +214,33 @@ test("the comment is marked, links the diff page and shows thumbnails; nondeterm
     '<img src="https://raw/pr-media/18189/gallery-e574a65-agent-pane.composer--idle-chromium.png" width="480">',
   );
   expect(md).toContain("1 nondeterministic state differed from a second render");
+});
+
+test("the comment links each changed or new state's page in the branch's live preview, path only", () => {
+  expect(liveBase("next/Composer-Queue_actions")).toBe("/wt/next-composer-queue-actions/");
+  expect(liveBase("a".repeat(39) + "/b")).toBe(`/wt/${"a".repeat(39)}/`);
+  expect(liveBase("///")).toBeUndefined();
+  const live = { ...meta, links: { ...meta.links, live: liveBase("next/composer-queue-actions") } };
+  const md = commentMarkdown(
+    [
+      outcome({ theme: "Dark" }),
+      outcome({ theme: "Light" }),
+      outcome({ entry: "pages.diff", variant: "split", status: "new" }),
+      outcome({ variant: "same", status: "unchanged" }),
+      outcome({ variant: "x#/../y" }),
+    ],
+    live,
+  );
+  expect(md).toContain(
+    "- agent-pane.composer/idle: `/wt/next-composer-queue-actions/?entry=agent-pane.composer#/agent-pane.composer/idle`",
+  );
+  expect(md).toContain("- pages.diff/split: `/wt/next-composer-queue-actions/?entry=pages.diff#/pages.diff/split`");
+  // One line per page (themes share it), none for unchanged states or unsafe names, and no host.
+  expect(md.match(/agent-pane\.composer\/idle: /g)).toHaveLength(1);
+  expect(md).not.toContain("/same`");
+  expect(md).not.toContain("#/agent-pane.composer/x#");
+  expect(md).not.toContain("https://cmux");
+  expect(commentMarkdown([outcome({})], meta)).not.toContain("Live preview");
 });
 
 test("the diff page embeds its data safely and lists changed states first", () => {

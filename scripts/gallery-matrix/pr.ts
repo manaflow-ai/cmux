@@ -6,7 +6,7 @@
 //   bun pr.ts --base base-run --head head-run --repeat head-run-2 \
 //     --base-manifest base.json --head-manifest head.json --out diff \
 //     --pr 18189 --head-sha <sha> --base-sha <sha> [--diff-url U] [--gallery-url U] [--matrix-url U]
-//     [--artifact-url U] [--thumb-base U]
+//     [--artifact-url U] [--thumb-base U] [--branch B (the live preview /wt/<name>/ in the comment)]
 //
 // With --outcomes (an earlier run's outcomes.json) it only writes the reports, so a publisher can
 // rebuild the comment from data without running the comparison or the PR's code.
@@ -14,7 +14,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { compareRuns, type Outcome } from "./compare";
-import { commentMarkdown, commentThumbs, diffPage, feedSummary, type ReportMeta } from "./report";
+import { commentMarkdown, commentThumbs, diffPage, feedSummary, liveBase, type ReportMeta } from "./report";
 
 const caseIds = (file: string | undefined) =>
   new Set(
@@ -39,6 +39,7 @@ if (import.meta.main) {
       "matrix-url": { type: "string" },
       "thumb-base": { type: "string" },
       "artifact-url": { type: "string" },
+      branch: { type: "string" },
     },
   });
   const required = values.outcomes
@@ -67,6 +68,7 @@ if (import.meta.main) {
       matrix: values["matrix-url"],
       thumbBase: values["thumb-base"],
       artifact: values["artifact-url"],
+      live: values.branch ? liveBase(values.branch) : undefined,
     },
   };
   writeFileSync(join(out, "outcomes.json"), `${JSON.stringify(outcomes, null, 2)}\n`);

@@ -12,6 +12,8 @@ export type ReportLinks = {
   artifact?: string;
   /** The thumbnails' URL prefix: a state's thumbnail is this followed by its key (pr-media raw URLs). */
   thumbBase?: string;
+  /** The branch's live gallery preview (`/wt/<name>/`, liveBase), on the tailnet gallery host. */
+  live?: string;
 };
 export type ReportMeta = { pr: number; head: string; base: string; links: ReportLinks };
 
@@ -105,6 +107,38 @@ export const thumbUrl = (o: Outcome, meta: ReportMeta) =>
 export const commentThumbs = (outcomes: Outcome[], meta: ReportMeta) =>
   outcomes.filter((o) => o.status === "changed" && thumbUrl(o, meta)).slice(0, COMMENT_THUMBS);
 
+/** The live preview's path for a branch: gallery-live.sh's preview name (lower case, [a-z0-9-] runs,
+ *  at most 40 characters). The comment gives the path only; the host is tailnet-only. */
+export function liveBase(branch: string): string | undefined {
+  const name = branch
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 40)
+    .replace(/-$/, "");
+  return name ? `/wt/${name}/` : undefined;
+}
+
+/** A state's page in the live preview: `/wt/<name>/?entry=<id>#/<id>/<variant>`. */
+export const liveLink = (o: Outcome, meta: ReportMeta) =>
+  meta.links.live && SAFE_KEY.test(o.entry) && SAFE_KEY.test(o.variant)
+    ? `${meta.links.live}?entry=${o.entry}#/${o.entry}/${o.variant}`
+    : undefined;
+
+/** One live link per changed or new entry and variant (themes and engines share a page). */
+function liveLinks(outcomes: Outcome[], meta: ReportMeta): string[] {
+  const seen = new Set<string>();
+  const links: string[] = [];
+  for (const o of outcomes) {
+    if (o.status !== "changed" && o.status !== "new") continue;
+    const link = liveLink(o, meta);
+    if (!link || seen.has(link)) continue;
+    seen.add(link);
+    links.push(`- ${escapeMd(`${o.entry}/${o.variant}`)}: \`${link}\``);
+  }
+  return links;
+}
+
 const escapeMd = (text: string) => text.replace(/[\r\n]+/g, " ").replace(/[|[\]<>`*_\\]/g, (c) => `\\${c}`);
 
 export function commentMarkdown(outcomes: Outcome[], meta: ReportMeta): string {
@@ -125,6 +159,16 @@ export function commentMarkdown(outcomes: Outcome[], meta: ReportMeta): string {
     for (const o of commentThumbs(outcomes, meta))
       lines.push(`| ${escapeMd(stateLabel(o, outcomes))} | <img src="${thumbUrl(o, meta)}" width="480"> |`);
     if (changed.length > COMMENT_THUMBS) lines.push("", `${changed.length - COMMENT_THUMBS} more on the diff page.`);
+    lines.push("");
+  }
+  const live = liveLinks(outcomes, meta);
+  if (live.length) {
+    lines.push(
+      "**Live preview** (follows this branch; start it with `scripts/gallery-live.sh up <branch>` from an hq checkout):",
+      "",
+    );
+    lines.push(...live.slice(0, COMMENT_THUMBS));
+    if (live.length > COMMENT_THUMBS) lines.push(`- ${live.length - COMMENT_THUMBS} more on the diff page`);
     lines.push("");
   }
   const failed = playFailures(outcomes);

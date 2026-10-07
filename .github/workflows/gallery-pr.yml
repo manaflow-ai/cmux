@@ -152,6 +152,7 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           BASE_SHA: ${{ steps.base.outputs.sha }}
+          BRANCH: ${{ github.event.pull_request.head.ref }}
           ARTIFACT_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}#artifacts
         run: |
           set -euo pipefail
@@ -159,7 +160,7 @@ jobs:
           bun pr.ts --base "$RUNNER_TEMP/runs/base" --head "$RUNNER_TEMP/runs/head" --repeat "$RUNNER_TEMP/runs/repeat" \
             --base-manifest "$RUNNER_TEMP/base.json" --head-manifest "$RUNNER_TEMP/head.json" \
             --out "$RUNNER_TEMP/gallery-pr/diff" --pr "$PR" --head-sha "$HEAD_SHA" --base-sha "$BASE_SHA" \
-            --artifact-url "$ARTIFACT_URL"
+            --artifact-url "$ARTIFACT_URL" --branch "$BRANCH"
           cp "$RUNNER_TEMP/touched.json" "$RUNNER_TEMP/gallery-pr/"
           cp -r "$RUNNER_TEMP/gallery-head" "$RUNNER_TEMP/gallery-pr/gallery"
           cp -r "$RUNNER_TEMP/runs/head" "$RUNNER_TEMP/gallery-pr/matrix"
@@ -220,6 +221,7 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           BASE_SHA: ${{ needs.render.outputs.base_sha }}
+          BRANCH: ${{ github.event.pull_request.head.ref }}
           ARTIFACT_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}#artifacts
         run: |
           set -euo pipefail
@@ -228,7 +230,8 @@ jobs:
           report="$RUNNER_TEMP/report"
           (cd scripts/gallery-matrix && bun install --frozen-lockfile --ignore-scripts && \
             bun pr.ts --outcomes "$RUNNER_TEMP/render/diff/outcomes.json" --out "$report" --pr "$PR" \
-              --head-sha "$HEAD_SHA" --base-sha "$BASE_SHA" --artifact-url "$ARTIFACT_URL" --thumb-base "$thumb_base")
+              --head-sha "$HEAD_SHA" --base-sha "$BASE_SHA" --artifact-url "$ARTIFACT_URL" --thumb-base "$thumb_base" \
+              --branch "$BRANCH")
           upload="$RUNNER_TEMP/upload"
           mkdir -p "$upload"
           while IFS= read -r key; do

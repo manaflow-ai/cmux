@@ -39,6 +39,7 @@ The Freestyle path installs the declared Bun dependencies and Playwright browser
 
 - `index.html`: changed states first, each as a highlight overlay (changed regions boxed), a before/after slider and an onion skin; then new, removed, broken (the head stage did not mount) and nondeterministic states; unchanged states folded.
 - `comment.md`: the sticky PR comment ("7 states changed: agent-pane.composer/streaming, ...") with before/after thumbnails of the changed regions.
+  With `--branch`, it also gives each changed or new state's page in the branch's live preview: `/wt/<name>/?entry=<id>#/<id>/<variant>`, where `<name>` is the branch as `gallery-live.sh` names it (hq `scripts/gallery-live.sh up <branch>` starts the preview, which follows the pushed branch). The comment gives only the path, because the gallery host is tailnet-only.
 - `summary.json`: the same summary for the team feed's PR card.
 
 A variant with `play` steps (webviews/src/gallery/ENTRIES.md, "Play steps and checks") also gets a filmstrip. The stage calls the runner's `cmuxGalleryStep` once each step settles, and the runner keeps that still as `<case>-<engine>--step-NN.png`. Each step's still is compared like a state, so a state whose final picture holds but whose steps moved still counts as changed. The page shows each step with its layout shift and long frames, next to the base's when they differ. A failed play check is listed in the summary, the comment and the feed.
