@@ -7,7 +7,10 @@ export function parseThemeSpec(value: unknown): ThemeSpec | null {
   if (typeof value !== "string" || value.trim() === "") return null;
   const parts = value.split(",").map((part) => part.trim());
   const side = (prefix: string) =>
-    parts.find((part) => part.toLowerCase().startsWith(`${prefix}:`))?.slice(prefix.length + 1).trim();
+    parts
+      .find((part) => part.toLowerCase().startsWith(`${prefix}:`))
+      ?.slice(prefix.length + 1)
+      .trim();
   const light = side("light");
   const dark = side("dark");
   if (light !== undefined || dark !== undefined) return { kind: "pair", light: light ?? dark!, dark: dark ?? light! };

@@ -137,9 +137,9 @@ Object.assign(variants, {
   "unsupported-rooms": variant("rooms", { host: { ...host, rooms: null } }),
   "empty-machines": variant("machines", { host: { ...host, machines: [] } }),
   "long-rooms": variant("rooms", { host: { ...host, rooms: longRows, browser_profiles: longProfiles } }),
-  "long-profiles": variant("rooms", { host: { ...host, rooms: [], browser_profiles: longProfiles } }),
+  "long-profiles": variant("browser", { host: { ...host, rooms: [], browser_profiles: longProfiles } }),
   "long-machines": variant("machines", { host: { ...host, machines: longRows } }),
-  "profile-editor": variant("rooms", {
+  "profile-editor": variant("browser", {
     steps: [
       click('[data-profile="p-work"] .host-toggle'),
       wait(".host-form"),
@@ -194,7 +194,14 @@ Object.assign(variants, {
   "theme-managed": variant("theme", {
     allThemes: true,
     options: {
-      managed: { "appearance.theme": { value: "GitHub Light Default", source: "profile", reason: "Set by your organization", team: "Acme" } },
+      managed: {
+        "appearance.theme": {
+          value: "GitHub Light Default",
+          source: "profile",
+          reason: "Set by your organization",
+          team: "Acme",
+        },
+      },
     },
     note: "An MDM lock inline on the setting.",
   }),
@@ -203,11 +210,11 @@ Object.assign(variants, {
     steps: [click("[data-changed-only]"), wait("[data-search-results]")],
     note: "Show Only Changed lists every changed setting across categories.",
   }),
-  "font-picker": variant("terminal", {
+  "font-picker": variant("appearance", {
     steps: [click(`${row("terminal.fontFamily")} .domain-button`), wait(".domain-panel")],
   }),
-  "domains-unavailable": variant("terminal", { options: { domains: null } }),
-  "theme-text-fallback": variant("appearance", { options: { domains: null } }),
+  "domains-unavailable": variant("appearance", { options: { domains: null } }),
+  "theme-text-fallback": variant("theme", { options: { domains: null } }),
   "invalid-search-template": variant("browser", {
     focus: "browser.customSearchEngine.search",
     options: { values: { "browser.customSearchEngine.search": "https://search.example.test/" } },
@@ -228,7 +235,7 @@ Object.assign(variants, {
       wait(".host-list [role=alert]"),
     ],
   }),
-  "write-error": variant("general", {
+  "write-error": variant("privacy", {
     options: { failing: { "cmux.settings.set": "cmux.settings.permission_denied" } },
     steps: [
       click(`${row("history.terminalCommands")} button:not(:disabled)`),

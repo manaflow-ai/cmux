@@ -43,7 +43,16 @@ export type MockOptions = {
 };
 
 export const mockDomains: Domains = {
-  themes: ["Catppuccin Mocha", "Dracula", "GitHub Light", "Gruvbox Dark", "Solarized Light", "Tokyo Night"],
+  themes: [
+    "Apple System Colors",
+    "Apple System Colors Light",
+    "Catppuccin Mocha",
+    "Dracula",
+    "GitHub Light",
+    "Gruvbox Dark",
+    "Solarized Light",
+    "Tokyo Night",
+  ],
   font_families: ["Berkeley Mono", "Iosevka", "JetBrains Mono", "Menlo", "SF Mono"],
   sounds: ["default", "Basso", "Funk", "Glass", "Ping", "Submarine", "none"],
 };

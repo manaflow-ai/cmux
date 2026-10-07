@@ -182,8 +182,7 @@ export function fit(color: RGB, constraints: Constraint[], prefer?: "lighter" | 
   if (meets(start, constraints)) return start;
   const lch = toOklch(start);
   const darkBackgrounds =
-    constraints.reduce((sum, constraint) => sum + luminance(constraint.on), 0) / Math.max(constraints.length, 1) <
-    0.18;
+    constraints.reduce((sum, constraint) => sum + luminance(constraint.on), 0) / Math.max(constraints.length, 1) < 0.18;
   const first = prefer ?? (darkBackgrounds ? "lighter" : "darker");
   for (const direction of [first, first === "lighter" ? "darker" : "lighter"] as const) {
     const pole = direction === "lighter" ? 1 : 0;
@@ -203,7 +202,8 @@ export function fit(color: RGB, constraints: Constraint[], prefer?: "lighter" | 
   return white >= black ? WHITE : BLACK;
 }
 
-const rgbOf = (hex: string | null | undefined, fallback: string): RGB => (hex ? parseHex(hex) : null) ?? parseHex(fallback)!;
+const rgbOf = (hex: string | null | undefined, fallback: string): RGB =>
+  (hex ? parseHex(hex) : null) ?? parseHex(fallback)!;
 
 /** The more colorful of two slots (the normal and the bright variant of one ANSI color). */
 function colorful(palette: ReadonlyArray<RGB>, normal: number, bright: number): RGB {
@@ -259,7 +259,11 @@ function derive(colors: TerminalColors, tint: number): AppTheme {
   tokens.selection = quantized(mix(bg, tokens.accent, (isDark ? 0.26 : 0.16) * tint));
 
   tokens.text = fit(fg, on(TEXT_SURFACES, TEXT_MINIMUM));
-  tokens.textSecondary = fit(mix(tokens.text, bg, 0.34), on(TEXT_SURFACES, TEXT_MINIMUM), isDark ? "lighter" : "darker");
+  tokens.textSecondary = fit(
+    mix(tokens.text, bg, 0.34),
+    on(TEXT_SURFACES, TEXT_MINIMUM),
+    isDark ? "lighter" : "darker",
+  );
   tokens.icon = fit(mix(tokens.text, bg, 0.3), on(TEXT_SURFACES, UI_MINIMUM), isDark ? "lighter" : "darker");
   tokens.controlStroke = fit(
     mix(bg, fg, 0.42),
@@ -289,6 +293,9 @@ export function contrastReport(theme: AppTheme): ContrastResult[] {
 /** The tokens as CSS custom properties (`--cmux-app-*`), for a page or a preview element. */
 export function appThemeVariables(theme: AppTheme): Record<string, string> {
   return Object.fromEntries(
-    (Object.keys(APP_THEME_TOKENS) as AppTokenName[]).map((name) => [APP_THEME_TOKENS[name].variable, theme.tokens[name]]),
+    (Object.keys(APP_THEME_TOKENS) as AppTokenName[]).map((name) => [
+      APP_THEME_TOKENS[name].variable,
+      theme.tokens[name],
+    ]),
   );
 }

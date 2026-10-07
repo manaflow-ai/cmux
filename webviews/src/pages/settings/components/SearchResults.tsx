@@ -14,7 +14,11 @@ export function SearchResults({ query, changedOnly = false }: { query: string; c
     isChanged: (key) => state.rows.get(key)?.customized ?? false,
   });
   if (groups.length === 0)
-    return <p className="empty">{changedOnly && !query.trim() ? t("settingsPage.noChanged") : t("settingsPage.noResults")}</p>;
+    return (
+      <p className="empty">
+        {changedOnly && !query.trim() ? t("settingsPage.noChanged") : t("settingsPage.noResults")}
+      </p>
+    );
   return (
     <div className="search-results" data-search-results="">
       {groups.map(({ category, groups: matched }) => (

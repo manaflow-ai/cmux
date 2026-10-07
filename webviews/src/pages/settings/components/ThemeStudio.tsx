@@ -14,6 +14,7 @@ import { managedOf, managedText, valueOf } from "../store";
 import { t, text } from "../strings";
 import { formatThemeSpec, parseThemeSpec, themeFor, type ThemeSpec } from "../themeSpec";
 import { ScopeOverrides } from "./ScopeOverrides";
+import { SettingRow } from "./SettingRow";
 import { ThemePalette, ThemePreview } from "./ThemePreview";
 import { ThemePicker } from "./ThemePicker";
 
@@ -53,8 +54,7 @@ export function ThemeStudio() {
   const hasApp = host !== undefined && "app" in host;
   const appTheme = hasApp ? (host.app ?? null) : null;
 
-  const terminalName =
-    previewing?.target === "terminal" ? previewing.name : themeFor(spec, scheme, config);
+  const terminalName = previewing?.target === "terminal" ? previewing.name : themeFor(spec, scheme, config);
   const appName = previewing?.target === "app" ? previewing.name : (appTheme ?? terminalName);
   const lookup = (name: string): GhosttyTheme | undefined =>
     colors?.get(name) ?? colors?.get(scheme === "dark" ? DEFAULT_DARK : DEFAULT_LIGHT);
@@ -118,59 +118,71 @@ export function ThemeStudio() {
       <section className="group">
         <h3 className="group-title">{t("settingsPage.theme.terminal")}</h3>
         <div className="rows">
-          <div className="row" data-theme-row="match">
-            <div className="row-main">
-              <div className="row-label">
-                <div className="row-title" id={ids.match}>
-                  {t("settingsPage.theme.matchSystem")}
-                </div>
-                <div className="row-help">{t("settingsPage.theme.matchSystemHelp")}</div>
-              </div>
-              <div className="row-control">
-                <Switch
-                  checked={paired}
-                  disabled={disabled}
-                  labelId={ids.match}
-                  onToggle={(on) => {
-                    const name = themeFor(spec, scheme, config);
-                    if (on) write({ kind: "pair", light: scheme === "light" ? name : DEFAULT_LIGHT, dark: scheme === "dark" ? name : DEFAULT_DARK });
-                    else write({ kind: "single", name });
-                  }}
-                />
-              </div>
-            </div>
-          </div>
-          {paired ? (
-            (["light", "dark"] as const).map((side) => (
-              <div className="row" key={side} data-theme-row={side}>
+          {names.length === 0 ? (
+            // The app published no theme names: the plain setting row (a text field for the spec).
+            <SettingRow row={row} />
+          ) : (
+            <>
+              <div className="row" data-theme-row="match">
                 <div className="row-main">
                   <div className="row-label">
-                    <div className="row-title" id={ids[side]}>
-                      {side === "light" ? t("settingsPage.theme.light") : t("settingsPage.theme.dark")}
+                    <div className="row-title" id={ids.match}>
+                      {t("settingsPage.theme.matchSystem")}
+                    </div>
+                    <div className="row-help">{t("settingsPage.theme.matchSystemHelp")}</div>
+                  </div>
+                  <div className="row-control">
+                    <Switch
+                      checked={paired}
+                      disabled={disabled}
+                      labelId={ids.match}
+                      onToggle={(on) => {
+                        const name = themeFor(spec, scheme, config);
+                        if (on)
+                          write({
+                            kind: "pair",
+                            light: scheme === "light" ? name : DEFAULT_LIGHT,
+                            dark: scheme === "dark" ? name : DEFAULT_DARK,
+                          });
+                        else write({ kind: "single", name });
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+              {paired ? (
+                (["light", "dark"] as const).map((side) => (
+                  <div className="row" key={side} data-theme-row={side}>
+                    <div className="row-main">
+                      <div className="row-label">
+                        <div className="row-title" id={ids[side]}>
+                          {side === "light" ? t("settingsPage.theme.light") : t("settingsPage.theme.dark")}
+                        </div>
+                      </div>
+                      <div className="row-control">{picker(ids[side], current(side), pickSide(side))}</div>
                     </div>
                   </div>
-                  <div className="row-control">{picker(ids[side], current(side), pickSide(side))}</div>
-                </div>
-              </div>
-            ))
-          ) : (
-            <div className="row" data-theme-row="single">
-              <div className="row-main">
-                <div className="row-label">
-                  <div className="row-title" id={ids.theme}>
-                    {text(row.title)}
+                ))
+              ) : (
+                <div className="row" data-theme-row="single">
+                  <div className="row-main">
+                    <div className="row-label">
+                      <div className="row-title" id={ids.theme}>
+                        {text(row.title)}
+                      </div>
+                      <div className="row-help">{t("settingsPage.theme.terminalHelp", names.length)}</div>
+                    </div>
+                    <div className="row-control">
+                      {picker(ids.theme, spec?.kind === "single" ? spec.name : null, (name) =>
+                        write(name ? { kind: "single", name } : null),
+                      )}
+                    </div>
                   </div>
-                  <div className="row-help">{t("settingsPage.theme.terminalHelp", names.length)}</div>
                 </div>
-                <div className="row-control">
-                  {picker(ids.theme, spec?.kind === "single" ? spec.name : null, (name) =>
-                    write(name ? { kind: "single", name } : null),
-                  )}
-                </div>
-              </div>
-            </div>
+              )}
+            </>
           )}
-          {managed && (
+          {managed && names.length > 0 && (
             <div className="row row-note" data-managed-reason="">
               <Icon name="lock" />
               {managedText(managed)}

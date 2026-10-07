@@ -41,7 +41,8 @@ describe("app theme", () => {
     }
     const checked = new Set(APP_THEME_CONTRACT.map((pair) => pair.token));
     for (const [name, spec] of Object.entries(APP_THEME_TOKENS))
-      if (spec.role === "text" || spec.role === "ui") expect({ name, checked: checked.has(name as never) }).toEqual({ name, checked: true });
+      if (spec.role === "text" || spec.role === "ui")
+        expect({ name, checked: checked.has(name as never) }).toEqual({ name, checked: true });
   });
 
   test("the accent hue comes from the theme's palette, never a fixed hue", () => {
@@ -91,7 +92,11 @@ describe("app theme", () => {
 
   test("CSS variables cover every token", () => {
     const variables = appThemeVariables(deriveAppTheme(themes[0]!));
-    expect(Object.keys(variables).sort()).toEqual(Object.values(APP_THEME_TOKENS).map((spec) => spec.variable).sort());
+    expect(Object.keys(variables).sort()).toEqual(
+      Object.values(APP_THEME_TOKENS)
+        .map((spec) => spec.variable)
+        .sort(),
+    );
     for (const value of Object.values(variables)) expect(value).toMatch(/^#[0-9a-f]{6}$/);
   });
 });

@@ -16,7 +16,16 @@ export function ThemeChip({ theme }: { theme: GhosttyTheme | undefined }) {
   const dots = [1, 2, 4, 5].map((index) => theme.palette[index] ?? theme.foreground);
   return (
     <svg className="theme-chip" viewBox="0 0 28 18" aria-hidden="true">
-      <rect x="0.5" y="0.5" width="27" height="17" rx="4" fill={theme.background} stroke="currentColor" strokeOpacity="0.18" />
+      <rect
+        x="0.5"
+        y="0.5"
+        width="27"
+        height="17"
+        rx="4"
+        fill={theme.background}
+        stroke="currentColor"
+        strokeOpacity="0.18"
+      />
       <rect x="4" y="5" width="9" height="2" rx="1" fill={theme.foreground} />
       {dots.map((color, index) => (
         <circle key={index} cx={6 + index * 5.3} cy="12" r="1.9" fill={color} />

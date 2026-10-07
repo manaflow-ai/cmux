@@ -4,10 +4,10 @@ import type { GhosttyTheme } from "../../theme/ghosttyTheme";
 
 export const mockThemeColors: GhosttyTheme[] = [
   {
-    "name": "Apple System Colors",
-    "background": "#1e1e1e",
-    "foreground": "#ffffff",
-    "palette": [
+    name: "Apple System Colors",
+    background: "#1e1e1e",
+    foreground: "#ffffff",
+    palette: [
       "#1a1a1a",
       "#cc372e",
       "#26a439",
@@ -23,18 +23,18 @@ export const mockThemeColors: GhosttyTheme[] = [
       "#0a84ff",
       "#bf5af2",
       "#76d6ff",
-      "#ffffff"
+      "#ffffff",
     ],
-    "selectionBackground": "#3f638b",
-    "selectionForeground": "#ffffff",
-    "cursorColor": "#98989d",
-    "cursorText": "#ffffff"
+    selectionBackground: "#3f638b",
+    selectionForeground: "#ffffff",
+    cursorColor: "#98989d",
+    cursorText: "#ffffff",
   },
   {
-    "name": "Apple System Colors Light",
-    "background": "#feffff",
-    "foreground": "#000000",
-    "palette": [
+    name: "Apple System Colors Light",
+    background: "#feffff",
+    foreground: "#000000",
+    palette: [
       "#1a1a1a",
       "#cc372e",
       "#26a439",
@@ -50,18 +50,18 @@ export const mockThemeColors: GhosttyTheme[] = [
       "#0a84ff",
       "#bf5af2",
       "#69c9f2",
-      "#ffffff"
+      "#ffffff",
     ],
-    "selectionBackground": "#abd8ff",
-    "selectionForeground": "#000000",
-    "cursorColor": "#98989d",
-    "cursorText": "#ffffff"
+    selectionBackground: "#abd8ff",
+    selectionForeground: "#000000",
+    cursorColor: "#98989d",
+    cursorText: "#ffffff",
   },
   {
-    "name": "Catppuccin Mocha",
-    "background": "#1e1e2e",
-    "foreground": "#cdd6f4",
-    "palette": [
+    name: "Catppuccin Mocha",
+    background: "#1e1e2e",
+    foreground: "#cdd6f4",
+    palette: [
       "#45475a",
       "#f38ba8",
       "#a6e3a1",
@@ -77,18 +77,18 @@ export const mockThemeColors: GhosttyTheme[] = [
       "#aeccfc",
       "#f398da",
       "#b1eae1",
-      "#a6adc8"
+      "#a6adc8",
     ],
-    "selectionBackground": "#f5e0dc",
-    "selectionForeground": "#1e1e2e",
-    "cursorColor": "#f5e0dc",
-    "cursorText": "#1e1e2e"
+    selectionBackground: "#f5e0dc",
+    selectionForeground: "#1e1e2e",
+    cursorColor: "#f5e0dc",
+    cursorText: "#1e1e2e",
   },
   {
-    "name": "Dracula",
-    "background": "#282a36",
-    "foreground": "#f8f8f2",
-    "palette": [
+    name: "Dracula",
+    background: "#282a36",
+    foreground: "#f8f8f2",
+    palette: [
       "#21222c",
       "#ff5555",
       "#50fa7b",
@@ -104,18 +104,18 @@ export const mockThemeColors: GhosttyTheme[] = [
       "#d6acff",
       "#ff92df",
       "#a4ffff",
-      "#ffffff"
+      "#ffffff",
     ],
-    "selectionBackground": "#44475a",
-    "selectionForeground": "#ffffff",
-    "cursorColor": "#f8f8f2",
-    "cursorText": "#282a36"
+    selectionBackground: "#44475a",
+    selectionForeground: "#ffffff",
+    cursorColor: "#f8f8f2",
+    cursorText: "#282a36",
   },
   {
-    "name": "GitHub Light",
-    "background": "#ffffff",
-    "foreground": "#1f2328",
-    "palette": [
+    name: "GitHub Light",
+    background: "#ffffff",
+    foreground: "#1f2328",
+    palette: [
       "#24292f",
       "#cf222e",
       "#116329",
@@ -131,18 +131,18 @@ export const mockThemeColors: GhosttyTheme[] = [
       "#218bff",
       "#a475f9",
       "#3192aa",
-      "#8c959f"
+      "#8c959f",
     ],
-    "selectionBackground": "#1f2328",
-    "selectionForeground": "#ffffff",
-    "cursorColor": "#0969da",
-    "cursorText": "#3c9cff"
+    selectionBackground: "#1f2328",
+    selectionForeground: "#ffffff",
+    cursorColor: "#0969da",
+    cursorText: "#3c9cff",
   },
   {
-    "name": "Gruvbox Dark",
-    "background": "#282828",
-    "foreground": "#ebdbb2",
-    "palette": [
+    name: "Gruvbox Dark",
+    background: "#282828",
+    foreground: "#ebdbb2",
+    palette: [
       "#282828",
       "#cc241d",
       "#98971a",
@@ -158,18 +158,18 @@ export const mockThemeColors: GhosttyTheme[] = [
       "#83a598",
       "#d3869b",
       "#8ec07c",
-      "#ebdbb2"
+      "#ebdbb2",
     ],
-    "selectionBackground": "#665c54",
-    "selectionForeground": "#ebdbb2",
-    "cursorColor": "#ebdbb2",
-    "cursorText": "#282828"
+    selectionBackground: "#665c54",
+    selectionForeground: "#ebdbb2",
+    cursorColor: "#ebdbb2",
+    cursorText: "#282828",
   },
   {
-    "name": "Solarized Light",
-    "background": "#fdf6e3",
-    "foreground": "#657b83",
-    "palette": [
+    name: "Solarized Light",
+    background: "#fdf6e3",
+    foreground: "#657b83",
+    palette: [
       "#073642",
       "#dc322f",
       "#859900",
@@ -185,18 +185,18 @@ export const mockThemeColors: GhosttyTheme[] = [
       "#839496",
       "#6c71c4",
       "#93a1a1",
-      "#fdf6e3"
+      "#fdf6e3",
     ],
-    "selectionBackground": "#eee8d5",
-    "selectionForeground": "#586e75",
-    "cursorColor": "#657b83",
-    "cursorText": "#eee8d5"
+    selectionBackground: "#eee8d5",
+    selectionForeground: "#586e75",
+    cursorColor: "#657b83",
+    cursorText: "#eee8d5",
   },
   {
-    "name": "Tokyo Night",
-    "background": "#1a1b26",
-    "foreground": "#c0caf5",
-    "palette": [
+    name: "Tokyo Night",
+    background: "#1a1b26",
+    foreground: "#c0caf5",
+    palette: [
       "#15161e",
       "#f7768e",
       "#9ece6a",
@@ -212,11 +212,11 @@ export const mockThemeColors: GhosttyTheme[] = [
       "#7aa2f7",
       "#bb9af7",
       "#7dcfff",
-      "#c0caf5"
+      "#c0caf5",
     ],
-    "selectionBackground": "#33467c",
-    "selectionForeground": "#c0caf5",
-    "cursorColor": "#c0caf5",
-    "cursorText": "#15161e"
-  }
+    selectionBackground: "#33467c",
+    selectionForeground: "#c0caf5",
+    cursorColor: "#c0caf5",
+    cursorText: "#15161e",
+  },
 ];

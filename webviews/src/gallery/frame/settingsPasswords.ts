@@ -4,7 +4,6 @@ import type { PageFixtureStep, PasswordsPageVariant, SettingsPageVariant } from 
 import type { SettingsClient } from "../../pages/settings/ops";
 import { addPseudoLocales } from "../pseudo";
 import type { StageContext } from "./context";
-import themes from "virtual:cmux-gallery/themes";
 
 async function bridge(client: SettingsClient, ops: string[], streams: string[]) {
   const host = installMockHost(
@@ -68,6 +67,7 @@ export async function mountSettingsPage(state: SettingsPageVariant, context: Sta
   installCatalog(table);
   document.documentElement.lang = context.env.locale;
   const options = structuredClone(state.options ?? {});
+  const themes = state.allThemes ? (await import("virtual:cmux-gallery/themes")).default : [];
   if (state.allThemes) {
     // The app publishes every bundled Ghostty theme and answers their colors.
     const { mockDomains } = await import("../../pages/settings/mockProvider");

@@ -70,13 +70,13 @@ test("Return reveals the row in its section and focuses its control; Esc clears,
 });
 
 test("Up/Down move between rows, Space toggles; dispatcher commands reset, go back and find; chords do nothing", async () => {
-  page = await renderPage({ path: "/settings/general" });
+  page = await renderPage({ path: "/settings/privacy" });
   const sectionRows = [
     ...page.container.querySelectorAll<HTMLElement>(".content [data-row-key], .content [data-action-row]"),
   ];
   await fire(search(page), "keydown", { key: "ArrowDown" });
   expect(document.activeElement).toBe(sectionRows[0]!);
-  // A toggle row by key, so a new row in General does not change what this test drives.
+  // A toggle row by key, so a new row in Privacy and Security does not change what this test drives.
   const first = rowElement(page.container, "history.terminalCommands");
   first.focus();
   await fire(first, "keydown", { key: " " });
@@ -97,7 +97,7 @@ test("Up/Down move between rows, Space toggles; dispatcher commands reset, go ba
   await fire(document.body, "keydown", { key: "[", metaKey: true });
   expect(page.history.location.pathname).toBe("/settings/browser");
   await run(() => page!.provider.sendCommand("back"));
-  expect(page.history.location.pathname).toBe("/settings/general");
+  expect(page.history.location.pathname).toBe("/settings/privacy");
   await run(() => page!.provider.sendCommand("forward"));
   expect(page.history.location.pathname).toBe("/settings/browser");
   await fire(document.body, "keydown", { key: "f", metaKey: true });

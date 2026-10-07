@@ -10,15 +10,19 @@ const restore = installDom();
 afterAll(() => restore());
 const { renderPage, settle } = await import("./testing");
 
-test("Spaces & Profiles lists the spaces and browser profiles, with no open-in-window link", async () => {
+test("General lists the spaces and Browser the browser profiles, with no open-in-window link", async () => {
+  // The old section route (`#/settings/rooms`, `app settings rooms`) opens General.
   const page = await renderPage({ path: "/settings/rooms" });
-  const text = page.container.textContent ?? "";
-  expect(text).toContain("Work");
+  expect(page.container.querySelector("[data-section]")?.getAttribute("data-section")).toBe("general");
+  expect(page.container.textContent).toContain("Work");
+  expect(page.container.querySelectorAll('[data-card="rooms"] [data-host-row]').length).toBe(2);
+  page.unmount();
+  const browser = await renderPage({ path: "/settings/browser" });
+  const text = browser.container.textContent ?? "";
   expect(text).toContain("Browser Profiles");
   expect(text).toContain("Google Chrome · Work");
   expect(text).not.toContain("Open in Window");
-  expect(page.container.querySelectorAll("[data-host-row]").length).toBe(2);
-  page.unmount();
+  browser.unmount();
 });
 
 test("Machines lists the saved machines; a host change updates the list without a reload", async () => {
@@ -33,7 +37,7 @@ test("Machines lists the saved machines; a host change updates the list without 
 });
 
 test("browser profile edits run the profile's actions with its target", async () => {
-  const page = await renderPage({ path: "/settings/rooms" });
+  const page = await renderPage({ path: "/settings/browser" });
   const row = page.container.querySelector<HTMLElement>('[data-profile="p-work"]')!;
   await act(async () => row.querySelector<HTMLButtonElement>(".host-toggle")!.click());
   await act(async () => row.querySelector<HTMLButtonElement>('[aria-label="grey"]')!.click());

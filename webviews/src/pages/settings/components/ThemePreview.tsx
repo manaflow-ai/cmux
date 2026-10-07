@@ -2,6 +2,7 @@
 // background, foreground, cursor, selection) beside a sample app surface in the app tokens the
 // theme derives (src/theme/appTheme.ts), then the palette itself. Drawn as SVG: the preview is
 // an image of another theme, so it never paints the page's own surfaces (render rule).
+import { useId } from "react";
 import type { AppTheme } from "../../../theme/appTheme";
 import type { GhosttyTheme } from "../../../theme/ghosttyTheme";
 import { rowsByKey, sections } from "../schema";
@@ -74,10 +75,18 @@ export function ThemePreview({
   const selection = theme.selectionBackground ?? mixHex(theme.background, theme.foreground, 0.25);
   const mono = `${fontFamily ? `"${fontFamily}", ` : ""}"SF Mono", ui-monospace, Menlo, monospace`;
   const a = app.tokens;
+  const clip = `theme-preview-app-${useId().replace(/:/g, "")}`;
   const top = 28;
   const lineY = (line: number) => top + line * LINE;
   return (
-    <svg className="theme-preview" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={label} data-theme-preview={theme.name}>
+    <svg
+      className="theme-preview"
+      viewBox={`0 0 ${W} ${H}`}
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- an inline SVG drawing; an <img> cannot draw the theme.
+      role="img"
+      aria-label={label}
+      data-theme-preview={theme.name}
+    >
       <rect x="0.5" y="0.5" width={TERM_W - 1} height={H - 1} rx="9" fill={theme.background} stroke={a.separator} />
       <rect
         x={12 + SELECTED.column * CELL}
@@ -114,17 +123,24 @@ export function ThemePreview({
       />
 
       <g transform={`translate(${APP_X} 0)`} fontFamily="-apple-system, BlinkMacSystemFont, system-ui, sans-serif">
-        <clipPath id="theme-preview-app">
+        <clipPath id={clip}>
           <rect width={APP_W} height={H} rx="9" />
         </clipPath>
-        <g clipPath="url(#theme-preview-app)">
+        <g clipPath={`url(#${clip})`}>
           <rect width={APP_W} height={H} fill={a.content} />
           <rect width="96" height={H} fill={a.sidebar} />
           <rect x="96" width="1" height={H} fill={a.separator} />
           {["general", "appearance", "terminal", "browser"].map((id, index) => (
             <g key={id} transform={`translate(6 ${16 + index * 24})`}>
               {index === 1 && <rect width="84" height="20" rx="5" fill={a.selection} />}
-              <circle cx="11" cy="10" r="4" fill="none" stroke={index === 1 ? a.accentText : a.icon} strokeWidth="1.4" />
+              <circle
+                cx="11"
+                cy="10"
+                r="4"
+                fill="none"
+                stroke={index === 1 ? a.accentText : a.icon}
+                strokeWidth="1.4"
+              />
               <text x="21" y="14" fontSize="11" fill={a.text}>
                 {truncate(section(id), 11)}
               </text>
@@ -149,7 +165,15 @@ export function ThemePreview({
             <text x="0" y="128" fontSize="11" fill={a.text}>
               {truncate(title("app.globalHotKey"), 20)}
             </text>
-            <rect x={APP_W - 110 - 40} y="117" width="28" height="16" rx="8" fill={a.control} stroke={a.controlStroke} />
+            <rect
+              x={APP_W - 110 - 40}
+              y="117"
+              width="28"
+              height="16"
+              rx="8"
+              fill={a.control}
+              stroke={a.controlStroke}
+            />
             <circle cx={APP_W - 110 - 32} cy="125" r="6" fill={a.icon} />
             <text x="0" y="146" fontSize="10" fill={a.textSecondary}>
               {truncate(t("settingsPage.openConfigHelp"), 34)}
@@ -185,7 +209,13 @@ export function ThemePalette({ theme, separator }: { theme: GhosttyTheme; separa
     [t("settingsPage.theme.selection"), theme.selectionBackground ?? mixHex(theme.background, theme.foreground, 0.25)],
   ];
   return (
-    <svg className="theme-palette" viewBox={`0 0 ${W} 72`} role="img" aria-label={t("settingsPage.theme.palette")}>
+    <svg
+      className="theme-palette"
+      viewBox={`0 0 ${W} 72`}
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- an inline SVG drawing; an <img> cannot draw the theme.
+      role="img"
+      aria-label={t("settingsPage.theme.palette")}
+    >
       <g fontFamily="-apple-system, BlinkMacSystemFont, system-ui, sans-serif" fontSize="11" fill="currentColor">
         <text x="0" y="20" className="theme-palette-label">
           {t("settingsPage.theme.normal")}
@@ -228,7 +258,13 @@ function mixHex(a: string, b: string, fraction: number): string {
   const channels = (hex: string) => [1, 3, 5].map((index) => parseInt(hex.slice(index, index + 2), 16));
   const x = channels(a);
   const y = channels(b);
-  return `#${x.map((value, index) => Math.round(value + (y[index]! - value) * fraction).toString(16).padStart(2, "0")).join("")}`;
+  return `#${x
+    .map((value, index) =>
+      Math.round(value + (y[index]! - value) * fraction)
+        .toString(16)
+        .padStart(2, "0"),
+    )
+    .join("")}`;
 }
 
 function truncate(value: string, length: number): string {
