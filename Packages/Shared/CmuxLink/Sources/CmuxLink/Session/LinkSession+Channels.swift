@@ -79,7 +79,7 @@ extension LinkSession {
     /// priority, so carriers that map lanes to separate streams keep them in
     /// order with the channel's reliable data.
     func enqueueChannelControl(_ id: UInt32, frame: LinkFrame) {
-        let priority = channels[id]?.descriptor.priority ?? .control
+        let priority = channels[id]?.sendPriority ?? .control
         let lane = TransportLane(reliability: .reliableOrdered, priority: priority)
         let item = OutboundItem(frame: frame, lane: lane, bytes: 32, enqueuedAt: clock.now)
         switch frame {
@@ -193,7 +193,8 @@ extension LinkSession {
             }
             return false
         }
-        let lane = TransportLane(reliability: descriptor.reliability, priority: descriptor.priority)
+        let priority = record.sendPriority
+        let lane = TransportLane(reliability: descriptor.reliability, priority: priority)
         var item = OutboundItem(
             frame: .data(channel: id, revision: revision, payload: payload),
             lane: lane, bytes: payload.count, enqueuedAt: clock.now
@@ -202,13 +203,13 @@ extension LinkSession {
             item.budgetChannel = id
             if case let .partial(lifetime) = descriptor.reliability { item.lifetime = lifetime }
             while record.queuedBytes > 0, record.queuedBytes + payload.count > descriptor.budgetBytes,
-                  let dropped = outbound.dropOldest(channel: id, priority: descriptor.priority) {
+                  let dropped = outbound.dropOldest(channel: id, priority: priority) {
                 record.queuedBytes -= dropped
             }
             record.queuedBytes += payload.count
             channels[id] = record
         }
-        outbound.enqueue(item, priority: descriptor.priority)
+        outbound.enqueue(item, priority: priority)
         wakePump()
         return true
     }
@@ -271,6 +272,11 @@ extension LinkSession {
 
     func cancelFlushWaiter(_ id: UInt32, _ waiter: UInt64) {
         channels[id]?.flushWaiters.removeValue(forKey: waiter)?.resume(throwing: CancellationError())
+    }
+
+    func channelSetSendPriority(_ id: UInt32, _ incarnation: UInt64, _ priority: ChannelPriority) {
+        guard isLive(id, incarnation) else { return }
+        channels[id]?.sendPriority = priority
     }
 
     func channelCursor(_ id: UInt32, _ incarnation: UInt64, stream: String) -> StreamCursor {

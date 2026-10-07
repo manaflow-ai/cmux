@@ -1,4 +1,5 @@
 import CmuxLink
+import CmuxMobileLink
 import CmuxMobileWire
 
 /// What every session of one host shares: configuration, admission, the

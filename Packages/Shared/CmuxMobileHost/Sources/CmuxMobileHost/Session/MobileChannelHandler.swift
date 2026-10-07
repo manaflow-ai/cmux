@@ -1,3 +1,4 @@
+import CmuxMobileLink
 import CmuxMobileWire
 
 /// Serves one channel kind the core does not (seam for C2 browser, C3 rd,

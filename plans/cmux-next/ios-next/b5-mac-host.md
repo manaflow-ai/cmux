@@ -9,6 +9,8 @@ skills/cmux-socket-policy (relay authorization).
 Code: `Packages/Shared/CmuxMobileHost` (module `CmuxMobileHost`, Swift 6, macOS 14, no AppKit, no
 CmuxNext dependency). Depends on `CmuxLink`, `CmuxMobileWire`, `CmuxTerminalStream`, `CmuxControlPlane`.
 `MobileHost` is single use: `stop()` is final, the app makes a new one per sign-in.
+The binding types (`MobileChannel`, `MobileInbound`, `DeviceProof`) moved to `Packages/Shared/CmuxMobileLink`
+in C1 so the phone shares them; the app adapter is `CmuxNextMobileLink` ([c1-terminal-rpc.md](c1-terminal-rpc.md)).
 
 ## 1. Where the host lives
 

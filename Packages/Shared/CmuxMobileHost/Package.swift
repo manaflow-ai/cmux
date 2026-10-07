@@ -13,6 +13,7 @@ let package = Package(
     dependencies: [
         .package(path: "../CmuxControlPlane"),
         .package(path: "../CmuxLink"),
+        .package(path: "../CmuxMobileLink"),
         .package(path: "../CmuxMobileWire"),
         .package(path: "../CmuxTerminalStream"),
     ],
@@ -22,6 +23,7 @@ let package = Package(
             dependencies: [
                 .product(name: "CmuxControlPlane", package: "CmuxControlPlane"),
                 .product(name: "CmuxLink", package: "CmuxLink"),
+                .product(name: "CmuxMobileLink", package: "CmuxMobileLink"),
                 .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
                 .product(name: "CmuxTerminalStream", package: "CmuxTerminalStream"),
             ]
@@ -32,6 +34,7 @@ let package = Package(
                 "CmuxMobileHost",
                 .product(name: "CmuxLink", package: "CmuxLink"),
                 .product(name: "CmuxLinkTesting", package: "CmuxLink"),
+                .product(name: "CmuxMobileLink", package: "CmuxMobileLink"),
                 .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
                 .product(name: "CmuxTerminalStream", package: "CmuxTerminalStream"),
             ]

@@ -17,6 +17,7 @@ import CmuxiOSPush
 import CmuxiOSSettingsCore
 import CmuxiOSShell
 import CmuxiOSSSHCore
+import CmuxiOSTerminalLink
 import CmuxiOSWorkspaces
 import CmuxiOSWorkspacesCore
 import Foundation
@@ -68,9 +69,6 @@ final class AppContainer {
     let feedNavigator = FeedNavigator()
     /// SSH state that stays on this device (lane C9): logins, keys, pins.
     let sshDevice: SSHDeviceState
-    /// Lane C1 sets the cmux session host's byte sources (`.host` over
-    /// `CmuxLink`); nil keeps A2's mock host behind workspace terminals.
-    var terminalSources: (any WorkspaceTerminalSourceFactory)?
     /// Lane C11 (c11-settings.md): this device's terminal look, fed to every
     /// terminal surface, and the crash-report consent (shared key).
     let terminalPreferences = TerminalPreferencesStore()
@@ -82,6 +80,15 @@ final class AppContainer {
     /// B5/D1 fill this with the live path badge per device once they hold a
     /// `CmuxLink` per host; nil serves mock badges while devices are mocked.
     var linkDiagnosticsFactory: (@Sendable () -> any LinkDiagnosticsSource)?
+    /// Lane C1: workspace terminals of real Macs open over each Mac's
+    /// `cmux.mobile/1` session (`.host` over `CmuxLink`). B2/B4 replace the
+    /// directory with one that holds a `MobileLinkClient` per reachable Mac;
+    /// until then a terminal says "No connection to this Mac". Mock
+    /// workspaces keep A2's mock host (ShellComposition).
+    var linkDirectory: any MobileLinkDirectory = UnavailableMobileLinkDirectory()
+    var terminalSources: (any WorkspaceTerminalSourceFactory)? {
+        LinkWorkspaceTerminalSourceFactory(directory: linkDirectory)
+    }
     private var features: FeatureSources?
     private var featuresAccount: String?
     /// DEV: the mock owners' simulated connection.

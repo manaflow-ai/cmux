@@ -41,12 +41,14 @@ enum ShellComposition {
         let feedIsMock = sources.resolved[.feed] != .real
         let feedNavigator = container.feedNavigator
         let deviceName = UIDevice.current.name
-        // Lane C5: the Workspaces tab; terminals open over C1's sources once
-        // registered, else the mock host. `workspaces.makePicker` is the
+        // Lane C5: the Workspaces tab; real Macs' terminals open over C1's
+        // link sources, mock workspaces over A2's mock host. `workspaces.makePicker` is the
         // picker the composer (C8) presents.
+        let workspacesAreReal = sources.resolved[.workspaces] == .real
+        let terminalSources = workspacesAreReal ? container.terminalSources : nil
         let workspaces = WorkspacesFeature(
-            source: sources.workspaces, terminalSources: container.terminalSources ?? MockWorkspaceTerminalSourceFactory(),
-            isMock: sources.resolved[.workspaces] != .real)
+            source: sources.workspaces, terminalSources: terminalSources ?? MockWorkspaceTerminalSourceFactory(),
+            isMock: !workspacesAreReal)
         let content = ShellContent(sources: sources, home: home, settings: settings, screens: [
             .hosts: { ssh.makeHostsScreen() },
             .workspaces: { workspaces.makeWorkspacesScreen() },

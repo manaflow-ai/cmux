@@ -34,6 +34,9 @@ public final class TerminalSession {
     /// The last close; the next open waits for it, so a reattach never races
     /// its own detach.
     private var closing: Task<Void, Never>?
+    /// Input writes in call order, drained by one task into `source.send`.
+    private nonisolated let inputContinuation: AsyncStream<Data>.Continuation
+    private let inputPump: Task<Void, Never>
 
     public init(source: any TerminalByteSource, view: GhosttyTerminalView,
                 clock: any Clock<Duration> = ContinuousClock()) {
@@ -42,13 +45,22 @@ public final class TerminalSession {
         self.view = view
         self.clock = clock
         let source = self.source
-        view.onInput = { data in
-            Task { try? await source.send(data) }
+        // One ordered pipe: a Task per write would let keystrokes overtake
+        // each other (c1-terminal-rpc.md section 5).
+        let (inputs, inputContinuation) = AsyncStream<Data>.makeStream()
+        self.inputContinuation = inputContinuation
+        inputPump = Task {
+            for await data in inputs { try? await source.send(data) }
         }
+        view.onInput = { data in inputContinuation.yield(data) }
         view.onViewportChange = { viewport in
             Task { await source.viewportChanged(viewport) }
         }
         view.onTitle = { [weak self] title in self?.status.title = title }
+    }
+
+    deinit {
+        inputContinuation.finish()
     }
 
     public var isRunning: Bool { events != nil }

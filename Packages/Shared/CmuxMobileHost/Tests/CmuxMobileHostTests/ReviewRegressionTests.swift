@@ -1,6 +1,7 @@
 import CmuxLink
 import CmuxLinkTesting
 import CmuxMobileHost
+import CmuxMobileLink
 import CmuxMobileWire
 import CmuxTerminalStream
 import CryptoKit

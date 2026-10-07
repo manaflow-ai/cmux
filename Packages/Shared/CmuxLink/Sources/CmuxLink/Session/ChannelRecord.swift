@@ -14,6 +14,10 @@ struct ChannelRecord: Sendable {
     let incarnation: UInt64
     let descriptor: ChannelDescriptor
     let openedLocally: Bool
+    /// The priority this side's pump sends at. Starts as the declared one;
+    /// the accepting side may lower or raise its own direction (a terminal
+    /// opened at `input` for keystrokes sends its output at `render`).
+    var sendPriority: ChannelPriority
     var phase: Phase = .awaiting
     /// The peer has acknowledged this channel at least once.
     var everOpened = false
@@ -49,6 +53,7 @@ struct ChannelRecord: Sendable {
         self.incarnation = incarnation
         self.descriptor = descriptor
         self.openedLocally = openedLocally
+        self.sendPriority = descriptor.priority
         self.cursorEpoch = cursorEpoch
         self.lastReceived = lastReceived
         self.lastConsumed = lastReceived
