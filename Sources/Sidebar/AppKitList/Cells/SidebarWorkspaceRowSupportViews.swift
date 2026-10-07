@@ -374,28 +374,17 @@ final class SidebarRowIconTextLine: NSView {
         case .warning: iconName = "exclamationmark.triangle.fill"
         case .error: iconName = "xmark.circle.fill"
         }
-        let explicitColor: NSColor?
         let fallback: NSColor
         switch log.level {
-        case .info:
-            explicitColor = nil
-            fallback = palette.secondary(0.5)
-        case .progress:
-            explicitColor = palette.accentColor
-            fallback = palette.secondary(0.8)
-        case .success:
-            explicitColor = palette.semantic(.systemGreen)
-            fallback = palette.secondary(0.9)
-        case .warning:
-            explicitColor = palette.semantic(.systemOrange)
-            fallback = palette.secondary(0.9)
-        case .error:
-            explicitColor = palette.semantic(.systemRed)
-            fallback = palette.secondary(0.9)
+        case .info: fallback = palette.secondary(0.5)
+        case .progress: fallback = palette.secondary(0.8)
+        default: fallback = palette.secondary(0.9)
         }
-        let color = sidebarStatusPresentationNSColor(
-            explicit: explicitColor,
+        let color = sidebarLogPresentationNSColor(
+            level: log.level,
             isActive: model.isActive,
+            colorScheme: palette.colorScheme,
+            accent: palette.accent,
             selectedBackground: palette.selectedBackground,
             fallback: fallback
         )

@@ -1,6 +1,7 @@
 import AppKit
 import CmuxAppKitSupportUI
 import CmuxFoundation
+import CmuxSidebar
 import Foundation
 import SwiftUI
 import CmuxSettings
@@ -215,6 +216,38 @@ func sidebarStatusPresentationNSColor(
     return cmuxContrastRatio(foreground: foregroundForComparison, background: selectedBackground) >= 4.5
         ? explicit
         : fallback()
+}
+
+
+func sidebarLogPresentationNSColor(
+    level: SidebarLogLevel,
+    isActive: Bool,
+    colorScheme: ColorScheme,
+    accent: CmuxAccentColor,
+    selectedBackground: NSColor,
+    fallback: @autoclosure () -> NSColor
+) -> NSColor {
+    let resolver = SidebarAppearanceColorResolver()
+    let explicit: NSColor?
+    switch level {
+    case .info:
+        explicit = nil
+    case .progress:
+        explicit = accent.nsColor(for: colorScheme)
+    case .success:
+        explicit = resolver.resolvedColor(.systemGreen, for: colorScheme)
+    case .warning:
+        explicit = resolver.resolvedColor(.systemOrange, for: colorScheme)
+    case .error:
+        explicit = resolver.resolvedColor(.systemRed, for: colorScheme)
+    }
+
+    return sidebarStatusPresentationNSColor(
+        explicit: explicit,
+        isActive: isActive,
+        selectedBackground: selectedBackground,
+        fallback: fallback()
+    )
 }
 
 func cmuxCompositedNSColor(_ foreground: NSColor, over background: NSColor) -> NSColor {

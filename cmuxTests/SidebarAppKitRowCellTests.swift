@@ -900,6 +900,44 @@ struct SidebarAppKitRowCellTests {
     }
 
     @Test
+    func selectedLogPresentationKeepsReadableTintAndFloorsLowContrastTint() throws {
+        let selectedBackground = try #require(NSColor(hex: "#005FCC"))
+        let readableAccent = CmuxAccentColor(mode: .custom, customHex: "#FFFFFF")
+        let lowContrastAccent = CmuxAccentColor(mode: .custom, customHex: "#0066CC")
+        let selectedFallback = try #require(NSColor(hex: "#FF00FF"))
+        let inactiveFallback = try #require(NSColor(hex: "#00FFFF"))
+
+        let readable = sidebarLogPresentationNSColor(
+            level: .progress,
+            isActive: true,
+            colorScheme: .dark,
+            accent: readableAccent,
+            selectedBackground: selectedBackground,
+            fallback: selectedFallback
+        )
+        let floored = sidebarLogPresentationNSColor(
+            level: .progress,
+            isActive: true,
+            colorScheme: .dark,
+            accent: lowContrastAccent,
+            selectedBackground: selectedBackground,
+            fallback: selectedFallback
+        )
+        let inactive = sidebarLogPresentationNSColor(
+            level: .progress,
+            isActive: false,
+            colorScheme: .dark,
+            accent: lowContrastAccent,
+            selectedBackground: selectedBackground,
+            fallback: inactiveFallback
+        )
+
+        #expect(Self.distance(readable, try #require(NSColor(hex: "#FFFFFF"))) < 0.001)
+        #expect(Self.distance(floored, selectedFallback) < 0.001)
+        #expect(Self.distance(inactive, try #require(NSColor(hex: "#0066CC"))) < 0.001)
+    }
+
+    @Test
     func statusPresentationUsesInactiveFallbackWithoutExplicitColor() throws {
         let selectedBackground = try #require(NSColor(hex: "#005FCC"))
         let fallback = try #require(NSColor(hex: "#E0E0E0"))

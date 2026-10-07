@@ -16861,27 +16861,21 @@ struct TabItemView: View, Equatable {
     }
 
     private func logLevelColor(_ level: SidebarLogLevel, isActive: Bool) -> Color {
+        let fallback: NSColor
         if isActive {
-            switch level {
-            case .info:
-                return activeSecondaryColor(0.5)
-            case .progress:
-                return activeSecondaryColor(0.8)
-            case .success:
-                return activeSecondaryColor(0.9)
-            case .warning:
-                return activeSecondaryColor(0.9)
-            case .error:
-                return activeSecondaryColor(0.9)
-            }
+            let opacity: CGFloat = level == .info ? 0.5 : (level == .progress ? 0.8 : 0.9)
+            fallback = selectedWorkspaceForegroundNSColor(opacity: opacity)
+        } else {
+            fallback = SidebarAppearanceColorResolver().resolvedColor(.secondaryLabelColor, for: colorScheme)
         }
-        switch level {
-        case .info: return .secondary
-        case .progress: return settings.accentColor.color
-        case .success: return .green
-        case .warning: return .orange
-        case .error: return .red
-        }
+        return Color(nsColor: sidebarLogPresentationNSColor(
+            level: level,
+            isActive: isActive,
+            colorScheme: colorScheme,
+            accent: settings.accentColor,
+            selectedBackground: selectedWorkspaceBackgroundNSColor,
+            fallback: fallback
+        ))
     }
 
     private func shortenPath(_ path: String, home: String) -> String {
