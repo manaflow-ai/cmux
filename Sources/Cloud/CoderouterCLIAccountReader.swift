@@ -82,7 +82,7 @@ enum CoderouterCLIAccountReader {
 
     private static func resolvedOrganizationID(
         for cmuxTeamID: String?,
-        name cmuxTeamName: String,
+        name cmuxTeamName: String?,
         knownOrganizationID: String?,
         run: Run
     ) async throws -> String? {
@@ -96,7 +96,8 @@ enum CoderouterCLIAccountReader {
            UUID(uuidString: cmuxTeamID) != nil {
             return cmuxTeamID
         }
-        guard !cmuxTeamName.isEmpty else { return nil }
+        guard let cmuxTeamName = cmuxTeamName?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !cmuxTeamName.isEmpty else { return nil }
         return try await matchingOrganizationID(for: cmuxTeamID, name: cmuxTeamName, run: run)
     }
 
