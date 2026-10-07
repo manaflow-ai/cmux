@@ -80,10 +80,6 @@ public final class ActionRegistry {
     /// The current value of a choices submenu's argument for a target, shown
     /// with a checkmark.
     @ObservationIgnored public var choiceState: (@MainActor (ActionID, ActionTargetRef?) -> String?)?
-    /// The objects of a target-kind argument as a choices submenu (Set
-    /// Browser Profile > Personal, Work) and the one checked for `target`;
-    /// supplied by the App from the same lists the palette shows. Nil, or
-    /// no cases, leaves such a row out of the menu.
     @ObservationIgnored public var targetChoices: (@MainActor (_ action: ActionID, _ kind: ActionTargetKind, _ target: ActionTargetRef?) -> ActionTargetChoices?)?
 
     /// Old IDs folded into canonical IDs on register and lookup.
