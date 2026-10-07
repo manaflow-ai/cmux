@@ -156,6 +156,8 @@ pub fn secret_set(
     if !profiles::valid_env_key(key) {
         bail!("{key:?} is not a valid env variable name");
     }
+    // Before the store: a typo must not leave a secret store item behind.
+    known_harness(cfg, id)?;
     store(&store_command(std::env::consts::OS, id, key, value)?)?;
     Ok(match cfg.profile_meta.get(id) {
         Some(meta) if meta.source == ProfileSource::UserFile => {
@@ -172,6 +174,15 @@ pub fn secret_set(
         },
         None => FileChange::Manual { path: None, reason: format!("no profile file for {id}") },
     })
+}
+
+/// Ok when `id` names a harness of `cfg` (any source), else the "unknown
+/// harness" error. A folder profile is not a catalog harness: it is refused.
+pub fn known_harness(cfg: &Config, id: &str) -> Result<()> {
+    if cfg.profile(id).is_none() {
+        bail!("unknown harness {id:?}; `cmux harness list` shows the harness ids");
+    }
+    Ok(())
 }
 
 /// Put `KEY = { keychain = "cmux-harness/<id>/<KEY>" }` under `[env]` of the
@@ -305,6 +316,8 @@ fn read_hidden_line() -> Result<Zeroizing<String>> {
 /// `cmux harness secret set ID KEY`.
 pub async fn set_cmd(id: &str, key: &str) -> Result<()> {
     let cfg = Config::load()?;
+    // Before the prompt: nobody types a secret for a harness that does not exist.
+    known_harness(&cfg, id)?;
     let value = read_value(key)?;
     let change = secret_set(id, key, value.as_str(), &cfg, &|cmd| run_store(cmd))?;
     drop(value);
