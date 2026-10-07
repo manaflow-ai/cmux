@@ -1,90 +1,79 @@
-import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import type { Op, WorkStatus } from "./conversation-types.ts";
+import { dlopen, FFIType } from "bun:ffi";
+import { closeSync, existsSync, fsyncSync, openSync, readFileSync, renameSync, rmSync, writeSync } from "node:fs";
+import { dirname } from "node:path";
+import { type HostStateData, loadState } from "../../packages/brain/src/core/state.ts";
+
+export type { ChildRecord, HostStateData, OutboxEntry, OutstandingPrompt } from "../../packages/brain/src/core/state.ts";
 
 /**
- * The brain host's own durable state ($MUX_HOME/state/host.json). The host is
- * its only writer. Each entry is a durable to-do whose effect is idempotent at
- * an owner (acpmux dedupes prompts by promptId, the conversation owner dedupes
- * ops by idempotency key), so losing a write only costs a replay.
+ * The brain host's durable state file ($MUX_HOME/state/host.json). The shape
+ * and its rules live in the brain core (packages/brain/src/core/state.ts);
+ * this is only the file. A missing or unreadable file loads as empty.
  */
-export interface HostStateData {
-  /** The default "mux" conversation id (from conversation-create). */
-  defaultConversation?: string;
-  /** The acpmux session id of the mux, and the seq of the last turn end the host settled. */
-  muxSessionId?: string;
-  acpmuxSeq: number;
-  /** Prompts sent (or to send) to the mux whose turn has not ended: promptId -> where its reply goes. */
-  prompts: Record<string, OutstandingPrompt>;
-  /** Prompt ids whose turn ended (newest last, bounded): never prompted again. */
-  answered: string[];
-  /** Conversation ops not yet confirmed by the owner, in order (flushed on every daemon connect). */
-  outbox: OutboxEntry[];
-  /** Child agents: acpmux session id -> its work-part message. */
-  children: Record<string, ChildRecord>;
-}
+export class HostStateFile {
+  constructor(private readonly path: string) {}
 
-export interface OutstandingPrompt {
-  conversation: string;
-  text: string;
-  /** The human message it answers (inbox prompts only). */
-  seq?: number;
-}
-
-export interface OutboxEntry {
-  conversation: string;
-  idempotency_key: string;
-  /** Set after one retry of an `agent_rate` reject (host.ts flushOutbox). */
-  rateRetried?: boolean;
-  /** Not sent before this time (ms since the epoch); set with `rateRetried`. */
-  notBefore?: number;
-  op: Op;
-  /** A work-part op: its message id is filled from `children[child].messageId` when it flushes. */
-  child?: string;
-}
-
-export interface ChildRecord {
-  conversation: string;
-  name: string;
-  status: WorkStatus;
-  /** The work-part message id, once the owner confirmed the send. */
-  messageId?: string;
-  /** How many work-part edits this child has had (each edit's idempotency key is unique). */
-  edits: number;
-}
-
-const MAX_ANSWERED = 2_000;
-
-export class HostState {
-  data: HostStateData;
-
-  constructor(private readonly path: string) {
-    const empty: HostStateData = { acpmuxSeq: 0, prompts: {}, answered: [], outbox: [], children: {} };
+  load(): HostStateData {
     let loaded: Partial<HostStateData> = {};
-    if (existsSync(path)) {
+    if (existsSync(this.path)) {
       try {
-        loaded = JSON.parse(readFileSync(path, "utf8")) as Partial<HostStateData>;
+        loaded = JSON.parse(readFileSync(this.path, "utf8")) as Partial<HostStateData>;
       } catch {
         loaded = {};
       }
     }
-    this.data = { ...empty, ...loaded };
+    return loadState(loaded);
   }
 
-  isAnswered(promptId: string): boolean {
-    return this.data.answered.includes(promptId);
-  }
-
-  /** The prompt's turn ended: it leaves the outstanding set for good. */
-  markAnswered(promptId: string): void {
-    delete this.data.prompts[promptId];
-    if (this.isAnswered(promptId)) return;
-    this.data.answered.push(promptId);
-    if (this.data.answered.length > MAX_ANSWERED) this.data.answered.splice(0, this.data.answered.length - MAX_ANSWERED);
-  }
-
-  save(): void {
+  /**
+   * Writes atomically and durably: temp file, sync (F_FULLFSYNC on macOS, which
+   * flushes the drive cache; fsync elsewhere), rename, then fsync the directory.
+   * A failed write removes the temp file and throws; host.json is untouched.
+   */
+  save(state: HostStateData): void {
     const tmp = `${this.path}.${process.pid}.tmp`;
-    writeFileSync(tmp, `${JSON.stringify(this.data)}\n`);
+    const fd = openSync(tmp, "w");
+    try {
+      // writeSync may write less than asked: write the rest until all bytes are out.
+      const bytes = Buffer.from(`${JSON.stringify(state)}\n`);
+      for (let offset = 0; offset < bytes.length; ) {
+        const written = writeSync(fd, bytes, offset, bytes.length - offset);
+        if (written <= 0) throw new Error(`short write to ${tmp}`);
+        offset += written;
+      }
+      if (!fullFsync(fd)) fsyncSync(fd);
+    } catch (error) {
+      closeSync(fd);
+      rmSync(tmp, { force: true });
+      throw error;
+    }
+    closeSync(fd);
     renameSync(tmp, this.path);
+    try {
+      const dir = openSync(dirname(this.path), "r");
+      try {
+        fsyncSync(dir);
+      } finally {
+        closeSync(dir);
+      }
+    } catch {
+      // Not every file system syncs a directory; the rename is still atomic.
+    }
   }
+}
+
+/** fcntl(F_FULLFSYNC) on macOS (the variadic third argument is not used, so none crosses FFI). */
+const F_FULLFSYNC = 51;
+const libc = (() => {
+  if (process.platform !== "darwin") return undefined;
+  try {
+    return dlopen("/usr/lib/libSystem.B.dylib", { fcntl: { args: [FFIType.i32, FFIType.i32], returns: FFIType.i32 } });
+  } catch {
+    return undefined;
+  }
+})();
+
+/** True when F_FULLFSYNC flushed `fd`; false where it does not exist or failed (then fsync). */
+function fullFsync(fd: number): boolean {
+  return libc !== undefined && libc.symbols.fcntl(fd, F_FULLFSYNC) === 0;
 }

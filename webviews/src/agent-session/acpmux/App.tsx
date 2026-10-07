@@ -2171,7 +2171,6 @@ function AcpmuxPane() {
                 selectSession(sessionId);
               }}
               onShowAll={() => searchEvent("toggle")}
-              onImport={() => void callNative("action.run", { id: "palette.welcomeChecklist" })}
               onBrowseProject={() => void callNative("action.run", { id: "palette.welcomeChecklist" })}
               onEditShortcut={(kind) => void callNative("shortcut.edit", { kind })}
             />
@@ -2230,12 +2229,7 @@ function AcpmuxPane() {
                     }
                   />
                 ) : freshView ? (
-                  <EmptyState
-                    project={projectName(snapshot.summary?.cwd)}
-                    // A generic New picks the kind on the New Tab page; only "New chat" starts a chat.
-                    onNew={() => void callNative("action.run", { id: "newTab.page" }).catch(() => undefined)}
-                    onImport={() => void callNative("onboarding.importAndSync").catch(() => undefined)}
-                  />
+                  <EmptyState project={projectName(snapshot.summary?.cwd)} />
                 ) : (
                   transcript
                 )}

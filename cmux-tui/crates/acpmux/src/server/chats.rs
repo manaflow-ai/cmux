@@ -6,6 +6,9 @@
 //!   `_acpmux/chat_changed {kind: upsert|removed, key, chat?}` for every
 //!   change on this connection (unfiltered; `_acpmux/chats_lagged` asks the
 //!   client to list again).
+//! - `_acpmux/chat_open {key, cwd?}`: how the chat opens again (`chats/open.rs`):
+//!   `adopt` with ready `session/new` params, `terminal` with argv/env/cwd,
+//!   or `readOnly`; `needsFolder` when the person must pick the folder.
 //! - `_acpmux/chat_roots`: the roots, refused roots with reasons, watcher errors.
 //! - `_acpmux/chat_roots_record {harness, transcriptPath}`: a hook reports
 //!   a transcript; its store root joins the index (recorded roots file).
@@ -68,6 +71,29 @@ pub(super) async fn route(
             Some(service) => blocking(move || Ok(service.roots_view())).await,
             None => Ok(json!({"ready": false, "roots": [], "refused": []})),
         },
+        "_acpmux/chat_open" => {
+            let service =
+                service.ok_or_else(|| RpcError::internal("the chat index is starting"))?;
+            let key = params
+                .get("key")
+                .and_then(Value::as_str)
+                .and_then(crate::chats::parse_key)
+                .ok_or_else(|| {
+                RpcError::invalid_params("key must be <harness>:<session id>")
+            })?;
+            let cwd = params.get("cwd").and_then(Value::as_str).map(PathBuf::from);
+            let homes = hub.harness_homes();
+            let profiles = crate::chats::store_profiles(&*hub.config.read().await, &homes);
+            blocking(move || {
+                let chat = service.get(&key).ok_or_else(|| {
+                    RpcError::not_found(format!("no chat {}", crate::chats::key_text(&key)))
+                })?;
+                let home = dirs::home_dir().unwrap_or_default();
+                crate::chats::plan_open(&chat, &profiles, cwd.as_deref(), &home)
+                    .map_err(RpcError::invalid_params)
+            })
+            .await
+        }
         "_acpmux/chat_roots_record" => {
             let service =
                 service.ok_or_else(|| RpcError::internal("the chat index is starting"))?;
