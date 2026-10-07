@@ -33,6 +33,7 @@ public final class ConversationSimBackend: ConversationBackend, @unchecked Senda
         if !draft.mentions.isEmpty { params["mentions"] = draft.mentions.map(WireDecoding.wireMention) }
         if !draft.textRuns.isEmpty { params["textRuns"] = WireDecoding.wireRuns(draft.textRuns) }
         if let effect = draft.effect { params["effect"] = effect.rawValue }
+        if let poll = draft.poll { params["poll"] = ["question": poll.question, "options": poll.options] }
         let result = try await core.request("send", params: JSONBox(params), timeout: .seconds(15)).value
         return try await core.decodeMessage(JSONBox(result["message"] as? [String: Any] ?? [:]))
     }
@@ -104,6 +105,18 @@ public final class ConversationSimBackend: ConversationBackend, @unchecked Senda
         let result = try await core.request("unfurl", params: JSONBox(["url": url.absoluteString]), timeout: .seconds(15)).value
         let base = await core.httpBase
         return (result["linkPreview"] as? [String: Any]).flatMap { WireDecoding.linkPreview($0, base: base) }
+    }
+
+    public func votePoll(messageID: String, optionID: String, selected: Bool) async throws -> ConversationMessage {
+        let params: [String: Any] = ["messageId": messageID, "optionId": optionID, "selected": selected]
+        let result = try await core.request("votePoll", params: JSONBox(params), timeout: .seconds(15)).value
+        return try await core.decodeMessage(JSONBox(result["message"] as? [String: Any] ?? [:]))
+    }
+
+    public func addPollOption(messageID: String, text: String) async throws -> ConversationMessage {
+        let params: [String: Any] = ["messageId": messageID, "text": text]
+        let result = try await core.request("addPollOption", params: JSONBox(params), timeout: .seconds(15)).value
+        return try await core.decodeMessage(JSONBox(result["message"] as? [String: Any] ?? [:]))
     }
 
     // MARK: -
@@ -381,7 +394,23 @@ enum WireDecoding {
             mentions: (raw["mentions"] as? [[String: Any]] ?? []).compactMap(mention),
             textRuns: textRuns(raw["textRuns"], text: raw["text"] as? String ?? ""),
             linkPreview: (raw["linkPreview"] as? [String: Any]).flatMap { linkPreview($0, base: base) },
-            effect: (raw["effect"] as? String).flatMap(ConversationMessageEffect.init(rawValue:))
+            effect: (raw["effect"] as? String).flatMap(ConversationMessageEffect.init(rawValue:)),
+            poll: (raw["poll"] as? [String: Any]).flatMap(poll)
+        )
+    }
+
+    static func poll(_ raw: [String: Any]) -> ConversationPoll? {
+        guard let options = raw["options"] as? [[String: Any]] else { return nil }
+        return ConversationPoll(
+            question: raw["question"] as? String ?? "",
+            options: options.compactMap { option in
+                guard let id = option["id"] as? String else { return nil }
+                return ConversationPollOption(id: id, text: option["text"] as? String ?? "", addedByID: option["addedBy"] as? String)
+            },
+            votes: (raw["votes"] as? [[String: Any]] ?? []).compactMap { vote in
+                guard let participant = vote["participantId"] as? String, let option = vote["optionId"] as? String else { return nil }
+                return ConversationPollVote(participantID: participant, optionID: option, votedAt: date(vote["votedAt"]))
+            }
         )
     }
 

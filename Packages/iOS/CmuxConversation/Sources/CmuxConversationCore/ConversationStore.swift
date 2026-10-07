@@ -103,6 +103,7 @@ public final class ConversationStore {
     /// Bumps on every list state change so a stale reply or rollback never
     /// overwrites a newer state.
     private var listStateGeneration = 0
+    private var polls = PollState()
 
     public init(
         backend: any ConversationBackend,
@@ -225,11 +226,12 @@ public final class ConversationStore {
 
     /// Inserts or merges a message. Returns true when a new row appeared.
     @discardableResult
-    private func upsert(_ incoming: ConversationMessage) -> Bool {
+    private func upsert(_ serverMessage: ConversationMessage) -> Bool {
         // Deleted on this device: no update, ack or refetch brings it back.
-        if deletedMessageIDs.contains(incoming.id) || incoming.clientMessageID.map(deletedClientIDs.contains) == true {
+        if deletedMessageIDs.contains(serverMessage.id) || serverMessage.clientMessageID.map(deletedClientIDs.contains) == true {
             return false
         }
+        let incoming = absorbPoll(serverMessage)
         if let index = indexByID[incoming.id] {
             messages[index] = merged(existing: messages[index], incoming: incoming)
             return false
@@ -592,7 +594,8 @@ public final class ConversationStore {
                     attachmentIDs: attachmentIDs,
                     mentions: current.mentions,
                     textRuns: current.textRuns,
-                    effect: current.effect
+                    effect: current.effect,
+                    poll: current.poll.map { ConversationPollDraft(question: $0.question, options: $0.options.map(\.text)) }
                 )
                 var acked = try await self.backend.send(draft)
                 if acked.delivery == nil { acked.delivery = .sent }
@@ -738,7 +741,7 @@ public final class ConversationStore {
     public static let maxEdits = 5
 
     public func canEdit(_ message: ConversationMessage, now: Date = Date()) -> Bool {
-        message.senderID == meID && message.seq != nil && message.attachments.isEmpty && !message.isUnsent
+        message.senderID == meID && message.seq != nil && message.attachments.isEmpty && message.poll == nil && !message.isUnsent
             && message.editCount < Self.maxEdits && now.timeIntervalSince(message.sentAt) < Self.editWindow
     }
 
@@ -1049,4 +1052,164 @@ public final class ConversationUnreadBadge {
         stores.reduce(0) { $0 + ($1 === store ? 0 : $1.unreadCount) }
     }
 
+}
+
+// MARK: - Polls
+
+/// Local poll intent layered over the server's copy: votes and choices the
+/// backend has not confirmed yet, and the last vote it refused.
+private struct PollState {
+    struct PendingVote {
+        var selected: Bool
+        var token: Int
+    }
+
+    /// The last poll each message carried from the backend, before overlays.
+    var server: [String: ConversationPoll] = [:]
+    /// messageID -> optionID -> my unconfirmed vote.
+    var pendingVotes: [String: [String: PendingVote]] = [:]
+    /// messageID -> choices I added that the backend has not confirmed.
+    var pendingOptions: [String: [ConversationPollOption]] = [:]
+    var failures: [String: ConversationPollVoteFailure] = [:]
+    var nextToken = 0
+}
+
+extension ConversationStore {
+    /// The vote the backend refused for this poll message, if any.
+    public func pollVoteFailure(messageID: String) -> ConversationPollVoteFailure? {
+        polls.failures[messageID]
+    }
+
+    /// Whether I can vote on or add choices to this poll (it reached the server).
+    public func canInteractWithPoll(_ message: ConversationMessage) -> Bool {
+        message.poll != nil && message.seq != nil && meID != nil
+    }
+
+    /// Creates a poll. Empty choices are dropped; 2 to 12 must remain.
+    @discardableResult
+    public func sendPoll(question: String, choices: [String], replyToID: String? = nil) -> String? {
+        let question = question.trimmingCharacters(in: .whitespacesAndNewlines)
+        let choices = choices.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        guard (2...ConversationPoll.maxOptions).contains(choices.count), let meID else { return nil }
+        let clientID = makeClientMessageID()
+        let poll = ConversationPoll(
+            question: question,
+            options: choices.enumerated().map { ConversationPollOption(id: "local:\(clientID):\($0.offset)", text: $0.element) }
+        )
+        let pending = ConversationMessage(
+            id: "local:\(clientID)",
+            seq: nil,
+            clientMessageID: clientID,
+            senderID: meID,
+            sentAt: Date(),
+            text: question,
+            replyToID: replyToID,
+            delivery: .sending,
+            poll: poll
+        )
+        upsert(pending)
+        sortAndReindex()
+        notify(.live(insertedRowIDs: [pending.rowID], sentByMe: true))
+        setLocalTyping(false)
+        transmit(clientID: clientID, images: [])
+        return pending.rowID
+    }
+
+    /// Tap on a choice: votes for it, or takes my vote back.
+    public func togglePollVote(messageID: String, optionID: String) {
+        guard let meID, let poll = message(id: messageID)?.poll else { return }
+        setPollVote(messageID: messageID, optionID: optionID, selected: !poll.hasVote(participantID: meID, optionID: optionID))
+    }
+
+    /// Applies my vote at once and sends it; a refusal rolls the poll back to
+    /// the server's copy and records a failure the transcript surfaces.
+    public func setPollVote(messageID: String, optionID: String, selected: Bool) {
+        guard let meID, let index = indexByID[messageID], canInteractWithPoll(messages[index]),
+              messages[index].poll?.option(optionID) != nil else { return }
+        polls.failures[messageID] = nil
+        polls.nextToken += 1
+        let token = polls.nextToken
+        polls.pendingVotes[messageID, default: [:]][optionID] = PollState.PendingVote(selected: selected, token: token)
+        messages[index].poll?.setVote(participantID: meID, optionID: optionID, selected: selected, at: Date())
+        notify(.live(insertedRowIDs: [], sentByMe: false))
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let updated = try await self.backend.votePoll(messageID: messageID, optionID: optionID, selected: selected)
+                if self.polls.pendingVotes[messageID]?[optionID]?.token == token {
+                    self.polls.pendingVotes[messageID]?[optionID] = nil
+                }
+                self.upsert(updated)
+            } catch {
+                guard self.polls.pendingVotes[messageID]?[optionID]?.token == token else { return }
+                self.polls.pendingVotes[messageID]?[optionID] = nil
+                self.polls.failures[messageID] = ConversationPollVoteFailure(optionID: optionID, selected: selected)
+                self.rederivePoll(messageID: messageID)
+            }
+            self.notify(.live(insertedRowIDs: [], sentByMe: false))
+        }
+    }
+
+    /// "Try Again" on a failed vote resends the same intent.
+    public func retryPollVote(messageID: String) {
+        guard let failure = polls.failures[messageID] else { return }
+        setPollVote(messageID: messageID, optionID: failure.optionID, selected: failure.selected)
+    }
+
+    public func dismissPollVoteFailure(messageID: String) {
+        guard polls.failures.removeValue(forKey: messageID) != nil else { return }
+        notify(.live(insertedRowIDs: [], sentByMe: false))
+    }
+
+    /// Adds a choice; it appears at once and is removed if the backend refuses it.
+    public func addPollChoice(messageID: String, text: String) {
+        let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, let meID, let index = indexByID[messageID], canInteractWithPoll(messages[index]),
+              let poll = messages[index].poll, poll.options.count < ConversationPoll.maxOptions else { return }
+        let option = ConversationPollOption(id: "local:\(makeClientMessageID())", text: text, addedByID: meID)
+        polls.pendingOptions[messageID, default: []].append(option)
+        messages[index].poll?.options.append(option)
+        notify(.live(insertedRowIDs: [], sentByMe: false))
+        Task { [weak self] in
+            guard let self else { return }
+            let updated = try? await self.backend.addPollOption(messageID: messageID, text: text)
+            self.polls.pendingOptions[messageID]?.removeAll { $0.id == option.id }
+            if let updated {
+                self.upsert(updated)
+            } else {
+                self.rederivePoll(messageID: messageID)
+            }
+            self.notify(.live(insertedRowIDs: [], sentByMe: false))
+        }
+    }
+
+    /// Records the server's poll and layers my unconfirmed intent over it.
+    fileprivate func absorbPoll(_ incoming: ConversationMessage) -> ConversationMessage {
+        guard let poll = incoming.poll else { return incoming }
+        polls.server[incoming.id] = poll
+        var result = incoming
+        result.poll = overlaid(poll, messageID: incoming.id)
+        return result
+    }
+
+    private func overlaid(_ poll: ConversationPoll, messageID: String) -> ConversationPoll {
+        var poll = poll
+        // The server's event for an added choice can beat the RPC response;
+        // skip a pending choice the server already lists.
+        for option in polls.pendingOptions[messageID] ?? []
+        where !poll.options.contains(where: { $0.id == option.id || ($0.text == option.text && $0.addedByID == option.addedByID) }) {
+            poll.options.append(option)
+        }
+        if let meID {
+            for (optionID, vote) in polls.pendingVotes[messageID] ?? [:] {
+                poll.setVote(participantID: meID, optionID: optionID, selected: vote.selected, at: Date())
+            }
+        }
+        return poll
+    }
+
+    private func rederivePoll(messageID: String) {
+        guard let index = indexByID[messageID], let server = polls.server[messageID] else { return }
+        messages[index].poll = overlaid(server, messageID: messageID)
+    }
 }

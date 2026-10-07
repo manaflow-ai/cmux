@@ -1001,6 +1001,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         photos.target = self
         menu.addItem(photos)
         menu.addItem(effectsMenuItem())
+        menu.addItem(pollsAppsMenuItem())
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: composer.appsButton.bounds.height + 4), in: composer.appsButton)
     }
 
@@ -1197,6 +1198,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             showReactors(model, from: rowView.badge)
             return true
         }
+        if handlePollClick(model, rowView: rowView, local: local) { return true }
         // Messages opens the thread focus from the replies link and from a
         // reply's quote.
         if !rowView.repliesLabel.isHidden, rowView.repliesLabel.frame.contains(local) {
@@ -1390,6 +1392,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             ? String(localized: "conversation.menu.hideTimes", defaultValue: "Hide Times", bundle: .module)
             : String(localized: "conversation.menu.showTimes", defaultValue: "Show Times", bundle: .module)
         menu.addItem(item(timesTitle, "clock") { [weak self] in self?.toggleShowsTimes() })
+        addPollMenuItems(to: menu, model: model, rowView: rowView)
         // Messages darkens the bubble while its menu is open.
         menuHighlight.begin(rowView)
         menu.delegate = menuHighlight
@@ -1555,6 +1558,8 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
                   let reaction = ConversationReaction(rawValue: bits[1]) else { return "error usage react <row-match> <reaction>" }
             store.react(messageID: model.message.id, reaction: reaction)
             return "ok"
+        case "poll":
+            return pollLabCommand(argument)
         case "escape":
             tapbackPopover?.close()
             exitReplyOrEdit()

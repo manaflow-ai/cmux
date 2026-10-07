@@ -64,6 +64,8 @@ struct MessageRowModel: Hashable {
 
     /// Text bubble content: the message text, minus a URL shown as a card.
     var bodyText: String { linkSplit?.bodyText ?? message.text }
+    /// Set for poll messages (see ConversationPolls.swift).
+    var poll: PollRowModel? = nil
 }
 
 /// Builds rows from store state with Messages grouping rules: consecutive
@@ -110,7 +112,7 @@ enum ConversationRowBuilder {
             let quote = message.replyToID.flatMap { store.message(id: $0) }.map {
                 ReplyQuote(text: $0.text.isEmpty ? ($0.audioAttachment != nil ? AudioMessageStrings.audioMessage : String(localized: "conversation.quote.photo", defaultValue: "Photo", bundle: .module)) : $0.text, isOutgoing: $0.senderID == meID, hasImage: !$0.attachments.isEmpty)
             }
-            rows.append(.message(MessageRowModel(
+            rows.append(.message(PollRowModel.attach(to: MessageRowModel(
                 rowID: message.rowID,
                 message: message,
                 isOutgoing: isOutgoing,
@@ -132,7 +134,7 @@ enum ConversationRowBuilder {
                 hasMyReaction: message.reactions.contains { $0.participantID == meID },
                 meID: meID,
                 linkSplit: ConversationLinkSplit.split(text: message.text, preview: message.linkPreview)
-            )))
+            ), store: store)))
         }
         if !typingIDs.isEmpty {
             rows.append(.typing(participantIDs: typingIDs))

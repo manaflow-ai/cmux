@@ -55,6 +55,10 @@ public protocol ConversationBackend: AnyObject, Sendable {
     func updateListState(_ change: ConversationListStateChange) async throws -> ConversationInfo
     /// Fetches rich link metadata for `url` (composer preview, tap to load).
     func linkPreview(for url: URL) async throws -> ConversationLinkPreview?
+    /// Adds (`selected`) or takes back my vote for one poll choice.
+    func votePoll(messageID: String, optionID: String, selected: Bool) async throws -> ConversationMessage
+    /// Appends a choice to a poll.
+    func addPollOption(messageID: String, text: String) async throws -> ConversationMessage
 }
 
 extension ConversationBackend {
@@ -106,4 +110,14 @@ public protocol ConversationAudioBackend: ConversationBackend {
 
 public extension ConversationBackend {
     func linkPreview(for url: URL) async throws -> ConversationLinkPreview? { nil }
+}
+
+public extension ConversationBackend {
+    func votePoll(messageID: String, optionID: String, selected: Bool) async throws -> ConversationMessage {
+        throw ConversationBackendError(code: -1, message: "polls unsupported")
+    }
+
+    func addPollOption(messageID: String, text: String) async throws -> ConversationMessage {
+        throw ConversationBackendError(code: -1, message: "polls unsupported")
+    }
 }

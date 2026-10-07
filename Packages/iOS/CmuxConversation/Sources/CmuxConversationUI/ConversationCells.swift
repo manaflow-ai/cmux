@@ -30,6 +30,10 @@ final class MessageCell: UICollectionViewCell {
     let replayButton = UIButton(type: .system)
     var effectStage: MessageBubbleStage?
     var inkView: InvisibleInkView?
+    /// Poll card pieces, added on first use (ConversationPolls.swift).
+    let pollCard = PollCardView()
+    let addChoiceButton = UIButton(type: .system)
+    let pollFailedLabel = UILabel()
     /// Everything that moves with the bubble during swipes.
     let shiftable = UIView()
     /// Audio messages (created on first use; see ConversationAudioViews).
@@ -166,6 +170,7 @@ final class MessageCell: UICollectionViewCell {
         threadLine.strokeColor = ConversationTheme.replyThread.resolvedColor(with: traitCollection).cgColor
 
         configureImages(model: model, layout: layout)
+        configurePoll(model: model, layout: layout)
 
         if let bubbleFrame = layout.bubbleFrame {
             bubble.isHidden = false

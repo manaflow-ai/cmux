@@ -21,10 +21,12 @@ process and keep growing.
 | --- | --- | --- |
 | `hello` | `{clientId, resumeAfterEventSeq?}` | `{conversation, me: Participant, headSeq, headEventSeq, serverTime, lagged, lastReadSeq, unreadCount}` |
 | `history` | `{beforeSeq: Int?, limit: Int}` | `{messages: [Message], hasMore: Bool}` |
-| `send` | `{clientMessageId, text, replyToId?, attachmentIds?, mentions?: [Mention], textRuns?, effect?: Effect}` | `{message: Message}` |
+| `send` | `{clientMessageId, text, replyToId?, attachmentIds?, mentions?: [Mention], textRuns?, effect?: Effect, poll?: {question, options: [String]}}` | `{message: Message}` |
 | `react` | `{messageId, reaction: Reaction?}` | `{message: Message}` |
 | `edit` | `{messageId, text, textRuns?}` | `{message: Message}` (at most 5 edits per message; then error `-32004`) |
 | `unsend` | `{messageId}` | `{message: Message}` (Undo Send: text and attachments cleared, `unsentAt` set; error `-32003` after 2 minutes, `-32005` at `unsendFailRate`) |
+| `votePoll` | `{messageId, optionId, selected: Bool}` | `{message: Message}` |
+| `addPollOption` | `{messageId, text}` | `{message: Message}` |
 | `typing` | `{isTyping: Bool}` | `{}` |
 | `markRead` | `{upToSeq: Int}` | `{}` (the read receipt; never moves the marker back) |
 | `unfurl` | `{url}` | `{linkPreview: LinkPreview}` |
@@ -96,6 +98,12 @@ Message {
   textRuns?: [TextRun]                           // omitted when plain
   linkPreview?: LinkPreview   // when a URL opens or ends `text`
   effect?: Effect                                // "send with effect"
+  poll?: Poll                                    // text holds the question
+}
+Poll {
+  question,
+  options: [{id, text, addedBy?}],               // addedBy: added after creation
+  votes: [{participantId, optionId, votedAt}]    // multi-select: one per (participant, option)
 }
 LinkPreview {
   url, title?, siteName?, state: "loaded"|"loading"|"tapToLoad",
@@ -162,10 +170,13 @@ edit without `textRuns` clears the formatting.
   (deterministic link, data detector and layout fixtures).
 - `POST /admin/unsend?conversation=<id>`: a participant unsends its newest
   message now (incoming "<Name> unsent a message").
+- `POST /admin/poll?conversation=<id>&question=<q>&options=<a,b,...>&votes=0|1`:
+  a bot posts a poll now (random content without `question`/`options`); bots
+  vote on it unless `votes=0`.
 - `POST /admin/disconnect`: drop every socket (reconnect testing).
 - `POST /admin/knobs` JSON `{latencyScale, failRate, historyFailRate,
   duplicateRate, disconnectEverySeconds, botIntervalScale, botLinkRate, effectRate,
-  unsendFailRate}`. `unsendFailRate` (default 0) makes `unsend` refuse with
+  unsendFailRate, pollVoteFailRate}`. `unsendFailRate` (default 0) makes `unsend` refuse with
   `-32005 "not unsent"`.
 
 ## Link previews
@@ -210,3 +221,18 @@ the time. Every recording has a spoken transcript.
 
 Effects: `effectRate` (default 0.03) of bot text messages carry a random
 effect; ~1.5% of generated history text messages do too.
+
+## Polls
+
+Messages polls: 2 to 12 choices, multi-select (a vote is per participant and
+choice; `selected: false` takes it back), anyone may add a choice. A poll
+message cannot be edited.
+
+- `send` with `poll` stores `text` = trimmed question; blank choices are dropped.
+- `votePoll` acks after 80 to 500 ms; fails with `-32004 "vote not delivered"`
+  at `pollVoteFailRate` (default 0.03) without changing the poll.
+- Bots post a poll on ~3% of their turns. After any new poll (mine, a bot's,
+  or `/admin/poll`) each bot votes 1.5 to 14 s later (15% abstain), and 25%
+  later add or switch a vote, each change a `message.updated` event.
+- Seeded history carries polls (~0.4% of older messages, own rng, never in the
+  newest 300) with existing votes.
