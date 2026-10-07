@@ -52,6 +52,16 @@ public nonisolated final class AgentActivityLineConnection: @unchecked Sendable 
         }
     }
 
+    /// Sends another JSON-lines request on a live long-lived connection.
+    public func send(_ data: Data) {
+        queue.async { [self] in
+            guard !closed else { return }
+            connection.send(content: data, completion: .contentProcessed { [weak self] error in
+                if error != nil { self?.finish() }
+            })
+        }
+    }
+
     public func cancel() {
         queue.async { [self] in
             onClose = nil

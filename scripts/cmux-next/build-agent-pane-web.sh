@@ -3,17 +3,30 @@
 # that CmuxNextAgentPane ships as a module resource: index.html (markup and
 # styles), pane.js (the app) and locales/ (strings and the loader that picks
 # them). The page runs no inline script (CSP script-src 'self'), so markup an
-# agent gets rendered cannot run script. The output is committed; rerun this
-# after changing the TypeScript sources.
+# agent gets rendered cannot run script. The output is build output (gitignored;
+# scripts/cmux-next/build-web-bundles.sh runs this before every app build).
 #
 #   scripts/cmux-next/build-agent-pane-web.sh          # rebuild the resource
-#   scripts/cmux-next/build-agent-pane-web.sh --check  # fail if it is stale
+#   scripts/cmux-next/build-agent-pane-web.sh --check  # build into a temp dir only (the sources build)
+#   scripts/cmux-next/build-agent-pane-web.sh --out DIR  # build into DIR
 set -eu
 
 ROOT="$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)"
 SRC="$ROOT/webviews/src/agent-session"
 OUT="$ROOT/Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane"
-MODE="${1:-build}"
+MODE=build
+# --out DIR writes the page into DIR instead (build-web-bundles.sh --out-root, checks).
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --check) MODE=--check ;;
+    --out)
+      [ $# -ge 2 ] || { echo "error: --out needs a directory" >&2; exit 2; }
+      case "$2" in /*) OUT="$2" ;; *) OUT="$PWD/$2" ;; esac
+      shift ;;
+    *) echo "usage: $0 [--check] [--out DIR]" >&2; exit 2 ;;
+  esac
+  shift
+done
 
 command -v bun >/dev/null 2>&1 || { echo "error: bun is required to build the agent pane" >&2; exit 1; }
 "$ROOT/scripts/check-webviews-bun-version.sh"
@@ -28,8 +41,8 @@ cd "$ROOT/webviews"
 # bundle does not inline them: they ship as locales/<code>.js beside index.html, and the <head>
 # loader runs English plus the app's language synchronously, before the module (no frame of
 # English, no fetch before first paint). The loader is a file too (locales/loader.js).
-node scripts/pages/gen-strings.mjs --check agentPane
-LOADER="$(node scripts/pages/split-strings.mjs "$SRC/acpmux/generated/strings.json" "$WORK/locales" __cmuxPaneStrings --loader-file)"
+bun scripts/pages/gen-strings.mjs --check agentPane
+LOADER="$(bun scripts/pages/split-strings.mjs "$SRC/acpmux/generated/strings.json" "$WORK/locales" __cmuxPaneStrings --loader-file)"
 
 # `shiki` resolves to a trimmed copy (acpmux/shiki): the JavaScript regex engine and
 # common languages, not every grammar and the WebAssembly engine. The React Compiler
@@ -49,10 +62,10 @@ cat "$ROOT/webviews/src/pages/shared/desktop.css" > "$WORK/styles.css"
 grep -v '^@import ' "$SRC/shared/styles.css" >> "$WORK/styles.css"
 # KaTeX's rules and fonts (data URLs: the CSP below allows fonts only from data:) for the
 # transcript's math (conversation/Math.tsx).
-node scripts/agent-pane/katex-css.mjs >> "$WORK/styles.css"
+bun scripts/agent-pane/katex-css.mjs >> "$WORK/styles.css"
 cat "$SRC/acpmux/styles.css" "$SRC/acpmux/conversation/conversation.css" "$SRC/acpmux/chips/chips.css" "$SRC/acpmux/previewCard/previewCard.css" "$SRC/acpmux/changes/changes.css" \
-  "$SRC/acpmux/handoff/styles.css" "$SRC/acpmux/checkpoints/styles.css" "$SRC/acpmux/composerControls.css" "$SRC/acpmux/composerStates.css" "$SRC/acpmux/composerLocation.css" "$SRC/acpmux/composerAttachments.css" "$SRC/acpmux/searchChats.css" "$SRC/acpmux/markdownField.css" \
-  "$SRC/acpmux/modelPicker.css" "$SRC/acpmux/keys.css" "$SRC/acpmux/summary/summary.css" "$SRC/acpmux/header/header.css" "$SRC/acpmux/newtab/screen.css" >> "$WORK/styles.css"
+  "$SRC/acpmux/handoff/styles.css" "$SRC/acpmux/checkpoints/styles.css" "$SRC/acpmux/composerControls.css" "$SRC/acpmux/composerStates.css" "$SRC/acpmux/composerLocation.css" "$SRC/acpmux/composerAttachments.css" "$SRC/acpmux/markdownField.css" \
+  "$SRC/acpmux/modelPicker.css" "$SRC/acpmux/keys.css" "$SRC/acpmux/summary/summary.css" "$SRC/acpmux/subagents/subagents.css" "$SRC/acpmux/header/header.css" "$SRC/acpmux/newtab/screen.css" "$SRC/acpmux/threadMinimap/threadMinimap.css" >> "$WORK/styles.css"
 cat "$SRC/acpmux/turnChanges/turnChanges.css" >> "$WORK/styles.css"
 
 # Same-origin script files only (no inline script, no eval) and inline style. No connection of its own: the
@@ -75,13 +88,7 @@ CSP="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src d
 cp "$WORK/app.js" "$WORK/pane.js"
 
 if [ "$MODE" = "--check" ]; then
-  if ! cmp -s "$WORK/index.html" "$OUT/index.html" || ! cmp -s "$WORK/pane.js" "$OUT/pane.js" \
-    || ! cmp -s "$WORK/highlight-worker.js" "$OUT/highlight-worker.js" \
-    || ! diff -rq "$WORK/locales" "$OUT/locales" >/dev/null 2>&1; then
-    echo "error: $OUT/index.html is stale; run scripts/cmux-next/build-agent-pane-web.sh (after merging feat-cmux-next: scripts/cmux-next/regenerate-web-bundles.sh)" >&2
-    exit 1
-  fi
-  echo "agent pane web bundle is current"
+  echo "agent pane web bundle builds"
   exit 0
 fi
 

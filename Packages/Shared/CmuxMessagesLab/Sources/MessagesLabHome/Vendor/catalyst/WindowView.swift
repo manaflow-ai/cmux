@@ -50,6 +50,9 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     /// header exist (the capture blur reads them).
     static let cvTop: CGFloat = -Fixture.headerHeight
     var cvHeight: CGFloat { bounds.height + Fixture.headerHeight }
+    /// The band the outgoing fills span: the visible height and one transcript height above and
+    /// below (scrolling, and the springs and fold slides, which move a row by at most that much).
+    var fillSpan: RowCell.FillSpan { RowCell.FillSpan(viewport: bounds.height, margin: cvHeight) }
     /// Engine time now (live: the media clock; capture: virtual time).
     var clock: () -> Double = { 0 }
     /// Ask for `settle(at:)` at an engine time (event-driven cleanup).
@@ -269,6 +272,9 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         _ = layout.rebaseIfNeeded(force: true)
         layout.invalidateLayout()
         restore(anchor)
+        // The fills follow the new height (cells made later get it in decorate).
+        let span = fillSpan
+        for case let cell as RowCell in collection.visibleCells { cell.fillSpan = span }
     }
 
     /// cmux: the width this view's rows were derived for.
@@ -1072,10 +1078,10 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         for case let cell as RowCell in collection.visibleCells {
             guard let ip = collection.indexPath(for: cell), ip.item < model.count else { continue }
             if logSlow {
-                let t0 = CACurrentMediaTime(), a0 = Animate.serial, r0 = RowCell.syncRenders
+                let t0 = CACurrentMediaTime(), a0 = Animate.serial, r0 = RowCell.syncRenders, d0 = RowCell.deferredRenders
                 decorate(cell, ip.item)
                 let us = (CACurrentMediaTime() - t0) * 1e6
-                if us > 40 { slow.append((us, "\(Int(us))us \(model.rows[ip.item].spec.key.prefix(14)) a\(Animate.serial - a0) r\(RowCell.syncRenders - r0)")) }
+                if us > 40 { slow.append((us, "\(Int(us))us \(model.rows[ip.item].spec.key.prefix(14)) a\(Animate.serial - a0) r\(RowCell.syncRenders - r0) d\(RowCell.deferredRenders - d0)")) }
             } else {
                 decorate(cell, ip.item)
             }
@@ -1099,6 +1105,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             let t = CACurrentMediaTime(); MessagesWindowView.decorateStepMs[n] += (t - tmark) * 1000; tmark = t
         }
         defer { step(2) }
+        cell.fillSpan = fillSpan
         cell.configure(r.spec)
         step(0)
         // A row needs the container-motion check once per row shown in this cell and once per new
@@ -1636,12 +1643,19 @@ extension MessagesWindowView {
                     }
                 }
                 if delta < 0 { for l in [tb.headClip, tb.band] { slide(l, "position.y", l.position.y, by: shown, hold: 0) } }
+                // My tapback badge (a cell layer, not in the tiled container) comes down with the
+                // bubble's top as the other badges in the container do.
+                if delta < 0, let b = c.badge, !b.isHidden { slide(b, "position.y", b.position.y, by: shown, hold: 0) }
                 continue
             }
             if delta > 0, idx > i, let old = before[k] {
                 // Below the message: from its old window position down.
                 let d = c.convert(c.bounds, to: self).minY - old
-                if d > 0.5 { slide(c.layer, "position.y", c.layer.position.y, by: min(d, travel), hold: max(0, d - travel)) }
+                if d > 0.5 {
+                    slide(c.layer, "position.y", c.layer.position.y, by: min(d, travel), hold: max(0, d - travel))
+                    // Its fill moves with it: the band reaches down to where the row starts.
+                    c.extendFillReach(below: d)
+                }
             } else if delta < 0, idx < i {
                 // Above the message: in from one viewport above.
                 slide(c.layer, "position.y", c.layer.position.y, by: shown, hold: 0)
@@ -1650,6 +1664,24 @@ extension MessagesWindowView {
         updateThumb()
         CATransaction.commit()
         userScrolled()
+        // An expanded message can fold: its rows above then slide in from one viewport above.
+        // Their cells are made after the slide settles, a batch per run-loop pass, not in the fold's frame.
+        if delta > 0, let r = collection as? RowRecycler {
+            let n = Self.reserveCellCount(collection.visibleCells.count)
+            let t = Timer(timeInterval: el.settleTime, repeats: false) { [weak self, weak r] _ in
+                if let self, let r { self.reserveCells(r, n) }
+            }
+            RunLoop.main.add(t, forMode: .common)
+        }
+    }
+
+    /// Cells the pool keeps after an expansion: two viewports of rows.
+    static func reserveCellCount(_ visible: Int) -> Int { min(96, max(24, 2 * visible)) }
+    private func reserveCells(_ r: RowRecycler, _ n: Int) {
+        RunLoop.main.perform(inModes: [.common]) { [weak self, weak r] in
+            guard let self, let r, r.reserve(n) else { return }
+            self.reserveCells(r, n)
+        }
     }
 
     /// Measured line counts replace estimates in long text rows, without animation.

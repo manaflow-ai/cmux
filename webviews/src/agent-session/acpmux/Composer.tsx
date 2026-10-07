@@ -15,7 +15,6 @@ import {
   PlusIcon,
   SearchIcon,
   PlanIcon,
-  ShieldIcon,
   SlashIcon,
   StopIcon,
 } from "./ComposerPickers";
@@ -108,7 +107,7 @@ type Props = {
   onShell?(command: string): ShellRun | undefined;
   /// Ctrl-C: stops the chat's newest running command; false when none runs.
   onShellInterrupt?(): boolean;
-  /// Changes the approval mode from the + menu while keeping the keyboard shortcut path intact.
+  /// The + menu's Plan/Build toggle (permission modes live in the access chip beside +).
   onMode?(modeId: string): void;
   /// ⌘Return, only where set (the Quick Composer): sends what was typed as Return would, then
   /// asks to open the chat in a window. `sent` says whether there was a prompt to send.
@@ -278,14 +277,10 @@ export function Composer({
   }, [draft]);
   const commands = snapshot.commands;
   const remote = remoteComposer(snapshot);
-  const modeChoices: Choice[] = (snapshot.summary?.modes?.availableModes ?? [])
-    .filter((mode) => !/(^|[-_])plan$/i.test(mode.id))
-    .map((mode) => ({
-      id: `mode:${mode.id}`,
-      name: mode.name || mode.id,
-      description: mode.description,
-      icon: <ShieldIcon />,
-    }));
+  // Permission modes live in the access chip beside +; the + menu keeps only the Plan/Build toggle.
+  const permissionModes = (snapshot.summary?.modes?.availableModes ?? []).filter(
+    (mode) => !/(^|[-_])plan$/i.test(mode.id),
+  );
   const plan = snapshot.summary?.modes?.availableModes?.find((mode) => /(^|[-_])plan$/i.test(mode.id));
   const currentModeId = snapshot.summary?.modes?.currentModeId;
   const lastMode = useRef<{ sessionId?: string; mode?: string }>({});
@@ -294,18 +289,10 @@ export function Composer({
   }
   if (currentModeId && !/(^|[-_])plan$/i.test(currentModeId)) lastMode.current.mode = currentModeId;
   const planning = plan?.id === currentModeId;
-  const modePlanChoices: Choice[] = [
-    ...modeChoices,
-    ...(plan
-      ? [
-          {
-            id: `plan:${plan.id}`,
-            name: planning ? "Build" : "Plan",
-            icon: planning ? <BuildIcon /> : <PlanIcon />,
-          },
-        ]
-      : []),
-  ];
+  const planChoice: Choice | undefined =
+    plan && onMode
+      ? { id: `plan:${plan.id}`, name: planning ? "Build" : "Plan", icon: planning ? <BuildIcon /> : <PlanIcon /> }
+      : undefined;
   const query = slashQuery(text, caret);
   const open = query !== undefined && dismissed !== text;
   const matches = useMemo(() => (open ? matchCommands(commands ?? [], query ?? "") : []), [commands, open, query]);
@@ -583,32 +570,6 @@ export function Composer({
           {t(blocked.reason)}
         </p>
       )}
-      <ComposerContext
-        projectChoices={projectChoices}
-        onBrowseProject={onBrowseProject}
-        summary={snapshot.summary}
-        sessions={snapshot.sessions}
-        peers={snapshot.peers}
-        started={(snapshot.summary?.turnCount ?? 0) > 0 || snapshot.rows.length > 0}
-        onProject={
-          onProject &&
-          ((cwd, peer) => {
-            onProject(cwd, peer);
-            field.current?.focus();
-          })
-        }
-        localName={localName}
-        movedTo={movedTo}
-        busy={snapshot.isWorking}
-        onMove={
-          onMove &&
-          ((cwd) => {
-            const move = onMove(cwd);
-            setAttachments((current) => [...current.filter((item) => !item.move), moveAttachment(move)]);
-            field.current?.focus();
-          })
-        }
-      />
       {findingFiles &&
         searchFiles &&
         form.current?.parentElement &&
@@ -716,23 +677,6 @@ export function Composer({
               align="start"
               returnFocus={false}
               sections={[
-                ...(modePlanChoices.length > 0 && onMode
-                  ? [
-                      {
-                        title: t("picker.mode"),
-                        choices: modePlanChoices,
-                        onPick: (id: string) => {
-                          if (id.startsWith("mode:")) onMode(id.slice("mode:".length));
-                          else if (id.startsWith("plan:"))
-                            onMode(
-                              planning
-                                ? (lastMode.current.mode ?? modeChoices[0]?.id?.slice(5) ?? id.slice(5))
-                                : id.slice(5),
-                            );
-                        },
-                      },
-                    ]
-                  : []),
                 {
                   choices: [
                     ...(onAttach ? [{ id: "attach", name: t(COMPOSER_LABELS.attach), icon: <PaperclipIcon /> }] : []),
@@ -748,15 +692,20 @@ export function Composer({
                           },
                         ]
                       : []),
+                    ...(planChoice ? [planChoice] : []),
                   ],
                   onPick: (id) =>
-                    id === "attach"
-                      ? onAttach?.()
-                      : id === "mention"
-                        ? mention()
-                        : id === "files"
-                          ? setFindingFiles(true)
-                          : openCommands(),
+                    id.startsWith("plan:")
+                      ? onMode?.(
+                          planning ? (lastMode.current.mode ?? permissionModes[0]?.id ?? id.slice(5)) : id.slice(5),
+                        )
+                      : id === "attach"
+                        ? onAttach?.()
+                        : id === "mention"
+                          ? mention()
+                          : id === "files"
+                            ? setFindingFiles(true)
+                            : openCommands(),
                 },
               ]}
             />
@@ -792,6 +741,32 @@ export function Composer({
           </span>
         </div>
       </div>
+      <ComposerContext
+        projectChoices={projectChoices}
+        onBrowseProject={onBrowseProject}
+        summary={snapshot.summary}
+        sessions={snapshot.sessions}
+        peers={snapshot.peers}
+        started={(snapshot.summary?.turnCount ?? 0) > 0 || snapshot.rows.length > 0}
+        onProject={
+          onProject &&
+          ((cwd, peer) => {
+            onProject(cwd, peer);
+            field.current?.focus();
+          })
+        }
+        localName={localName}
+        movedTo={movedTo}
+        busy={snapshot.isWorking}
+        onMove={
+          onMove &&
+          ((cwd) => {
+            const move = onMove(cwd);
+            setAttachments((current) => [...current.filter((item) => !item.move), moveAttachment(move)]);
+            field.current?.focus();
+          })
+        }
+      />
     </form>
   );
 }

@@ -42,9 +42,15 @@ fn fade_tokens_match_the_spec() {
     assert_eq!(p.fade(MotionFade::Focus), 0.10);
     assert_eq!(p.fade(MotionFade::FadeIn), 0.12);
     assert_eq!(p.fade(MotionFade::FadeOut), 0.08);
-    for t in MotionFade::ALL {
-        assert!(p.fade(t) <= 0.16, "{t:?}");
+    // MotionTunables.swift:38-39.
+    assert_eq!(p.fade(MotionFade::Highlight), 1.2);
+    assert_eq!(p.fade(MotionFade::Launch), 0.24);
+    // Transitions stay short; only the highlight's fade-out is long.
+    for t in MotionFade::ALL.into_iter().filter(|t| *t != MotionFade::Highlight) {
+        assert!(p.fade(t) <= 0.24, "{t:?}");
     }
+    // `launch` stays under 400 ms at normal speed (MotionTunables.swift:39).
+    assert!(MotionPolicy::new(MotionSpeed::Normal, false).fade(MotionFade::Launch) < 0.4);
 }
 
 #[test]
