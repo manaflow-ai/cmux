@@ -9,7 +9,9 @@ public import Foundation
 ///    searches.
 /// 2. Explicit `http`, `https`, `file`, and `about:blank` load; with
 ///    `allowsChromiumSchemes` (Chromium tabs) also `chrome://` WebUI and
-///    `chrome-extension://` pages. Every other scheme (`javascript:`,
+///    `chrome-extension://` pages and `about:` aliases of WebUI pages, in
+///    Chromium's canonical form (ChromiumInternalURL: `chrome://extensions`
+///    is `chrome://extensions/`). Every other scheme (`javascript:`,
 ///    `data:`, `mailto:`, ...) is searched, so typed text can never run
 ///    script or open another app.
 /// 3. `/abs/path`, `~`, and `~/path` are file URLs, spaces allowed.
@@ -112,11 +114,10 @@ public nonisolated struct BrowserURLResolver: Sendable {
             guard let url = URL(string: text), url.isFileURL, url.path().hasPrefix("/") else { return nil }
             return url
         case "about":
-            return text.lowercased() == "about:blank" ? URL(string: "about:blank") : nil
+            if text.lowercased() == "about:blank" { return URL(string: "about:blank") }
+            return allowsChromiumSchemes ? ChromiumInternalURL(text, scheme: scheme)?.url : nil
         case "chrome", "chrome-extension":
-            guard allowsChromiumSchemes, let components = URLComponents(string: text),
-                  let host = components.host, !host.isEmpty else { return nil }
-            return components.url
+            return allowsChromiumSchemes ? ChromiumInternalURL(text, scheme: scheme)?.url : nil
         default:
             return nil
         }

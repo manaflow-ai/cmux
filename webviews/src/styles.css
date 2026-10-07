@@ -693,6 +693,8 @@ body {
   justify-self: end;
 }
 #content {
+  /* Sidebar resize and slide coordinates are physical; keep their grid LTR. */
+  direction: ltr;
   --cmux-diff-files-width: 252px;
   position: relative;
   flex: 1 1 auto;
@@ -706,6 +708,17 @@ body {
   overscroll-behavior: contain;
   contain: strict;
   background: transparent;
+}
+/* Localized chrome follows the document; code comparisons keep their source order. */
+:root[dir="rtl"] :is(#viewer, #files-sidebar) {
+  direction: rtl;
+}
+#viewer diffs-container,
+#file-list file-tree-container,
+.source-pill-stats,
+.base-picker-label {
+  direction: ltr;
+  unicode-bidi: isolate;
 }
 body[data-files-hidden="true"] #content {
   grid-template-columns: minmax(0, 1fr) 0;

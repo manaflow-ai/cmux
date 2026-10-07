@@ -187,10 +187,21 @@ final class FlightRecorder: NSObject {
     private func sample(_ c: ChatController, _ v: MessagesWindowView, _ now: CFTimeInterval, into slot: Int) {
         frameNo += 1
         let list = v.collection.layer
-        let lp = list.animationKeys() == nil ? list : (list.presentation() ?? list)
         let listOrigin = list.superlayer == nil ? CGPoint.zero : list.convert(CGPoint.zero, to: v.layer)
-        // Container motion: the transcript's sublayer transform moves every row (WindowView.animateRows).
-        let originY = Float(listOrigin.y + list.bounds.minY - lp.bounds.minY + lp.sublayerTransform.m42)
+        // Container motion: the transcript's sublayer transform moves every row (WindowView.animateRows),
+        // one additive spring per send; its closed form when those are the only animations.
+        let originY: Float
+        if let keys = list.animationKeys(), FlightRecorder.presentationReads
+            || keys.contains(where: { !($0.hasPrefix("spring.sublayerTransform.translation.y.") || $0.hasPrefix("sampled.sublayerTransform.translation.y.")) }) {
+            let lp = list.presentation() ?? list
+            originY = Float(listOrigin.y + list.bounds.minY - lp.bounds.minY + lp.sublayerTransform.m42)
+        } else {
+            originY = Float(Double(listOrigin.y + list.sublayerTransform.m42) + v.containerTranslation(at: Animate.now(v.layer)))
+            if FlightRecorder.verifyMath, MessagesWindowView.commitLog?.isEmpty ?? true, let lp = list.presentation() {
+                let d = abs(Double(originY) - Double(listOrigin.y + list.bounds.minY - lp.bounds.minY + lp.sublayerTransform.m42))
+                if d > FlightRecorder.verifyMax { FlightRecorder.verifyMax = d; FlightRecorder.verifyWorst = "container \(d)" }
+            }
+        }
         var s = RawSample(t: now, offset: Float(v.collection.contentOffset.y), key: c.window?.isKeyWindow ?? false)  // cmux: optional window
         let base = slot * FlightRecorder.maxRows
         var n = 0
@@ -199,13 +210,24 @@ final class FlightRecorder: NSObject {
         let firstKey = v.store.state.windowStart == 0 ? v.model.rows.first?.spec.key : nil
         var coverStart = top
         spans.removeAll(keepingCapacity: true)
+        let lnow = Animate.now(v.layer)
         for case let cell as RowCell in v.collection.visibleCells where !cell.isHidden {
             guard let spec = cell.spec, n < FlightRecorder.maxRows else { continue }
-            let cl = cell.layer.animationKeys() == nil ? cell.layer : (cell.layer.presentation() ?? cell.layer)
-            let y = originY + Float(cl.position.y - cl.bounds.height * cl.anchorPoint.y)
-            let x = Float(listOrigin.x + cl.position.x - cl.bounds.width * cl.anchorPoint.x)
+            let entries = v.ledger.live(spec.key)
+            if FlightRecorder.verifyMath {
+                let ip = v.collection.indexPath(for: cell)?.item
+                let mk = ip.flatMap { $0 < v.model.count ? v.model.rows[$0].spec.key : nil } ?? "-"
+                FlightRecorder.verifyKey = "\(spec.key) cellKey \(cell.key) cell \(ObjectIdentifier(cell).hashValue % 100000) ip \(ip ?? -1) modelKeyAtIp \(mk) modelIndex \(v.model.index[spec.key] ?? -1) frameY \(cell.frame.minY)"
+                if spec.key != mk || cell.key != spec.key, FlightRecorder.verifyLog.count < 24 { FlightRecorder.verifyLog.append("MISMATCH " + FlightRecorder.verifyKey) }
+            }
+            let cl = cell.layer
+            let cellPY = presented(cl, "position.y", .cell, entries, cell.applied, lnow)
+            // x: no ledger motion moves a row sideways; any other animation reads the presentation.
+            let px = cl.animationKeys() == nil || cellPY != nil ? cl.position.x : (cl.presentation() ?? cl).position.x
+            let y = originY + Float((cellPY ?? Double((cl.presentation() ?? cl).position.y)) - cl.bounds.height * cl.anchorPoint.y)
+            let x = Float(listOrigin.x + px - cl.bounds.width * cl.anchorPoint.x)
             let content = cell.contentView.layer
-            let op = content.animationKeys() == nil ? content.opacity : (content.presentation() ?? content).opacity
+            let op = Float(presented(content, "opacity", .content, entries, cell.applied, lnow) ?? Double((content.presentation() ?? content).opacity))
             let id = intern(spec.key)
             let hasBitmap = cell.bitmap.contents != nil
             rows[base + n] = RawRow(id: id, x: x, y: y, w: Float(cl.bounds.width), h: Float(cl.bounds.height), opacity: op,
@@ -220,13 +242,14 @@ final class FlightRecorder: NSObject {
                     // The gradient sits in the content layer (which animates during a send) and the
                     // fill container: their presented origins count, as convert(_:to:) counted them.
                     let g = cell.fillGradient
-                    let gp = g.animationKeys() == nil ? g : (g.presentation() ?? g)
                     var chain = y
                     for l in [content, cell.fillContainer] {
-                        let pl = l.animationKeys() == nil ? l : (l.presentation() ?? l)
-                        chain += Float(pl.position.y - pl.bounds.height * pl.anchorPoint.y - pl.bounds.minY)
+                        // No ledger target moves these two (the content layer only fades).
+                        let ly = presented(l, "position.y", nil, entries, cell.applied, lnow) ?? Double((l.presentation() ?? l).position.y)
+                        chain += Float(ly - l.bounds.height * l.anchorPoint.y - l.bounds.minY)
                     }
-                    let gy0 = chain + Float(gp.position.y - gp.bounds.height * gp.anchorPoint.y), gy1 = gy0 + Float(gp.bounds.height)
+                    let gpy = presented(g, "position.y", .fillGradient, entries, cell.applied, lnow) ?? Double((g.presentation() ?? g).position.y)
+                    let gy0 = chain + Float(gpy - g.bounds.height * g.anchorPoint.y), gy1 = gy0 + Float(g.bounds.height)
                     if by0 < gy0 - 0.5 || by1 > gy1 + 0.5 {
                         s.unfilledID = id
                         var h = Hasher(); h.combine(id); h.combine(Int(by0)); h.combine(Int(by1)); h.combine(Int(gy0)); h.combine(Int(gy1))
@@ -261,6 +284,61 @@ final class FlightRecorder: NSObject {
         samples[slot] = s
     }
 
+    /// A layer's presented value of `keyPath` from its model value plus the motion ledger's
+    /// springs already applied to it (WindowView.decorate adds each entry once, additively, from
+    /// `from - to` to 0; a hold overrides until its end), the same closed form the render server
+    /// runs: no `presentation()` copy, whose cost grew with the number of live springs (2-8 ms per
+    /// sample with 50 rows during fast sends). Nil when the layer carries an animation the ledger
+    /// did not make (swipe, typing, AppKit): the caller reads the presentation then.
+    /// `--recorder-presentation`: always nil (the old reads, A/B).
+    static let presentationReads = ProcessInfo.processInfo.arguments.contains("--recorder-presentation")
+    private func presented(_ l: CALayer, _ keyPath: String, _ target: MotionLedger.Target?, _ entries: [MotionLedger.Entry],
+                           _ applied: AppliedEntries, _ now: CFTimeInterval) -> Double? {
+        let model = Double(keyPath == "opacity" ? CGFloat(l.opacity) : l.position.y)
+        guard let keys = l.animationKeys() else { return model }
+        guard !FlightRecorder.presentationReads else { return nil }
+        for k in keys where !(k.hasPrefix("spring.") || k.hasPrefix("sampled.") || k.hasPrefix("curve.") || k.hasPrefix("hold.")) { return nil }
+        var v = model, hold: Double?
+        for e in entries where e.target == target && e.keyPath == keyPath && applied.contains(e.id) && now < e.end {
+            if let h = e.hold { if now >= e.begin { hold = h }; continue }
+            v += e.element.value(now - e.begin, from: e.from, to: e.to) - e.to
+        }
+        let out = hold ?? v
+        if FlightRecorder.verifyMath, let p = l.presentation() {
+            // `--recorder-verify` (bench evidence): the closed form against Core Animation's own value.
+            let pv = Double(keyPath == "opacity" ? CGFloat(p.opacity) : p.position.y)
+            let d = abs(pv - out) / (keyPath == "opacity" ? 0.01 : 1)
+            // Only ticks with no transaction earlier in the same run-loop pass: otherwise the model
+            // holds changes that the presentation (last commit) does not show yet.
+            let lid = ObjectIdentifier(l).hashValue &+ keyPath.count
+            let movedModel = FlightRecorder.verifyLastModel[lid].map { $0 != model } ?? true
+            FlightRecorder.verifyLastModel[lid] = model
+            guard MessagesWindowView.commitLog?.isEmpty ?? true, !movedModel else { FlightRecorder.verifySkipped += 1; return out }
+            FlightRecorder.verifyCount += 1
+            if d > 0.5 { FlightRecorder.verifyOver += 1 }
+            if d > FlightRecorder.verifyMax { FlightRecorder.verifyMax = d; FlightRecorder.verifyWorst = "\(keyPath) model \(model) math \(out) ca \(pv)" }
+            if d > 0.5, FlightRecorder.verifyLog.count < 16 {
+                // The layer's animations on this key path and the ledger's view of them (cause hunt).
+                func r(_ x: Double) -> Double { (x * 1000).rounded() / 1000 }
+                let es = entries.filter { $0.keyPath == keyPath }.map {
+                    "#\($0.id) \($0.target) from \(r($0.from)) b \(r($0.begin - now)) e \(r($0.end - now)) \(applied.contains($0.id) ? "A" : "-")\($0.hold != nil ? " hold" : "")"
+                }
+                let anims = keys.compactMap { k -> String? in
+                    guard let a = l.animation(forKey: k) as? CAPropertyAnimation, a.keyPath == keyPath else { return nil }
+                    let from = (a as? CABasicAnimation)?.fromValue ?? (a as? CAKeyframeAnimation)?.values?.first
+                    return "\(k) b \(r(a.beginTime - now)) dur \(r(a.duration)) from \(from ?? "?")"
+                }
+                FlightRecorder.verifyLog.append("\(FlightRecorder.verifyKey) \(target.map { "\($0)" } ?? "nil") \(keyPath) d \(r(d)) model \(r(model)) math \(r(out)) ca \(r(pv)) applied \(applied.sorted()) entries \(es) anims \(anims)")
+            }
+        }
+        return out
+    }
+    static let verifyMath = ProcessInfo.processInfo.arguments.contains("--recorder-verify")
+    /// Largest difference (points; opacity in hundredths) and its values.
+    static var verifyMax = 0.0, verifyCount = 0, verifyWorst = "", verifyOver = 0, verifySkipped = 0
+    static var verifyLastModel: [Int: Double] = [:]
+    static var verifyKey = "", verifyLog: [String] = []
+
     private var previousSlot = -1
     /// Ages and last positions for the next frame (every frame, detector or not).
     private func updateAges(_ slot: Int) {
@@ -286,7 +364,7 @@ final class FlightRecorder: NSObject {
             guard let i = v.model.index[spec.key], !v.model.rows[i].ghost else { continue }
             var f: String?
             if cell.isHidden { f = "row \(spec.key) hidden (model)" }
-            else if cell.bitmap.contents == nil, cell.tiled?.isActive != true { f = "row \(spec.key) has no bitmap (model)" }
+            else if cell.bitmap.contents == nil, cell.tiled?.isActive != true, !RowCell.deferredKeys.contains(spec.key) { f = "row \(spec.key) has no bitmap (model)" }
             else if cell.contentView.layer.opacity < 0.05, cell.contentView.layer.animationKeys() == nil { f = "row \(spec.key) opacity 0 (model)" }
             guard let f, CACurrentMediaTime() - lastDump > 15 else { continue }
             lastDump = CACurrentMediaTime()

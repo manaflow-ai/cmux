@@ -35,6 +35,8 @@ extension SidebarListView {
         let content = dequeue(press.key)
         configure(content, row: row, animated: false)
         content.isHovered = false
+        // The lifted card is its own raised surface: no selection fill on it.
+        content.isSelected = false
         (content as? WorkspaceRowView)?.isSecondarySelected = false
         let lift = SidebarReorderLift.lift(content, count: count, frame: rowFrame, in: self)
         let drag = Drag(
@@ -115,7 +117,6 @@ extension SidebarListView {
             guard let self else { return }
             self.suppressed.subtract(drag.hiddenKeys)
             for key in drag.hiddenKeys { self.rowViews[key]?.alphaValue = 1 }
-            self.decorations.setPill(self.activePillFrame(in: self.displayed), animated: false)
             self.updateHover()
             if let anchor = drag.renameOnLand { self.inlineRename.beginGroup(of: anchor) }
         }

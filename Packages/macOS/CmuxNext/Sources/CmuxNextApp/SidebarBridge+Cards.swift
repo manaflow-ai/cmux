@@ -1,3 +1,4 @@
+import Foundation
 import CmuxNextPages
 import CmuxNextSidebar
 import CmuxNextUpdater
@@ -11,8 +12,8 @@ extension SidebarBridge {
 }
 
 /// The R114 card stack's content (a check the user asked for, the test-feed
-/// notice, what's new, announcements) and the footer's update pill
-/// (SIDEBAR-FOOTER-MINIMAL). Card actions go back to their owners.
+/// notice, what's new, announcements) and the staged update card
+/// (UPDATE-CARD). Card actions go back to their owners.
 @MainActor
 enum SidebarCardFeed {
     static let updateCardID = "update"
@@ -38,10 +39,22 @@ enum SidebarCardFeed {
             handle(id, action, updater: updater)
         }
         return Task {
-            for await (cards, pill) in Observations({ () -> ([SidebarCard], SidebarUpdatePill?) in (cards(updater), updatePill(updater)) }) {
+            for await (cards, card) in Observations({ () -> ([SidebarCard], SidebarUpdateCard?) in (cards(updater), updateCard(updater)) }) {
                 if model.cards != cards { model.cards = cards }
-                if model.updatePill != pill { model.updatePill = pill }
+                if model.updateCard != card { model.updateCard = card }
             }
+        }
+    }
+
+    /// A link in the update card's popover (a pull request, the release
+    /// notes): a browser tab in the active window's focused pane, like a
+    /// Cmd-click on a terminal link; with no window it waits for one.
+    static func openUpdateLink(_ url: URL, services: AppServices) {
+        guard url.scheme == "https" else { return }
+        if let pane = services.windows.active?.focusedPane {
+            pane.newBrowserTab(url: url)
+        } else {
+            services.externalOpen.perform(.browserTab(url))
         }
     }
 
@@ -56,9 +69,17 @@ enum SidebarCardFeed {
         }
     }
 
-    /// The footer pill for a staged update (nil while checking or downloading).
-    static func updatePill(_ updater: UpdaterService) -> SidebarUpdatePill? {
-        updater.footerPill.map { SidebarUpdatePill(title: $0.title, help: $0.help, isEnabled: $0.isEnabled) }
+    /// The staged update card (UPDATE-CARD; nil while checking or downloading).
+    static func updateCard(_ updater: UpdaterService) -> SidebarUpdateCard? {
+        guard let card = updater.readyCard else { return nil }
+        let notes = card.notes
+        let changes = notes.changes.map { SidebarUpdateCard.Change(title: $0.title, author: $0.author, linkTitle: $0.prLabel, url: $0.url) }
+        return SidebarUpdateCard(
+            title: card.title, buttonTitle: card.buttonTitle, isEnabled: !card.isInstalling,
+            automaticUpdatesTitle: card.automaticUpdatesTitle, automaticUpdates: card.automaticUpdates,
+            notes: SidebarUpdateCard.Notes(headline: notes.headline, keepsRunning: notes.keepsRunning,
+                                           whatsChangedTitle: notes.whatsChangedTitle, changes: changes,
+                                           moreTitle: notes.moreTitle, moreURL: notes.moreURL))
     }
 
     /// The update card first, then the test-feed notice while one is active.

@@ -15,7 +15,7 @@
      private static let writer: ISO8601DateFormatter = {
          let f = ISO8601DateFormatter()
          f.formatOptions = [.withInternetDateTime]
-@@ -264,7 +270,9 @@
+@@ -297,7 +303,9 @@
  enum Fixtures {
      /// conversation.json and assets/ from shared/ are bundled (not copied
      /// into this variant's sources).
