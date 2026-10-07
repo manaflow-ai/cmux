@@ -60,13 +60,16 @@ enum WorkspaceDragResolver {
 
     /// DRAG-SHAPE-INVARIANT: whether the dragged rows keep their row shape
     /// over the sidebar list of `sidebarWindowID` (nil: no list answered).
-    /// A list that takes them (a slot, a group, a row) keeps it; a merge
-    /// into panes, a refusal and outside every window are the card.
+    /// A list that takes them (a slot, a group, a row) keeps it; so does
+    /// every point of their own window's list, where a drop that changes
+    /// nothing is a stay (as a tab over its own strip). A merge into panes,
+    /// a refusal and outside every window are the card.
     static func keepsRowShape(_ outcome: WorkspaceDragOutcome, sidebarWindowID: String?, sourceWindowID: String?) -> Bool {
-        guard sidebarWindowID != nil else { return false }
+        guard let sidebarWindowID else { return false }
         switch outcome {
         case .window(_, .position), .window(_, .intoGroup), .window(_, .window): return true
-        case .window(_, .merge), .newWindow, .moveWindow, .cancel: return false
+        case .cancel: return sidebarWindowID == sourceWindowID
+        case .window(_, .merge), .newWindow, .moveWindow: return false
         }
     }
 
