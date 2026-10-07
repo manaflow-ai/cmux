@@ -174,6 +174,10 @@ printf '%s\\n' "$@" > "$FAKE_CLAUDE_ARGV_LOG"
         inherited_env = env.copy()
         inherited_env["CMUX_CLAUDE_WRAPPER_SHIM_ROOT"] = str(parent_root)
         inherited_env["CMUX_CLAUDE_WRAPPER_SHIM"] = str(parent_root / "claude")
+        # The parent's shim directory is inherited on PATH too; its claude must
+        # never run, and this run must write its own tmux shim.
+        inherited_env["PATH"] = f"{agent_root}:{parent_root}:{real_bin}:/usr/bin:/bin"
+        (agent_root / "tmux").unlink(missing_ok=True)
         tmux_path_log.unlink(missing_ok=True)
         proc = run_claude_teams(cli_path, inherited_env, surface_id, tmp)
         if proc.returncode != 0:
