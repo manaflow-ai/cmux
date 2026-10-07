@@ -48,8 +48,8 @@ ${css}
 <div class="acpmux-shell"><div class="acpmux-composer" style="margin-top:320px">
   <span class="acpmux-picker acpmux-model" style="position:relative">
     <button class="acpmux-picker-button" style="width:120px">GPT-6-Astra</button>
-    <div class="acpmux-menu acpmux-menu-end acpmux-mp acpmux-mp-cascade" style="${ANCHORED}">
-      <div class="acpmux-menu-search">Type to search models</div>${row("Codex")}${row("GPT-5.6-Sol")}${row("GPT-6-Astra")}
+    <div class="acpmux-menu acpmux-menu-end acpmux-mp acpmux-mp-t3" style="${ANCHORED}">
+      <div class="acpmux-mp-search">Type to search models</div>${row("Codex")}${row("GPT-5.6-Sol")}${row("GPT-6-Astra")}
     </div>
   </span>
   <span class="acpmux-picker acpmux-effort" style="position:relative">
@@ -85,11 +85,11 @@ for (const [name, engine] of engines) {
       return page;
     };
 
-    test("the Model menu is at least 220px wide, wider than its 120px chip", async () => {
+    test("the T3 Model menu keeps its 520px layout, wider than its 120px chip", async () => {
       const page = await open(1000);
       const menu = await box(page, ".acpmux-model .acpmux-menu");
-      expect(menu.width).toBeGreaterThanOrEqual(220);
-      expect(menu.width).toBeLessThanOrEqual(420);
+      expect(menu.width).toBe(520);
+      expect(await page.$eval(".acpmux-model .acpmux-menu", (node) => getComputedStyle(node).borderRadius)).toBe("10px");
       await page.close();
     });
 
@@ -101,7 +101,7 @@ for (const [name, engine] of engines) {
 
     test("in a 200px pane the Model menu still fits inside the pane's margins", async () => {
       const page = await open(200);
-      expect((await box(page, ".acpmux-model .acpmux-menu")).width).toBeLessThanOrEqual(200 - 16);
+      expect((await box(page, ".acpmux-model .acpmux-menu")).width).toBe(200 - 24);
       await page.close();
     });
 

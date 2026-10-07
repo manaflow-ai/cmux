@@ -108,6 +108,8 @@
 .acpmux-send:not(.acpmux-send-ready):not(.acpmux-cancel):not(:hover){background:color-mix(in srgb,var(--agent-highlight,var(--agent-text)) 72%,var(--acpmux-base))}
 /* The picker menus open above the field at their chip (useUiAnchor). The chip is their containing block, so the width comes from the rows and the viewport, never the chip. */
 .acpmux-menu{font:13px/18px -apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;font-size:14px;position:absolute;bottom:calc(100% + 6px);z-index:3;width:max-content;min-width:min(220px,calc(100vw - 16px));max-width:min(420px,calc(100vw - 16px));height:auto;max-height:min(360px,50vh);overflow-x:hidden;overflow-y:auto;padding:6px;box-sizing:border-box;border-radius:12px;background:var(--acpmux-menu-bg);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge),0 10px 30px var(--agent-shadow,rgb(0 0 0/.35));color:var(--agent-text);line-height:18px}
+/* The T3 picker is wider than the shared menu and keeps its own inset and corner radius. */
+.acpmux-menu.acpmux-mp-t3{width:min(520px,calc(100vw - 24px));min-width:0;max-width:min(520px,calc(100vw - 24px));padding:8px;border-radius:10px}
 /* The picker menus open above the field, aligned with its edges. */
 .acpmux-menu-start{left:0}
 .acpmux-menu-end{right:0}
