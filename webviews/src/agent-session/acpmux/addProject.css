@@ -28,7 +28,9 @@
 .acpmux-add-project-path span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .acpmux-add-project-input { box-sizing: border-box; width: 100%; min-width: 0; border: 1px solid var(--agent-border); border-radius: 6px; padding: 0 10px; background: var(--agent-input-bg); color: var(--agent-text); font: inherit; }
 .acpmux-add-project-input:focus-visible { outline: 1.5px solid var(--agent-muted); outline-offset: -1.5px; }
-.acpmux-add-project .acpmux-add-project-list { grid-row: 4; display: block; overflow: auto; min-height: 0; margin: 6px 0 0; padding: 0; }
+.acpmux-add-project > .acpmux-add-project-combobox { grid-row: 3 / span 2; display: grid; grid-template-rows: 34px minmax(0, 1fr); min-height: 0; }
+.acpmux-add-project .acpmux-add-project-combobox .acpmux-add-project-input { grid-row: 1; }
+.acpmux-add-project .acpmux-add-project-combobox .acpmux-add-project-list { grid-row: 2; display: block; overflow: auto; min-height: 0; margin: 6px 0 0; padding: 0; }
 .acpmux-add-project .acpmux-add-project-list[hidden] { visibility: hidden; }
 .acpmux-add-project .acpmux-add-project-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; min-height: 32px; box-sizing: border-box; border-radius: 5px; }
 .acpmux-add-project-item svg { flex: none; color: var(--agent-muted); }

@@ -37,6 +37,7 @@ export function AddProjectPanel({
   const [directory, setDirectory] = useState<ProjectDirectory>();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
+  const [revealError, setRevealError] = useState<string>();
   const [retry, setRetry] = useState(0);
   const input = useRef<HTMLInputElement>(null);
   const request = useRef(0);
@@ -49,6 +50,7 @@ export function AddProjectPanel({
     let live = true;
     setLoading(true);
     setError(undefined);
+    setRevealError(undefined);
     if (!host.list) return;
     void host
       .list(requested)
@@ -66,6 +68,7 @@ export function AddProjectPanel({
       });
     return () => {
       live = false;
+      setLoading(false);
     };
   }, [host, requested, step, retry]);
 
@@ -73,6 +76,7 @@ export function AddProjectPanel({
     setStep(step === "directory" ? "source" : "environment");
     setQuery("");
     setError(undefined);
+    setRevealError(undefined);
   };
   const browse = (path: string) => {
     setRequested(path);
@@ -125,7 +129,7 @@ export function AddProjectPanel({
         browse(id.startsWith("/") || id.startsWith("~") ? id.trim() : `${directory?.path ?? "~"}/${id.trim()}`);
     }
   };
-  const keys = (event: KeyboardEvent) => {
+  const command = (event: KeyboardEvent<HTMLInputElement>) => {
     if ((event.metaKey || event.ctrlKey) && event.key === "Enter" && step === "directory") {
       event.preventDefault();
       event.stopPropagation();
@@ -140,7 +144,7 @@ export function AddProjectPanel({
   const title =
     step === "environment" ? t("project.environment") : step === "source" ? t("project.add") : t("project.choose");
   return (
-    <div className="acpmux-add-project" data-add-project-step={step} onKeyDownCapture={keys}>
+    <div className="acpmux-add-project" data-add-project-step={step}>
       <div className="acpmux-add-project-heading">
         <button type="button" onClick={back} disabled={step === "environment"} aria-label={t("project.back")}>
           ←
@@ -181,8 +185,10 @@ export function AddProjectPanel({
         onSubmit={select}
         onCancel={onClose}
         cancelOnBlur={false}
-        isItemDisabled={(id) => choices.find((choice) => choice.id === id)?.disabled ?? true}
+        isItemDisabled={(id) => choices.find((choice) => choice.id === id)?.disabled ?? step !== "directory"}
         autoHighlight
+        onCommand={command}
+        rootClassName="acpmux-add-project-combobox"
         label={step === "directory" ? t("project.path") : title}
         placeholder={t("project.filter")}
         inputClassName="acpmux-add-project-input"
@@ -210,6 +216,8 @@ export function AddProjectPanel({
               {t("project.retry")}
             </button>
           </>
+        ) : revealError ? (
+          <span>{revealError}</span>
         ) : shown.length === 0 ? (
           t("project.emptyFolder")
         ) : null}
@@ -225,7 +233,7 @@ export function AddProjectPanel({
                   void host
                     .reveal(directory.path)
                     .catch((failure: unknown) =>
-                      setError(failure instanceof Error ? failure.message : String(failure)),
+                      setRevealError(failure instanceof Error ? failure.message : String(failure)),
                     );
               }}
             >
@@ -253,7 +261,7 @@ export function AddProjectPanel({
           <kbd>⌥←</kbd> {t("project.back")}
         </span>
         <span>
-          <kbd>Esc</kbd> {t("project.close")}
+          <kbd>{t("project.escape")}</kbd> {t("project.close")}
         </span>
       </div>
     </div>

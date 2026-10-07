@@ -32,6 +32,10 @@ export interface ComboboxProps {
   /** Disabled rows remain visible but cannot be highlighted or submitted. */
   isItemDisabled?(value: string): boolean;
   autoHighlight?: boolean;
+  /** Handle a shortcut while the Base UI input owns focus. */
+  onCommand?(event: KeyboardEvent<HTMLInputElement>): void;
+  /** Class for the Base UI root when the field and list are laid out together. */
+  rootClassName?: string;
   /** A row's content (a name over a path); default: the suggestion text. The row still submits
    * and completes its suggestion string. */
   renderItem?(value: string): ReactNode;
@@ -53,6 +57,8 @@ export function Combobox({
   cancelOnBlur = true,
   isItemDisabled,
   autoHighlight = false,
+  onCommand,
+  rootClassName,
   renderItem,
 }: ComboboxProps) {
   const container = usePortalContainer();
@@ -63,6 +69,8 @@ export function Combobox({
     onQuery(next);
   };
   const onKeyDown = (event: BaseUIKeyEvent) => {
+    onCommand?.(event);
+    if (event.defaultPrevented) return;
     if (event.metaKey || event.ctrlKey || event.altKey) return;
     const typed = event.currentTarget.value;
     if (event.key === "Enter") {
@@ -103,7 +111,7 @@ export function Combobox({
       )}
     </Autocomplete.List>
   );
-  return (
+  const root = (
     <Autocomplete.Root
       items={suggestions as string[]}
       filter={null}
@@ -137,4 +145,5 @@ export function Combobox({
       )}
     </Autocomplete.Root>
   );
+  return rootClassName ? <div className={rootClassName}>{root}</div> : root;
 }
