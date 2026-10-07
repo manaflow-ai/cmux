@@ -12,11 +12,14 @@ public struct OnboardingContext: Hashable, Sendable {
     public var mode: OnboardingMode
     /// The Cloud step is on (flag) and the app registered a create hook (C12).
     public var offersCloudMachine: Bool
+    /// The keep-awake card is on (flag) and the app registered its hook (E5).
+    public var offersKeepAwake: Bool
 
     public init(
         isSignedIn: Bool = false, notifications: PermissionStatus = .notDetermined,
         localNetwork: PermissionStatus = .notDetermined, camera: PermissionStatus = .notDetermined,
-        hasTrustedMac: Bool = false, mode: OnboardingMode = .firstRun, offersCloudMachine: Bool = false
+        hasTrustedMac: Bool = false, mode: OnboardingMode = .firstRun, offersCloudMachine: Bool = false,
+        offersKeepAwake: Bool = false
     ) {
         self.isSignedIn = isSignedIn
         self.notifications = notifications
@@ -25,6 +28,7 @@ public struct OnboardingContext: Hashable, Sendable {
         self.hasTrustedMac = hasTrustedMac
         self.mode = mode
         self.offersCloudMachine = offersCloudMachine
+        self.offersKeepAwake = offersKeepAwake
     }
 
     public func status(of kind: PermissionKind) -> PermissionStatus {

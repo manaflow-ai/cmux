@@ -47,6 +47,7 @@ public struct OnboardingRootView: View {
         case .installMac: InstallMacStep(model: model)
         case .localNetwork: LocalNetworkStep(model: model)
         case .pair: PairStep(model: model)
+        case .keepAwake: KeepAwakeStep(model: model)
         case .sshHost: SSHHostStep(model: model)
         case .cloudMachine: CloudMachineStep(model: model)
         case .celebrate: CelebrateStep(model: model)

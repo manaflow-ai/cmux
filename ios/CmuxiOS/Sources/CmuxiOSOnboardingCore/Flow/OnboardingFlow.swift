@@ -36,6 +36,8 @@ public struct OnboardingFlow: Hashable, Sendable {
             context.isSignedIn && !context.hasTrustedMac
         case .localNetwork:
             context.isSignedIn && !context.hasTrustedMac && context.localNetwork == .notDetermined
+        case .keepAwake:
+            context.isSignedIn && context.mode == .firstRun && context.offersKeepAwake
         case .sshHost:
             context.isSignedIn && context.mode == .firstRun
         case .cloudMachine:

@@ -17,7 +17,8 @@ enum OnboardingComposition {
         return OnboardingModel(
             dependencies: dependencies(container: container, store: container.onboardingStore),
             context: OnboardingContext(isSignedIn: isSignedIn, mode: .firstRun,
-                                       offersCloudMachine: CloudComposition.onboardingHook(container: container) != nil),
+                                       offersCloudMachine: CloudComposition.onboardingHook(container: container) != nil,
+                                       offersKeepAwake: container.flags.isEnabled(.keepAwake)),
             start: start
         )
     }
@@ -51,7 +52,8 @@ enum OnboardingComposition {
                 return SignInScreen.makeEmbedded(coordinator: container.auth.coordinator)
             },
             offersSampleScan: offersSampleScan,
-            cloud: CloudComposition.onboardingHook(container: container)
+            cloud: CloudComposition.onboardingHook(container: container),
+            keepAwake: KeepAwakeComposition.onboardingHook(container: container)
         )
     }
 

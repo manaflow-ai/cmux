@@ -10,8 +10,8 @@ struct OnboardingFlowTests {
     func freshRunVisitsEveryStep() {
         var flow = OnboardingFlow(context: signedOut)
         #expect(flow.current == .welcome)
-        // The Cloud step (C12) shows only when the app offers it.
-        #expect(flow.visibleSteps == OnboardingStep.allCases.filter { $0 != .cloudMachine })
+        // The Cloud (C12) and keep-awake (E5) steps show only when the app offers them.
+        #expect(flow.visibleSteps == OnboardingStep.allCases.filter { $0 != .cloudMachine && $0 != .keepAwake })
         flow.send(.advance)
         flow.send(.advance)
         flow.send(.advance)
