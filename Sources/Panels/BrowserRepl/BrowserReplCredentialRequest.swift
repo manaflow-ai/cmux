@@ -127,7 +127,7 @@ enum BrowserReplCredentialRequest {
         origin: String,
         webView: WKWebView,
         frameInfo: WKFrameInfo?,
-        onlyIf: (@MainActor () -> Bool)? = nil
+        onlyIf: (@MainActor @Sendable () -> Bool)? = nil
     ) async -> [String: Any] {
         let arguments: [String: Any] = [
             "__phase": phase,

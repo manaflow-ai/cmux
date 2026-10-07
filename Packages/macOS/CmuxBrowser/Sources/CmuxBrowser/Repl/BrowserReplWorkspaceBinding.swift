@@ -64,7 +64,7 @@ public struct BrowserReplWorkspaceBinding {
     }
 
     /// Where a call comes from.
-    public enum Caller: Equatable {
+    public enum Caller: Equatable, Sendable {
         /// A workspace of this instance: the one the caller named, or its own.
         case inside(UUID)
         /// Outside cmux: no workspace in the caller's environment, or one
@@ -104,7 +104,7 @@ public struct BrowserReplWorkspaceBinding {
     }
 
     /// The sessions `list` and `reset` act on.
-    public enum Scope: Equatable {
+    public enum Scope: Equatable, Sendable {
         /// Every workspace's (`all_workspaces`).
         case allWorkspaces
         /// The caller's.

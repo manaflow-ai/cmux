@@ -513,7 +513,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     /// and the capture's pixels may show it
     /// (``BrowserReplTypedSecrets/capturing(forReader:sessionMasks:_:)``).
     @MainActor
-    private func withTypedSecretMasks<T>(_ params: [String: Any], _ capture: ([[String: Any]]) async throws -> T) async throws -> T {
+    private func withTypedSecretMasks<T>(_ params: [String: Any], _ capture: @MainActor @Sendable ([[String: Any]]) async throws -> T) async throws -> T {
         try await BrowserReplTabAttachments.typedSecrets.capturing(
             forReader: sessionID,
             sessionMasks: params["secretMasks"] as? [[String: Any]] ?? [],
@@ -3350,7 +3350,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     @MainActor
     private func withTimeout<T: Sendable>(
         milliseconds: Int,
-        _ body: @escaping @MainActor () async -> T
+        _ body: @escaping @MainActor @Sendable () async -> T
     ) async -> T? {
         try? await withTimeoutThrowing(milliseconds: milliseconds, what: "") { await body() }
     }
@@ -3360,7 +3360,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     private func withTimeoutThrowing<T>(
         milliseconds: Int,
         what: String,
-        _ body: @escaping @MainActor () async throws -> T
+        _ body: @escaping @MainActor @Sendable () async throws -> T
     ) async throws -> T {
         try await BrowserReplTimeLimit(sleeper: sleeper).run(milliseconds: milliseconds, what: what, body)
     }
