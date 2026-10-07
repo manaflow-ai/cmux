@@ -213,6 +213,21 @@ public abstract class GeneratedCmuxClient {
         return Wire.immutableJson(result);
     }
 
+    public final Object cloudMuxAck(CloudMuxAckRequest request) throws CmuxException {
+        Object result = execute(Commands.CLOUD_MUX_ACK, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object cloudMuxSubscribe() throws CmuxException {
+        Object result = execute(Commands.CLOUD_MUX_SUBSCRIBE, Map.of());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object cloudMuxUnsubscribe() throws CmuxException {
+        Object result = execute(Commands.CLOUD_MUX_UNSUBSCRIBE, Map.of());
+        return Wire.immutableJson(result);
+    }
+
     public final Object cloudSessionClear() throws CmuxException {
         Object result = execute(Commands.CLOUD_SESSION_CLEAR, Map.of());
         return Wire.immutableJson(result);
