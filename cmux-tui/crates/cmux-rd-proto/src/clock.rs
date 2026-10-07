@@ -72,7 +72,12 @@ impl ClockPong {
 
     pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
         let mut r = Reader::new(bytes);
-        let pong = Self { seq: r.u32()?, t_viewer_us: r.u64()?, t_host_rx_us: r.u64()?, t_host_tx_us: r.u64()? };
+        let pong = Self {
+            seq: r.u32()?,
+            t_viewer_us: r.u64()?,
+            t_host_rx_us: r.u64()?,
+            t_host_tx_us: r.u64()?,
+        };
         if !r.is_empty() {
             return Err(DecodeError::Invalid("clock pong"));
         }

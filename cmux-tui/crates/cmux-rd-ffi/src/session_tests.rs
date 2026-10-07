@@ -254,7 +254,12 @@ fn the_session_clock_pings_and_estimates_once_enabled() {
     let ping = cmux_rd_proto::ClockPing::decode(payload).expect("ping");
     // The host clock is 5 ms ahead; 2 ms each way.
     let rx = ping.t_viewer_us + 2_000 + 5_000;
-    let pong = cmux_rd_proto::ClockPong { seq: ping.seq, t_viewer_us: ping.t_viewer_us, t_host_rx_us: rx, t_host_tx_us: rx };
+    let pong = cmux_rd_proto::ClockPong {
+        seq: ping.seq,
+        t_viewer_us: ping.t_viewer_us,
+        t_host_rx_us: rx,
+        t_host_tx_us: rx,
+    };
     let mut d = DatagramHeader {
         flags: 0,
         kind: DatagramKind::ClockPong,
