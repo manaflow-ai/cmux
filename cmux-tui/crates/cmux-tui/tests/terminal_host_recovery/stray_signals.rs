@@ -88,7 +88,7 @@ fn stray_signals_to_a_terminal_host_are_recorded_and_survived() {
 
 #[test]
 fn host_loss_is_logged_with_the_signals_its_host_recorded() {
-    let harness = RecoveryHarness::start("host-loss-log");
+    let harness = RecoveryHarness::start_without_respawn("host-loss-log");
     let (terminal_id, _, _) = run_cat(&harness.socket, 1, "lost");
     let (record_path, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
     signal_pid(record.host_pid, libc::SIGTERM);
