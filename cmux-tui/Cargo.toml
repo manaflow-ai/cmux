@@ -57,6 +57,7 @@ members = [
     "crates/cmux-encode",
     "crates/cmux-remote-browser",
     "crates/cmux-local-auth",
+    "crates/cmux-agent-pane-policy",
     "crates/cmux-link",
     "crates/cmux-pane-protocol",
     "crates/cmux-app-host",

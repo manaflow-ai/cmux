@@ -1,0 +1,90 @@
+[
+ {
+  "name": "prompt to own session",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "a"
+   }
+  },
+  "sessions": [
+   "a"
+  ],
+  "refused": false
+ },
+ {
+  "name": "prompt to other session",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "b"
+   }
+  },
+  "sessions": [
+   "a"
+  ],
+  "refused": true
+ },
+ {
+  "name": "prompt without session",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "session/prompt",
+   "params": {}
+  },
+  "sessions": [
+   "a"
+  ],
+  "refused": true
+ },
+ {
+  "name": "kill other",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/kill",
+   "params": {
+    "sessionId": "b"
+   }
+  },
+  "sessions": [
+   "a"
+  ],
+  "refused": true
+ },
+ {
+  "name": "attach is not scoped",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/attach",
+   "params": {
+    "sessionId": "b"
+   }
+  },
+  "sessions": [
+   "a"
+  ],
+  "refused": false
+ },
+ {
+  "name": "fork is source scoped, not session scoped",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "acp.session.fork",
+   "params": {
+    "sessionId": "b"
+   }
+  },
+  "sessions": [
+   "a"
+  ],
+  "refused": false
+ }
+]
